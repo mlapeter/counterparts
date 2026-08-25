@@ -1,0 +1,892 @@
+/**
+ * The store seam.
+ *
+ * Three boxes behind one object:
+ *   1. canonical prose      — `prose/**.md`            (box 1, `prose.ts`)
+ *   2. canonical operational — `operational.sqlite`    (box 2, `operational.ts`)
+ *   3. rebuildable cache     — `cache/cache.sqlite`    (box 3, `cache.ts`)
+ *
+ * Every write crosses `mutate()`: it checks the observer stance FIRST, then opens a
+ * transaction on box 2. That ordering is the point — an instrument refuses before it
+ * has staged a byte, and a future caller inherits the refusal instead of having to
+ * remember it (observer-mode.md G3, contract §5 G1).
+ *
+ * There is no delete/remove/unlink/rm export or method anywhere in this module, for
+ * prose or anything else. Removal is an owner operation on a structurally distinct
+ * path — see `owner-op-seam.ts`; the store's half of it is the append-only removal
+ * record plus the deny-list consulted at load and rebuild (§16 G1, G7, G12).
+ */
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
+import { creditUse } from "../physics/index.js";
+import type { CreditOutcome, UseTier } from "../physics/index.js";
+import type { Db } from "./db.js";
+import { StoreError } from "./errors.js";
+import { isObserver } from "./observer.js";
+import type { Stance } from "./observer.js";
+import {
+  DEFAULT_RETENTION_DAYS,
+  SCHEMA_VERSION,
+  openOperational,
+  rowToPhysics,
+} from "./operational.js";
+import type {
+  EdgeRow,
+  MemoryRow,
+  ProspectiveRow,
+  RemovalRow,
+  VersionRow,
+} from "./operational.js";
+import { LAYOUT, assertLayoutClassified, dataDir, paths } from "./paths.js";
+import {
+  ID_PREFIX,
+  archivePriorVersion,
+  publishStaged,
+  readProseFile,
+  stageProse,
+} from "./prose.js";
+import type { ProseDoc, ProseType, Staged } from "./prose.js";
+import { indexDoc, nearest, openCache, resetCache, searchIndex } from "./cache.js";
+import type { Hit } from "./cache.js";
+
+export * from "./errors.js";
+export * from "./observer.js";
+export * from "./paths.js";
+export * from "./prose.js";
+export type { Db, Statement } from "./db.js";
+export type { MemoryRow, VersionRow, EdgeRow, ProspectiveRow, RemovalRow } from "./operational.js";
+export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION } from "./operational.js";
+export { tokenize, cosine } from "./cache.js";
+export type { Hit } from "./cache.js";
+export type { OwnerRemovalPort, OwnerRemovalRequest } from "./owner-op-seam.js";
+
+/** Telemetry: ids, hashes, counts, kinds, tiers. Never body text (§5 G10). */
+export interface StoreEvent {
+  at: number;
+  name: string;
+  ref?: string;
+  data?: Record<string, string | number | boolean | null>;
+}
+
+export type Embedder = (text: string) => number[];
+
+export interface StoreOptions extends Stance {
+  /** Defaults to `dataDir()` — resolved at call time, so tests redirect via env. */
+  dir?: string;
+  /** Retention for superseded-version rows, in LIVED days. TUNABLE; default 90. */
+  retentionDays?: number;
+  /** Optional; without it, embeddings are declared un-recomputed at rebuild. */
+  embed?: Embedder;
+  onEvent?: (event: StoreEvent) => void;
+}
+
+export interface PutInput {
+  /** Optional; generated when absent. Never reused — a taken id is a hard error. */
+  id?: string;
+  type: ProseType;
+  kind: Kind;
+  body: string;
+  title?: string;
+  happenedOn?: string;
+  learnedOn?: string;
+  meta?: Record<string, unknown>;
+  band?: Band;
+  salience?: Partial<Salience>;
+  physics?: Partial<Omit<MemoryPhysics, "kind" | "salience">>;
+}
+
+export interface StoredMemory {
+  doc: ProseDoc;
+  physics: MemoryPhysics;
+  band: Band;
+  bandDay: number;
+  archived: boolean;
+  archivedReason: string | null;
+  supersededBy: string | null;
+  revision: number;
+  contentHash: string;
+}
+
+export interface PruneReport {
+  pruned: number;
+  cutoffDay: number;
+  retentionDays: number;
+}
+
+export interface RebuildReport {
+  indexed: number;
+  skippedDenied: number;
+  unrecomputed: number;
+  /** Contract §5 G8: what rebuild cannot recompute is DECLARED, with owner + repair. */
+  declared: { what: string; owner: string; repair: string }[];
+}
+
+export interface EdgeInput {
+  src: string;
+  dst: string;
+  weight: number;
+  day: number;
+}
+
+export interface ProspectiveInput {
+  memoryId: string;
+  windowKey: string;
+  eventDate: string;
+  precision: "day" | "month" | "year";
+  state: "armed" | "fired" | "suppressed" | "expired";
+  fires?: number;
+  lastFiredDay?: number | null;
+}
+
+/** No body, no content hash — hashing low-entropy content leaks it (§16 G9). */
+export interface RemovalNote {
+  memoryId: string;
+  stage: "requested" | "dark" | "chased" | "complete";
+  actor: string;
+  reason?: string;
+}
+
+/**
+ * Every method that can change durable state. The totality test asserts this list
+ * equals the set of sites that consult the observer predicate, and that each one
+ * refuses under observer (observer-mode.md G6: every stand-down is observable).
+ */
+export const WRITE_METHODS = [
+  "put",
+  "putMany",
+  "revise",
+  "supersede",
+  "archive",
+  "updatePhysics",
+  "reinforce",
+  "setBand",
+  "link",
+  "linkMany",
+  "setProspective",
+  "advanceClock",
+  "setMeta",
+  "pruneSupersededVersions",
+  "appendRemovalRecord",
+  "rebuildCache",
+] as const;
+
+export type WriteMethod = (typeof WRITE_METHODS)[number];
+
+const MAX_CHAIN = 32;
+const EVENT_RING = 500;
+
+export class Store {
+  readonly dir: string;
+  readonly observer: boolean;
+  readonly retentionDays: number;
+  private readonly ops: Db;
+  private readonly cache: Db;
+  private readonly embed: Embedder | undefined;
+  private readonly onEvent: ((e: StoreEvent) => void) | undefined;
+  private readonly ring: StoreEvent[] = [];
+
+  private constructor(opts: StoreOptions) {
+    this.dir = opts.dir ?? dataDir();
+    this.observer = isObserver(opts);
+    this.retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
+    this.embed = opts.embed;
+    this.onEvent = opts.onEvent;
+
+    for (const sub of [
+      paths.prose(this.dir),
+      paths.versions(this.dir),
+      paths.tmp(this.dir),
+      paths.cacheDir(this.dir),
+    ]) {
+      mkdirSync(sub, { recursive: true });
+    }
+    this.ops = openOperational(paths.operational(this.dir));
+    this.cache = openCache(paths.cache(this.dir));
+    this.ops.transaction(() => {
+      const put = this.ops.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
+      put.run("schemaVersion", String(SCHEMA_VERSION));
+      put.run("livedDay", "0");
+      put.run("lastActiveDate", "");
+      put.run("retentionDays", String(this.retentionDays));
+    });
+    this.assertLayout();
+  }
+
+  static open(opts: StoreOptions = {}): Store {
+    return new Store(opts);
+  }
+
+  close(): void {
+    this.ops.close();
+    this.cache.close();
+  }
+
+  // ── the seam ───────────────────────────────────────────────────────────────
+
+  /**
+   * The one place a write becomes durable. Stance first, transaction second: an
+   * observer refuses before any staging, and a partial multi-row change is
+   * impossible because box 2 rolls back as a unit.
+   */
+  private mutate<T>(site: WriteMethod, fn: () => T): T {
+    this.assertWritable(site);
+    return this.ops.transaction(fn);
+  }
+
+  private assertWritable(site: WriteMethod): void {
+    if (this.observer) {
+      // Telemetry is the deliberate exception: a stood-down instrument must be
+      // distinguishable from a broken hook (observer-mode.md G5/G6, scar §2.4).
+      this.emit("store.observer.standdown", undefined, { site });
+      throw new StoreError("OBSERVER_REFUSED", { site });
+    }
+  }
+
+  private emit(
+    name: string,
+    ref?: string,
+    data?: Record<string, string | number | boolean | null>,
+  ): void {
+    const event: StoreEvent = { at: Date.now(), name };
+    if (ref !== undefined) event.ref = ref;
+    if (data !== undefined) event.data = data;
+    this.ring.push(event);
+    if (this.ring.length > EVENT_RING) this.ring.shift();
+    this.onEvent?.(event);
+  }
+
+  /** Copies, ordered oldest first. Optionally filtered by name. */
+  events(name?: string): StoreEvent[] {
+    return this.ring.filter((e) => name === undefined || e.name === name).map((e) => ({ ...e }));
+  }
+
+  /** Contract §5 G11: a top-level path nobody classified fails loudly. */
+  assertLayout(): void {
+    assertLayoutClassified(readdirSync(this.dir));
+  }
+
+  backupSet(): string[] {
+    return LAYOUT.filter((e) => e.backup).map((e) => e.name);
+  }
+
+  // ── writes ─────────────────────────────────────────────────────────────────
+
+  put(input: PutInput): string {
+    const { staged, doc } = this.mutate("put", () => this.insertOne(input));
+    publishStaged(staged);
+    this.indexOne(doc);
+    this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: staged.hash });
+    return doc.id;
+  }
+
+  /**
+   * Atomic by default: one bad input and NOTHING lands. `isolate: true` opts into
+   * per-item persistence isolation (§16 G6) — the failure is logged and skipped and
+   * the rest persist. Two different promises; the caller picks, out loud.
+   */
+  putMany(inputs: readonly PutInput[], opts: { isolate?: boolean } = {}): string[] {
+    const staged = this.mutate("putMany", () => {
+      const out: { staged: Staged; doc: ProseDoc; input: PutInput }[] = [];
+      for (const input of inputs) {
+        try {
+          out.push({ ...this.insertOne(input), input });
+        } catch (err) {
+          if (!opts.isolate) throw err;
+          this.emit("store.put.skipped", input.id, {
+            reason: err instanceof StoreError ? err.code : "UNKNOWN",
+          });
+        }
+      }
+      return out;
+    });
+    for (const s of staged) {
+      publishStaged(s.staged);
+      this.indexOne(s.doc);
+      this.emit("store.put", s.doc.id, {
+        type: s.doc.type,
+        kind: s.input.kind,
+        hash: s.staged.hash,
+      });
+    }
+    return staged.map((s) => s.doc.id);
+  }
+
+  /** In-place content revision. Archives the prior version FIRST (§16 G4). */
+  revise(
+    id: string,
+    patch: { body?: string; title?: string; meta?: Record<string, unknown>; reason?: string },
+  ): number {
+    const { staged, doc, seq } = this.mutate("revise", () => {
+      const row = this.requireRow(id);
+      const current = readFileSync(row.prose_path, "utf8");
+      const version = archivePriorVersion(this.dir, id, current, row.revision + 1);
+      this.ops.run(
+        `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+        id,
+        version.seq,
+        patch.reason ?? "revise",
+        this.livedDay(),
+        Date.now(),
+        version.path,
+        version.hash,
+      );
+      const prior = readProseFile(row.prose_path, id);
+      const next: ProseDoc = {
+        ...prior,
+        body: patch.body ?? prior.body,
+        meta: patch.meta ? { ...prior.meta, ...patch.meta } : prior.meta,
+      };
+      if (patch.title !== undefined) next.title = patch.title;
+      const s = stageProse(this.dir, next);
+      this.ops.run(
+        "UPDATE memories SET content_hash = ?, revision = ? WHERE id = ?",
+        s.hash,
+        version.seq,
+        id,
+      );
+      return { staged: s, doc: next, seq: version.seq };
+    });
+    publishStaged(staged);
+    this.indexOne(doc);
+    this.emit("store.revise", id, { seq, hash: staged.hash });
+    return seq;
+  }
+
+  /**
+   * Supersession: the new memory is born, the old one keeps its id, its prose, and
+   * a forwarding address. `resolve(oldId)` follows it forever — the VERSION ROW is
+   * what expires at H, not the ability to resolve (§5 G4, §16 G3).
+   */
+  supersede(oldId: string, input: PutInput, reason = "supersede"): string {
+    const { staged, doc, newId } = this.mutate("supersede", () => {
+      const row = this.requireRow(oldId);
+      const created = this.insertOne(input);
+      this.ops.run(
+        `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        oldId,
+        row.revision + 1,
+        reason,
+        this.livedDay(),
+        Date.now(),
+        row.prose_path,
+        row.content_hash,
+        created.doc.id,
+      );
+      this.ops.run(
+        `UPDATE memories SET superseded_by = ?, archived = 1, archived_reason = ?, revision = ?
+          WHERE id = ?`,
+        created.doc.id,
+        reason,
+        row.revision + 1,
+        oldId,
+      );
+      return { ...created, newId: created.doc.id };
+    });
+    publishStaged(staged);
+    this.indexOne(doc);
+    this.emit("store.supersede", oldId, { successor: newId, reason });
+    return newId;
+  }
+
+  /** Archive is a state, not a deletion: the id stays resolvable (§4.2 G3). */
+  archive(id: string, reason: string): void {
+    this.mutate("archive", () => {
+      this.requireRow(id);
+      this.ops.run("UPDATE memories SET archived = 1, archived_reason = ? WHERE id = ?", reason, id);
+    });
+    this.emit("store.archive", id, { reason });
+  }
+
+  /**
+   * Physics-only bookkeeping. It never rewrites prose, which is why v1's
+   * "strength-only exemption to archive-on-overwrite" is not ported: with physics in
+   * box 2 the exemption is structural rather than a line-level diff (see NOTES.md).
+   */
+  updatePhysics(id: string, patch: Partial<MemoryPhysics>): void {
+    this.mutate("updatePhysics", () => {
+      this.requireRow(id);
+      const sets: string[] = [];
+      const args: (string | number | null)[] = [];
+      const put = (col: string, val: string | number | null) => {
+        sets.push(`${col} = ?`);
+        args.push(val);
+      };
+      if (patch.kind !== undefined) put("kind", patch.kind);
+      if (patch.salience !== undefined) {
+        put("novelty", patch.salience.novelty);
+        put("relevance", patch.salience.relevance);
+        put("emotional", patch.salience.emotional);
+        put("predictive", patch.salience.predictive);
+        put("claimed", patch.salience.claimed ?? null);
+      }
+      if (patch.birthDay !== undefined) put("birth_day", patch.birthDay);
+      if (patch.uses !== undefined) put("uses", patch.uses);
+      if (patch.lastUsedDay !== undefined) put("last_used_day", patch.lastUsedDay);
+      if (patch.reinforcedDays !== undefined) put("reinforced_days", patch.reinforcedDays);
+      if (patch.consolidated !== undefined) put("consolidated", patch.consolidated ? 1 : 0);
+      if (patch.promotedIdentity !== undefined)
+        put("promoted_identity", patch.promotedIdentity ? 1 : 0);
+      if (patch.protected !== undefined) put("protected", patch.protected ? 1 : 0);
+      if (patch.pressure !== undefined) put("pressure", patch.pressure);
+      if (patch.lastChallengedDay !== undefined)
+        put("last_challenged_day", patch.lastChallengedDay);
+      if (sets.length === 0) return;
+      this.ops.run(`UPDATE memories SET ${sets.join(", ")} WHERE id = ?`, ...args, id);
+    });
+    this.emit("store.physics", id, { fields: Object.keys(patch).join(",") });
+  }
+
+  /**
+   * Persist one credited use. The crediting RULE is owned entirely by
+   * physics.creditUse (§5.5 tier weights, birth-day / stale-day / same-day
+   * refusals, distinct-day counting for §5.3 promotion) — the store applies the
+   * verdict absolutely and adds no opinion of its own. One rule, one owner:
+   * a second implementation of this arithmetic is exactly the divergence that
+   * produced v1's "two clocks" fiction.
+   */
+  reinforce(id: string, day: number, tier: UseTier = "referenced"): CreditOutcome {
+    const outcome = this.mutate("reinforce", () => {
+      const row = this.requireRow(id);
+      const verdict = creditUse(rowToPhysics(row), day, tier);
+      if (verdict.credited) {
+        this.ops.run(
+          `UPDATE memories
+              SET uses = ?, last_used_day = ?, reinforced_days = ?
+            WHERE id = ?`,
+          verdict.next.uses,
+          verdict.next.lastUsedDay,
+          verdict.next.reinforcedDays,
+          id,
+        );
+      }
+      return verdict;
+    });
+    this.emit("store.reinforce", id, {
+      credited: outcome.credited,
+      reason: outcome.reason,
+      day,
+      tier,
+    });
+    return outcome;
+  }
+
+  setBand(id: string, band: Band, day: number): void {
+    this.mutate("setBand", () => {
+      this.requireRow(id);
+      this.ops.run("UPDATE memories SET band = ?, band_day = ? WHERE id = ?", band, day, id);
+    });
+    this.emit("store.band", id, { band, day });
+  }
+
+  link(edge: EdgeInput): void {
+    this.mutate("link", () => {
+      this.ops.run(
+        "INSERT OR REPLACE INTO edges (src, dst, weight, last_day) VALUES (?, ?, ?, ?)",
+        edge.src,
+        edge.dst,
+        edge.weight,
+        edge.day,
+      );
+    });
+    this.emit("store.link", edge.src, { dst: edge.dst, weight: edge.weight });
+  }
+
+  /** Multi-row and foreign-keyed: one bad endpoint rolls the whole batch back. */
+  linkMany(edges: readonly EdgeInput[]): void {
+    this.mutate("linkMany", () => {
+      const st = this.ops.prepare(
+        "INSERT OR REPLACE INTO edges (src, dst, weight, last_day) VALUES (?, ?, ?, ?)",
+      );
+      for (const e of edges) st.run(e.src, e.dst, e.weight, e.day);
+    });
+    this.emit("store.link", undefined, { count: edges.length });
+  }
+
+  setProspective(entry: ProspectiveInput): void {
+    this.mutate("setProspective", () => {
+      this.requireRow(entry.memoryId);
+      this.ops.run(
+        `INSERT OR REPLACE INTO prospective
+           (memory_id, window_key, event_date, precision, state, fires, last_fired_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        entry.memoryId,
+        entry.windowKey,
+        entry.eventDate,
+        entry.precision,
+        entry.state,
+        entry.fires ?? 0,
+        entry.lastFiredDay ?? null,
+      );
+    });
+    this.emit("store.prospective", entry.memoryId, {
+      window: entry.windowKey,
+      state: entry.state,
+    });
+  }
+
+  /** The active-day clock (scar E8): days actually lived, not calendar days. */
+  advanceClock(date: string): number {
+    const day = this.mutate("advanceClock", () => {
+      const last = this.getMeta("lastActiveDate") ?? "";
+      if (last !== "" && date < last) {
+        throw new StoreError("CLOCK_BACKWARDS", { date, last });
+      }
+      if (date === last) return this.livedDay();
+      const next = this.livedDay() + 1;
+      this.ops.run("UPDATE meta SET value = ? WHERE key = 'livedDay'", String(next));
+      this.ops.run("UPDATE meta SET value = ? WHERE key = 'lastActiveDate'", date);
+      return next;
+    });
+    this.emit("store.clock", undefined, { livedDay: day, date });
+    return day;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.mutate("setMeta", () => {
+      this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value);
+    });
+    this.emit("store.meta", undefined, { key });
+  }
+
+  /**
+   * Bounded versioning (contract §4): superseded-version ROWS older than H lived
+   * days stop being tracked. Every discard reports what and how much (scar §2.4).
+   * The archived prose file is left where it is — this module destroys nothing.
+   */
+  pruneSupersededVersions(): PruneReport {
+    const report = this.mutate("pruneSupersededVersions", () => {
+      const cutoffDay = this.livedDay() - this.retentionDays;
+      const doomed = this.ops.all<VersionRow>(
+        "SELECT * FROM versions WHERE version_day < ?",
+        cutoffDay,
+      );
+      this.ops.run("DELETE FROM versions WHERE version_day < ?", cutoffDay);
+      return { pruned: doomed.length, cutoffDay, retentionDays: this.retentionDays };
+    });
+    this.emit("store.versions.pruned", undefined, {
+      count: report.pruned,
+      cutoffDay: report.cutoffDay,
+      retentionDays: report.retentionDays,
+    });
+    return report;
+  }
+
+  /**
+   * The store's half of the owner-removal seam: the canonical, append-only record.
+   * A later stage appends; it never rewrites the earlier line (§16 G8). If this
+   * cannot be written, the caller must move nothing (§16 G10).
+   */
+  appendRemovalRecord(note: RemovalNote): number {
+    const seq = this.mutate("appendRemovalRecord", () => {
+      this.ops.run(
+        "INSERT INTO removal_record (memory_id, stage, at, actor, reason) VALUES (?, ?, ?, ?, ?)",
+        note.memoryId,
+        note.stage,
+        Date.now(),
+        note.actor,
+        note.reason ?? null,
+      );
+      const row = this.ops.get<{ seq: number }>("SELECT last_insert_rowid() AS seq");
+      return row?.seq ?? 0;
+    });
+    this.emit("store.removal.recorded", note.memoryId, { stage: note.stage, seq });
+    return seq;
+  }
+
+  /**
+   * Box 3 only. Deleting the cache file and calling this must lose nothing
+   * canonical; what cannot be recomputed is declared and counted (§5 G8).
+   */
+  rebuildCache(): RebuildReport {
+    this.assertWritable("rebuildCache");
+    resetCache(this.cache);
+    const denied = new Set(this.deniedIds());
+    const rows = this.ops.all<MemoryRow>("SELECT * FROM memories ORDER BY id");
+    let indexed = 0;
+    let skippedDenied = 0;
+    let unrecomputed = 0;
+    for (const row of rows) {
+      if (denied.has(row.id)) {
+        // A stray copy of a removed memory is skipped and LOGGED, never deleted (§16 G12).
+        skippedDenied += 1;
+        this.emit("cache.rebuild.denied", row.id, {});
+        continue;
+      }
+      const doc = readProseFile(row.prose_path, row.id);
+      const text = indexText(doc);
+      if (this.embed) indexDoc(this.cache, row.id, text, this.embed(text));
+      else {
+        indexDoc(this.cache, row.id, text);
+        unrecomputed += 1;
+      }
+      indexed += 1;
+    }
+    const declared = this.embed
+      ? []
+      : [
+          {
+            what: "embeddings",
+            owner: "encode/ (the embedder)",
+            repair: "Store.open({ embed }) then rebuildCache()",
+          },
+        ];
+    const report: RebuildReport = { indexed, skippedDenied, unrecomputed, declared };
+    this.emit("cache.rebuild", undefined, {
+      indexed,
+      skippedDenied,
+      unrecomputed,
+      declaredKinds: declared.map((d) => d.what).join(",") || "none",
+    });
+    return report;
+  }
+
+  // ── reads ──────────────────────────────────────────────────────────────────
+
+  has(id: string): boolean {
+    return this.row(id) !== undefined;
+  }
+
+  row(id: string): MemoryRow | undefined {
+    return this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", id);
+  }
+
+  read(id: string): StoredMemory {
+    const row = this.requireRow(id);
+    const doc = readProseFile(row.prose_path, id);
+    if (row.archived === 1) {
+      // §5 G13: a read-back of archived content is an event, so "did the archival
+      // mechanisms ever pay for themselves" is an answerable question in v2.
+      this.emit("store.archived.read", id, { reason: row.archived_reason });
+    }
+    return {
+      doc,
+      physics: rowToPhysics(row),
+      band: row.band,
+      bandDay: row.band_day,
+      archived: row.archived === 1,
+      archivedReason: row.archived_reason,
+      supersededBy: row.superseded_by,
+      revision: row.revision,
+      contentHash: row.content_hash,
+    };
+  }
+
+  readProse(id: string): ProseDoc {
+    return this.read(id).doc;
+  }
+
+  physicsOf(id: string): MemoryPhysics {
+    return rowToPhysics(this.requireRow(id));
+  }
+
+  /** Follows the forwarding addresses to the live head. Cycles are a hard error. */
+  resolve(id: string): string {
+    let current = id;
+    const seen = new Set<string>();
+    for (let depth = 0; depth <= MAX_CHAIN; depth++) {
+      if (seen.has(current)) throw new StoreError("ID_CYCLE", { id, at: current });
+      seen.add(current);
+      const row = this.row(current);
+      if (row === undefined) {
+        throw new StoreError(current === id ? "ID_UNKNOWN" : "ID_DANGLING", { id, at: current });
+      }
+      if (row.superseded_by === null) return current;
+      current = row.superseded_by;
+    }
+    throw new StoreError("ID_CHAIN_TOO_DEEP", { id, max: MAX_CHAIN });
+  }
+
+  list(filter: { type?: ProseType; kind?: Kind; band?: Band; archived?: boolean } = {}): string[] {
+    const where: string[] = [];
+    const args: (string | number)[] = [];
+    if (filter.type) {
+      where.push("type = ?");
+      args.push(filter.type);
+    }
+    if (filter.kind) {
+      where.push("kind = ?");
+      args.push(filter.kind);
+    }
+    if (filter.band) {
+      where.push("band = ?");
+      args.push(filter.band);
+    }
+    if (filter.archived !== undefined) {
+      where.push("archived = ?");
+      args.push(filter.archived ? 1 : 0);
+    }
+    const sql = `SELECT id FROM memories ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id`;
+    return this.ops.all<{ id: string }>(sql, ...args).map((r) => r.id);
+  }
+
+  versions(id: string): VersionRow[] {
+    return this.ops.all<VersionRow>(
+      "SELECT * FROM versions WHERE memory_id = ? ORDER BY seq",
+      id,
+    );
+  }
+
+  /** Reading a superseded/archived version is an event (§5 G13). */
+  readVersion(id: string, seq: number): ProseDoc {
+    const row = this.ops.get<VersionRow>(
+      "SELECT * FROM versions WHERE memory_id = ? AND seq = ?",
+      id,
+      seq,
+    );
+    if (row === undefined) throw new StoreError("VERSION_UNKNOWN", { id, seq });
+    this.emit("store.version.read", id, { seq, reason: row.reason });
+    return readProseFile(row.path, id);
+  }
+
+  edgesFrom(src: string): EdgeRow[] {
+    return this.ops.all<EdgeRow>("SELECT * FROM edges WHERE src = ? ORDER BY dst", src);
+  }
+
+  prospectiveFor(id: string): ProspectiveRow[] {
+    return this.ops.all<ProspectiveRow>(
+      "SELECT * FROM prospective WHERE memory_id = ? ORDER BY window_key",
+      id,
+    );
+  }
+
+  removalRecord(id?: string): RemovalRow[] {
+    const rows =
+      id === undefined
+        ? this.ops.all<RemovalRow>("SELECT * FROM removal_record ORDER BY seq")
+        : this.ops.all<RemovalRow>(
+            "SELECT * FROM removal_record WHERE memory_id = ? ORDER BY seq",
+            id,
+          );
+    this.emit("store.removalRecord.read", id, { rows: rows.length });
+    return rows;
+  }
+
+  /** Ids a removal has taken dark: consulted at load and at rebuild (§16 G12). */
+  deniedIds(): string[] {
+    return this.ops
+      .all<{ memory_id: string }>(
+        "SELECT DISTINCT memory_id FROM removal_record WHERE stage IN ('dark', 'chased', 'complete')",
+      )
+      .map((r) => r.memory_id);
+  }
+
+  search(cue: string, limit = 10): Hit[] {
+    return searchIndex(this.cache, cue, limit);
+  }
+
+  nearestTo(vec: readonly number[], limit = 10): Hit[] {
+    return nearest(this.cache, vec, limit);
+  }
+
+  livedDay(): number {
+    return Number(this.getMeta("livedDay") ?? "0");
+  }
+
+  getMeta(key: string): string | undefined {
+    return this.ops.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)?.value;
+  }
+
+  // ── internals ──────────────────────────────────────────────────────────────
+
+  private requireRow(id: string): MemoryRow {
+    const row = this.row(id);
+    if (row === undefined) throw new StoreError("ID_UNKNOWN", { id });
+    const denied = this.ops.get<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM removal_record WHERE memory_id = ? AND stage IN ('dark','chased','complete')",
+      id,
+    );
+    if ((denied?.n ?? 0) > 0) throw new StoreError("REMOVED", { id });
+    return row;
+  }
+
+  /** Runs INSIDE the caller's transaction. Stages prose; never publishes it. */
+  private insertOne(input: PutInput): { staged: Staged; doc: ProseDoc } {
+    const id = input.id ?? newId(input.type);
+    if (!id.startsWith(`${ID_PREFIX[input.type]}_`)) {
+      throw new StoreError("ID_MALFORMED", { id, type: input.type });
+    }
+    if (this.has(id)) throw new StoreError("ID_TAKEN", { id });
+    if (typeof input.body !== "string" || input.body.length === 0) {
+      throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
+    }
+    const day = this.livedDay();
+    const doc: ProseDoc = {
+      id,
+      type: input.type,
+      learnedOn: input.learnedOn ?? today(),
+      bornDay: input.physics?.birthDay ?? day,
+      meta: input.meta ?? {},
+      body: input.body,
+    };
+    if (input.title !== undefined) doc.title = input.title;
+    if (input.happenedOn !== undefined) doc.happenedOn = input.happenedOn;
+    const staged = stageProse(this.dir, doc);
+    const s: Salience = {
+      novelty: input.salience?.novelty ?? null,
+      relevance: input.salience?.relevance ?? 0,
+      emotional: input.salience?.emotional ?? 0,
+      predictive: input.salience?.predictive ?? 0,
+      claimed: input.salience?.claimed ?? null,
+    };
+    this.ops.run(
+      `INSERT INTO memories (
+         id, type, kind, band, band_day, novelty, relevance, emotional, predictive,
+         claimed, birth_day, uses, last_used_day, reinforced_days, consolidated,
+         promoted_identity, protected, pressure, last_challenged_day, archived,
+         archived_reason, superseded_by, revision, content_hash, prose_path,
+         learned_on, happened_on)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?)`,
+      id,
+      input.type,
+      input.kind,
+      input.band ?? "episodic",
+      day,
+      s.novelty,
+      s.relevance,
+      s.emotional,
+      s.predictive,
+      s.claimed ?? null,
+      doc.bornDay,
+      input.physics?.uses ?? 0,
+      input.physics?.lastUsedDay ?? day,
+      input.physics?.reinforcedDays ?? 0,
+      input.physics?.consolidated ? 1 : 0,
+      input.physics?.promotedIdentity ? 1 : 0,
+      input.physics?.protected ? 1 : 0,
+      input.physics?.pressure ?? 0,
+      input.physics?.lastChallengedDay ?? null,
+      staged.hash,
+      staged.finalPath,
+      doc.learnedOn,
+      doc.happenedOn ?? null,
+    );
+    return { staged, doc };
+  }
+
+  /** Box 3 is best-effort by design: it is rebuildable, so it never fails a write. */
+  private indexOne(doc: ProseDoc): void {
+    const text = indexText(doc);
+    if (this.embed) indexDoc(this.cache, doc.id, text, this.embed(text));
+    else indexDoc(this.cache, doc.id, text);
+  }
+}
+
+function indexText(doc: ProseDoc): string {
+  return [doc.title ?? "", doc.body].join("\n");
+}
+
+export function newId(type: ProseType): string {
+  return `${ID_PREFIX[type]}_${randomBytes(6).toString("hex")}`;
+}
+
+export function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** True when a data dir has already been initialized (used by adapters, not writes). */
+export function storeExists(dir: string = dataDir()): boolean {
+  return existsSync(paths.operational(dir));
+}
