@@ -19,6 +19,42 @@ these deliberately. An item stays listed until a test proves the wiring.*
    floor and the ops rule are unreachable through the seam as typed; and the failure
    arm collapses `refused-by-design` into a single string.
 
+## The wave-3 seam pass (consolidated from all module gap files, 2026-08-25)
+
+A. **Observer hoist** → `src/core/observer.ts`; store's `WRITE_METHODS` + remember's
+   `WRITE_SITES` become one cross-module totality test. (= item 4 below)
+B. **`gate_session` table** in box 2, replacing recall's read-modify-written meta row.
+   (= item 5)
+C. **Alias wiring**: recall's `Turn.aliases` sourced from `schemas.aliasMap()`. (= item 6)
+D. **Temporal cue wiring**: prospective `arrivals()` → recall `ActivationInput.temporal`,
+   folded into cueScore, counted as cue by cueFraction, footnote-ceiling for
+   cue-only-temporal candidates — per prospective's gap spec. NEVER into recall's
+   recency arrival (opposite contracts, same word).
+E. **`retargetOnSupersede` gets its caller**: the supersede executor (schemas revision
+   path) calls associate's retarget in the same flow — scar §2.2 is live until wired.
+F. **schemas↔self seam test**: identity core minted by `ensureIdentityCore` is indexed
+   by schemas, and status-on-identity refuses with `status-on-identity-refused` (never
+   `entity-unknown`).
+G. **sleep→self render wiring**: `RenderFn = (ctx) => self.boundary({day, budgetBytes,
+   horizon}).briefing` — budgetBytes joins sleep's cycle options from the host; horizon
+   from prospective.
+H. **Episode gate at the composition root**: episodes route through the battery via the
+   bridge (self's episode gate default currently refuses everything).
+I. **The `updates:` minting seam** — remember's minted proposals must write
+   `doc.meta["updates"]` so sleep's dedup exclusion and the revision path can see it;
+   currently enforced downstream and starved at the source (scar §2.6 shape — first
+   priority).
+J. **Box-3 `ranking` table + `Store.setRanking()`**, replacing sleep's side-sqlite
+   workaround.
+K. **Box-2 `events` table** (durable increments for schemas' `story()` + sleep's
+   records), replacing in-memory rings where durability matters.
+L. **`spread()` into recall** — conservative default chosen: spreading may RAISE
+   footnote-tier candidates but never create loud-tier candidates without a cue
+   (preserves recall's hard gate; revisable).
+M. **`physics.consolidationEligibility()`** exported; sleep's inline criterion moves in.
+N. **Freeze seam caller**: the minting/resolution path consults `self`'s freeze so
+   self-claim repeats are counted-not-trained end to end.
+
 ## Queued (non-blocking, wire at the next seam pass)
 
 4. **Observer predicate hoists to `src/core/observer.ts`** — store and remember both
