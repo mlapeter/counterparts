@@ -1,0 +1,754 @@
+/**
+ * `src/core/counterpart.ts` — the composition root, exercised as one brain.
+ *
+ * The seam suite proves each pair of modules meets correctly. This suite proves
+ * the whole thing runs: a fresh data dir wakes with nothing, lives a session,
+ * writes what it learned, retrieves it on the next turn, credits the use, sleeps,
+ * and wakes carrying it. That arc is the product; every test below is a slice of
+ * it or a property of the wiring that carries it.
+ *
+ * Hermetic by construction (CLAUDE.md): a fresh temp data dir per test, removed
+ * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
+ */
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Counterpart } from "../src/core/counterpart.js";
+import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
+import { BOOTSTRAP } from "../src/core/self/index.js";
+import { Store } from "../src/core/store/index.js";
+
+const ENV = "COUNTERPARTS_DATA_DIR";
+
+/** The HOST's reported injection ceiling. It lives in the test because it lives
+ *  in the host: nothing in `src/` may invent one (scar §2.18). */
+const BUDGET_BYTES = 9000;
+const SMALL_BUDGET_BYTES = 400;
+
+let dir: string;
+let priorEnv: string | undefined;
+const open: Counterpart[] = [];
+
+beforeEach(() => {
+  priorEnv = process.env[ENV];
+  dir = mkdtempSync(join(tmpdir(), "counterparts-root-"));
+  process.env[ENV] = dir;
+});
+
+afterEach(() => {
+  for (const c of open.splice(0)) {
+    try {
+      c.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  if (priorEnv === undefined) delete process.env[ENV];
+  else process.env[ENV] = priorEnv;
+  rmSync(dir, { recursive: true, force: true });
+});
+
+function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
+  const c = Counterpart.open({ dir, owner: true, ...opts });
+  open.push(c);
+  return c;
+}
+
+/**
+ * Ordinary background. Recall is rarity-weighted (§9 G4): in a store of one, every
+ * token is in 100% of documents and therefore cues nothing. A store with a life in
+ * it is the honest fixture for any retrieval assertion.
+ */
+const FILLER = [
+  "The garage door opener needs a new battery soon.",
+  "Rebasing keeps the history readable for reviewers.",
+  "The library closes early on Sundays now.",
+  "The kitchen tap drips when the pressure is high.",
+  "The bus route changed and adds ten minutes.",
+  "Planted three tomato seedlings in the planter.",
+  "Fixed the wobbling chair leg with a shim.",
+  "Started keeping receipts in one envelope.",
+  "The printer jams on heavy paper stock.",
+  "Set up a standing desk in the spare bedroom.",
+  "Wrote a short letter to an old teacher.",
+  "Bought hiking boots that finally fit properly.",
+  "The neighbour's cat sits on the fence every evening.",
+  "The sourdough starter needs feeding twice a week.",
+  "Replaced the smoke alarm batteries in the hall.",
+  "Booked the dentist for a routine cleaning.",
+];
+
+function seed(c: Counterpart): void {
+  for (const body of FILLER) {
+    c.store.put({
+      type: "memory",
+      kind: "fact",
+      body,
+      salience: { novelty: null, relevance: 0.6, emotional: 0.5, predictive: 0.5 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+  }
+}
+
+/** Enough conversational substance that a claim clears `MIN_CLAIM_BYTES`. */
+const TURNS = [
+  { role: "user" as const, text: "We settled the storage split today: canonical prose on disk, one small operational database, and a cache nobody backs up." },
+  { role: "assistant" as const, text: "Recorded. The cache being rebuildable is what makes the backup set small enough to be honest about." },
+  { role: "user" as const, text: "Right, and the reason it matters is that a backup you cannot verify is a backup you do not have." },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The wiring's own property: this file states no rule
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the composition root is WIRING — it defines no threshold of its own", () => {
+  test("no numeric literal other than 0 or 1 appears in counterpart.ts", () => {
+    const src = readFileSync(
+      fileURLToPath(new URL("../src/core/counterpart.ts", import.meta.url)),
+      "utf8",
+    );
+    const code = src
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/.*$/gm, " ")
+      // Template literals: keep the `${…}` EXPRESSIONS (they are code, and a
+      // threshold could hide in one) and drop only the literal text around them.
+      .replace(/`(?:\\.|[^`\\])*`/g, (lit) =>
+        [...lit.matchAll(/\$\{([^{}]*)\}/g)].map((m) => m[1]).join(";"),
+      )
+      .replace(/"(?:\\.|[^"\\])*"/g, '""')
+      .replace(/'(?:\\.|[^'\\])*'/g, '""');
+    const numbers = [...code.matchAll(/\b\d+(?:\.\d+)?\b/g)].map((m) => m[0]);
+    // A budget, a floor, a chunk size or a candidate limit written HERE would be
+    // a number with no home, no CAL marking and no test (scar §2.8/§2.18).
+    expect(numbers.filter((n) => n !== "0" && n !== "1")).toEqual([]);
+  });
+
+  test("every number the root uses arrives as an argument or an import", () => {
+    // The two that actually govern behaviour, checked from the outside: the
+    // host's ceiling is reported in, and there is no fallback when it is not.
+    const c = brain();
+    expect(c.budgetBytes()).toBe(null);
+    c.wake();
+    expect(c.events("counterpart.budget.unreported").length).toBe(1);
+    c.wake(BUDGET_BYTES);
+    expect(c.budgetBytes()).toBe(BUDGET_BYTES);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The full pipeline: one lived session, end to end
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the full pipeline — wake, live, write, retrieve, credit, sleep, wake", () => {
+  test("a fresh store wakes with the honest bootstrap line, not an error", () => {
+    const c = brain({ identity: { name: "Mike", aliases: ["mike"] } });
+    const woke = c.wake(BUDGET_BYTES);
+    expect(woke.ok).toBe(false);
+    expect(woke.reason).toBe("absent");
+    expect(woke.text).toBe(BOOTSTRAP);
+    expect(woke.budgetBytes).toBe(BUDGET_BYTES);
+  });
+
+  test("an EMPTY store publishes a floor briefing at its first boundary, and the next wake reads it back", async () => {
+    const c = brain();
+    c.wake(BUDGET_BYTES);
+    const report = await c.sessionEnd({ date: "2026-01-02" });
+    expect(report.cycle.observer).toBe(false);
+    expect(report.budgetBytes).toBe(BUDGET_BYTES);
+
+    const woke = c.wake(BUDGET_BYTES);
+    // Furniture and a sentinel, zero statements — a floor briefing is still a
+    // briefing, and it verifies against its own stated byte count.
+    expect(woke.ok).toBe(true);
+    expect(woke.reason).toBe("delivered");
+    expect(woke.sentinel).not.toBe(null);
+  });
+
+  test("the whole arc: spans → authored dump → mint → recall → credit → sleep → the next wake carries it", async () => {
+    const c = brain({ identity: { name: "Mike", aliases: ["mike"] } });
+    seed(c);
+    expect(c.wake(BUDGET_BYTES).ok).toBe(false);
+
+    // ── the turn boundary: an appender, microseconds, no model call ──────────
+    const captured = c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    expect(captured.captured).toBe(true);
+    expect(captured.spans.length).toBeGreaterThan(0);
+    expect(captured.cursorAfter).toBe(TURNS.length);
+
+    // ── the experiencer writes its own memory, with a feeling it may claim ──
+    const deposit = await c.submitSessionEnd(
+      {
+        content:
+          "The storage split keeps canonical prose in markdown, operational state in one small database, and a rebuildable cache nobody backs up.",
+        kind: "fact",
+        title: "storage split",
+        claimed: 0.8,
+        salience: { relevance: 0.8, emotional: 0.6, predictive: 0.7 },
+        feeling: { feeling: "relief", quote: "", subject: "self" },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    expect(deposit.deposited).toBe(true);
+    expect(deposit.reason).toBe("minted");
+    const memoryId = deposit.memoryId as string;
+    expect(memoryId.length).toBeGreaterThan(0);
+    // The ENGINE claimed coverage, so the sweep will not re-encode these spans.
+    expect(deposit.covers.length).toBeGreaterThan(0);
+    // The emotion exemption reached the battery: a self-authored feeling with no
+    // quote survives, where an ordinary one would come back `quote-missing`.
+    expect(c.store.readProse(memoryId).meta["feeling"]).toBe("relief");
+    // The author's floor was clamped AT the minting seam, and the lift is on record.
+    expect(deposit.mint?.lifted).toBe(true);
+    expect(c.events("salience.lifted").length).toBe(1);
+
+    // ── the next turn: recall composes all three borrowed channels ───────────
+    const turn = c.recallForTurn(
+      { sessionId: "s2", text: "remind me how the storage split works" },
+      { at: "2026-01-02" },
+    );
+    const reached = [...turn.decision.surfaced, ...turn.decision.footnotes];
+    expect(reached).toContain(memoryId);
+
+    // ── the reply used it: the credit reaches physics through the store seam ─
+    // Nothing credits on its birth day (§5.5) — the day has to turn first, which
+    // is what the active-day clock is for.
+    c.store.advanceClock("2026-01-02");
+    const before = c.store.physicsOf(memoryId).uses;
+    const credit = c.resolveUse("s2", memoryId, "referenced");
+    expect(credit.credited).toBe(true);
+    expect(c.store.physicsOf(memoryId).uses).toBeGreaterThan(before);
+
+    // ── every session-ending path is a boundary ─────────────────────────────
+    const record = c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    expect(record.askRaised).toBe(true);
+
+    // ── sleep: the cycle's LAST content write is the briefing ────────────────
+    const report = await c.sessionEnd({ date: "2026-01-03", at: "2026-01-03" });
+    const briefing = report.cycle.phases.find((p) => p.phase === "briefing");
+    expect(briefing?.status).toBe("ran");
+
+    // ── and the next wake carries what the session learned ───────────────────
+    const woke = c.wake(BUDGET_BYTES);
+    expect(woke.ok).toBe(true);
+    expect(woke.text).toContain("storage split");
+  });
+
+  test("a session-end dump that declares `updates:` reaches canonical prose as a RESOLVED id", async () => {
+    const c = brain();
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+
+    const first = await c.submitSessionEnd(
+      {
+        content: "Backups cover canonical prose and the operational database, and deliberately skip the cache.",
+        kind: "fact",
+      },
+      { session: "s1", scope: "proj" },
+    );
+    const originalId = first.memoryId as string;
+
+    const second = await c.submitSessionEnd(
+      {
+        content:
+          "Backups cover canonical prose, the operational database and the span buffer; the cache is still skipped because it rebuilds.",
+        kind: "fact",
+        updates: originalId,
+      },
+      { session: "s1", scope: "proj" },
+    );
+    expect(second.deposited).toBe(true);
+    // The RESOLVED id, never the declared string — and only when it resolved.
+    expect(second.mint?.updates).toBe(originalId);
+    expect(c.store.readProse(second.memoryId as string).meta["updates"]).toBe(originalId);
+  });
+
+  test("a dangling `updates:` declaration writes no key — a bad address is not a merge exclusion", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    const out = await c.submitSessionEnd(
+      {
+        content: "The span buffer holds lived experience until judgment can happen later, without the host waiting.",
+        kind: "fact",
+        updates: "mem_deadbeefdead",
+      },
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.deposited).toBe(true);
+    expect(out.mint?.updates).toBe(null);
+    expect(c.store.readProse(out.memoryId as string).meta["updates"]).toBeUndefined();
+  });
+
+  test("a jot is a deposit too, and the battery still refuses a credential in it", async () => {
+    const c = brain();
+    const ok = await c.submitJot(
+      { content: "Bun lives at a non-default path here, so every script names it explicitly.", kind: "fact" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(ok.deposited).toBe(true);
+
+    const refused = await c.submitJot(
+      { content: "The deploy key AKIAIOSFODNN7EXAMPLE is the one to rotate.", kind: "fact", title: "AKIAIOSFODNN7EXAMPLE" },
+      { session: "s1", scope: "proj" },
+    );
+    // A credential in a HANDLE refuses the whole operation (the ops rule).
+    expect(refused.deposited).toBe(false);
+    expect(refused.reason).toBe("gate-rejected");
+  });
+
+  test("the briefing follows the HOST's ceiling, and refuses outright when none was reported", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    await c.submitSessionEnd(
+      {
+        content: "The storage split keeps canonical prose in markdown files, which any editor can read.",
+        kind: "fact",
+        salience: { relevance: 0.9, emotional: 0.7, predictive: 0.8 },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    await c.sessionEnd({ date: "2026-01-02" });
+    const roomy = c.wake(BUDGET_BYTES).bytes;
+    // The lanes have real content in them, so a smaller ceiling has to trim.
+    expect(roomy).toBeGreaterThan(SMALL_BUDGET_BYTES);
+
+    await c.sessionEnd({ date: "2026-01-03", budgetBytes: SMALL_BUDGET_BYTES });
+    const cramped = c.wake(SMALL_BUDGET_BYTES).bytes;
+    expect(roomy).toBeGreaterThan(0);
+    expect(cramped).toBeLessThan(roomy);
+
+    // A brain that was never told a ceiling refuses to render one, loudly.
+    const blind = brain({ dir });
+    const report = await blind.sessionEnd({ date: "2026-01-04" });
+    expect(blind.events("briefing.no-budget").length).toBeGreaterThan(0);
+    expect(report.budgetBytes).toBe(null);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The seams, reached through the root rather than assembled by the caller
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the root binds the seams a caller would otherwise have to remember", () => {
+  test("episodes route through the REAL battery — self's refusing default is unreachable here", () => {
+    const c = brain();
+    c.episodeAsk("s1", { turns: 12, bytes: 9_000 });
+    c.appendEpisode("s1", "We shipped the composition root and it held together all day.");
+    const out = c.ingestEpisode({ sessionId: "s1" });
+    expect(out.ingested).toBe(true);
+    expect(out.gate).toBe(null);
+  });
+
+  test("a credential in an episode body is REDACTED, and the redacted text is what lands", () => {
+    const c = brain();
+    c.episodeAsk("s1", { turns: 12, bytes: 9_000 });
+    c.appendEpisode("s1", "I rotated the deploy key AKIAIOSFODNN7EXAMPLE and the relief was real.");
+    const out = c.ingestEpisode({ sessionId: "s1" });
+    expect(out.ingested).toBe(true);
+    const body = c.store.readProse(out.memoryId as string).body;
+    expect(body.includes("AKIAIOSFODNN7EXAMPLE")).toBe(false);
+    expect(body.includes("relief")).toBe(true);
+  });
+
+  test("a supersede retargets the edge graph, so a successor is not born cold (SEAMS E)", () => {
+    const c = brain();
+    const entityId = c.schemas.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = c.schemas.addBelief({
+      entityId,
+      statement: "Ada prefers async review",
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const neighbour = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The review rota is posted on Mondays in the team channel.",
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    for (let i = 0; i < 4; i += 1) {
+      c.associate.coactivate([
+        { id: beliefId, tier: "referenced" },
+        { id: neighbour, tier: "referenced" },
+      ]);
+      c.associate.flush();
+    }
+
+    let successorId: string | null = null;
+    for (const day of [1, 2, 3]) {
+      const challengerId = c.store.put({
+        type: "memory",
+        kind: "person",
+        body: "Ada asked for a live walkthrough instead",
+        salience: { novelty: null, relevance: 0.45, emotional: 0.45, predictive: 0.45 },
+        physics: { birthDay: day, lastUsedDay: day },
+      });
+      successorId = c.schemas.challengeBelief({ updates: beliefId, challengerId, day }).successorId;
+      if (successorId !== null) break;
+    }
+    expect(successorId).not.toBe(null);
+    expect(c.associate.linked(successorId as string, neighbour)).toBe(true);
+  });
+
+  test("an ambiguous handle trains nothing, all the way through resolveUse (SEAMS C)", () => {
+    const c = brain();
+    for (const body of [
+      "The garage door opener needs a new battery soon.",
+      "Rebasing keeps the history readable for reviewers.",
+      "The library closes early on Sundays now.",
+      "The kitchen tap drips when the pressure is high.",
+      "The bus route changed and adds ten minutes.",
+      "Planted three tomato seedlings in the planter.",
+    ]) {
+      c.store.put({ type: "memory", kind: "fact", body });
+    }
+    // Two concurrent births can each claim one handle; the next open reads both.
+    const first = c.schemas;
+    const second = brain().schemas;
+    first.mention({
+      name: "Robin Fielding",
+      kind: "person",
+      source: "Robin Fielding runs the Tuesday climbing session",
+      chunkRef: "c1",
+      day: 0,
+      aliases: ["Robin"],
+    });
+    second.mention({
+      name: "Robin Chen",
+      kind: "person",
+      source: "Robin Chen handles the quarterly invoices",
+      chunkRef: "c2",
+      day: 0,
+      aliases: ["Robin"],
+    });
+
+    const fresh = brain();
+    const out = fresh.recallForTurn({ sessionId: "s1", text: "robin robin robin" });
+    const reached = [...out.decision.surfaced, ...out.decision.footnotes];
+    expect(out.decision.ambiguousCueCount).toBe(1);
+    fresh.store.advanceClock("2026-08-26");
+    const credit = fresh.resolveUse("s1", reached[0] ?? "", "referenced");
+    expect(credit.credited).toBe(false);
+    expect(credit.reason).toBe("ambiguous-handle-trains-nothing");
+  });
+
+  test("resolveUses credits each use and buffers the co-activation the boundary flushes", async () => {
+    const c = brain();
+    const a = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The operational database is canonical, transactional, and small on purpose.",
+      salience: { novelty: null, relevance: 0.7, emotional: 0.4, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    const b = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The cache is never backed up because losing it costs a re-index and nothing else.",
+      salience: { novelty: null, relevance: 0.7, emotional: 0.4, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    c.store.advanceClock("2026-08-26");
+    c.recallForTurn({ sessionId: "s1", text: "the operational database and the cache" });
+
+    const results = c.resolveUses("s1", [
+      { memoryId: a, tier: "referenced" },
+      { memoryId: b, tier: "referenced" },
+    ]);
+    expect(results.every((r) => r.credited)).toBe(true);
+    expect(c.associate.pendingDeltas().length).toBeGreaterThan(0);
+
+    await c.sessionEnd({ date: "2026-08-27", budgetBytes: BUDGET_BYTES });
+    expect(c.associate.pendingDeltas()).toEqual([]);
+    expect(c.associate.linked(a, b)).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The crash fallback, through the root: chunk-level gating and the ENGINE-SET
+// channel that keeps a sweep from calling itself authorship
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the crash fallback — an injected InterpretFn, gated a chunk at a time", () => {
+  function interpreter(proposals: readonly unknown[], stopReason = "end_turn"): InterpretFn {
+    return async (_chunk: SweepChunk) => ({ proposals, stopReason });
+  }
+
+  test("a sweep mints what the interpreter proposed, and consumes the spans it read", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "pre-compaction" });
+
+    const reports = await c.sweepFallback({
+      interpret: interpreter([
+        {
+          content: "The cache is rebuildable from canonical files, which is why it never enters the backup set.",
+          kind: "fact",
+        },
+      ]),
+    });
+    const swept = reports.find((r) => r.ran);
+    expect(swept?.reason).toBe("SWEPT");
+    expect(swept?.proposals).toBe(1);
+    expect(swept?.consumed).toBe(true);
+    expect(c.events("counterpart.sweep.minted").length).toBe(1);
+    expect(c.store.list({ type: "memory" }).length).toBe(1);
+  });
+
+  test("a FULLY GATED chunk moves no durable state at all (SEAMS item 1, scar §7b)", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+
+    await c.sweepFallback({
+      // Every proposal is a stub: the content floor refuses all of them.
+      interpret: interpreter([{ content: "placeholder", kind: "fact" }, { content: "TBD", kind: "fact" }]),
+    });
+    const chunk = c.events("counterpart.sweep.chunk")[0];
+    expect(chunk?.data?.fullyGated).toBe(true);
+    expect(c.events("counterpart.sweep.minted")).toEqual([]);
+    expect(c.store.list({ type: "memory" })).toEqual([]);
+  });
+
+  test("a TRUNCATED response is a failure, not data — and its spans come back (scar E2/E1)", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+
+    const reports = await c.sweepFallback({
+      interpret: interpreter([{ content: "A perfectly good memory that arrived inside a truncated response.", kind: "fact" }], "max_tokens"),
+    });
+    const swept = reports.find((r) => r.chunks.length > 0);
+    expect(swept?.chunks[0]?.reason).toBe("TRUNCATED");
+    expect(c.store.list({ type: "memory" })).toEqual([]);
+    // Restored, not lost: the same spans are claimable at the next boundary.
+    expect(c.spans.spans("proj").length).toBeGreaterThan(0);
+  });
+
+  test("the CHANNEL is engine-set: a self-claim arriving from a sweep is counted and NOT trained (SEAMS N)", async () => {
+    const c = brain();
+    seed(c);
+    const element = c.store.put({
+      type: "memory",
+      kind: "self",
+      body: "I hold the seam discipline steadily.",
+      salience: { novelty: null, relevance: 0.8, emotional: 0.6, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    c.store.advanceClock("2026-08-26");
+    c.store.advanceClock("2026-08-27");
+    const before = c.store.physicsOf(element).uses;
+
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    await c.sweepFallback({
+      interpret: interpreter([
+        {
+          // The confabulated address — v1's own incident shape: a plausible id
+          // that resolves to nothing. The ENGINE then matches the RESTATEMENT by
+          // content, and saying the same thing again IS a confirmation.
+          content: "I hold the seam discipline steadily in this work.",
+          kind: "self",
+          updates: "mem_deadbeefdead",
+        },
+      ]),
+    });
+
+    // Withheld movement, kept measurement — the doctrine's own scenario.
+    expect(c.store.physicsOf(element).uses).toBe(before);
+    const repeats = c.self.events().filter((e) => e.name === "self.claim.repeat");
+    expect(repeats.length).toBe(1);
+    expect(repeats[0]?.ref).toBe(element);
+    expect(repeats[0]?.data?.frozen).toBe(true);
+    expect(repeats[0]?.data?.source).toBe("fallback");
+    expect(c.store.getMeta("self.claims.self.frozen")).toBe("1");
+  });
+
+  test("the SAME restatement through the authored front door DOES train", async () => {
+    const c = brain();
+    seed(c);
+    const element = c.store.put({
+      type: "memory",
+      kind: "self",
+      body: "I hold the seam discipline steadily.",
+      salience: { novelty: null, relevance: 0.8, emotional: 0.6, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    c.store.advanceClock("2026-08-26");
+    c.store.advanceClock("2026-08-27");
+    const before = c.store.physicsOf(element).uses;
+
+    const out = await c.submitSessionEnd(
+      { content: "I hold the seam discipline steadily in this work.", kind: "self", updates: "mem_deadbeefdead" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.mint?.claim?.reason).toBe("live-lived-salience");
+    expect(c.store.physicsOf(element).uses).toBeGreaterThan(before);
+  });
+
+  test("sessionEnd runs the sweep BEFORE the cycle, so what it recovers is inside the boundary", async () => {
+    const c = brain();
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "session-end" });
+
+    const report = await c.sessionEnd({
+      date: "2026-01-02",
+      sweep: {
+        interpret: interpreter([
+          {
+            content: "Canonical prose stays readable in any editor, which is the portability promise in one line.",
+            kind: "fact",
+            salience: { relevance: 0.9, emotional: 0.7, predictive: 0.8 },
+          },
+        ]),
+      },
+    });
+    expect(report.sweeps.some((s) => s.ran)).toBe(true);
+    // The cycle saw it: the memory exists and the briefing rendered after it.
+    expect(c.store.list({ type: "memory" }).length).toBe(1);
+    expect(c.wake(BUDGET_BYTES).text).toContain("any editor");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Observer stance, end to end: the instrument leaves the store as it found it
+// ═══════════════════════════════════════════════════════════════════════════
+describe("observer stance — a full lifecycle leaves canonical state byte-identical", () => {
+  /** Every canonical byte under the data dir, hashed per relative path. Box 3
+   *  (`cache/`) is excluded BY NAME: it is declared rebuildable, never backed up,
+   *  and observer-mode's open question 2 is about exactly its residue. */
+  function canonicalSnapshot(root: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    const walk = (abs: string, rel: string): void => {
+      for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        if (rel === "" && (entry.name === "cache" || entry.name === "tmp")) continue;
+        const nextAbs = join(abs, entry.name);
+        const nextRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
+        if (entry.isDirectory()) walk(nextAbs, nextRel);
+        else out[nextRel] = createHash("sha256").update(readFileSync(nextAbs)).digest("hex");
+      }
+    };
+    walk(root, "");
+    return out;
+  }
+
+  /** Populate a store the ordinary way, then close it. */
+  async function populated(): Promise<void> {
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike", aliases: ["mike"] } });
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    await c.submitSessionEnd(
+      {
+        content: "The storage split keeps canonical prose in markdown, so the owner can read their own memory in any editor.",
+        kind: "fact",
+        salience: { relevance: 0.8, emotional: 0.6, predictive: 0.7 },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    await c.sessionEnd({ date: "2026-01-02", at: "2026-01-02" });
+    c.close();
+  }
+
+  test("a probe runs the WHOLE lifecycle and changes not one canonical byte (scar E7)", async () => {
+    await populated();
+    const before = canonicalSnapshot(dir);
+
+    const probe = Counterpart.open({ dir, observer: true, owner: true });
+    // The wake is DELIVERED to an observer: observation is a read (§1 G8).
+    const woke = probe.wake(BUDGET_BYTES);
+    expect(woke.ok).toBe(true);
+    // Everything else stands down — and every stand-down is on the record.
+    expect(probe.captureSpans({ session: "s2", scope: "proj", turns: TURNS }).reason).toBe("OBSERVER");
+    expect(probe.captureJot({ session: "s2", scope: "proj", text: "a jot from an instrument" }).reason).toBe("OBSERVER");
+    expect((await probe.submitSessionEnd({ content: "An instrument's memory, which must never land.", kind: "fact" }, { session: "s2", scope: "proj" })).reason).toBe("observer");
+    probe.boundary({ session: "s2", scope: "proj", kind: "stop" });
+    probe.episodeAsk("s2", { turns: 12, bytes: 9_000 });
+    probe.appendEpisode("s2", "An instrument's reflection, which must never land either.");
+    expect(probe.ingestEpisode({ sessionId: "s2" }).reason).toBe("observer");
+    // Reading still works: an observer still sees, it just leaves no trace.
+    const turn = probe.recallForTurn({ sessionId: "s2", text: "how does the storage split work" });
+    expect(turn.decision.observer).toBe(true);
+    expect(probe.resolveUse("s2", probe.store.list({ type: "memory" })[0] ?? "", "referenced").reason).toBe("observer");
+    const report = await probe.sessionEnd({ date: "2026-01-03", at: "2026-01-03" });
+    expect(report.cycle.observer).toBe(true);
+    probe.close();
+
+    expect(canonicalSnapshot(dir)).toEqual(before);
+  });
+
+  test("the boundary appends no span and the cycle materializes nothing", async () => {
+    await populated();
+    const probe = Counterpart.open({ dir, observer: true });
+    const spansBefore = probe.spans.spans("proj").length;
+    probe.boundary({ session: "s2", scope: "proj", kind: "pre-compaction" });
+    expect(probe.spans.spans("proj").length).toBe(spansBefore);
+    expect(probe.spans.events("remember.observer.standdown").length).toBeGreaterThan(0);
+
+    const rankingBefore = probe.store.rankingAll().size;
+    await probe.sessionEnd({ date: "2026-01-03", budgetBytes: BUDGET_BYTES });
+    // The instrument writes no cache either: whatever the last real cycle
+    // materialized is exactly what is still there.
+    expect(probe.store.rankingAll().size).toBe(rankingBefore);
+    probe.close();
+  });
+
+  /**
+   * FOUND LIVE, writing this file: `dataDir()` asserts the guard for the
+   * environment-resolved path, but an EXPLICIT `dir` reached `Store.open`
+   * unchecked — so this very test created a directory under `~/.bansai` before
+   * the root asserted it. Scar §2.13 in its own miniature: the guard existed,
+   * and the entrance nobody guarded is the one a caller uses.
+   */
+  test("an explicit data dir aimed at v1's live store is refused BEFORE anything is created", () => {
+    const aimed = join(homedir(), ".bansai", "counterparts-guard-probe");
+    expect(() => Counterpart.open({ dir: aimed })).toThrow();
+    expect(() => Counterpart.open({ dir: join(homedir(), ".claude-engram") })).toThrow();
+    expect(() => Counterpart.open({ dir: join(homedir(), ".bansai", "..", ".bansai", "x") })).toThrow();
+    // The refusal is BEFORE creation: nothing was made on the way to throwing.
+    expect(existsSync(aimed)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The rebuild contract, reached through the root (store §5, scar §2.12)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the DB is a cache — everything indexed is reconstructible from canonical files", () => {
+  test("a rebuilt cache recalls the same memory the original did", async () => {
+    const c = brain();
+    seed(c);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    const deposit = await c.submitSessionEnd(
+      {
+        content: "The storage split keeps canonical prose in markdown files that any editor can open.",
+        kind: "fact",
+        salience: { relevance: 0.8, emotional: 0.6, predictive: 0.7 },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    const memoryId = deposit.memoryId as string;
+    const before = c.recallForTurn({ sessionId: "s1", text: "canonical prose in markdown files" });
+    expect([...before.decision.surfaced, ...before.decision.footnotes]).toContain(memoryId);
+
+    c.store.rebuildCache();
+    const after = c.recallForTurn({ sessionId: "s3", text: "canonical prose in markdown files" });
+    expect([...after.decision.surfaced, ...after.decision.footnotes]).toContain(memoryId);
+  });
+
+  test("the store the root opens is the store the seams tests open (no second layout)", () => {
+    const c = brain();
+    expect(() => c.store.assertLayout()).not.toThrow();
+    expect(c.store.backupSet()).toContain("spans");
+    // And a second handle over the same dir sees the same canonical files.
+    const other = Store.open({ dir });
+    expect(other.list()).toEqual(c.store.list());
+    other.close();
+  });
+});

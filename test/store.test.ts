@@ -120,6 +120,17 @@ describe("dataDir", () => {
     ); // nothing was created by the guard
   });
 
+  test("the guard runs on an EXPLICIT dir too — Store.open cannot be pointed at a live store", () => {
+    // The wound: a test once deposited a v2 skeleton inside ~/.bansai because
+    // the guard only ran inside dataDir(). Now the constructor guards every path.
+    expect(code(() => Store.open({ dir: join(homedir(), ".bansai", "anywhere") }))).toBe(
+      "DATA_DIR_FORBIDDEN",
+    );
+    expect(code(() => Store.open({ dir: join(homedir(), ".claude-engram", "x") }))).toBe(
+      "DATA_DIR_FORBIDDEN",
+    );
+  });
+
   test("Store.open() with no dir uses the call-time value", () => {
     const s = store();
     expect(s.dir).toBe(dir);

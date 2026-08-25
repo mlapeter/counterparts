@@ -1167,8 +1167,11 @@ describe("SEAMS H — episodes route through the REAL battery, so the refusing d
 
   test("UNWIRED, self's default refuses everything — an absent gate is not an open one", () => {
     const s = store();
+    // Chapters are themselves gated now — author through the real battery, then
+    // ingest through an UNGATED instance to prove the default refuses.
+    const author = new Self({ store: s, gate: episodeGate() });
+    written(author, "We shipped the seam pass and it held together all day.");
     const self = new Self({ store: s });
-    written(self, "We shipped the seam pass and it held together all day.");
     const out = self.ingestEpisode({ sessionId: "s1" });
     expect(out.ingested).toBe(false);
     expect(out.reason).toBe("gate-refused");

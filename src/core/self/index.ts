@@ -217,7 +217,7 @@ export interface ChapterAppend {
   /** True when this append OPENED the chapter (and wrote its heading). A second
    *  append inside one chapter continues it — the live-append case (§13 G2). */
   readonly heading: boolean;
-  readonly reason: "appended" | "observer" | "anonymous-session";
+  readonly reason: "appended" | "observer" | "anonymous-session" | "gate-refused";
 }
 
 const EVENT_RING = 500;
@@ -645,11 +645,24 @@ export class Self {
       this.emit("self.observer.standdown", sessionId, { site: "appendChapter" });
       return { episodeId: null, chapter: 0, created: false, heading: false, reason: "observer" };
     }
+    // Every ingestion entrance runs the battery — a chapter is canonical prose,
+    // and a credential in one landed durably before this gate existed (found by
+    // the composition root's caller-universality test, fixed the same day). The
+    // gate's text — possibly redacted — is what gets written, never the draft.
+    const verdict = this.gate({ text, handles: [], sessionId });
+    if (!verdict.ok) {
+      this.emit("self.episode.chapter.refused", sessionId, {
+        gate: verdict.gate,
+        reason: verdict.reason,
+      });
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "gate-refused" };
+    }
+    const gatedText = verdict.text ?? text;
     const state = this.episodeState(sessionId, d);
     const append: Parameters<typeof appendChapter>[3] = { day: d };
     if (opts.title !== undefined) append.title = opts.title;
     if (opts.happenedOn !== undefined) append.happenedOn = opts.happenedOn;
-    const written = appendChapter(this.store, state, text, append);
+    const written = appendChapter(this.store, state, gatedText, append);
     this.persistState(
       { ...state, episodeId: written.episodeId, chapters: Math.max(state.chapters, written.chapter), lastDay: d },
       "appendChapter",
@@ -658,7 +671,7 @@ export class Self {
       session: sessionId,
       chapter: written.chapter,
       created: written.created,
-      bytes: byteLength(text),
+      bytes: byteLength(gatedText),
     });
     return { ...written, reason: "appended" };
   }

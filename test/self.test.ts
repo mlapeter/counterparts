@@ -746,7 +746,7 @@ describe("episodes", () => {
 
   test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {
     const s = store();
-    const self = new Self({ store: s });
+    const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
     const first = self.appendChapter("s1", "We started with the migration and it went badly.");
     expect(first.created).toBe(true);
@@ -768,7 +768,7 @@ describe("episodes", () => {
 
   test("appending twice INSIDE one chapter continues it — one heading, not two", () => {
     const s = store();
-    const self = new Self({ store: s });
+    const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
     const first = self.appendChapter("s1", "The migration started badly.");
     const again = self.appendChapter("s1", "And then, eighty seconds later, it mattered.");
@@ -802,25 +802,48 @@ describe("episodes", () => {
 
   test("ingestion without a gate REFUSES — an absent gate is not an open one", () => {
     const s = store();
-    const self = new Self({ store: s });
-    self.openChapter("s1", SUBSTANCE);
-    self.appendChapter("s1", "A first-person account with an api key sk-not-really in it.");
-    const out = self.ingestEpisode({ sessionId: "s1" });
+    // Authoring needs a gate too now (chapters are a gated entrance) — author
+    // through a permissive instance, ingest through an ungated one.
+    const author = new Self({ store: s, gate: PASS_GATE });
+    author.openChapter("s1", SUBSTANCE);
+    author.appendChapter("s1", "A first-person account with an api key sk-not-really in it.");
+    const ungated = new Self({ store: s });
+    const out = ungated.ingestEpisode({ sessionId: "s1" });
     expect(out.reason).toBe("gate-refused");
     expect(out.gate).toEqual({ gate: "none", reason: "NO_GATE_INJECTED" });
     expect(s.list({ type: "memory" }).length).toBe(0);
   });
 
+  test("a CHAPTER is a gated entrance: the gate's text is what lands, and no gate means no chapter", () => {
+    const s = store();
+    // The wound this guards: a credential in a chapter once landed in canonical
+    // prose while the memory minted from it was redacted (caller-universality).
+    const redacting: EpisodeGate = (i) => ({ ok: true, text: i.text.replace("sk-not-really", "[redacted]") });
+    const gated = new Self({ store: s, gate: redacting });
+    gated.openChapter("s1", SUBSTANCE);
+    const written = gated.appendChapter("s1", "Shipped the fix; the key sk-not-really is rotated.");
+    expect(written.reason).toBe("appended");
+    const body = s.readProse(written.episodeId ?? "").body;
+    expect(body).toContain("[redacted]");
+    expect(body.includes("sk-not-really")).toBe(false);
+
+    const ungated = new Self({ store: s });
+    const refused = ungated.appendChapter("s2", "Anything at all.");
+    expect(refused.reason).toBe("gate-refused");
+    expect(s.list({ type: "episode" }).length).toBe(1); // only the gated one exists
+  });
+
   test("a gate refusal names the gate, and the episode is still there to retry", () => {
     const s = store();
     const refusing: EpisodeGate = () => ({ ok: false, gate: "secrets", reason: "credential" });
-    const self = new Self({ store: s, gate: refusing });
-    self.openChapter("s1", SUBSTANCE);
-    const written = self.appendChapter("s1", "It was a good day and here is a secret.");
-    const out = self.ingestEpisode({ sessionId: "s1" });
+    const author = new Self({ store: s, gate: PASS_GATE });
+    author.openChapter("s1", SUBSTANCE);
+    const written = author.appendChapter("s1", "It was a good day and here is a secret.");
+    const refusingSelf = new Self({ store: s, gate: refusing });
+    const out = refusingSelf.ingestEpisode({ sessionId: "s1" });
     expect(out.gate?.gate).toBe("secrets");
     expect(s.has(written.episodeId ?? "")).toBe(true);
-    expect(self.events("self.episode.ingest.refused").length).toBe(1);
+    expect(refusingSelf.events("self.episode.ingest.refused").length).toBe(1);
   });
 
   test("an episode ingests ONCE, as an ordinary self-kind memory with handles", () => {

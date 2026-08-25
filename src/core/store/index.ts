@@ -40,7 +40,7 @@ import type {
   RemovalRow,
   VersionRow,
 } from "./operational.js";
-import { LAYOUT, assertLayoutClassified, dataDir, paths } from "./paths.js";
+import { LAYOUT, assertLayoutClassified, assertSafeDataDir, dataDir, paths } from "./paths.js";
 import {
   ID_PREFIX,
   archivePriorVersion,
@@ -245,7 +245,11 @@ export class Store {
   private readonly ring: StoreEvent[] = [];
 
   private constructor(opts: StoreOptions) {
-    this.dir = opts.dir ?? dataDir();
+    // The guard runs on EVERY path, explicit or defaulted — an explicit `dir`
+    // reaching mkdirSync unchecked is how a test once deposited a skeleton
+    // inside the live v1 store (found by the caller-universality build, fixed
+    // at this root the same day).
+    this.dir = assertSafeDataDir(opts.dir ?? dataDir());
     this.observer = isObserver(opts);
     this.retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
     this.embed = opts.embed;
