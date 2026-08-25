@@ -6,6 +6,9 @@ these deliberately. An item stays listed until a test proves the wiring.*
 
 ## Blocking before the pipeline composes (wave-2 findings)
 
+**Items 1–3: CLOSED 2026-08-25** by `src/core/bridge.ts` + `test/bridge.test.ts`
+(commit 50bbaa9) — kept below for the record.
+
 1. **Chunk-level gated-means-gated across the remember→encode bridge.** remember's
    `GateFn` is per-proposal; encode's "a fully-gated CHUNK moves no durable state
    (including prediction checks)" is chunk-level. The fallback sweep must gate via
