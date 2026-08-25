@@ -29,7 +29,7 @@ import {
   detectAffect,
   freshGateState,
   gate,
-  gateKey,
+  SCALAR_REF,
   informativeness,
   render,
   stripBoilerplate,
@@ -138,13 +138,20 @@ interface CandSpec {
   confidential?: boolean;
   trains?: boolean;
   emotional?: number;
+  /** SEAMS item D: the temporal portion of `cue`, and the per-candidate cap. */
+  temporal?: number;
+  maxTier?: Candidate["maxTier"];
+  /** SEAMS item L: spreading activation — in `activation`, never in cueFraction. */
+  hops?: number;
 }
 
 function cand(spec: CandSpec): Candidate {
   const cue = spec.cue ?? 1;
   const semantic = spec.semantic ?? 0;
   const arrival = spec.arrival ?? 0;
-  const activation = cue + semantic + arrival;
+  const temporal = spec.temporal ?? 0;
+  const hops = spec.hops ?? 0;
+  const activation = cue + semantic + arrival + hops;
   const body = spec.body ?? `body of ${spec.id} unique tokens here`;
   return {
     id: spec.id,
@@ -154,12 +161,15 @@ function cand(spec: CandSpec): Candidate {
     strength: 0,
     sal: spec.sal ?? 0.5,
     cue,
+    temporal,
     semantic,
     arrival,
+    hops,
     activation,
     cueFraction: activation > 0 ? (cue + semantic) / activation : 0,
     matched: 1,
     trains: spec.trains ?? true,
+    maxTier: spec.maxTier ?? (temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced"),
     confidential: spec.confidential ?? false,
   };
 }
@@ -419,19 +429,22 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     expect(second.decision.reason).toBe("all-gated");
   });
 
-  test("the state lives in box 2 under a named key with a defined lifetime", () => {
+  test("the state lives in box 2 as ONE ROW PER RECORD with a defined lifetime (SEAMS B)", () => {
     const s = store();
     seed(s);
     put(s, { kind: "skill", body: "The sourdough starter died after two weeks of neglect." });
     const r = new Recall({ store: s, owner: true });
     r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
 
-    const raw = s.getMeta(gateKey("s1"));
-    expect(raw).toBeDefined();
-    const parsed = JSON.parse(raw ?? "{}") as { turn: number; lastDay: number; v: number };
-    expect(parsed.v).toBe(1);
-    expect(parsed.turn).toBe(1);
-    expect(typeof parsed.lastDay).toBe("number");
+    const rows = s.gateRecords("s1");
+    expect(rows.length).toBeGreaterThan(0);
+    const scalar = rows.find((r) => r.kind === "scalar" && r.ref === SCALAR_REF);
+    expect(scalar).toBeDefined();
+    expect(JSON.parse(scalar?.value ?? "{}").v).toBe(1);
+    expect(scalar?.turn).toBe(1);
+    expect(typeof scalar?.last_day).toBe("number");
+    // Each surfaced memory is its OWN row: a second writer replaces only its own.
+    expect(rows.some((r) => r.kind === "surfaced")).toBe(true);
   });
 
   test("cue carry-over crosses the process boundary too", () => {
@@ -735,8 +748,8 @@ describe("observer mode — surfaces, strengthens nothing, deposits nothing", ()
     const r = new Recall({ store: obs, owner: true });
     r.recall({ sessionId: "probe", text: "my sourdough starter died again" });
 
-    expect(obs.getMeta(gateKey("probe"))).toBeUndefined();
-    expect(obs.events("store.meta").length).toBe(0);
+    expect(obs.gateRecords("probe")).toEqual([]);
+    expect(obs.events("store.gate.records").length).toBe(0);
     const stand = r.events().filter((e) => e.name === "recall.observer.standdown");
     expect(stand.some((e) => String(e.data?.["site"]).startsWith("persist:"))).toBe(true);
     // In-process state still advances, so the instrument's own dedup behaves
@@ -771,7 +784,7 @@ describe("structural guarantees", () => {
     expect(out.decision.reason).toBe("latency-abort");
     // Nothing injected, nothing buffered, NO TELEMETRY, no state advanced.
     expect(r.events().length).toBe(0);
-    expect(s.getMeta(gateKey("s1"))).toBeUndefined();
+    expect(s.gateRecords("s1")).toEqual([]);
     expect(r.gateState("s1").turn).toBe(0);
   });
 

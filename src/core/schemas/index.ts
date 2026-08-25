@@ -134,6 +134,16 @@ export interface SchemasOptions {
   store: Store;
   /** Telemetry sink. The ring is in memory only — see INTERFACE-GAPS §1. */
   onEvent?: (event: SchemaEvent) => void;
+  /**
+   * SEAMS item E — the supersede executor's edge callback, INJECTED because this
+   * module must not import `associate/` (and `store.supersede` must not depend on
+   * a core module above it). Wired to `Associate.retargetOnSupersede` at the
+   * composition root; absent, the successor starts cold, which is scar §2.2
+   * itself: *v1's `gist.merge` set `merged_into` and nothing re-pointed the
+   * edges.* It is called in the SAME FLOW as the supersede, immediately after the
+   * new id exists, so an arc cannot be half-moved by a caller that forgets.
+   */
+  retarget?: (oldId: string, newId: string, day: number) => void;
 }
 
 const ZERO_DIMS: DimensionsInput = { relevance: 0, emotional: 0, predictive: 0 };
@@ -147,10 +157,12 @@ export class Schemas {
   private readonly increments: PressureIncrement[] = [];
   private readonly ring: SchemaEvent[] = [];
   private readonly onEvent: ((e: SchemaEvent) => void) | undefined;
+  private readonly retarget: ((oldId: string, newId: string, day: number) => void) | undefined;
 
   private constructor(opts: SchemasOptions) {
     this.store = opts.store;
     this.onEvent = opts.onEvent;
+    this.retarget = opts.retarget;
     this.load();
   }
 
@@ -710,6 +722,26 @@ export class Schemas {
           bar: log.bar,
         };
         this.increments.push(increment);
+        // SEAMS item K — the increment is DURABLE, not just ringed. Restart the
+        // process and the pressure number used to survive while the story of how
+        // it got there did not (INTERFACE-GAPS.md §1; constitution line 16 says
+        // the owner can see what changed and why). One credited challenge per
+        // target per day (physics §5.6), so `(target, day, challenger)` is a
+        // natural latch and a replayed day appends nothing twice.
+        this.store.appendEvent({
+          name: "revision.pressure",
+          day: log.day,
+          ref: targetId,
+          dedupKey: `revision.pressure:${targetId}:${log.day}:${log.challengerId}`,
+          payload: {
+            targetId,
+            day: log.day,
+            challengerId: log.challengerId,
+            force: log.force,
+            pressureAfter: log.pressureAfter,
+            bar: log.bar,
+          },
+        });
         this.emit("revision.pressure", targetId, {
           day: log.day,
           challengerId: log.challengerId,
@@ -779,6 +811,22 @@ export class Schemas {
       "revised-by-pressure",
     );
     this.remember(successorId, { role: "belief", entityId });
+    // SEAMS item E, in the same flow as the supersede: the successor inherits the
+    // old head's live edges. A retarget that THROWS must not undo a revision that
+    // already landed — the belief is superseded either way, and a cold successor
+    // is a recoverable loss where a half-applied revision is not.
+    if (this.retarget !== undefined) {
+      try {
+        this.retarget(targetId, successorId, input.day);
+        this.emit("schema.edges.retargeted", targetId, { successorId, day: input.day });
+      } catch (err) {
+        this.emit("schema.edges.retarget.failed", targetId, {
+          successorId,
+          day: input.day,
+          error: err instanceof Error ? err.name : "UNKNOWN",
+        });
+      }
+    }
     const record = supersedeRecord(targetId, successorId, input.day);
     this.emit("memory.superseded", targetId, {
       successorId,
@@ -1022,8 +1070,37 @@ export class Schemas {
       lastChallengedDay: p?.lastChallengedDay ?? null,
       bar: p === undefined ? 0 : revisionBar(p, p.lastChallengedDay ?? p.birthDay),
       strength: p === undefined ? 0 : strengthOf(p, p.lastChallengedDay ?? p.birthDay),
-      increments: this.increments.filter((i) => chain.includes(i.targetId)),
+      increments: this.storyIncrements(chain),
     };
+  }
+
+  /**
+   * The durable increments first (box 2's `events` table — they survive a
+   * restart), then anything this session logged that the log does not already
+   * carry. The union is deduped on the same `(target, day, challenger)` latch the
+   * append uses, so a story never shows one challenge twice.
+   */
+  private storyIncrements(chain: readonly string[]): PressureIncrement[] {
+    const key = (i: { targetId: string; day: number; challengerId: string }): string =>
+      `${i.targetId}:${i.day}:${i.challengerId}`;
+    const out: PressureIncrement[] = [];
+    const seen = new Set<string>();
+    for (const row of this.store.eventLog({ name: "revision.pressure", limit: 1000 })) {
+      if (row.ref === null || !chain.includes(row.ref) || row.payload === null) continue;
+      try {
+        const p = JSON.parse(row.payload) as Omit<PressureIncrement, "event">;
+        const inc: PressureIncrement = { event: "revision.pressure", ...p };
+        out.push(inc);
+        seen.add(key(inc));
+      } catch {
+        // An unparseable payload is a lost line of the story, never a throw in
+        // the dashboard's read path.
+      }
+    }
+    for (const i of this.increments) {
+      if (chain.includes(i.targetId) && !seen.has(key(i))) out.push(i);
+    }
+    return out;
   }
 
   /**

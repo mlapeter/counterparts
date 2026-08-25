@@ -83,6 +83,18 @@ export interface Turn {
   vector?: readonly number[];
   /** handle -> memory ids; >= 2 ids makes the handle ambiguous (INTERFACE-GAPS #2). */
   aliases?: ReadonlyMap<string, readonly string[]>;
+  /** Temporal cues — `prospective.arrivals()`, mapped to `{id, weight}` at the
+   *  composition root (`src/core/retrieval.ts`, SEAMS item D). They enter through
+   *  the CUE channel and no other; see `activate.ts`'s header for why the word
+   *  "arrival" means two different things on the two sides of this seam. */
+  temporal?: readonly { id: string; weight: number }[];
+  /** Spreading activation (SEAMS item L), injected at the composition root.
+   *  Hops MODULATE candidates the conversation already reached; they never mint
+   *  one, which is what keeps hard gate (a) structural. */
+  spread?: (
+    seeds: readonly { id: string; activation: number }[],
+    day: number,
+  ) => { contributions: readonly { id: string; activation: number }[] };
   /** Lived day. Defaults to the store's clock (scar E8 — lived, not calendar). */
   day?: number;
   /** Per-turn override of the session's owner stance. */
@@ -206,7 +218,7 @@ export class Recall {
 
     const loaded = this.observer
       ? { state: this.volatileState(turn.sessionId), status: "loaded" as const }
-      : loadGateState(this.store, turn.sessionId);
+      : loadGateState(this.store, turn.sessionId, this.tunables.MAX_SESSION_RECORDS);
     const state = loaded.state;
     const turnNo = state.turn + 1;
 
@@ -282,6 +294,8 @@ export class Recall {
         vector: turn.vector,
         carried: carriedIn,
         aliases: turn.aliases,
+        temporal: turn.temporal,
+        spread: turn.spread,
         day,
         selfFelt: affect.selfFelt,
         maxCandidates,
@@ -446,7 +460,7 @@ export class Recall {
       return { credited: false, reason: "observer", tier, w, outcome: null };
     }
 
-    const { state } = loadGateState(this.store, sessionId);
+    const { state } = loadGateState(this.store, sessionId, this.tunables.MAX_SESSION_RECORDS);
     const surfaced = state.surfaced[memoryId];
     if (surfaced !== undefined && !surfaced.trains) {
       // Both halves of §9 G5, and this is the consumer scar §2.6 demands: v1
@@ -508,7 +522,7 @@ export class Recall {
   gateState(sessionId: string): GateState {
     return this.observer
       ? this.volatileState(sessionId)
-      : loadGateState(this.store, sessionId).state;
+      : loadGateState(this.store, sessionId, this.tunables.MAX_SESSION_RECORDS).state;
   }
 
   events(): RecallEvent[] {
@@ -535,7 +549,7 @@ export class Recall {
   private volatileState(sessionId: string): GateState {
     let s = this.volatile.get(sessionId);
     if (s === undefined) {
-      s = loadGateState(this.store, sessionId).state;
+      s = loadGateState(this.store, sessionId, this.tunables.MAX_SESSION_RECORDS).state;
       this.volatile.set(sessionId, s);
     }
     return s;

@@ -21,54 +21,179 @@ these deliberately. An item stays listed until a test proves the wiring.*
 
 ## The wave-3 seam pass (consolidated from all module gap files, 2026-08-25)
 
-A. **Observer hoist** → `src/core/observer.ts`; store's `WRITE_METHODS` + remember's
-   `WRITE_SITES` become one cross-module totality test. (= item 4 below)
-B. **`gate_session` table** in box 2, replacing recall's read-modify-written meta row.
-   (= item 5)
-C. **Alias wiring**: recall's `Turn.aliases` sourced from `schemas.aliasMap()`. (= item 6)
-D. **Temporal cue wiring**: prospective `arrivals()` → recall `ActivationInput.temporal`,
-   folded into cueScore, counted as cue by cueFraction, footnote-ceiling for
-   cue-only-temporal candidates — per prospective's gap spec. NEVER into recall's
-   recency arrival (opposite contracts, same word).
-E. **`retargetOnSupersede` gets its caller**: the supersede executor (schemas revision
-   path) calls associate's retarget in the same flow — scar §2.2 is live until wired.
-F. **schemas↔self seam test**: identity core minted by `ensureIdentityCore` is indexed
-   by schemas, and status-on-identity refuses with `status-on-identity-refused` (never
-   `entity-unknown`).
-G. **sleep→self render wiring**: `RenderFn = (ctx) => self.boundary({day, budgetBytes,
-   horizon}).briefing` — budgetBytes joins sleep's cycle options from the host; horizon
-   from prospective.
-H. **Episode gate at the composition root**: episodes route through the battery via the
-   bridge (self's episode gate default currently refuses everything).
-I. **The `updates:` minting seam** — remember's minted proposals must write
-   `doc.meta["updates"]` so sleep's dedup exclusion and the revision path can see it;
-   currently enforced downstream and starved at the source (scar §2.6 shape — first
-   priority).
-J. **Box-3 `ranking` table + `Store.setRanking()`**, replacing sleep's side-sqlite
-   workaround.
-K. **Box-2 `events` table** (durable increments for schemas' `story()` + sleep's
-   records), replacing in-memory rings where durability matters.
-L. **`spread()` into recall** — conservative default chosen: spreading may RAISE
-   footnote-tier candidates but never create loud-tier candidates without a cue
-   (preserves recall's hard gate; revisable).
-M. **`physics.consolidationEligibility()`** exported; sleep's inline criterion moves in.
-N. **Freeze seam caller**: the minting/resolution path consults `self`'s freeze so
-   self-claim repeats are counted-not-trained end to end.
+A. **CLOSED 2026-08-25** — `store/observer.ts` MOVED to `src/core/observer.ts` (a move,
+   not a rewrite: it still imports nothing). `store/index.ts` re-exports it, so both
+   existing consumers changed import paths only. This also closes queued item 4. Proof:
+   `test/seams.test.ts` — "exactly ONE definition of the predicate exists, at the hoisted
+   path, importing nothing (observer-mode G1/G2)", "the store's public surface still
+   carries the predicate (consumers change import paths only)", "stand-down totality spans
+   BOTH consumers: every site in WRITE_METHODS ∪ WRITE_SITES emits".
+B. **CLOSED 2026-08-25** — `gate_session` table in box 2 (`SCHEMA_VERSION` 2), ONE ROW
+   PER RECORD, plus `Store.setGateRecords()` / `gateRecords()` / `pruneGateSessions()`.
+   `recall/session.ts` writes rows instead of the JSON meta row, and the bound applies on
+   both write and read. Closes queued item 5. Proof: `test/seams.test.ts` — "the
+   interleaved load→mutate→save race that the meta row lost now loses nothing", "the
+   keyspace has a real lifetime: pruneGateSessions sweeps on the active-day clock", "an
+   unreadable scalar row resets, and says so — never a silent fresh start"; plus
+   `test/recall.test.ts` — "the state lives in box 2 as ONE ROW PER RECORD with a defined
+   lifetime (SEAMS B)".
+C. **CLOSED 2026-08-25** — `src/core/retrieval.ts` (`composeTurn` / `recallTurn`) is the
+   call site: `Turn.aliases` comes from `schemas.aliasMap()`, so the map stops being
+   borrowed from a caller who can forget it. Closes queued item 6. Proof:
+   `test/seams.test.ts` — "schemas.aliasMap() reports the ambiguity that recall's gate
+   needs", "composed, an ambiguous handle sets trains:false and resolveUse REFUSES the
+   credit", "WITHOUT the wiring the same turn trains — which is the gap this seam
+   closes".
+D. **CLOSED 2026-08-25** — `Turn.temporal` / `ActivationInput.temporal` folded into
+   `cueScore` (the same map, so one activation number against the same background bar),
+   counted as CUE by `cueFraction`, with a per-candidate `maxTier` ceiling and the new
+   verdict `cue-only-temporal`; `src/core/retrieval.ts` maps `prospective.arrivals()`
+   into it. `ARRIVAL_WEIGHT` is untouched. **One call the gap file was silent on:** a
+   temporal cue is id-addressed, so it sets `trains: true` — without that clause a
+   temporal-only surface would be refused as `ambiguous-handle-trains-nothing`, a true
+   refusal under a false name (scar §2.4). Proof: `test/seams.test.ts` — "the cue reaches
+   recall through the CUE channel and is counted as cue by cueFraction", "there is NO
+   second injection path: recall's `arrival` is still pure recency", "a cue-only-temporal
+   candidate is FOOTNOTED, and the record names the ceiling", "the CEILING is what stops
+   it: the identical candidate goes loud without the cap", "a temporal cue TRAINS — it is
+   id-addressed, so nothing about it is ambiguous".
+E. **CLOSED 2026-08-25** — `SchemasOptions.retarget` is the injected callback (schemas
+   may not import `associate/`, and the store may not depend on a module above it),
+   called inside `supersedeBelief` immediately after the successor id exists. A retarget
+   that THROWS is evented and does not undo a revision that already landed. Proof:
+   `test/seams.test.ts` — "wired, the successor inherits the old head's live edges IN THE
+   SAME FLOW", "UNWIRED, the same revision leaves the successor cold — the scar, live",
+   "a retarget that THROWS does not undo a revision that already landed".
+F. **CLOSED 2026-08-25** — no code change was needed: `Self.ensureIdentityCore` already
+   mints the shape `schemas/` asked for (`type: "schema"`, `kind: "self"`,
+   `meta.role: "entity"`), and the seam test proves the wiring end to end. Proof:
+   `test/seams.test.ts` — "status-on-identity refuses with its OWN reason, never
+   `entity-unknown`", "schemas actually INDEXES the core — the refusal is not an accident
+   of a missing row", "a name that resolves to the identity core is not a birth site",
+   "the core is idempotent — a second core is a category error", "a blank name mints
+   NOTHING — the core's name is the owner's, and there is no default".
+G. **CLOSED 2026-08-25** — `src/core/briefing.ts` (`selfRenderer`) is the one line:
+   `BriefingContext` grows `budgetBytes`, `SleepOptions.budgetBytes` carries the HOST's
+   reported ceiling into it (an argument somebody can see, not a constant hidden in a
+   lambda — scar §2.18), and the horizon lane's ids come from `prospective.horizon()`.
+   With no reported ceiling the renderer REFUSES and events `briefing.no-budget` rather
+   than inventing one. Proof: `test/seams.test.ts` — "the wired cycle publishes a
+   briefing the wake can read back", "the ceiling reaches the renderer: a smaller budget
+   publishes a smaller briefing", "NO reported ceiling means NO render — an invented one
+   is scar §2.18", "the horizon lane's source is prospective, and an observer renders
+   nothing".
+H. **CLOSED 2026-08-25** — `bridge.episodeGate()` routes episode ingestion through the
+   real battery, so `self/`'s refusing `NO_GATE` default is unreachable in production.
+   `EpisodeGateVerdict`'s ok arm grew an optional `text` (additive) and ingestion now
+   stores the GATE's text, never the draft — a body credential is redacted like every
+   other ingestion path, and a credential in a HANDLE refuses the whole ingestion.
+   Proof: `test/seams.test.ts` — "UNWIRED, self's default refuses everything — an absent
+   gate is not an open one", "wired, an ordinary episode ingests through the battery", "a
+   credential in an episode body is REDACTED, and the redacted text is what lands", "a
+   credential in a HANDLE refuses the whole ingestion (the ops rule)".
+I. **CLOSED 2026-08-25** — `src/core/mint.ts` (`mintProposal`) is the proposal→memory
+   seam: it writes the RESOLVED `updates:` id to `doc.meta["updates"]` (never the
+   declared string; an unresolved declaration writes no key) and runs
+   `physics.clampSalienceAtSeam` there and nowhere else (this also closes queued item
+   8). Proof: `test/seams.test.ts` — "a resolved `updates:` declaration lands in
+   doc.meta and sleep's dedup REFUSES the merge", "an UNRESOLVED declaration writes no
+   key — a dangling address is not a merge exclusion", "the salience floor is clamped
+   AT this seam and the lift is emitted (queued item 8)".
+J. **CLOSED 2026-08-25** — `ranking` table in `cache/cache.sqlite`
+   (`CACHE_SCHEMA_VERSION` 2, and in `resetCache`'s `TABLES` so `rebuildCache()` drops
+   it), plus `Store.setRanking()` / `ranking()` / `rankingAll()`.
+   `sleep/strength-cache.ts` gains `storeRankingCache()` and `runCycle` defaults to it
+   wherever the port implements the writer; the side sqlite file survives only as the
+   fallback for a port that does not. Proof: `test/seams.test.ts` — "a real cycle writes
+   box 3's ranking table and opens no second sqlite file", "the ranking table is a
+   CACHE: rebuildCache drops it, and the next tick restores it", "an observer cycle
+   materializes nothing at all (the instrument writes no cache)".
+K. **CLOSED 2026-08-25** — `events` table in box 2 with a partial-unique `dedup_key`
+   (the replay latch that reconciles an append-only log with sleep §5 G3), plus
+   `Store.appendEvent()` / `eventLog()` / `pruneEvents()`. `schemas.story()` now reads
+   DURABLE increments and unions this session's ring on top; sleep's prune / promotion
+   / merge records append beside their meta rows (the meta row still goes first, so §5
+   G8's ordering is untouched) through an OPTIONAL `SleepStore.appendEvent`. Proof:
+   `test/seams.test.ts` — "a revision story survives a RESTART: the increments are
+   durable, not ringed", "the dedup latch makes an append-only log idempotent under
+   replay (sleep §5 G3)", "sleep's prune record reaches the durable log beside its meta
+   row, and a replay adds nothing", "the log has bounded retention, and a latched record
+   is never swept".
+L. **CLOSED 2026-08-25** — `Turn.spread` / `ActivationInput.spread` is the injected
+   traversal (`Associate.spreadFrom`), wired at `src/core/retrieval.ts`. Read as option
+   (a) of `associate/INTERFACE-GAPS.md` §1 — the option that file itself calls "the
+   conservative default", and the only one under which SEAMS' own "(preserves recall's
+   hard gate)" is literally true, since a hop reaches a memory "no cue and no embedding
+   touched" and such a memory is uncued in the CONTRACT's vocabulary. So: seeds are the
+   CUED candidates, a contribution to anything that is not already a candidate is
+   DROPPED, and hop weight sits in `activation` but never in `cueFraction`'s numerator —
+   so the graph can only push a candidate AWAY from the loud tier. Proof:
+   `test/seams.test.ts` — "a hop NEVER mints a candidate — an uncued memory stays dark
+   (hard gate (a))", "a hop RAISES a candidate the OTHER channels reached (a semantic
+   hit)", "hops are excluded from cueFraction's NUMERATOR, so they push AWAY from loud".
+M. **CLOSED 2026-08-25** — `physics.consolidationEligibility(m, d, {archived?})` mirrors
+   `promotionEligibility` (`{eligible, reason, blockedBy, band, birthDay}`), and
+   `sleep/consolidate.ts` now executes a crossing it does not define. The property the
+   inline criterion existed to protect travelled with it: NO reinforcement requirement,
+   so a formative one-shot still consolidates without repetition. Proof:
+   `test/seams.test.ts` — "it mirrors promotionEligibility: eligible, first reason, and
+   EVERY blocking reason", "NOTHING consolidates on the day it was encoded, whatever it
+   claims for itself", "a formative ONE-SHOT consolidates without repetition — there is
+   no reinforcement gate", "a faded memory is below the semantic floor and does not
+   consolidate", "sleep now EXECUTES that verdict — the phase's skip reasons are physics'
+   reasons", "a source scan: sleep no longer states the criterion itself".
+N. **CLOSED 2026-08-25** — `mintProposal` routes every proposal that RESOLVED against an
+   existing element through `self.noteSelfConfirmation` (`MintOptions.self`). Two things
+   are engine-set and unclaimable by an author or an interpreter: the CHANNEL
+   (`MintOptions.channel` — a sweep can never call itself authorship, which is the whole
+   doctrine) and the fact that the call happens at all. No second claim-matcher was
+   written: `remember/`'s `updates:` resolution is the matcher, upstream, and the claim's
+   DIRECTION is read off that matcher's own verdict (`mint.directionOf`) rather than
+   defaulted — `declared` (someone ADDRESSED the id to revise it) is a softening, which
+   is never frozen and never reinforces, because a refutation must not credit a use to
+   the belief it refutes (scar §2.10, the same rule `physics.dedupVerdict` checks first
+   for the merge case); `content` / `content+hint` (the engine matched a RESTATEMENT) is
+   a confirmation, which is the doctrine's own scenario when it arrives from a sweep. An
+   unwired freeze seam routes nothing and therefore trains nothing. Proof:
+   `test/seams.test.ts` — "a FALLBACK confirmation against the self is COUNTED and NOT
+   trained", "the SAME claim from the authored front door DOES train — the doctrine's own
+   input", "a DECLARED `updates:` is a softening — a refutation never credits the belief
+   it refutes", "the DIRECTION is read off the matcher's verdict, never defaulted", "the
+   channel is ENGINE-SET: no author field can turn a sweep into authorship", "a claim
+   against an ORDINARY memory is not self-narration and moves normally", "no freeze seam
+   wired means no claim is routed — and nothing is trained either".
+
+**Wave 3 is CLOSED (2026-08-25): A–N all wired and proved in `test/seams.test.ts`.**
+
+**Accepted rent, stated so nobody rediscovers it:** `Store.pruneEvents()` deliberately
+never sweeps a row carrying a `dedup_key`, because that key is the replay latch — and
+every consumer wired so far (schemas' pressure increments, sleep's prune / promotion /
+merge records) carries one. So the log's bounded retention currently bounds only
+latch-free telemetry, which is not yet written by anything. `schemas/INTERFACE-GAPS.md`
+§1 asked for *bounded* retention on increments specifically; the honest fix when the
+volume matters is an age-based sweep that keeps the latch and drops the payload, which
+nothing needs yet (constitution 15).
+No item was skipped and no genuine gap-vs-CONTRACT contradiction was found, so there is
+no Conflicts section. One item needed an INTERPRETATION rather than a transcription —
+item L, where SEAMS' own summary was read against `associate/INTERFACE-GAPS.md` §1 and
+recall's CONTRACT; the reasoning is recorded in L's entry above. Three composition roots
+now exist alongside `bridge.ts`: `src/core/mint.ts` (proposal→memory),
+`src/core/retrieval.ts` (recall's three borrowed channels), `src/core/briefing.ts`
+(sleep→self). Store schema: `SCHEMA_VERSION` 2 and `CACHE_SCHEMA_VERSION` 2, fresh-open
+only — no live stores exist yet, so there is no migration path and none was written.
 
 ## Queued (non-blocking, wire at the next seam pass)
 
-4. **Observer predicate hoists to `src/core/observer.ts`** — store and remember both
-   consume it; remember's `WRITE_SITES` + store's `WRITE_METHODS` become one
-   cross-module totality test.
-5. **`gate_session` table in store** — recall's per-session gate state is
-   read-modify-written via meta; two writers can drop each other's records
-   (scar §2.1 shape). Fix is a table, not merge-on-save.
-6. **Alias map source** — recall enforces both halves of the ambiguous-alias rule but
-   borrows the map from the caller; `schemas/` owns the alias index and must expose it.
+4. **CLOSED 2026-08-25 — see item A.** (Observer predicate hoisted to
+   `src/core/observer.ts`; the cross-module totality test spans both consumers.)
+5. **CLOSED 2026-08-25 — see item B.** (`gate_session` table, one row per record.)
+6. **CLOSED 2026-08-25 — see item C.** (Alias map sourced from `schemas.aliasMap()`.)
 7. **One whole-word rule** — `schemas/` imports `occursAsWholeWord` from
    `encode/words.ts`; a second definition is forbidden (§8 G3; hyphens are word chars).
-8. **Salience clamp site** — `physics.clampSalienceAtSeam` runs at the proposal→memory
-   minting seam (downstream of remember, which carries `claimed` and never re-judges).
+   *Already satisfied in code and asserted by `schemas/`'s own suite; left listed until a
+   source scan covers the whole package.*
+8. **CLOSED 2026-08-25 — see item I.** (`physics.clampSalienceAtSeam` runs in
+   `mintProposal`, at the proposal→memory seam, and nowhere else.)
 9. **`kind` default** — remember defaults `"fact"`; if encode classifies kind, the
    default moves behind the gate verdict.
 10. **`InterpretFn` adapter contract** — streaming, token headroom, detachment are the

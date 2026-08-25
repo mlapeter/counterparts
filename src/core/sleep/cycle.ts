@@ -37,7 +37,7 @@ import { runDedup } from "./dedup.js";
 import type { DedupCandidateSource } from "./dedup.js";
 import { advanceMarker, budgetFor, cadenceFor, markerDue, readMarker } from "./markers.js";
 import { runPrune } from "./prune.js";
-import { sqliteStrengthCache } from "./strength-cache.js";
+import { sqliteStrengthCache, storeRankingCache, supportsRanking } from "./strength-cache.js";
 import type { StrengthCache } from "./strength-cache.js";
 import { shouldSpawn } from "./tunables.js";
 import type {
@@ -64,6 +64,13 @@ export interface SleepOptions {
   date?: string;
   /** `self/`'s briefing render. Absent ⇒ the phase reports `no-render-fn`. */
   render?: RenderFn;
+  /**
+   * The host's reported injection ceiling, passed to the renderer untouched
+   * (SEAMS item G). It joins the cycle options rather than being closed over at
+   * the call site so that a wrong number is a visible ARGUMENT, not a constant
+   * hidden in a lambda between a host's real cliff and the render (scar §2.18).
+   */
+  budgetBytes?: number;
   /** Injected ranking cache. Absent ⇒ the box-3 SQLite one, opened lazily. */
   strengthCache?: StrengthCache;
   /** Extra dedup candidates (embeddings). Isolated: a throw degrades to lexical. */
@@ -121,7 +128,12 @@ export function runCycle(opts: SleepOptions): CycleReport {
   // The ranking cache is opened LAZILY by the decay phase, and never at all
   // under observer: a created file is a mutation.
   const injectedCache = opts.strengthCache;
-  const cache: StrengthCache | null = observer ? null : (injectedCache ?? sqliteStrengthCache(store.dir));
+  // SEAMS item J: box 3's own `ranking` table, through the store's connection, is
+  // the default wherever the port implements it; the side file remains only for a
+  // store-shaped port that does not.
+  const cache: StrengthCache | null = observer
+    ? null
+    : (injectedCache ?? (supportsRanking(store) ? storeRankingCache(store) : sqliteStrengthCache(store.dir)));
 
   emit("sleep.cycle.start", undefined, { date, observer, spawn: shouldSpawn(store).reason });
 
@@ -288,7 +300,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
     // ── phase 7: the wake briefing — the LAST content write ───────────────
     runPhase(
       "briefing",
-      (ctx) => runBriefing(ctx, opts.render),
+      (ctx) => runBriefing(ctx, opts.render, opts.budgetBytes),
       undefined,
       () => (opts.render === undefined ? "no-render-fn" : null),
     );

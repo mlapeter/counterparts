@@ -771,10 +771,13 @@ export class Self {
     // ADD FIRST, then archive the stale one: a failed add can never leave an
     // episode with no live memory (§13 G11).
     const proposal = input as EpisodeProposal;
+    // The GATE's text, never the draft, is what becomes the memory: an episode
+    // is an ordinary ingestion and the battery may have redacted it (SEAMS H).
+    const body = verdict.text !== undefined && verdict.text.length > 0 ? verdict.text : doc.body;
     const put: Parameters<Store["put"]>[0] = {
       type: "memory",
       kind: "self",
-      body: doc.body,
+      body,
       meta: { episodeId: state.episodeId, episodeKey: key, sessionId, handles },
     };
     if (proposal.title !== undefined) put.title = proposal.title;

@@ -17,6 +17,12 @@
  *   3. Claimed salience, dimensions, and title-as-handle reach the battery, and
  *      a battery refusal is marked `refusedByDesign` so callers can tell a
  *      working gate from a broken one.
+ *   4. SEAMS item H: EPISODES route through the same battery. `self/`'s default
+ *      episode gate REFUSES everything ("an absent gate is not an open one"), and
+ *      `episodeGate()` below is what makes that default unreachable in
+ *      production. Episode ingestion was v1's most heavily gated surface — 66% of
+ *      all gate fires (scar §2.7) — and a first-person reflection is not exempt
+ *      from never durably encoding a credential.
  */
 import { computeNovelty, encodeChunk, gateProposal } from "./encode/index.js";
 import type {
@@ -27,6 +33,7 @@ import type {
   Proposal as EncodeProposal,
 } from "./encode/index.js";
 import type { GateFn, SweepChunk } from "./remember/index.js";
+import type { EpisodeGate } from "./self/index.js";
 
 /** Per-proposal gate for the authored paths (session-end dumps and jots). */
 export function batteryGate(): GateFn {
@@ -121,4 +128,34 @@ export function gateSweepChunk(
     day,
   };
   return encodeChunk(input, opts);
+}
+
+/**
+ * The episode gate (SEAMS item H). Episodes are self-authored by definition, so
+ * the emotion exemption applies exactly as it does to a session-end dump; the
+ * handles are the episode's named people and places, and a credential in one
+ * refuses the whole ingestion (the ops rule: a credential must never become an
+ * entity the store indexes).
+ *
+ * A body secret is REDACTED, not fatal, and the redacted text comes back on the
+ * verdict — the same rule every other ingestion path follows.
+ */
+export function episodeGate(): EpisodeGate {
+  return (input) => {
+    const proposal: EncodeProposal = {
+      ref: `episode:${input.sessionId}`,
+      content: input.text,
+      kind: "self",
+      selfAuthoredFeeling: true,
+    };
+    if (input.handles.length > 0) proposal.handles = [...input.handles];
+    const outcome = gateProposal({
+      proposal,
+      span: input.text,
+      novelty: computeNovelty(null, []),
+    });
+    const g = outcome.gated;
+    if (g.accepted) return { ok: true, text: g.content };
+    return { ok: false, gate: g.reason, reason: g.blockedBy.join("+") };
+  };
 }

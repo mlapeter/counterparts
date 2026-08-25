@@ -53,6 +53,8 @@ export {
   STRENGTH_CACHE_FILE,
   memoryStrengthCache,
   sqliteStrengthCache,
+  storeRankingCache,
+  supportsRanking,
   strengthCachePath,
 } from "./strength-cache.js";
 export type { StrengthCache, StrengthRow } from "./strength-cache.js";

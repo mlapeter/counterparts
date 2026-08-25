@@ -113,7 +113,13 @@ export interface EpisodeGateInput {
   readonly sessionId: string;
 }
 
-export type EpisodeGateVerdict = { ok: true } | { ok: false; gate: string; reason: string };
+export type EpisodeGateVerdict =
+  /** `text`, when present, is the gate's REDACTED body — and it, never the draft,
+   *  is what becomes the memory (SEAMS item H; encode §5: "the gate runs before
+   *  anything durable"). A gate that only accepts or refuses omits it, so this is
+   *  additive: an older gate keeps working and simply redacts nothing. */
+  | { ok: true; text?: string }
+  | { ok: false; gate: string; reason: string };
 
 export type EpisodeGate = (input: EpisodeGateInput) => EpisodeGateVerdict;
 

@@ -13,7 +13,12 @@ import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import type { ProseType } from "./prose.js";
 
-export const SCHEMA_VERSION = 1;
+/**
+ * Bumped to 2 (2026-08-25, SEAMS items B + K): `gate_session` and `events`.
+ * No live store exists yet, so the FRESH-OPEN path is the only migration — the
+ * DDL below is `CREATE TABLE IF NOT EXISTS` and nothing rewrites an older file.
+ */
+export const SCHEMA_VERSION = 2;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2). */
 export const DEFAULT_RETENTION_DAYS = 90;
 
@@ -81,6 +86,58 @@ const DDL: readonly string[] = [
      last_fired_day INTEGER,
      PRIMARY KEY (memory_id, window_key)
    )`,
+  // SEAMS item B — per-session gate state, ONE ROW PER RECORD.
+  //
+  // It replaces `recall/`'s `meta` row at `recall.gate.<sessionId>`, which was a
+  // JSON document read-modify-written by two writers (a turn's `recall()` and a
+  // late `resolveUse()` from the boundary, in different processes) — scar §2.1's
+  // exact shape, arriving inside a transactional database because the transaction
+  // was around the wrong span. A row per record means a late writer inserts ITS
+  // record and can no longer drop anybody else's.
+  //
+  // `kind` is open on purpose: `surfaced` and `credited` are recall's, `window` is
+  // where prospective's offered-window keys land (prospective/INTERFACE-GAPS.md §3
+  // — brake 3 of four, currently in-process), and `scalar` carries the row-level
+  // fields (turn counter, refractory, carried cues) that are not per-memory.
+  `CREATE TABLE IF NOT EXISTS gate_session (
+     session_id TEXT NOT NULL,
+     kind       TEXT NOT NULL,
+     ref        TEXT NOT NULL,
+     turn       INTEGER NOT NULL,
+     tier       TEXT,
+     trains     INTEGER,
+     value      TEXT,
+     last_day   INTEGER NOT NULL,
+     PRIMARY KEY (session_id, kind, ref)
+   )`,
+  `CREATE INDEX IF NOT EXISTS gate_session_day ON gate_session (last_day)`,
+  // SEAMS item K — the durable event log.
+  //
+  // `schemas/`'s revision story kept its pressure increments in an in-memory ring:
+  // the pressure number survived a restart and the story of how it got there did
+  // not (schemas/INTERFACE-GAPS.md §1), and constitution line 16 says the owner
+  // can see what changed and why. `sleep/`'s prune/promotion/merge records have the
+  // same shape (sleep/INTERFACE-GAPS.md §3).
+  //
+  // `dedup_key` is what reconciles an APPEND-ONLY log with sleep's §5 G3 replay
+  // idempotence: a record that must land at most once ever carries one, and the
+  // partial unique index makes the second append a no-op. Telemetry passes null
+  // (SQLite treats NULLs as distinct), so ordinary increments still accumulate.
+  //
+  // Payload is content-BY-REFERENCE: ids, hashes, counts, scores. Never body text.
+  // memory_id/ref is deliberately NOT a foreign key — a record outlives its row.
+  `CREATE TABLE IF NOT EXISTS events (
+     seq       INTEGER PRIMARY KEY AUTOINCREMENT,
+     at        INTEGER NOT NULL,
+     day       INTEGER NOT NULL,
+     name      TEXT NOT NULL,
+     ref       TEXT,
+     dedup_key TEXT,
+     payload   TEXT
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS events_dedup ON events (dedup_key) WHERE dedup_key IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS events_name ON events (name, ref)`,
+  `CREATE INDEX IF NOT EXISTS events_day ON events (day)`,
   // The removal record. Append-only, canonical, and deliberately carries NO body and
   // NO content hash (§16 G9: hashing low-entropy content would leak what was removed).
   // memory_id is deliberately NOT a foreign key — the record must outlive the row.
@@ -150,6 +207,27 @@ export interface ProspectiveRow extends Row {
   state: string;
   fires: number;
   last_fired_day: number | null;
+}
+
+export interface GateSessionRow extends Row {
+  session_id: string;
+  kind: string;
+  ref: string;
+  turn: number;
+  tier: string | null;
+  trains: number | null;
+  value: string | null;
+  last_day: number;
+}
+
+export interface EventRow extends Row {
+  seq: number;
+  at: number;
+  day: number;
+  name: string;
+  ref: string | null;
+  dedup_key: string | null;
+  payload: string | null;
 }
 
 export interface RemovalRow extends Row {

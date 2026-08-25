@@ -29,6 +29,14 @@ export interface BriefingContext {
   readonly day: number;
   /** Always false when the renderer is actually invoked — see `runBriefing`. */
   readonly observer: boolean;
+  /**
+   * The HOST's reported injection ceiling, in bytes (SEAMS item G, scar §2.18).
+   * `sleep/` has no business inventing one and does not: it carries the number
+   * the adapter handed `runCycle` and hands it to the renderer unread. Absent
+   * means the host reported none, and the renderer decides what that means —
+   * `self/` REQUIRES it, so its adapter refuses rather than guessing.
+   */
+  readonly budgetBytes?: number;
 }
 
 export interface BriefingOutcome {
@@ -46,7 +54,11 @@ export interface BriefingResult extends PhaseOutcome {
   readonly elements: number;
 }
 
-export function runBriefing(ctx: PhaseCtx, render: RenderFn | undefined): BriefingResult {
+export function runBriefing(
+  ctx: PhaseCtx,
+  render: RenderFn | undefined,
+  budgetBytes?: number,
+): BriefingResult {
   const out = emptyOutcome();
   if (render === undefined) {
     out.skipped["no-render-fn"] = 1;
@@ -60,7 +72,12 @@ export function runBriefing(ctx: PhaseCtx, render: RenderFn | undefined): Briefi
     return { ...out, rendered: false, bytes: 0, elements: 0 };
   }
   const result =
-    render({ store: ctx.store, day: ctx.day, observer: false }) ?? ({} as BriefingOutcome);
+    render({
+      store: ctx.store,
+      day: ctx.day,
+      observer: false,
+      ...(budgetBytes === undefined ? {} : { budgetBytes }),
+    }) ?? ({} as BriefingOutcome);
   out.changed = 1;
   const bytes = result.bytes ?? 0;
   const elements = result.elements ?? 0;

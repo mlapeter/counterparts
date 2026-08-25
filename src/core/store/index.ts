@@ -23,8 +23,8 @@ import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { Db } from "./db.js";
 import { StoreError } from "./errors.js";
-import { isObserver } from "./observer.js";
-import type { Stance } from "./observer.js";
+import { isObserver } from "../observer.js";
+import type { Stance } from "../observer.js";
 import {
   DEFAULT_RETENTION_DAYS,
   SCHEMA_VERSION,
@@ -33,6 +33,8 @@ import {
 } from "./operational.js";
 import type {
   EdgeRow,
+  EventRow,
+  GateSessionRow,
   MemoryRow,
   ProspectiveRow,
   RemovalRow,
@@ -51,13 +53,21 @@ import { indexDoc, nearest, openCache, resetCache, searchIndex } from "./cache.j
 import type { Hit } from "./cache.js";
 
 export * from "./errors.js";
-export * from "./observer.js";
+export * from "../observer.js";
 export * from "./paths.js";
 export * from "./prose.js";
 export type { Db, Statement } from "./db.js";
-export type { MemoryRow, VersionRow, EdgeRow, ProspectiveRow, RemovalRow } from "./operational.js";
+export type {
+  MemoryRow,
+  VersionRow,
+  EdgeRow,
+  EventRow,
+  GateSessionRow,
+  ProspectiveRow,
+  RemovalRow,
+} from "./operational.js";
 export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION } from "./operational.js";
-export { tokenize, cosine } from "./cache.js";
+export { tokenize, cosine, CACHE_SCHEMA_VERSION } from "./cache.js";
 export type { Hit } from "./cache.js";
 export type { OwnerRemovalPort, OwnerRemovalRequest } from "./owner-op-seam.js";
 
@@ -139,6 +149,49 @@ export interface ProspectiveInput {
   lastFiredDay?: number | null;
 }
 
+/**
+ * One per-session gate record (SEAMS item B). A ROW, never a re-serialized
+ * document: two writers on one session each insert their own record, so a late
+ * `resolveUse()` can no longer drop a turn's `recall()` records (scar §2.1).
+ */
+export interface GateRecordInput {
+  sessionId: string;
+  /** `surfaced` / `credited` (recall), `window` (prospective), `scalar` (row state). */
+  kind: string;
+  /** Memory id, window key, or — for `scalar` — the field name. */
+  ref: string;
+  turn: number;
+  lastDay: number;
+  tier?: string | null;
+  /** False when the memory arrived only through ambiguous handles (recall §9 G5). */
+  trains?: boolean | null;
+  /** JSON for `scalar` records. Never body text (§5 G10). */
+  value?: string | null;
+}
+
+/**
+ * One durable event (SEAMS item K). Content-BY-REFERENCE: ids, hashes, counts,
+ * scores, kinds, tiers — never body text, never a user turn.
+ *
+ * `dedupKey` is the replay latch: an event carrying one lands AT MOST ONCE, ever
+ * (sleep §5 G3 — "every day-gated concern is idempotent under replay"), and
+ * `appendEvent` returns 0 when the latch held. Telemetry omits it and accumulates.
+ */
+export interface EventInput {
+  name: string;
+  day: number;
+  ref?: string | null;
+  dedupKey?: string | null;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface RankingRow {
+  id: string;
+  strength: number;
+  band: Band;
+  day: number;
+}
+
 /** No body, no content hash — hashing low-entropy content leaks it (§16 G9). */
 export interface RemovalNote {
   memoryId: string;
@@ -166,6 +219,11 @@ export const WRITE_METHODS = [
   "setProspective",
   "advanceClock",
   "setMeta",
+  "setGateRecords",
+  "pruneGateSessions",
+  "appendEvent",
+  "pruneEvents",
+  "setRanking",
   "pruneSupersededVersions",
   "appendRemovalRecord",
   "rebuildCache",
@@ -549,6 +607,201 @@ export class Store {
       this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value);
     });
     this.emit("store.meta", undefined, { key });
+  }
+
+  // ── box 2: per-session gate state (SEAMS item B) ───────────────────────────
+
+  /**
+   * Upsert gate records. One transaction, one row per record — a writer replaces
+   * only the records it names, so two processes in one session cannot drop each
+   * other's (recall/INTERFACE-GAPS.md §1, scar §2.1).
+   */
+  setGateRecords(rows: readonly GateRecordInput[]): void {
+    // Stance FIRST, then the empty check: an observer must refuse even a no-op
+    // write, or the stand-down becomes conditional on the payload (G6).
+    this.assertWritable("setGateRecords");
+    if (rows.length === 0) return;
+    this.ops.transaction(() => {
+      const st = this.ops.prepare(
+        `INSERT OR REPLACE INTO gate_session
+           (session_id, kind, ref, turn, tier, trains, value, last_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const r of rows) {
+        st.run(
+          r.sessionId,
+          r.kind,
+          r.ref,
+          r.turn,
+          r.tier ?? null,
+          r.trains === undefined || r.trains === null ? null : r.trains ? 1 : 0,
+          r.value ?? null,
+          r.lastDay,
+        );
+      }
+    });
+    this.emit("store.gate.records", undefined, { count: rows.length });
+  }
+
+  gateRecords(sessionId: string, kind?: string): GateSessionRow[] {
+    return kind === undefined
+      ? this.ops.all<GateSessionRow>(
+          "SELECT * FROM gate_session WHERE session_id = ? ORDER BY kind, ref",
+          sessionId,
+        )
+      : this.ops.all<GateSessionRow>(
+          "SELECT * FROM gate_session WHERE session_id = ? AND kind = ? ORDER BY ref",
+          sessionId,
+          kind,
+        );
+  }
+
+  /**
+   * The retention sweep the meta keyspace could never have (recall's gap §1: "a
+   * long-lived store accumulates one dead row per session forever"). Operational
+   * state with a lifetime, swept on the active-day clock beside the version prune.
+   */
+  pruneGateSessions(): PruneReport {
+    const report = this.mutate("pruneGateSessions", () => {
+      const cutoffDay = this.livedDay() - this.retentionDays;
+      const doomed = this.ops.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM gate_session WHERE last_day < ?",
+        cutoffDay,
+      );
+      this.ops.run("DELETE FROM gate_session WHERE last_day < ?", cutoffDay);
+      return { pruned: doomed?.n ?? 0, cutoffDay, retentionDays: this.retentionDays };
+    });
+    this.emit("store.gate.pruned", undefined, {
+      count: report.pruned,
+      cutoffDay: report.cutoffDay,
+    });
+    return report;
+  }
+
+  // ── box 2: the durable event log (SEAMS item K) ────────────────────────────
+
+  /**
+   * Append one event. Returns its seq, or 0 when a `dedupKey` latch refused a
+   * repeat — the caller can tell "recorded" from "already recorded", which is
+   * what replay idempotence needs to stay a fact rather than a hope.
+   */
+  appendEvent(input: EventInput): number {
+    const seq = this.mutate("appendEvent", () => {
+      this.ops.run(
+        `INSERT OR IGNORE INTO events (at, day, name, ref, dedup_key, payload)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        Date.now(),
+        input.day,
+        input.name,
+        input.ref ?? null,
+        input.dedupKey ?? null,
+        input.payload === undefined || input.payload === null
+          ? null
+          : JSON.stringify(input.payload),
+      );
+      const row = this.ops.get<{ n: number }>("SELECT changes() AS n");
+      if ((row?.n ?? 0) === 0) return 0;
+      return this.ops.get<{ seq: number }>("SELECT last_insert_rowid() AS seq")?.seq ?? 0;
+    });
+    this.emit("store.event.appended", input.ref ?? undefined, {
+      name: input.name,
+      seq,
+      deduped: seq === 0,
+    });
+    return seq;
+  }
+
+  /** Oldest first, so a story reads in the order it happened. */
+  eventLog(filter: { name?: string; ref?: string; sinceDay?: number; limit?: number } = {}): EventRow[] {
+    const where: string[] = [];
+    const args: (string | number)[] = [];
+    if (filter.name !== undefined) {
+      where.push("name = ?");
+      args.push(filter.name);
+    }
+    if (filter.ref !== undefined) {
+      where.push("ref = ?");
+      args.push(filter.ref);
+    }
+    if (filter.sinceDay !== undefined) {
+      where.push("day >= ?");
+      args.push(filter.sinceDay);
+    }
+    const sql =
+      "SELECT * FROM events" +
+      (where.length === 0 ? "" : ` WHERE ${where.join(" AND ")}`) +
+      " ORDER BY seq ASC LIMIT ?";
+    return this.ops.all<EventRow>(sql, ...args, filter.limit ?? 500);
+  }
+
+  /**
+   * Bounded retention — logs are telemetry, not canonical memory (CLAUDE.md's one
+   * named exception to no-silent-destruction). Events carrying a `dedupKey` are
+   * KEPT regardless of age: they are the replay latch, and sweeping one would let
+   * a replayed day re-append a record the store already accounted for.
+   */
+  pruneEvents(): PruneReport {
+    const report = this.mutate("pruneEvents", () => {
+      const cutoffDay = this.livedDay() - this.retentionDays;
+      const doomed = this.ops.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM events WHERE day < ? AND dedup_key IS NULL",
+        cutoffDay,
+      );
+      this.ops.run("DELETE FROM events WHERE day < ? AND dedup_key IS NULL", cutoffDay);
+      return { pruned: doomed?.n ?? 0, cutoffDay, retentionDays: this.retentionDays };
+    });
+    this.emit("store.events.pruned", undefined, {
+      count: report.pruned,
+      cutoffDay: report.cutoffDay,
+    });
+    return report;
+  }
+
+  // ── box 3: the ranking cache (SEAMS item J) ────────────────────────────────
+
+  /**
+   * Materialize `strength(m, d)` / `band(m, d)` into box 3. Box 3 only: nothing
+   * here is truth, and `rebuildCache()` drops it with the rest of the cache. A
+   * replayed day is a no-op by construction — same state, same day, same number.
+   */
+  setRanking(rows: readonly RankingRow[]): void {
+    this.assertWritable("setRanking");
+    if (rows.length === 0) return;
+    this.cache.transaction(() => {
+      const st = this.cache.prepare(
+        "INSERT OR REPLACE INTO ranking (memory_id, strength, band, day) VALUES (?, ?, ?, ?)",
+      );
+      for (const r of rows) st.run(r.id, r.strength, r.band, r.day);
+    });
+    this.emit("store.ranking", undefined, { count: rows.length });
+  }
+
+  ranking(id: string): RankingRow | undefined {
+    const row = this.cache.get<{ memory_id: string; strength: number; band: string; day: number }>(
+      "SELECT * FROM ranking WHERE memory_id = ?",
+      id,
+    );
+    return row === undefined
+      ? undefined
+      : { id: row.memory_id, strength: row.strength, band: row.band as Band, day: row.day };
+  }
+
+  rankingAll(): Map<string, RankingRow> {
+    const out = new Map<string, RankingRow>();
+    for (const row of this.cache.all<{
+      memory_id: string;
+      strength: number;
+      band: string;
+      day: number;
+    }>("SELECT * FROM ranking")) {
+      out.set(row.memory_id, {
+        id: row.memory_id,
+        strength: row.strength,
+        band: row.band as Band,
+        day: row.day,
+      });
+    }
+    return out;
   }
 
   /**

@@ -10,7 +10,8 @@
 import type { Db } from "./db.js";
 import { openDb } from "./db.js";
 
-export const CACHE_SCHEMA_VERSION = 1;
+/** Bumped to 2 (2026-08-25, SEAMS item J): the `ranking` table joins box 3. */
+export const CACHE_SCHEMA_VERSION = 2;
 
 const DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS doc_tokens (
@@ -29,9 +30,27 @@ const DDL: readonly string[] = [
      key   TEXT PRIMARY KEY,
      value TEXT NOT NULL
    )`,
+  // SEAMS item J — the materialized ranking cache.
+  //
+  // Strength is a PURE FUNCTION of stored state and the lived day (physics §5.4),
+  // so nothing here is truth: it is `strength(m, d)` and `band(m, d)` written down
+  // so a ranker need not recompute the whole store per query. Delete the file and
+  // the next decay tick re-materializes every row.
+  //
+  // It lives in box 3's own file (and in `TABLES`, so `resetCache` drops it with
+  // the rest) rather than in the side file `sleep/strength-cache.ts` opened: the
+  // store holds the write lock on this database, and two connections contending
+  // for it left box 3 with two owners and one rebuild story
+  // (sleep/INTERFACE-GAPS.md §1).
+  `CREATE TABLE IF NOT EXISTS ranking (
+     memory_id TEXT PRIMARY KEY,
+     strength  REAL NOT NULL,
+     band      TEXT NOT NULL,
+     day       INTEGER NOT NULL
+   )`,
 ];
 
-const TABLES = ["doc_tokens", "embeddings", "cache_meta"] as const;
+const TABLES = ["doc_tokens", "embeddings", "cache_meta", "ranking"] as const;
 
 export function openCache(path: string): Db {
   const db = openDb(path);

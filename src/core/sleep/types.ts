@@ -60,6 +60,32 @@ export interface SleepStore {
   updatePhysics(id: string, patch: Partial<MemoryPhysics>): void;
   setBand(id: string, band: Band, day: number): void;
   pruneSupersededVersions(): VersionPruneReport;
+  /**
+   * The durable event log (SEAMS item K), OPTIONAL so this port stays satisfiable
+   * by any store-shaped object. Where it exists, each prune / promotion / merge
+   * record is appended beside its meta row, which is what makes the three
+   * queryable (INTERFACE-GAPS.md §3) without disturbing §5 G8's ordering: the
+   * meta row is still written FIRST and still gates the move.
+   *
+   * `dedupKey` carries the same per-id record key, so a replayed day appends
+   * nothing a second time (§5 G3) — the log is append-only and idempotent at once.
+   */
+  appendEvent?(input: {
+    name: string;
+    day: number;
+    ref?: string | null;
+    dedupKey?: string | null;
+    payload?: Record<string, unknown> | null;
+  }): number;
+  /**
+   * Box 3's ranking table (SEAMS item J), OPTIONAL for the same reason as
+   * `appendEvent`. Where the port provides it, the decay tick materializes
+   * strength/band THROUGH THE STORE instead of into `strength-cache.ts`'s side
+   * file — which is what gave box 3 two owners and one rebuild story
+   * (INTERFACE-GAPS.md §1). `rebuildCache()` drops the table with the rest.
+   */
+  setRanking?(rows: readonly { id: string; strength: number; band: Band; day: number }[]): void;
+  rankingAll?(): Map<string, { id: string; strength: number; band: Band; day: number }>;
 }
 
 // ---------------------------------------------------------------------------

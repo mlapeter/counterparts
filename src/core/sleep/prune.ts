@@ -116,6 +116,15 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
     if (ctx.apply) {
       try {
         store.setMeta(pruneRecordKey(id), JSON.stringify(verdict.record));
+        // Beside it, never instead of it: the meta row is what §5 G8 gates the
+        // move on; the durable event is what makes the record queryable.
+        store.appendEvent?.({
+          name: verdict.record.event,
+          day,
+          ref: id,
+          dedupKey: pruneRecordKey(id),
+          payload: { ...verdict.record },
+        });
       } catch (err) {
         // §5 G8: a failed record append means nothing moves.
         const code = errorCode(err);

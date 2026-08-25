@@ -198,6 +198,13 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
       // Record first, exactly as the prune does: a merge nobody could account
       // for afterwards is a silent loss of a memory's separate existence.
       store.setMeta(mergeRecordKey(pair.candidateId), JSON.stringify(record));
+      store.appendEvent?.({
+        name: record.event,
+        day,
+        ref: pair.candidateId,
+        dedupKey: mergeRecordKey(pair.candidateId),
+        payload: { ...record },
+      });
       const p = rowToPhysics(originalRow);
       // The WHOLE effect of a merge. Never a rewrite, never a blend (§5.7).
       store.updatePhysics(pair.originalId, { uses: p.uses + verdict.effect.usesDelta });

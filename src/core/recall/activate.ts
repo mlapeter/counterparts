@@ -3,13 +3,33 @@
  *
  * Three channels, and the difference between them is the whole design:
  *
- *   **cue** (lexical) and **semantic** (embedding) are the CONVERSATION. Either
- *   one makes a memory a candidate at all.
+ *   **cue** (lexical, plus TEMPORAL) and **semantic** (embedding) are the
+ *   CONVERSATION. Either one makes a memory a candidate at all.
+ *
+ *   A **temporal cue** — the calendar reached a window a memory remembers — is
+ *   folded into the cue channel and into nothing else (SEAMS item D,
+ *   `prospective/INTERFACE-GAPS.md` §1). It is "one more cue, like the user typing
+ *   'Portland'": same map, same activation number, same background bar, and it
+ *   COUNTS AS CUE in `cueFraction`, or hard gate (c) would silently change
+ *   meaning. It is emphatically NOT the `arrival` channel below, which shares its
+ *   English name and nothing else — wiring a temporal arrival into
+ *   `ARRIVAL_WEIGHT` would turn a recency MULTIPLIER into an ADMISSION channel and
+ *   break hard gate (a) for every dated memory.
  *   **arrival** (base-level strength) is RECENCY. It modulates a candidate that
  *   the conversation already reached, and it can never create one — which is how
  *   hard gate (a), *an uncued memory is dark whatever its salience*, is enforced
  *   structurally rather than checked: an uncued memory is not fetched, so its
  *   salience arithmetic is never evaluated (§9 G7a).
+ *   **hops** (spreading activation, SEAMS item L) MODULATE ONLY, exactly like
+ *   arrival. `associate/INTERFACE-GAPS.md` §1 names three defensible answers and
+ *   SEAMS L records the one chosen: the conservative default, which is the only
+ *   one that keeps hard gate (a) STRUCTURAL — a hop reaches "a memory no cue and
+ *   no embedding touched", and in this contract's vocabulary that memory is
+ *   uncued and therefore dark. So a hop is added to a candidate that already
+ *   exists, never mints one, and is excluded from `cueFraction`'s NUMERATOR —
+ *   which is what makes "spreading never creates a loud-tier candidate without a
+ *   cue" arithmetic rather than a promise: hop weight sits in the denominator and
+ *   pushes the candidate AWAY from the loud tier, never toward it.
  *
  * The candidate set is exactly the union of the token index's hits and the vector
  * index's hits. NO MODEL CALL: the turn's vector is an INPUT. Its absence degrades
@@ -36,8 +56,14 @@ export interface Candidate {
    *  turn-gated, and that gate is the safety property). */
   readonly sal: number;
   readonly cue: number;
+  /** The portion of `cue` that came from a temporal window (already included in
+   *  `cue`; carried separately only so the ceiling below can be decided). */
+  readonly temporal: number;
   readonly semantic: number;
   readonly arrival: number;
+  /** Spreading activation from `associate/`. In `activation`, never in
+   *  `cueFraction`'s numerator, and never able to mint a candidate. */
+  readonly hops: number;
   readonly activation: number;
   /** (cue + semantic) / activation — hard gate (c)'s input. */
   readonly cueFraction: number;
@@ -45,6 +71,11 @@ export interface Candidate {
   /** Every matching cue was an ambiguous handle and nothing corroborated it:
    *  it fires at reduced weight (already applied) and TRAINS NOTHING. */
   readonly trains: boolean;
+  /** A per-candidate tier CEILING. `"footnoted"` for a candidate whose only cue
+   *  is temporal: a remembered date may make a memory quietly available and must
+   *  never make it loud (prospective §12 G5). Absent from the gate's other rules
+   *  by design — it caps, it never admits. */
+  readonly maxTier: "surfaced" | "footnoted";
   readonly confidential: boolean;
 }
 
@@ -53,6 +84,18 @@ export interface ActivationInput {
   readonly vector?: readonly number[] | undefined;
   readonly carried?: readonly string[] | undefined;
   readonly aliases?: ReadonlyMap<string, readonly string[]> | undefined;
+  /** Temporal cues from `prospective.arrivals()`: memory id and cue weight.
+   *  Folded into `cueScore`, never into `arrival` (see the header). */
+  readonly temporal?: readonly { id: string; weight: number }[] | undefined;
+  /** INJECTED traversal (`Associate.spreadFrom`), because `recall/` must not
+   *  import `associate/`. Seeded with the CUED candidates and their own
+   *  activation; contributions to anything that is not already a candidate are
+   *  DROPPED here, which is where "hops modulate only" is enforced. */
+  readonly spread?:
+    | ((seeds: readonly { id: string; activation: number }[], day: number) => {
+        contributions: readonly { id: string; activation: number }[];
+      })
+    | undefined;
   readonly day: number;
   /** Whether the turn stated a FIRST-PERSON feeling. Gates emotional salience. */
   readonly selfFelt: boolean;
@@ -145,6 +188,17 @@ export function activate(
     }
   }
 
+  // ── the temporal channel: the same map, so one activation number ────────
+  // A temporal cue can CREATE a candidate (that is what a cue is) and is counted
+  // as cue by `cueFraction` below. Its ceiling is applied when the candidate is
+  // assembled, not here — this stage scores, it does not decide tiers.
+  const temporalScore = new Map<string, number>();
+  for (const t0 of input.temporal ?? []) {
+    if (!(t0.weight > 0)) continue;
+    temporalScore.set(t0.id, (temporalScore.get(t0.id) ?? 0) + t0.weight);
+    cueScore.set(t0.id, (cueScore.get(t0.id) ?? 0) + t0.weight);
+  }
+
   // ── the embedding channel: an INPUT vector, never a fetched one ──────────
   const semScore = new Map<string, number>();
   let semanticDegraded = false;
@@ -162,6 +216,27 @@ export function activate(
   // ── assemble: only live, resolvable, non-removed memory ─────────────────
   const denied = new Set(store.deniedIds());
   const ids = new Set<string>([...cueScore.keys(), ...semScore.keys()]);
+
+  // ── the hop channel: modulate only (SEAMS item L) ───────────────────────
+  // The seeds are the candidates the CONVERSATION reached; a contribution to
+  // anything outside that set is dropped right here, so a hop can never be the
+  // reason a memory is fetched at all.
+  // The SEEDS are the CUED candidates (`associate/INTERFACE-GAPS.md` §1's own
+  // wording). A seed receives no contribution of its own — a round trip a→b→a
+  // would hand a memory its own activation back as new evidence — so what the
+  // graph can actually raise is a candidate the OTHER channels reached: a
+  // semantic hit, or a temporal one, that the conversation's own words did not.
+  const hopScore = new Map<string, number>();
+  if (input.spread !== undefined && cueScore.size > 0) {
+    const seeds = [...cueScore.entries()].map(([id, activation]) => ({ id, activation }));
+    for (const c of input.spread(seeds, input.day).contributions) {
+      // Dropped unless it is ALREADY a candidate. This line is hard gate (a):
+      // a hop is not a cue, and an uncued memory is dark whatever reached it.
+      if (!ids.has(c.id) || !(c.activation > 0)) continue;
+      hopScore.set(c.id, (hopScore.get(c.id) ?? 0) + c.activation);
+    }
+  }
+
   const candidates: Candidate[] = [];
   let skipped = 0;
   for (const id of ids) {
@@ -179,10 +254,12 @@ export function activate(
     }
     const read = store.read(id);
     const cue = cueScore.get(id) ?? 0;
+    const temporal = temporalScore.get(id) ?? 0;
     const semantic = semScore.get(id) ?? 0;
     const s = strength(read.physics, input.day);
     const arrival = cue + semantic > 0 ? t.ARRIVAL_WEIGHT * s : 0;
-    const activation = cue + semantic + arrival;
+    const hops = cue + semantic > 0 ? hopScore.get(id) ?? 0 : 0;
+    const activation = cue + semantic + arrival + hops;
     candidates.push({
       id,
       kind: read.physics.kind,
@@ -191,12 +268,22 @@ export function activate(
       strength: s,
       sal: gatedSal(read.physics, input.selfFelt),
       cue,
+      temporal,
       semantic,
       arrival,
+      hops,
       activation,
+      // Hops are in the DENOMINATOR only: they can raise a candidate's standing
+      // and can never buy it the loud tier.
       cueFraction: activation > 0 ? (cue + semantic) / activation : 0,
       matched: matchCount.get(id) ?? 0,
-      trains: unambiguousMatch.has(id) || semantic > 0,
+      // A temporal cue is id-addressed: no handle is involved, so nothing about
+      // it is ambiguous, and an unambiguous cue trains. Without this clause a
+      // temporal-only surface would be refused as "ambiguous-handle-trains-
+      // nothing" — a true refusal under a false name (scar §2.4).
+      trains: unambiguousMatch.has(id) || semantic > 0 || temporal > 0,
+      // §12 G5: temporal ALONE reaches the footnote tier at most.
+      maxTier: temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced",
       confidential: isConfidential(read.doc),
     });
   }

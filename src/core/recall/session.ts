@@ -16,23 +16,39 @@
  * separate `Recall` instances over two separate `Store` handles — a fresh process,
  * for all this module can tell — share it.
  *
- * **Store:** `meta` row `recall.gate.<sessionId>`, one JSON document.
- * **Lifetime:** the session. Bounded by `MAX_SESSION_RECORDS` per row because the
- * store exposes no meta enumeration or expiry yet (INTERFACE-GAPS.md #1); `lastDay`
- * is stamped so the sweep that gap describes has something to sweep on.
+ * **Store:** the `gate_session` TABLE in box 2 — ONE ROW PER RECORD, keyed
+ * `(session_id, kind, ref)`. It replaced the single JSON `meta` row at
+ * `recall.gate.<sessionId>` on 2026-08-25 (SEAMS item B), which was the fix
+ * INTERFACE-GAPS.md #1 asked for and the reason it asked:
+ *
+ *   > `setMeta` is transactional per call, but `load → mutate → save` is not, so
+ *   > two writers on one session — a turn's `recall()` and a late `resolveUse()`
+ *   > from the boundary, in different processes — can have the second save drop
+ *   > the first's records.
+ *
+ * That is scar §2.1's own sentence arriving inside a transactional database,
+ * because the transaction was around the wrong span. With a row per record the
+ * late writer inserts ITS record and cannot touch anybody else's. A merge-on-save
+ * would have been the sidecar-plus-discipline answer the scar rejects.
+ *
+ * **Lifetime:** the session, then `Store.pruneGateSessions()` — a real retention
+ * sweep beside `pruneSupersededVersions`, which a meta keyspace could never have.
+ * `MAX_SESSION_RECORDS` still bounds the per-session record maps, applied on the
+ * write AND on the read, so neither direction can exceed it.
  * **Observer:** never written. An instrument deposits nothing, so its gate state
  * lives and dies in the process (`Recall` holds it in memory and stands down at
  * the write).
  */
-import type { Store } from "../store/index.js";
+import type { GateRecordInput, Store } from "../store/index.js";
 import type { UseTier } from "../physics/index.js";
 
 export const GATE_STATE_VERSION = 1;
-export const GATE_KEY_PREFIX = "recall.gate.";
 
-export function gateKey(sessionId: string): string {
-  return `${GATE_KEY_PREFIX}${sessionId}`;
-}
+/** The `gate_session.kind` vocabulary this module owns. `window` is
+ *  `prospective/`'s (INTERFACE-GAPS.md §3) and is deliberately not read here. */
+export const GATE_KINDS = ["surfaced", "credited", "scalar"] as const;
+/** The one `scalar` row: the fields that are not per-memory. */
+export const SCALAR_REF = "state";
 
 /** What a memory got, the turn it got it, and whether it may ever train. */
 export interface SurfaceRecord {
@@ -87,35 +103,63 @@ export interface LoadResult {
   status: "loaded" | "absent" | "unreadable";
 }
 
-export function loadGateState(store: Store, sessionId: string): LoadResult {
-  const raw = store.getMeta(gateKey(sessionId));
-  if (raw === undefined) return { state: freshGateState(sessionId), status: "absent" };
+interface ScalarPayload {
+  v: number;
+  affectFiredTurn: number | null;
+  carriedCues: string[];
+  carriedFromTurn: number;
+}
+
+export function loadGateState(store: Store, sessionId: string, max = Infinity): LoadResult {
+  const rows = store.gateRecords(sessionId);
+  if (rows.length === 0) return { state: freshGateState(sessionId), status: "absent" };
+
+  const scalarRow = rows.find((r) => r.kind === "scalar" && r.ref === SCALAR_REF);
+  if (scalarRow === undefined) return { state: freshGateState(sessionId), status: "unreadable" };
+  let scalar: ScalarPayload;
   try {
-    const parsed = JSON.parse(raw) as Partial<GateState>;
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      parsed.v !== GATE_STATE_VERSION ||
-      typeof parsed.turn !== "number"
-    ) {
+    const parsed = JSON.parse(scalarRow.value ?? "") as Partial<ScalarPayload>;
+    if (parsed === null || typeof parsed !== "object" || parsed.v !== GATE_STATE_VERSION) {
       return { state: freshGateState(sessionId), status: "unreadable" };
     }
-    const fresh = freshGateState(sessionId);
-    return {
-      state: {
-        ...fresh,
-        ...parsed,
-        v: GATE_STATE_VERSION,
-        sessionId,
-        surfaced: parsed.surfaced ?? {},
-        credited: parsed.credited ?? {},
-        carriedCues: parsed.carriedCues ?? [],
-      },
-      status: "loaded",
+    scalar = {
+      v: GATE_STATE_VERSION,
+      affectFiredTurn: parsed.affectFiredTurn ?? null,
+      carriedCues: parsed.carriedCues ?? [],
+      carriedFromTurn: parsed.carriedFromTurn ?? -1,
     };
   } catch {
     return { state: freshGateState(sessionId), status: "unreadable" };
   }
+
+  const surfaced: Record<string, SurfaceRecord> = {};
+  const credited: Record<string, CreditRecord> = {};
+  for (const row of rows) {
+    if (row.kind === "surfaced") {
+      surfaced[row.ref] = {
+        turn: row.turn,
+        tier: row.tier === "footnoted" ? "footnoted" : "surfaced",
+        trains: row.trains !== 0,
+      };
+    } else if (row.kind === "credited") {
+      credited[row.ref] = { turn: row.turn, tier: (row.tier ?? "referenced") as UseTier };
+    }
+  }
+
+  return {
+    state: {
+      v: GATE_STATE_VERSION,
+      sessionId,
+      turn: scalarRow.turn,
+      lastDay: scalarRow.last_day,
+      surfaced: bound(surfaced, max),
+      credited: bound(credited, max),
+      affectFiredTurn: scalar.affectFiredTurn,
+      carriedCues: scalar.carriedCues,
+      carriedFromTurn: scalar.carriedFromTurn,
+    },
+    status: "loaded",
+  };
 }
 
 /** Keep the newest `max` records by turn — the row bounds itself (see header). */
@@ -133,10 +177,41 @@ function bound<T extends { turn: number }>(rows: Record<string, T>, max: number)
  * remembered.
  */
 export function saveGateState(store: Store, state: GateState, max: number): void {
-  const bounded: GateState = {
-    ...state,
-    surfaced: bound(state.surfaced, max),
-    credited: bound(state.credited, max),
-  };
-  store.setMeta(gateKey(state.sessionId), JSON.stringify(bounded));
+  const rows: GateRecordInput[] = [
+    {
+      sessionId: state.sessionId,
+      kind: "scalar",
+      ref: SCALAR_REF,
+      turn: state.turn,
+      lastDay: state.lastDay,
+      value: JSON.stringify({
+        v: GATE_STATE_VERSION,
+        affectFiredTurn: state.affectFiredTurn,
+        carriedCues: state.carriedCues,
+        carriedFromTurn: state.carriedFromTurn,
+      } satisfies ScalarPayload),
+    },
+  ];
+  for (const [id, rec] of Object.entries(bound(state.surfaced, max))) {
+    rows.push({
+      sessionId: state.sessionId,
+      kind: "surfaced",
+      ref: id,
+      turn: rec.turn,
+      lastDay: state.lastDay,
+      tier: rec.tier,
+      trains: rec.trains,
+    });
+  }
+  for (const [id, rec] of Object.entries(bound(state.credited, max))) {
+    rows.push({
+      sessionId: state.sessionId,
+      kind: "credited",
+      ref: id,
+      turn: rec.turn,
+      lastDay: state.lastDay,
+      tier: rec.tier,
+    });
+  }
+  store.setGateRecords(rows);
 }

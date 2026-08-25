@@ -15,11 +15,15 @@
  *     box 2, no prose. A decay pass that mutated canonical state would be v1's
  *     materialize-decay churn, which v2 got as an open choice and declined.
  *
- * It is a SEPARATE FILE from `cache/cache.sqlite` on purpose: the store holds an
- * open connection to that one and takes `BEGIN IMMEDIATE` on it, and its
- * `resetCache()` drops only its own three tables. A foreign table inside it would
- * contend for write locks and survive a rebuild inconsistently. See
- * INTERFACE-GAPS.md §1 — the real fix is a ranking-cache writer on `Store`.
+ * **SEAMS item J closed 2026-08-25:** `Store` now owns a `ranking` table inside
+ * `cache/cache.sqlite`, and `storeRankingCache()` below is the shipped default —
+ * one owner for box 3, one rebuild story (`resetCache` drops `ranking` with the
+ * rest). `sqliteStrengthCache()` stays as the fallback for a store-shaped port
+ * that does not implement the writer, and as the historical record of why the
+ * side file existed: the store holds an open connection to `cache.sqlite` and
+ * takes `BEGIN IMMEDIATE` on it, so a SECOND CONNECTION to the same file would
+ * contend for its write lock. Going through the store's own connection is what
+ * makes the table safe; a foreign connection would not have been.
  *
  * Opening is LAZY. An eagerly-opened SQLite file is a created file, and an
  * observer cycle that creates a file has already failed the byte-compare it
@@ -112,6 +116,34 @@ export function sqliteStrengthCache(dir: string): StrengthCache {
         db.close();
         db = null;
       }
+    },
+  };
+}
+
+/**
+ * The shipped default: box 3's `ranking` table, written through the store's own
+ * connection. No second file, no second lock, and `rebuildCache()` clears it.
+ */
+export interface RankingWriter {
+  setRanking?(rows: readonly StrengthRow[]): void;
+  rankingAll?(): Map<string, StrengthRow>;
+}
+
+export function supportsRanking(
+  store: RankingWriter,
+): store is Required<Pick<RankingWriter, "setRanking" | "rankingAll">> & RankingWriter {
+  return typeof store.setRanking === "function" && typeof store.rankingAll === "function";
+}
+
+export function storeRankingCache(store: RankingWriter): StrengthCache {
+  return {
+    readAll: () => (store.rankingAll?.() ?? new Map<string, StrengthRow>()),
+    write(rows: readonly StrengthRow[]): void {
+      if (rows.length === 0) return;
+      store.setRanking?.(rows);
+    },
+    close: () => {
+      // The store owns the connection and closes it with the store.
     },
   };
 }

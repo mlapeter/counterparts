@@ -9,12 +9,14 @@
  *    of its life (`physics/` §5.2). This is the replay-and-integrate pass, on
  *    v0's 3-lived-day cadence.
  *
- *    The criterion is stated here rather than imported because `physics/` does
- *    not export one (INTERFACE-GAPS.md §5). It is built ONLY from physics'
- *    exports — `band()` and the birth day — so it cannot drift from the band
- *    definition, and it deliberately does NOT require reinforcement: "a formative
- *    one-shot consolidates without repetition" is a property physics protects
- *    with a `max`, and a repetition requirement here would quietly repeal it.
+ *    The criterion MOVED to `physics.consolidationEligibility()` on 2026-08-25
+ *    (SEAMS item M, INTERFACE-GAPS.md §5). This phase now executes a crossing it
+ *    does not define — the shape the whole contract is built on, and the same
+ *    relationship it already had with `promotionEligibility`. The property the
+ *    old inline criterion was written to protect travelled with it: there is
+ *    deliberately NO reinforcement requirement, because "a formative one-shot
+ *    consolidates without repetition" is a property physics protects with a
+ *    `max`, and a repetition gate would quietly repeal it.
  *
  * 2. **Identity promotion — HERE AND ONLY HERE.** Physics decides eligibility
  *    (`base >= THETA_ID` AND reinforcement on >= N = 3 DISTINCT lived days);
@@ -28,7 +30,7 @@
  *    is the intended path into the identity band, not an accident of sequencing.
  */
 
-import { band, promote } from "../physics/index.js";
+import { consolidationEligibility, promote } from "../physics/index.js";
 import type { PromotionReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PROMOTION_RECORD_PREFIX } from "./tunables.js";
@@ -90,14 +92,11 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     let p = rowToPhysics(row);
 
     // ── 1. consolidation marking ────────────────────────────────────────────
-    if (p.consolidated) {
-      countSkip(out, "already-consolidated");
-    } else if (day <= p.birthDay) {
-      // Sleep consolidates yesterday's experience. Nothing consolidates on the
-      // day it was encoded, whatever it claims for itself.
-      countSkip(out, "born-today");
-    } else if (band(p, day) !== "semantic" && !p.promotedIdentity) {
-      countSkip(out, "below-semantic-floor");
+    // Physics decides; this phase executes and counts. The skip vocabulary below
+    // IS physics' reason vocabulary, so a reason cannot drift between them.
+    const eligibility = consolidationEligibility(p, day);
+    if (!eligibility.eligible) {
+      countSkip(out, eligibility.reason);
     } else {
       if (ctx.apply) store.updatePhysics(id, { consolidated: true });
       p = { ...p, consolidated: true };
@@ -125,6 +124,13 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
       // is exactly the emergent promotion this phase exists to replace. If the
       // record cannot be written, the memory does not cross.
       store.setMeta(promotionRecordKey(id), JSON.stringify(record));
+      store.appendEvent?.({
+        name: record.event,
+        day,
+        ref: id,
+        dedupKey: promotionRecordKey(id),
+        payload: { ...record },
+      });
       store.updatePhysics(id, { promotedIdentity: true });
       // The band column in box 2 is canonical for a crossing (it is a decision,
       // not a decay reading) — unlike the decay phase, which touches no canonical

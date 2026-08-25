@@ -394,6 +394,60 @@ export function promotionEligibility(m: MemoryPhysics): PromotionVerdict {
   };
 }
 
+export type ConsolidationReason =
+  | "eligible"
+  | "already-consolidated"
+  | "archived"
+  | "born-today"
+  | "below-semantic-floor";
+
+export interface ConsolidationVerdict {
+  eligible: boolean;
+  /** The first blocking reason, or "eligible". */
+  reason: ConsolidationReason;
+  /** Every blocking reason — consolidation needs ALL conditions (scar §2.4). */
+  blockedBy: ConsolidationReason[];
+  band: Band;
+  birthDay: number;
+}
+
+/**
+ * Consolidation eligibility (SEAMS item M), mirroring `promotionEligibility`:
+ * a memory that has survived at least one lived day past its birth and now sits
+ * at or above the semantic floor is eligible. `consolidated` is worth
+ * `+CONS_BONUS` to `base` for the rest of the memory's life (§5.2), so deciding
+ * WHEN it turns on is arithmetic and belongs here — `sleep/` executes a crossing
+ * it does not define, exactly as it does for promotion.
+ *
+ * **There is deliberately NO reinforcement requirement.** "A formative one-shot
+ * consolidates without repetition" is a property `base` protects with a `max`,
+ * and a repetition gate here would quietly repeal it.
+ *
+ * Nothing consolidates on the day it was encoded, whatever it claims for itself:
+ * sleep consolidates yesterday's experience. A memory already in the identity
+ * band is past the semantic floor by definition and is not blocked by it.
+ */
+export function consolidationEligibility(
+  m: MemoryPhysics,
+  d: number,
+  opts: { archived?: boolean } = {},
+  shape: DecayShape = TUNABLES.DECAY_SHAPE,
+): ConsolidationVerdict {
+  const b = band(m, d, shape);
+  const blockedBy: ConsolidationReason[] = [];
+  if (opts.archived === true) blockedBy.push("archived");
+  if (m.consolidated) blockedBy.push("already-consolidated");
+  if (d <= m.birthDay) blockedBy.push("born-today");
+  if (b !== "semantic" && !m.promotedIdentity) blockedBy.push("below-semantic-floor");
+  return {
+    eligible: blockedBy.length === 0,
+    reason: blockedBy[0] ?? "eligible",
+    blockedBy,
+    band: b,
+    birthDay: m.birthDay,
+  };
+}
+
 export interface PromotionCrossing {
   readonly event: "band.promoted";
   readonly day: number;

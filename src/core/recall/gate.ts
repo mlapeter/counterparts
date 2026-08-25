@@ -50,6 +50,9 @@ export type Verdict =
   | "below-bar"
   /** Hard gate (c): too little of the activation came from cues. */
   | "cue-fraction"
+  /** The per-candidate ceiling: the only cue was a remembered date, and a date
+   *  may make a memory quietly available, never loud (prospective §12 G5). */
+  | "cue-only-temporal"
   /** Reached the bar, but not the loud tier's per-kind floor. */
   | "below-strong-floor"
   /** Lateral inhibition: a near-duplicate of a stronger admitted candidate. */
@@ -65,8 +68,12 @@ export interface CandidateVerdict {
   readonly verdict: Verdict;
   readonly activation: number;
   readonly cue: number;
+  /** The temporal portion of `cue` (already inside it) — SEAMS item D. */
+  readonly temporal: number;
   readonly semantic: number;
   readonly arrival: number;
+  /** Spreading activation (SEAMS item L) — in `activation`, not in cues. */
+  readonly hops: number;
   readonly cueFraction: number;
   readonly sal: number;
   readonly strength: number;
@@ -243,8 +250,10 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       verdict,
       activation: c.activation,
       cue: c.cue,
+      temporal: c.temporal,
       semantic: c.semantic,
       arrival: c.arrival,
+      hops: c.hops,
       cueFraction: c.cueFraction,
       sal: c.sal,
       strength: c.strength,
@@ -295,7 +304,13 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // Loud-tier eligibility. Hard gate (c) first: arrival makes a memory warm,
     // only relevance makes it loud.
     let loud = true;
-    if (c.cueFraction < t.MIN_CUE_FRACTION) {
+    // The per-candidate ceiling is checked FIRST among the loud-tier rules, so a
+    // capped candidate's record NAMES the cap rather than whichever other rule
+    // happened to fire second.
+    if (c.maxTier === "footnoted") {
+      loud = false;
+      loudBlock.set(c.id, "cue-only-temporal");
+    } else if (c.cueFraction < t.MIN_CUE_FRACTION) {
       loud = false;
       loudBlock.set(c.id, "cue-fraction");
     } else if (c.activation < strongFloor(t, c.kind)) {

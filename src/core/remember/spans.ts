@@ -44,8 +44,8 @@ import { join } from "node:path";
 
 import { hashText } from "../store/prose.js";
 import { dataDir } from "../store/paths.js";
-import { isObserver } from "../store/observer.js";
-import type { Stance } from "../store/observer.js";
+import { isObserver } from "../observer.js";
+import type { Stance } from "../observer.js";
 import { TUNABLES } from "./tunables.js";
 
 // ── vocabulary ───────────────────────────────────────────────────────────────

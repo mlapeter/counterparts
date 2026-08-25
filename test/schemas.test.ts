@@ -1059,6 +1059,9 @@ describe("module properties", () => {
 /** Methods TypeScript marks private; they are on the prototype at runtime. */
 const PRIVATE_HELPERS = new Set([
   "load",
+  // SEAMS item K: story() reads the DURABLE increments out of box 2's events
+  // table and unions this session's ring on top. A read helper, no new operation.
+  "storyIncrements",
   "remember",
   "emit",
   "fadedNamed",
