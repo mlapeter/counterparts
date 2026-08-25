@@ -1,4 +1,4 @@
-# `observe/` — CONTRACT
+# Observer mode — a MODE of the core API, not a module (owner ruling 2026-08-25)
 
 ## 1. Purpose
 

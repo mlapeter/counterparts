@@ -143,11 +143,14 @@ checkpointed, never copied — see `cli/`) · **§2.13** (the spawner pins the e
 2. **Ebbinghaus versus flat-per-lived-day decay** — `physics/` open question 1. The choice
    changes what a "calm day" looks like in this module's telemetry.
 3. **Does recompression need a model?** Shortening a statement while preserving first person,
-   the author's voice, and load-bearing specifics is a generative job. With zero standing
-   model calls at launch, either the briefing renders without compression (v0's approach:
-   rank by strength, take what fits) or recompression is the first mechanism to earn a model
-   call back. **v0's briefing had no compressor and fit in 2,000 characters** — Amendment 15
-   says start there.
+   the author's voice, and load-bearing specifics is a generative job. *Correction (adversarial
+   review, finding 4): v0's briefing WAS model-compressed — `generateBriefing` was an API call
+   instructed to fit 2,000 chars; the earlier text here inverted that evidence.* The honest
+   position: launch renders the briefing WITHOUT a model (rank by strength, take what fits the
+   budget, verbatim statements) — not because v0 did, but because Amendment 15 says the simple
+   rule goes first. If briefing quality fails in use with a named failure, recompression is the
+   first candidate to earn a model call back — and v0 is the precedent FOR that call, not
+   against it.
 4. **Is one lock still the right shape** when the operational box is transactional? The
    remaining need is coordinating prose writes with the owner CLI — a narrower job than v1's
    lock did.

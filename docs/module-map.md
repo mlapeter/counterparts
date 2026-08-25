@@ -15,12 +15,12 @@ until after the owner's skeleton check-in.*
 | `remember/` | hippocampal encoding | The authorship contract: the experiencer's end-of-session dump (content, salience tags, `updates:` marks), in-the-moment jots, crash-fallback ingestion. |
 | `store/` | the substrate | Three boxes: prose markdown (canonical), one small SQLite (canonical operational, transactional), one rebuildable cache (embeddings/FTS, never backed up). |
 | `recall/` | retrieval + priming | Cues → activation → surfacing gate → bounded injection; footnote tier; reinforcement on real use. |
-| `associate/` | Hebbian linking | Co-activation strengthens links; spreading activation at recall. **OPEN QUESTION (check-in): fold into `physics/` (the update is math) + `recall/` (the traversal is retrieval)?** |
+| `associate/` | Hebbian linking | Co-activation strengthens links; spreading activation at recall. **RESOLVED (owner, 2026-08-25): stays a module** — edge-level arithmetic keeps `physics/` one page; Hebbian plasticity/contiguity is its own mechanism in the field guide. |
 | `schemas/` | semantic memory | Entities and beliefs; birth by mention, death by decay; strength-weighted revision with row history. |
 | `self/` | autobiographical self | Identity documents, episodes, the wake briefing (v0's briefing, grown up). Governed: frozen self-reinforcement rules. |
 | `prospective/` | prospective memory | Future intentions, cued by time or context; fire / suppress / reference telemetry. |
 | `sleep/` | systems consolidation | Pure math on a cycle: decay tick (active-day clock), floor-pruning (real forgetting), re-render of the wake briefing. Zero standing model calls. |
-| `observe/` | — (instrument stance) | Read-only in both directions: an instrument strengthens nothing and deposits nothing. **OPEN QUESTION (check-in): a module, or a mode threaded through the core API? (Scar E7 says first-class; first-class ≠ separate directory.)** |
+| *(observer)* | — (instrument stance) | **RESOLVED (owner, 2026-08-25): a MODE, not a module** — one predicate threaded through the core API, checked at the store seam. Spec moved to `docs/observer-mode.md`. |
 
 **Third open question (check-in): the `remember`/`encode` boundary.** With the
 experiencer's dump as the primary path, span-capture survives mainly as crash-fallback
@@ -33,12 +33,33 @@ input — does `encode` shrink to gates-and-tagging inside `remember`'s pipeline
 | `claude-code/` | Hooks: wake injection at session start, end-of-session remember, crash detection. The launch adapter. |
 | `mcp/` | Deliberate tools: note, recall, status. |
 | `cli/` | `counterparts` command: status, install, owner operations (delete, export, backup). |
+| `dashboard/` | The owner's window (constitution line 16): brain-view, revision stories, band/protected lists. Observer-mode by construction; minimal version ships DURING the parallel run. **Added 2026-08-25 (owner elevation).** |
 
 ## Tools (`tools/`)
 
 | tool | job |
 |---|---|
 | `replay/` | Validation harness: feed v1's recorded month of real inputs through Counterparts, compare against the distributional baselines (`docs/harvest/replay-baselines.md`, behavioral-spec §17). |
+
+## Rulings — 2026-08-25 (check-in + adversarial review, all owner-ratified)
+
+Contracts are read subject to these; where a contract still says PROPOSED on a listed
+item, this section is the newer law.
+
+1. `associate/` stays a module; observer is a mode (`docs/observer-mode.md`); `encode/`
+   stays separate; `dashboard/` added as an adapter (constitution line 16, ratified).
+2. Physics: pressure-accumulator revision (§5.6 rewritten — field on target, one credited
+   challenge/day, force = strength × sal, novelty at encoding only); nothing born into
+   identity, N = 3 promotion at consolidation (§5.3 rewritten); bands 4→3 and one strength
+   number both settled; decay is a three-way (flat/exponential/power-law) decided by
+   replay; H = 90 is a TUNABLE default, not an owner ruling.
+3. Settled drops: identity-promotion surface, `protected.add` queue, model-seat pins,
+   zero-deps vow. Per-session gate state is persisted (`recall/`). Replay gates use
+   ranges, not point targets. Wake briefing renders WITHOUT a model at launch (the sleep/
+   OQ3 correction: v0's briefing was in fact model-compressed — the precedent cuts the
+   other way, and Amendment 15 decides instead).
+4. The adversarial review's five findings are all conceded and resolved in the contracts
+   as of this date; the §4-vs-§5.3 band contradiction is closed.
 
 ## Authority note
 

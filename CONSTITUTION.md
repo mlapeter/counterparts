@@ -58,3 +58,6 @@ born, then moves to its root.*
 15. **Complexity is earned.** Start with the simplest brain-faithful rule that could
     work. Machinery is added only after the simple rule fails in real use, with the
     failure named — never in anticipation of one. *(Amendment, ratified 2026-08-25.)*
+16. **Legible to its owner.** The system shows its workings — what it remembered, what
+    faded, what changed and why — in a form a human can read at a glance. If the owner
+    can't see it, it isn't trustworthy. *(Amendment, ratified 2026-08-25.)*

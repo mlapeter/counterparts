@@ -58,13 +58,13 @@ humans every retrieval reconsolidates [v1 §10 G1].
   makes exactly-once decay (scar E8) true by construction rather than by a per-item stamp.
   See open question 2 for the recorded revisit condition.
 - **v1's four gradient bands collapse to three** (episodic / semantic / identity).
-  **PROPOSED** — owner call at check-in. "Consolidating" named a transition, and v1's own
+  **SETTLED — owner ruling 2026-08-25.** "Consolidating" named a transition, and v1's own
   crossing telemetry reads as movement between the other three.
 - **v1's separate salience-strength and gradient-position collapse into one number.**
-  **PROPOSED** — owner call at check-in. v1 ran two, decayed one, ranked on a blend, and
+  **SETTLED — owner ruling 2026-08-25.** v1 ran two, decayed one, ranked on a blend, and
   spent a release cycle discovering one was inert (10,470 of 12,375 traces at exactly 0).
-  One number cannot go inert unnoticed. Cost if wrong: band membership becomes
-  decay-sensitive — intended, but a change.
+  One number cannot go inert unnoticed. Band membership becomes decay-sensitive for the
+  lower bands — intended, and now §5.3's law.
 
 ## 5. Contract
 
@@ -86,7 +86,9 @@ novelty(m) = 1 − max( cos( v(m), v(e) ) for e in E(m) )             # predicti
 `E(m)` is the schema slice m was encoded against (beliefs + current state) unioned with its
 `K = 8` nearest existing memories (TUNABLE; v1's semantic seed top-M). `E(m)` empty — a
 blind chunk — yields `novelty = null`, recorded, **never defaulted to a number** (scar §2.9:
-blind encoding must be countable, not invisible). The other three dimensions are
+blind encoding must be countable, not invisible); `sal(m)` is then the mean of the three
+author-supplied dimensions (the null case specified, not implicit — review finding 2). The
+other three dimensions are
 author-supplied, and a claimed salience is a **floor**: `sal(m) ≥ sal_claimed(m)`, clamped
 at the proposal→memory seam, any lift logged [v1 §4.1 G3].
 
@@ -100,8 +102,10 @@ strength(m, d) = clamp01( base(m) × D(m, d) )
 ```
 
 `base` is monotone non-decreasing (salience is fixed, `uses` only rises). The repetition arm
-alone tops out at `0.5 + 0.2 = 0.70`, below `Θ_id = 0.85`: **no amount of repetition reaches
-identity; only revision does** [v1 §10 G11], enforced by arithmetic rather than a check.
+alone tops out at `0.5 + 0.2 = 0.70`, below `Θ_id = 0.85` [v1 §10 G11] — and after review
+finding 2, the salience arm cannot walk in either: **identity is reached only through §5.3's
+explicit promotion (≥ N distinct lived days) or declared revision — never at birth, by
+either arm.**
 
 Per-kind constants. `ω` reads v1 §4.3's *gradient driver* column; **TUNABLE,
 calibration-required** — v1 recorded which arm drives, not a weight, so the non-driving arm's
@@ -118,13 +122,35 @@ number is a proposed reading:
 
 ### 5.3 Bands
 
+*(Rewritten 2026-08-25 after adversarial review findings 2 and 3: the original
+base-evaluated bands were a one-way ratchet with no exit from semantic, and a single
+salience-claimed self-write could be BORN into the identity band — decay-exempt,
+unprunable, and unrevisable. Both closed below. The §4 note "band membership becomes
+decay-sensitive — intended" is the law; the earlier base-evaluated text was the error.)*
+
 ```
-band(m) = identity if base(m) ≥ Θ_id = 0.85     else                 # TUNABLE (v1's value)
-          semantic if base(m) ≥ Θ_sem = 0.50    else  episodic       # TUNABLE
+band(m, d) = identity  if promoted(m)                              # explicit crossing only
+             semantic  if strength(m, d) ≥ Θ_sem = 0.50            # TUNABLE, decay-sensitive
+             episodic  otherwise
 ```
 
-**Band membership is evaluated on `base`, not `strength`** — `base` is monotone, so identity
-membership never flickers and the decay exemption cannot oscillate.
+- **Nothing is born into identity** (owner ruling, N = 3). At birth, band ≤ semantic
+  regardless of claimed salience. Identity is entered only by: (a) a declared revision
+  landing on an existing identity element — the successor inherits membership — or (b)
+  **promotion at consolidation** after `base ≥ Θ_id = 0.85` (TUNABLE) *and* reinforcement
+  on **≥ N = 3 distinct lived days**. The same number, with the same ancestry, as the
+  slow-kind revision pace — one rationale, used twice (Amendment 15).
+- **Promotion is an explicit, counted crossing event** — a distinct record, never an
+  emergent side effect (scar §2.4) — and **identity-band membership is enumerable on
+  demand** beside the protected list: permanence and inspectability scale together
+  (scar §2.19).
+- **Identity stays sticky by design**: decay-exempt (`D = 1`), demoted only by revision —
+  the named deviation of §2 stands. **Semantic/episodic are evaluated on decayed
+  `strength`**: a faded semantic memory demotes to episodic and gains the prune exit —
+  every band now names its way out (scar §2.17 restored), and G12's symmetry counter
+  counts something that can actually move both ways.
+- The systems-consolidation analog is exact: nothing becomes core identity the day it
+  happens; it consolidates in over lived days, or arrives by deliberate revision.
 
 ### 5.4 Decay — Ebbinghaus over lived days
 
@@ -161,33 +187,48 @@ At most one credited occasion per memory per lived day, and never on its birth d
 G9]. Credit is retrospective, resolved at the boundary when the reply is known [v1 §10 G1].
 The ignorable tier never trains.
 
-### 5.6 Revision — strength-weighted, no ledger
+### 5.6 Revision — declared, pressure-accumulated, no second object
+
+*(Rewritten 2026-08-25 after adversarial review finding 1: the original single-shot
+inequality `F = strength × σ` had a ceiling at σ — a well-held belief was arithmetically
+unrevisable, and the 08-24 exhibit would not have fired. The fix restores the ledger's SUM
+in one field, under Amendment 15's earned-machinery rule: the simple version failed with a
+named failure, in review, before shipping.)*
 
 The writer declares `updates: <id>`. The declaration establishes *that* this is a revision;
-physics decides whether it lands.
+physics decides whether it lands — today, or after sustained challenge.
 
 ```
-σ(new)     = max( σ_min, novelty(new) )                # surprise; σ_min = 0.30 TUNABLE
-F(new→old) = strength(new, d) × σ(new)                 # the challenger's force
-REVISE iff  F(new→old) > ι(kind(old)) × strength(old, d)
+F(new→old) = strength(new, d) × sal(new)     # author-assessed evidence weight;
+                                             # novelty plays NO role here (see below)
+P(old)     += F(new→old)                     # challenge pressure — a FIELD ON THE
+                                             # TARGET row, never a second object
+REVISE iff  P(old) > ι(kind(old)) × strength(old, d)
 ```
 
-Plus one inherited gate for the slow kinds only (`ι ≥ 0.8`: self, person): the challenger
-must have been reinforced on **≥ 3 distinct lived days** [v1 §6.2 G4 — "one odd act doesn't
-rewrite your model of a friend"]. Entity, fact, skill, and place are deliberately excluded,
-as in v1: world-state should flip on one clear correction.
-
-**Where accumulation went.** A challenger that loses today is still stored. When the same
-contradiction recurs it deduplicates onto the challenger (§5.7), raising `uses` → `strength`
-→ `F`, until it crosses. Sustained surprise wins; one loud claim against a well-held belief
-does not. On REVISE the old version is marked superseded with lineage, stays **resolvable**,
-and is retained for `H = 90` lived days (owner decision; TUNABLE). No path deletes it.
-
-**Stated caveat — cosine is negation-blind.** "Mike loves X" and "Mike hates X" are
-topically close, so a similarity term alone scores a direct contradiction as *low* surprise.
-This contract does not ask cosine to detect contradiction: the declaration carries intent,
-`σ_min` floors any declared revision's force, and `novelty` supplies magnitude.
-**Calibration-required** (scar §2.8) — `σ_min` ships fixture-bounded or disabled.
+- **One credited challenge per target per lived day** (mirrors §5.5's occasion rule): no
+  session can spam a belief into flipping, and since each increment is ≤ 1, a slow kind
+  (`ι ≥ 0.8`) cannot cross from rest in fewer than ~3 lived days — v1's ≥3-distinct-days
+  gate ("one odd act doesn't rewrite your model of a friend"), subsumed by arithmetic
+  instead of a table. Entity/fact/skill/place (`ι ≤ 0.5`) can still flip on one clear,
+  strong correction, as in v1.
+- **Every increment is logged** — lived day, challenger id, contributed F. The pressure
+  history IS the evidence record, rendered as a story by the dashboard: the ledger's
+  explainability at a hundredth of its machinery.
+- **P decays like everything else** — the same curve family, keyed to the last challenge
+  day — so an abandoned challenge fades instead of lying in ambush.
+- **On REVISE:** the old version is marked superseded with lineage, stays resolvable for
+  `H = 90` lived days (TUNABLE default — assistant-recommended, not owner-ruled), and the
+  successor starts with `P = 0`. Supersession carries or resets the field *on the row* —
+  there is no second object to strand, so scar §2.2's dangling family cannot recur.
+- **Novelty is out of the force term by design** (review condition (c)): σ was doing double
+  duty as detector and magnitude, and because novelty is computed against context that
+  *contains the target* when the author was informed, it rewarded blind challenges over
+  informed ones. The declaration carries intent; `sal(new)` — the author's own
+  how-much-this-mattered — carries magnitude; novelty returns to encoding salience (§5.1)
+  only. The cosine negation-blindness caveat is thereby moot on this path.
+- Identity-band elements are revisable through this same arithmetic — the review's
+  unrevisability ceiling is resolved by summation.
 
 ### 5.7 Dedup
 
@@ -256,12 +297,13 @@ ratchet) · **§2.17** (every kind names its exit — here prune and supersede) 
 
 ## 7. Open questions
 
-1. **Ebbinghaus versus flat-per-lived-day.** This page decays exponentially over lived days;
-   behavioral-spec §11 G3 states v1's decay as "a flat per-lived-day erosion scaled by the
-   kind's durability multiplier — **not** an exponential over calendar time." The objection
-   there is to *calendar* time, which this page does not use — but flatness also earned v1 a
-   property an exponential does not give free: bands are crossed at most twice between
-   reinforcements, so crossing telemetry self-bounds. Unresolved; both shapes are one line.
+1. **Decay shape: flat vs exponential vs power-law — a THREE-way, decided by replay** (owner
+   ruling 2026-08-25: Ebbinghaus-family default, evidence picks). v1 ran flat per-lived-day
+   erosion (its README's objection was to *calendar* time, which this page does not use, and
+   flatness self-bounds crossing telemetry). This page defaults exponential. And engram —
+   the production ancestor — deliberately upgraded exponential → **power-law**, citing
+   Ebbinghaus/Wixted/Jost (review finding 4's addendum; line 12 wants that ancestry named).
+   All three are one line; `tools/replay` runs all three against v1's recorded month.
 2. **Lazy versus materialized strength.** Default here: pure function, materialized by
    `sleep/` into a cache column for ranking. v1 materialized deliberately (ratified
    2026-08-08: "a memory stating its own current strength is directly trustworthy") with a
