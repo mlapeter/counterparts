@@ -194,6 +194,14 @@ export interface GateInput {
   kind: Kind;
   aliases: readonly string[];
   feeling: Feeling | null;
+  /** The author's title, when given. The bridge treats it as a handle (the ops
+   *  rule: a secret in a name rejects the operation). SEAMS item 3. */
+  title: string | null;
+  /** The author's claimed AGGREGATE salience — carried, never re-judged here. */
+  claimed: number | null;
+  /** The author's claimed dimensions (novelty always absent: computed, never
+   *  claimed). SEAMS item 3 — without these the physics floor is unreachable. */
+  salience: Partial<Salience>;
   /** The proposal's OWN span, when it has one. The emotion exemption is evaluated
    *  against this span by the engine that minted the proposal (encode §5 G5). */
   span: { hash: string; text: string } | null;
@@ -209,7 +217,14 @@ export type GateVerdict =
       aliases?: readonly string[];
       feeling?: Feeling | null;
     }
-  | { ok: false; gate: string; reason: string };
+  | {
+      ok: false;
+      gate: string;
+      reason: string;
+      /** True when the refusal is the battery working as designed (a gate
+       *  fired), false/absent when the gate itself failed. SEAMS item 3. */
+      refusedByDesign?: boolean;
+    };
 
 export type GateFn = (input: GateInput) => GateVerdict | Promise<GateVerdict>;
 
@@ -330,6 +345,9 @@ export async function submitProposal(
       kind,
       aliases: draft.aliases ?? [],
       feeling: draft.feeling ?? null,
+      title: draft.title ?? null,
+      claimed: draft.claimed ?? null,
+      salience: draft.salience ?? {},
       span: own === null ? null : { hash: own.hash, text: own.text },
       source: ctx.source,
       day: buffer.day(),
