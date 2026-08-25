@@ -1,0 +1,116 @@
+# `adapters/claude-code/` — CONTRACT
+
+## 1. Purpose
+
+The launch adapter: wake injection at session start, the end-of-session write, and crash
+detection — everything host-specific, so the core stays host-agnostic.
+
+## 2. Brain analog
+
+None. This is the body, not the brain: the sensory and motor surface through which a
+particular host delivers experience and receives context. **Named deviation** (constitution
+line 5, "a layer, not a portal"): every host limit that v1 baked into its memory design —
+the 9 KB injection cliff, the socket lifetime, the shell that happened to export a
+credential — belongs here, discovered at runtime, never assumed by the core.
+
+## 3. Keeps
+
+- **Hooks return in microseconds; heavy work runs detached under a watchdog.** [engram E4,
+  v1] The foreground path never blocks on a model call.
+- **Every session-ending path is a boundary** — normal stop, session end, and
+  pre-compaction. [v1] behavioral-spec §2 G5 — compaction destroying the transcript must
+  not destroy the day. This is the compaction-amnesia backstop.
+- **The wake never fails the session.** [v1] §1 G7 — missing bundle, unreadable config, or
+  failed telemetry means the bootstrap line or nothing, and a clean exit.
+- **The injected block is framed as context, not instruction.** [v1] §1.
+- **Delivery telemetry, distinct from render telemetry.** [v1] scar §2.3 — the adapter is
+  the only thing that can report *arrival*, and v1 shipped eleven days of truncated wakes
+  because only the render was instrumented.
+- **Injected context is excluded from pacing but kept in capture.** [v1] §2 G11 —
+  host-injected material that is user-role but is not the user speaking must not pace a
+  ritual.
+- **Conversational text only**; tool output, file contents, images, and injected context
+  never enter capture. [v1] §2 G10.
+- **The episode ask is one ask, committed before it blocks**, and any error in it is
+  fail-open — collection never depends on the ritual. [v1] §13 G3–G5.
+- **A detached worker that cannot run escalates rather than re-logging.** [engram E4's
+  widening] v1's runner starved for two days for one project scope because it expected to
+  inherit a credential from whatever shell launched the session; the backlog drained only
+  when someone noticed.
+- **Anti-loop re-entrancy guard on the turn hook.** [v1] test-triage `hooks.test.ts`.
+- **Observer stands down at the hook boundary and at the store seam.** [v1] §15, scar E7.
+
+## 4. Drops / simplifies
+
+- **The A/B day-alternating wake mute is gone.** It was an artifact of running two memory
+  systems side by side; it is not a memory property (§1) and the pairing does not exist in
+  v2. Settled by the harvest.
+- **The 9,000-byte wake budget is not a constant here or anywhere.** The adapter
+  **discovers or asserts** its host's injection ceiling and reports it as a capability;
+  the core composes to whatever it is told (scar §2.18). v1's number was 90% of one host's
+  cliff, encoded as though it were physiology.
+- **Multi-file API-key rotation and per-key cursor bookkeeping are dropped**; credentials
+  come from one configured source the package owns, not from an inherited shell
+  environment (scar §2.18: "nothing in the core depends on a tool, file, or environment the
+  host may not provide"). Settled by the scar.
+- **Model-seat pins are dropped.** **PROPOSED** — owner call at check-in. Constitution
+  line 2 says which seat runs which job is a design choice, never doctrine, and the model
+  lineup will have moved. What is **kept** is the bake-off *method* (earned-mechanism #20:
+  real archived inputs through the real path, blind-judged, including the losing tier as a
+  judge) and scar §2.15's requirements: pinned snapshots rather than aliases, one knob per
+  seat rather than one shared across three call sites, and a placeholder that **expires**
+  so "never decided" cannot masquerade as "decided."
+
+## 5. Contract
+
+**Inputs** — host hook events (session start, user turn, stop, session end, pre-compaction);
+the host's transcript slice since the last boundary; host configuration.
+**Outputs** — an injected context block or the empty string; appended spans; the
+end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
+execution ceiling, socket lifetime, credential availability); delivery and stand-down
+telemetry.
+
+**Guarantees** — **[M]** mechanized, **[A]** advisory:
+
+1. **[M] The core imports nothing from this directory**, and a test asserts the dependency
+   direction (constitution line 5).
+2. **[M] No hook ever fails the host.** Every failure is logged and swallowed; every hook
+   returns within its stated budget.
+3. **[M] Every session-ending path reaches the boundary**, and a test enumerates the host's
+   session-ending events and asserts each is wired.
+4. **[M] Host-dependent limits are discovered or asserted at runtime and surfaced as
+   checkable values**, never assumed; exceeding one is an event, not silent degradation
+   (scar §2.18).
+5. **[M] The spawner pins the child's environment last**, so no caller can leak a run into
+   the wrong store (scar §2.13).
+6. **[M] A long call proves it survives this host's ceilings, once, in this host** —
+   adapter-level evidence, per scar E3's rescope.
+7. **[M] Under observer, the boundary appends no span, resolves no references, spawns no
+   worker, and asks for no episode** — and logs that it stood down (scar E7, §2.4).
+8. **[M] The read cursor is per-session and advances only after a successful append**, and
+   a test covers the compaction case: a re-read of overlapping content must not re-encode
+   (the v1 hypothesis that was never verified — carried as a test to write).
+9. **[A] Hook names, wiring, and settings-file merge mechanics are host trivia** and may
+   change with the host without touching a core contract.
+
+## 6. Scars honored
+
+**E3** (streaming, with the host's socket ceiling proven here rather than assumed by the
+core) · **E4** (detached execution, watchdogs, and a worker that alarms when it cannot
+start) · **E7** (stand-down at the hook boundary) · **§2.3** (delivery telemetry) ·
+**§2.13** (the spawner pins the data directory; no environment default) · **§2.15** (pinned
+model snapshots, one knob per seat, placeholders that expire) · **§2.18** (a guarantee
+carried by something you don't own is not a guarantee — this scar is this adapter's
+charter).
+
+## 7. Open questions
+
+1. **Does the host offer an in-the-moment jot channel at all?** The owner's decision allows
+   jots "where the host allows"; whether this host does, and at what cost to the turn, is
+   unmeasured.
+2. **What is the honest bound on the orphanable tail** — the stretch after the last
+   session-ending event nobody can ask about — in this host specifically? v1 bounded it by
+   its re-ask threshold and logged it, which is the right shape; the number is host-local.
+3. **Which host event, if any, means "crashed"?** Crash-fallback interpretation is the only
+   remaining transcript-reading path, and it needs a trigger that is not merely "no
+   end-of-session write happened," since that also describes an ordinary abrupt exit.
