@@ -1,0 +1,340 @@
+/**
+ * `schemas/` — the vocabulary of semantic memory.
+ *
+ * Three ROLES share one prose family (`type: "schema"`), because what
+ * distinguishes them is lifecycle, not shape (behavioral-spec §4.2):
+ *
+ *   - `entity`        the organizing unit — a person, a place, a skill, a
+ *                     project/system, the self. Born by mention, dies by decay.
+ *   - `belief`        a statement held about an entity. Revised only by physics
+ *                     §5.6 arithmetic; there is no edit verb (CONTRACT §5 G1).
+ *   - `current-state` timestamped status about an entity. Refused on the
+ *                     identity schema — the ~72 KB lesson (CONTRACT §3).
+ *
+ * Every row's `kind` is the ENTITY's kind, fixed at birth and never re-derived,
+ * so a belief about a person moves at person inertia (iota 0.8) and project
+ * status on an entity moves at entity inertia (0.5) — "a loosening chosen out
+ * loud" (§4.3).
+ */
+
+import type { Band, Kind, Salience } from "../types.js";
+
+// ---------------------------------------------------------------------------
+// Roles and kinds
+// ---------------------------------------------------------------------------
+
+export const SCHEMA_ROLES = ["entity", "belief", "current-state"] as const;
+export type SchemaRole = (typeof SCHEMA_ROLES)[number];
+
+/**
+ * The kinds birth-by-mention may mint. `self` is absent DELIBERATELY and
+ * independently of every other check — "one identity core; a second is a
+ * category error no evidence could justify" (§14.3, CONTRACT §5 G5). `fact` is
+ * absent because a fact is a memory, not a thing memories attach to.
+ */
+export const BIRTH_KINDS = ["person", "entity", "skill", "place"] as const;
+export type BirthKind = (typeof BIRTH_KINDS)[number];
+
+export function isBirthKind(kind: Kind): kind is BirthKind {
+  return (BIRTH_KINDS as readonly string[]).includes(kind);
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry — ids, hashes, counts, kinds, reasons. NEVER a name, NEVER a body.
+// ---------------------------------------------------------------------------
+
+/**
+ * A schema NAME is author content that the store indexes: it is logged as a
+ * hash, exactly the way `encode/` logs a dropped alias by index rather than by
+ * text. The proposal is logged, not only the outcome (scar §2.4).
+ */
+export interface SchemaEvent {
+  at: number;
+  event: string;
+  ref?: string;
+  data?: Record<string, string | number | boolean | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Birth by mention
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcomes of one mention. `born` and `existing` are both successes and are
+ * DIFFERENT RECORDS; every other value is a loud refusal with its ground named
+ * (scar §2.4 — v1's zero births were ambiguous precisely because "refused" and
+ * "never proposed" were indistinguishable).
+ */
+export type BirthReason =
+  | "born"
+  | "existing"
+  | "second-self-refused"
+  | "kind-not-allowed"
+  | "name-empty"
+  | "name-is-secret"
+  | "name-not-in-source"
+  | "ambiguous-existing-name"
+  | "collision-exact-different-kind"
+  | "collision-near"
+  | "birth-cap-per-chunk";
+
+export interface MentionInput {
+  /** The name as the source said it. Matched against the source verbatim. */
+  name: string;
+  kind: Kind;
+  /** The span the name must occur in, as a whole word (§5 G2). */
+  source: string;
+  /** The chunk this mention came from — the birth cap counts by it (§5 G3). */
+  chunkRef: string;
+  /** Verified individually and DROPPED rather than fatal (§4). */
+  aliases?: readonly string[];
+  /** The lived day. Explicit, never read from a wall clock (scar E8). */
+  day: number;
+}
+
+export interface BirthOutcome {
+  /** True for both `born` and `existing`: a mention that found its home. */
+  ok: boolean;
+  reason: BirthReason;
+  /** The entity this mention resolved to, when there is one. */
+  id: string | null;
+  born: boolean;
+  /** Ids the refusal collided with — a near collision names what it hit. */
+  collidedWith: string[];
+  /** Aliases the alias gate dropped, BY INDEX (author content, §5 G10). */
+  droppedAliases: { index: number; reason: string }[];
+  keptAliases: string[];
+  /** Credited reinforcement on a re-mention, when one landed. */
+  reinforced: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Beliefs and current state
+// ---------------------------------------------------------------------------
+
+export interface DimensionsInput {
+  relevance: number;
+  emotional: number;
+  predictive: number;
+}
+
+export interface BeliefInput {
+  entityId: string;
+  statement: string;
+  day: number;
+  dimensions?: DimensionsInput;
+  /** A FLOOR, never a value (physics §5.1). Clamped at the mint. */
+  claimedSalience?: number | null;
+  protected?: boolean;
+  /** Provenance: the memory ids that grounded this belief. */
+  groundedIn?: readonly string[];
+}
+
+export type BeliefAddReason =
+  | "added"
+  | "entity-unknown"
+  | "entity-archived"
+  | "statement-empty";
+
+export interface BeliefOutcome {
+  ok: boolean;
+  reason: BeliefAddReason;
+  id: string | null;
+}
+
+export interface CurrentStateInput {
+  entityId: string;
+  statement: string;
+  day: number;
+  /** When it was true, at stated precision. Defaults to the store's date. */
+  statedOn?: string;
+  dimensions?: DimensionsInput;
+  claimedSalience?: number | null;
+}
+
+/**
+ * `status-on-identity-refused` IS the ~72 KB lesson, mechanized at this seam:
+ * v1 rendered ~68-72 KB of dated project status into every self-keyed prompt,
+ * and 14 of self's 19 active beliefs were about projects with no retrieval key.
+ * The refusal names where the row belongs instead.
+ */
+export type PlacementReason =
+  | "placed"
+  | "entity-unknown"
+  | "entity-archived"
+  | "statement-empty"
+  | "status-on-identity-refused";
+
+export interface PlacementOutcome {
+  ok: boolean;
+  reason: PlacementReason;
+  id: string | null;
+  /** On refusal: the kinds of home this row DOES have. Advice, not a redirect. */
+  belongsOn: BirthKind[] | null;
+}
+
+// ---------------------------------------------------------------------------
+// Revision
+// ---------------------------------------------------------------------------
+
+export interface ChallengeInput {
+  /** The `updates:` DECLARATION, as written. May name a superseded belief. */
+  updates: string;
+  /** The challenging memory's id. Must already be in the store. */
+  challengerId: string;
+  day: number;
+  /** The successor's prose. Defaults to the challenger's own body. */
+  statement?: string;
+}
+
+/** physics' own `ChallengeReason` values, plus this module's seam refusals. */
+export type RevisionReason =
+  | "revised"
+  | "below-bar"
+  | "no-declared-target"
+  | "target-mismatch"
+  | "already-challenged-today"
+  | "stale-day"
+  | "target-unresolvable"
+  | "target-not-a-belief"
+  | "target-archived"
+  | "protected-refuses-revision"
+  | "challenger-unknown";
+
+export interface PressureIncrement {
+  readonly event: "revision.pressure";
+  readonly targetId: string;
+  readonly day: number;
+  readonly challengerId: string;
+  readonly force: number;
+  readonly pressureAfter: number;
+  readonly bar: number;
+}
+
+export interface RevisionOutcome {
+  verdict: "revise" | "hold";
+  reason: RevisionReason;
+  /** Did the pressure field on the target row actually move? */
+  credited: boolean;
+  /** The id the declaration resolved to after following the supersede chain. */
+  targetId: string | null;
+  /** True when the declaration named a superseded belief and was retargeted. */
+  retargeted: boolean;
+  successorId: string | null;
+  force: number;
+  pressureBefore: number;
+  pressureAfter: number;
+  bar: number;
+  increment: PressureIncrement | null;
+}
+
+// ---------------------------------------------------------------------------
+// Death by decay
+// ---------------------------------------------------------------------------
+
+export type FadeReason =
+  | "faded"
+  | "not-an-entity"
+  | "already-archived"
+  | "above-floor"
+  | "dwell-too-short"
+  | "band-not-episodic"
+  | "protected"
+  | "in-live-revision-chain"
+  | "has-live-attached-elements";
+
+export interface FadeVerdict {
+  fade: boolean;
+  reason: FadeReason;
+  /** EVERY blocker, not just the first. */
+  blockedBy: FadeReason[];
+  strength: number;
+  band: Band;
+  dwellDays: number;
+  attached: number;
+}
+
+export interface FadeReport {
+  day: number;
+  examined: number;
+  faded: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+export interface EntityView {
+  id: string;
+  name: string;
+  kind: Kind;
+  aliases: string[];
+  archived: boolean;
+  archivedReason: string | null;
+  birthDay: number;
+}
+
+export interface ElementView {
+  id: string;
+  entityId: string;
+  role: SchemaRole;
+  statement: string;
+  kind: Kind;
+  archived: boolean;
+  supersededBy: string | null;
+  protected: boolean;
+  salience: Salience;
+  /** Present on current-state rows only: when the status was stated. */
+  statedOn?: string;
+  statedOnDay?: number;
+}
+
+/**
+ * A schema slice as `encode/preselect.ts` consumes it, plus the elision count
+ * guarantee 8 requires. Beliefs and current state are VERBATIM — a paraphrase
+ * of a belief cannot be honestly confirmed or contradicted (§8 G7).
+ */
+export interface SchemaSliceOut {
+  id: string;
+  name: string;
+  aliases: string[];
+  beliefs: string[];
+  currentState: string[];
+  /** Announced as a count, never a silent omission (§5 G8). Zero here today. */
+  elided: number;
+}
+
+export interface LineageStep {
+  id: string;
+  seq: number;
+  reason: string;
+  day: number;
+  successorId: string | null;
+}
+
+/** What the dashboard's story view reads (constitution line 16). */
+export interface BeliefStory {
+  beliefId: string;
+  /** The live head of the chain — `beliefId` itself when nothing superseded it. */
+  headId: string;
+  lineage: LineageStep[];
+  pressure: number;
+  lastChallengedDay: number | null;
+  bar: number;
+  strength: number;
+  /** Every credited increment this session logged, oldest first. */
+  increments: PressureIncrement[];
+}
+
+/**
+ * Guarantee 13: every kind reports created-versus-exited counts. A kind whose
+ * exit count is zero after the bake-in window is a DEFECT TO INVESTIGATE, not a
+ * base rate to accept (scar §2.17) — hence the flag, which is deliberately not
+ * called `ok`.
+ */
+export interface LifecycleRow {
+  kind: Kind;
+  created: number;
+  exited: number;
+  noExitsYet: boolean;
+}
