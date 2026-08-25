@@ -746,7 +746,7 @@ describe("layout", () => {
         classified: true,
       });
     }
-    expect(s.backupSet().sort()).toEqual(["operational.sqlite", "prose", "versions"]);
+    expect(s.backupSet().sort()).toEqual(["operational.sqlite", "prose", "spans", "versions"]);
     expect(LAYOUT.filter((e) => !e.backup).map((e) => e.name).sort()).toEqual(["cache", "tmp"]);
     s.assertLayout();
   });

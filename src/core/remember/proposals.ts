@@ -1,0 +1,446 @@
+/**
+ * Proposal intake — the authorship contract's front door.
+ *
+ * Two deposits, one shape: the experiencer's end-of-session dump and its
+ * in-the-moment jots both arrive as a `ProposalDraft` and leave as a `Proposal`
+ * MINTED BY THE ENGINE (§3, §4.1 G2 — routing an author's own words through an
+ * interpreter would return them as someone else's paraphrase).
+ *
+ * The four mechanized properties that live here:
+ *
+ *   G5  the ENGINE claims coverage, never the author — the author cannot see the
+ *       buffer, so `covers` is filled in on this side of the seam;
+ *   G6  a rejected proposal claims NO coverage — its spans stay in the sweep's input;
+ *   G7  coverage marks never enter gated text — the mark rides in a separate field
+ *       and `renderForSweep()` is the only thing that ever joins the two;
+ *   G9 (§4.1) deliberate deposits are idempotent by CONTENT, not by span text.
+ *
+ * Privilege caps are structural (§4.1 G7): a `Proposal` has no operation fields to
+ * carry. `protect`, `promote`, `schema.create` and friends are not "rejected" — the
+ * minting function has nowhere to put them, and it counts what it dropped.
+ */
+import type { Kind, Salience } from "../types.js";
+import { hashText } from "../store/prose.js";
+import { randomBytes } from "node:crypto";
+
+import type { CoverageMark, Span, SpanBuffer } from "./spans.js";
+import type { UpdatesResolution } from "./updates.js";
+
+// ── the shape the author writes ──────────────────────────────────────────────
+
+export interface Feeling {
+  /** The typed feeling. Absent means null — never "neutral" (encode §3). */
+  feeling: string;
+  /** A quote the span must contain; the gate strips it before anything is durable. */
+  quote: string;
+  /** Who felt it. The emotion exemption applies only when this is the author. */
+  subject: string;
+}
+
+export interface ProposalDraft {
+  content: string;
+  kind?: Kind;
+  title?: string;
+  /** The author's claimed aggregate salience: a FLOOR, clamped in `physics/`. */
+  claimed?: number | null;
+  /** Optional per-dimension hints. Passed through untouched — scoring is encode's. */
+  salience?: Partial<Salience>;
+  feeling?: Feeling;
+  aliases?: string[];
+  /** The declared address of the memory this one revises. Validated, never trusted. */
+  updates?: string;
+  /** An open loop is an ordinary memory with a flag, not a special structure (§4). */
+  unresolved?: boolean;
+}
+
+export type ProposalSource = "session-end" | "jot";
+
+/** What the engine mints. Memory objects only — no operations, by construction. */
+export interface Proposal {
+  id: string;
+  source: ProposalSource;
+  session: string;
+  scope: string;
+  content: string;
+  kind: Kind;
+  title: string | null;
+  salience: Partial<Salience> & { claimed: number | null };
+  feeling: Feeling | null;
+  aliases: string[];
+  updates: UpdatesResolution | null;
+  unresolved: boolean;
+  at: number;
+  day: number;
+  /** Identity for idempotency: CONTENT, not span text (§4.1 G9). */
+  contentHash: string;
+  /** Span hashes this proposal covers. Engine-set, always (§5 G5). */
+  covers: string[];
+  /** The proposal's own span, withheld from the sweep outright. */
+  ownSpanHash: string | null;
+}
+
+// ── intake ───────────────────────────────────────────────────────────────────
+
+export type MalformedReason =
+  | "NOT_AN_OBJECT"
+  | "CONTENT_MISSING"
+  | "CONTENT_EMPTY"
+  | "CLAIMED_NOT_NUMERIC"
+  | "CLAIMED_OUT_OF_RANGE"
+  | "KIND_UNKNOWN"
+  | "TITLE_NOT_STRING"
+  | "UPDATES_NOT_STRING"
+  | "ALIASES_NOT_STRINGS"
+  | "FEELING_MALFORMED";
+
+const KIND_SET: Record<Kind, true> = {
+  self: true,
+  person: true,
+  entity: true,
+  skill: true,
+  place: true,
+  fact: true,
+};
+
+/** Fields a draft may carry. Anything else is dropped and counted — the privilege
+ *  cap is "there is nowhere to put it", not a rule someone must remember. */
+export const DRAFT_FIELDS = [
+  "content",
+  "kind",
+  "title",
+  "claimed",
+  "salience",
+  "feeling",
+  "aliases",
+  "updates",
+  "unresolved",
+] as const;
+
+export type IntakeResult =
+  | { ok: true; draft: Required<Pick<ProposalDraft, "content">> & ProposalDraft; dropped: string[] }
+  | { ok: false; reason: MalformedReason; text: string | null; dropped: string[] };
+
+/**
+ * Validate a raw deposit. A malformed proposal is NOT an error — it degrades to an
+ * ordinary span, read by the fallback (§3, §4.1 G8), so this returns the salvaged
+ * text alongside the reason.
+ */
+export function intake(raw: unknown): IntakeResult {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, reason: "NOT_AN_OBJECT", text: typeof raw === "string" ? raw : null, dropped: [] };
+  }
+  const rec = raw as Record<string, unknown>;
+  const dropped = Object.keys(rec).filter(
+    (k) => !(DRAFT_FIELDS as readonly string[]).includes(k),
+  );
+  const text = typeof rec["content"] === "string" ? (rec["content"] as string) : null;
+  const bad = (reason: MalformedReason): IntakeResult => ({ ok: false, reason, text, dropped });
+
+  if (rec["content"] === undefined) return bad("CONTENT_MISSING");
+  if (typeof rec["content"] !== "string") return bad("CONTENT_MISSING");
+  if (rec["content"].trim().length === 0) return bad("CONTENT_EMPTY");
+
+  if (rec["kind"] !== undefined) {
+    if (typeof rec["kind"] !== "string" || !(rec["kind"] in KIND_SET)) return bad("KIND_UNKNOWN");
+  }
+  if (rec["title"] !== undefined && typeof rec["title"] !== "string") return bad("TITLE_NOT_STRING");
+  if (rec["claimed"] !== undefined && rec["claimed"] !== null) {
+    if (typeof rec["claimed"] !== "number" || !Number.isFinite(rec["claimed"])) {
+      return bad("CLAIMED_NOT_NUMERIC");
+    }
+    if (rec["claimed"] < 0 || rec["claimed"] > 1) return bad("CLAIMED_OUT_OF_RANGE");
+  }
+  if (rec["updates"] !== undefined && typeof rec["updates"] !== "string") {
+    return bad("UPDATES_NOT_STRING");
+  }
+  if (rec["aliases"] !== undefined) {
+    const a = rec["aliases"];
+    if (!Array.isArray(a) || a.some((x) => typeof x !== "string" || x.trim().length === 0)) {
+      return bad("ALIASES_NOT_STRINGS");
+    }
+  }
+  if (rec["feeling"] !== undefined) {
+    const f = rec["feeling"];
+    if (f === null || typeof f !== "object") return bad("FEELING_MALFORMED");
+    const g = f as Record<string, unknown>;
+    if (
+      typeof g["feeling"] !== "string" ||
+      typeof g["quote"] !== "string" ||
+      typeof g["subject"] !== "string" ||
+      g["feeling"].trim().length === 0
+    ) {
+      return bad("FEELING_MALFORMED");
+    }
+  }
+
+  const draft: ProposalDraft = { content: rec["content"] as string };
+  if (rec["kind"] !== undefined) draft.kind = rec["kind"] as Kind;
+  if (typeof rec["title"] === "string") draft.title = rec["title"];
+  if (rec["claimed"] !== undefined) draft.claimed = rec["claimed"] as number | null;
+  if (rec["salience"] !== undefined && typeof rec["salience"] === "object" && rec["salience"] !== null) {
+    draft.salience = rec["salience"] as Partial<Salience>;
+  }
+  if (rec["feeling"] !== undefined) draft.feeling = rec["feeling"] as Feeling;
+  if (rec["aliases"] !== undefined) draft.aliases = rec["aliases"] as string[];
+  if (typeof rec["updates"] === "string") draft.updates = rec["updates"];
+  draft.unresolved = rec["unresolved"] === true;
+  return { ok: true, draft: draft as Required<Pick<ProposalDraft, "content">> & ProposalDraft, dropped };
+}
+
+// ── the gate seam (INJECTED — see INTERFACE-GAPS.md #2) ──────────────────────
+
+export interface GateInput {
+  content: string;
+  kind: Kind;
+  aliases: readonly string[];
+  feeling: Feeling | null;
+  /** The proposal's OWN span, when it has one. The emotion exemption is evaluated
+   *  against this span by the engine that minted the proposal (encode §5 G5). */
+  span: { hash: string; text: string } | null;
+  source: ProposalSource;
+  day: number;
+}
+
+export type GateVerdict =
+  | {
+      ok: true;
+      /** Possibly redacted / hedged. This — never the draft — becomes the memory. */
+      content: string;
+      aliases?: readonly string[];
+      feeling?: Feeling | null;
+    }
+  | { ok: false; gate: string; reason: string };
+
+export type GateFn = (input: GateInput) => GateVerdict | Promise<GateVerdict>;
+
+/** The default when no gate is injected: refuse. `encode/` owns the battery, and a
+ *  missing battery must not read as "everything passes" (fail toward not-authoring). */
+export const NO_GATE: GateFn = () => ({ ok: false, gate: "none", reason: "NO_GATE_INJECTED" });
+
+// ── submit ───────────────────────────────────────────────────────────────────
+
+export type SubmitReason =
+  | "ACCEPTED"
+  | "OBSERVER"
+  | "MALFORMED"
+  | "DUPLICATE_CONTENT"
+  | "GATE_REJECTED"
+  | "GATE_FAILED"
+  | "IO_FAILED";
+
+export interface SubmitResult {
+  accepted: boolean;
+  reason: SubmitReason;
+  proposal: Proposal | null;
+  /** Empty whenever `accepted` is false — a rejected proposal claims no coverage. */
+  coverage: CoverageMark[];
+  gate: string | null;
+  malformed: MalformedReason | null;
+  degradedToSpan: boolean;
+  droppedFields: string[];
+}
+
+export interface SubmitContext {
+  session: string;
+  scope: string;
+  source: ProposalSource;
+  gate?: GateFn;
+  /** The span this deposit IS (a jot's own span), withheld from the sweep outright. */
+  ownSpanHash?: string | null;
+  /** Injected `updates:` resolver — see `updates.ts`. Absent means no resolution
+   *  is attempted and the declaration rides unresolved. */
+  resolveUpdates?: (declared: string, content: string) => Promise<UpdatesResolution> | UpdatesResolution;
+}
+
+/** A proposal record as persisted (the content-idempotency ledger). */
+export interface ProposalRecord {
+  id: string;
+  contentHash: string;
+  session: string;
+  source: ProposalSource;
+  at: number;
+  day: number;
+  covers: string[];
+  accepted: boolean;
+}
+
+export async function submitProposal(
+  buffer: SpanBuffer,
+  raw: unknown,
+  ctx: SubmitContext,
+): Promise<SubmitResult> {
+  const base: SubmitResult = {
+    accepted: false,
+    reason: "OBSERVER",
+    proposal: null,
+    coverage: [],
+    gate: null,
+    malformed: null,
+    degradedToSpan: false,
+    droppedFields: [],
+  };
+
+  if (buffer.observer) {
+    buffer.emit("remember.observer.standdown", undefined, { site: "proposal" });
+    return base;
+  }
+
+  const parsed = intake(raw);
+  if (!parsed.ok) {
+    // Degrade to an ordinary span rather than lose the material (§4.1 G8).
+    let degraded = false;
+    if (parsed.text !== null && parsed.text.trim().length > 0) {
+      degraded = buffer.jot({ session: ctx.session, scope: ctx.scope, text: parsed.text }).captured;
+    }
+    buffer.emit("remember.proposal.malformed", undefined, {
+      reason: parsed.reason,
+      degraded,
+      dropped: parsed.dropped.length,
+    });
+    return {
+      ...base,
+      reason: "MALFORMED",
+      malformed: parsed.reason,
+      degradedToSpan: degraded,
+      droppedFields: parsed.dropped,
+    };
+  }
+
+  const draft = parsed.draft;
+  const contentHash = hashText(normalize(draft.content));
+  const priors = buffer.proposalRecords<ProposalRecord>(ctx.scope);
+  if (priors.some((p) => p.accepted && p.contentHash === contentHash)) {
+    // Two identical deposits cover different spans, so their SPAN hashes differ and
+    // span dedup would miss the repeat. Content is the identity (§4.1 G9).
+    buffer.emit("remember.proposal.duplicate", contentHash, { session: ctx.session });
+    return { ...base, reason: "DUPLICATE_CONTENT", droppedFields: parsed.dropped };
+  }
+
+  const kind: Kind = draft.kind ?? "fact";
+  const own =
+    ctx.ownSpanHash === undefined || ctx.ownSpanHash === null
+      ? null
+      : buffer.spans(ctx.scope).find((s) => s.hash === ctx.ownSpanHash) ?? null;
+
+  const gate = ctx.gate ?? NO_GATE;
+  let verdict: GateVerdict;
+  try {
+    verdict = await gate({
+      content: draft.content,
+      kind,
+      aliases: draft.aliases ?? [],
+      feeling: draft.feeling ?? null,
+      span: own === null ? null : { hash: own.hash, text: own.text },
+      source: ctx.source,
+      day: buffer.day(),
+    });
+  } catch (err) {
+    buffer.emit("remember.proposal.gate.failed", undefined, { session: ctx.session });
+    return { ...base, reason: "GATE_FAILED", gate: "unknown", droppedFields: parsed.dropped, malformed: null };
+  }
+
+  if (!verdict.ok) {
+    // Nothing was authored, so its spans stay in the sweep's input (§5 G6).
+    buffer.emit("remember.proposal.rejected", contentHash, {
+      gate: verdict.gate,
+      reason: verdict.reason,
+    });
+    return { ...base, reason: "GATE_REJECTED", gate: verdict.gate, droppedFields: parsed.dropped };
+  }
+
+  let updates: UpdatesResolution | null = null;
+  if (draft.updates !== undefined && ctx.resolveUpdates !== undefined) {
+    updates = await ctx.resolveUpdates(draft.updates, verdict.content);
+  }
+
+  const proposal: Proposal = {
+    id: `prp_${randomBytes(6).toString("hex")}`,
+    source: ctx.source,
+    session: ctx.session,
+    scope: ctx.scope,
+    content: verdict.content,
+    kind,
+    title: draft.title ?? null,
+    salience: { ...(draft.salience ?? {}), claimed: draft.claimed ?? null },
+    feeling: verdict.feeling !== undefined ? verdict.feeling : draft.feeling ?? null,
+    aliases: [...(verdict.aliases ?? draft.aliases ?? [])],
+    updates,
+    unresolved: draft.unresolved === true,
+    at: buffer.now(),
+    day: buffer.day(),
+    contentHash,
+    covers: [],
+    ownSpanHash: own?.hash ?? null,
+  };
+
+  const coverage = buffer.claimCoverage({
+    scope: ctx.scope,
+    session: ctx.session,
+    proposalId: proposal.id,
+    ownSpanHash: proposal.ownSpanHash,
+  });
+  proposal.covers = coverage.map((c) => c.spanHash);
+
+  const record: ProposalRecord = {
+    id: proposal.id,
+    contentHash,
+    session: proposal.session,
+    source: proposal.source,
+    at: proposal.at,
+    day: proposal.day,
+    covers: proposal.covers,
+    accepted: true,
+  };
+  if (!buffer.recordProposal(ctx.scope, record)) {
+    return { ...base, reason: "IO_FAILED", droppedFields: parsed.dropped };
+  }
+  buffer.emit("remember.proposal.accepted", proposal.id, {
+    source: proposal.source,
+    kind: proposal.kind,
+    claimed: proposal.salience.claimed,
+    covers: proposal.covers.length,
+    updates: proposal.updates?.method ?? "none",
+  });
+
+  return {
+    accepted: true,
+    reason: "ACCEPTED",
+    proposal,
+    coverage,
+    gate: null,
+    malformed: null,
+    degradedToSpan: false,
+    droppedFields: parsed.dropped,
+  };
+}
+
+// ── prompt-side coverage marks (§5 G7) ───────────────────────────────────────
+
+export interface MarkedSpan {
+  /** The span's text, UNTOUCHED — this is what a gate sees. */
+  span: Span;
+  /** Prompt-side only. Nothing that reads `span.text` can ever see this. */
+  mark: string | null;
+}
+
+export const ALREADY_AUTHORED_MARK = "[already authored by the experiencer]";
+
+/**
+ * Join spans with their coverage marks for a prompt. This function is the ONLY
+ * place the two meet, and it returns a rendered string — so no gate can be loosened
+ * by a mark the engine wrote (§5 G7). Covered spans still reach the sweep; only a
+ * proposal's own span is withheld outright, upstream of here.
+ */
+export function markCovered(spans: readonly Span[], covered: ReadonlySet<string>): MarkedSpan[] {
+  return spans.map((span) => ({ span, mark: covered.has(span.hash) ? ALREADY_AUTHORED_MARK : null }));
+}
+
+export function renderForSweep(marked: readonly MarkedSpan[]): string {
+  return marked
+    .map((m) => (m.mark === null ? m.span.text : `${m.mark}\n${m.span.text}`))
+    .join("\n\n---\n\n");
+}
+
+function normalize(text: string): string {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}

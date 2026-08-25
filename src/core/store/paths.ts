@@ -95,6 +95,12 @@ export const LAYOUT: readonly LayoutEntry[] = [
     why: "Box 3 — rebuildable embeddings/FTS. Never backed up; its loss is a re-index.",
   },
   {
+    name: "spans",
+    match: "exact",
+    backup: true,
+    why: "remember/'s capture buffer: lived experience awaiting encoding; not reconstructible.",
+  },
+  {
     name: "tmp",
     match: "exact",
     backup: false,
