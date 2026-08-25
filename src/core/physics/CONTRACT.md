@@ -207,11 +207,14 @@ REVISE iff  P(old) > ι(kind(old)) × strength(old, d)
 ```
 
 - **One credited challenge per target per lived day** (mirrors §5.5's occasion rule): no
-  session can spam a belief into flipping, and since each increment is ≤ 1, a slow kind
-  (`ι ≥ 0.8`) cannot cross from rest in fewer than ~3 lived days — v1's ≥3-distinct-days
-  gate ("one odd act doesn't rewrite your model of a friend"), subsumed by arithmetic
-  instead of a table. Entity/fact/skill/place (`ι ≤ 0.5`) can still flip on one clear,
-  strong correction, as in v1.
+  session can spam a belief into flipping. **And for slow kinds only (`ι ≥ 0.8`: self,
+  person), the credited daily force is capped at `F_DAY_CAP_SLOW = 0.35` (TUNABLE)** —
+  added at implementation (2026-08-25) when the build surfaced that without it one
+  flawless claimed-maximal challenge (F = 1.0) crosses even the highest self bar (0.9) in
+  a single day, making the ratified "~3 lived days to overturn a friend-model" an
+  approximation rather than a bound. With the cap, ≥ 3 lived days is arithmetic
+  (0.35 × 3 > 0.9). Entity/fact/skill/place (`ι ≤ 0.5`) are deliberately uncapped: one
+  clear, strong correction still flips world-state same-day, as in v1.
 - **Every increment is logged** — lived day, challenger id, contributed F. The pressure
   history IS the evidence record, rendered as a story by the dashboard: the ledger's
   explainability at a hundredth of its machinery.

@@ -16,6 +16,12 @@ export interface Salience {
   relevance: number;
   emotional: number;
   predictive: number;
+  /** The author's claimed aggregate salience, if any — a FLOOR, not a value
+   *  (physics §5.1). Stored on the row so `sal(m)` stays reproducible from state
+   *  alone; the dimensions above are never rewritten to satisfy it, and a null
+   *  novelty is never defaulted to satisfy it. Clamped at the proposal->memory
+   *  seam by `clampSalienceAtSeam()`, which emits an event on any lift. */
+  claimed?: number | null;
 }
 
 /** The physics-relevant state of one memory. Days are lived-day integers
@@ -26,6 +32,12 @@ export interface MemoryPhysics {
   birthDay: number;
   uses: number;
   lastUsedDay: number;
+  /** How many DISTINCT lived days credited a use. `uses` is a weighted sum
+   *  (§5.5's tiers) and cannot reconstruct this, and identity promotion is gated
+   *  on >= N = 3 distinct lived days (§5.3). Incremented only by `creditUse()`.
+   *  Optional so this stays an extension, not a break; absent reads as 0, which
+   *  is the promotion-blocking direction. */
+  reinforcedDays?: number;
   consolidated: boolean;
   /** Set only by the explicit promotion crossing or revision inheritance (§5.3). */
   promotedIdentity: boolean;
