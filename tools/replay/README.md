@@ -1,0 +1,1 @@
+Replay harness (placeholder). Contract: tools/replay/CONTRACT.md — validates Counterparts against v1's recorded month of real inputs and the distributional baselines in docs/harvest/replay-baselines.md (behavioral-spec §17). Reads v1 stores READ-ONLY via explicitly-designed paths; never writes outside its own temp dirs.

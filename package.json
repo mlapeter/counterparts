@@ -1,0 +1,11 @@
+{
+  "name": "counterparts",
+  "version": "0.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Memory that turns AI tools into counterparts - a local-first, human-memory-modeled memory layer for AI.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
+}
