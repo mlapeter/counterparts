@@ -1,0 +1,1153 @@
+/**
+ * self/ — identity elements, the wake briefing, the freeze, and episodes.
+ *
+ * Hermetic by construction (CLAUDE.md): every test makes a fresh temp data dir in
+ * beforeEach and removes ONLY that path in afterEach. Nothing here can reach a
+ * real store, and `paths.assertSafeDataDir` refuses the live ones structurally.
+ *
+ * Assertions name the REASON — `WakeReason`, `ClaimReason`, `AskReason`,
+ * `IngestReason`, `CreditOutcome.reason` — never just "it was absent". An element
+ * missing from the briefing because the trim order dropped it and one missing
+ * because it never ranked are different systems, and a test that cannot tell them
+ * apart is the test v1 shipped: eleven days of truncated wakes, all green.
+ */
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Store } from "../src/core/store/index.js";
+import type { PutInput } from "../src/core/store/index.js";
+import { strength } from "../src/core/physics/index.js";
+import type { MemoryPhysics } from "../src/core/types.js";
+import {
+  BOOTSTRAP,
+  BRIEFING_KEY,
+  FRAMING,
+  FROZEN_KINDS,
+  LANE_ORDER,
+  SELF_TUNABLES,
+  Self,
+  TRIM_ORDER,
+  askText,
+  byteLength,
+  compose,
+  counterKey,
+  decide,
+  findIdentityCore,
+  fixedPointTotal,
+  flatten,
+  intakeEpisode,
+  rankLanes,
+  readSentinel,
+  render,
+  scanActive,
+  stateKey,
+} from "../src/core/self/index.js";
+import type { EpisodeGate, LaneName, Lanes, Ranked, Resolve } from "../src/core/self/index.js";
+
+const SELF_SRC = fileURLToPath(new URL("../src/core/self/", import.meta.url));
+
+let dir: string;
+let priorEnv: string | undefined;
+const open: Store[] = [];
+
+beforeEach(() => {
+  priorEnv = process.env["COUNTERPARTS_DATA_DIR"];
+  dir = mkdtempSync(join(tmpdir(), "counterparts-self-"));
+  process.env["COUNTERPARTS_DATA_DIR"] = dir;
+});
+
+afterEach(() => {
+  for (const s of open.splice(0)) {
+    try {
+      s.close();
+    } catch {
+      /* already closed by the test */
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+  if (priorEnv === undefined) delete process.env["COUNTERPARTS_DATA_DIR"];
+  else process.env["COUNTERPARTS_DATA_DIR"] = priorEnv;
+});
+
+function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
+  const s = Store.open({ dir, ...opts });
+  open.push(s);
+  return s;
+}
+
+/** An identity-band element: promoted, decay-exempt, constitutive. */
+function identity(
+  s: Store,
+  body: string,
+  over: { relevance?: number; born?: number; guarded?: boolean; kind?: PutInput["kind"] } = {},
+): string {
+  return s.put({
+    type: "memory",
+    kind: over.kind ?? "self",
+    body,
+    band: "identity",
+    salience: { relevance: over.relevance ?? 0.8, emotional: 0.5, predictive: 0.5 },
+    physics: {
+      promotedIdentity: true,
+      protected: over.guarded ?? false,
+      ...(over.born === undefined ? {} : { birthDay: over.born }),
+    },
+  });
+}
+
+function craft(s: Store, body: string, relevance = 1): string {
+  return s.put({
+    type: "memory",
+    kind: "skill",
+    body,
+    salience: { relevance, emotional: 1, predictive: 1 },
+  });
+}
+
+function thread(s: Store, body: string, opts: { person?: boolean; born?: number } = {}): string {
+  return s.put({
+    type: "memory",
+    kind: opts.person === true ? "person" : "fact",
+    body,
+    meta: { unresolved: true },
+    salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+    ...(opts.born === undefined ? {} : { physics: { birthDay: opts.born } }),
+  });
+}
+
+function hint(s: Store, body: string, relevance = 0.9): string {
+  return s.put({
+    type: "memory",
+    kind: "fact",
+    body,
+    salience: { relevance, emotional: 0.8, predictive: 0.8 },
+  });
+}
+
+function statementLines(text: string): string[] {
+  return text.split("\n").filter((l) => l.startsWith("- "));
+}
+
+const PASS_GATE: EpisodeGate = () => ({ ok: true });
+
+function emptyLanes(): Lanes {
+  return { identity: [], craft: [], threads: [], hints: [], horizon: [] };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the wake briefing — composition", () => {
+  test("lanes render in the contract's composed order, headings and all", () => {
+    const s = store();
+    identity(s, "I care more about being understood than being agreed with.");
+    craft(s, "I read the whole file before editing one line of it.");
+    thread(s, "The question about the house move is still open.");
+    hint(s, "The bus route changed and adds ten minutes.");
+    const self = new Self({ store: s });
+
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+    const at = (needle: string): number => out.text.indexOf(needle);
+
+    expect(at(FRAMING.context)).toBeGreaterThanOrEqual(0);
+    expect(at(FRAMING.identity)).toBeLessThan(at(FRAMING.craft));
+    expect(at(FRAMING.craft)).toBeLessThan(at(FRAMING.threads));
+    expect(at(FRAMING.threads)).toBeLessThan(at(FRAMING.hints));
+    expect(LANE_ORDER).toEqual(["identity", "craft", "threads", "hints", "horizon"]);
+    expect(out.counts).toEqual({ identity: 1, craft: 1, threads: 1, hints: 1, horizon: 0 });
+  });
+
+  test("header AND sentinel each state the bundle's own true bytes and counts", () => {
+    const s = store();
+    for (let i = 0; i < 5; i++) identity(s, `Element ${i}: something true about how I work.`);
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+
+    expect(out.text.startsWith(out.header)).toBe(true);
+    expect(out.text.endsWith(out.sentinel)).toBe(true);
+    expect(out.header).toContain(`bytes=${out.bytes}`);
+    expect(out.header).toContain(`elements=${out.elements}`);
+    expect(out.sentinel).toContain(`bytes=${out.bytes}`);
+    expect(out.sentinel).toContain("identity=5");
+    expect(byteLength(out.text)).toBe(out.bytes);
+
+    const reading = readSentinel(out.text);
+    expect(reading.present).toBe(true);
+    expect(reading.intact).toBe(true);
+    expect(reading.statedBytes).toBe(reading.actualBytes);
+    expect(reading.statedElements).toBe(5);
+  });
+
+  test("the byte fixed point is SOLVED, not iterated — including across a power of ten", () => {
+    // The digit count of the total is part of the total. Every skeleton size in
+    // a wide sweep must yield a total whose own digits match what was assumed.
+    for (let skeleton = 80; skeleton < 1200; skeleton++) {
+      const total = fixedPointTotal(skeleton, 2);
+      expect(total).toBe(skeleton + 2 * String(total).length);
+    }
+  });
+
+  test("an empty store still composes furniture + sentinel — never an empty bundle", () => {
+    const resolve: Resolve = (id) => ({ statement: id });
+    const floor = compose(emptyLanes(), 3, resolve);
+    expect(floor.elements).toBe(0);
+    expect(floor.text).toContain(FRAMING.context);
+    expect(readSentinel(floor.text).intact).toBe(true);
+    expect(floor.sentinel).toContain("elements=0");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the wake briefing — budget, at production scale", () => {
+  /** ~180 elements of realistic length: fixtures cannot reveal an overflow. */
+  function bigStore(): { s: Store; self: Self; lanes: Lanes; resolve: Resolve; statements: Set<string> } {
+    const s = store();
+    for (let i = 0; i < 40; i++) {
+      identity(
+        s,
+        `Identity element ${i}. ${"I hold this about myself and it has stayed true across sessions. ".repeat(3)}`,
+        { relevance: 0.5 + (i % 40) / 100 },
+      );
+    }
+    for (let i = 0; i < 20; i++) {
+      craft(s, `Craft element ${i}. ${"I work this way when the work is hard. ".repeat(4)}`);
+    }
+    for (let i = 0; i < 30; i++) {
+      thread(s, `Open thread ${i}. ${"This was left unfinished and still wants an answer. ".repeat(3)}`, {
+        person: i % 3 === 0,
+        born: i,
+      });
+    }
+    for (let i = 0; i < 90; i++) {
+      hint(s, `Warm fact ${i}. ${"An ordinary thing worth a nudge but not a claim. ".repeat(3)}`);
+    }
+    const self = new Self({ store: s });
+    const scanned = scanActive(s, 0);
+    const lanes = rankLanes(scanned, [], SELF_TUNABLES);
+    const statements = new Set<string>();
+    const map = new Map<string, string>();
+    for (const sc of scanned) {
+      const para = sc.doc.body.split(/\n\s*\n/).find((p) => p.trim().length > 0) ?? sc.doc.body;
+      const flat = flatten(para);
+      map.set(sc.id, flat);
+      statements.add(flat);
+    }
+    const resolve: Resolve = (id) => ({ statement: map.get(id) ?? id });
+    return { s, self, lanes, resolve, statements };
+  }
+
+  test("the composed total obeys ARBITRARY budgets, and the sentinel is always present", () => {
+    const { lanes, resolve } = bigStore();
+    const floor = compose(emptyLanes(), 0, resolve).bytes;
+    const unbounded = render(lanes, { budgetBytes: 10_000_000, day: 0 }, resolve, SELF_TUNABLES);
+    // Production scale, not a fixture: the untrimmed bundle from a real-sized
+    // store overshoots v1's actual 9,000-byte host cliff, so the sweep below is
+    // exercising trimming against a bundle that genuinely does not fit.
+    expect(unbounded.bytes).toBeGreaterThan(9_000);
+
+    for (let budget = 120; budget <= 24_000; budget += 137) {
+      const out = render(lanes, { budgetBytes: budget, day: 0 }, resolve, SELF_TUNABLES);
+      const reading = readSentinel(out.text);
+      expect(reading.present).toBe(true);
+      expect(reading.intact).toBe(true);
+      expect(out.bytes).toBe(byteLength(out.text));
+      expect(out.bytes).toBeLessThanOrEqual(Math.max(budget, floor));
+      expect(out.overBudget).toBe(budget < floor);
+    }
+  });
+
+  test("truncation is NEVER mid-statement — every rendered line is a whole statement", () => {
+    const { lanes, resolve, statements } = bigStore();
+    for (let budget = 150; budget <= 24_000; budget += 211) {
+      const out = render(lanes, { budgetBytes: budget, day: 0 }, resolve, SELF_TUNABLES);
+      for (const line of statementLines(out.text)) {
+        const statement = line.slice(2);
+        expect(statements.has(statement)).toBe(true);
+      }
+      expect(out.text).not.toContain("...");
+      expect(out.text).not.toContain("…");
+    }
+  });
+
+  test("a smaller budget yields a SUBSET, never a reshuffle — trimming is not iteration luck", () => {
+    const { lanes, resolve } = bigStore();
+    let previous: string[] | null = null;
+    for (let budget = 24_000; budget >= 400; budget -= 400) {
+      const out = render(lanes, { budgetBytes: budget, day: 0 }, resolve, SELF_TUNABLES);
+      const kept = LANE_ORDER.flatMap((l) => out.kept[l]);
+      if (previous !== null) {
+        const before = new Set(previous);
+        for (const id of kept) expect(before.has(id)).toBe(true);
+      }
+      previous = kept;
+    }
+  });
+
+  test("the declared trim order is the order things actually die", () => {
+    const { lanes, resolve } = bigStore();
+    expect(TRIM_ORDER).toEqual(["hints", "craft", "threads", "horizon", "identity"]);
+    const out = render(lanes, { budgetBytes: 3_000, day: 0 }, resolve, SELF_TUNABLES);
+    const rank = (l: LaneName): number => TRIM_ORDER.indexOf(l);
+    let seen = -1;
+    for (const t of out.trimmed) {
+      expect(rank(t.lane)).toBeGreaterThanOrEqual(seen);
+      seen = rank(t.lane);
+    }
+    // Identity is last: hints, craft and threads are gone before core is touched.
+    expect(out.counts.hints).toBe(0);
+    expect(out.counts.identity).toBeGreaterThan(0);
+  });
+
+  test("identity survives to the last statement standing", () => {
+    const { lanes, resolve } = bigStore();
+    const floor = compose(emptyLanes(), 0, resolve).bytes;
+    const out = render(lanes, { budgetBytes: floor + 320, day: 0 }, resolve, SELF_TUNABLES);
+    expect(out.counts.craft).toBe(0);
+    expect(out.counts.threads).toBe(0);
+    expect(out.counts.hints).toBe(0);
+    expect(out.counts.identity).toBeGreaterThanOrEqual(1);
+    expect(out.overBudget).toBe(false);
+  });
+
+  test("a budget below the floor publishes the floor and TRIPS, rather than going dark", () => {
+    const { self } = bigStore();
+    const events: string[] = [];
+    const s2 = new Self({ store: self.store, onEvent: (e) => events.push(e.name) });
+    const out = s2.boundary({ budgetBytes: 10, day: 0 });
+
+    expect(out.briefing.overBudget).toBe(true);
+    expect(out.briefing.elements).toBe(0);
+    expect(readSentinel(out.briefing.text).intact).toBe(true);
+    expect(events).toContain("self.briefing.overbudget");
+    // The bundle still published: an under-floor ceiling is a host
+    // misconfiguration, and printing nothing over a full store is amnesia.
+    expect(out.published).toBe(true);
+    expect(s2.wake().reason).toBe("delivered");
+  });
+
+  test("budget PRESSURE is its own event, fired before the budget blows", () => {
+    const { self } = bigStore();
+    const unbounded = self.build({ budgetBytes: 10_000_000, day: 0 });
+    const events: string[] = [];
+    const s2 = new Self({ store: self.store, onEvent: (e) => events.push(e.name) });
+    const out = s2.boundary({ budgetBytes: Math.round(unbounded.bytes / 4), day: 0 });
+    expect(out.briefing.pressure).toBe(true);
+    expect(out.briefing.overBudget).toBe(false);
+    expect(events).toContain("self.briefing.pressure");
+    expect(events).toContain("self.briefing.rendered");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("identity ordering and enumeration", () => {
+  test("identity ranks by strength, ties by age, then by id — deterministically", () => {
+    const s = store();
+    const weak = identity(s, "A weaker thing I believe about myself.", { relevance: 0.2 });
+    const strong = identity(s, "The strongest thing I believe about myself.", { relevance: 1 });
+    const middle = identity(s, "A middling thing I believe about myself.", { relevance: 0.6 });
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+
+    expect(out.kept.identity).toEqual([strong, middle, weak]);
+    const strengths = out.kept.identity.map((id) => strength(s.physicsOf(id), 0));
+    expect(strengths[0]).toBeGreaterThan(strengths[1] ?? 1);
+    expect(strengths[1]).toBeGreaterThan(strengths[2] ?? 1);
+  });
+
+  test("equal strength breaks toward the OLDER element", () => {
+    const s = store();
+    const younger = identity(s, "Equal-weight statement, born later.", { relevance: 0.7, born: 9 });
+    const older = identity(s, "Equal-weight statement, born earlier.", { relevance: 0.7, born: 2 });
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+    expect(out.kept.identity).toEqual([older, younger]);
+  });
+
+  test("threads keep relational debts to the end: person-scoped first, oldest first", () => {
+    const s = store();
+    const newFact = thread(s, "A fact thread opened yesterday.", { born: 8 });
+    const oldPerson = thread(s, "A promise to Robin, still unkept.", { person: true, born: 1 });
+    const oldFact = thread(s, "A fact thread opened long ago.", { born: 2 });
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+    expect(out.kept.threads).toEqual([oldPerson, oldFact, newFact]);
+  });
+
+  test("a memory lands in exactly ONE lane — budget is never spent twice", () => {
+    const s = store();
+    const id = identity(s, "A skill that became constitutive.", { kind: "skill" });
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+    expect(out.kept.identity).toEqual([id]);
+    expect(out.kept.craft).toEqual([]);
+  });
+
+  test("enumeration lists the identity band and the protected set SIDE BY SIDE", () => {
+    const s = store();
+    const plain = identity(s, "An identity element with no permanent ink.");
+    const both = identity(s, "An identity element that is also protected forever.", {
+      guarded: true,
+    });
+    const guardedOnly = s.put({
+      type: "memory",
+      kind: "person",
+      body: "A protected element that never entered the identity band.",
+      physics: { protected: true },
+    });
+    const self = new Self({ store: s });
+    const list = self.enumerate(0);
+
+    expect(list.identity.map((e) => e.id).sort()).toEqual([plain, both].sort());
+    expect(list.protected.map((e) => e.id).sort()).toEqual([both, guardedOnly].sort());
+    expect(list.both).toEqual([both]);
+    expect(list.protectedOutsideIdentity).toEqual([guardedOnly]);
+    expect(list.identity.every((e) => e.promotedIdentity)).toBe(true);
+    expect(list.protected.every((e) => e.protected)).toBe(true);
+  });
+
+  test("enumeration is a PURE read: it writes nothing and logs nothing", () => {
+    const s = store();
+    identity(s, "Something permanent.", { guarded: true });
+    const self = new Self({ store: s });
+    const before = s.events().length;
+    self.enumerate(0);
+    self.enumerate(0);
+    expect(s.events().length).toBe(before);
+    expect(self.events().length).toBe(0);
+  });
+
+  test("protected identity elements ARE in the briefing — the no-render rule guards the interpreter", () => {
+    const s = store();
+    const guarded = identity(s, "The load-bearing anchor, protected and unfalsifiable.", {
+      guarded: true,
+    });
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 100_000, day: 0 });
+    expect(out.kept.identity).toContain(guarded);
+    expect(out.text).toContain("load-bearing anchor");
+  });
+
+  test("the identity core is minted ONCE, in the shape schemas/ indexes", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    const first = self.ensureIdentityCore({ name: "Mike", aliases: ["the owner"] });
+
+    expect(first.created).toBe(true);
+    expect(first.reason).toBe("created");
+    const doc = s.readProse(first.id ?? "");
+    expect(doc.type).toBe("schema");
+    expect(s.physicsOf(first.id ?? "").kind).toBe("self");
+    expect(doc.meta["role"]).toBe("entity");
+    expect(doc.meta["name"]).toBe("Mike");
+    expect(doc.meta["aliases"]).toEqual(["the owner"]);
+    expect(findIdentityCore(s)).toBe(first.id ?? "");
+
+    // A second core is a category error no evidence could justify.
+    const again = self.ensureIdentityCore({ name: "Someone Else" });
+    expect(again.created).toBe(false);
+    expect(again.reason).toBe("exists");
+    expect(again.id).toBe(first.id ?? "");
+    expect(s.list({ type: "schema" }).length).toBe(1);
+  });
+
+  test("the boundary is the door that reaches the core — and it invents no name", () => {
+    const s = store();
+    identity(s, "An ordinary identity statement, which is NOT the core.");
+    const self = new Self({ store: s });
+    self.boundary({ budgetBytes: 8_000, day: 0, identityCore: { name: "Mike" } });
+    expect(findIdentityCore(s)).not.toBeNull();
+
+  });
+
+  test("no name means no core — this module invents neither", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    expect(self.ensureIdentityCore({ name: "  " }).reason).toBe("no-name");
+    expect(findIdentityCore(s)).toBeNull();
+    // A boundary without the field mints nothing at all.
+    self.boundary({ budgetBytes: 8_000, day: 0 });
+    expect(findIdentityCore(s)).toBeNull();
+  });
+
+  test("the core is a PLACE, not a briefing statement — it never enters a lane", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.ensureIdentityCore({ name: "Mike" });
+    identity(s, "The one statement that should be in the identity lane.");
+    const out = self.build({ budgetBytes: 8_000, day: 0 });
+    expect(out.counts.identity).toBe(1);
+    expect(out.text).not.toContain("- Mike");
+  });
+
+  test("the self-schema byte counter reports, and trips, with its own cause named", () => {
+    const s = store();
+    for (let i = 0; i < 6; i++) identity(s, `Status accretion ${i}. ${"x".repeat(400)}`);
+    const self = new Self({ store: s, tunables: { SCHEMA_BYTES_TRIP: 2_000, SCHEMA_BYTES_PRESSURE: 0.5 } });
+    const report = self.schemaBytes(0);
+
+    expect(report.elements).toBe(6);
+    expect(report.bytes).toBeGreaterThan(2_000);
+    expect(report.tripped).toBe(true);
+    expect(report.pressure).toBe(true);
+    expect(report.heaviest.length).toBeGreaterThan(0);
+    expect(report.heaviest[0]?.bytes).toBeGreaterThan(400);
+
+    const events: string[] = [];
+    const s2 = new Self({
+      store: s,
+      tunables: { SCHEMA_BYTES_TRIP: 2_000, SCHEMA_BYTES_PRESSURE: 0.5 },
+      onEvent: (e) => events.push(e.name),
+    });
+    s2.boundary({ budgetBytes: 100_000, day: 0 });
+    expect(events).toContain("self.schema.pressure");
+    expect(events).toContain("self.schema.tripped");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("freeze, but keep counting", () => {
+  /** Physics as the STORE holds it — the only witness that matters here. */
+  function snapshot(s: Store, id: string): { physics: MemoryPhysics; strength: number } {
+    const physics = s.physicsOf(id);
+    return { physics, strength: strength(physics, 1) };
+  }
+
+  test("a fallback confirmation against the self moves NOTHING, and says so", () => {
+    const s = store();
+    const id = identity(s, "I am the kind of collaborator who says the hard thing early.");
+    const self = new Self({ store: s });
+    const before = snapshot(s, id);
+
+    const out = self.noteSelfConfirmation({
+      elementId: id,
+      source: "fallback",
+      direction: "confirm",
+      day: 1,
+    });
+    const after = snapshot(s, id);
+
+    expect(out.frozen).toBe(true);
+    expect(out.reason).toBe("frozen-self-claim-repeat");
+    expect(out.reinforced).toBe(false);
+    expect(out.credit).toBeNull();
+    // Proved through the store's own physics, not through the return value.
+    expect(after.physics).toEqual(before.physics);
+    expect(after.strength).toBe(before.strength);
+    expect(out.strengthAfter).toBe(out.strengthBefore);
+    expect(s.events("store.reinforce").length).toBe(0);
+  });
+
+  test("...and the OCCASION IS STILL COUNTED — the event is the measurement", () => {
+    const s = store();
+    const id = identity(s, "I notice when a room goes quiet.");
+    const self = new Self({ store: s });
+    for (let i = 0; i < 3; i++) {
+      self.noteSelfConfirmation({ elementId: id, source: "fallback", direction: "confirm", day: 1 + i });
+    }
+    const fired = self.events("self.claim.repeat");
+    expect(fired.length).toBe(3);
+    expect(fired.every((e) => e.data?.["frozen"] === true)).toBe(true);
+    expect(fired.every((e) => e.data?.["reason"] === "frozen-self-claim-repeat")).toBe(true);
+    expect(self.claimCounts()[counterKey("self", true)]).toBe(3);
+    expect(s.getMeta(counterKey("self", true))).toBe("3");
+  });
+
+  test("the LIVE arm walks the same path and does move — same event, different marker", () => {
+    const s = store();
+    const id = s.put({
+      type: "memory",
+      kind: "person",
+      body: "Robin prefers to be told the schedule change directly.",
+      salience: { relevance: 0.8 },
+    });
+    const self = new Self({ store: s });
+    const before = snapshot(s, id);
+
+    const out = self.noteSelfConfirmation({
+      elementId: id,
+      source: "fallback",
+      direction: "confirm",
+      day: 1,
+    });
+    const after = snapshot(s, id);
+
+    // Claims about other people are ordinary memory (§14.2 G2/G7).
+    expect(out.frozen).toBe(false);
+    expect(out.reason).toBe("live-other-kind");
+    expect(out.reinforced).toBe(true);
+    expect(out.credit?.reason).toBe("credited");
+    expect(after.physics.uses).toBeGreaterThan(before.physics.uses);
+    expect(after.physics.reinforcedDays).toBe((before.physics.reinforcedDays ?? 0) + 1);
+    expect(self.events("self.claim.repeat")[0]?.data?.["frozen"]).toBe(false);
+    expect(self.claimCounts()[counterKey("person", false)]).toBe(1);
+  });
+
+  test("the frozen and live counters share a denominator, by kind and arm", () => {
+    const s = store();
+    const me = identity(s, "I would rather be corrected than comfortable.");
+    const them = s.put({ type: "memory", kind: "person", body: "Robin runs early on Sundays." });
+    const self = new Self({ store: s });
+    self.noteSelfConfirmation({ elementId: me, source: "fallback", direction: "confirm", day: 1 });
+    self.noteSelfConfirmation({ elementId: me, source: "authored", direction: "confirm", day: 2 });
+    self.noteSelfConfirmation({ elementId: them, source: "fallback", direction: "confirm", day: 1 });
+
+    const counts = self.claimCounts();
+    expect(counts[counterKey("self", true)]).toBe(1);
+    expect(counts[counterKey("self", false)]).toBe(1);
+    expect(counts[counterKey("person", false)]).toBe(1);
+    expect(counts[counterKey("person", true)]).toBeUndefined();
+  });
+
+  test("the deliberate front doors are NOT frozen — lived salience is the legitimate input", () => {
+    const s = store();
+    const id = identity(s, "I get quieter when I am actually thinking.");
+    const self = new Self({ store: s });
+    for (const source of ["authored", "episode", "accommodation"] as const) {
+      const out = self.noteSelfConfirmation({ elementId: id, source, direction: "confirm", day: 1 });
+      expect(out.frozen).toBe(false);
+      expect(out.reason).toBe("live-lived-salience");
+    }
+    expect(s.physicsOf(id).uses).toBeGreaterThan(0);
+  });
+
+  test("softening is untouched on every kind — the freeze is one-directional by design", () => {
+    const s = store();
+    const id = identity(s, "I am impatient with meetings that have no decision in them.");
+    const self = new Self({ store: s });
+    const before = s.physicsOf(id);
+    const out = self.noteSelfConfirmation({
+      elementId: id,
+      source: "fallback",
+      direction: "soften",
+      day: 1,
+    });
+    expect(out.frozen).toBe(false);
+    expect(out.reason).toBe("live-softening");
+    // Softening is a revision, not a reinforcement: nothing strengthens here,
+    // and nothing is withheld from the revision path either.
+    expect(out.reinforced).toBe(false);
+    expect(s.physicsOf(id)).toEqual(before);
+  });
+
+  test("skill kind freezes too — the procedural self is still the self", () => {
+    const s = store();
+    const id = s.put({
+      type: "memory",
+      kind: "skill",
+      body: "I write the failing test before the fix, every time.",
+      salience: { relevance: 0.9 },
+    });
+    const self = new Self({ store: s });
+    const before = s.physicsOf(id);
+    const out = self.noteSelfConfirmation({
+      elementId: id,
+      source: "fallback",
+      direction: "confirm",
+      day: 1,
+    });
+    expect(FROZEN_KINDS).toEqual(["self", "skill"]);
+    expect(out.frozen).toBe(true);
+    expect(s.physicsOf(id)).toEqual(before);
+  });
+
+  test("the freeze is decided on the RESOLVED element — a stale address still freezes", () => {
+    const s = store();
+    const old = identity(s, "An earlier phrasing of who I am.");
+    const fresh = s.supersede(old, {
+      type: "memory",
+      kind: "self",
+      body: "The current phrasing of who I am.",
+      band: "identity",
+      physics: { promotedIdentity: true },
+      salience: { relevance: 0.8 },
+    });
+    const self = new Self({ store: s });
+    const before = s.physicsOf(fresh);
+
+    const out = self.noteSelfConfirmation({
+      elementId: old,
+      source: "fallback",
+      direction: "confirm",
+      day: 1,
+    });
+    expect(out.resolvedId).toBe(fresh);
+    expect(out.frozen).toBe(true);
+    expect(out.reason).toBe("frozen-self-claim-repeat");
+    expect(s.physicsOf(fresh)).toEqual(before);
+    expect(self.events("self.claim.repeat")[0]?.data?.["addressed"]).toBe("forwarded");
+  });
+
+  test("an unknown address is its own reason, not a silent no-op", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    const out = self.noteSelfConfirmation({
+      elementId: "mem_deadbeefdead",
+      source: "fallback",
+      direction: "confirm",
+    });
+    expect(out.reason).toBe("unresolved");
+    expect(out.resolvedId).toBeNull();
+    expect(self.events("self.claim.unresolved").length).toBe(1);
+  });
+
+  test("the verdict itself is pure and total across kind x source x direction", () => {
+    expect(decide("self", "fallback", "confirm").frozen).toBe(true);
+    expect(decide("skill", "fallback", "confirm").frozen).toBe(true);
+    expect(decide("person", "fallback", "confirm").reason).toBe("live-other-kind");
+    expect(decide("self", "fallback", "soften").reason).toBe("live-softening");
+    expect(decide("self", "episode", "confirm").reason).toBe("live-lived-salience");
+    expect(decide("fact", "authored", "confirm").reason).toBe("live-lived-salience");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("episodes", () => {
+  const SUBSTANCE = { turns: 9, bytes: 6_000 };
+
+  test("pacing is substance-based, and every refusal names which substance was missing", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    expect(self.askDue("s1", { turns: 2, bytes: 300 }).reason).toBe("not-enough-substance");
+    // Turns alone are not enough...
+    expect(self.askDue("s1", { turns: 20, bytes: 100 }).reason).toBe("not-enough-substance");
+    // ...but bytes alone are, so a one-prompt agentic session still journals.
+    expect(self.askDue("s1", { turns: 1, bytes: SELF_TUNABLES.SOLO_ASK_BYTES }).reason).toBe(
+      "due-first",
+    );
+    expect(self.askDue("s1", SUBSTANCE).due).toBe(true);
+  });
+
+  test("the advance is COMMITTED before the ask blocks — a crash cannot re-ask in a loop", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    const ask = self.openChapter("s1", SUBSTANCE);
+    expect(ask.asked).toBe(true);
+    expect(ask.verdict.reason).toBe("due-first");
+    expect(ask.ask).toBe(askText(1));
+
+    // A brand-new instance — i.e. the next process — sees the advance.
+    const reborn = new Self({ store: s });
+    expect(reborn.episodeState("s1").chapters).toBe(1);
+    expect(reborn.askDue("s1", SUBSTANCE).reason).toBe("not-enough-substance");
+    expect(s.getMeta(stateKey("s1"))).toBeDefined();
+  });
+
+  test("later chapters need FURTHER substance, and stop at the cap", () => {
+    const s = store();
+    const self = new Self({ store: s, tunables: { MAX_CHAPTERS: 2 } });
+    self.openChapter("s1", SUBSTANCE);
+    expect(self.askDue("s1", { turns: 10, bytes: 6_500 }).reason).toBe("not-enough-substance");
+    const second = self.openChapter("s1", { turns: 18, bytes: 15_000 });
+    expect(second.verdict.reason).toBe("due-substance");
+    expect(second.chapter).toBe(2);
+    expect(self.askDue("s1", { turns: 40, bytes: 40_000 }).reason).toBe("chapter-cap");
+  });
+
+  test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.openChapter("s1", SUBSTANCE);
+    const first = self.appendChapter("s1", "We started with the migration and it went badly.");
+    expect(first.created).toBe(true);
+    expect(first.chapter).toBe(1);
+
+    self.openChapter("s1", { turns: 20, bytes: 16_000 });
+    const second = self.appendChapter("s1", "Then the fix landed and I felt the relief of it.");
+    expect(second.created).toBe(false);
+    expect(second.chapter).toBe(2);
+    expect(second.episodeId).toBe(first.episodeId);
+
+    const body = s.readProse(second.episodeId ?? "").body;
+    expect(body.indexOf("chapter 1")).toBeLessThan(body.indexOf("chapter 2"));
+    expect(body).toContain("migration");
+    expect(body).toContain("relief");
+    // Archive-on-overwrite: the pre-append state is still readable.
+    expect(s.versions(second.episodeId ?? "").length).toBe(1);
+  });
+
+  test("appending twice INSIDE one chapter continues it — one heading, not two", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.openChapter("s1", SUBSTANCE);
+    const first = self.appendChapter("s1", "The migration started badly.");
+    const again = self.appendChapter("s1", "And then, eighty seconds later, it mattered.");
+
+    expect(first.heading).toBe(true);
+    expect(again.heading).toBe(false);
+    expect(again.chapter).toBe(1);
+    const body = s.readProse(first.episodeId ?? "").body;
+    expect(body.split("## chapter 1").length - 1).toBe(1);
+    expect(body).toContain("eighty seconds later");
+
+    // A real new chapter still gets its own heading.
+    self.openChapter("s1", { turns: 20, bytes: 16_000 });
+    const second = self.appendChapter("s1", "The evening, which was different.");
+    expect(second.heading).toBe(true);
+    expect(s.readProse(first.episodeId ?? "").body).toContain("## chapter 2");
+  });
+
+  test("an anonymous session is SKIPPED outright — the narration join is identity-safe", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    const out = self.appendChapter("", "Something happened to someone.");
+    expect(out.reason).toBe("anonymous-session");
+    expect(out.episodeId).toBeNull();
+    expect(s.list({ type: "episode" }).length).toBe(0);
+    expect(intakeEpisode({ sessionId: " ", content: "x" })).toEqual({
+      ok: false,
+      reason: "SESSION_MISSING",
+    });
+  });
+
+  test("ingestion without a gate REFUSES — an absent gate is not an open one", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.openChapter("s1", SUBSTANCE);
+    self.appendChapter("s1", "A first-person account with an api key sk-not-really in it.");
+    const out = self.ingestEpisode({ sessionId: "s1" });
+    expect(out.reason).toBe("gate-refused");
+    expect(out.gate).toEqual({ gate: "none", reason: "NO_GATE_INJECTED" });
+    expect(s.list({ type: "memory" }).length).toBe(0);
+  });
+
+  test("a gate refusal names the gate, and the episode is still there to retry", () => {
+    const s = store();
+    const refusing: EpisodeGate = () => ({ ok: false, gate: "secrets", reason: "credential" });
+    const self = new Self({ store: s, gate: refusing });
+    self.openChapter("s1", SUBSTANCE);
+    const written = self.appendChapter("s1", "It was a good day and here is a secret.");
+    const out = self.ingestEpisode({ sessionId: "s1" });
+    expect(out.gate?.gate).toBe("secrets");
+    expect(s.has(written.episodeId ?? "")).toBe(true);
+    expect(self.events("self.episode.ingest.refused").length).toBe(1);
+  });
+
+  test("an episode ingests ONCE, as an ordinary self-kind memory with handles", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter("s1", SUBSTANCE);
+    self.appendChapter("s1", "I learned that I stall when the spec is ambiguous.");
+    const out = self.ingestEpisode({ sessionId: "s1", handles: ["the ambiguous spec"] });
+
+    expect(out.ingested).toBe(true);
+    expect(out.reason).toBe("ingested");
+    const mem = s.read(out.memoryId ?? "");
+    expect(mem.physics.kind).toBe("self");
+    expect(mem.doc.type).toBe("memory");
+    expect(mem.doc.meta["handles"]).toEqual(["the ambiguous spec"]);
+    expect(mem.doc.meta["episodeId"]).toBe(out.episodeId);
+
+    const again = self.ingestEpisode({ sessionId: "s1" });
+    expect(again.ingested).toBe(false);
+    expect(again.reason).toBe("already-ingested");
+    expect(again.memoryId).toBe(out.memoryId);
+  });
+
+  test("idempotency holds against ARCHIVED memories too", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter("s1", SUBSTANCE);
+    self.appendChapter("s1", "The first account of the day.");
+    const first = self.ingestEpisode({ sessionId: "s1" });
+    s.archive(first.memoryId ?? "", "consolidation-decided");
+
+    const again = self.ingestEpisode({ sessionId: "s1" });
+    expect(again.reason).toBe("already-ingested");
+    expect(again.memoryId).toBe(first.memoryId);
+    expect(s.read(first.memoryId ?? "").archived).toBe(true);
+  });
+
+  test("a grown episode re-ingests ADD-FIRST: the new memory exists before the old is archived", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter("s1", SUBSTANCE);
+    self.appendChapter("s1", "The morning half of the day.");
+    const first = self.ingestEpisode({ sessionId: "s1" });
+
+    self.openChapter("s1", { turns: 20, bytes: 16_000 });
+    self.appendChapter("s1", "The evening half, which is the half that mattered.");
+    const second = self.ingestEpisode({ sessionId: "s1" });
+
+    expect(second.reason).toBe("regrown");
+    expect(second.memoryId).not.toBe(first.memoryId);
+    expect(second.archived).toEqual([first.memoryId ?? ""]);
+    expect(s.read(first.memoryId ?? "").archived).toBe(true);
+    expect(s.read(first.memoryId ?? "").archivedReason).toBe("episode-regrown");
+    expect(s.read(second.memoryId ?? "").archived).toBe(false);
+    expect(s.read(second.memoryId ?? "").doc.body).toContain("the half that mattered");
+  });
+
+  test("the regrow window CLOSES, and the refusal says why", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE, tunables: { REGROW_WINDOW_DAYS: 1 } });
+    self.openChapter("s1", SUBSTANCE);
+    self.appendChapter("s1", "Day zero's account.", { day: 0 });
+    const first = self.ingestEpisode({ sessionId: "s1", day: 0 });
+    expect(first.ingested).toBe(true);
+
+    self.openChapter("s1", { turns: 20, bytes: 16_000 });
+    self.appendChapter("s1", "A late addition, well after the window.", { day: 5 });
+    const late = self.ingestEpisode({ sessionId: "s1", day: 5 });
+    expect(late.ingested).toBe(false);
+    expect(late.reason).toBe("window-closed");
+    expect(late.memoryId).toBe(first.memoryId);
+  });
+
+  test("nothing to ingest is its own reason, not an error", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    expect(self.ingestEpisode({ sessionId: "s1" }).reason).toBe("no-episode");
+    expect(self.ingestEpisode({ sessionId: "  " }).reason).toBe("anonymous-session");
+  });
+
+  test("a malformed deposit keeps ITS OWN reason — refusals are never collapsed", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    const bad = self.ingestEpisode({
+      sessionId: "s1",
+      handles: [7 as unknown as string],
+    });
+    expect(bad.reason).toBe("malformed-input");
+    expect(bad.intake).toBe("HANDLES_NOT_STRINGS");
+    const anonymous = self.ingestEpisode({ sessionId: "" });
+    expect(anonymous.reason).toBe("anonymous-session");
+    expect(anonymous.intake).toBe("SESSION_MISSING");
+  });
+
+  test("the orphanable tail is BOUNDED and LOGGED — measured, not pretended away", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.openChapter("s1", SUBSTANCE);
+    const tail = self.noteOrphanTail("s1", { turns: 13, bytes: 9_000 });
+    expect(tail.sinceTurns).toBe(4);
+    expect(tail.sinceBytes).toBe(3_000);
+    const logged = self.events("self.episode.tail")[0];
+    expect(logged?.data?.["sinceBytes"]).toBe(3_000);
+    expect(logged?.data?.["boundBytes"]).toBe(SELF_TUNABLES.REASK_BYTES);
+  });
+
+  test("intake refuses malformed deposits with the reason, never a bare false", () => {
+    expect(intakeEpisode(null).ok).toBe(false);
+    expect(intakeEpisode("a string")).toEqual({ ok: false, reason: "NOT_AN_OBJECT" });
+    expect(intakeEpisode({ sessionId: "s1" })).toEqual({ ok: false, reason: "CONTENT_MISSING" });
+    expect(intakeEpisode({ sessionId: "s1", content: "   " })).toEqual({
+      ok: false,
+      reason: "CONTENT_EMPTY",
+    });
+    expect(intakeEpisode({ sessionId: "s1", content: "x", handles: [3] })).toEqual({
+      ok: false,
+      reason: "HANDLES_NOT_STRINGS",
+    });
+    expect(intakeEpisode({ sessionId: "s1", content: "x" }).ok).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("wake: publish, deliver, reconcile", () => {
+  test("a store that has never lived a boundary gets the honest bootstrap line", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    const out = self.wake();
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe("absent");
+    expect(out.text).toBe(BOOTSTRAP);
+  });
+
+  test("the published bundle survives the round trip, byte for byte", () => {
+    const s = store();
+    identity(s, "I would rather ship the smaller true thing.");
+    const self = new Self({ store: s });
+    const published = self.boundary({ budgetBytes: 8_000, day: 0 });
+    const woken = self.wake();
+
+    expect(published.published).toBe(true);
+    expect(woken.ok).toBe(true);
+    expect(woken.reason).toBe("delivered");
+    expect(woken.text).toBe(published.briefing.text);
+    expect(woken.sentinel).toBe(published.briefing.sentinel);
+    expect(s.getMeta(BRIEFING_KEY)).toBe(published.briefing.text);
+  });
+
+  test("wake COMPUTES nothing and WRITES nothing — the previous boundary paid", () => {
+    const s = store();
+    identity(s, "The cost of waking is constant in the size of the store.");
+    const self = new Self({ store: s });
+    self.boundary({ budgetBytes: 8_000, day: 0 });
+    const writesBefore = s.events("store.meta").length;
+    self.wake();
+    self.wake();
+    expect(s.events("store.meta").length).toBe(writesBefore);
+  });
+
+  test("a damaged bundle is an ERROR with a reason — never the fresh-install lie", () => {
+    const s = store();
+    identity(s, "A full store, whose bundle got clipped in transit.");
+    const self = new Self({ store: s });
+    const published = self.boundary({ budgetBytes: 8_000, day: 0 });
+
+    s.setMeta(BRIEFING_KEY, published.briefing.text.slice(0, 200));
+    const clipped = self.wake();
+    expect(clipped.ok).toBe(false);
+    expect(clipped.reason).toBe("sentinel-missing");
+    expect(clipped.text).not.toBe(BOOTSTRAP);
+
+    // Present, sentinel-shaped, but the stated total no longer matches.
+    s.setMeta(BRIEFING_KEY, `${published.briefing.text}\n${published.briefing.sentinel}`);
+    const mismatched = self.wake();
+    expect(mismatched.reason).toBe("sentinel-mismatch");
+
+    s.setMeta(BRIEFING_KEY, "");
+    expect(self.wake().reason).toBe("empty-read");
+  });
+
+  test("delivery telemetry is distinct from render telemetry", () => {
+    const s = store();
+    identity(s, "Rendered is not received.");
+    const self = new Self({ store: s });
+    const published = self.boundary({ budgetBytes: 8_000, day: 0 });
+
+    expect(self.noteDelivered(published.briefing.sentinel, published.briefing.sentinel)).toBe(true);
+    expect(self.noteDelivered("<!-- something else -->", published.briefing.sentinel)).toBe(false);
+    expect(self.noteDelivered(null, published.briefing.sentinel)).toBe(false);
+    const delivered = self.events("self.wake.delivered");
+    expect(delivered.length).toBe(3);
+    expect(delivered[0]?.data?.["ok"]).toBe(true);
+    expect(delivered[1]?.data?.["ok"]).toBe(false);
+    expect(self.events("self.briefing.rendered").length).toBe(1);
+  });
+
+  test("THE RECONCILER: a new identity element reaches the next wake without a human", () => {
+    const s = store();
+    identity(s, "The element that was there at seed time.");
+    const self = new Self({ store: s });
+    self.boundary({ budgetBytes: 8_000, day: 0 });
+    expect(self.wake().text).not.toContain("formed after seed day");
+
+    identity(s, "The element that formed after seed day.");
+    // The SAME boundary call, not a script the owner remembers to run.
+    self.boundary({ budgetBytes: 8_000, day: 0 });
+    expect(self.wake().text).toContain("formed after seed day");
+  });
+
+  test("ids resolve to text at RENDER time, through the seam", () => {
+    const s = store();
+    const id = identity(s, "The canonical body, which lives in prose.");
+    const self = new Self({ store: s });
+    const substituted = self.build({
+      budgetBytes: 8_000,
+      day: 0,
+      resolve: () => ({ statement: "resolved elsewhere" }),
+    });
+    expect(substituted.text).toContain("resolved elsewhere");
+    expect(substituted.text).not.toContain("canonical body");
+    expect(substituted.kept.identity).toEqual([id]);
+    // ...and nothing in the record or the telemetry carries the text.
+    const out = self.boundary({ budgetBytes: 8_000, day: 0 });
+    expect(JSON.stringify(out.briefing.kept)).not.toContain("canonical body");
+    for (const e of self.events()) expect(JSON.stringify(e)).not.toContain("canonical body");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("observer mode", () => {
+  test("an observer RECEIVES the wake and deposits nothing", () => {
+    const s = store();
+    identity(s, "What the instrument may read but never touch.");
+    new Self({ store: s }).boundary({ budgetBytes: 8_000, day: 0 });
+
+    const obs = store({ observer: true });
+    const self = new Self({ store: obs });
+    expect(self.wake().ok).toBe(true);
+
+    const out = self.boundary({ budgetBytes: 8_000, day: 0 });
+    expect(out.published).toBe(false);
+    expect(out.reason).toBe("observer");
+    expect(out.briefing.elements).toBe(1); // it still composed — reports, deposits nothing
+    expect(
+      self.events("self.observer.standdown").some((e) => e.data?.["site"] === "boundary:publish"),
+    ).toBe(true);
+  });
+
+  test("an observer is never asked for an episode, and writes no state", () => {
+    const s = store();
+    const obs = store({ observer: true });
+    const self = new Self({ store: obs, gate: PASS_GATE });
+    expect(self.askDue("s1", { turns: 40, bytes: 40_000 }).reason).toBe("observer");
+    expect(self.openChapter("s1", { turns: 40, bytes: 40_000 }).asked).toBe(false);
+    expect(self.appendChapter("s1", "an instrument's account").reason).toBe("observer");
+    expect(self.ingestEpisode({ sessionId: "s1" }).reason).toBe("observer");
+    expect(obs.getMeta(stateKey("s1"))).toBeUndefined();
+    expect(obs.events("store.meta").length).toBe(0);
+    expect(s.list({ type: "episode" }).length).toBe(0);
+  });
+
+  test("an observer's claim occasion still MEASURES, and still moves nothing", () => {
+    const s = store();
+    const id = identity(s, "An element an instrument read about.");
+    const obs = store({ observer: true });
+    const self = new Self({ store: obs });
+    const before = obs.physicsOf(id);
+    const out = self.noteSelfConfirmation({
+      elementId: id,
+      source: "authored",
+      direction: "confirm",
+      day: 1,
+    });
+    expect(out.reason).toBe("observer");
+    expect(out.reinforced).toBe(false);
+    expect(obs.physicsOf(id)).toEqual(before);
+    expect(self.events("self.claim.repeat").length).toBe(1);
+    expect(self.claimCounts()[counterKey("self", false)]).toBe(1);
+    expect(obs.getMeta(counterKey("self", false))).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("structural guarantees", () => {
+  test("NO model call anywhere in the module — enumerated, not asserted in prose", () => {
+    const files = readdirSync(SELF_SRC).filter((f) => f.endsWith(".ts"));
+    expect(files.length).toBeGreaterThan(3);
+    for (const f of files) {
+      const src = readFileSync(join(SELF_SRC, f), "utf8");
+      expect(src).not.toMatch(/\bfetch\s*\(/);
+      expect(src).not.toMatch(/https?:\/\//);
+      expect(src).not.toMatch(/anthropic|openai|node:https?\b/i);
+      expect(src).not.toMatch(/\bXMLHttpRequest\b|\bWebSocket\b/);
+    }
+  });
+
+  test("there is NO tool surface here — authorship arrives through remember/", () => {
+    const files = readdirSync(SELF_SRC).filter((f) => f.endsWith(".ts"));
+    for (const f of files) {
+      const src = readFileSync(join(SELF_SRC, f), "utf8");
+      expect(src).not.toMatch(/inputSchema|tool_use|registerTool/);
+      // ...and no import of remember/: the episode input shape is a seam here.
+      expect(src).not.toMatch(/from "\.\.\/remember/);
+    }
+  });
+
+  test("the module has no byte-budget constant of its own (scar §2.18)", () => {
+    const files = readdirSync(SELF_SRC).filter((f) => f.endsWith(".ts"));
+    for (const f of files) {
+      const src = readFileSync(join(SELF_SRC, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      expect(src).not.toMatch(/9000|9_000/);
+      expect(src).not.toMatch(/BUDGET_BYTES\s*[:=]/);
+    }
+  });
+
+  test("telemetry is content-by-reference: ids, counts and reasons, never statements", () => {
+    const s = store();
+    identity(s, "The distinctive word zygomorphic appears only inside this body.");
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", "Another distinctive word: brachiate.");
+    self.ingestEpisode({ sessionId: "s1" });
+    for (const e of self.events()) {
+      const json = JSON.stringify(e);
+      expect(json).not.toContain("zygomorphic");
+      expect(json).not.toContain("brachiate");
+    }
+  });
+});
