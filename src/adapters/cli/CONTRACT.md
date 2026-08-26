@@ -102,6 +102,11 @@ snapshots and exports; the removal record; telemetry by reference.
 6. **[M] The archive tree is deliberately excluded from snapshots** — archive-on-overwrite
    history is itself the redundancy layer, and snapshotting it copies an unbounded,
    already-redundant tree into every snapshot.
+   *Correction (2026-08-25, closing the filed contradiction): as v2 shipped it, there is
+   no unbounded archive tree — rescope 3 replaced it with the `versions/` directory under
+   BOUNDED retention (H lived days). Bounded canonical-until-expiry state belongs IN the
+   backup set, and LAYOUT says so; this guarantee's premise applied to v1's shape. The
+   implementation followed LAYOUT, which guarantee 5 makes the single source of truth.*
 7. **[M] `export` is the only egress**, and it is explicit, encrypted, and owner-keyed. A
    test asserts no other module opens a network socket to a non-model, non-embedding
    endpoint.
