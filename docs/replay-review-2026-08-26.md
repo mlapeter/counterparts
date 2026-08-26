@@ -1,0 +1,152 @@
+# Replay run review — 2026-08-26 (run_6b037641d8aa, Opus 5, as-shipped)
+
+The deep review of the first real replay: four parallel reviewers (memory quality
+on Opus; scorecard arithmetic, telemetry audit, and decay physics on Sonnet), each
+blind to the others' work and to the coordinator's hypotheses, plus the
+coordinator's own code-level verification of every load-bearing claim. Scorecard:
+15 pass / 10 fail / 2 needs-rater / 23 not-exercised — NOT a clean pass, gate
+stays shut. Artifacts: `~/counterparts-replay-runs/opus5-as-shipped-2026-08-26/`.
+
+The verdict in one line: **the physics and the discipline layer are sound; the
+run's real teachings are one P0 durability bug, one trust-grade interpreter
+defect, and a set of instruments that read healthier than the store they measure.**
+
+## P0 — verified findings that block the parallel run
+
+### 1. Second failure of the same content is SILENT LOSS (scar E6 broken on retry)
+`fallback.ts` sweep cleanup calls `restore(claim, failedSpans)` then
+`consume(claim)` — and `consume` appends EVERY claim hash to the dedup ledger
+(`consumed.jsonl`), including spans just restored rather than applied
+(`spans.ts:679`). Next boundary the restored span is claimed again; if its chunk
+fails again, `restore`'s dedup filter (`seenHashesExcludingClaim`) finds the hash
+already in the ledger, silently restores ZERO spans while reporting
+`restored: true`, and `consume` deletes the claim. The span is then in neither
+buffer nor claim — the state spec §2 G6 forbids. Proven live: the 723-byte
+`general`-scope span threw on days 12 and 13; the replayed store's
+`consumed.jsonl` carries the two identical hash lines; the content never
+reappears. `buffer.restoreRate` PASSED over it because a zero-span restore still
+counts as restored.
+**Fix:** `consume` must record only the hashes of spans actually applied
+(exclude the restored set); pin with a test that fails the SAME content twice —
+no current test does.
+
+### 2. Owner-name confabulation: 15 durable memories call the owner "Matt"
+"Matt" appears in zero corpus files and zero v1 traces; the mint clusters on
+days 4/13/19 (per-session confabulation, not one slip), and several are identity
+claims about the owner. Compounding: the owner appears under six unresolved
+aliases (Mike 386, "the user" 86, mlapeter 46, "the owner" 30, Michael 16,
+Matt 15). Two causes, both real: the sweep `SYSTEM_PROMPT` carries no owner
+identity anchor at all, and this run also passed no `identity` spec to the
+driver (the harness supports it; the runner omitted it).
+**Fix:** anchor the owner identity in the sweep prompt from the adapter's
+identity config, and pass identity in the replay runner.
+
+### 3. Secrets gate: held on every shipped family — with one real scope gap
+Zero credential-shaped bodies among all 1,694 (and one memory carries
+`[REDACTED:google-api-key]` — the gate fired in-band on the exact v1 scar shape,
+on the new path; the guarantee is now proven, not assumed). But a staff
+magic-login URL survived whole: a 16-char bearer token in the URL *path*, which
+no `SECRET_FAMILIES` entry covers (`url-credentials` only matches
+`user:pass@host`).
+**Fix:** add a token-in-URL-path family.
+**Owner policy question (not a bug):** no email/phone family exists by design —
+38 memories carry emails, 6 carry E.164 numbers (two are third-party staff
+personal numbers), plus a Cloudflare account id. Whether personal-contact PII
+belongs in the store is a policy call for the owner, recorded here as OPEN.
+
+## HIGH — quality and instrumentation
+
+### 4. The kind vocabulary has no definitions, and filing shows it
+`SYSTEM_PROMPT` names the six kinds with zero definitions. Result: `entity` is
+~55–60% misfiled (events, PR notes, status snapshots that belong in `fact`);
+`place` is 8/8 non-geographic ("where things live": ports, doc paths). `self` is
+clean (205/205 genuinely the assistant's), `fact` residual-mild, `skill` the
+strongest material in the store. **Fix:** one line of definition per kind.
+
+### 5. Schema birth is refused 98.9% of the time, and nothing watches it
+3 births vs 279 refusals all run — 267 of them `name-not-in-source` (verbatim
+grounding failing at the mention site), 11 birth-cap, 1 collision-near. The run
+ends with 3 schemas against 171 person + 103 entity memories. v1's "zero births"
+ambiguity, reincarnated with better telemetry and a single dominant refusal
+reason: likely a name-extraction/grounding mismatch, not corpus fact. No
+scorecard metric covers birth at all. **Fix:** investigate the grounding
+comparison; add a birth metric.
+
+### 6. Three consumers read the birth band column as if it were the live band
+By design, box-2's `band` column records only birth (`episodic`) and the
+identity crossing (`setBand`'s one caller); the LIVE band is arithmetic,
+materialized into the box-3 cache each tick. `dashboard/status.ts` (census),
+`dashboard/browse.ts` (`--band` filter — semantic returns nothing, ever), and
+the replay driver's own census all read the column, which is why the scorecard
+said "episodic=1691" while the physics held ~1,265 rows at semantic-grade
+strength. Zero transitions was legitimate (first materialization is deliberately
+not a crossing; nothing decayed across THETA_SEM inside 26 days). `schemas/`
+already does it right (`bandOfPhysics`). **Fix:** compute live band in all three
+consumers; consider whether `list({band})` should refuse or compute for
+episodic/semantic.
+
+## MEDIUM — harness validity and metric honesty
+
+### 7. Two metrics cannot fail in this harness
+`session.boundaryCoverage`: the driver increments `boundaries` and `sessions`
+from the same loop — 100% by construction, testing nothing (v1's own baseline
+documents the dropped-end failure it can't reproduce). `band.promotionsPerActiveDay`:
+replay drives no turn loop → zero reinforcement everywhere (verified: `uses=0`
+on all rows) → promotion's 3-distinct-days condition is structurally
+unsatisfiable, so its PASS at 0 is hollow. **Fix:** mark both not-exercisable in
+replay (or restructure), rather than rendering hollow PASSes.
+
+### 8. decay.changedShare: scorer bug + a band unreachable for years + a false calm claim
+Scorer divides by final-store-size × ticks on a growing store — true per-tick
+churn is ~96%, not the reported 56% (two reviewers converged independently on
+`baselines.ts:439`). Physics verified correct: with `DECAY_QUANTUM=1e-4` and
+S≈60/κ, a row moves daily for ~250–400 lived days after last reinforcement, so
+the 2–35% band (from v1's mature store) is unreachable until roughly year one —
+and `decay.ts`'s "calm by default / a quiet day writes almost nothing" comment
+is empirically false for any young store (harmless — box 3 — but the claim
+should match reality). **Fix:** per-tick denominator; maturity-gate the band;
+reword the claim or revisit the quantum.
+
+### 9. Interpreter output shape wants teeth
+32% of memories are multi-idea (status roundups bundling a session-day);
+lexical duplication ~3.5% floor measured on a BLIND config (embeddings cache was
+empty — the semantic dedup channel was structurally off this run); heavy topical
+re-minting in `person` (41 restatements of one owner trait) is exactly what
+preselection exists to suppress. `self` runs +44% relative vs v1's distribution
+— v1's identity-inflation pattern, with no freeze-equivalent watching v2's mint
+path. Tiny fragments (<1KB) drew prose-not-`[]` from Opus at ~6% of calls.
+**Fixes:** one-idea teeth + kind definitions in prompt; fragment floor or prompt
+line; a self-share watch; re-measure dedup only after slices/embeddings wire in.
+
+### 10. Self-store pressure valve trips with no relief wired
+`self.schema.tripped` fired 7× (72KB threshold; 73.9KB → 83.2KB by run end,
+181 → 205 elements) and no compaction/recompression path ever ran. v1 had
+autonomous recompression; v2's equivalent is unwired on this path.
+
+## Small
+- Renderer: unformatted float in `briefing.budgetUtilization` line breaks
+  column padding (report.ts). Cosmetic.
+- "sessions 119" (corpus, global) vs "183" (driver, day×session pairs) use one
+  word for two units in the same report.
+- Two scopes never swept (thin corpus content — benign); nothing left unswept
+  at run end; no fragment-junk memories; day-by-day mint volume tracks corpus
+  volume with no drift.
+
+## What the run PROVED (the other half of the reading)
+Lived-day clock exact (26/26). Briefings never over the 9K ceiling (85%
+utilization, max 8,889). Boundary path 100% (with the caveat in §7). Zero cycle
+phase failures in 165. Corpus byte-identical, write-probe refused. Totality
+tripwire held; all 50 metric verdicts arithmetically correct against declared
+ranges (independently recomputed); symmetry watchdog said `never-asked` 156
+times rather than lying about starvation. Secrets gate live-proven in-band.
+Total mint volume (1,691) lands in v1's neighborhood (~1,443) despite the
+harness feeding day-sized mega-chunks — a driver artifact (one capture call per
+session-day; capture coalesces a call into ≤2 spans; chunks up to 1.3MB), not
+an interpreter pathology.
+
+## The re-run that answers everything at once
+One more paid run (~$30) after the batch lands: driver capture-per-turn
+fidelity + identity passed + prompt (kind definitions, one-idea teeth, fragment
+line, owner anchor) + P0 consume fix + URL-token family + schema slices IF the
+owner approves the wiring — giving the true before/after on blind-rate, gate
+refusals, birth grounding, dedup, and filing quality in a single comparison.
