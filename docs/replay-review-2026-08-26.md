@@ -144,6 +144,73 @@ harness feeding day-sized mega-chunks — a driver artifact (one capture call pe
 session-day; capture coalesces a call into ≤2 spans; chunks up to 1.3MB), not
 an interpreter pathology.
 
+## The blind second opinion (same day, independent session)
+
+A separate session ran an adversarial review with NO access to this document's
+findings ("refute the healthy reading"). Its report (10 findings, F1–F10, the
+owner's artifact "Counterparts Replay Audit") converged independently — with
+matching file:line cites — on the consume-ledger P0 (its F1, adding the event
+fingerprint: `restored {spans: 0, partial: true}` then `consumed`), the
+changedShare denominator and the tautological metrics (F3, extending to:
+`system.errorRate` counts only cycle phases so interpreter failures are
+structurally invisible; `seatRecorded`/`pinnedGeneration` cannot fail;
+pass-record strips numerators so a `gateOpen()` consumer can't detect either
+defect), the band two-surface split (F6, adding the mechanism proof that zero
+transitions was structurally guaranteed in replay: first cache entry lands at
+D+1 with no prior, and all 35 borderline rows started below the line — plus:
+the whole run's durable event log contains exactly ONE event name), and the
+mega-chunk artifact (F4, adding: every corpus turn was role-flattened to
+"user", `assistant.jsonl` empty all run; and the report header claims pinned
+vectors while `cache.embeddings` held 0 rows).
+
+**Net-new findings from the blind review, verified here:**
+
+- **F2 (CRITICAL): the driver silently dropped 13.2% of the corpus.** The
+  capture cursor is keyed per session and persists across days; the driver
+  feeds only each day's spans, so a recurring session's day-2 array is sliced
+  by day-1's cursor — 115/870 spans (448KB) never became v2 spans, 56
+  session-day buckets returned `NOTHING_NEW` (which emits no event), and no
+  metric measures corpus coverage. Verified against `spans.ts` cursor writes +
+  the driver's per-day feeding (both read here). Rides along: the cursor is
+  keyed by session id alone, not (scope, session) — 11 corpus session ids
+  appear under multiple scopes — a keying question that may touch PRODUCTION
+  capture, not just the harness.
+- **F5 (HIGH): salience is self-assigned and shaped the whole store.**
+  `salience.lifted` on 97.9% of mints (mean +0.150; mode 0.8): the
+  interpreter's claimed floor lifts the computed value at the mint seam
+  (`clampSalienceAtSeam` — verified), novelty is NULL without vectors, so no
+  independent check exists. That is what put 74.7% of the store above θ_sem
+  and 63.8% above the identity base floor — with only `reinforced_days >= 3`
+  guarding the identity band. No metric watches lift rate or
+  claimed-vs-computed divergence.
+- **F7 reframe: the block-rate baseline is mis-ported, not just starved.** In
+  v2's shipped battery only three things REFUSE (secret-in-name,
+  empty-after-redaction, content floor); alias/precision/emotion degrade and
+  accept by design. v1's ~46% has no v2 counterpart mechanism, so
+  `gate.chunkBlockRate`'s band compares vocabularies and may never pass even
+  with schemas wired. Counted as gates ACTING, v2 sits at 18.9% — order-of-
+  magnitude comparable to v1.
+- **F8 (MED): 205 self-kind memories minted by the sweep** — the
+  transcript-derived self-memory pathway the self CONTRACT forswears
+  (rumination/illusory-truth, owner ruling 2026-08-24). The freeze guards only
+  repeats; brand-new sweep self-mints pass untouched, recorded
+  indistinguishably from authored deposits.
+- **F9 (MED): no provenance.** No memory records span/chunk/session/scope
+  origin; `gate.chunk` payloads carry no minted ids. Without it, targeted
+  redaction/erase and source-level audit — capabilities v1's history says will
+  be needed — cannot exist.
+- **F10 details adopted:** the 67KB chunk that returned EMPTY with no durable
+  record; `effects 18 != accepted 17` on one chunk (unexplained); UTF-16
+  chars labeled "B" in `meanChunkBytes` vs UTF-8 in the corpus census.
+
+Each review also found things the other missed (this one: the owner-name
+confabulation, kind misfiling, the URL-token secrets gap, schema-birth refusal
+anatomy, the self-store valve; theirs: F2, F5, F7-reframe, F8, F9) — the
+two-review shape earned its cost. Shared verdict, their words: **"the store
+looks healthy; this run does not demonstrate that the system is."** Replay is
+a precondition for the parallel run (guarantee 11), and this replay is not yet
+a met precondition.
+
 ## The re-run that answers everything at once
 One more paid run (~$30) after the batch lands: driver capture-per-turn
 fidelity + identity passed + prompt (kind definitions, one-idea teeth, fragment
