@@ -675,21 +675,38 @@ export class SpanBuffer {
    * Truncate the claim — ONLY ever called after results are applied and persisted
    * (spec §2 G6). The hashes go into the bounded consumed ledger FIRST, so a crash
    * between the two leaves a claim whose spans dedup away rather than duplicate.
+   *
+   * `except` names the spans that were RESTORED rather than applied, and their
+   * hashes MUST NOT enter the ledger: `restore()` dedups against it, so a
+   * restored span whose hash is recorded here is un-restorable the next time
+   * its chunk fails — the second failure of the same content becomes silent
+   * loss. Not hypothetical: the 2026-08-26 replay destroyed a live span exactly
+   * this way (docs/replay-review-2026-08-26.md, P0), and scar E6 says an outage
+   * must never mean "nothing durable". The ledger records what was CONSUMED —
+   * never what merely passed through a claim.
    */
-  consume(claim: Claim): { consumed: boolean; reason: "CONSUMED" | "OBSERVER" | "IO_FAILED" } {
+  consume(
+    claim: Claim,
+    opts: { except?: readonly Span[] } = {},
+  ): { consumed: boolean; reason: "CONSUMED" | "OBSERVER" | "IO_FAILED" } {
+    const skip = new Set((opts.except ?? []).map((s) => s.hash));
+    const kept = claim.spans.filter((s) => !skip.has(s.hash));
     const out = this.mutate("consume", () => {
       this.ensureScope(claim.scope);
-      const file = this.path(claim.scope, "consumed.jsonl");
-      const lines = claim.spans.map((s) => JSON.stringify({ hash: s.hash, at: s.at }));
-      appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
-      this.trimLedger(file);
+      if (kept.length > 0) {
+        const file = this.path(claim.scope, "consumed.jsonl");
+        const lines = kept.map((s) => JSON.stringify({ hash: s.hash, at: s.at }));
+        appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
+        this.trimLedger(file);
+      }
       rmSync(claim.path, { force: true });
     });
     if (!out.ok) {
       return { consumed: false, reason: out.reason === "OBSERVER" ? "OBSERVER" : "IO_FAILED" };
     }
     this.emit("remember.claim.consumed", claim.id, {
-      spans: claim.spans.length,
+      spans: kept.length,
+      excepted: claim.spans.length - kept.length,
       bytes: claim.bytes,
     });
     return { consumed: true, reason: "CONSUMED" };
