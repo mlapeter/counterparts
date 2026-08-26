@@ -185,7 +185,7 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
     // ── capture: per turn, per session, in the order a host makes them ──────
     const bySession = new Map<string, CorpusSpan[]>();
     for (const span of spans) {
-      const key = `${span.scope} ${span.session}`;
+      const key = `${span.scope}\u0000${span.session}`;
       const bucket = bySession.get(key);
       if (bucket === undefined) bySession.set(key, [span]);
       else bucket.push(span);
@@ -561,8 +561,15 @@ function census(brain: Counterpart): StoreCensus {
     byKind[row.kind] = (byKind[row.kind] ?? 0) + 1;
     // The stored band column is a birth fossil — episodic at mint, identity at
     // promotion, never "semantic" (review F6). The LIVE band is arithmetic;
-    // census what the engine computes, not what mint wrote.
-    const b = liveBand(store.physicsOf(id), day);
+    // census what the engine computes, not what mint wrote. `physicsOf` throws
+    // REMOVED for a deny-listed row `row()` still returns — a census must not
+    // abort a finished paid run over one dark row (PR-1 review should-fix 1).
+    let b = row.band;
+    try {
+      b = liveBand(store.physicsOf(id), day);
+    } catch {
+      /* the recorded band is the honest fallback for an unreadable row */
+    }
     byBand[b] = (byBand[b] ?? 0) + 1;
     if (row.archived === 1) archived += 1;
     if (row.superseded_by !== null) superseded += 1;

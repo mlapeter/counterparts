@@ -121,6 +121,8 @@ export function systemPrompt(identity?: {
           `The person these transcripts belong to is ${identity.name}${aka}.`,
           `Refer to them as ${identity.name}. Never introduce any other name for`,
           "them; a name not in the transcript verbatim does not exist.",
+          "This anchor is context, not material: never propose a memory whose",
+          "content restates it — memories come from the transcript alone.",
         ];
   return [
     "You are reading a transcript that its own author never got to summarize — the",

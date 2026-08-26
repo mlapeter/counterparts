@@ -142,9 +142,14 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
       "\\b[a-z][a-z0-9+.-]*://[^\\s\"'<>]*/" +
         "(?:login|logout|auth|magic|magic-?link|token|invite|reset|verify|otp|signin|sso|session)" +
         // One optional lowercase segment ("auth/callback/<token>") — but the
-        // auth-shaped word itself is never optional, so commit hashes and doc
-        // slugs in ordinary URLs stay untouched.
-        `[a-z-]*(?:/[a-z-]{1,24})?/${NOT_REDACTED}([A-Za-z0-9_~-]{12,})(?![A-Za-z0-9_~-])`,
+        // auth-shaped word itself is never optional. The second lookahead
+        // rejects a pure lowercase hyphen-slug ("getting-started-guide"): a
+        // token has digits or case or underscores; a slug is words. Without it
+        // this family redacted the last path segment of ordinary docs URLs —
+        // the PR-1 review's blocker 1, caught with 11 live counterexamples.
+        `[a-z-]*(?:/[a-z-]{1,24})?/${NOT_REDACTED}` +
+        "(?![a-z]+(?:-[a-z]+)*(?![A-Za-z0-9_~-]))" +
+        "([A-Za-z0-9_~-]{12,})(?![A-Za-z0-9_~-])",
       "gi",
     ),
     value: 1,
