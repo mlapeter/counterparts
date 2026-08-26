@@ -199,12 +199,15 @@ export function renderReport(input: RenderInput): string {
       out.push(`§${section}`);
     }
     const observed = m.observed === null ? "—" : fmt(m.unit, m.observed.value);
+    // A numerator can be a float (a mean's sum-of-ratios): bound its digits, or
+    // one long fraction breaks the column and glues onto "expect" (review F10).
+    const numOf = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(3));
     const denom =
       m.observed?.denominator === undefined
         ? ""
-        : ` (${m.observed.numerator ?? 0}/${m.observed.denominator})`;
+        : ` (${numOf(m.observed.numerator ?? 0)}/${m.observed.denominator})`;
     const range = m.range === null ? "—" : fmtRange(m.unit, m.range.lo, m.range.hi);
-    out.push(`  ${pad(MARK[m.verdict], 6)}${pad(m.id, 34)}${pad(observed + denom, 22)}expect ${range}`);
+    out.push(`  ${pad(MARK[m.verdict], 6)}${pad(m.id, 34)}${pad(observed + denom, 22)} expect ${range}`);
     out.push(...wrap(m.label, 70, "         "));
     out.push(...wrap(`v1: ${m.v1}`, 70, "         "));
     if (m.reason !== null) out.push(...wrap(`not-exercised (${m.reason})`, 70, "         "));
@@ -315,7 +318,21 @@ export interface PassRecord {
   readonly clean: boolean;
   readonly counts: Readonly<Record<Verdict, number>>;
   readonly totalityOk: boolean;
-  readonly verdicts: Readonly<Record<string, { verdict: Verdict; reason: string | null; value: number | null }>>;
+  readonly verdicts: Readonly<
+    Record<
+      string,
+      {
+        verdict: Verdict;
+        reason: string | null;
+        value: number | null;
+        /** The fraction behind `value`, when one exists — a downstream consumer
+         *  can re-derive the rate and catch a denominator defect (review F3:
+         *  the pass record used to strip these, leaving 0.5631 undetectable). */
+        numerator: number | null;
+        denominator: number | null;
+      }
+    >
+  >;
   readonly decay: DecaySummary | null;
   /** The same comparison projected forward — where OQ1 is actually decided. */
   readonly decayHorizon: DecaySummary | null;
@@ -347,12 +364,23 @@ function decaySummary(decay: DecayShapeReport): DecaySummary {
 export function passRecord(input: RenderInput): PassRecord {
   const { scorecard, decay } = input;
   assertAccounted(scorecard);
-  const verdicts: Record<string, { verdict: Verdict; reason: string | null; value: number | null }> = {};
+  const verdicts: Record<
+    string,
+    {
+      verdict: Verdict;
+      reason: string | null;
+      value: number | null;
+      numerator: number | null;
+      denominator: number | null;
+    }
+  > = {};
   for (const m of scorecard.metrics) {
     verdicts[m.id] = {
       verdict: m.verdict,
       reason: m.reason,
       value: m.observed === null ? null : m.observed.value,
+      numerator: m.observed?.numerator ?? null,
+      denominator: m.observed?.denominator ?? null,
     };
   }
   const r = scorecard.record;

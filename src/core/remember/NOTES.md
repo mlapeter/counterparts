@@ -21,8 +21,14 @@ outside `spans/`.**
 A scope is a project path (`/Users/x/proj`). Pasted into `join()` it either explodes
 into nested directories or escapes the data dir entirely, so the on-disk key is
 `hashText(scope).slice(0, 12)` and `spans/scopes.json` is the key → scope legend
-that makes `sweepAll()` able to enumerate. Session cursor files are keyed the same
-way. Cost: an owner reading the directory needs the legend. Alternative rejected:
+that makes `sweepAll()` able to enumerate. Cursor files are keyed the same way, as
+`cursors/<scopeKey>.<sessionKey>.json` — scoped since 2026-08-26, when the PR-1
+review proved a session id under two scopes starved the second one's capture (a
+session-only cursor let scope B read scope A's advance as NOTHING_NEW; 11 real
+v1 session ids do span scopes). A pre-change `cursors/<sessionKey>.json` file is
+orphaned, not migrated: the next capture re-reads from turn 0, which the hash
+layer bounds to the spec'd G9-case-3 duplicate — harmless for greenfield v2.
+Cost: an owner reading the directory needs the legend. Alternative rejected:
 `encodeURIComponent`, which is reversible but produces 200-character directory
 names on real paths.
 

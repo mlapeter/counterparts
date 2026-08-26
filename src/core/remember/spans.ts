@@ -6,7 +6,9 @@
  *
  *   spans/
  *     scopes.json                the key -> scope legend (keys are hashes, see NOTES §2)
- *     cursors/<session>.json     ONE file per session — disjoint by construction
+ *     cursors/<scope>.<session>.json  ONE file per (scope, session) — disjoint by
+ *                                construction, and scoped so one session id under
+ *                                two scopes cannot starve either (PR-1 review)
  *     <key>/buffer.jsonl         the live conversational buffer (append-only)
  *     <key>/assistant.jsonl      the assistant's own turns, kept separately
  *     <key>/boundaries.jsonl     every session-ending boundary, and its ask
@@ -307,7 +309,7 @@ export class SpanBuffer {
     scope: string;
     turns: readonly Turn[];
   }): CaptureResult {
-    const cursorBefore = this.cursor(input.session);
+    const cursorBefore = this.cursor(input.scope, input.session);
     const empty = (reason: CaptureReason, cursorAfter = cursorBefore): CaptureResult => ({
       captured: false,
       reason,
@@ -332,7 +334,7 @@ export class SpanBuffer {
       // Nothing conversational happened: still advance, or the same tool output is
       // re-scanned forever. Nothing durable was skipped — it was never eligible.
       const advanced = this.mutate("capture", () =>
-        this.writeCursor(input.session, input.turns.length),
+        this.writeCursor(input.scope, input.session, input.turns.length),
       );
       const out = empty(advanced.ok ? "ALL_EXCLUDED" : "IO_FAILED", advanced.ok ? input.turns.length : cursorBefore);
       out.excluded = excluded;
@@ -372,7 +374,7 @@ export class SpanBuffer {
       for (const span of fresh) {
         appendFileSync(this.streamPath(span.scope, span.kind), `${JSON.stringify(span)}\n`, "utf8");
       }
-      this.writeCursor(input.session, input.turns.length);
+      this.writeCursor(input.scope, input.session, input.turns.length);
       return fresh;
     });
 
@@ -411,7 +413,7 @@ export class SpanBuffer {
    * simple way in NOTES §4) and carries no cursor movement of its own.
    */
   jot(input: { session: string; scope: string; text: string }): CaptureResult {
-    const cursorBefore = this.cursor(input.session);
+    const cursorBefore = this.cursor(input.scope, input.session);
     const base: CaptureResult = {
       captured: false,
       reason: "APPENDED",
@@ -487,10 +489,14 @@ export class SpanBuffer {
 
   // ── reads ──────────────────────────────────────────────────────────────────
 
-  /** Turns already captured for this session. Per-session file: two concurrent
-   *  boundaries cannot drop each other's advance (spec §2 G4 — v1's shared map). */
-  cursor(session: string): number {
-    const file = join(this.root, "cursors", `${keyFor(session)}.json`);
+  /** Turns already captured for this session IN THIS SCOPE. Per-(scope, session)
+   *  file: two concurrent boundaries cannot drop each other's advance (spec §2
+   *  G4 — v1's shared map), and the same session id running under two scopes
+   *  cannot starve one of them (the PR-1 review's blocker 2: a session-only
+   *  cursor made scope B read scope A's advance as NOTHING_NEW — 11 real-corpus
+   *  session ids appear under more than one scope). */
+  cursor(scope: string, session: string): number {
+    const file = join(this.root, "cursors", `${keyFor(scope)}.${keyFor(session)}.json`);
     if (!existsSync(file)) return 0;
     try {
       const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
@@ -498,7 +504,10 @@ export class SpanBuffer {
       return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
     } catch {
       // An unreadable cursor reads as 0: re-capture (deduped by hash) beats loss.
-      this.emit("remember.cursor.unreadable", undefined, { session: keyFor(session) });
+      this.emit("remember.cursor.unreadable", undefined, {
+        scope: keyFor(scope),
+        session: keyFor(session),
+      });
       return 0;
     }
   }
@@ -675,22 +684,41 @@ export class SpanBuffer {
    * Truncate the claim — ONLY ever called after results are applied and persisted
    * (spec §2 G6). The hashes go into the bounded consumed ledger FIRST, so a crash
    * between the two leaves a claim whose spans dedup away rather than duplicate.
+   *
+   * `except` names the spans that were RESTORED rather than applied, and their
+   * hashes MUST NOT enter the ledger: `restore()` dedups against it, so a
+   * restored span whose hash is recorded here is un-restorable the next time
+   * its chunk fails — the second failure of the same content becomes silent
+   * loss. Not hypothetical: the 2026-08-26 replay destroyed a live span exactly
+   * this way (docs/replay-review-2026-08-26.md, P0), and scar E6 says an outage
+   * must never mean "nothing durable". The ledger records what was CONSUMED —
+   * never what merely passed through a claim.
    */
-  consume(claim: Claim): { consumed: boolean; reason: "CONSUMED" | "OBSERVER" | "IO_FAILED" } {
+  consume(
+    claim: Claim,
+    opts: { except?: readonly Span[] } = {},
+  ): { consumed: boolean; reason: "CONSUMED" | "OBSERVER" | "IO_FAILED" } {
+    const skip = new Set((opts.except ?? []).map((s) => s.hash));
+    const kept = claim.spans.filter((s) => !skip.has(s.hash));
     const out = this.mutate("consume", () => {
       this.ensureScope(claim.scope);
-      const file = this.path(claim.scope, "consumed.jsonl");
-      const lines = claim.spans.map((s) => JSON.stringify({ hash: s.hash, at: s.at }));
-      appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
-      this.trimLedger(file);
+      if (kept.length > 0) {
+        const file = this.path(claim.scope, "consumed.jsonl");
+        const lines = kept.map((s) => JSON.stringify({ hash: s.hash, at: s.at }));
+        appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
+        this.trimLedger(file);
+      }
       rmSync(claim.path, { force: true });
     });
     if (!out.ok) {
       return { consumed: false, reason: out.reason === "OBSERVER" ? "OBSERVER" : "IO_FAILED" };
     }
     this.emit("remember.claim.consumed", claim.id, {
-      spans: claim.spans.length,
-      bytes: claim.bytes,
+      spans: kept.length,
+      excepted: claim.spans.length - kept.length,
+      // The KEPT spans' bytes — pairing the full claim's bytes with the kept
+      // count would make bytes-per-span nonsense (PR-1 review nit).
+      bytes: kept.reduce((n, s) => n + s.text.length, 0),
     });
     return { consumed: true, reason: "CONSUMED" };
   }
@@ -878,12 +906,12 @@ export class SpanBuffer {
     }
   }
 
-  private writeCursor(session: string, turns: number): void {
+  private writeCursor(scope: string, session: string, turns: number): void {
     const dir = join(this.root, "cursors");
     mkdirSync(dir, { recursive: true });
-    const file = join(dir, `${keyFor(session)}.json`);
+    const file = join(dir, `${keyFor(scope)}.${keyFor(session)}.json`);
     const tmp = `${file}.${process.pid}.${randomBytes(3).toString("hex")}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ session, turns }), "utf8");
+    writeFileSync(tmp, JSON.stringify({ scope, session, turns }), "utf8");
     renameSync(tmp, file);
   }
 

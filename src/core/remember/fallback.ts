@@ -166,7 +166,11 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
   if (uncovered.length === 0) {
     // Everything eligible was already authored: retire it without a model call.
     const back = buffer.restore(claim, ineligible);
-    const consumed = back.restored ? buffer.consume(claim).consumed : false;
+    // Restored spans stay OUT of the consumed ledger: recording them would make
+    // them un-restorable at their next failure (the replay-review P0).
+    const consumed = back.restored
+      ? buffer.consume(claim, { except: ineligible }).consumed
+      : false;
     buffer.emit("remember.sweep.skipped", claim.id, {
       scope: opts.scope,
       reason: "NOTHING_UNCLAIMED",
@@ -197,14 +201,18 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
     }
   }
 
-  const back = buffer.restore(claim, [...failed, ...ineligible]);
+  const restoredSpans = [...failed, ...ineligible];
+  const back = buffer.restore(claim, restoredSpans);
   report.spansRestored = back.spans;
   if (!back.restored) {
     // A failed restore FORBIDS consuming the claim: the spans stay in claim-or-buffer.
     buffer.emit("remember.sweep.restore.failed", claim.id, { spans: failed.length });
     return { ...report, ran: true, reason: "SWEPT", consumed: false };
   }
-  report.consumed = buffer.consume(claim).consumed;
+  // The ledger records what was APPLIED. A restored span's hash must stay out of
+  // it, or restore()'s dedup makes the SECOND failure of the same content silent
+  // loss — the replay-review P0, fired live on 2026-08-09/10.
+  report.consumed = buffer.consume(claim, { except: restoredSpans }).consumed;
   buffer.emit("remember.sweep.done", claim.id, {
     scope: opts.scope,
     chunks: report.chunks.length,

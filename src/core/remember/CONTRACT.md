@@ -100,7 +100,7 @@ used?"); telemetry by reference.
    authorship and any fallback run detached, under a watchdog whose timeout is validated
    against the lock-staleness window (scars E4, E5).
 2. **[M] Capture never throws into the host.** Every failure is logged and swallowed.
-3. **[M] Advance-after-success**, two-layer dedup, per-session cursors, rename
+3. **[M] Advance-after-success**, two-layer dedup, per-(scope, session) cursors, rename
    choreography, restore-before-consume — all four, all structural.
 4. **[M] Restore-on-throw**: an outage means the arc is *retried*, not lost. The consumer
    commits its output or restores its input; a test kills it mid-arc and asserts the input

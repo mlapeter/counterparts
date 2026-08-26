@@ -143,6 +143,11 @@ const SPECIMENS: { family: string; text: string; marker: string }[] = [
     marker: "hunter2secret",
   },
   {
+    family: "url-path-token",
+    text: "the staff link is https://hearddd.example/login/g6jXw2mQpR9tnw and it works",
+    marker: "g6jXw2mQpR9tnw",
+  },
+  {
     family: "assigned-credential",
     text: "password: correct-horse-battery",
     marker: "correct-horse-battery",
@@ -191,6 +196,45 @@ describe("guarantee 1 — the secrets gate is NOT ABLATABLE", () => {
       // Softening the body around it, never dropping it.
       expect(scan.redacted).toContain("before");
       expect(scan.redacted).toContain("after");
+    }
+  });
+
+  test("url-path-token is scoped to TOKENS on auth-shaped paths — prose URLs never fire it", () => {
+    // The family exists because a magic-login link minted whole (review Gap A).
+    // Its cost ceiling is that ordinary technical prose stays untouched — the
+    // clean list below includes the PR-1 review's live counterexamples, which
+    // the first cut of this family redacted (blocker 1): a lowercase
+    // hyphen-slug is words, not a token.
+    for (const clean of [
+      "see https://github.com/mlapeter/counterparts/commit/0879c79ab12cd34ef56a for the fix",
+      "docs at https://example.com/guide/getting-started-with-replay-harnesses",
+      "https://example.com/session/notes says the meeting moved",
+      "https://example.com/docs/auth/getting-started-guide",
+      "https://github.com/org/repo/blob/main/src/auth/session-manager-impl.ts",
+      "https://wiki.example.com/session/quarterly-planning",
+      "https://api.example.com/v1/token/refresh-configuration",
+      "https://myapp.dev/login/frequently-asked-questions",
+      "https://docs.example.com/sso/enterprise-onboarding",
+      "https://example.com/verify/email-address-changes",
+    ]) {
+      const scan = scanSecrets(clean);
+      expect({ clean, fired: scan.findings.map((f) => f.family) }).toEqual({
+        clean,
+        fired: [],
+      });
+    }
+    // And the shapes it exists for still fire: mixed case, digits, and the
+    // original live specimen's shape, with and without an extra segment.
+    for (const hot of [
+      "https://app.example.com/auth/callback/Zx9mQw2Rt8Kp",
+      "https://hearddd.example/login/g6jXw2mQpR9tnw",
+      "https://x.example/invite/a1b2c3d4e5f6g7h8",
+    ]) {
+      const scan = scanSecrets(hot);
+      expect({ hot, fired: scan.findings.map((f) => f.family) }).toEqual({
+        hot,
+        fired: ["url-path-token"],
+      });
     }
   });
 

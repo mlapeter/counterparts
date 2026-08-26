@@ -137,6 +137,29 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     why: "user:password@host — connection strings are the classic silent leak.",
   },
   {
+    family: "url-path-token",
+    re: new RegExp(
+      "\\b[a-z][a-z0-9+.-]*://[^\\s\"'<>]*/" +
+        "(?:login|logout|auth|magic|magic-?link|token|invite|reset|verify|otp|signin|sso|session)" +
+        // One optional lowercase segment ("auth/callback/<token>") — but the
+        // auth-shaped word itself is never optional. The second lookahead
+        // rejects a pure lowercase hyphen-slug ("getting-started-guide"): a
+        // token has digits or case or underscores; a slug is words. Without it
+        // this family redacted the last path segment of ordinary docs URLs —
+        // the PR-1 review's blocker 1, caught with 11 live counterexamples.
+        `[a-z-]*(?:/[a-z-]{1,24})?/${NOT_REDACTED}` +
+        "(?![a-z]+(?:-[a-z]+)*(?![A-Za-z0-9_~-]))" +
+        "([A-Za-z0-9_~-]{12,})(?![A-Za-z0-9_~-])",
+      "gi",
+    ),
+    value: 1,
+    why:
+      "A magic-login / invite / reset link carries its bearer token as a URL path " +
+      "segment. The 2026-08-26 replay review found a live staff login link minted " +
+      "whole (its Gap A: `url-credentials` only matches user:pass@host). Scoped to " +
+      "auth-shaped path words so a commit hash in a repo URL does not fire it.",
+  },
+  {
     family: "assigned-credential",
     re: new RegExp(
       "\\b(password|passwd|pwd|api[_-]?key|apikey|access[_-]?key|secret[_-]?key|" +

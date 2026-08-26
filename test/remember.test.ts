@@ -147,7 +147,7 @@ describe("capture (G1, G2, G3)", () => {
       { captured: true, reason: "APPENDED", spans: 1, to: 2 },
     );
     expect(b.spans(SCOPE).map((s) => s.text)).toEqual(["alpha\n\nbeta"]);
-    expect(b.cursor("s1")).toBe(2);
+    expect(b.cursor(SCOPE, "s1")).toBe(2);
     expect(b.spans(SCOPE)[0]?.day).toBe(3);
   });
 
@@ -180,7 +180,7 @@ describe("capture (G1, G2, G3)", () => {
       captured: false,
     });
     expect(b.spans(SCOPE).length).toBe(1);
-    expect(b.cursor("s2")).toBe(1);
+    expect(b.cursor(SCOPE, "s2")).toBe(1);
   });
 
   test("a SUPERSET re-read under a fresh cursor duplicates — bounded, and that is the spec (G9 case 3)", () => {
@@ -198,11 +198,23 @@ describe("capture (G1, G2, G3)", () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u("one"), u("two")] });
     b.capture({ session: "s2", scope: SCOPE, turns: [u("other")] });
-    expect({ s1: b.cursor("s1"), s2: b.cursor("s2"), s3: b.cursor("s3") }).toEqual({
+    expect({ s1: b.cursor(SCOPE, "s1"), s2: b.cursor(SCOPE, "s2"), s3: b.cursor(SCOPE, "s3") }).toEqual({
       s1: 2,
       s2: 1,
       s3: 0,
     });
+  });
+
+  test("one session id under TWO scopes captures in BOTH — the cursor is scoped (PR-1 review blocker 2)", () => {
+    // 11 real-corpus session ids appear under more than one scope. With a
+    // session-only cursor, scope B read scope A's advance as NOTHING_NEW and
+    // its spans silently never entered the buffer.
+    const b = buf();
+    const r1 = b.capture({ session: "s1", scope: SCOPE, turns: [u(long("in scope one"))] });
+    const r2 = b.capture({ session: "s1", scope: OTHER, turns: [u(long("in scope two"))] });
+    expect({ one: r1.reason, two: r2.reason }).toEqual({ one: "APPENDED", two: "APPENDED" });
+    expect({ one: b.spans(SCOPE).length, two: b.spans(OTHER).length }).toEqual({ one: 1, two: 1 });
+    expect({ one: b.cursor(SCOPE, "s1"), two: b.cursor(OTHER, "s1") }).toEqual({ one: 1, two: 1 });
   });
 
   test("the assistant's turns are kept SEPARATELY and are never in the sweep's input", () => {
@@ -239,7 +251,7 @@ describe("capture (G1, G2, G3)", () => {
       scope: SCOPE,
       turns: [{ role: "user", text: "tool blob", source: "tool" }],
     });
-    expect({ reason: r.reason, cursor: b.cursor("s1"), spans: b.spans(SCOPE).length }).toEqual({
+    expect({ reason: r.reason, cursor: b.cursor(SCOPE, "s1"), spans: b.spans(SCOPE).length }).toEqual({
       reason: "ALL_EXCLUDED",
       cursor: 1,
       spans: 0,
@@ -259,13 +271,13 @@ describe("capture (G1, G2, G3)", () => {
 
     const r = b.capture({ session: "s1", scope: SCOPE, turns: [u("first"), u("second")] });
     expect({ reason: r.reason, captured: r.captured }).toEqual({ reason: "IO_FAILED", captured: false });
-    expect(b.cursor("s1")).toBe(1);
+    expect(b.cursor(SCOPE, "s1")).toBe(1);
     expect(b.events("remember.write.failed")[0]?.data?.site).toBe("capture");
 
     // Advance-after-success means the retry re-reads the same turns and lands.
     chmodSync(scopeFile(SCOPE, "buffer.jsonl"), 0o600);
     const retry = b.capture({ session: "s1", scope: SCOPE, turns: [u("first"), u("second")] });
-    expect({ reason: retry.reason, cursor: b.cursor("s1") }).toEqual({ reason: "APPENDED", cursor: 2 });
+    expect({ reason: retry.reason, cursor: b.cursor(SCOPE, "s1") }).toEqual({ reason: "APPENDED", cursor: 2 });
     expect(b.spans(SCOPE).map((s) => s.text)).toEqual(["first", "second"]);
   });
 
@@ -851,6 +863,60 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     });
     // Exactly the failed chunk's span is back, ready for the next boundary.
     expect(b.spans(SCOPE).map((s) => s.hash)).toEqual([doomed?.hash ?? "missing"]);
+  });
+
+  test("the SECOND failure of the same content still restores — the ledger holds only what was APPLIED (replay-review P0)", async () => {
+    const b = buf();
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("twice doomed"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const doomed = b.spans(SCOPE)[0];
+    const failing = async (): Promise<InterpretResult> => {
+      throw new Error("NO_JSON_IN_RESPONSE");
+    };
+
+    // First failure: restored, consumed — and the restored hash must stay OUT
+    // of the consumed ledger.
+    const first = await sweep(b, { scope: SCOPE, interpret: failing });
+    expect({ restored: first.spansRestored, consumed: first.consumed }).toEqual({
+      restored: 1,
+      consumed: true,
+    });
+    expect(b.spans(SCOPE).map((s) => s.hash)).toEqual([doomed?.hash ?? "missing"]);
+    // The MECHANISM, not just the outcome (tests can lie about why they pass):
+    // the ledger on disk must not hold the restored hash — its presence there is
+    // precisely what made the second restore silently return zero spans.
+    const ledgerFile = scopeFile(SCOPE, "consumed.jsonl");
+    const ledger = existsSync(ledgerFile) ? readFileSync(ledgerFile, "utf8") : "";
+    expect(ledger).not.toContain(doomed?.hash ?? "missing");
+
+    // Second failure of the SAME content. Before the fix, the first consume had
+    // recorded the restored hash, so this restore silently returned zero spans
+    // and the claim was deleted anyway — the span was in neither buffer nor
+    // claim, the one state spec §2 G6 forbids. Fired live in the 2026-08-26
+    // replay (the 723-byte span lost between days 12 and 13).
+    const second = await sweep(b, { scope: SCOPE, interpret: failing });
+    expect({ restored: second.spansRestored, consumed: second.consumed }).toEqual({
+      restored: 1,
+      consumed: true,
+    });
+    expect(b.spans(SCOPE).map((s) => s.hash)).toEqual([doomed?.hash ?? "missing"]);
+
+    // Third boundary, healthy interpreter: the span finally converts — and only
+    // NOW does its hash belong in the ledger.
+    const applied: unknown[] = [];
+    const third = await sweep(b, {
+      scope: SCOPE,
+      interpret: async () => ({ proposals: [{ content: "finally" }], stopReason: "end_turn" }),
+      apply: (proposals) => {
+        applied.push(...proposals);
+      },
+    });
+    expect({ swept: third.spansSwept, consumed: third.consumed, applied: applied.length }).toEqual({
+      swept: 1,
+      consumed: true,
+      applied: 1,
+    });
+    expect(b.spans(SCOPE)).toEqual([]);
   });
 
   test("a truncated response is a FAILURE, not data (scar E2)", async () => {

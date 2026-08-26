@@ -607,6 +607,44 @@ describe("interpret-client — streaming, stop_reason guarded, credential from e
     expect((seen as unknown as { url: string }).url).toContain("api.anthropic.com");
   });
 
+  test("the OWNER ANCHOR reaches the wire: a configured identity names the owner in `system` (review CRITICAL-2)", async () => {
+    let seen: { init: RequestInit } | null = null;
+    const interpret = interpretClient({
+      config: config({ identity: { name: "Mike", aliases: ["mlapeter", "Michael"] } }),
+      fetch: async (_url, init) => {
+        seen = { init };
+        return okResponse(streamed("[]"));
+      },
+    });
+    await interpret(chunk);
+    const body = JSON.parse(String((seen as unknown as { init: RequestInit }).init.body)) as Record<string, unknown>;
+    const system = String(body["system"]);
+    // The anchor, its aliases, and the leak guard all travel — the first real
+    // run minted 15 person-memories under a confabulated name because nothing
+    // anchored the owner, and an anchor without the guard is a mint source.
+    expect(system).toContain("The person these transcripts belong to is Mike");
+    expect(system).toContain("mlapeter, Michael");
+    expect(system).toContain("context, not material");
+    // The kinds are DEFINED, not just named (review HIGH: entity ~60% misfiled).
+    expect(system).toContain("a durable named thing");
+  });
+
+  test("an UNCONFIGURED identity forbids guessing a name rather than anchoring one", async () => {
+    let seen: { init: RequestInit } | null = null;
+    const interpret = interpretClient({
+      config: config(),
+      fetch: async (_url, init) => {
+        seen = { init };
+        return okResponse(streamed("[]"));
+      },
+    });
+    await interpret(chunk);
+    const body = JSON.parse(String((seen as unknown as { init: RequestInit }).init.body)) as Record<string, unknown>;
+    const system = String(body["system"]);
+    expect(system).toContain("NEVER guess or introduce a name");
+    expect(system).not.toContain("The person these transcripts belong to is");
+  });
+
   test("a TRUNCATED response is a failure, not data — and the reason travels (scar E2)", async () => {
     const interpret = interpretClient({
       config: config(),

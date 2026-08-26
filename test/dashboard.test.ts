@@ -575,6 +575,24 @@ describe("TOTALITY: every axis the registries know is displayed or marked absent
     expect(pressure).not.toContain(NEVER);
   });
 
+  test("the census reads the LIVE band — a semantic-strength row is not filed under its birth column (review F6)", () => {
+    const writable = Counterpart.open({ dir, owner: true });
+    const id = writable.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The storage split holds: prose canonical, one operational database, a rebuildable cache.",
+      salience: { novelty: null, relevance: 0.9, emotional: 0.8, predictive: 0.9 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    // The column is the birth fossil — nothing ever writes "semantic" to it...
+    expect(writable.store.row(id)?.band).toBe("episodic");
+    writable.close();
+    // ...but the census the owner glances at counts the engine's arithmetic.
+    const text = stripAnsi(dash().status());
+    expect(text).toMatch(/semantic\s+1\b/);
+    expect(text).not.toMatch(/episodic\s+1\b/);
+  });
+
   test("the symmetry tripwire renders by REASON — a starved counter says never-asked, not healthy", () => {
     emptyStore();
     const text = stripAnsi(dash().status());

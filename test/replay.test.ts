@@ -105,6 +105,13 @@ interface FixtureOptions {
    * corpus. This is the shape the real run reads.
    */
   readonly v1Shape?: boolean;
+  /**
+   * Use the SAME two session ids on every day, the shape of the real corpus
+   * (a session that spans days) that the per-date ids here never exercised —
+   * which is exactly how the driver's cursor bug (review F2, 13.2% of the real
+   * corpus silently dropped) stayed invisible to every fixture.
+   */
+  readonly recurringSession?: boolean;
 }
 
 /** v1's `safeScope`: a scope is `global` or `project:<hash>`, and a colon is
@@ -140,7 +147,9 @@ function writeFixtureCorpus(dir: string, opts: FixtureOptions = {}): string {
     const dayDir = join(dir, "buffer-archive", date);
     mkdirSync(dayDir, { recursive: true });
     const lines: string[] = [];
-    for (const session of [`ses_${date}_a`, `ses_${date}_b`]) {
+    const sessions =
+      opts.recurringSession === true ? ["ses_rec_a", "ses_rec_b"] : [`ses_${date}_a`, `ses_${date}_b`];
+    for (const session of sessions) {
       for (let n = 0; n < 3; n++) {
         at += 1000;
         const text = spanText(date, session, n);
@@ -527,16 +536,34 @@ describe("the pipeline driver", () => {
     expect(o.corpus.assumedShape).toBe(0);
     expect(o.corpus.malformedSpans).toBe(0);
     expect(o.days.map((d) => d.spansOffered).reduce((a, b) => a + b, 0)).toBe(18);
-    // SIX, not eighteen, and that is the shape telling the truth: a v1 span
-    // carries no role, so every one enters as `conversation`, and `capture`
-    // writes ONE span per kind per call (2 sessions × 3 days). A v1 span was
-    // already a multi-turn slice — NOTES §2's "one span is one turn" is where
-    // the flattening happens, not here.
-    expect(o.days.map((d) => d.spansCaptured).reduce((a, b) => a + b, 0)).toBe(6);
+    // EIGHTEEN of eighteen: capture runs once per TURN with the session's
+    // cumulative array — production granularity (review F2/F4). The first
+    // build fed a whole session-day in one call, and capture's per-call
+    // coalescing turned it into one mega-span per kind (6 here, 60KB slabs on
+    // the real corpus) while the cross-day cursor overlap dropped silently.
+    expect(o.days.map((d) => d.spansCaptured).reduce((a, b) => a + b, 0)).toBe(18);
     expect(o.chunks.some((c) => c.gated)).toBe(true);
     expect(o.store.memories).toBeGreaterThan(0);
     // v1 spells a project scope with a colon; it survives into the replay.
     expect(o.sweeps.some((s) => s.scope === V1_SCOPE)).toBe(true);
+    result.cleanup();
+  });
+
+  test("a session that spans days loses NOTHING at the capture seam (review F2)", async () => {
+    // The real corpus's shape: the same session recurring across days. Before
+    // the cumulative-turns fix, day 2's array was sliced by day 1's cursor and
+    // every overlapped span silently read NOTHING_NEW — 13.2% of the real
+    // corpus never entered the replay, and no metric said so.
+    const result = await runFixture("recurring", { recurringSession: true });
+    const o = result.run.observation;
+    expect(o.days.map((d) => d.spansOffered).reduce((a, b) => a + b, 0)).toBe(18);
+    expect(o.days.map((d) => d.spansCaptured).reduce((a, b) => a + b, 0)).toBe(18);
+    // And the floor that makes this failure impossible to miss again:
+    const coverage = result.scorecard.metrics.find((m) => m.id === "run.captureCoverage");
+    expect({ verdict: coverage?.verdict, value: coverage?.observed?.value }).toEqual({
+      verdict: "pass",
+      value: 1,
+    });
     result.cleanup();
   });
 

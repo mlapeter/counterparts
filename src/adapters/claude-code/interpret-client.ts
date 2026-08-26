@@ -89,25 +89,78 @@ export interface InterpretClientOptions {
  * asks for nothing the intake validator will not accept — but nothing here
  * TRUSTS that: every field is re-validated downstream, and no privileged field
  * exists to ask for, because `Proposal` has nowhere to put one (§4.1 G7).
+ *
+ * Three lessons of the 2026-08-26 replay review are load-bearing here:
+ *   - the OWNER IS NAMED when the config knows them. The first real run minted
+ *     15 durable person-memories under a confabulated name ("Matt", appearing
+ *     nowhere in the source) because nothing anchored who the transcripts
+ *     belong to.
+ *   - the KINDS ARE DEFINED. Named without definitions, `entity` came back
+ *     ~60% events-filed-as-things and `place` 8-for-8 non-geographic — a spec
+ *     absence, not a model failure.
+ *   - ONE IDEA HAS TEETH, and a fragment gets `[]` instead of an essay (5 of
+ *     121 real calls answered tiny scraps with prose; throw-and-restore held,
+ *     but the honest answer was always `[]`).
  */
-export const SYSTEM_PROMPT = [
-  "You are reading a transcript that its own author never got to summarize — the",
-  "session ended before the end-of-session write. Recover what was LEARNED, not",
-  "what was said.",
-  "",
-  "Return ONLY a JSON array. Each element is an object:",
-  '  content   (required, string) — the memory, in plain prose, one idea.',
-  '  kind      (optional) — one of: self, person, entity, skill, place, fact.',
-  '  title     (optional, string) — a short handle.',
-  '  claimed   (optional, number 0-1) — how much this mattered.',
-  '  salience  (optional) — { relevance, emotional, predictive }, each 0-1.',
-  '  feeling   (optional) — { feeling, quote, subject }; quote must appear in the span.',
-  '  aliases   (optional, string[]) — other names for the thing.',
-  '  updates   (optional, string) — the id of a memory this revises, if one is named.',
-  "",
-  "Return [] when the transcript taught nothing. An empty array is a real answer.",
-  "Do not include commentary, markdown fences, or any text outside the array.",
-].join("\n");
+export function systemPrompt(identity?: {
+  readonly name: string;
+  readonly aliases?: readonly string[];
+}): string {
+  const aka =
+    identity?.aliases !== undefined && identity.aliases.length > 0
+      ? ` (also appearing as: ${identity.aliases.join(", ")})`
+      : "";
+  const owner =
+    identity === undefined
+      ? [
+          "If the person the transcripts belong to is not named in them, write",
+          "'the owner' — NEVER guess or introduce a name the transcript does not",
+          "contain verbatim.",
+        ]
+      : [
+          `The person these transcripts belong to is ${identity.name}${aka}.`,
+          `Refer to them as ${identity.name}. Never introduce any other name for`,
+          "them; a name not in the transcript verbatim does not exist.",
+          "This anchor is context, not material: never propose a memory whose",
+          "content restates it — memories come from the transcript alone.",
+        ];
+  return [
+    "You are reading a transcript that its own author never got to summarize — the",
+    "session ended before the end-of-session write. Recover what was LEARNED, not",
+    "what was said.",
+    "",
+    ...owner,
+    "",
+    "Return ONLY a JSON array. Each element is an object:",
+    "  content   (required, string) — the memory, in plain prose. ONE idea per",
+    "            element: if a passage taught three things, return three elements.",
+    "            Never bundle a day's status updates into one memory.",
+    "  kind      (optional) — exactly one of:",
+    "              self    — a lesson, trait, or practice of the AI assistant itself",
+    "              person  — a durable fact about a human (who they are, how they",
+    "                        work) — not an event they happened to be part of",
+    "              entity  — a durable named thing: a project, company, product,",
+    "                        system — not an event, status, or one-time change",
+    "              skill   — a reusable technique or how-to",
+    "              place   — a physical location",
+    "              fact    — everything else durable: events, decisions, states",
+    '  title     (optional, string) — a short handle.',
+    '  claimed   (optional, number 0-1) — how much this mattered.',
+    '  salience  (optional) — { relevance, emotional, predictive }, each 0-1.',
+    '  feeling   (optional) — { feeling, quote, subject }; quote must appear in the span.',
+    '  aliases   (optional, string[]) — other names for the thing.',
+    '  updates   (optional, string) — the id of a memory this revises, if one is named.',
+    "",
+    "Return [] when the transcript taught nothing. An empty array is a real answer,",
+    "and it is THE answer for a fragment too small to teach anything — never",
+    "commentary about the fragment.",
+    "Do not include commentary, markdown fences, or any text outside the array.",
+  ].join("\n");
+}
+
+/** The identity-less render, kept for callers and tests that predate the owner
+ *  anchor. A configured host lets `interpretClient` build the anchored prompt. */
+export const SYSTEM_PROMPT = systemPrompt();
 
 /**
  * Build the `InterpretFn` `remember/`'s sweep takes. One chunk in, proposals and
@@ -121,6 +174,9 @@ export function interpretClient(opts: InterpretClientOptions = {}): InterpretFn 
   const maxTokens = opts.maxTokens ?? TUNABLES.MAX_OUTPUT_TOKENS;
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const emit = opts.onEvent ?? ((): void => {});
+  // Anchored once, at construction: the owner's identity comes from the host's
+  // config, the same source the identity core uses — never inferred from text.
+  const system = systemPrompt(config.identity);
 
   return async (chunk: SweepChunk): Promise<InterpretResult> => {
     // ── the credential, from ONE source, checked BEFORE any socket ──────────
@@ -146,7 +202,7 @@ export function interpretClient(opts: InterpretClientOptions = {}): InterpretFn 
       // E3: long generations STREAM. This one can be long by construction — a
       // chunk is thousands of bytes of transcript.
       stream: true,
-      system: SYSTEM_PROMPT,
+      system,
       messages: [{ role: "user", content: chunk.prompt }],
     };
 
