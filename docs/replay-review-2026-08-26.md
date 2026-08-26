@@ -219,10 +219,13 @@ a met precondition.
   but it wants an attempt count (or quarantine after N) so the fiftieth restore
   is distinguishable from the first. Design-adjacent; queued with the owner
   calls.
-- **`scanSecrets` is O(n²) on a long contiguous lowercase run** (~1.5s at 64KB)
-  — PRE-EXISTING, shared by every `scheme://` family, verified by the PR-1
-  reviewer to predate the batch (it chased its own suggestion as the suspect
-  first). Fix is measured and cheap — bound the scheme match to
+- **`scanSecrets` is O(n²) on a long contiguous lowercase run** (~1.5s at 64KB;
+  **~7 CPU-minutes at 512KB of adversarial input, inside a non-ablatable
+  gate**) — PRE-EXISTING, shared by every `scheme://` family, verified by the
+  PR-1 reviewer to predate the batch (it chased its own suggestion as the
+  suspect first, then falsified the token-bound hypothesis too: `{12,256}`
+  moves nothing). The lever is the `\b[a-z][a-z0-9+.-]*` scheme-prefix scan
+  retried at every start position; the fix is measured and cheap — bound it to
   `[a-z0-9+.-]{0,32}` (6,750ms → 11ms at 64K, all 21 correctness cases
   unchanged) — queued rather than slipped into the merged branch unreviewed,
   because the gate is the one component that gets no casual edits.
