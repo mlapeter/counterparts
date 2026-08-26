@@ -799,6 +799,19 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     const migrated = store();
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
+
+  test("an ABSENT store refuses under observer — and leaves NOTHING behind (cli §7)", () => {
+    // The wart this closes: an instrument that MINTS a data dir by looking at
+    // one. A stood-down hook with an unreadable config was a live path here.
+    expect(readdirSync(dir)).toEqual([]);
+    expect(code(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
+    // Refused BEFORE the first mkdir: not a directory, not a cache, not a byte.
+    expect(readdirSync(dir)).toEqual([]);
+    // The owner mints it; the instrument may then read it.
+    store().close();
+    open.length = 0;
+    expect(store({ observer: true }).list()).toEqual([]);
+  });
 });
 
 // ── observer mode, at the seam ───────────────────────────────────────────────
@@ -896,6 +909,9 @@ describe("observer mode is enforced at the store seam", () => {
   });
 
   test("an unreadable stance fails toward standing down (observer-mode.md G5)", () => {
+    // The stance needs a store to read: an observer no longer mints one (§7).
+    store().close();
+    open.length = 0;
     expect(store({ observer: "yes" as unknown as boolean }).observer).toBe(true);
     expect(store({}).observer).toBe(false);
     expect(store({ observer: false }).observer).toBe(false);

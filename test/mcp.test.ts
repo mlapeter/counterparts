@@ -626,6 +626,8 @@ describe("session_end — the authorship ask's return channel", () => {
 
 describe("observer stands down over the wire", () => {
   test("every tool stands down and SAYS so, and nothing durable moves", async () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Store.open({ dir }).close();
     const s = server({ observer: true, owner: true });
     const before = fingerprint(dir);
 
@@ -649,6 +651,7 @@ describe("observer stands down over the wire", () => {
   });
 
   test("an observer is a non-owner regardless of what the host claimed", () => {
+    Store.open({ dir }).close();
     const s = server({ observer: true, owner: true });
     expect(s.owner).toBe(false);
   });

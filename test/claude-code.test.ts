@@ -536,6 +536,8 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
   });
 
   test("an observer spawns NO worker, and says so (§15 G3)", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Counterpart.open({ dir, owner: true }).close();
     const { a, calls } = adapter({ observer: true });
     const result = a.stop(input());
     expect(result.reason).toBe("observer");

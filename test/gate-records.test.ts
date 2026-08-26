@@ -337,6 +337,9 @@ describe("the log stays telemetry: no text, one row per crossing, nothing under 
   });
 
   test("an OBSERVER records nothing — the instrument leaves the store as it found it", async () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7):
+    // "as it found it" needs a store to find.
+    brain().close();
     const c = brain({ observer: true });
     await sweepOnce(c, [GOOD]);
     expect(records(c)).toEqual([]);

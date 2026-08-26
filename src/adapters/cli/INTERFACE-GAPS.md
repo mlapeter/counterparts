@@ -125,7 +125,7 @@ list here would re-create the v1 bug G5 exists to prevent. Recorded as a real
 contradiction for the owner to close in one direction or the other, not as a
 silent choice.
 
-## 7. An instrument still MINTS an absent store at open
+## 7. An instrument still MINTS an absent store at open — CLOSED 2026-08-26
 
 **Filed 2026-08-25**, alongside the fix for the live "database is locked" failure
 (`docs/live-verify-2026-08-25.md`). `Store`'s constructor no longer writes at open
@@ -133,14 +133,19 @@ when the store is current — that was the lock the backup lost — and a store 
 schema BEHIND now refuses under observer (`STORE_UNINITIALIZED`) rather than
 migrating itself out from under whoever owns it.
 
-What did NOT change: an observer opening a data directory with no store still
-creates one. There is no lock to contend for there and no state to disturb, but
-it is the same wart `statusCommand` already names out loud ("an instrument that
-MINTS a data dir by looking at one is a wart"). Closing it means changing tests
-in six modules — `dashboard`, `mcp`, `schemas`, `sleep`, `prospective`,
-`claude-code` all open observer stores on empty temp dirs — which is a fence this
-session did not hold. Fix: refuse, and give every one of those tests a store to
-read.
+**Closed 2026-08-26** exactly as filed: an observer opening a data directory
+with no store now refuses with the same `STORE_UNINITIALIZED` — thrown BEFORE
+the first `mkdirSync`, so the refusal deposits nothing, not even the cache
+container (`store.test.ts` pins "leaves NOTHING behind"). To a reader, "not
+created yet" and "not migrated yet" are one condition. The seven test files
+that opened observers on virgin temp dirs now create the store they read (an
+owner open, closed immediately). Callers squared with the refusal: the
+dashboard bin catches it and prints `statusCommand`'s sentence instead of a
+stack trace; the hook bin still exits 0 but now names its stand-down on stderr
+(a CORRUPT config fails toward observer, and on a machine with no store that
+path used to be the silent mint — an ABSENT config keeps owner defaults, so
+cold start still mints normally); the CLI's `storeExists` guards already
+answered before opening.
 
 ## 8. Entity birth (`schemas.mention`) has no adapter path at all
 

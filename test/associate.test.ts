@@ -792,6 +792,8 @@ describe("observer", () => {
   });
 
   test("an observer refuses to retarget too", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Store.open({ dir }).close();
     const probe = store({ observer: true });
     const g = assoc(probe);
     expect(g.retargetOnSupersede("mem_a", "mem_b", 0).reason).toBe("observer");

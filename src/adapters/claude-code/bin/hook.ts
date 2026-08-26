@@ -116,6 +116,14 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 if (isEntryPoint(process.argv[1], import.meta.url)) {
   void main().then(
     () => process.exit(0),
-    () => process.exit(0),
+    (err: unknown) => {
+      // A failed hook is a QUIET hook, never a failed session — but a
+      // stand-down stays observable (observer-mode G6). One line names it:
+      // e.g. an observer stance finding no store to read (cli §7) says
+      // STORE_UNINITIALIZED here instead of minting one silently.
+      const detail = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[counterparts] hook stood down: ${detail}\n`);
+      process.exit(0);
+    },
   );
 }

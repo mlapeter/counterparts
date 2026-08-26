@@ -215,6 +215,13 @@ function dash(opts: Parameters<typeof Dashboard.open>[0] = {}): Dashboard {
   return d;
 }
 
+/** An initialized-but-EMPTY store. The dashboard no longer mints an absent one
+ *  by looking at it (cli INTERFACE-GAPS §7, closed 2026-08-26) — so the tests
+ *  about honest emptiness must create the emptiness they read. */
+function emptyStore(): void {
+  Counterpart.open({ dir, owner: true }).close();
+}
+
 // ── the byte-identical protocol ──────────────────────────────────────────────
 
 /**
@@ -540,6 +547,7 @@ describe("TOTALITY: every axis the registries know is displayed or marked absent
 
   test("a phase that has NEVER run says so — it does not read as quiet", () => {
     // A store that has never slept: no seed, no cycle, every marker unset.
+    emptyStore();
     const text = stripAnsi(dash().status());
     for (const phase of CYCLE_PHASES) {
       const line = text.split("\n").find((l) => new RegExp(`^\\s+${phase}\\s`).test(l));
@@ -568,6 +576,7 @@ describe("TOTALITY: every axis the registries know is displayed or marked absent
   });
 
   test("the symmetry tripwire renders by REASON — a starved counter says never-asked, not healthy", () => {
+    emptyStore();
     const text = stripAnsi(dash().status());
     expect(text).toContain("Band symmetry");
     // The fixture records no band transitions, so every kind must read
@@ -577,6 +586,7 @@ describe("TOTALITY: every axis the registries know is displayed or marked absent
   });
 
   test("every registry axis survives an EMPTY store — five views, no throw", () => {
+    emptyStore();
     const d = dash();
     for (const view of VIEWS) {
       const text = stripAnsi(d.render(view));
@@ -637,6 +647,7 @@ describe("RENDER-TIME id resolution: ids in state, text at the moment of printin
   });
 
   test("an id that never existed renders a named absence, not a crash and not a blank", () => {
+    emptyStore();
     const d = dash();
     const ref = resolveRef(d.store, "mem_ffffffffffff");
     expect(ref.present).toBe(false);
@@ -773,6 +784,7 @@ describe("browse — the memory list, and one memory opened", () => {
   });
 
   test("opening an id that is gone renders the named absence and nothing else", () => {
+    emptyStore();
     const text = stripAnsi(dash().browse({ id: "mem_ffffffffffff" }));
     expect(text).toContain(ABSENCE.unknown);
   });
@@ -834,6 +846,7 @@ describe("stories — the revision narrative, from the durable log", () => {
   });
 
   test("a store where nothing was ever argued with says exactly that", () => {
+    emptyStore();
     const text = stripAnsi(dash().stories());
     expect(text).toContain(NONE);
     expect(text).toContain("has never had one");

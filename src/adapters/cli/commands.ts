@@ -216,8 +216,10 @@ function resolveDir(env: Record<string, string | undefined>): string {
  */
 function statusCommand(dir: string, io: Io): number {
   if (!storeExists(dir)) {
-    // An instrument that MINTS a data dir by looking at one is a wart: report
-    // the absence instead of creating the thing being reported on.
+    // An instrument that MINTS a data dir by looking at one is a wart — and
+    // since 2026-08-26 the store itself refuses it (INTERFACE-GAPS §7 closed:
+    // observer + absent store is STORE_UNINITIALIZED at open). This guard
+    // stays for the friendlier sentence.
     io.out(`No store at ${dir}. Run 'counterparts init' to create one.`);
     return EXIT.ok;
   }

@@ -33,7 +33,7 @@ import type { Db } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
-import { DEFAULT_RETENTION_DAYS, openOperational, rowToPhysics } from "./operational.js";
+import { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, openOperational, rowToPhysics } from "./operational.js";
 import type {
   EdgeRow,
   EventRow,
@@ -305,14 +305,21 @@ export class Store {
     // store that is a schema BEHIND refuses under observer by name rather than
     // migrating itself out from under the process that owns it.
     //
-    // The one thing an instrument may still do is mint an ABSENT store: there is
-    // no lock to contend for and no state to disturb, and every empty-store
-    // instrument in the build (the dashboard's five views, a stood-down hook)
-    // opens exactly that way. That mint-by-observer wart is FILED, not fixed
-    // here — fixing it means changing tests in six modules this session may not
-    // touch.
+    // An ABSENT store refuses under observer too (cli INTERFACE-GAPS §7, closed
+    // 2026-08-26). There is no lock to contend for there — but "an instrument
+    // that MINTS a data dir by looking at one is a wart" (`statusCommand`), and
+    // a stood-down hook with an unreadable config was exactly the caller that
+    // would quietly deposit a skeleton store on a machine that had none. Same
+    // named refusal as the schema-behind case: to a reader, "not created yet"
+    // and "not migrated yet" are one condition — nothing here to read.
     const fresh = !existsSync(paths.operational(this.dir));
-    const writesAtOpen = !this.observer || fresh;
+    if (this.observer && fresh) {
+      throw new StoreError("STORE_UNINITIALIZED", {
+        path: paths.operational(this.dir),
+        expected: SCHEMA_VERSION,
+      });
+    }
+    const writesAtOpen = !this.observer;
     for (const sub of writesAtOpen
       ? [
           paths.prose(this.dir),

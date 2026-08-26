@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { Dashboard, VIEWS, VIEW_BLURB, isViewName } from "../index.js";
 import type { ViewArgs, ViewName } from "../index.js";
 import { terminalWantsColour } from "../ansi.js";
+import { dataDir, isStoreError } from "../../../core/store/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 
 interface Parsed {
@@ -113,11 +114,22 @@ export function helpText(): string {
 export function run(argv: readonly string[]): string {
   const parsed = parseArgv(argv);
   if (parsed.view === "help") return helpText();
-  const dashboard = Dashboard.open({
-    ...(parsed.dir === undefined ? {} : { dir: parsed.dir }),
-    colour: parsed.colour,
-    ...(parsed.width === undefined ? {} : { width: parsed.width }),
-  });
+  let dashboard: Dashboard;
+  try {
+    dashboard = Dashboard.open({
+      ...(parsed.dir === undefined ? {} : { dir: parsed.dir }),
+      colour: parsed.colour,
+      ...(parsed.width === undefined ? {} : { width: parsed.width }),
+    });
+  } catch (err) {
+    // The instrument refuses to mint an absent store (cli INTERFACE-GAPS §7) —
+    // and an owner pointing a dashboard at nothing deserves a sentence, not a
+    // stack trace.
+    if (isStoreError(err, "STORE_UNINITIALIZED")) {
+      return `No store at ${parsed.dir ?? dataDir()}. Run 'counterparts init' to create one.`;
+    }
+    throw err;
+  }
   try {
     return dashboard.render(parsed.view, parsed.args);
   } finally {

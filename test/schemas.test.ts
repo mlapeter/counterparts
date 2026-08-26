@@ -1046,6 +1046,8 @@ describe("module properties", () => {
   });
 
   test("observer mode refuses the write before anything is staged", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Store.open({ dir }).close();
     const store = Store.open({ dir, observer: true });
     open.push(store);
     const s = Schemas.open({ store });

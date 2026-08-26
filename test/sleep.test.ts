@@ -866,6 +866,8 @@ describe("observer mode", () => {
   });
 
   test("an observer session SPAWNS no cycle at all", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Store.open({ dir }).close();
     const s = store({ observer: true });
     expect(shouldSpawn(s)).toEqual({ spawn: false, reason: "observer" });
     expect(shouldSpawn(store())).toEqual({ spawn: true, reason: "spawn" });
