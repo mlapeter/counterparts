@@ -79,6 +79,11 @@ surface in the system.
 - **Model + prompt size** (fields only present from 2026-08-19 onward — 85 of 780
   events carry them): model is uniformly `claude-opus-5`; mean `promptBytes` 75,218,
   max 165,155.
+- **Capture coverage** (`run.captureCoverage`, added 2026-08-26 after review F2): no
+  v1 number — a harness-validity floor, not a baseline. Every corpus span offered
+  must return as a captured span, a counted dedup, or a counted exclusion; the bar
+  is exactly 1.0. The first real run silently dropped 13.2% of the corpus at the
+  capture seam and no metric said so.
 
 **Op outcomes** (`op.applied` / `op.rejected` / `op.deferred`):
 

@@ -104,7 +104,7 @@ export const METRICS: readonly MetricSpec[] = [
     grading: {
       kind: "range",
       range: { lo: 0, hi: 0.9 },
-      note: "WIDE, and the reason is beside it: v1's secrets fires rode on the EPISODE surface — 483 of 737 fires were on episode text — which a raw-span replay does not exercise at all (see `gate.episodeSurfaceShare`). A low secrets share here is a corpus fact before it is a regression, and a zero is legitimate: a corpus with no credential shapes in it fires no secrets gate. What the metric really grades is that the mix EXISTS — the per-gate distribution is recoverable from a replayed store, which it was not before `gate.chunk`.",
+      note: "WIDE, and the reason is beside it: v1's secrets fires rode on the EPISODE surface — 483 of 737 fires were on episode text — which a raw-span replay does not exercise at all (see `gate.episodeSurfaceShare`). A low secrets share here is a corpus fact before it is a regression, and a zero is legitimate: a corpus with no credential shapes in it fires no secrets gate. What the metric really grades is that the mix EXISTS — the per-gate distribution is recoverable from a replayed store, which it was not before `gate.chunk`. VOCABULARY (review F7): these are FIRES — gates ACTING (redact, hedge, feeling-kill, drop) — not refusals. v2's battery refuses a proposal only three ways (secret-in-name, empty-after-redaction, content floor); alias/precision/emotion degrade and accept by design. Refusals live in `gate.chunkBlockRate`; the id predates the split and is kept for record stability.",
     },
     compute: (o) => {
       // The battery's OWN count of an acting gate: it writes one `gate.<name>`
@@ -207,6 +207,26 @@ export const METRICS: readonly MetricSpec[] = [
       note: "Scar E2: a truncated response is a failure, not data. Per-chunk isolation means a failure costs one chunk (E1), and the spans come back (E6).",
     },
     compute: (o) => rate(o.chunks.filter((c) => !c.ok).length, o.chunks.length),
+  },
+  {
+    id: "run.captureCoverage",
+    section: "1.2",
+    label: "Corpus spans accounted for at capture (captured + deduped + excluded, over offered)",
+    v1: "no v1 counterpart — a harness-validity floor added after review F2: the first real run silently dropped 13.2% of the corpus at the capture seam and no metric said so",
+    unit: "rate",
+    grading: {
+      kind: "range",
+      range: { lo: 1, hi: 1 },
+      note: "HARD, and a wiring check rather than a distribution: every span the corpus offers must come back as a captured span, a counted dedup, or a counted exclusion. Anything less is the driver silently replaying a subset while the scorecard grades it as the whole — the exact failure that let the first run grade a replay that never saw an eighth of its input.",
+    },
+    compute: (o) => {
+      const offered = sum(o.days, (d) => d.spansOffered);
+      if (offered <= 0) return null;
+      return rate(
+        sum(o.days, (d) => d.spansCaptured + d.deduped + d.excluded),
+        offered,
+      );
+    },
   },
   {
     id: "run.seatRecorded",
@@ -359,7 +379,7 @@ export const METRICS: readonly MetricSpec[] = [
     grading: {
       kind: "range",
       range: { lo: 0, hi: 15 },
-      note: "v1's crossings only started firing 2026-08-15, after the belief migration unblocked them — a 9-day denominator, not 26. The numerator is every UP-move, not only the identity crossing: v1's 6.1/day were episodic→semantic band moves, which in v2 happen in the decay materialization, not in the promotion pass.",
+      note: "v1's crossings only started firing 2026-08-15, after the belief migration unblocked them — a 9-day denominator, not 26. The numerator is every UP-move, not only the identity crossing: v1's 6.1/day were episodic→semantic band moves, which in v2 happen in the decay materialization, not in the promotion pass. REPLAY CAVEAT (review F3/F6): with no turn loop, `uses` never move, so the identity crossing's 3-distinct-days condition is unsatisfiable and a decay up-move needs strength to RISE without reinforcement — a 0 in replay is structural, not behavior. The metric earns its range in the parallel run.",
     },
     compute: (o) => mean(sum(o.cycles, (c) => c.bandUp), o.activeDays),
   },
@@ -432,13 +452,13 @@ export const METRICS: readonly MetricSpec[] = [
     grading: {
       kind: "range",
       range: { lo: 0.02, hi: 0.35 },
-      note: "The size-independent port of v1's raw row count. v2 is calm by default: a row is written only when it moves past `DECAY_QUANTUM` or changes band.",
+      note: "The size-independent port of v1's raw row count. CAVEATS, both from the 2026-08-26 review (F3): the band is v1's MATURE store — with `DECAY_QUANTUM` at 1e-4 a row keeps moving daily for ~250-400 lived days after its last reinforcement, so a young or still-growing store reads high for its first year and that FAIL is age, not defect. And the first build divided by ticks x FINAL store size, understating churn on a growing corpus (56% reported vs 96% true); the denominator is now the per-tick examined count the cycles actually recorded.",
     },
     compute: (o) => {
       const ticks = o.cycles.filter((c) => c.decayRan);
-      const live = livingMemories(o);
-      if (ticks.length === 0 || live <= 0) return null;
-      return rate(sum(ticks, (c) => c.decayChanged), ticks.length * live);
+      const examined = sum(ticks, (c) => c.decayExamined);
+      if (ticks.length === 0 || examined <= 0) return null;
+      return rate(sum(ticks, (c) => c.decayChanged), examined);
     },
   },
   {
@@ -698,7 +718,7 @@ export const METRICS: readonly MetricSpec[] = [
     grading: {
       kind: "range",
       range: { lo: 0, hi: 0.03 },
-      note: "Degrade, don't abort: a failed phase is reported and the cycle continues, so this is a rate over phases rather than a count of dead runs.",
+      note: "Degrade, don't abort: a failed phase is reported and the cycle continues, so this is a rate over phases rather than a count of dead runs. SCOPE (review F3): the numerator is CYCLE phases only — interpreter failures are chunk outcomes and structurally cannot appear here (v1's 7 `system.error`s were 5/7 interpreter parse). Read `interpret.chunkFailureRate` beside this line; a 0 here with a nonzero there is one system failing in the other's blind spot.",
     },
     compute: (o) => {
       const phases = sum(o.cycles, (c) => c.phasesRan + c.phasesFailed);
@@ -727,15 +747,9 @@ export const METRICS: readonly MetricSpec[] = [
     v1: "15 `session.start` / 14 `session.end` — one session ended without a recorded end",
     unit: "rate",
     grading: {
-      kind: "range",
-      range: { lo: 0.9, hi: 1.0 },
-      note: "Spec §2 G5: every session-ending path is a boundary, and the sweep only looks past one. Below 1.0 means spans are sitting unclaimable.",
+      kind: "not-computable",
+      why: "TAUTOLOGICAL IN THIS HARNESS (review F3): the driver increments `boundaries` and `sessions` from the same loop, so the ratio is 1.0 by construction and cannot reproduce v1's own finding (a session end that never fired). Spec §2 G5 is real, but grading it needs a host that can drop a boundary — the parallel run — not a driver that manufactures one per bucket. A vacuous PASS reads healthier than an honest absence (scar §2.4), so this renders as not-exercised until the surface can actually move.",
     },
-    compute: (o) =>
-      rate(
-        sum(o.days, (d) => d.boundaries),
-        sum(o.days, (d) => d.sessions),
-      ),
   },
 ];
 
