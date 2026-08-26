@@ -20,7 +20,7 @@
  * labelled SINCE BIRTH. A number invented to look like "last cycle" would be scar
  * §2.17 committed by the very view that exists to prevent it.
  */
-import { strength, symmetryCheck } from "../../core/physics/index.js";
+import { band, strength, symmetryCheck } from "../../core/physics/index.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../../core/schemas/index.js";
 import {
   MARKER_UNSET,
@@ -93,17 +93,24 @@ function tally(src: DashboardSource, day: number): Tally {
     }
     out.live += 1;
     out.byKind.set(row.kind, (out.byKind.get(row.kind) ?? 0) + 1);
-    out.byBand.set(row.band, (out.byBand.get(row.band) ?? 0) + 1);
     if (row.promoted_identity === 1) out.promoted += 1;
     if (row.protected === 1) out.guarded += 1;
     if (row.pressure > 0) out.contested += 1;
+    // The stored band column is a birth fossil — episodic at mint, identity at
+    // promotion, never "semantic" (replay review F6). The census a glance
+    // trusts must be the LIVE band: arithmetic over the row's physics.
+    let liveBand = row.band;
     try {
+      const physics = store.physicsOf(id);
+      liveBand = band(physics, day);
       const list = strengths.get(row.kind) ?? [];
-      list.push(strength(store.physicsOf(id), day));
+      list.push(strength(physics, day));
       strengths.set(row.kind, list);
     } catch {
-      // A row whose physics will not read is not worth failing a glance over.
+      // A row whose physics will not read is not worth failing a glance over;
+      // its recorded band is the honest fallback.
     }
+    out.byBand.set(liveBand, (out.byBand.get(liveBand) ?? 0) + 1);
   }
   for (const [kind, list] of strengths) {
     out.meanStrength.set(kind, list.reduce((a, b) => a + b, 0) / Math.max(1, list.length));

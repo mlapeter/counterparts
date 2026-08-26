@@ -143,6 +143,11 @@ const SPECIMENS: { family: string; text: string; marker: string }[] = [
     marker: "hunter2secret",
   },
   {
+    family: "url-path-token",
+    text: "the staff link is https://hearddd.example/login/g6jXw2mQpR9tnw and it works",
+    marker: "g6jXw2mQpR9tnw",
+  },
+  {
     family: "assigned-credential",
     text: "password: correct-horse-battery",
     marker: "correct-horse-battery",
@@ -192,6 +197,22 @@ describe("guarantee 1 — the secrets gate is NOT ABLATABLE", () => {
       expect(scan.redacted).toContain("before");
       expect(scan.redacted).toContain("after");
     }
+  });
+
+  test("url-path-token is scoped to auth-shaped paths — an ordinary repo URL does not fire it", () => {
+    // The family exists because a magic-login link minted whole (review Gap A);
+    // its cost ceiling is that commit hashes and doc slugs stay untouched.
+    for (const clean of [
+      "see https://github.com/mlapeter/counterparts/commit/0879c79ab12cd34ef56a for the fix",
+      "docs at https://example.com/guide/getting-started-with-replay-harnesses",
+      "https://example.com/session/notes says the meeting moved",
+    ]) {
+      const scan = scanSecrets(clean);
+      expect(scan.findings.map((f) => f.family)).not.toContain("url-path-token");
+    }
+    // And the shape it exists for still fires through an extra path segment.
+    const hot = scanSecrets("https://app.example.com/auth/callback/Zx9mQw2Rt8Kp");
+    expect(hot.findings.map((f) => f.family)).toContain("url-path-token");
   });
 
   test("every declared family has a specimen — the table is total, not a sample", () => {

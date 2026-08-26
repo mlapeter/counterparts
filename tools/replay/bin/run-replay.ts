@@ -57,6 +57,12 @@ const VECTORS = "voyage-3-large";
 /** The host ceiling v1 actually ran under — the 9K wake budget. */
 const BUDGET_BYTES = 9_000;
 
+/** The corpus's owner, anchored (review CRITICAL-2: the first run passed no
+ *  identity and the interpreter confabulated a name — 15 durable memories
+ *  called the owner "Matt"). Names from the corpus's own census: Mike x181
+ *  files, mlapeter x376, Michael x4, Matt x0. */
+const OWNER = { name: "Mike", aliases: ["mlapeter", "Michael"] } as const;
+
 const TRANSIENT_HTTP: ReadonlySet<number> = new Set([408, 429, 500, 502, 503, 529]);
 const RETRY_WAITS_MS: readonly number[] = [15_000, 60_000];
 
@@ -83,6 +89,7 @@ function realInterpret(): InterpretFn {
   return async (chunk) => {
     for (let attempt = 0; ; attempt += 1) {
       const client = interpretClient({
+        config: { identity: { name: OWNER.name, aliases: [...OWNER.aliases] } },
         signal: AbortSignal.timeout(TUNABLES.WATCHDOG_MS),
         onEvent: (name, data) => log(`${name} ${JSON.stringify(data)}`),
       });
@@ -219,6 +226,7 @@ async function main(argv: readonly string[]): Promise<number> {
       vectors: VECTORS,
       budgetBytes: BUDGET_BYTES,
       workRoot: outDir,
+      identity: { name: OWNER.name, aliases: [...OWNER.aliases] },
       onDay: (date, index, total) => log(`day ${index}/${total} ${date}`),
     });
 

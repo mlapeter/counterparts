@@ -15,7 +15,7 @@
  * Sorted by strength, computed now, because "what is strong today" is the
  * question a memory browser is actually asked.
  */
-import { rep, sal, strength } from "../../core/physics/index.js";
+import { band, rep, sal, strength } from "../../core/physics/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import { PLAIN } from "./ansi.js";
 import type { Style } from "./ansi.js";
@@ -68,8 +68,11 @@ function renderList(src: DashboardSource, opts: BrowseOptions): string {
   const day = store.livedDay();
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
-  const filter: { band?: Band; kind?: Kind; archived?: boolean } = {};
-  if (opts.band !== undefined) filter.band = opts.band;
+  // The band filter is COMPUTED, never delegated to the column: the stored
+  // band is a birth fossil (episodic at mint, identity at promotion — nothing
+  // ever writes "semantic", replay review F6), so `list({ band: "semantic" })`
+  // would return nothing forever while the engine holds semantic rows.
+  const filter: { kind?: Kind; archived?: boolean } = {};
   if (opts.kind !== undefined) filter.kind = opts.kind;
   if (opts.archived !== true) filter.archived = false;
 
@@ -79,12 +82,17 @@ function renderList(src: DashboardSource, opts: BrowseOptions): string {
     if (row === undefined) continue;
     let gist: string;
     let s: number;
+    let b: Band;
     try {
+      const physics = store.physicsOf(id);
       gist = gistOf(store.readProse(id));
-      s = strength(store.physicsOf(id), day);
+      s = strength(physics, day);
+      b = band(physics, day);
     } catch {
       // A row the owner removed, or prose that will not read: it is still a real
-      // row, so it is listed as a named absence rather than silently dropped.
+      // row, so it is listed as a named absence rather than silently dropped —
+      // under its recorded band, the only one an unreadable row has.
+      if (opts.band !== undefined && row.band !== opts.band) continue;
       lines.push({
         id,
         strength: 0,
@@ -95,10 +103,11 @@ function renderList(src: DashboardSource, opts: BrowseOptions): string {
       });
       continue;
     }
+    if (opts.band !== undefined && b !== opts.band) continue;
     lines.push({
       id,
       strength: s,
-      band: row.band,
+      band: b,
       kind: row.kind,
       gist,
       archived: row.archived === 1 ? (row.archived_reason ?? "archived") : null,
@@ -165,7 +174,9 @@ function renderOne(src: DashboardSource, id: string, opts: BrowseOptions): strin
     // it (constitution line 6, CONTRACT §3 "prose views the owner can open").
     ["prose", row?.prose_path ?? "—"],
     ["kind", physics.kind],
-    ["band", `${row?.band ?? "—"} (set on day ${row?.band_day ?? "—"})`],
+    // Live band first (arithmetic, what the engine acts on); the recorded
+    // column is the birth/promotion record and says so (review F6).
+    ["band", `${band(physics, day)} (recorded ${row?.band ?? "—"}, set day ${row?.band_day ?? "—"})`],
     [
       "strength",
       `${num(strength(physics, day))}  ${meter(strength(physics, day), 12)}` +
