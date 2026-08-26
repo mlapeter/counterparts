@@ -53,11 +53,20 @@ row and the run would add a duplicate. It is also `.trim()`ed, because
 
 ## 6. What a real run still has to answer
 
-- **The gradient cut.** `IDENTITY_GRADIENT_CUT` is the one place this tool mints
-  permanent ink, and 0.85 is borrowed from v2's `THETA_ID` rather than measured
-  against v1's gradient distribution. The real store's histogram should be read
-  before the cutover, and the cut set from it — or set above 1, which promotes
-  nothing.
+- **The gradient cut — MEASURED 2026-08-26, read-only, against the live store.**
+  0.85 was borrowed from v2's `THETA_ID`; the histogram says the borrow landed
+  well. 13,086 live traces: ~94% at gradient ≈ 0 (the gradient is sparse by
+  design), a thin tail, and — the load-bearing fact — the `[0.80, 0.85)` bucket
+  is EMPTY. The cut sits in a natural gap, not on a knife edge: lowering it to
+  0.80 changes nothing at all. At `>= 0.85` sit exactly 19 traces (18 self, 1
+  person, 0.15% of the store) — v1 mints gradient from salience at birth, so
+  this cluster is "marked at the top tier when written" plus a few reinforced
+  above it, and by title they are the genuine identity core (the porch
+  conversation, the bansai-origin insight, the constitution stretch). The next
+  cluster down (0.776–0.795, 22 traces) is session-chapter narrative that
+  belongs in semantic, which is where the cut leaves it. Standing default:
+  keep 0.85. Disabling (>1) would demote the real core at the first decay
+  pass; 0.77 would promote diary chapters to permanence.
 - **The ledger.** `LEDGER_TO_PRESSURE` is off and unwired. Whether v1's open
   ledgers should arrive as pressure is a question for after the parallel run, when
   "what does pressure mean in v2" has an empirical answer.
