@@ -119,6 +119,16 @@ and their records; the next session's briefing, written last; a per-cycle summar
     knobs. That each has a completion marker and a tripwire is mechanized.
 13. **[M]** Created-versus-exited counts per kind are reported every cycle; a kind with a
     zero exit count after the bake-in window is a defect to investigate (scar §2.17).
+14. **[M]** Band moves are counted BY DIRECTION and the count is durable — the decay
+    materialization diffs each row's band against its last reading and appends a latched
+    `band.transition` record; a first materialization is not a crossing. At cycle end those
+    rows feed `physics.symmetryCheck` per kind and the verdict is reported. **Below
+    `SYMMETRY_MIN_SAMPLE` the verdict is `never-asked`, which carries `ok: true`: every
+    consumer reads the REASON, never the boolean** (scar §2.4). A store whose port cannot be
+    asked gets no verdict and says so, rather than six `never-asked` rows claiming a counter
+    that does not exist was consulted. *(Added 2026-08-25 — physics guarantee 12 had been
+    enforced in one place and consumed by nobody, which is how v1 ran 279 up-moves against
+    zero down-moves for three days with a tripwire already in the codebase — scar §2.10.)*
 
 ## 6. Scars honored
 

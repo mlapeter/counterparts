@@ -1,11 +1,40 @@
 # `adapters/cli/` — INTERFACE-GAPS
 
 *What the console needed from `store/` and worked around instead of editing.
-Written 2026-08-25 alongside `test/cli.test.ts`.*
+Written 2026-08-25 alongside `test/cli.test.ts`; §§1–3 CLOSED the same evening,
+when BUILD-STATUS gaps 3 and 4 came due.*
 
 ---
 
-## 1. `store/` has no chase surface for box-2 rows — removal leaves DARK state
+## 1. `store/` has no chase surface for box-2 rows — **CLOSED 2026-08-25**
+
+**What shipped:** `chaseRemoved(store, id): ChaseReport` on
+`store/owner-op-seam.ts` — the honest fix below, built as named. One transaction,
+which also appends the `chased` stage, so the rows and the record land together
+or not at all. It refuses unless the id is already dark (`REMOVAL_NOT_DARK`: the
+record comes first, always), and it crosses the store's own stance check, so an
+instrument cannot chase (`OBSERVER_REFUSED`, site `chaseRemoved`).
+
+**What dies:** the edges touching the id **in both directions** — the conducting
+problem this entry named (§16 G14) — its prospective windows, the gate rows that
+name it, and every content pointer it had (`prose_path`, `content_hash`, and the
+same pair on each of its version rows).
+
+**What survives, and why:** the removal record and the deny-list; a
+`removal_tombstone` row saying what the memory WAS, in flags and counts only
+(never a title, a body, or a hash — §16 G9), which is what lets `self.enumerate`
+show a removed protected element as `[removed]` instead of losing it (§2.19); and
+the memory's own row and version rows, STRIPPED — because box 2's foreign keys
+make them the lineage. A survivor whose `superseded_by` or `successor_id` names
+the removed id must land on a named removal rather than a dangling pointer, so
+`Store.resolve` stops at a denied id and `Store.read` refuses it by name, and the
+skeleton renders as `[removed by the owner]` wherever an id is rendered and as
+nothing at all everywhere else.
+
+`RemovalPlan.unchasable` is empty now, and the field STAYS: a chase that
+half-works at run time still has to say so (§16 G15).
+
+**The original entry, kept because the reasoning is the record:**
 
 **What exists.** The owner-op seam's plan (`owner-op-seam.ts` step 5) says
 "copies are chased — prose, versions, edges, prospective rows, box 3". The store
@@ -31,21 +60,32 @@ seam — importable only from here, the way `OwnerRemovalPort` already is — th
 deletes the row, its edges and its prospective windows inside one transaction and
 returns what it touched. The port type exists; only the store's half is missing.
 
-## 2. `Store.read`/`row` do not consult the deny-list
+## 2. `Store.read`/`row` do not consult the deny-list — **CLOSED 2026-08-25**
 
-`owner-op-seam.ts` says the deny-list is "consulted at load and at rebuild".
-Rebuild consults it; every consuming module consults it; `Store.read(id)` does
-NOT — after a removal it throws ENOENT on the missing prose file instead of
-refusing a denied id by name. A caller that has not learned to check
-`deniedIds()` gets a confusing error rather than a clear refusal. Fix: one check
-at the top of `requireRow`, raising a `REMOVED` StoreError.
+The refusal is at the seam now, so every module inherits it instead of having to
+remember it: `read`, `readProse`, `physicsOf` and `readVersion` raise
+`REMOVED` with `detail: { id, by: "owner" }`, and `resolve` stops AT a removed id
+rather than walking past it into `ID_DANGLING`. `put` consults it too — a removed
+id is taken forever, so a stray copy cannot be reborn at the same address.
 
-## 3. `OwnerRemovalOutcome` is not re-exported from `store/index.ts`
+**`row()` is the deliberate exception**, and it is not an oversight: it is the raw
+box-2 accessor, and the dashboard's browse list reads it over `list()` precisely
+so that a removed memory keeps a LINE in the owner's inventory carrying
+`[removed by the owner]`. A `row()` that threw would turn the instrument that
+shows the absence into one that cannot render it (constitution 16).
 
-`index.ts` re-exports `OwnerRemovalPort` and `OwnerRemovalRequest` but not
-`OwnerRemovalOutcome`, so `removal.ts` imports it from
-`../../core/store/owner-op-seam.js` directly. One line in the store's export
-block; the seam should travel as one unit.
+**On the spelling:** the code is `REMOVED`, not `REMOVED_BY_OWNER`. The actor
+rides in `detail`, where telemetry can read it; the CODE is the wire shape
+consumers switch on, `adapters/dashboard/resolve.ts` switches on `"REMOVED"` to
+choose its `[removed by the owner]` label, and renaming it would have bought a
+longer string at the price of the one rendering path that depends on it.
+
+## 3. `OwnerRemovalOutcome` is not re-exported — **CLOSED 2026-08-25**
+
+`store/index.ts` re-exports `ChaseReport`, `OwnerRemovalOutcome`,
+`OwnerRemovalPort` and `OwnerRemovalRequest`. The seam's TYPES travel as one unit;
+the chase itself does not — `chaseRemoved` is importable only from
+`owner-op-seam.js`, by the one directory the caller-universality test allows.
 
 ## 4. There is no writer's lock to take
 
@@ -84,3 +124,43 @@ backup set IS the layout, asserted by a test; maintaining a second, contradictor
 list here would re-create the v1 bug G5 exists to prevent. Recorded as a real
 contradiction for the owner to close in one direction or the other, not as a
 silent choice.
+
+## 7. An instrument still MINTS an absent store at open
+
+**Filed 2026-08-25**, alongside the fix for the live "database is locked" failure
+(`docs/live-verify-2026-08-25.md`). `Store`'s constructor no longer writes at open
+when the store is current — that was the lock the backup lost — and a store a
+schema BEHIND now refuses under observer (`STORE_UNINITIALIZED`) rather than
+migrating itself out from under whoever owns it.
+
+What did NOT change: an observer opening a data directory with no store still
+creates one. There is no lock to contend for there and no state to disturb, but
+it is the same wart `statusCommand` already names out loud ("an instrument that
+MINTS a data dir by looking at one is a wart"). Closing it means changing tests
+in six modules — `dashboard`, `mcp`, `schemas`, `sleep`, `prospective`,
+`claude-code` all open observer stores on empty temp dirs — which is a fence this
+session did not hold. Fix: refuse, and give every one of those tests a store to
+read.
+
+## 8. Entity birth (`schemas.mention`) has no adapter path at all
+
+**Filed 2026-08-25** from the live-verification run, for the coordinator. Neither
+`adapters/mcp/` nor `adapters/cli/` calls `Schemas.mention()`; grep finds it only
+in `src/core/` and `test/`. Birth-by-mention is a core primitive whose only live
+caller is the composition itself.
+
+**Checked, not assumed** — and the answer is worse than the live note implies.
+`grep -rn "\.mention(" src/` returns NOTHING: not an adapter, and **not the mint
+path either**. `counterpart.ts` never calls it while placing a deposit, so birth
+is not ambient-by-another-name; the live run's `{ ok: true, reason: "born" }`
+happened because the seeding script called the composition's `schemas.mention()`
+by hand. As shipped, an entity is born only if the embedding host reaches into
+`Counterpart.schemas` itself.
+
+That makes it the same shape BUILD-STATUS gap 2 names for `physics.symmetryCheck`
+— enforced in one place, consumed by nobody — and it lands on a rule the module
+states as doctrine: "birth is by mention, death is by decay". Death runs on the
+clock; birth has no caller. For the coordinator to route: either the mint path
+mentions the entities a deposit names (ambient, constitution 8) or the console
+grows an owner-facing verb, but a birth rule with no live caller cannot be
+claimed as working.

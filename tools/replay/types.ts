@@ -87,6 +87,69 @@ export interface ChunkSummary {
   readonly minted: number;
 }
 
+/**
+ * One chunk's gate record, READ BACK FROM THE DURABLE LOG rather than from the
+ * relayed event ring — which is the point. A metric that can only be computed
+ * from an in-process event stream cannot be recomputed from a store after the
+ * fact, and the parallel run's evidence is exactly a store after the fact.
+ *
+ * `chunkKey` is the content address of the chunk's own span hashes, so the join
+ * is by content and not by arrival order (INTERFACE-GAPS §1's correlation id).
+ */
+export interface GateRecordSummary {
+  readonly chunkKey: string;
+  readonly day: number;
+  readonly scope: string;
+  readonly proposals: number;
+  readonly accepted: number;
+  readonly refused: number;
+  readonly fullyGated: boolean;
+  readonly blind: boolean;
+  /** How many schemas the author was shown — the count behind `blind`. */
+  readonly shown: number;
+  readonly candidates: number;
+  /** Shown schemas by the channel(s) that reached them (encode §8 G4). */
+  readonly shownLexicalOnly: number;
+  readonly shownSemanticOnly: number;
+  readonly shownBoth: number;
+  /**
+   * `ran` | `off` | `skipped`. A zero semantic contribution means three
+   * different things under the three states, and only `ran` is a measurement
+   * (scar §2.4) — so it is the channel-mix metric's denominator filter.
+   */
+  readonly semanticState: string;
+  /** Gate ACTIONS by gate name, as the battery itself counted them — v1's
+   *  "737 gate fires", which includes fires on proposals that were accepted. */
+  readonly fires: Readonly<Record<string, number>>;
+  /** Refusals by first blocking reason. */
+  readonly refusalsByReason: Readonly<Record<string, number>>;
+}
+
+/** One band crossing, by DIRECTION, read back from the durable log. */
+export interface BandTransitionSummary {
+  readonly day: number;
+  readonly kind: string;
+  readonly from: string;
+  readonly to: string;
+  readonly direction: string;
+  readonly site: string;
+}
+
+/**
+ * One per-kind symmetry verdict (physics guarantee 12, scar §2.10). `reason` is
+ * load-bearing: below the minimum sample the verdict is `never-asked` with
+ * `ok: true`, and reading that as health is the exact failure the tripwire
+ * exists to prevent.
+ */
+export interface SymmetryVerdictSummary {
+  readonly day: number;
+  readonly kind: string;
+  readonly ok: boolean;
+  readonly reason: string;
+  readonly up: number;
+  readonly down: number;
+}
+
 export interface SweepSummary {
   readonly date: string;
   readonly scope: string;
@@ -110,6 +173,10 @@ export interface CycleSummary {
   readonly promoted: number;
   readonly pruned: number;
   readonly merged: number;
+  /** Band moves UP this cycle, counted by direction (physics guarantee 12). */
+  readonly bandUp: number;
+  /** Band moves DOWN. v1 ran 279 up against zero down and nothing fired. */
+  readonly bandDown: number;
   /** Bytes the boundary briefing rendered to, or null when it refused. */
   readonly briefingBytes: number | null;
   /** The ceiling the HOST reported for this boundary (never invented here). */
@@ -155,6 +222,13 @@ export interface CorpusSummary {
   readonly unrecognizedSpanFiles: number;
   /** Spans whose `kind` had to be inferred from `role` (format drift, counted). */
   readonly assumedKind: number;
+  /**
+   * Spans that parsed only through a NEAR-MISS field spelling rather than v1's
+   * own span shape (`spanText`/`sessionId`/`project`/`ts`). Zero is the expected
+   * reading against a real v1 snapshot; a large number means the writer's shape
+   * moved and `parseSpan` is one release behind.
+   */
+  readonly assumedShape: number;
   readonly eventFiles: number;
   readonly eventLines: number;
   readonly malformedEventLines: number;
@@ -182,6 +256,12 @@ export interface ReplayObservation {
   readonly cycles: readonly CycleSummary[];
   readonly sweeps: readonly SweepSummary[];
   readonly chunks: readonly ChunkSummary[];
+  /** The chunk gate's own records, read back from the store's DURABLE log. */
+  readonly gateRecords: readonly GateRecordSummary[];
+  /** Band crossings by direction, from the same log. */
+  readonly bandTransitions: readonly BandTransitionSummary[];
+  /** The per-kind symmetry verdicts each cycle rendered. */
+  readonly symmetry: readonly SymmetryVerdictSummary[];
   readonly events: readonly ObservedEvent[];
   readonly store: StoreCensus;
   readonly corpus: CorpusSummary;

@@ -11,14 +11,18 @@
 import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
+import { StoreError } from "./errors.js";
 import type { ProseType } from "./prose.js";
 
 /**
- * Bumped to 2 (2026-08-25, SEAMS items B + K): `gate_session` and `events`.
+ * Bumped to 3 (2026-08-25, the box-2 chase): `removal_tombstone`.
+ * Version 2 was SEAMS items B + K (`gate_session` and `events`).
  * No live store exists yet, so the FRESH-OPEN path is the only migration — the
  * DDL below is `CREATE TABLE IF NOT EXISTS` and nothing rewrites an older file.
+ * Every bump so far ADDS a table, so an older file gains the table on open and
+ * loses nothing.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2). */
 export const DEFAULT_RETENTION_DAYS = 90;
 
@@ -149,6 +153,32 @@ const DDL: readonly string[] = [
      actor     TEXT NOT NULL,
      reason    TEXT
    )`,
+  // What the chase leaves behind: the skeleton of a removed memory, so that
+  // "everything permanent is enumerable and inspectable" survives the one
+  // operation that ends permanence (scar §2.19 from the other side — a removed
+  // protected element must show as `[removed]`, never vanish from the list).
+  //
+  // Same content rule as the record itself (§16 G9): ids, flags, counts and a
+  // timestamp. NO title, NO body, NO content hash — a hash of low-entropy
+  // content is brute-forceable, which would make the tombstone a leak of the
+  // thing it marks. `superseded_by` is kept because an id is an address, not
+  // content, and a successor's lineage must not dangle.
+  //
+  // Deliberately NOT foreign-keyed: the tombstone outlives the row it describes.
+  `CREATE TABLE IF NOT EXISTS removal_tombstone (
+     memory_id         TEXT PRIMARY KEY,
+     type              TEXT NOT NULL,
+     kind              TEXT NOT NULL,
+     band              TEXT NOT NULL,
+     protected         INTEGER NOT NULL,
+     promoted_identity INTEGER NOT NULL,
+     superseded_by     TEXT,
+     versions          INTEGER NOT NULL,
+     edges             INTEGER NOT NULL,
+     prospective       INTEGER NOT NULL,
+     gate_rows         INTEGER NOT NULL,
+     at                INTEGER NOT NULL
+   )`,
 ];
 
 export interface MemoryRow extends Row {
@@ -239,10 +269,66 @@ export interface RemovalRow extends Row {
   reason: string | null;
 }
 
-export function openOperational(path: string): Db {
+export interface TombstoneRow extends Row {
+  memory_id: string;
+  type: ProseType;
+  kind: Kind;
+  band: Band;
+  protected: number;
+  promoted_identity: number;
+  superseded_by: string | null;
+  versions: number;
+  edges: number;
+  prospective: number;
+  gate_rows: number;
+  at: number;
+}
+
+export interface OpenOperationalOptions {
+  /**
+   * May this open CREATE or MIGRATE the database? False for an instrument: an
+   * observer that ran the DDL would be writing at open — which is both a
+   * stand-down violation and, in the field, the reason `counterparts backup`
+   * threw "database is locked" while a session held a write transaction
+   * (live-verify 2026-08-25). Defaults to true.
+   */
+  readonly initialize?: boolean;
+  /** Written once, at creation only. Ignored for an already-initialized store. */
+  readonly retentionDays?: number;
+}
+
+/** The schema version recorded in the file, or null if there is not one yet. */
+function readSchemaVersion(db: Db): string | null {
+  try {
+    return db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'schemaVersion'")?.value ?? null;
+  } catch {
+    return null; // no meta table: a fresh file
+  }
+}
+
+/**
+ * Open box 2, and write NOTHING when it is already current.
+ *
+ * The steady state is the common case — the same shape `openCache` uses — and it
+ * matters more here, because a write at open takes SQLite's write lock, so a
+ * read-only caller could be refused (or refuse someone else) purely by opening.
+ */
+export function openOperational(path: string, opts: OpenOperationalOptions = {}): Db {
   const db = openDb(path);
+  if (readSchemaVersion(db) === String(SCHEMA_VERSION)) return db;
+  if (opts.initialize === false) {
+    db.close();
+    throw new StoreError("STORE_UNINITIALIZED", { path, expected: SCHEMA_VERSION });
+  }
   db.transaction(() => {
     for (const sql of DDL) db.exec(sql);
+    const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
+    put.run("livedDay", "0");
+    put.run("lastActiveDate", "");
+    put.run("retentionDays", String(opts.retentionDays ?? DEFAULT_RETENTION_DAYS));
+    // Last, and REPLACE not IGNORE: the version row is the latch the next open
+    // reads, so it must be written only after the DDL it describes has run.
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", String(SCHEMA_VERSION));
   });
   return db;
 }

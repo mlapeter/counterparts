@@ -1025,3 +1025,239 @@ describe("structural guarantees", () => {
     expect([...PHASES]).toEqual(expected);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// G12 — band moves counted BY DIRECTION, and the ratchet tripwire consuming
+// them. v1 ran 279 up-moves against zero down-moves for three days and nothing
+// fired (scar §2.10); `physics.symmetryCheck` existed here from the start and
+// was enforced in one place and consumed by nobody. This is the counter.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("band transitions, counted by direction (guarantee 12)", () => {
+  const date = (i: number): string => new Date(Date.UTC(2026, 0, i)).toISOString().slice(0, 10);
+
+  /** Advance the LIVED-day clock without running cycles — days actually lived
+   *  (scar E8), which is the clock decay reads. */
+  function live(s: Store, from: number, to: number): void {
+    for (let i = from; i <= to; i += 1) s.advanceClock(date(i));
+  }
+
+  function transitions(s: Store): Record<string, unknown>[] {
+    return s
+      .eventLog({ name: "band.transition", limit: 1000 })
+      .map((row) => JSON.parse(row.payload ?? "{}") as Record<string, unknown>);
+  }
+
+  test("a DEMOTION is counted, durably, with its direction and its site", () => {
+    const s = store();
+    const id = put(s, {
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      physics: { birthDay: 0, lastUsedDay: 0, uses: 2 },
+    });
+
+    // Tick one materializes the band for the first time. A first reading is NOT
+    // a crossing — counting it would hand the tripwire fabricated up-moves on
+    // exactly the days (fresh store, post-`rebuildCache`) it can least tell.
+    const first = runCycle({ store: s, date: date(1) });
+    expect(first.bandTransitions).toEqual([]);
+
+    // A hundred lived days later the same memory has fallen under THETA_SEM.
+    live(s, 2, 100);
+    const report = runCycle({ store: s, date: date(101) });
+
+    expect(report.bandTransitions.length).toBe(1);
+    const move = report.bandTransitions[0]!;
+    expect(move.id).toBe(id);
+    expect(move.from).toBe("semantic");
+    expect(move.to).toBe("episodic");
+    expect(move.direction).toBe("down");
+    // The decay materialization is the ONE site: a demotion is not a decision
+    // anybody makes, it is a number falling back under the line.
+    expect(move.site).toBe("decay");
+    expect(move.kind).toBe("fact");
+
+    // And it is DURABLE — the parallel run's only evidence is a store.
+    const durable = transitions(s);
+    expect(durable.length).toBe(1);
+    expect(durable[0]?.["direction"]).toBe("down");
+  });
+
+  test("the same demotion is recorded ONCE, however many times the day is replayed", () => {
+    const s = store();
+    put(s, {
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      physics: { birthDay: 0, lastUsedDay: 0, uses: 2 },
+    });
+    runCycle({ store: s, date: date(1) });
+    live(s, 2, 100);
+    runCycle({ store: s, date: date(101) });
+    expect(transitions(s).length).toBe(1);
+
+    // The same lived day, run again: the latch holds (§5 G3).
+    runCycle({ store: s, date: date(101) });
+    expect(transitions(s).length).toBe(1);
+  });
+
+  test("an identity crossing becomes an UP-move on the next tick, and only once", () => {
+    const s = store();
+    const id = put(s, {
+      kind: "self",
+      salience: { claimed: 0.9, relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      physics: { consolidated: true, reinforcedDays: 3, uses: 3 },
+    });
+    const crossing = runCycle({ store: s, date: date(1) });
+    expect(crossing.promoted.length).toBe(1);
+    // Not double-counted at the promotion site: the cache diff has no way to
+    // know a move was already recorded, and a double-counted up-move is a
+    // ratchet tripwire lying in the ratchet's own direction.
+    expect(crossing.bandTransitions).toEqual([]);
+
+    const next = runCycle({ store: s, date: date(2) });
+    expect(next.bandTransitions.length).toBe(1);
+    expect(next.bandTransitions[0]?.id).toBe(id);
+    expect(next.bandTransitions[0]?.to).toBe("identity");
+    expect(next.bandTransitions[0]?.direction).toBe("up");
+
+    // Once. The band does not keep re-crossing on every quiet day after.
+    runCycle({ store: s, date: date(3) });
+    expect(transitions(s).length).toBe(1);
+  });
+
+  test("an OBSERVER records no transition — it materializes no cache to diff against", () => {
+    const s = store();
+    put(s, {
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      physics: { birthDay: 0, lastUsedDay: 0, uses: 2 },
+    });
+    runCycle({ store: s, date: date(1) });
+    live(s, 2, 100);
+
+    const instrument = store({ observer: true });
+    const report = runCycle({ store: instrument, date: date(101) });
+    expect(report.observer).toBe(true);
+    // Not "it computed the move and declined to write it": an observer opens no
+    // ranking cache at all (a created file is a mutation), so there is no prior
+    // reading to diff against — the same stand-down, one layer earlier.
+    expect(report.bandTransitions).toEqual([]);
+    expect(transitions(s)).toEqual([]);
+    // It still renders the verdict, because reading is what an instrument is
+    // for — and on a log with nothing in it the verdict is `never-asked`.
+    expect(report.symmetry.length).toBe(Object.keys(PHYSICS.KINDS).length);
+    expect(report.symmetry.every((v) => v.reason === "never-asked")).toBe(true);
+
+    // …and the real store, run afterwards, still catches the demotion, so the
+    // instrument cost the counter nothing.
+    const after = runCycle({ store: s, date: date(101) });
+    expect(after.bandTransitions.length).toBe(1);
+    expect(after.bandTransitions[0]?.direction).toBe("down");
+  });
+});
+
+describe("the ratchet tripwire renders a verdict every cycle (guarantee 12)", () => {
+  const date = (i: number): string => new Date(Date.UTC(2026, 0, i)).toISOString().slice(0, 10);
+
+  /** Plants N moves of one direction in the durable log, as the decay pass
+   *  would have written them. The verdict is arithmetic over these rows. */
+  function plant(s: Store, kind: string, direction: "up" | "down", n: number): void {
+    for (let i = 0; i < n; i += 1) {
+      s.appendEvent({
+        name: "band.transition",
+        day: 1,
+        ref: `mem_planted${direction}${i}`,
+        dedupKey: `band.transition:mem_planted${direction}${i}:1`,
+        payload: { kind, from: "episodic", to: "semantic", direction, site: "decay" },
+      });
+    }
+  }
+
+  test("every kind gets a verdict, and an untouched store reads NEVER-ASKED", () => {
+    const s = store();
+    put(s);
+    const report = runCycle({ store: s, date: date(2) });
+
+    expect(report.symmetry.length).toBe(Object.keys(PHYSICS.KINDS).length);
+    for (const verdict of report.symmetry) {
+      // `ok: true` with reason `never-asked`. A consumer reading `ok` alone
+      // reads a starved counter as health — which is the whole scar.
+      expect(verdict.reason).toBe("never-asked");
+      expect(verdict.up + verdict.down).toBe(0);
+      expect(verdict.reason).not.toBe("within-expectation");
+    }
+  });
+
+  test("below the minimum sample it stays NEVER-ASKED — a small clean sample is not health", () => {
+    const s = store();
+    put(s);
+    plant(s, "fact", "up", PHYSICS.SYMMETRY_MIN_SAMPLE - 1);
+    const report = runCycle({ store: s, date: date(2) });
+    const fact = report.symmetry.find((v) => v.kind === "fact");
+    expect(fact?.up).toBe(PHYSICS.SYMMETRY_MIN_SAMPLE - 1);
+    expect(fact?.reason).toBe("never-asked");
+    expect(fact?.ratio).toBe(Infinity);
+  });
+
+  test("a RATCHET trips: up-moves with no down-moves, over the sample, is not ok", () => {
+    const s = store();
+    put(s);
+    plant(s, "fact", "up", PHYSICS.SYMMETRY_MIN_SAMPLE);
+    const events: SleepEvent[] = [];
+    const report = runCycle({ store: s, date: date(2), onEvent: (e) => events.push(e) });
+
+    const fact = report.symmetry.find((v) => v.kind === "fact");
+    expect(fact?.ok).toBe(false);
+    expect(fact?.reason).toBe("ratchet-suspected");
+    // Loud, by its own event, not only by a field on a report.
+    const tripped = events.filter((e) => e.name === "sleep.symmetry.tripped");
+    expect(tripped.length).toBe(1);
+    expect(tripped[0]?.data?.kind).toBe("fact");
+    expect(tripped[0]?.data?.reason).toBe("ratchet-suspected");
+
+    // Infinity is not JSON, and a null that means Infinity is a lie in a log:
+    // the ratio is reported only when finite.
+    const asked = events.filter((e) => e.name === "sleep.symmetry" && e.data?.kind === "fact");
+    expect(asked.length).toBe(1);
+    expect(asked[0]?.data?.ratio).toBe(null);
+    expect(asked[0]?.data?.up).toBe(PHYSICS.SYMMETRY_MIN_SAMPLE);
+  });
+
+  test("a healthy mix reads WITHIN-EXPECTATION, so the tripwire is not simply always red", () => {
+    const s = store();
+    put(s);
+    plant(s, "fact", "up", PHYSICS.SYMMETRY_MIN_SAMPLE);
+    plant(s, "fact", "down", PHYSICS.SYMMETRY_MIN_SAMPLE);
+    const report = runCycle({ store: s, date: date(2) });
+    const fact = report.symmetry.find((v) => v.kind === "fact");
+    expect(fact?.ok).toBe(true);
+    expect(fact?.reason).toBe("within-expectation");
+    expect(fact?.ratio).toBe(1);
+  });
+
+  test("a store with NO durable log gets no verdict at all, and says so", () => {
+    const s = store();
+    put(s);
+    const events: SleepEvent[] = [];
+    // `wrap()` carries neither `appendEvent` nor `eventLog`: a port that cannot
+    // be asked has not answered. Six `never-asked` rows would claim a counter
+    // was consulted when none exists (scar §2.4, from the other side).
+    const report = runCycle({ store: wrap(s), date: date(2), onEvent: (e) => events.push(e) });
+    expect(report.symmetry).toEqual([]);
+    expect(events.filter((e) => e.name === "sleep.symmetry.unavailable").length).toBe(1);
+  });
+
+  test("a torn transition row is counted as unreadable, never silently as a move", () => {
+    const s = store();
+    put(s);
+    s.appendEvent({
+      name: "band.transition",
+      day: 1,
+      ref: "mem_torn",
+      dedupKey: "band.transition:mem_torn:1",
+      payload: { kind: "fact", from: "episodic", to: "semantic", direction: "sideways" },
+    });
+    const events: SleepEvent[] = [];
+    const report = runCycle({ store: s, date: date(2), onEvent: (e) => events.push(e) });
+    const fact = report.symmetry.find((v) => v.kind === "fact");
+    expect(fact?.up).toBe(0);
+    expect(fact?.down).toBe(0);
+    expect(events.filter((e) => e.name === "sleep.symmetry.unreadable").length).toBe(1);
+  });
+});

@@ -20,7 +20,7 @@
  * labelled SINCE BIRTH. A number invented to look like "last cycle" would be scar
  * §2.17 committed by the very view that exists to prevent it.
  */
-import { strength } from "../../core/physics/index.js";
+import { strength, symmetryCheck } from "../../core/physics/index.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../../core/schemas/index.js";
 import {
   MARKER_UNSET,
@@ -132,6 +132,7 @@ export function renderStatus(src: DashboardSource, opts: StatusOptions = {}): st
     kindBlock(t, style),
     bandBlock(t, style),
     cycleBlock(src, day, style),
+    symmetryBlock(src, style),
     keepBlock(t, style),
     briefingBlock(src, style),
   );
@@ -184,6 +185,41 @@ function cycleBlock(src: DashboardSource, day: number, style: Style): string {
     return [phase, `last finished day ${marker.day}`, age <= 0 ? "today" : `${plural(age, "day")} ago`];
   });
   return `${subheading("My last cycle — what finished, and when", style)}\n${indent(table(rows))}`;
+}
+
+// ── the ratchet tripwire, read by REASON ────────────────────────────────────
+/**
+ * G12 surfaced: up-moves vs down-moves per kind from the durable
+ * `band.transition` counter, judged by `physics.symmetryCheck`. The verdict is
+ * arithmetic over the log — never persisted, so it cannot go stale — and it is
+ * rendered by REASON, never by `ok`: "never-asked" carries ok:true, and a
+ * starved counter reading as healthy is exactly the lie scar §2.4 forbids.
+ */
+function symmetryBlock(src: DashboardSource, style: Style): string {
+  const rows = KINDS.map((kind) => {
+    let up = 0;
+    let down = 0;
+    for (const row of src.store.eventLog({ name: "band.transition", limit: 100_000 })) {
+      if (row.payload === null) continue;
+      try {
+        const p = JSON.parse(row.payload) as { kind?: string; direction?: string };
+        if (p.kind !== kind) continue;
+        if (p.direction === "up") up += 1;
+        else if (p.direction === "down") down += 1;
+      } catch {
+        continue;
+      }
+    }
+    const verdict = symmetryCheck(kind, { up, down });
+    const label =
+      verdict.reason === "never-asked"
+        ? style.warn(`never-asked (${up}\u2191/${down}\u2193)`)
+        : verdict.reason === "within-expectation"
+          ? `within-expectation (${up}\u2191/${down}\u2193)`
+          : style.warn(`${verdict.reason} (${up}\u2191/${down}\u2193)`);
+    return [kind, label];
+  });
+  return `${subheading("Band symmetry \u2014 the ratchet tripwire, by reason", style)}\n${indent(table(rows))}`;
 }
 
 // ── what I have kept, and what I let go ──────────────────────────────────────

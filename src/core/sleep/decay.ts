@@ -21,14 +21,39 @@
  *
  * CALM BY DEFAULT (v1 §11 G8): a row is written only when it actually moves
  * past `DECAY_QUANTUM` or changes band. A quiet day writes almost nothing.
+ *
+ * AND — since 2026-08-25 — THIS IS THE ONE PLACE BAND MOVES ARE COUNTED BY
+ * DIRECTION, which is what makes `physics.symmetryCheck` (guarantee 12, scar
+ * §2.10) a live tripwire instead of a function nobody calls.
+ *
+ * One place, deliberately, and the reason is arithmetic. Every way a band can
+ * change is visible HERE, because `band(m, d)` is a pure function of stored
+ * state and this pass reads it for every live row against its last reading:
+ *
+ *   - a DECAY DEMOTION (semantic→episodic) is only ever a number falling back
+ *     under `THETA_SEM`, so this pass is the only place it exists at all —
+ *     it was v1's dominant crossing, 268 of 345;
+ *   - a REVISION-DRIVEN demotion is the same fact: a challenged memory's
+ *     strength moves, and the next tick reads the new band. `schemas/` writes
+ *     no band and neither does `supersede` — a source scan says so;
+ *   - the IDENTITY CROSSING is a decision `consolidate/` makes and records for
+ *     itself, and it becomes a band move here on the next tick, because
+ *     `promotedIdentity` makes `band()` answer "identity".
+ *
+ * Counting the crossing at the promotion site TOO would count it twice — the
+ * cache diff has no way to know a move was already recorded — and a
+ * double-counted up-move is a ratchet tripwire lying in the ratchet's own
+ * direction. So the promotion's up-move is counted one lived day later, which
+ * is a lag in a counter whose sample threshold is 20 moves across the whole
+ * history, and is the price of having exactly one definition of a crossing.
  */
 
-import { band, strength } from "../physics/index.js";
+import { band, bandMove, strength } from "../physics/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
-import type { PhaseCtx, PhaseOutcome } from "./types.js";
-import { countSkip, emptyOutcome } from "./types.js";
+import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
+import { countSkip, emptyOutcome, recordBandTransition } from "./types.js";
 import type { StrengthCache, StrengthRow } from "./strength-cache.js";
 
 /** Skip categories, enumerated so a zero is distinguishable from an absence. */
@@ -47,6 +72,13 @@ export type DecaySkip = (typeof DECAY_SKIPS)[number];
 export interface DecayResult extends PhaseOutcome {
   /** The rows written this cycle — ids and numbers, never text. */
   written: readonly StrengthRow[];
+  /**
+   * Band crossings this tick, BY DIRECTION (guarantee 12). v1's dominant
+   * crossing was the semantic→episodic decay demotion — 268 of 345 — and this
+   * pass is the only place one is observable, because a demotion is not a
+   * decision anybody makes: it is the arithmetic falling back under `THETA_SEM`.
+   */
+  transitions: readonly BandTransition[];
 }
 
 export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResult {
@@ -57,6 +89,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   const denied = new Set(store.deniedIds());
   const prior = cache === null ? new Map<string, StrengthRow>() : cache.readAll();
   const written: StrengthRow[] = [];
+  const transitions: BandTransition[] = [];
   const ids = store.list();
 
   let index = 0;
@@ -98,6 +131,26 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
       countSkip(out, "unchanged");
       continue;
     }
+    // A CROSSING, not a first reading. `was === undefined` is the cache filling
+    // in — a fresh store, or the tick after `rebuildCache()` dropped box 3 — and
+    // counting those as up-moves would hand the ratchet tripwire a burst of
+    // fabricated promotions on exactly the days it is least able to tell.
+    if (was !== undefined && was.band !== b) {
+      const direction = bandMove(was.band, b);
+      if (direction !== "none") {
+        const transition: BandTransition = {
+          id,
+          kind: row.kind,
+          from: was.band,
+          to: b,
+          direction,
+          site: "decay",
+          day,
+        };
+        transitions.push(transition);
+        recordBandTransition(ctx, transition);
+      }
+    }
     written.push({ id, strength: s, band: b, day });
     out.changed += 1;
     ctx.step("item", { index, id });
@@ -111,5 +164,5 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
       day,
     });
   }
-  return { ...out, written };
+  return { ...out, written, transitions };
 }

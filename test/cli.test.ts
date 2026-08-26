@@ -40,6 +40,10 @@ import {
 } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { ownerRemoval, planRemoval, verifyRemoval } from "../src/adapters/cli/removal.js";
+// The box-2 half of the destruction path. Imported HERE for the same reason
+// `removal.ts` is: this is the directory allowed to reach it, and the
+// caller-universality test below pins that nothing else does.
+import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -276,6 +280,56 @@ describe("backup", () => {
     expect(report.errors.length).toBe(1);
   });
 
+  test("`backup` survives a store another process is WRITING — the live repro (§5 G8)", async () => {
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", title: "Held", body: "Committed before the lock." });
+    s.close();
+    open.length = 0;
+
+    // Exactly the live shape (live-verify 2026-08-25): a second process holds an
+    // open write transaction on operational.sqlite while the owner runs a
+    // backup. Before the fix the CONSTRUCTOR wrote at open, hit the lock, and
+    // threw "database is locked" out of `run()` — no report, no exit code, a
+    // stack trace on the owner's terminal.
+    const holder = openDb(paths.operational(dir));
+    holder.exec("BEGIN IMMEDIATE");
+    holder.run("INSERT INTO meta (key, value) VALUES (?, ?)", "held", "1");
+
+    const c = consoleWith();
+    let code: number | undefined;
+    try {
+      code = await run(["backup", "--out", outside], { io: c.io, env: { [ENV]: dir } });
+    } finally {
+      holder.exec("COMMIT");
+      holder.close();
+    }
+
+    // A report with an exit code — and, because the open no longer writes and
+    // `VACUUM INTO` only needs a read, the backup actually SUCCEEDS through the
+    // contention rather than merely failing politely.
+    expect(code).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("ok  ");
+    const snapDir = join(outside, readdirSync(outside)[0] as string);
+    const copy = openDb(join(snapDir, "operational.sqlite"));
+    expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
+    copy.close();
+  });
+
+  test("an open that fails is a report too, not a stack trace", async () => {
+    const s = store();
+    // A store a schema behind refuses to be migrated by an instrument — and the
+    // backup command turns that refusal into a line and an exit code.
+    s.setMeta("schemaVersion", "0");
+    s.close();
+    open.length = 0;
+
+    const c = consoleWith();
+    const code = await run(["backup", "--out", outside], { io: c.io, env: { [ENV]: dir } });
+    expect(code).toBe(EXIT.failed);
+    expect(text(c.out)).toContain("nothing was copied");
+    expect(text(c.err)).toContain("STORE_UNINITIALIZED");
+  });
+
   test("a backup problem is a REPORT, never a throw (§5 G8)", () => {
     const s = store();
     expect(() => snapshot(s, join(homedir(), ".bansai", "nope"))).not.toThrow();
@@ -356,7 +410,13 @@ describe("remove — the loud removal", () => {
     expect(code).toBe(EXIT.ok);
     expect(printed).toContain("Dry run");
     expect(printed).toContain("chase prose");
-    expect(printed).toContain("CANNOT chase");
+    // The box-2 rows are a chase surface now, not a confession (BUILD-STATUS 3,
+    // closed 2026-08-25): the plan names them alongside the prose, and the
+    // "CANNOT chase" line — which used to name three surviving surfaces — has
+    // nothing left to print. The LINE stays in the code, because a chase that
+    // half-works at run time still has to say so (§16 G15).
+    expect(printed).toContain("chase operational rows");
+    expect(printed).not.toContain("CANNOT chase");
     // §16 G15: ids only. The contamination scan never prints what it matched.
     expect(printed).not.toContain(secret);
     expect(fingerprint(dir)).toBe(before);
@@ -417,6 +477,86 @@ describe("remove — the loud removal", () => {
     expect(proseHolds(dir, secret)).toBe(false);
     // The survivor is untouched: removal chases one memory, not a neighbourhood.
     expect(after.list().filter((other) => other !== id).length).toBe(1);
+  });
+
+  test("the chase completes: box-2 rows die with it, and `unchased` is empty", async () => {
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", title: "Doomed", body: "The doomed one." });
+    const neighbour = s.put({ type: "memory", kind: "fact", body: "A neighbour it conducts to." });
+    s.link({ src: id, dst: neighbour, weight: 0.8, day: 0 });
+    s.link({ src: neighbour, dst: id, weight: 0.8, day: 0 });
+    s.setProspective({
+      memoryId: id,
+      windowKey: "w1",
+      eventDate: "2026-09",
+      precision: "month",
+      state: "armed",
+    });
+    s.setGateRecords([
+      { sessionId: "s1", kind: "surfaced", ref: id, turn: 1, lastDay: 0 },
+      { sessionId: "s1", kind: "surfaced", ref: neighbour, turn: 1, lastDay: 0 },
+    ]);
+    s.close();
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+
+    const after = store({ observer: true });
+    // §16 G14: an erased id left in the graph keeps CONDUCTING between its
+    // former neighbours. Both directions are gone, not just the outbound one.
+    expect(after.edgesFrom(id)).toEqual([]);
+    expect(after.edgesFrom(neighbour)).toEqual([]);
+    expect(after.prospectiveFor(id)).toEqual([]);
+    expect(after.gateRecords("s1").map((r) => r.ref)).toEqual([neighbour]);
+
+    const verdict = verifyRemoval(after, id);
+    expect(verdict).toMatchObject({ denied: true, proseGone: true, rowTombstoned: true, darkState: 0 });
+    // The skeleton that stays is stripped of every content pointer, and of the
+    // physics that would let it go on ranking, conducting or resisting.
+    const skeleton = after.row(id);
+    expect(skeleton).toMatchObject({
+      content_hash: "",
+      prose_path: "",
+      protected: 0,
+      promoted_identity: 0,
+      uses: 0,
+      archived: 1,
+      archived_reason: "removed-by-owner",
+    });
+    // …and the tombstone says what it WAS, in flags and counts only.
+    const tombstone = after.tombstones();
+    expect(tombstone.length).toBe(1);
+    expect(tombstone[0]).toMatchObject({
+      id,
+      kind: "fact",
+      stage: "complete",
+      rowSurvives: true,
+      chased: { versions: 0, edges: 2, prospective: 1, gateRows: 1 },
+    });
+    expect(JSON.stringify(tombstone)).not.toContain("Doomed");
+  });
+
+  test("a chase without a record is refused — the record comes first, always (§16 G10)", () => {
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "Alive and not going anywhere." });
+    expect(() => chaseRemoved(s, id)).toThrow(/REMOVAL_NOT_DARK/);
+    expect(s.row(id)?.prose_path).not.toBe("");
+    expect(s.removalRecord().length).toBe(0);
+  });
+
+  test("an instrument cannot chase: the seam crosses the same stance check", () => {
+    const w = store();
+    const id = w.put({ type: "memory", kind: "fact", body: "Dark, but nobody may chase it." });
+    w.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner" });
+    w.close();
+
+    const observer = store({ observer: true });
+    expect(() => chaseRemoved(observer, id)).toThrow(/OBSERVER_REFUSED/);
+    expect(observer.events("store.observer.standdown").at(-1)?.data?.site).toBe("chaseRemoved");
+    // Nothing moved: the row is intact, edges and all.
+    expect(observer.row(id)?.prose_path).not.toBe("");
+    expect(observer.tombstones()).toEqual([]);
   });
 
   test("a removed id is skipped and COUNTED at rebuild, never quietly resurrected", async () => {
@@ -528,6 +668,45 @@ describe("the destruction path is importable from this directory only", () => {
     };
     walk(root);
     // §16 G2, earned-mechanism #14: THIS TEST FAILING IS THE POINT.
+    expect(offenders).toEqual([]);
+  });
+
+  test("the seam's CHASE is imported by this directory only — a type import is not a caller", () => {
+    const root = join(import.meta.dir, "..", "src");
+    const offenders: string[] = [];
+    const walk = (path: string): void => {
+      for (const name of readdirSync(path)) {
+        const full = join(path, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!name.endsWith(".ts")) continue;
+        const body = readFileSync(full, "utf8");
+        // A VALUE import of the seam. `export type { … } from "./owner-op-seam.js"`
+        // and `import type { … }` are erased at runtime and reach no function.
+        for (const line of body.split("\n")) {
+          if (!/from\s+"[^"]*owner-op-seam\.js"/.test(line)) continue;
+          if (/^\s*(?:import|export)\s+type\b/.test(line)) continue;
+          if (full.includes(join("adapters", "cli"))) continue;
+          // Store's constructor HANDS the capability over; it never calls the
+          // chase, and the test below pins that it re-exports no such name.
+          if (full.endsWith(join("core", "store", "index.ts"))) continue;
+          offenders.push(`${full}: ${line.trim()}`);
+        }
+        // A multi-line import block hides the module name from the line scan.
+        if (
+          /import\s*\{[^}]*\}\s*from\s+"[^"]*owner-op-seam\.js"/s.test(body) &&
+          !full.includes(join("adapters", "cli")) &&
+          !full.endsWith(join("core", "store", "index.ts")) &&
+          !/import\s+type\s*\{[^}]*\}\s*from\s+"[^"]*owner-op-seam\.js"/s.test(body)
+        ) {
+          offenders.push(`${full}: multi-line value import`);
+        }
+      }
+    };
+    walk(root);
+    // §16 G2 again, for the half that landed on 2026-08-25.
     expect(offenders).toEqual([]);
   });
 

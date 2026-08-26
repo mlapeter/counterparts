@@ -25,6 +25,8 @@ import { PHASES } from "../../core/sleep/index.js";
 import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
+import { GATE_CHUNK_EVENT } from "../../core/counterpart.js";
+import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -60,10 +62,14 @@ export type DurableEventName =
   | PromotionCrossing["event"]
   | PruneRecord["event"]
   | MergeRecord["event"]
-  | PressureIncrement["event"];
+  | PressureIncrement["event"]
+  | typeof GATE_CHUNK_EVENT
+  | typeof BAND_TRANSITION_EVENT;
 
 export const DURABLE_EVENTS = {
   "band.promoted": "a memory crossed into the identity band",
+  "band.transition": "a memory changed bands (the symmetry counter's food)",
+  "gate.chunk": "a swept chunk met the gate battery",
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
   "revision.pressure": "a belief took a credited challenge",

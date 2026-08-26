@@ -15,6 +15,14 @@
  * prose or anything else. Removal is an owner operation on a structurally distinct
  * path — see `owner-op-seam.ts`; the store's half of it is the append-only removal
  * record plus the deny-list consulted at load and rebuild (§16 G1, G7, G12).
+ *
+ * The deny-list is consulted HERE, at the seam, so every module inherits the
+ * refusal instead of having to remember it: `read`/`readProse`/`physicsOf`/
+ * `readVersion` raise a named `REMOVED` rather than an ENOENT on a chased file,
+ * `resolve` stops at a removed id instead of dangling past it, and `put` refuses
+ * to reuse one. `row()` is the deliberate exception — it is the raw box-2
+ * accessor, and an instrument reading the skeleton of a removed memory is how the
+ * owner sees that something WAS here (constitution 16).
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -25,12 +33,7 @@ import type { Db } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
-import {
-  DEFAULT_RETENTION_DAYS,
-  SCHEMA_VERSION,
-  openOperational,
-  rowToPhysics,
-} from "./operational.js";
+import { DEFAULT_RETENTION_DAYS, openOperational, rowToPhysics } from "./operational.js";
 import type {
   EdgeRow,
   EventRow,
@@ -38,8 +41,10 @@ import type {
   MemoryRow,
   ProspectiveRow,
   RemovalRow,
+  TombstoneRow,
   VersionRow,
 } from "./operational.js";
+import { grantOwnerOps } from "./owner-op-seam.js";
 import { LAYOUT, assertLayoutClassified, assertSafeDataDir, dataDir, paths } from "./paths.js";
 import {
   ID_PREFIX,
@@ -65,11 +70,20 @@ export type {
   GateSessionRow,
   ProspectiveRow,
   RemovalRow,
+  TombstoneRow,
 } from "./operational.js";
 export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION } from "./operational.js";
 export { tokenize, cosine, CACHE_SCHEMA_VERSION } from "./cache.js";
 export type { Hit } from "./cache.js";
-export type { OwnerRemovalPort, OwnerRemovalRequest } from "./owner-op-seam.js";
+// The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
+// does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
+// directory the caller-universality test allows (§16 G1–G2).
+export type {
+  ChaseReport,
+  OwnerRemovalOutcome,
+  OwnerRemovalPort,
+  OwnerRemovalRequest,
+} from "./owner-op-seam.js";
 
 /** Telemetry: ids, hashes, counts, kinds, tiers. Never body text (§5 G10). */
 export interface StoreEvent {
@@ -192,6 +206,32 @@ export interface RankingRow {
   day: number;
 }
 
+/**
+ * One removed memory, as it survives: an address, what family it belonged to,
+ * what it WAS (protected? identity band?), and counts of what the chase took.
+ * No title, no body, no content hash — the same rule as the record (§16 G9).
+ */
+export interface Tombstone {
+  readonly id: string;
+  readonly type: ProseType;
+  readonly kind: Kind;
+  readonly band: Band;
+  /** Permanent ink at the moment it was removed — why it still shows in the list. */
+  readonly wasProtected: boolean;
+  readonly wasPromotedIdentity: boolean;
+  readonly supersededBy: string | null;
+  readonly stage: RemovalNote["stage"];
+  readonly at: number;
+  /** True while a stripped skeleton row survives to carry lineage pointers. */
+  readonly rowSurvives: boolean;
+  readonly chased: {
+    readonly versions: number;
+    readonly edges: number;
+    readonly prospective: number;
+    readonly gateRows: number;
+  };
+}
+
 /** No body, no content hash — hashing low-entropy content leaks it (§16 G9). */
 export interface RemovalNote {
   memoryId: string;
@@ -255,22 +295,53 @@ export class Store {
     this.embed = opts.embed;
     this.onEvent = opts.onEvent;
 
-    for (const sub of [
-      paths.prose(this.dir),
-      paths.versions(this.dir),
-      paths.tmp(this.dir),
-      paths.cacheDir(this.dir),
-    ]) {
+    // AN INSTRUMENT WRITES NOTHING AT OPEN when there is a store to read.
+    //
+    // The old constructor ran the DDL and four meta upserts on every open,
+    // whatever the stance — and a write at open takes SQLite's write lock, which
+    // is how a live `counterparts backup` threw "database is locked" while a
+    // session held an open transaction (live-verify 2026-08-25; CLI CONTRACT §5
+    // G8 says a backup never throws). An up-to-date store now opens clean, and a
+    // store that is a schema BEHIND refuses under observer by name rather than
+    // migrating itself out from under the process that owns it.
+    //
+    // The one thing an instrument may still do is mint an ABSENT store: there is
+    // no lock to contend for and no state to disturb, and every empty-store
+    // instrument in the build (the dashboard's five views, a stood-down hook)
+    // opens exactly that way. That mint-by-observer wart is FILED, not fixed
+    // here — fixing it means changing tests in six modules this session may not
+    // touch.
+    const fresh = !existsSync(paths.operational(this.dir));
+    const writesAtOpen = !this.observer || fresh;
+    for (const sub of writesAtOpen
+      ? [
+          paths.prose(this.dir),
+          paths.versions(this.dir),
+          paths.tmp(this.dir),
+          paths.cacheDir(this.dir),
+        ]
+      : // Box 3 only, and only because it is DECLARED rebuildable: an instrument
+        // needs somewhere to open the cache, and materializing the cache's own
+        // container changes no canonical state and takes no canonical lock.
+        [paths.cacheDir(this.dir)]) {
       mkdirSync(sub, { recursive: true });
     }
-    this.ops = openOperational(paths.operational(this.dir));
+    this.ops = openOperational(paths.operational(this.dir), {
+      initialize: writesAtOpen,
+      retentionDays: this.retentionDays,
+    });
     this.cache = openCache(paths.cache(this.dir));
-    this.ops.transaction(() => {
-      const put = this.ops.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
-      put.run("schemaVersion", String(SCHEMA_VERSION));
-      put.run("livedDay", "0");
-      put.run("lastActiveDate", "");
-      put.run("retentionDays", String(this.retentionDays));
+    // The owner-op capability. Handed to the seam module, never to a caller:
+    // holding a Store gives you no way to destroy anything, and `ownerMutate`
+    // routes the chase through the same stance check every write crosses.
+    grantOwnerOps(this, {
+      dir: this.dir,
+      ownerMutate: (site, fn) => {
+        this.assertWritable(site);
+        return this.ops.transaction(() => fn(this.ops));
+      },
+      rawRow: (id) => this.row(id),
+      isDenied: (id) => this.isDenied(id),
     });
     this.assertLayout();
   }
@@ -296,7 +367,9 @@ export class Store {
     return this.ops.transaction(fn);
   }
 
-  private assertWritable(site: WriteMethod): void {
+  /** `chaseRemoved` is not a Store method — it is the owner-op seam's, and it
+   *  crosses the same stance check, which is why the site name is spelled here. */
+  private assertWritable(site: WriteMethod | "chaseRemoved"): void {
     if (this.observer) {
       // Telemetry is the deliberate exception: a stood-down instrument must be
       // distinguishable from a broken hook (observer-mode.md G5/G6, scar §2.4).
@@ -939,13 +1012,24 @@ export class Store {
     return rowToPhysics(this.requireRow(id));
   }
 
-  /** Follows the forwarding addresses to the live head. Cycles are a hard error. */
+  /**
+   * Follows the forwarding addresses to the live head. Cycles are a hard error.
+   *
+   * A REMOVED id is terminal: the walk stops there and returns it, rather than
+   * walking past it or reporting the address as dangling. That is what makes a
+   * survivor's lineage pointer resolve to a named removal — `read` refuses the
+   * returned id by name, so a renderer prints "[removed by the owner]" instead
+   * of "[a forwarding address with nothing at the end]". The deny-list is
+   * checked BEFORE the row, so the answer is the same before and after the
+   * chase has stripped the row to a skeleton.
+   */
   resolve(id: string): string {
     let current = id;
     const seen = new Set<string>();
     for (let depth = 0; depth <= MAX_CHAIN; depth++) {
       if (seen.has(current)) throw new StoreError("ID_CYCLE", { id, at: current });
       seen.add(current);
+      if (this.isDenied(current)) return current;
       const row = this.row(current);
       if (row === undefined) {
         throw new StoreError(current === id ? "ID_UNKNOWN" : "ID_DANGLING", { id, at: current });
@@ -988,6 +1072,9 @@ export class Store {
 
   /** Reading a superseded/archived version is an event (§5 G13). */
   readVersion(id: string, seq: number): ProseDoc {
+    // The version row survives a removal as a lineage pointer with its content
+    // pointers blanked; reading it is refused by name, never by ENOENT.
+    this.refuseIfDenied(id);
     const row = this.ops.get<VersionRow>(
       "SELECT * FROM versions WHERE memory_id = ? AND seq = ?",
       id,
@@ -1021,6 +1108,51 @@ export class Store {
     return rows;
   }
 
+  /**
+   * What removal left behind, joined into one row per removed memory: the
+   * tombstone's flags and counts, the latest stage of its record, and whether a
+   * skeleton row survives in `memories`.
+   *
+   * This is the read that keeps scar §2.19 true from the other side — "everything
+   * permanent is enumerable and inspectable" has to survive the one operation
+   * that ends permanence, or a removed protected element simply vanishes from
+   * the list and nobody can tell it apart from one that was never there.
+   *
+   * PURE and emit-free, unlike `removalRecord()`: `self.enumerate` calls it on
+   * every enumeration, and an enumeration that logged would stop being a read
+   * (§14.1 G8).
+   */
+  tombstones(): Tombstone[] {
+    const rows = this.ops.all<
+      TombstoneRow & { last_stage: string | null; row_survives: number }
+    >(
+      `SELECT t.*,
+              (SELECT r.stage FROM removal_record r
+                WHERE r.memory_id = t.memory_id ORDER BY r.seq DESC LIMIT 1) AS last_stage,
+              (SELECT COUNT(*) FROM memories m WHERE m.id = t.memory_id) AS row_survives
+         FROM removal_tombstone t
+        ORDER BY t.memory_id`,
+    );
+    return rows.map((r) => ({
+      id: r.memory_id,
+      type: r.type,
+      kind: r.kind,
+      band: r.band,
+      wasProtected: r.protected === 1,
+      wasPromotedIdentity: r.promoted_identity === 1,
+      supersededBy: r.superseded_by,
+      stage: (r.last_stage ?? "dark") as RemovalNote["stage"],
+      at: r.at,
+      rowSurvives: r.row_survives > 0,
+      chased: {
+        versions: r.versions,
+        edges: r.edges,
+        prospective: r.prospective,
+        gateRows: r.gate_rows,
+      },
+    }));
+  }
+
   /** Ids a removal has taken dark: consulted at load and at rebuild (§16 G12). */
   deniedIds(): string[] {
     return this.ops
@@ -1049,14 +1181,26 @@ export class Store {
   // ── internals ──────────────────────────────────────────────────────────────
 
   private requireRow(id: string): MemoryRow {
+    // The deny-list answers FIRST, and answers even after the chase has taken
+    // the row away: a removed id must never come back as "no such memory", and
+    // never as an ENOENT on the prose file that used to hold it.
+    this.refuseIfDenied(id);
     const row = this.row(id);
     if (row === undefined) throw new StoreError("ID_UNKNOWN", { id });
+    return row;
+  }
+
+  /** Emit-free (§14.1 G8: reads are pure) — this is called on every read path. */
+  private isDenied(id: string): boolean {
     const denied = this.ops.get<{ n: number }>(
       "SELECT COUNT(*) AS n FROM removal_record WHERE memory_id = ? AND stage IN ('dark','chased','complete')",
       id,
     );
-    if ((denied?.n ?? 0) > 0) throw new StoreError("REMOVED", { id });
-    return row;
+    return (denied?.n ?? 0) > 0;
+  }
+
+  private refuseIfDenied(id: string): void {
+    if (this.isDenied(id)) throw new StoreError("REMOVED", { id, by: "owner" });
   }
 
   /** Runs INSIDE the caller's transaction. Stages prose; never publishes it. */
@@ -1065,7 +1209,10 @@ export class Store {
     if (!id.startsWith(`${ID_PREFIX[input.type]}_`)) {
       throw new StoreError("ID_MALFORMED", { id, type: input.type });
     }
-    if (this.has(id)) throw new StoreError("ID_TAKEN", { id });
+    // A removed id is taken FOREVER. Ids are never reused (§4.2 G2), and the one
+    // reuse that would matter is the one that quietly resurrects what the owner
+    // removed — so the deny-list is consulted at birth as well as at read.
+    if (this.has(id) || this.isDenied(id)) throw new StoreError("ID_TAKEN", { id });
     if (typeof input.body !== "string" || input.body.length === 0) {
       throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
     }

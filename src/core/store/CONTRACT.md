@@ -91,6 +91,17 @@ by reference only.
    asserts that over every export name. Removal lives in exactly one module, and a
    caller-universality test pins who may import it — **no model-reachable path may**
    (scar §2.6, earned-mechanism #14).
+   *Correction (2026-08-25, when the box-2 chase landed — BUILD-STATUS gap 3): the ban
+   is now total over the module EXCEPT `owner-op-seam.ts`, which exports exactly three
+   names (`chaseRemoved`, `grantOwnerOps`, `REMOVED_REASON`), pinned by name in
+   `test/store.test.ts`. The seam had to become the place removal actually happens,
+   because a removal that could not reach the `memories`/`edges`/`prospective` rows was
+   "anything can be removed loudly" with a footnote. Nothing weakened: `Store` itself
+   still carries no such method (the prototype test is unchanged and total), the chase
+   reaches its capability through a WeakMap the constructor grants and no caller can
+   read, it crosses the same observer stance check every write crosses, and a second
+   caller-universality test pins who may VALUE-import the seam — `adapters/cli/` and
+   nobody else.*
 3. **[M] No structured mutable state is hand-serialized by more than one writer.** A test
    enumerates every mutable non-prose path in the data directory and fails on any that is
    neither transactional nor provably single-writer (scar §2.1).

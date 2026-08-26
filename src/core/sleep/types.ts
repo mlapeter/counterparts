@@ -24,7 +24,13 @@ import type {
   StoredMemory,
   VersionRow,
 } from "../store/index.js";
-import type { PromotionCrossing, PromotionReason, PruneRecord, PruneReason } from "../physics/index.js";
+import type {
+  PromotionCrossing,
+  PromotionReason,
+  PruneRecord,
+  PruneReason,
+  SymmetryCheck,
+} from "../physics/index.js";
 
 // ---------------------------------------------------------------------------
 // The store seam
@@ -77,6 +83,21 @@ export interface SleepStore {
     dedupKey?: string | null;
     payload?: Record<string, unknown> | null;
   }): number;
+  /**
+   * READING that same log, OPTIONAL for the same reason. The symmetry counter
+   * (physics guarantee 12) is a question about the WHOLE history, not about one
+   * cycle: `SYMMETRY_MIN_SAMPLE` is 20 moves, and a quiet day produces a
+   * handful. So the verdict is recomputed at every cycle end from the durable
+   * band-transition rows rather than from a counter somebody has to remember to
+   * increment — the log is the counter. A port without it gets no verdict and
+   * says so, which is `never-asked`, not health.
+   */
+  eventLog?(filter?: {
+    name?: string;
+    ref?: string;
+    sinceDay?: number;
+    limit?: number;
+  }): { name: string; day: number; ref: string | null; payload: string | null }[];
   /**
    * Box 3's ranking table (SEAMS item J), OPTIONAL for the same reason as
    * `appendEvent`. Where the port provides it, the decay tick materializes
@@ -229,6 +250,59 @@ export interface MergeRecord {
   readonly usesDelta: number;
 }
 
+/**
+ * ONE BAND CROSSING, WITH ITS DIRECTION — guarantee 12's missing input.
+ *
+ * Before this existed the decay pass reported rows CHANGED and nothing said
+ * which way they went, so `physics.symmetryCheck` — the tripwire written
+ * because v1 ran 279 up-moves against zero down-moves for three days and
+ * nothing fired — was enforced in one place and consumed by nobody. A counter
+ * nobody feeds is a tripwire that cannot trip (scar §2.10).
+ *
+ * `site` says which pass moved it, because the two are different facts: the
+ * decay materialization reads a band off the arithmetic, while the identity
+ * crossing is an explicit decision with a persisted record.
+ */
+export interface BandTransition {
+  readonly id: string;
+  readonly kind: Kind;
+  readonly from: Band;
+  readonly to: Band;
+  readonly direction: "up" | "down";
+  readonly site: "decay" | "consolidate";
+  readonly day: number;
+}
+
+export const BAND_TRANSITION_EVENT = "band.transition";
+
+/** The per-id, per-day latch: a replayed day re-appends nothing (§5 G3). */
+export function bandTransitionKey(t: BandTransition): string {
+  return `${BAND_TRANSITION_EVENT}:${t.id}:${t.day}:${t.from}:${t.to}`;
+}
+
+/**
+ * Records one crossing in the durable log, beside the phase's own telemetry.
+ * `ctx.apply` guards it: an observer counts crossings and writes none.
+ */
+export function recordBandTransition(ctx: PhaseCtx, t: BandTransition): void {
+  ctx.event("sleep.band.moved", t.id, {
+    kind: t.kind,
+    from: t.from,
+    to: t.to,
+    direction: t.direction,
+    site: t.site,
+    day: t.day,
+  });
+  if (!ctx.apply) return;
+  ctx.store.appendEvent?.({
+    name: BAND_TRANSITION_EVENT,
+    day: t.day,
+    ref: t.id,
+    dedupKey: bandTransitionKey(t),
+    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site },
+  });
+}
+
 /** Created-versus-exited, per kind, every cycle (§5 G13, scar §2.17). */
 export interface KindCensus {
   readonly created: number;
@@ -249,6 +323,15 @@ export interface CycleReport {
   readonly promoted: readonly PromotionRecord[];
   readonly pruned: readonly PrunedRecord[];
   readonly merged: readonly MergeRecord[];
+  /** Band crossings THIS cycle, by direction (guarantee 12's input). */
+  readonly bandTransitions: readonly BandTransition[];
+  /**
+   * The symmetry verdict per kind, computed at cycle end over the WHOLE durable
+   * transition history. Read `reason`, never `ok` alone: below
+   * `SYMMETRY_MIN_SAMPLE` the verdict is `never-asked` with `ok: true`, and
+   * "was never asked" is not "is healthy" (scar §2.4).
+   */
+  readonly symmetry: readonly SymmetryCheck[];
   /** A kind with a zero exit count after bake-in is a defect (§5 G13). */
   readonly census: Readonly<Record<Kind, KindCensus>>;
   readonly events: readonly SleepEvent[];
@@ -302,5 +385,5 @@ export function countSkip(out: PhaseOutcome, reason: string, n = 1): void {
 // Re-exports the callers of this module need
 // ---------------------------------------------------------------------------
 
-export type { PromotionCrossing, PromotionReason, PruneRecord, PruneReason };
+export type { PromotionCrossing, PromotionReason, PruneRecord, PruneReason, SymmetryCheck };
 export type { MemoryRow, StoredMemory, VersionPruneReport };

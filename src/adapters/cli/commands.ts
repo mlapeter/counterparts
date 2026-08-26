@@ -155,19 +155,30 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     return EXIT.refused;
   }
 
-  switch (command) {
-    case "status":
-      return statusCommand(dir, io);
-    case "init":
-      return initCommand(dir, io);
-    case "verify":
-      return verifyCommand(dir, io);
-    case "backup":
-      return backupCommand(dir, io, parsed.flags["out"], now);
-    case "export":
-      return exportCommand(dir, io, parsed.flags);
-    case "remove":
-      return removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
+  // The console reports; it does not crash. A stack trace on the owner's
+  // terminal is the least legible failure this program can produce
+  // (constitution 16), and the failure that reached the field was exactly an
+  // uncaught open — "database is locked" from a store another process was
+  // writing (live-verify 2026-08-25). Each command still handles what it can
+  // handle; this is the floor under all of them.
+  try {
+    switch (command) {
+      case "status":
+        return statusCommand(dir, io);
+      case "init":
+        return initCommand(dir, io);
+      case "verify":
+        return verifyCommand(dir, io);
+      case "backup":
+        return await backupCommand(dir, io, parsed.flags["out"], now);
+      case "export":
+        return exportCommand(dir, io, parsed.flags);
+      case "remove":
+        return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
+    }
+  } catch (err) {
+    io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
+    return EXIT.failed;
   }
 }
 
@@ -381,7 +392,19 @@ function backupCommand(
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  const store = Store.open({ dir, observer: true });
+  // §5 G8: A BACKUP NEVER THROWS — and OPENING the store is part of the backup.
+  // That is the part that threw in the field: a store held by another process's
+  // write transaction answered "database is locked" before `snapshot()`'s own
+  // graceful path could be reached (live-verify 2026-08-25). An open that fails
+  // is now an ordinary failure report with an exit code.
+  let store: Store;
+  try {
+    store = Store.open({ dir, observer: true });
+  } catch (err) {
+    io.out(`Snapshot: none — nothing was copied.`);
+    io.err(`  could not open the store: ${String((err as Error).message ?? err)}`);
+    return EXIT.failed;
+  }
   try {
     const target = join(out, snapshotName(now()));
     const report = snapshot(store, target);

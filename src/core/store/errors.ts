@@ -22,9 +22,22 @@ export type StoreErrorCode =
   | "ID_DANGLING"
   | "ID_TAKEN"
   | "ARCHIVE_COLLISION"
+  /**
+   * The owner removed this id. The deny-list answering before the prose does —
+   * a NAMED refusal, never the ENOENT of a chased file (§16 G12).
+   * `detail` carries `{ id, by: "owner" }`: the code is the wire shape every
+   * consumer switches on, the actor is the story it tells.
+   */
   | "REMOVED"
+  /** A chase was attempted on an id no removal record has taken dark (§16 G10). */
+  | "REMOVAL_NOT_DARK"
+  /** The owner-op capability was never granted for this store. */
+  | "OWNER_OP_UNGRANTED"
   | "VERSION_UNKNOWN"
   | "CLOCK_BACKWARDS"
+  /** An instrument opened a store that does not exist yet, or is a schema behind:
+   *  initializing it would be writing at open, which an observer may not do. */
+  | "STORE_UNINITIALIZED"
   | "SQLITE_UNAVAILABLE"
   | "LAYOUT_UNCLASSIFIED";
 

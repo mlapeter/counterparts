@@ -567,6 +567,15 @@ describe("TOTALITY: every axis the registries know is displayed or marked absent
     expect(pressure).not.toContain(NEVER);
   });
 
+  test("the symmetry tripwire renders by REASON — a starved counter says never-asked, not healthy", () => {
+    const text = stripAnsi(dash().status());
+    expect(text).toContain("Band symmetry");
+    // The fixture records no band transitions, so every kind must read
+    // never-asked — ok:true must NEVER be rendered as within-expectation here.
+    expect(text).toContain("never-asked");
+    expect(text.includes("within-expectation")).toBe(false);
+  });
+
   test("every registry axis survives an EMPTY store — five views, no throw", () => {
     const d = dash();
     for (const view of VIEWS) {
@@ -873,12 +882,16 @@ describe("identity — the band and the protected set, side by side", () => {
     // The rule that matters: the text is gone the moment the memory is, because
     // it was never held here (scar §2.20). The dashboard shows no stale ink.
     expect(after).not.toContain("Ada is the owner of this store");
-    expect(after).toContain("Protected — permanent ink (0)");
-    // KNOWN GAP (INTERFACE-GAPS §3): `self/enumerate` drops an unreadable row
-    // silently, so the PROTECTED list cannot distinguish "removed" from "never
-    // there" — protection is a physics flag on the row whose physics stopped
-    // reading. The identity BAND is queryable, so its half is recoverable, and
-    // the view says so out loud.
+    // GAP CLOSED 2026-08-25 (BUILD-STATUS 4; scar §2.19 from the other side).
+    // `self/enumerate` used to DROP an unreadable row silently, so the protected
+    // list could not tell "removed" from "never there", and a permanent element
+    // left the permanent list without a trace. It is now a NAMED absence in both
+    // halves: still counted, still named by id, carrying the words in place of
+    // the ink. This assertion is the one line of this file the removal work
+    // changed, and it changed because the behavior it pinned was the bug.
+    expect(after).toContain("Protected — permanent ink (1)");
+    expect(after).toContain(s.protectedId);
+    expect(after).toContain(ABSENCE.removed);
     expect(after).toContain("Identity-band rows I could not read just now");
   });
 

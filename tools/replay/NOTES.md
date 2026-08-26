@@ -3,35 +3,61 @@
 Implementation choices the CONTRACT left open, and the assumptions this build
 makes. Written to be argued with.
 
-## 1. The assumed v1 corpus shapes (the biggest assumption in the harness)
+## 1. The v1 corpus shapes — assumed, then corrected on first contact
 
-The real corpus is not in this repo and was deliberately not read while building
-this: `docs/harvest/replay-baselines.md` §2 records *where* v1's spans, logs and
-index live and *how many* of each there are, not their byte shape. So the reader
-assumes the following, and **counts every time it has to guess**:
+The reader was built without reading the real corpus:
+`docs/harvest/replay-baselines.md` §2 records *where* v1's spans, logs and index
+live and *how many* of each there are, not their byte shape. So it accepted a
+documented shape plus the obvious near-misses and **counted every time it had to
+guess**. First contact (2026-08-25, numbers only, read-only) graded that bet:
+
+| surface | result |
+|---|---|
+| events | 65,499 lines, 0 malformed, 51 distinct names — the assumption held |
+| index | both embedding generations at the inventoried counts; write probe refused |
+| spans | 798 files, **0 parsed**, 870 malformed lines — a total miss |
+
+The miss was one field. A v1 span's content lives in `spanText`, which the
+near-miss list (`text` / `body` / `content`) did not carry, so every line failed
+the "looks like a span" test. **The v1 shape is now PRIMARY**, taken from v1's
+own writer (`~/bansai/src/encode/buffer.ts`, `interface Span` — read as a donor,
+never imported):
 
 ```
-<corpus>/buffer-archive/<YYYY-MM-DD>/<anything>.jsonl   one JSON span per line
-<corpus>/buffer-archive/<YYYY-MM-DD>/<anything>.json    an array, {spans:[…]}, or one span
+<corpus>/buffer-archive/<YYYY-MM-DD>/<safeScope>.<epochms>.<pid>.<seq>.jsonl
+        { ts: ISO string, sessionId, spanText, project, hash }   one per line
 <corpus>/logs/events-<YYYY-MM-DD>.jsonl                 one JSON event per line
-<corpus>/index.sqlite  (or cache.sqlite)                table `embeddings(node_id, model)`
+<corpus>/index.sqlite | index-snapshot.sqlite | cache.sqlite
+                                          table `embeddings(node_id, model)`
 ```
 
-A **span** is any object carrying non-empty `text` (or `body`/`content`) and a
-`session` (or `sessionId`/`session_id`). `scope` falls back to `project` then to
-`"global"`. `kind` is honoured when it is one of `conversation` / `assistant` /
-`jot`; otherwise it is inferred from `role`, and that inference is counted in
-`CorpusSummary.assumedKind`. An **event** is any object with `event` / `name` /
-`type`; a nested `data` object is flattened over the top-level fields, because
-both spellings appear in v1's own docs.
+Mapping: `spanText`→`text`, `sessionId`→`session`, `project`→`scope` (v1 spells
+it `global` or `project:<hash>`; the filename is the same string with the colon
+replaced), `ts`→`at` by `Date.parse`, and `hash` trusted when present or derived
+with `contentAddress()` when absent — exactly what v1's own reader does.
+`index-snapshot.sqlite` is listed because the preserved snapshot uses that name;
+a symlink at the filesystem level must not be load-bearing for a run record.
+
+**`kind` is structurally absent from a v1 span** and reads as `conversation`: a
+span is a raw conversation *slice*, not a turn. That is the shape, not drift, so
+it does not touch `assumedKind` — a counter pinned at 100% on every real run is a
+counter nobody reads (scar §2.4).
+
+The previously-assumed shapes survive as fallbacks — a span is still any object
+carrying non-empty `text`/`body`/`content` plus a `session`/`sessionId`/
+`session_id`, with `kind` inferred from `role` — and taking one is now its own
+counter, `assumedShape`. An **event** is unchanged: any object with `event` /
+`name` / `type`, a nested `data` flattened over the top-level fields.
 
 Everything the reader cannot use is a counter, never a silent drop:
-`malformedSpans`, `unrecognizedSpanFiles`, `assumedKind`, `malformedEventLines`.
-**The rendered report prints all four on the "format drift" line**, so the first
-run against the real corpus shows shape drift as a number rather than as a stack
-trace or, worse, as a quietly short replay.
+`malformedSpans`, `unrecognizedSpanFiles`, `assumedKind`, `assumedShape`,
+`malformedEventLines`. **The rendered report prints all five on the "format
+drift" line**, so a run against the real corpus shows shape drift as a number
+rather than as a stack trace or, worse, as a quietly short replay. Against a real
+snapshot the expected reading is `assumedShape 0`; a large one means v1's writer
+moved and `parseSpan` is a release behind.
 
-If the real shapes differ, the fix is in `parseSpan` / `parseEvent` /
+If the real shapes differ again, the fix is in `parseSpan` / `parseEvent` /
 `recordsOf` in `corpus.ts` and nowhere else.
 
 ## 2. Driver decisions
@@ -64,9 +90,23 @@ If the real shapes differ, the fix is in `parseSpan` / `parseEvent` /
 - **Chunk correlation.** A chunk's outcome comes back on the `SweepReport`; the
   gate's verdict for the same chunk arrives as a relayed event. `sweepAll` runs
   scopes sequentially in sorted order and awaits each, so the two are zipped by
-  position rather than by a correlation id nobody emits. A chunk that never
-  reached the gate (`TRUNCATED`, `THREW`) gets zeros and its reason, never a
-  neighbour's numbers.
+  position — `SweepReport.chunks[]` still carries only an index, and an index
+  restarts at 0 for every scope. A chunk that never reached the gate
+  (`TRUNCATED`, `THREW`) gets zeros and its reason, never a neighbour's numbers.
+  A `chunkKey` now EXISTS (the content address of the chunk's own span hashes,
+  on both the relayed event and the durable `gate.chunk` row); the day
+  `remember/` puts it on its chunk outcome, this zip becomes a lookup
+  (INTERFACE-GAPS §1b).
+- **The gate record is read back out of the store, not off the event ring.**
+  `gate.refusalMix`, `preselect.meanSchemasShown` and `preselect.channelMix`
+  count over `ReplayObservation.gateRecords`, which the driver builds by querying
+  the replayed store's durable log. Same for `bandTransitions`. This is a
+  deliberate constraint, not a convenience: a number that can only be derived
+  from a live in-process event stream cannot be recomputed from the store a
+  parallel run leaves behind, and the store is the only evidence that run makes.
+  The symmetry VERDICT is the exception and comes off the `CycleReport` — it is
+  arithmetic over those same durable rows, recomputed every cycle, so persisting
+  it would create a second copy that can go stale.
 
 ## 3. Determinism
 

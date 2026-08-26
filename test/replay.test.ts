@@ -44,6 +44,7 @@ import {
   documentSections,
   gateOpen,
   manifest,
+  metricById,
   passRecord,
   renderReport,
   replay,
@@ -97,7 +98,23 @@ interface FixtureOptions {
   readonly wal?: boolean;
   /** Add a jot span. */
   readonly jot?: boolean;
+  /**
+   * Write the day's spans in v1's REAL shape — `{ts, sessionId, spanText,
+   * project, hash}` in a file named the way `archiveClaim` names one — instead
+   * of the near-miss shape the reader assumed before first contact with the
+   * corpus. This is the shape the real run reads.
+   */
+  readonly v1Shape?: boolean;
 }
+
+/** v1's `safeScope`: a scope is `global` or `project:<hash>`, and a colon is
+ *  illegal in some filesystem paths, so the archive filename replaces it. */
+function safeScope(scope: string): string {
+  return scope.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+/** v1's project scope spelling — what lands in a span's `project` field. */
+const V1_SCOPE = "project:9f2c1ab4c7d30e51";
 
 const DAYS = ["2026-07-27", "2026-07-29", "2026-07-30"];
 
@@ -128,17 +145,29 @@ function writeFixtureCorpus(dir: string, opts: FixtureOptions = {}): string {
         at += 1000;
         const text = spanText(date, session, n);
         lines.push(
-          JSON.stringify({
-            hash: contentAddress(text),
-            session,
-            scope: "proj-replay",
-            kind: n % 2 === 0 ? "conversation" : "assistant",
-            text,
-            at,
-            day: activeDay,
-            from: n,
-            to: n + 1,
-          }),
+          opts.v1Shape === true
+            ? // v1's own `interface Span`: no `kind` (a span is a conversation
+              // SLICE, not a turn), an ISO `ts`, and the content in `spanText`.
+              // The LAST span of each session deliberately omits `hash`, which
+              // v1's reader re-derives on read — so this fixture exercises both.
+              JSON.stringify({
+                ts: new Date(at).toISOString(),
+                sessionId: session,
+                spanText: text,
+                project: V1_SCOPE,
+                ...(n === 2 ? {} : { hash: contentAddress(text) }),
+              })
+            : JSON.stringify({
+                hash: contentAddress(text),
+                session,
+                scope: "proj-replay",
+                kind: n % 2 === 0 ? "conversation" : "assistant",
+                text,
+                at,
+                day: activeDay,
+                from: n,
+                to: n + 1,
+              }),
         );
       }
     }
@@ -175,7 +204,10 @@ function writeFixtureCorpus(dir: string, opts: FixtureOptions = {}): string {
     if (opts.malformedSpan === true && date === DAYS[0]) {
       lines.push(JSON.stringify({ nothing: "that looks like a span" }));
     }
-    writeFileSync(join(dayDir, "spans.jsonl"), `${lines.join("\n")}\n`, "utf8");
+    // v1 names an archived claim `<safeScope>.<epochms>.<pid>.<seq>.jsonl`.
+    const spanFile =
+      opts.v1Shape === true ? `${safeScope(V1_SCOPE)}.${at}.4131.0.jsonl` : "spans.jsonl";
+    writeFileSync(join(dayDir, spanFile), `${lines.join("\n")}\n`, "utf8");
     if (opts.strayFile === true && date === DAYS[0]) {
       writeFileSync(join(dayDir, "README.txt"), "not a span file\n", "utf8");
     }
@@ -298,7 +330,67 @@ describe("the corpus reader", () => {
     // A span spelled with `role` instead of `kind` is read, and the assumption
     // is a number the report prints.
     expect(s.assumedKind).toBe(1);
+    // Every span in this fixture is a NEAR-MISS shape, not v1's own — which is
+    // itself a counted assumption now that the v1 shape is the primary one.
+    expect(s.assumedShape).toBe(19);
     expect(s.spans).toBe(19);
+    corpus.close();
+  });
+
+  // ── v1's REAL span shape (first contact, 2026-08-25) ──────────────────────
+  // 798 files, 0 spans, 870 malformed: the content field is `spanText`, which
+  // the near-miss list never carried. This is the shape the real run reads.
+  test("v1's OWN span shape is the primary one: spanText / sessionId / project / ts", () => {
+    const corpus = Corpus.open(corpusDir("v1shape", { v1Shape: true }));
+    const s = corpus.summary();
+
+    expect(s.spans).toBe(18);
+    expect(s.malformedSpans).toBe(0);
+    // Not drift: `kind` is structurally absent from a v1 span, and reading a
+    // conversation SLICE as `conversation` is the shape, not a guess.
+    expect(s.assumedKind).toBe(0);
+    expect(s.assumedShape).toBe(0);
+
+    const spans = corpus.spans(DAYS[0] ?? "");
+    expect(spans.length).toBe(6);
+    const first = spans[0];
+    expect(first?.kind).toBe("conversation");
+    // `project` → scope, verbatim: v1 spells a scope `global` or `project:<hash>`.
+    expect(first?.scope).toBe(V1_SCOPE);
+    expect(first?.session).toBe(`ses_${DAYS[0]}_a`);
+    expect(first?.text).toContain(SPAN_MARKER);
+    // `ts` is an ISO STRING; the reader parses it rather than dropping the order.
+    expect(first?.at).toBeGreaterThan(0);
+    expect(corpus.spans(DAYS[0] ?? "").every((sp) => (sp.at ?? 0) > 0)).toBe(true);
+    corpus.close();
+  });
+
+  test("a v1 span's hash is trusted when present and DERIVED when absent", () => {
+    const corpus = Corpus.open(corpusDir("v1hash", { v1Shape: true }));
+    const spans = corpus.spans(DAYS[0] ?? "");
+    // Every span has an address, including the two written without one — the
+    // same rule v1's own reader follows, through the ONE content-address fn.
+    for (const sp of spans) expect(sp.hash).toBe(contentAddress(sp.text));
+    expect(spans.length).toBe(6);
+    corpus.close();
+  });
+
+  test("the malformed counter still counts a GENUINELY broken line, not the new shape", () => {
+    const corpus = Corpus.open(corpusDir("v1drift", { v1Shape: true, malformedSpan: true }));
+    const s = corpus.summary();
+    expect(s.malformedSpans).toBe(1);
+    expect(s.spans).toBe(18);
+    expect(s.assumedShape).toBe(0);
+    corpus.close();
+  });
+
+  test("the snapshot's `index-snapshot.sqlite` is found without a symlink", () => {
+    const dir = corpusDir("snapindex");
+    writeIndex(join(dir, "index-snapshot.sqlite"));
+    const corpus = Corpus.open(dir);
+    expect(corpus.summary().indexPresent).toBe(true);
+    expect(corpus.embeddingModels()["voyage-3-large"]).toBe(2);
+    expect(corpus.probeWriteRefused()).toBe(true);
     corpus.close();
   });
 
@@ -426,6 +518,28 @@ describe("the pipeline driver", () => {
     result.cleanup();
   });
 
+  test("a corpus in v1's REAL span shape replays end to end", async () => {
+    const result = await runFixture("v1drive", { v1Shape: true });
+    const o = result.run.observation;
+    // The shape reaches the brain, not just the reader: spans captured, chunks
+    // gated, memories minted. Before the fix this read 0 spans of 18.
+    expect(o.corpus.spans).toBe(18);
+    expect(o.corpus.assumedShape).toBe(0);
+    expect(o.corpus.malformedSpans).toBe(0);
+    expect(o.days.map((d) => d.spansOffered).reduce((a, b) => a + b, 0)).toBe(18);
+    // SIX, not eighteen, and that is the shape telling the truth: a v1 span
+    // carries no role, so every one enters as `conversation`, and `capture`
+    // writes ONE span per kind per call (2 sessions × 3 days). A v1 span was
+    // already a multi-turn slice — NOTES §2's "one span is one turn" is where
+    // the flattening happens, not here.
+    expect(o.days.map((d) => d.spansCaptured).reduce((a, b) => a + b, 0)).toBe(6);
+    expect(o.chunks.some((c) => c.gated)).toBe(true);
+    expect(o.store.memories).toBeGreaterThan(0);
+    // v1 spells a project scope with a colon; it survives into the replay.
+    expect(o.sweeps.some((s) => s.scope === V1_SCOPE)).toBe(true);
+    result.cleanup();
+  });
+
   test("a truncated interpreter response costs its chunk and nothing else (scar E2/E1)", async () => {
     const result = await runFixture("truncated", {}, { interpret: fakeInterpret("max_tokens") });
     const o = result.run.observation;
@@ -520,6 +634,9 @@ const EMPTY_OBSERVATION: ReplayObservation = {
   cycles: [],
   sweeps: [],
   chunks: [],
+  gateRecords: [],
+  bandTransitions: [],
+  symmetry: [],
   events: [],
   store: {
     memories: 0,
@@ -542,6 +659,7 @@ const EMPTY_OBSERVATION: ReplayObservation = {
     malformedSpans: 0,
     unrecognizedSpanFiles: 0,
     assumedKind: 0,
+    assumedShape: 0,
     eventFiles: 0,
     eventLines: 0,
     malformedEventLines: 0,
@@ -915,6 +1033,226 @@ describe("the decay three-way (physics OQ1)", () => {
     expect(result.scorecard.counts.pass + result.scorecard.counts.fail).toBeLessThanOrEqual(
       METRICS.length,
     );
+    result.cleanup();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8. The three metrics the composition root used to make impossible, and the
+//    two the decay pass did. Each was `not-computable` with a reason in
+//    INTERFACE-GAPS; each is now arithmetic over a REPLAYED STORE.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A synthetic observation: the scorer's arithmetic, checked without a run. */
+function observed(over: Partial<ReplayObservation>): ReplayObservation {
+  return { ...EMPTY_OBSERVATION, ...over };
+}
+
+function gateRecord(over: Partial<ReplayObservation["gateRecords"][number]> = {}): ReplayObservation["gateRecords"][number] {
+  return {
+    chunkKey: "k",
+    day: 1,
+    scope: "proj",
+    proposals: 1,
+    accepted: 1,
+    refused: 0,
+    fullyGated: false,
+    blind: false,
+    shown: 2,
+    candidates: 4,
+    shownLexicalOnly: 1,
+    shownSemanticOnly: 1,
+    shownBoth: 0,
+    semanticState: "ran",
+    fires: {},
+    refusalsByReason: {},
+    ...over,
+  };
+}
+
+function cycle(over: Partial<ReplayObservation["cycles"][number]> = {}): ReplayObservation["cycles"][number] {
+  return {
+    date: "2026-07-27",
+    day: 1,
+    phasesRan: 7,
+    phasesFailed: 0,
+    decayRan: true,
+    decayExamined: 10,
+    decayChanged: 1,
+    promoted: 0,
+    pruned: 0,
+    merged: 0,
+    bandUp: 0,
+    bandDown: 0,
+    briefingBytes: null,
+    budgetBytes: null,
+    ...over,
+  };
+}
+
+describe("the gate metrics compute from the durable record", () => {
+  test("gate.refusalMix is the secrets share of the battery's own fire count", () => {
+    const metric = metricById("gate.refusalMix");
+    expect(metric?.grading.kind).toBe("range");
+    const o = observed({
+      gateRecords: [
+        gateRecord({ fires: { secrets: 3, floor: 1 } }),
+        gateRecord({ fires: { aliases: 2, precision: 1, secrets: 1 } }),
+      ],
+    });
+    const sample = metric?.compute?.(o);
+    expect(sample?.numerator).toBe(4);
+    expect(sample?.denominator).toBe(8);
+    expect(scoreMetric(metric as MetricSpec, o).verdict).toBe("pass");
+  });
+
+  test("a corpus that fired NO gate is not-exercised, never a zero that passes", () => {
+    const metric = metricById("gate.refusalMix") as MetricSpec;
+    const result = scoreMetric(metric, observed({ gateRecords: [gateRecord()] }));
+    expect(result.verdict).toBe("not-exercised");
+    expect(result.reason).toBe("no-denominator");
+  });
+
+  test("preselect.meanSchemasShown is the count behind `blind`", () => {
+    const metric = metricById("preselect.meanSchemasShown") as MetricSpec;
+    const o = observed({
+      gateRecords: [gateRecord({ shown: 3 }), gateRecord({ shown: 1 }), gateRecord({ shown: 2 })],
+    });
+    expect(metric.compute?.(o)?.value).toBe(2);
+    expect(scoreMetric(metric, o).verdict).toBe("pass");
+  });
+
+  test("preselect.channelMix counts only chunks where the semantic channel RAN", () => {
+    const metric = metricById("preselect.channelMix") as MetricSpec;
+    // Two shown on a chunk the channel ran for (one semantic-only), plus a
+    // chunk it SKIPPED, whose zero would otherwise read as "adds nothing".
+    const o = observed({
+      gateRecords: [
+        gateRecord({ semanticState: "ran", shownLexicalOnly: 1, shownSemanticOnly: 1, shownBoth: 0 }),
+        gateRecord({
+          semanticState: "skipped",
+          shown: 4,
+          shownLexicalOnly: 4,
+          shownSemanticOnly: 0,
+          shownBoth: 0,
+        }),
+      ],
+    });
+    const sample = metric.compute?.(o);
+    expect(sample?.numerator).toBe(1);
+    expect(sample?.denominator).toBe(2);
+    expect(scoreMetric(metric, o).verdict).toBe("pass");
+  });
+
+  test("with the channel SKIPPED everywhere, the mix is never-asked — not 'semantic adds nothing'", () => {
+    const metric = metricById("preselect.channelMix") as MetricSpec;
+    const result = scoreMetric(
+      metric,
+      observed({ gateRecords: [gateRecord({ semanticState: "skipped", shownSemanticOnly: 0 })] }),
+    );
+    expect(result.verdict).toBe("not-exercised");
+    expect(result.reason).toBe("no-denominator");
+  });
+
+  test("no registry entry still declares these three not-computable", () => {
+    for (const id of ["gate.refusalMix", "preselect.meanSchemasShown", "preselect.channelMix"]) {
+      expect(metricById(id)?.grading.kind).toBe("range");
+      expect(metricById(id)?.compute).toBeDefined();
+    }
+  });
+});
+
+describe("the band metrics compute from direction-counted transitions", () => {
+  test("promotions and demotions are separate per-day rates over UP and DOWN moves", () => {
+    const o = observed({
+      activeDays: 2,
+      cycles: [cycle({ bandUp: 6, bandDown: 2 }), cycle({ bandUp: 4, bandDown: 0 })],
+    });
+    expect(metricById("band.promotionsPerActiveDay")?.compute?.(o)?.value).toBe(5);
+    expect(metricById("band.demotionsPerActiveDay")?.compute?.(o)?.value).toBe(1);
+    expect(scoreMetric(metricById("band.demotionsPerActiveDay") as MetricSpec, o).verdict).toBe("pass");
+  });
+
+  test("band.symmetryAsked fails when a starved sample is reported as within-expectation", () => {
+    const metric = metricById("band.symmetryAsked") as MetricSpec;
+    const honest = observed({
+      symmetry: [{ day: 1, kind: "fact", ok: true, reason: "never-asked", up: 0, down: 0 }],
+    });
+    expect(scoreMetric(metric, honest).verdict).toBe("pass");
+
+    // The failure this exists to catch: a verdict claiming health on a counter
+    // nothing ever fed. `ok` is true in BOTH rows — only `reason` separates them.
+    const dishonest = observed({
+      symmetry: [{ day: 1, kind: "fact", ok: true, reason: "within-expectation", up: 0, down: 0 }],
+    });
+    expect(scoreMetric(metric, dishonest).verdict).toBe("fail");
+  });
+
+  test("a run that rendered NO verdict is not-exercised, not a pass", () => {
+    const metric = metricById("band.symmetryAsked") as MetricSpec;
+    const result = scoreMetric(metric, observed({ symmetry: [] }));
+    expect(result.verdict).toBe("not-exercised");
+    expect(result.reason).toBe("no-denominator");
+  });
+});
+
+describe("a real replay carries the durable gate and band surfaces", () => {
+  test("the driver reads gate records BACK OUT OF THE STORE, keyed by content", async () => {
+    const result = await runFixture("gaterecords");
+    const o = result.run.observation;
+
+    expect(o.gateRecords.length).toBeGreaterThan(0);
+    // One record per chunk that reached the gate, and the keys are distinct.
+    const keys = new Set(o.gateRecords.map((g) => g.chunkKey));
+    expect(keys.size).toBe(o.gateRecords.length);
+    expect(o.gateRecords.every((g) => g.scope.length > 0)).toBe(true);
+    // The three metrics are COMPUTED now — pass or fail, never absent.
+    const card = result.scorecard;
+    for (const id of ["gate.refusalMix", "preselect.meanSchemasShown", "preselect.channelMix"]) {
+      const row = card.metrics.find((m) => m.id === id);
+      expect(row?.reason).not.toBe("not-computable");
+    }
+    result.cleanup();
+  });
+
+  test("meanSchemasShown reads ZERO and FAILS — the unwired schema slice, as a red line", async () => {
+    const result = await runFixture("shownzero");
+    const row = result.scorecard.metrics.find((m) => m.id === "preselect.meanSchemasShown");
+    // `applySweep` hands the chunk gate no schema slice, so preselection has
+    // nothing to select from and every chunk reads blind. The number is now
+    // computable, which is what turns that gap from an absence nobody has to
+    // answer for into a failing line in the scorecard (INTERFACE-GAPS §1a).
+    expect(row?.observed?.value).toBe(0);
+    expect(row?.verdict).toBe("fail");
+    expect(result.run.observation.gateRecords.every((g) => g.blind)).toBe(true);
+    result.cleanup();
+  });
+
+  test("every cycle rendered a per-kind symmetry verdict, and none of them claims health", async () => {
+    const result = await runFixture("symmetry");
+    const o = result.run.observation;
+    expect(o.symmetry.length).toBe(o.cycles.length * 6);
+    for (const v of o.symmetry) expect(v.reason).toBe("never-asked");
+    expect(
+      result.scorecard.metrics.find((m) => m.id === "band.symmetryAsked")?.verdict,
+    ).toBe("pass");
+    result.cleanup();
+  });
+});
+
+describe("the report prints the gate record and the tripwire's standing", () => {
+  test("the REPLAY block names gate fires, schemas shown, band moves and verdicts BY REASON", async () => {
+    const result = await runFixture("g12report");
+    expect(result.report).toContain("gate records ");
+    expect(result.report).toContain("gate fires ");
+    expect(result.report).toContain("schemas shown ");
+    // Grouped by reason, never by `ok`: a starved counter reads `never-asked`
+    // with `ok: true`, and printing that as health is the failure G12 prevents.
+    expect(result.report).toContain("symmetry verdicts: never-asked=");
+    expect(result.report).toContain("band moves: up 0 · down 0");
+    // Still no content, on a line that now prints more of the gate's record.
+    expect(result.report).not.toContain(SPAN_MARKER);
+    expect(result.report).not.toContain(MINT_MARKER);
     result.cleanup();
   });
 });

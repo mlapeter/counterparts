@@ -63,17 +63,20 @@ import type {
   Turn as CapturedTurn,
   UpdatesResolution,
 } from "./remember/index.js";
-import type { Proposal as EncodeProposal } from "./encode/index.js";
+import type { EncodeResult, Proposal as EncodeProposal } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
 import { Schemas } from "./schemas/index.js";
 import { Self } from "./self/index.js";
 import type { ChapterAppend, ChapterAsk, IdentityCoreSpec, IngestResult, WakeResult } from "./self/index.js";
 import { runCycle } from "./sleep/index.js";
 import type { CycleReport } from "./sleep/index.js";
-import { Store, assertSafeDataDir } from "./store/index.js";
+import { Store, assertSafeDataDir, hashText } from "./store/index.js";
 import type { Embedder, StoreEvent } from "./store/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
+
+/** The durable per-chunk gate record (dashboard registry imports this literal). */
+export const GATE_CHUNK_EVENT = "gate.chunk";
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
@@ -198,6 +201,85 @@ const DEFAULT_KIND: Kind = "fact";
 const SWEPT_SOURCE: ProposalSource = "session-end";
 
 const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
+
+/**
+ * The chunk gate's own record, as it is PERSISTED (store `events`, SEAMS K).
+ *
+ * `encodeChunk` returns a full `EncodeResult`; before this existed the
+ * composition root emitted five counts from it and let the rest go, which made
+ * three of the replay harness's baselines structurally not-computable
+ * (`gate.refusalMix`, `preselect.meanSchemasShown`, `preselect.channelMix` —
+ * `tools/replay/INTERFACE-GAPS.md` §1). A metric that cannot be computed from a
+ * replayed store is a metric the parallel run cannot check.
+ *
+ * CONTENT-BY-REFERENCE, ALL OF IT (store §5 G10): a chunk key, a scope, ids,
+ * counts, gate names, closed-vocabulary reasons and states. No span text, no
+ * proposal text, no alias, no quote, no secret and no hash of one.
+ *
+ * This function DERIVES NOTHING. `fires` counts the battery's own per-gate
+ * events by name (`gate.<name>` — the battery decides what an acting gate is,
+ * and it already writes one event per acting gate); the channel and preselection
+ * fields are copied off `Preselection`. A rule about what counts as a fire would
+ * be a rule with no home here.
+ */
+function gateChunkRecord(
+  result: EncodeResult,
+  ctx: { chunkKey: string; index: number; scope: string; session: string },
+): Record<string, unknown> {
+  const pre = result.preselection;
+  const fires: Record<string, number> = {};
+  for (const e of result.events) {
+    const parts = e.event.split(".");
+    const gate = parts[0] === "gate" ? parts[1] : undefined;
+    if (gate === undefined) continue;
+    fires[gate] = (fires[gate] ?? 0) + 1;
+  }
+  const refusalsByReason: Record<string, number> = {};
+  for (const r of result.refused) {
+    refusalsByReason[r.reason] = (refusalsByReason[r.reason] ?? 0) + 1;
+  }
+  return {
+    chunkKey: ctx.chunkKey,
+    index: ctx.index,
+    scope: ctx.scope,
+    session: ctx.session,
+    day: result.day,
+    proposals: result.accepted.length + result.refused.length,
+    accepted: result.accepted.length,
+    refused: result.refused.length,
+    fullyGated: result.fullyGated,
+    effects: result.effects.length,
+    blind: pre.blind,
+    // What the author was shown, and through WHICH channel — §8 G4's overlap is
+    // reported rather than hidden, so "did the semantic channel add anything?"
+    // is a number instead of an argument.
+    shown: pre.shown.length,
+    shownIds: pre.shown.map((s) => s.id),
+    shownLexicalOnly: pre.lexicalIds.filter((id) => !pre.semanticIds.includes(id)).length,
+    shownSemanticOnly: pre.semanticOnlyIds.length,
+    shownBoth: pre.overlapIds.length,
+    candidates: pre.candidates,
+    // "off" is silence, "skipped" is a failure, "ran" is a measurement — three
+    // records a bare zero cannot tell apart (§5 G8, scar §2.4).
+    semanticState: pre.semantic.state,
+    semanticReason: pre.semantic.reason,
+    channels: result.channels.map((c) => ({
+      channel: c.channel,
+      state: c.state,
+      reason: c.reason,
+    })),
+    novelty: result.novelty.novelty,
+    noveltyReason: result.novelty.reason,
+    fires,
+    refusalsByReason,
+    refusals: result.refused.map((r) => ({
+      ref: r.ref,
+      kind: r.kind,
+      reason: r.reason,
+      blockedBy: [...r.blockedBy],
+    })),
+  };
+}
 
 export class Counterpart {
   readonly store: Store;
@@ -608,6 +690,7 @@ export class Counterpart {
       lifted: mint.lifted,
       blind: mint.blind,
     });
+    this.mentionFromProposal(proposal, `deposit:${mint.id}`);
     return {
       deposited: true,
       reason: "minted",
@@ -684,18 +767,48 @@ export class Counterpart {
     }
 
     const result = gateSweepChunk(chunk, drafts, day, { observer: this.observer });
-    this.emit("counterpart.sweep.chunk", undefined, {
+    const scope = chunk.spans[0]?.scope ?? "";
+    const session = chunk.spans[0]?.session ?? "";
+    // THE CORRELATION ID the harness had to guess at (replay INTERFACE-GAPS §1):
+    // chunk indices restart at 0 for every scope `sweepAll` visits, so a gate
+    // record was matched to a chunk by arrival order. This key is content —
+    // the chunk's own span hashes — so the same chunk is the same key on both
+    // sides of any join, and it is what the durable record is addressed by.
+    const chunkKey = hashText(chunk.spans.map((s: Span) => s.hash).join("\n"));
+    this.emit("counterpart.sweep.chunk", chunkKey, {
       chunk: chunk.index,
+      chunkKey,
+      scope,
       proposals: drafts.length,
       accepted: result.accepted.length,
       refused: result.refused.length,
       fullyGated: result.fullyGated,
       blind: result.preselection.blind,
+      shown: result.preselection.shown.length,
+      semanticState: result.preselection.semantic.state,
     });
+    // THE DURABLE RECORD, and it is written for EVERY chunk that reached the
+    // gate — a fully-gated one above all, since those are most of what a refusal
+    // distribution is made of. This is telemetry, not a `DurableEffect`: the
+    // chunk-level "gated means gated" rule is about strength, uses, revisions,
+    // mentions and prediction checks (encode §5 G3), and encode's own
+    // `encode.fullyGated` event stands on exactly the same footing.
+    //
+    // The latch is (chunk content, lived day): a replayed day appends nothing a
+    // second time (sleep §5 G3), while spans restored after a failed chunk and
+    // re-swept on a LATER day record a second, genuine gate run.
+    if (!this.observer) {
+      this.store.appendEvent({
+        name: GATE_CHUNK_EVENT,
+        day,
+        ref: chunkKey,
+        dedupKey: `gate.chunk:${chunkKey}:${day}`,
+        payload: gateChunkRecord(result, { chunkKey, index: chunk.index, scope, session }),
+      });
+    }
     // A fully-gated chunk moves nothing, and neither does an observer's.
     if (result.fullyGated || result.observer) return;
 
-    const scope = chunk.spans[0]?.scope ?? "";
     for (const accepted of result.accepted) {
       const updates = await this.resolveUpdatesFor(
         scope,
@@ -705,7 +818,7 @@ export class Counterpart {
       const proposal: Proposal = {
         id: `prp_${randomUUID()}`,
         source: SWEPT_SOURCE,
-        session: chunk.spans[0]?.session ?? "",
+        session,
         scope,
         content: accepted.content,
         kind: accepted.kind,
@@ -738,6 +851,7 @@ export class Counterpart {
         updates: mint.updates,
         blind: mint.blind,
       });
+      this.mentionFromProposal(proposal, `sweep:${chunk.index}`);
     }
   }
 
@@ -794,6 +908,38 @@ export class Counterpart {
     if (event.ref !== undefined) out.ref = event.ref;
     out.data = { ...(event.data ?? {}), module };
     this.push(out);
+  }
+
+
+  /**
+   * Birth by mention, made AMBIENT (constitution line 8; schemas doctrine):
+   * when an authored or swept proposal NAMES an entity-family memory with a
+   * title, the mention reaches schemas the moment the memory lands — the writer
+   * naming a place is the birth site, and no separate tool or chore exists.
+   * schemas.mention() does all the judging (whole-word occurrence, collisions,
+   * the birth cap); this is wiring, not rules. Found as gap: `mention()` had
+   * ZERO live callers — the doctrine's front door was starved (cli gaps §8).
+   */
+  private mentionFromProposal(
+    proposal: { title?: string | null; kind: Kind; content: string; aliases: readonly string[]; day: number },
+    chunkRef: string,
+  ): void {
+    const title = proposal.title ?? null;
+    if (title === null || title.trim().length === 0) return;
+    if (proposal.kind !== "entity" && proposal.kind !== "person" && proposal.kind !== "place") return;
+    const outcome = this.schemas.mention({
+      name: title,
+      kind: proposal.kind,
+      source: proposal.content,
+      chunkRef,
+      aliases: proposal.aliases,
+      day: proposal.day,
+    });
+    this.emit("counterpart.mention", outcome.id ?? undefined, {
+      reason: outcome.reason,
+      kind: proposal.kind,
+      day: proposal.day,
+    });
   }
 
   private emit(

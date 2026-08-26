@@ -23,6 +23,28 @@ us to stratify.*
 - The replay harness against the real corpus (fixtures only so far; format drift will
   print as a number on first contact).
 
+## Night shift 2026-08-25 — the four blockers closed, live-verify run
+
+All four numbered gaps below are CLOSED as of the night commit (tests named in the
+commit): 1 (gate records durable via `gate.chunk`; refusalMix/schemasShown/channelMix
+compute), 2 (`band.transition` direction counter; G12 fires; dashboard renders the
+verdict BY REASON), 3 (chase completes via the owner seam; deny-list at read as
+`REMOVED`; neutralize-not-delete for FK lineage), 4 (`self.enumerate` named absences,
+tombstones surfaced). Also closed: birth-by-mention had ZERO live callers — now
+ambient at both mint sites (`counterpart.mention`); the live-verify's backup-under-
+lock failure (idempotent operational open, busy_timeout, graceful backup report,
+re-verified live); the corpus reader speaks v1's real span shape (first contact:
+events/embeddings matched to the digit, spans 0-parsed until the shape fix).
+
+**Still open, updated:** replay §1a — `applySweep` passes no schema slices, so every
+replayed chunk is blind and `preselect.meanSchemasShown` reads 0.00/FAIL by design
+(the gap made visible; wiring slices is a behavior change for review). Replay §2a —
+authored-path gate records can't cross remember's verdict seam without a `records`
+field. CLI §7 — an observer still MINTS an absent store at open (fix breaks six
+modules' observer-on-empty-dir tests; needs a deliberate pass). Entity mention has no
+deliberate adapter surface (ambient-only now — fine, but an owner console verb may be
+wanted).
+
 ## Open gaps, by what they block
 
 **Blocks the real replay run:**

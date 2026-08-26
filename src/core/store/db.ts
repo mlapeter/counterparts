@@ -90,6 +90,19 @@ function norm(params: SqlParam[]): SqlValue[] {
   });
 }
 
+/**
+ * How long a connection waits for someone else's write lock before giving up.
+ * TUNABLE.
+ *
+ * Without it SQLite fails INSTANTLY with "database is locked", which is how a
+ * live `counterparts backup` threw while a session held an open write
+ * transaction (live-verify 2026-08-25) — and CLI CONTRACT §5 G8 says a backup
+ * never throws. Brief contention between the console and a background worker is
+ * normal and should WAIT; a lock held for five seconds is a real problem and
+ * should still be reported rather than waited on forever.
+ */
+export const BUSY_TIMEOUT_MS = 5000;
+
 export function openDb(path: string): Db {
   const { raw, driver } = openRaw(path);
   let depth = 0;
@@ -155,5 +168,9 @@ export function openDb(path: string): Db {
   // transient -journal; WAL's permanent pair would be two more boxes to explain.
   exec("PRAGMA journal_mode = DELETE");
   exec("PRAGMA synchronous = FULL");
+  // Wait for a contended lock instead of failing instantly (§5 G8, live-verify
+  // 2026-08-25). Set on every connection, including the short-lived one
+  // `VACUUM INTO` opens for a backup.
+  exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   return db;
 }

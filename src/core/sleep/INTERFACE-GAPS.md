@@ -202,3 +202,54 @@ generation reads every live memory's prose body off disk to hash it, before the
 first pair exists. `Store.bodyDigest(id)` (or a body-hash column maintained at
 write time, which is where a content address belongs) would make the pass a
 single query.
+
+---
+
+## 9. The symmetry verdict has no consumer with a face (`src/adapters/dashboard`)
+
+**Owner:** the dashboard adapter. **Added 2026-08-25, with G12's wiring.**
+
+The cycle now counts band moves BY DIRECTION (`band.transition` rows in box 2's
+durable log, written by the decay materialization pass) and renders
+`physics.symmetryCheck` per kind at cycle end, onto `CycleReport.symmetry` and a
+`sleep.symmetry` event. That was the missing half of guarantee 12: v1 ran 279
+up-moves against zero down-moves for three days and nothing fired, and the
+tripwire was here from the start, enforced in one place and consumed by nobody.
+
+It still has no consumer with a face, and the parallel run is exactly when it
+earns its keep. Two things the status view needs, and neither is a formatting
+preference:
+
+1. **Surface the verdict BY REASON, never by `ok`.** Below
+   `SYMMETRY_MIN_SAMPLE` (20 moves) the verdict is `never-asked` and it carries
+   `ok: true`. A view keyed on the boolean paints a starved tripwire green,
+   which is scar §2.4 in one pixel. `never-asked` / `within-expectation` /
+   `ratchet-suspected` / `reverse-ratchet-suspected` are four different facts and
+   the view should say which one it is holding, per kind, with `up:down` beside
+   it. A kind with a zero DOWN count after the bake-in window is the reading to
+   act on — the same shape as §5 G13's census.
+2. **`DURABLE_EVENT_NAMES` must learn two names.** `registries.ts` derives that
+   registry by TYPE from four record interfaces, so `band.transition` (this
+   module) and `gate.chunk` (the composition root) are invisible to it. The
+   empirical half of the dashboard's totality test — "no event reaches the
+   durable log that the registry does not know about" — passes today only
+   because its fixture sweeps nothing and lives one day; it will fail as soon as
+   the fixture sweeps or reaches a second lived day. This is precisely the hole
+   the dashboard's own INTERFACE-GAPS §5 predicted a type-level check could not
+   catch.
+
+Two smaller notes that ride along:
+
+- **The verdict is deliberately not persisted.** It is arithmetic over the
+  durable rows and is recomputed at every cycle end, so a stored copy could only
+  go stale. The counter is what is durable.
+- **`SleepStore.eventLog?` is optional**, like `appendEvent?`. A port without it
+  gets NO verdicts and a loud `sleep.symmetry.unavailable` — six `never-asked`
+  rows would claim a counter was consulted when none exists.
+- **The latched rows never prune.** `Store.pruneEvents()` deliberately keeps any
+  row carrying a `dedupKey`, and every `band.transition` carries one, so this
+  adds a durable consumer to the accepted rent SEAMS names at the end of wave 3.
+  The volume is one row per crossing (v1: ~38/day at 13.5K memories). The honest
+  fix when it matters is still an age-based sweep that keeps the latch and drops
+  the payload — but a swept counter would shrink the symmetry sample, so that
+  sweep needs a rolled-up total, not just a delete.

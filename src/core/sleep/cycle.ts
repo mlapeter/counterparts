@@ -28,7 +28,7 @@
  */
 
 import type { Kind } from "../types.js";
-import { TUNABLES as PHYSICS } from "../physics/index.js";
+import { TUNABLES as PHYSICS, symmetryCheck } from "../physics/index.js";
 import { runBriefing } from "./briefing.js";
 import type { RenderFn } from "./briefing.js";
 import { runConsolidate } from "./consolidate.js";
@@ -41,6 +41,7 @@ import { sqliteStrengthCache, storeRankingCache, supportsRanking } from "./stren
 import type { StrengthCache } from "./strength-cache.js";
 import { shouldSpawn } from "./tunables.js";
 import type {
+  BandTransition,
   CycleReport,
   CycleStep,
   KindCensus,
@@ -55,8 +56,9 @@ import type {
   SleepEvent,
   SleepStore,
   StepStage,
+  SymmetryCheck,
 } from "./types.js";
-import { CycleKilled, PHASES, emptyOutcome } from "./types.js";
+import { BAND_TRANSITION_EVENT, CycleKilled, PHASES, emptyOutcome } from "./types.js";
 
 export interface SleepOptions {
   store: SleepStore;
@@ -124,6 +126,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
   const promoted: PromotionRecord[] = [];
   const pruned: PrunedRecord[] = [];
   const merged: MergeRecord[] = [];
+  const bandTransitions: BandTransition[] = [];
 
   // The ranking cache is opened LAZILY by the decay phase, and never at all
   // under observer: a created file is a mutation.
@@ -250,7 +253,13 @@ export function runCycle(opts: SleepOptions): CycleReport {
     };
 
     // ── phase 2: the decay tick ───────────────────────────────────────────
-    runPhase("decay", (ctx) => runDecay(ctx, cache));
+    runPhase(
+      "decay",
+      (ctx) => runDecay(ctx, cache),
+      (r) => {
+        bandTransitions.push(...r.transitions);
+      },
+    );
 
     // ── phase 3: consolidation marking + the identity crossing ────────────
     runPhase(
@@ -305,6 +314,9 @@ export function runCycle(opts: SleepOptions): CycleReport {
       () => (opts.render === undefined ? "no-render-fn" : null),
     );
 
+    // ── the tripwire, at cycle end (physics guarantee 12, scar §2.10) ─────
+    const symmetry = symmetryVerdicts(store, day, emit);
+
     const report: CycleReport = {
       day,
       date,
@@ -314,6 +326,8 @@ export function runCycle(opts: SleepOptions): CycleReport {
       promoted,
       pruned,
       merged,
+      bandTransitions,
+      symmetry,
       census: census(store, day, pruned, merged),
       events,
     };
@@ -323,6 +337,8 @@ export function runCycle(opts: SleepOptions): CycleReport {
       promoted: promoted.length,
       pruned: pruned.length,
       merged: merged.length,
+      bandUp: bandTransitions.filter((t) => t.direction === "up").length,
+      bandDown: bandTransitions.filter((t) => t.direction === "down").length,
       failed: reports.filter((p) => p.status === "failed").length,
     });
     return report;
@@ -395,6 +411,108 @@ export function runCycle(opts: SleepOptions): CycleReport {
     });
     return day;
   }
+}
+
+/**
+ * No ceiling worth naming: the WHOLE transition history is the sample. v1's
+ * ratchet ran 279:0 across three days and `SYMMETRY_MIN_SAMPLE` is 20 moves, so
+ * a one-cycle window would answer `never-asked` forever — which is the shape of
+ * failure this tripwire was written to end, not one to reproduce.
+ */
+const TRANSITION_LOG_LIMIT = 1_000_000;
+
+type Emit = (
+  name: string,
+  ref?: string,
+  data?: Record<string, string | number | boolean | null>,
+) => void;
+
+/**
+ * GUARANTEE 12, FED AND CONSUMED — the ratchet tripwire, at cycle end.
+ *
+ * Up-moves and down-moves per kind, summed over the durable `band.transition`
+ * log, handed to `physics.symmetryCheck`, and emitted as a verdict per kind.
+ * Physics owns the arithmetic and the expected ratio; this function owns
+ * nothing but the summation and the announcement.
+ *
+ * TWO THINGS THAT MUST NOT BE SMOOTHED OVER, both scar §2.4:
+ *
+ *   - Below the minimum sample the verdict is `never-asked`, and it carries
+ *     `ok: true`. Anything reading `ok` alone reads a starved counter as
+ *     health. Every event below leads with `reason`.
+ *   - A store with no event log has not asked the question at all, and gets NO
+ *     verdicts plus a loud `sleep.symmetry.unavailable` — six `never-asked`
+ *     rows would claim a counter was consulted when none exists.
+ *
+ * `ratio` is `Infinity` by design when nothing ever moved down (v1's exact
+ * shape) and `JSON.stringify` turns that into `null`, so it is reported only
+ * when finite: a null that means infinity is a lie in the log.
+ */
+export function symmetryVerdicts(store: SleepStore, day: number, emit: Emit): SymmetryCheck[] {
+  const kinds = Object.keys(PHYSICS.KINDS) as Kind[];
+  if (store.eventLog === undefined) {
+    emit("sleep.symmetry.unavailable", undefined, { day, reason: "no-durable-event-log" });
+    return [];
+  }
+
+  const up = new Map<string, number>();
+  const down = new Map<string, number>();
+  let unreadable = 0;
+  for (const row of store.eventLog({
+    name: BAND_TRANSITION_EVENT,
+    limit: TRANSITION_LOG_LIMIT,
+  })) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(row.payload ?? "") as Record<string, unknown>;
+    } catch {
+      unreadable += 1;
+      continue;
+    }
+    const kind = typeof payload["kind"] === "string" ? payload["kind"] : null;
+    const direction = payload["direction"];
+    if (kind === null) {
+      unreadable += 1;
+      continue;
+    }
+    if (direction === "up") up.set(kind, (up.get(kind) ?? 0) + 1);
+    else if (direction === "down") down.set(kind, (down.get(kind) ?? 0) + 1);
+    else unreadable += 1;
+  }
+  if (unreadable > 0) {
+    // A row the counter could not read is a row the counter did not count.
+    emit("sleep.symmetry.unreadable", undefined, { day, rows: unreadable });
+  }
+
+  const out: SymmetryCheck[] = [];
+  for (const kind of kinds) {
+    const verdict = symmetryCheck(kind, {
+      up: up.get(kind) ?? 0,
+      down: down.get(kind) ?? 0,
+    });
+    out.push(verdict);
+    emit("sleep.symmetry", undefined, {
+      day,
+      kind: verdict.kind,
+      reason: verdict.reason,
+      ok: verdict.ok,
+      up: verdict.up,
+      down: verdict.down,
+      ratio: Number.isFinite(verdict.ratio) ? verdict.ratio : null,
+      expectedMax: verdict.expectedMax,
+    });
+    if (!verdict.ok) {
+      emit("sleep.symmetry.tripped", undefined, {
+        day,
+        kind: verdict.kind,
+        reason: verdict.reason,
+        up: verdict.up,
+        down: verdict.down,
+        expectedMax: verdict.expectedMax,
+      });
+    }
+  }
+  return out;
 }
 
 /**

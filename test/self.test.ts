@@ -19,6 +19,10 @@ import { fileURLToPath } from "node:url";
 
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+// The box-2 chase, for the one test that needs a store to have actually been
+// chased. Pinned to `adapters/cli/` inside `src/` by the caller-universality
+// test; a test file is where the destruction path gets exercised, not reached.
+import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
 import { strength } from "../src/core/physics/index.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import {
@@ -404,6 +408,71 @@ describe("identity ordering and enumeration", () => {
     expect(list.protectedOutsideIdentity).toEqual([guardedOnly]);
     expect(list.identity.every((e) => e.promotedIdentity)).toBe(true);
     expect(list.protected.every((e) => e.protected)).toBe(true);
+    // Nothing is missing, and the enumeration says so rather than saying nothing.
+    expect(list.absences).toEqual([]);
+    expect(list.identity.every((e) => e.absent === null)).toBe(true);
+  });
+
+  test("a removed element is a NAMED absence in BOTH halves, never a silent drop", () => {
+    const s = store();
+    const both = identity(s, "Permanent, constitutive, and about to be removed.", {
+      guarded: true,
+    });
+    const survivor = identity(s, "The one that stays.");
+    // Dark, not yet chased: the row is still there, and the CONTENT is refused.
+    s.appendRemovalRecord({ memoryId: both, stage: "dark", actor: "owner", reason: "test" });
+
+    const list = new Self({ store: s }).enumerate(0);
+    // Scar §2.19 from the other side: permanence and inspectability scale
+    // together, so an element that WAS permanent cannot leave the permanent list
+    // quietly. It leaves it loudly, or the list stops being an inventory.
+    expect(list.identity.map((e) => e.id).sort()).toEqual([both, survivor].sort());
+    expect(list.protected.map((e) => e.id)).toEqual([both]);
+    expect(list.protected[0]).toMatchObject({
+      absent: "removed",
+      title: "[removed]",
+      bytes: 0,
+      strength: 0,
+    });
+    expect(list.absences).toEqual([
+      { id: both, where: "identity", why: "removed" },
+      { id: both, where: "protected", why: "removed" },
+    ]);
+    // The words themselves are gone at once: nothing here is baked text.
+    expect(JSON.stringify(list)).not.toContain("Permanent, constitutive");
+  });
+
+  test("an UNREADABLE element is named as unreadable — a different fact from removed", () => {
+    const s = store();
+    const id = identity(s, "An element whose prose will not read.", { guarded: true });
+    rmSync(s.row(id)?.prose_path as string, { force: true });
+
+    const list = new Self({ store: s }).enumerate(0);
+    expect(list.identity.map((e) => e.absent)).toEqual(["unreadable"]);
+    expect(list.protected.map((e) => e.absent)).toEqual(["unreadable"]);
+    expect(list.absences.map((a) => a.why)).toEqual(["unreadable", "unreadable"]);
+    expect(list.identity[0]?.title).toBe("[unreadable]");
+  });
+
+  test("a CHASED element stays in the list as a tombstone, with what it WAS intact", () => {
+    const s = store();
+    const id = identity(s, "Removed and chased, down to the skeleton.", { guarded: true });
+    s.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner", reason: "test" });
+    // The chase strips the ROW's flags — protection is not a property of a
+    // removed memory — so the enumeration has to learn what it was from the
+    // store's tombstone rather than from the row. (The destruction path is
+    // imported here for the same reason `test/cli.test.ts` imports the CLI's
+    // half: a test that exercises removal has to be able to remove.)
+    chaseRemoved(s, id);
+    expect(s.row(id)?.protected).toBe(0);
+    expect(s.list({ archived: false })).toEqual([]);
+
+    const list = new Self({ store: s }).enumerate(0);
+    expect(list.protected.map((e) => e.id)).toEqual([id]);
+    expect(list.identity.map((e) => e.id)).toEqual([id]);
+    expect(list.both).toEqual([id]);
+    expect(list.protected[0]).toMatchObject({ absent: "removed", kind: "self", bytes: 0 });
+    expect(JSON.stringify(list)).not.toContain("down to the skeleton");
   });
 
   test("enumeration is a PURE read: it writes nothing and logs nothing", () => {

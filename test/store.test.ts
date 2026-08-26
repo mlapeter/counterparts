@@ -18,6 +18,7 @@ import {
   DATA_DIR_ENV,
   DEFAULT_RETENTION_DAYS,
   LAYOUT,
+  SCHEMA_VERSION,
   StoreError,
   Store,
   WRITE_METHODS,
@@ -166,8 +167,18 @@ describe("no deletion surface (contract §5 G2, §16 G1)", () => {
       .map((w) => w.toLowerCase())
       .filter(Boolean);
 
+  /**
+   * The ONE file allowed to name destruction — the owner-op seam, which is the
+   * structurally distinct owner path the contract sends removal down (§16 G1).
+   * Before 2026-08-25 it exported nothing at all and the ban was total; the
+   * box-2 chase had to live SOMEWHERE, and "somewhere" is a single file whose
+   * exports are pinned by name below and whose importers are pinned by the
+   * caller-universality test in `test/cli.test.ts`.
+   */
+  const SEAM = "owner-op-seam.ts";
+
   test("no export name in the module is a deletion verb", async () => {
-    const files = readdirSync(STORE_SRC).filter((f) => f.endsWith(".ts"));
+    const files = readdirSync(STORE_SRC).filter((f) => f.endsWith(".ts") && f !== SEAM);
     expect(files.length).toBeGreaterThan(5);
     const seen: string[] = [];
     for (const file of files) {
@@ -213,12 +224,39 @@ describe("no deletion surface (contract §5 G2, §16 G1)", () => {
     }
   });
 
-  test("the owner-removal seam is declared as types only — it exports no function", async () => {
-    const mod = (await import(
-      pathToFileURL(join(STORE_SRC, "owner-op-seam.ts")).href
-    )) as Record<string, unknown>;
-    const runtimeExports = Object.keys(mod).filter((k) => k !== "default");
-    expect(runtimeExports).toEqual([]);
+  test("the owner-removal seam exports EXACTLY the destruction path, and nothing else does", async () => {
+    const mod = (await import(pathToFileURL(join(STORE_SRC, SEAM)).href)) as Record<
+      string,
+      unknown
+    >;
+    // Pinned by name, so a fourth export cannot appear here quietly. `grantOwnerOps`
+    // is the capability handed over by Store's constructor; `chaseRemoved` is the
+    // box-2 chase; `REMOVED_REASON` is the word a neutralized row carries.
+    expect(Object.keys(mod).filter((k) => k !== "default").sort()).toEqual([
+      "REMOVED_REASON",
+      "chaseRemoved",
+      "grantOwnerOps",
+    ]);
+    expect(typeof mod["chaseRemoved"]).toBe("function");
+  });
+
+  test("the chase is not reachable from the store's own surface", async () => {
+    // The seam is where you go to destroy something; `store/index.ts` is not,
+    // and re-exporting the chase from it would make every existing importer of
+    // the store a caller of the destruction path (§16 G1–G2).
+    const index = (await import(pathToFileURL(join(STORE_SRC, "index.ts")).href)) as Record<
+      string,
+      unknown
+    >;
+    for (const name of Object.keys(index)) {
+      for (const w of words(name)) {
+        expect({ name, offending: FORBIDDEN_WORDS.has(w) }).toEqual({ name, offending: false });
+      }
+    }
+    expect(index["chaseRemoved"]).toBeUndefined();
+    expect(readFileSync(join(STORE_SRC, "index.ts"), "utf8")).not.toContain(
+      "export { chaseRemoved",
+    );
   });
 });
 
@@ -645,6 +683,121 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
     // …and it carries no body and no content hash (§16 G9).
     const columns = Object.keys(s.removalRecord(id)[0] ?? {});
     expect(columns).toEqual(["seq", "memory_id", "stage", "at", "actor", "reason"]);
+  });
+});
+
+// ── the deny-list, consulted at the seam ─────────────────────────────────────
+
+describe("a removed id refuses BY NAME on every read path (§16 G12)", () => {
+  /** Dark, then chased: the state a real removal leaves behind. */
+  function removed(s: Store, id: string): void {
+    s.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner", reason: "test" });
+  }
+
+  test("read, readProse, physicsOf and readVersion all name the refusal — never ENOENT", () => {
+    const s = store();
+    const id = s.put(mem("the doomed one"));
+    s.revise(id, { body: "the doomed one, revised" });
+    removed(s, id);
+    for (const call of [
+      () => s.read(id),
+      () => s.readProse(id),
+      () => s.physicsOf(id),
+      () => s.readVersion(id, 1),
+    ]) {
+      expect(code(call)).toBe("REMOVED");
+    }
+    // The reason travels with the code: ids and actors, never body text (§5 G10).
+    try {
+      s.read(id);
+    } catch (err) {
+      expect((err as StoreError).detail).toEqual({ id, by: "owner" });
+    }
+  });
+
+  test("an id that never existed is still ID_UNKNOWN — removal is a different absence", () => {
+    const s = store();
+    expect(code(() => s.read("mem_ffffffffffff"))).toBe("ID_UNKNOWN");
+  });
+
+  test("resolve STOPS at a removed id: a lineage pointer lands on it, never past it", () => {
+    const s = store();
+    const first = s.put(mem("the first belief"));
+    const second = s.supersede(first, mem("what it became"));
+    removed(s, second);
+    // The predecessor's forwarding address still leads somewhere nameable …
+    expect(s.resolve(first)).toBe(second);
+    // … and what is there refuses by name, which is what makes a renderer print
+    // "[removed by the owner]" rather than "a forwarding address with nothing
+    // at the end". Dangling and removed are different facts.
+    expect(code(() => s.readProse(s.resolve(first)))).toBe("REMOVED");
+    expect(s.resolve(second)).toBe(second);
+  });
+
+  test("a removed id can never be reborn at the same address", () => {
+    const s = store();
+    const id = s.put(mem("gone"));
+    removed(s, id);
+    expect(code(() => s.put(mem("a stray copy restored from a backup", { id })))).toBe("ID_TAKEN");
+  });
+
+  test("a stray row is skipped and LOGGED at rebuild, never deleted (§16 G12)", () => {
+    const s = store({ embed: fakeEmbed });
+    const id = s.put(mem("the doomed one"));
+    s.put(mem("a survivor"));
+    removed(s, id);
+    const report = s.rebuildCache();
+    expect(report).toMatchObject({ indexed: 1, skippedDenied: 1 });
+    expect(s.events("cache.rebuild.denied").map((e) => e.ref)).toEqual([id]);
+    // The row is still THERE — the store deleted nothing; it refused to index it.
+    expect(s.row(id)).toBeDefined();
+  });
+});
+
+// ── opening writes nothing when there is nothing to write ────────────────────
+
+describe("an instrument does not write at open (live-verify 2026-08-25)", () => {
+  test("an observer open of a current store leaves the database byte-identical", () => {
+    const writer = store();
+    writer.put(mem("something to hold"));
+    writer.advanceClock("2026-08-25");
+    writer.close();
+    open.length = 0;
+    const before = readFileSync(paths.operational(dir));
+
+    const instrument = store({ observer: true });
+    expect(instrument.list().length).toBe(1);
+    expect(instrument.livedDay()).toBe(1);
+    instrument.close();
+    open.length = 0;
+
+    // The bug this pins: the constructor used to run the DDL and four meta
+    // upserts on EVERY open, which takes SQLite's write lock — so an instrument
+    // could be refused, or refuse someone else, purely by opening. A live
+    // `counterparts backup` threw "database is locked" that way.
+    expect(readFileSync(paths.operational(dir))).toEqual(before);
+  });
+
+  test("a writer opening a current store does not rewrite it either", () => {
+    const first = store();
+    first.put(mem("already here"));
+    first.close();
+    open.length = 0;
+    const before = readFileSync(paths.operational(dir));
+    store().close();
+    open.length = 0;
+    expect(readFileSync(paths.operational(dir))).toEqual(before);
+  });
+
+  test("a store a schema BEHIND refuses under observer rather than migrating itself", () => {
+    const writer = store();
+    writer.setMeta("schemaVersion", "1");
+    writer.close();
+    open.length = 0;
+    expect(code(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
+    // A writer may still migrate it — and does, in one transaction, at open.
+    const migrated = store();
+    expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 });
 

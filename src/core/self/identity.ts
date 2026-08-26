@@ -178,6 +178,26 @@ export function rankLanes(
 
 // ── enumeration (constitution 16, scar §2.19) ───────────────────────────────
 
+/**
+ * Why an element is listed but cannot be shown.
+ *
+ * `removed` is the owner's erasure answering: the deny-list refuses the id by
+ * name, and the tombstone says it WAS permanent. `unreadable` is everything
+ * else — a row whose prose will not parse or has gone missing.
+ *
+ * The distinction is the whole point: an enumeration that silently dropped both
+ * would make "everything permanent is enumerable" a claim about the elements
+ * that happen to still work (scar §2.19), and a removed protected element would
+ * leave the permanent list without leaving a trace.
+ */
+export type EnumeratedAbsence = "removed" | "unreadable";
+
+/** The words an absent element carries where a title would go. */
+export const ABSENT_TITLE: Record<EnumeratedAbsence, string> = {
+  removed: "[removed]",
+  unreadable: "[unreadable]",
+};
+
 export interface EnumeratedElement {
   readonly id: string;
   readonly kind: Kind;
@@ -187,6 +207,8 @@ export interface EnumeratedElement {
   readonly promotedIdentity: boolean;
   readonly title: string | null;
   readonly bytes: number;
+  /** Null when the element is present and readable. Otherwise names WHY not. */
+  readonly absent: EnumeratedAbsence | null;
 }
 
 /**
@@ -210,6 +232,8 @@ export interface Enumeration {
   readonly both: string[];
   /** Protected elements that are NOT identity band: permanence without the band. */
   readonly protectedOutsideIdentity: string[];
+  /** Ids in either half that could not be shown, with the reason. Never silent. */
+  readonly absences: { id: string; where: "identity" | "protected"; why: EnumeratedAbsence }[];
 }
 
 const encoder = new TextEncoder();
@@ -238,27 +262,98 @@ function enumerateOne(store: Store, id: string, day: number): EnumeratedElement 
     promotedIdentity: physics.promotedIdentity,
     title: doc.title ?? null,
     bytes: byteLength(doc.body),
+    absent: null,
+  };
+}
+
+/**
+ * The entry an element gets when it is on a list it cannot be read from. It
+ * keeps its address, its family and its flags, and carries no strength and no
+ * bytes: it weighs nothing, because there is nothing left of it to weigh.
+ */
+function absentElement(
+  id: string,
+  why: EnumeratedAbsence,
+  was: { kind: Kind; band: Band; protected: boolean; promotedIdentity: boolean },
+): EnumeratedElement {
+  return {
+    id,
+    kind: was.kind,
+    band: was.band,
+    strength: 0,
+    protected: was.protected,
+    promotedIdentity: was.promotedIdentity,
+    title: ABSENT_TITLE[why],
+    bytes: 0,
+    absent: why,
   };
 }
 
 export function enumerate(store: Store, day: number): Enumeration {
   const identity: EnumeratedElement[] = [];
   const guarded: EnumeratedElement[] = [];
+  const absences: Enumeration["absences"] = [];
+  const denied = new Set(store.deniedIds());
+
+  const absentFromRow = (id: string, where: "identity" | "protected"): EnumeratedElement => {
+    // The row is still there; the CONTENT is not. A denied id says so by name —
+    // that is the deny-list answering before the prose does — and anything else
+    // is honestly "unreadable", which is a different problem with a different fix.
+    const why: EnumeratedAbsence = denied.has(id) ? "removed" : "unreadable";
+    const row = store.row(id);
+    absences.push({ id, where, why });
+    return absentElement(id, why, {
+      kind: (row?.kind ?? "fact") as Kind,
+      band: (row?.band ?? "episodic") as Band,
+      protected: row?.protected === 1,
+      promotedIdentity: row?.promoted_identity === 1,
+    });
+  };
 
   for (const id of store.list({ band: "identity", archived: false })) {
     const e = enumerateOne(store, id, day);
-    if (e !== null) identity.push(e);
+    identity.push(e ?? absentFromRow(id, "identity"));
   }
   // Protection is a physics flag, not a band: an element can be permanent
   // without ever having been promoted, which is exactly the case the pair makes
   // visible. There is no `protected` filter on `list()` (INTERFACE-GAPS #2).
   for (const id of store.list({ archived: false })) {
     const e = enumerateOne(store, id, day);
-    if (e !== null && e.protected) guarded.push(e);
+    if (e === null) {
+      // An unreadable row cannot be asked whether it was protected, so the
+      // permanent half has to ask the store instead of the row. A dark-but-not-
+      // yet-chased row still carries its flag; a chased one carries a tombstone.
+      const row = store.row(id);
+      if (row?.protected === 1) guarded.push(absentFromRow(id, "protected"));
+      continue;
+    }
+    if (e.protected) guarded.push(e);
+  }
+
+  // The chased half: rows the owner removed keep a tombstone saying what they
+  // WERE, so permanence and inspectability scale together even here (§2.19).
+  // Their skeleton row carries no flags any more — the tombstone is the record.
+  const listed = new Set([...identity, ...guarded].map((e) => e.id));
+  for (const gone of store.tombstones()) {
+    const was = {
+      kind: gone.kind,
+      band: gone.band,
+      protected: gone.wasProtected,
+      promotedIdentity: gone.wasPromotedIdentity,
+    };
+    if ((gone.wasPromotedIdentity || gone.band === "identity") && !listed.has(gone.id)) {
+      identity.push(absentElement(gone.id, "removed", was));
+      absences.push({ id: gone.id, where: "identity", why: "removed" });
+    }
+    if (gone.wasProtected && !guarded.some((e) => e.id === gone.id)) {
+      guarded.push(absentElement(gone.id, "removed", was));
+      absences.push({ id: gone.id, where: "protected", why: "removed" });
+    }
   }
 
   identity.sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1));
   guarded.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  absences.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.where < b.where ? -1 : 1));
 
   const identityIds = new Set(identity.map((e) => e.id));
   return {
@@ -267,6 +362,7 @@ export function enumerate(store: Store, day: number): Enumeration {
     protected: guarded,
     both: guarded.filter((e) => identityIds.has(e.id)).map((e) => e.id),
     protectedOutsideIdentity: guarded.filter((e) => !identityIds.has(e.id)).map((e) => e.id),
+    absences,
   };
 }
 

@@ -30,6 +30,11 @@
  *      (§16 G12).
  *   5. **Chase**, then `chased`, then `complete`. Whatever could not be chased
  *      is REPORTED, never silently dropped (§16 G15: no silent partial success).
+ *      Box 1 (the prose file and every archived version file) is chased here;
+ *      box 2 (the row, its edges, its prospective windows, the gate rows that
+ *      name it, and every content pointer it had) by `chaseRemoved` on the
+ *      store's owner-op seam, which appends the `chased` stage inside its own
+ *      transaction; box 3 by a rebuild that skips and logs the denied id.
  *
  * The record carries no body and no content hash (§16 G9, scar §2.20): a hash of
  * low-entropy content is brute-forceable, which would make the record of a
@@ -38,11 +43,17 @@
 import { existsSync, rmSync } from "node:fs";
 
 import { paths } from "../../core/store/index.js";
-import type { RemovalNote, Store } from "../../core/store/index.js";
-// The seam's OUTCOME type is not re-exported by `store/index.ts` (only the port
-// and the request are), so it is imported from the seam file itself. Filed in
-// INTERFACE-GAPS.md §2 — the seam should travel as one unit.
-import type { OwnerRemovalOutcome, OwnerRemovalRequest } from "../../core/store/owner-op-seam.js";
+import type {
+  OwnerRemovalOutcome,
+  OwnerRemovalRequest,
+  RemovalNote,
+  Store,
+} from "../../core/store/index.js";
+// The one VALUE imported from the seam, and the reason the caller-universality
+// test pins this file AND that one: `chaseRemoved` is the box-2 half of the
+// destruction path. It is reachable by importing the seam on purpose, never by
+// holding a `Store` (INTERFACE-GAPS §1, closed 2026-08-25).
+import { chaseRemoved } from "../../core/store/owner-op-seam.js";
 
 export interface RemovalPlan {
   readonly targetId: string;
@@ -116,12 +127,14 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
       { surface: "versions", count: versions.length },
       { surface: "edges", count: edges.length },
       { surface: "prospective", count: prospective.length },
+      { surface: "operational rows", count: 1 },
       { surface: "cache", count: 1 },
     ],
-    // Named, not implied: `store/` has no chase surface for box-2 rows, so the
-    // row, its edges and its prospective windows survive as DARK state that
-    // every consumer skips via the deny-list. See INTERFACE-GAPS.md §1.
-    unchasable: ["operational.memories", "operational.edges", "operational.prospective"],
+    // Empty since 2026-08-25: the box-2 chase landed (INTERFACE-GAPS §1). The
+    // field STAYS, because "no silent partial success" (§16 G15) means the plan
+    // must always have a place to name what it cannot reach — and a chase that
+    // half-works still fills it at run time.
+    unchasable: [],
   };
 }
 
@@ -199,6 +212,22 @@ export function ownerRemoval(
     /* an empty directory left behind is not a leak */
   }
 
+  // Box 2, and the `chased` stage with it: the seam appends the record INSIDE
+  // its own transaction, so the rows and the record land together or not at all.
+  // What survives is named in the report, never implied (§16 G15).
+  try {
+    const report = chaseRemoved(store, request.targetId);
+    for (const surface of report.removed) chased.push(`${surface.surface}(${surface.count})`);
+    for (const surface of report.neutralized) {
+      chased.push(`${surface.surface}(${surface.count}, tombstoned)`);
+    }
+    notes.push({ memoryId: request.targetId, stage: "chased", actor: request.actor });
+    emit("cli.removal.stage", { stage: "chased", target: request.targetId });
+  } catch {
+    unchased.push("operational rows");
+    append("chased");
+  }
+
   // Box 3: the rebuild skips every denied id and LOGS the skip, so the cache
   // comes back without the memory and with a record that it was left out.
   try {
@@ -208,7 +237,6 @@ export function ownerRemoval(
     unchased.push("cache");
   }
 
-  append("chased");
   append("complete");
   emit("cli.removal.complete", {
     target: request.targetId,
@@ -228,13 +256,22 @@ export function ownerRemoval(
 export function verifyRemoval(store: Store, targetId: string): {
   denied: boolean;
   proseGone: boolean;
+  /** True while a row exists at all — after the chase it is a stripped skeleton. */
   rowSurvives: boolean;
+  /** True when that row has been stripped of every content pointer. */
+  rowTombstoned: boolean;
+  /** Box-2 state that should be gone: edges, prospective windows, gate rows. */
+  darkState: number;
 } {
   const row = store.row(targetId);
-  const prosePath = row?.prose_path ?? null;
+  const prosePath = row === undefined || row.prose_path === "" ? null : row.prose_path;
+  const tombstone = store.tombstones().find((e) => e.id === targetId);
   return {
     denied: store.deniedIds().includes(targetId),
     proseGone: prosePath === null || !existsSync(prosePath),
     rowSurvives: row !== undefined,
+    rowTombstoned: tombstone !== undefined && row?.content_hash === "" && row?.prose_path === "",
+    darkState:
+      store.edgesFrom(targetId).length + store.prospectiveFor(targetId).length,
   };
 }

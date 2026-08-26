@@ -142,7 +142,7 @@ export function renderReport(input: RenderInput): string {
   // FORMAT DRIFT, PRINTED. First contact with the real corpus shows up here as
   // a number instead of a stack trace (see NOTES §1).
   out.push(
-    `format drift: malformed spans ${c.malformedSpans} · unrecognized span files ${c.unrecognizedSpanFiles} · assumed kind ${c.assumedKind} · malformed event lines ${c.malformedEventLines}`,
+    `format drift: malformed spans ${c.malformedSpans} · unrecognized span files ${c.unrecognizedSpanFiles} · assumed kind ${c.assumedKind} · assumed shape ${c.assumedShape} · malformed event lines ${c.malformedEventLines}`,
   );
   out.push("");
 
@@ -161,6 +161,32 @@ export function renderReport(input: RenderInput): string {
   const bands = Object.entries(observation.store.byBand).sort();
   out.push(`by kind: ${kinds.map(([k, n]) => `${k}=${n}`).join(", ") || "none"}`);
   out.push(`by band: ${bands.map(([k, n]) => `${k}=${n}`).join(", ") || "none"}`);
+  // THE GATE'S OWN RECORD, and the ratchet tripwire's standing. Both are read
+  // back out of the replayed store, so this line says what a parallel run's
+  // store would say — which is the only form that evidence ever takes.
+  const shown = observation.gateRecords.reduce((n, g) => n + g.shown, 0);
+  const fires = observation.gateRecords.reduce(
+    (n, g) => n + Object.values(g.fires).reduce((a, b) => a + b, 0),
+    0,
+  );
+  out.push(
+    `gate records ${observation.gateRecords.length} · gate fires ${fires} · schemas shown ${shown} · blind ${observation.gateRecords.filter((g) => g.blind).length}`,
+  );
+  const up = observation.bandTransitions.filter((t) => t.direction === "up").length;
+  const down = observation.bandTransitions.filter((t) => t.direction === "down").length;
+  // Grouped by REASON, never by `ok`: below the minimum sample a verdict is
+  // `never-asked` and carries `ok: true`, and printing that as health is the
+  // exact failure guarantee 12 exists to prevent (scar §2.4).
+  const byReason = new Map<string, number>();
+  for (const v of observation.symmetry) byReason.set(v.reason, (byReason.get(v.reason) ?? 0) + 1);
+  const verdicts =
+    observation.symmetry.length === 0
+      ? "no verdict rendered"
+      : [...byReason.entries()]
+          .sort()
+          .map(([r, n]) => `${r}=${n}`)
+          .join(", ");
+  out.push(`band moves: up ${up} · down ${down} · symmetry verdicts: ${verdicts}`);
   out.push("");
 
   out.push("METRICS vs docs/harvest/replay-baselines.md");

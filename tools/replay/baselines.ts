@@ -98,12 +98,26 @@ export const METRICS: readonly MetricSpec[] = [
   {
     id: "gate.refusalMix",
     section: "1.1",
-    label: "Refusals by gate (secrets / alias / precision)",
+    label: "The secrets gate's share of all gate fires (secrets / alias / precision)",
     v1: "secrets 485, alias 222, precision 30 — secrets is 66% of all fires",
     unit: "rate",
     grading: {
-      kind: "not-computable",
-      why: "The chunk gate's per-gate reasons are not relayed. `encodeChunk` returns them on `EncodeResult.events`/`RefusedProposal.blockedBy`, and `Counterpart.applySweep` emits only counts (accepted/refused/fullyGated/blind). INTERFACE-GAPS §1.",
+      kind: "range",
+      range: { lo: 0, hi: 0.9 },
+      note: "WIDE, and the reason is beside it: v1's secrets fires rode on the EPISODE surface — 483 of 737 fires were on episode text — which a raw-span replay does not exercise at all (see `gate.episodeSurfaceShare`). A low secrets share here is a corpus fact before it is a regression, and a zero is legitimate: a corpus with no credential shapes in it fires no secrets gate. What the metric really grades is that the mix EXISTS — the per-gate distribution is recoverable from a replayed store, which it was not before `gate.chunk`.",
+    },
+    compute: (o) => {
+      // The battery's OWN count of an acting gate: it writes one `gate.<name>`
+      // event per gate that fired or rejected, and the record relays those.
+      let secrets = 0;
+      let total = 0;
+      for (const g of o.gateRecords) {
+        for (const [gate, n] of Object.entries(g.fires)) {
+          total += n;
+          if (gate === "secrets") secrets += n;
+        }
+      }
+      return rate(secrets, total);
     },
   },
   {
@@ -255,19 +269,27 @@ export const METRICS: readonly MetricSpec[] = [
     v1: "1.95 over instrumented events",
     unit: "mean",
     grading: {
-      kind: "not-computable",
-      why: "`counterpart.sweep.chunk` relays `preselection.blind` but not `preselection.shown.length`. The count exists on `EncodeResult` and is dropped at the composition root. INTERFACE-GAPS §1.",
+      kind: "range",
+      range: { lo: 0.5, hi: 4 },
+      note: "v1-anchored, and EXPECTED TO FAIL AT ZERO until `applySweep` hands the chunk gate a schema slice — it passes none today, so preselection has nothing to select from and every chunk reads blind (INTERFACE-GAPS §1a). That failure is the point: the number is now computable, so the gap shows up as a red line in the scorecard instead of as an absence nobody has to answer for.",
     },
+    compute: (o) => mean(sum(o.gateRecords, (g) => g.shown), o.gateRecords.length),
   },
   {
     id: "preselect.channelMix",
     section: "1.3",
-    label: "Preselection channel attribution (lexical / semantic / both)",
-    v1: "`both` ×16, `semantic` ×10 — one day of data (2026-08-25), flagged as a field to carry from day one",
+    label: "Share of shown schemas the SEMANTIC channel alone reached",
+    v1: "`both` ×16, `semantic` ×10 — one day of data (2026-08-25), flagged as a field to carry from day one; semantic-only is 10/26 = 38.5%",
     unit: "rate",
     grading: {
-      kind: "not-computable",
-      why: "No per-channel attribution is relayed by v2's composition root either. Carrying it from day one is the harvest's own recommendation; until then the semantic channel's share cannot be compared. INTERFACE-GAPS §1.",
+      kind: "range",
+      range: { lo: 0.1, hi: 0.8 },
+      note: "The question §8 G4 exists to answer — did the channel that only ever ADDS actually add anything? — so the numerator is the semantic-ONLY count, not the overlap. The denominator is shown schemas on chunks where the semantic channel RAN: with no vectors wired (INTERFACE-GAPS §4) it is `skipped` everywhere, and a zero under `skipped` means never-asked, not 'semantic adds nothing' (scar §2.4). Never-asked lands as `no-denominator`.",
+    },
+    compute: (o) => {
+      const ran = o.gateRecords.filter((g) => g.semanticState === "ran");
+      const shown = sum(ran, (g) => g.shownLexicalOnly + g.shownSemanticOnly + g.shownBoth);
+      return rate(sum(ran, (g) => g.shownSemanticOnly), shown);
     },
   },
 
@@ -331,25 +353,51 @@ export const METRICS: readonly MetricSpec[] = [
   {
     id: "band.promotionsPerActiveDay",
     section: "1.5",
-    label: "Band promotions per active day",
+    label: "Band promotions per active day (UP-moves, counted by direction)",
     v1: "episodic→semantic 34 + consolidating→semantic 21 over 9 days ≈ 6.1/day",
     unit: "per-day",
     grading: {
       kind: "range",
       range: { lo: 0, hi: 15 },
-      note: "v1's crossings only started firing 2026-08-15, after the belief migration unblocked them — a 9-day denominator, not 26.",
+      note: "v1's crossings only started firing 2026-08-15, after the belief migration unblocked them — a 9-day denominator, not 26. The numerator is every UP-move, not only the identity crossing: v1's 6.1/day were episodic→semantic band moves, which in v2 happen in the decay materialization, not in the promotion pass.",
     },
-    compute: (o) => mean(sum(o.cycles, (c) => c.promoted), o.activeDays),
+    compute: (o) => mean(sum(o.cycles, (c) => c.bandUp), o.activeDays),
   },
   {
     id: "band.demotionsPerActiveDay",
     section: "1.5",
-    label: "Band demotions per active day",
+    label: "Band demotions per active day (DOWN-moves, counted by direction)",
     v1: "semantic→episodic 268 of 345 crossings (decay demotions dominate at 84%)",
     unit: "per-day",
     grading: {
-      kind: "not-computable",
-      why: "The decay phase materializes bands into the ranking cache and reports rows CHANGED, not transitions by direction. Counting moves per direction is also what feeds physics' symmetry counter (guarantee 12, scar §2.10 — v1's ratchet read 279:0). INTERFACE-GAPS §2.",
+      kind: "range",
+      range: { lo: 0, hi: 40 },
+      note: "The band this pairs with is `band.promotionsPerActiveDay`, and the pair IS physics' symmetry counter (guarantee 12, scar §2.10 — v1's ratchet read 279:0 for three days and nothing fired). The ceiling is generous for the same reason `decay.rowsPerTick` is not-comparable at all: v1's 29.8 demotions a day rode on 13.5K accumulated rows, and a replay store holds ~30 days. A ZERO here beside a nonzero promotion count is the interesting reading, not a clean one.",
+    },
+    compute: (o) => mean(sum(o.cycles, (c) => c.bandDown), o.activeDays),
+  },
+  {
+    id: "band.symmetryAsked",
+    section: "1.5",
+    label: "The ratchet tripwire renders a verdict, and no verdict reads healthy on a starved sample",
+    v1: "no v1 counterpart: v1 had NO symmetry counter, which is why 279 up-moves against zero down-moves ran for three days unnoticed (scar §2.10)",
+    unit: "flag",
+    grading: {
+      kind: "range",
+      range: { lo: 1, hi: 1 },
+      note: "Not a distributional comparison — a wiring check, and the one this section was missing. Passes when every cycle rendered a verdict per kind AND every verdict below the minimum sample says `never-asked` rather than `within-expectation`. `never-asked` carries `ok: true`, so a consumer reading `ok` alone reads a starved counter as health; this asserts the REASON is what travels.",
+    },
+    compute: (o) => {
+      if (o.symmetry.length === 0) return null;
+      const honest = o.symmetry.every(
+        (v) => v.reason !== "within-expectation" || v.up + v.down > 0,
+      );
+      const tripped = o.symmetry.filter((v) => !v.ok).length;
+      return {
+        value: honest ? 1 : 0,
+        numerator: o.symmetry.length - tripped,
+        denominator: o.symmetry.length,
+      };
     },
   },
   {
