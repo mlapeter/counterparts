@@ -54,10 +54,25 @@ const TABLES = ["doc_tokens", "embeddings", "cache_meta", "ranking"] as const;
 
 export function openCache(path: string): Db {
   const db = openDb(path);
-  db.transaction(() => {
-    for (const sql of DDL) db.exec(sql);
-    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION));
-  });
+  // Idempotent open: write the version row only when it differs. An observer
+  // constructing a Store over an up-to-date cache must not churn a byte — the
+  // dashboard build measured exactly that churn and filed it (its gap §1).
+  // A fresh or outdated cache still initializes (box 3 is rebuildable, and an
+  // absent cache is not canonical state), but the steady state is read-only.
+  const existing = (() => {
+    try {
+      const row = db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'");
+      return row?.value ?? null;
+    } catch {
+      return null; // table absent: fresh cache
+    }
+  })();
+  if (existing !== String(CACHE_SCHEMA_VERSION)) {
+    db.transaction(() => {
+      for (const sql of DDL) db.exec(sql);
+      db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION));
+    });
+  }
   return db;
 }
 

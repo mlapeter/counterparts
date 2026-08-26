@@ -1,0 +1,95 @@
+/**
+ * The axes the totality test enumerates (CONTRACT §3 / §5 [M]).
+ *
+ * The rule this file exists to keep: **a new axis in the core must break
+ * something here, at compile time, before it can go missing on screen.** v1's
+ * curation starvation hid inside a panel nobody rendered, and a hand-copied list
+ * of kinds in a dashboard would reproduce that exactly — it would keep rendering
+ * five kinds forever after a sixth was born.
+ *
+ * So none of these three lists is a copy:
+ *
+ *   - `KINDS` is `Object.keys(PHYSICS.TUNABLES.KINDS)`. That object is declared
+ *     `satisfies Record<Kind, KindPhysics>` in `physics/`, so it IS the registry;
+ *     reading its keys cannot go stale.
+ *   - `BANDS` has no runtime registry in the core (`Band` is a bare union), so
+ *     the order map below is declared `satisfies Record<Band, number>`. A band
+ *     added to `core/types.ts` fails `tsc` HERE until it is given a position, and
+ *     a band removed fails too. `INTERFACE-GAPS.md` §1 asks the core for the
+ *     array so this workaround can be deleted.
+ *   - `PHASES` is `sleep/`'s own exported tuple, imported, never restated.
+ */
+import { TUNABLES as PHYSICS } from "../../core/physics/index.js";
+import type { PromotionCrossing, PruneRecord } from "../../core/physics/index.js";
+import { PHASES } from "../../core/sleep/index.js";
+import type { MergeRecord, Phase } from "../../core/sleep/index.js";
+import type { PressureIncrement } from "../../core/schemas/index.js";
+import type { Band, Kind } from "../../core/types.js";
+
+/** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
+const BAND_ORDER = {
+  episodic: 0,
+  semantic: 1,
+  identity: 2,
+} as const satisfies Record<Band, number>;
+
+export const BANDS: readonly Band[] = (Object.keys(BAND_ORDER) as Band[]).sort(
+  (a, b) => BAND_ORDER[a] - BAND_ORDER[b],
+);
+
+/** Every kind physics knows how to move. Derived from the physics registry. */
+export const KINDS: readonly Kind[] = Object.keys(PHYSICS.KINDS) as Kind[];
+
+/** Every phase the cycle runs, in the cycle's own order. */
+export const CYCLE_PHASES: readonly Phase[] = PHASES;
+
+/**
+ * Every event name that reaches box 2's `events` table — the DURABLE log, the
+ * one that survives the process. Four writers append to it today: `sleep/`'s
+ * consolidate, prune and dedup phases, and `schemas/`'s credited challenge.
+ *
+ * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
+ * declares its `event` as a string literal; the `satisfies` below is keyed on
+ * the union of those four literals, so a fifth durable record type — or a
+ * renamed literal — fails `tsc` here rather than quietly never appearing in the
+ * feed. That is the totality test applied to the log itself: "consolidation has
+ * promoted nothing, ever" must be a line the owner can read, not an empty space
+ * (scar §2.17, §2.4).
+ */
+export type DurableEventName =
+  | PromotionCrossing["event"]
+  | PruneRecord["event"]
+  | MergeRecord["event"]
+  | PressureIncrement["event"];
+
+export const DURABLE_EVENTS = {
+  "band.promoted": "a memory crossed into the identity band",
+  "memory.pruned": "a memory was let go at the floor",
+  "memory.merged": "a duplicate was merged into its original",
+  "revision.pressure": "a belief took a credited challenge",
+} as const satisfies Record<DurableEventName, string>;
+
+export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(
+  DURABLE_EVENTS,
+) as DurableEventName[];
+
+/**
+ * What one axis reports. `absent` is a fact about the axis, not a formatting
+ * hint: the renderer prints the absence marker when it is true, and the test
+ * asserts the pairing (a nonzero axis marked absent is a bug either way).
+ */
+export interface AxisCount {
+  readonly axis: string;
+  readonly count: number;
+  readonly absent: boolean;
+}
+
+export function countBy<T extends string>(
+  registry: readonly T[],
+  counts: ReadonlyMap<T, number>,
+): AxisCount[] {
+  return registry.map((axis) => {
+    const count = counts.get(axis) ?? 0;
+    return { axis, count, absent: count === 0 };
+  });
+}
