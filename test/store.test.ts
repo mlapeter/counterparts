@@ -800,6 +800,74 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
+  test("a v3 store gains the v4 source columns at open — old rows read UNRECORDED, never a fabricated default", async () => {
+    const writer = store();
+    const id = writer.put(mem("born before provenance existed"));
+    writer.close();
+    open.length = 0;
+
+    // Regress the file to v3: drop the v4 columns, stamp the old version —
+    // a REAL older schema, not a simulated flag.
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(paths.operational(dir));
+    for (const col of ["source", "origin_session", "origin_scope", "origin_ref"]) {
+      db.exec(`ALTER TABLE memories DROP COLUMN ${col}`);
+    }
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '3')");
+    db.close();
+
+    // A writer migrates at open, in one transaction; the old row's provenance
+    // is NULL — unrecorded by name — because a default would fabricate it.
+    const migrated = store();
+    expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    expect(migrated.row(id)?.source).toBeNull();
+    const recorded = migrated.put({
+      type: "memory",
+      kind: "fact",
+      body: "born after the doctrine, with its provenance recorded",
+      source: "authored",
+      origin: { session: "s9", scope: "proj", ref: "prop_x" },
+    });
+    expect({
+      source: migrated.row(recorded)?.source,
+      ref: migrated.row(recorded)?.origin_ref,
+    }).toEqual({ source: "authored", ref: "prop_x" });
+    migrated.close();
+    open.length = 0;
+
+    // The migrated schema and a fresh one MUST be identical, column for column.
+    const freshDir = join(dir, "fresh");
+    Store.open({ dir: freshDir }).close();
+    const info = (path: string): string[] => {
+      const d = new Database(path, { readonly: true });
+      const rows = d
+        .prepare("PRAGMA table_info(memories)")
+        .all() as { name: string; type: string; notnull: number; dflt_value: unknown }[];
+      // Indexes too (PR-2 review nit): a future ADDED_COLUMNS entry carrying an
+      // index would otherwise diverge under a green test.
+      const indexes = d.prepare("PRAGMA index_list(memories)").all() as { name: string }[];
+      d.close();
+      return [
+        ...rows.map((r) => `${r.name} ${r.type} ${r.notnull} ${String(r.dflt_value)}`),
+        ...indexes.map((i) => `index ${i.name}`),
+      ].sort();
+    };
+    expect(info(paths.operational(dir))).toEqual(info(paths.operational(freshDir)));
+  });
+
+  test("a store from a NEWER build is refused, never stamped backwards (SCHEMA_AHEAD)", async () => {
+    store().close();
+    open.length = 0;
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(paths.operational(dir));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '99')");
+    db.close();
+    // v4 is the first version doing column surgery: "migrating" a future file
+    // would mean rewriting state this build does not understand.
+    expect(code(() => store())).toBe("SCHEMA_AHEAD");
+    expect(code(() => store({ observer: true }))).toBe("SCHEMA_AHEAD");
+  });
+
   test("an ABSENT store refuses under observer — and leaves NOTHING behind (cli §7)", () => {
     // The wart this closes: an instrument that MINTS a data dir by looking at
     // one. A stood-down hook with an unreadable config was a live path here.

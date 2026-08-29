@@ -567,6 +567,151 @@ describe("belief revision by pressure", () => {
     return { s, entityId, beliefId };
   }
 
+  test("a FALLBACK-channel belief's claim is capped; a migrated one keeps the full floor (owner ruling 2026-08-29)", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai keeps shipping",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+
+    // The latent second door, closed: a belief placed on behalf of a sweep
+    // carries the model's claim, and the ceiling cuts it at the element seam.
+    const swept = s.addBelief({
+      entityId,
+      statement: "Bansai is the most important project that has ever existed.",
+      day: 0,
+      dimensions: { relevance: 0.3, emotional: 0.2, predictive: 0.3 },
+      claimedSalience: 0.95,
+      channel: "fallback",
+    }).id as string;
+    expect(s.store.row(swept)?.claimed).toBe(0.6);
+    expect(s.store.row(swept)?.source).toBe("fallback");
+    const lift = events.find((e) => e.event === "salience.lifted" && e.data?.["capped"] === true);
+    expect({ claimed: lift?.data?.["claimed"], ceiling: lift?.data?.["ceiling"] }).toEqual({
+      claimed: 0.95,
+      ceiling: 0.6,
+    });
+
+    // Migrated is lived v1 state: full floor, honestly attributed.
+    const migrated = s.addBelief({
+      entityId,
+      statement: "A v1 belief whose aggregate salience was earned by living it.",
+      day: 0,
+      dimensions: { relevance: 0.3, emotional: 0.2, predictive: 0.3 },
+      claimedSalience: 0.9,
+      channel: "migrated",
+    }).id as string;
+    expect(s.store.row(migrated)?.claimed).toBe(0.9);
+    expect(s.store.row(migrated)?.source).toBe("migrated");
+
+    // A caller that names NO channel records NOTHING — the persisted source is
+    // never defaulted (the PR-2 review's blocker: a `?? "authored"` persistence
+    // default stamped every migrated belief as authored-in-v2). The ceiling
+    // arithmetic still defaults authored; only the CLAIM of authorship must be
+    // explicit.
+    const unstated = s.addBelief({
+      entityId,
+      statement: "Beliefs placed with no channel stay honestly unrecorded.",
+      day: 0,
+    }).id as string;
+    expect(s.store.row(unstated)?.source).toBeNull();
+
+    // Authorship, when actually stated, records.
+    const authored = s.addBelief({
+      entityId,
+      statement: "Beliefs placed by the experiencer keep their testimony whole.",
+      day: 0,
+      channel: "authored",
+    }).id as string;
+    expect(s.store.row(authored)?.source).toBe("authored");
+  });
+
+  test("the ONLY live belief-placement caller stamps 'migrated' — asserted on the real path, not a hand-passed channel", async () => {
+    // The reviewer's catch: the previous test passed channel by hand while the
+    // real caller omitted it — a test passing for a reason unrelated to the
+    // production path. This one drives the migrate tool's own writeElements
+    // and reads the row it produced.
+    const { migrateAndRender } = await import("../tools/migrate/index.js");
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const v1 = mkdtempSync(join(tmpdir(), "counterparts-mig-v1-"));
+    const v2 = mkdtempSync(join(tmpdir(), "counterparts-mig-v2-"));
+    try {
+      mkdirSync(join(v1, "traces"), { recursive: true });
+      mkdirSync(join(v1, "schemas"), { recursive: true });
+      writeFileSync(
+        join(v1, "traces", "tr_belief.md"),
+        [
+          "---",
+          "id: tr_beliefsrc01",
+          "kind: person",
+          "scope: global",
+          "confidentiality: normal",
+          "salience: 0.6",
+          "gradient: 0.2",
+          "created_active_day: 3",
+          "---",
+          "Ada prefers async review over synchronous meetings, consistently.",
+        ].join("\n"),
+        "utf8",
+      );
+      // The reviewer's proof of vacuity: a trace-only fixture never reaches
+      // writeElement -> addBelief — the exact path the blocker lived in. A v1
+      // SCHEMA file with a belief is what drives it (test/migrate.test.ts's
+      // fixture idiom: the authoritative record rides in the item comment).
+      const beliefStatement =
+        "Ada consistently prefers asynchronous review over synchronous meetings.";
+      writeFileSync(
+        join(v1, "schemas", "person-ada.md"),
+        [
+          "---",
+          "id: sch_ada",
+          "kind: person",
+          "name: Ada",
+          'aliases: ["ada l"]',
+          "---",
+          "## Beliefs",
+          "",
+          `- ${beliefStatement} <!--${JSON.stringify({ id: "el_ada1", statement: beliefStatement })}-->`,
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const { report } = migrateAndRender({ source: v1, target: join(v2, "store"), apply: true });
+      expect(report.source_readonly.identical).toBe(true);
+      const migrated = Store.open({ dir: join(v2, "store") });
+      open.push(migrated);
+      const sources = migrated
+        .list({})
+        .map((id) => migrated.row(id)?.source)
+        .filter((s2) => s2 !== undefined);
+      // Every row the cutover minted is attributed migrated or honestly
+      // unrecorded — and NONE claims v2 authorship.
+      expect(sources.length).toBeGreaterThan(0);
+      expect(sources).not.toContain("authored");
+      expect(sources).toContain("migrated");
+      // The assertion the earlier version only CLAIMED to make: a row that
+      // went through writeElement -> addBelief — role "belief", the blocker's
+      // own path — is stamped migrated.
+      const beliefRows = migrated
+        .list({ type: "schema" })
+        .map((id) => ({ row: migrated.row(id), meta: migrated.readProse(id).meta }))
+        .filter((r) => r.meta["role"] === "belief");
+      expect(beliefRows.length).toBeGreaterThan(0);
+      expect(beliefRows.map((r) => r.row?.source)).toEqual(
+        beliefRows.map(() => "migrated"),
+      );
+    } finally {
+      const { rmSync } = await import("node:fs");
+      rmSync(v1, { recursive: true, force: true });
+      rmSync(v2, { recursive: true, force: true });
+    }
+  });
+
   test("the belief row inherits the ENTITY's kind, so its inertia is the person's", () => {
     const { s, beliefId } = setup();
     expect(s.element(beliefId)?.kind).toBe("person");
@@ -597,6 +742,12 @@ describe("belief revision by pressure", () => {
     // The pressure field lives ON THE TARGET ROW — there is no second object.
     const successorId = last?.successorId as string;
     expect(successorId).not.toBeNull();
+    // And the successor carries its channel: an accommodation successor is the
+    // engine revising under pressure, its provenance the challenger that
+    // carried the crossing (PR-2 review: SF1 was correct but unmechanized —
+    // this is the row-level assertion behind the vocabulary's fifth member).
+    expect(s.store.row(successorId)?.source).toBe("accommodation");
+    expect(typeof s.store.row(successorId)?.origin_ref).toBe("string");
     expect(s.store.physicsOf(beliefId).pressure).toBeGreaterThan(0);
     expect(s.store.physicsOf(beliefId).lastChallengedDay).toBe(3);
 

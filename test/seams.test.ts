@@ -16,7 +16,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Store, WRITE_METHODS } from "../src/core/store/index.js";
-import { consolidationEligibility } from "../src/core/physics/index.js";
+import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility } from "../src/core/physics/index.js";
+import { MEMORY_SOURCES } from "../src/core/types.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import { SpanBuffer, WRITE_SITES, submitProposal, sweep } from "../src/core/remember/index.js";
 import type { Proposal } from "../src/core/remember/index.js";
@@ -1574,10 +1575,33 @@ describe("SEAMS N — a self-claim repeat routes through the freeze at the minti
       "utf8",
     );
     const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
-    // The source comes from the mint OPTIONS (the engine), never from the
-    // proposal, which is the interpreter's output.
-    expect(/source:\s*opts\.channel/.test(code)).toBe(true);
+    // The source comes from the mint OPTIONS (the engine) — via the `channel`
+    // const derived from them — never from the proposal, which is the
+    // interpreter's output. Since the mint-source doctrine, the same const is
+    // also what gets PERSISTED as the row's `source`, so this scan now guards
+    // the stored provenance too.
+    expect(/const channel = opts\.channel \?\? "authored"/.test(code)).toBe(true);
+    expect(/source:\s*channel/.test(code)).toBe(true);
     expect(/source:\s*proposal\./.test(code)).toBe(false);
+    expect(/channel:\s*proposal\./.test(code)).toBe(false);
+
+    // The SAME guard for the schemas path (PR-2 review should-fix 3): the
+    // element seam's channel flows only from the input's own `channel` field —
+    // never from a statement, a claim, or any parsed author content — and the
+    // PERSISTED source only from `spec.channel`, never a default: an unstated
+    // channel must record nothing (the review's blocker was a `?? "authored"`
+    // persistence default stamping migrated beliefs as authored-in-v2).
+    const schemasSrc = readFileSync(
+      fileURLToPath(new URL("../src/core/schemas/index.ts", import.meta.url)),
+      "utf8",
+    );
+    const schemasCode = schemasSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(/channel:\s*input\.channel\b/.test(schemasCode)).toBe(true);
+    expect(/source:\s*spec\.channel\b/.test(schemasCode)).toBe(true);
+    expect(/source:\s*(?:channel\b|"authored")/.test(schemasCode)).toBe(false);
+    expect(
+      /channel:\s*(?:input|spec)\.(?:statement|claimedSalience|dimensions)/.test(schemasCode),
+    ).toBe(false);
   });
 
   test("a claim against an ORDINARY memory is not self-narration and moves normally", async () => {
@@ -1614,5 +1638,177 @@ describe("SEAMS N — a self-claim repeat routes through the freeze at the minti
     const result = mintProposal(s, proposal);
     expect(result.claim).toBe(null);
     expect(s.physicsOf(target).uses).toBe(before);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The mint-source doctrine (owner ruling 2026-08-29) — source, provenance,
+// and the reteller's cap, end to end through the REAL path.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("MemorySource is TOTAL — every member has a live writer that lands it on a row", () => {
+  test("all five members, each through its own writer, asserted on the written row", async () => {
+    // The PR-2 review's argument for this test: of the doctrine's five source
+    // values, two shipped without any row-level assertion behind them — one
+    // ("accommodation") without any writer at all at first. A member added to
+    // MEMORY_SOURCES without a writer, or a writer that stops stamping, fails
+    // here. Every assertion below reads a WRITTEN ROW's source — never a
+    // literal in source text (the vacuity the review caught twice).
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const seen = new Map<string, string>();
+
+    // authored + fallback: the mint seam's two channels.
+    const pa = await authored(buffer, {
+      content: "The storage split keeps canonical prose in markdown files on disk.",
+      kind: "fact",
+    });
+    seen.set("authored", mintProposal(s, pa).id);
+    const pf = await authored(buffer, {
+      content: "A crashed session's fragment still taught one modest thing.",
+      kind: "fact",
+    });
+    seen.set("fallback", mintProposal(s, pf, { channel: "fallback" }).id);
+
+    // episode: the experiencer's journal, ingested through the real gate path.
+    const self = new Self({ store: s, gate: (i) => ({ ok: true, text: i.text }) });
+    self.openChapter("s-tot", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s-tot", "I learned that totality tests earn their keep the day they fail.");
+    const ing = self.ingestEpisode({ sessionId: "s-tot" });
+    expect(ing.ingested).toBe(true);
+    seen.set("episode", ing.memoryId ?? "missing");
+
+    // accommodation: a belief revised under real pressure (three lived days of
+    // challenge on a slow kind), read off the successor row.
+    const sch = Schemas.open({ store: s });
+    const ent = sch.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review over meetings",
+      chunkRef: "c-tot",
+      day: 0,
+    }).id as string;
+    const belief = sch.addBelief({
+      entityId: ent,
+      statement: "Ada prefers async review over meetings",
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    let successor: string | null = null;
+    for (const day of [1, 2, 3]) {
+      const cid = s.put({
+        type: "memory",
+        kind: "person",
+        body: `On day ${day} Ada asked for a live walkthrough instead, again.`,
+        salience: { novelty: null, relevance: 0.45, emotional: 0.45, predictive: 0.45 },
+        physics: { birthDay: day, lastUsedDay: day },
+      });
+      const out = sch.challengeBelief({ updates: belief, challengerId: cid, day });
+      if (out.successorId !== null) successor = out.successorId;
+    }
+    expect(successor).not.toBeNull();
+    seen.set("accommodation", successor as string);
+
+    // migrated: the seam-level half — the store persists the member. The REAL
+    // writer (the migrate tool's writeDoc/writeElement) is asserted end-to-end
+    // in test/schemas.test.ts ("the ONLY live belief-placement caller stamps
+    // 'migrated'"), on a fixture that provably drives the element path.
+    seen.set(
+      "migrated",
+      s.put({
+        type: "memory",
+        kind: "fact",
+        body: "A v1 row that crossed the cutover with its lived salience intact.",
+        source: "migrated",
+      }),
+    );
+
+    for (const member of MEMORY_SOURCES) {
+      const id = seen.get(member);
+      expect({ member, hasWriter: typeof id === "string" }).toEqual({ member, hasWriter: true });
+      expect({ member, source: s.row(id as string)?.source }).toEqual({ member, source: member });
+    }
+  });
+});
+
+describe("mint-source doctrine — who wrote it is recorded, and a reteller's claim is capped", () => {
+  test("an AUTHORED deposit keeps the full claim floor and records its provenance", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "The storage split keeps canonical prose in markdown files on disk.",
+      kind: "fact",
+      claimed: 0.9,
+    });
+    const events: Record<string, unknown>[] = [];
+    const minted = mintProposal(s, p, {
+      onEvent: (name, data) => events.push({ name, ...data }),
+    });
+    const row = s.row(minted.id);
+    expect({
+      source: row?.source,
+      session: row?.origin_session,
+      scope: row?.origin_scope,
+      ref: row?.origin_ref,
+      claimed: row?.claimed,
+    }).toEqual({ source: "authored", session: "seams", scope: "seams", ref: p.id, claimed: 0.9 });
+    // The prose document is canonical and self-describing: the same facts live
+    // in its meta, so provenance survives any cache rebuild.
+    const doc = s.readProse(minted.id);
+    expect(doc.meta["source"]).toBe("authored");
+    expect((doc.meta["origin"] as { ref?: string }).ref).toBe(p.id);
+    expect(doc.meta["claimedRaw"]).toBeUndefined();
+    const lift = events.find((e) => e["name"] === "salience.lifted");
+    expect({ capped: lift?.["capped"], ceiling: lift?.["ceiling"] }).toEqual({
+      capped: false,
+      ceiling: 1,
+    });
+  });
+
+  test("a FALLBACK mint's claim is CUT to the ceiling — the raw testimony survives in meta and telemetry", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "A crashed session's summarizer thought this mattered enormously.",
+      kind: "fact",
+      claimed: 0.95,
+    });
+    const events: Record<string, unknown>[] = [];
+    const minted = mintProposal(s, p, {
+      channel: "fallback",
+      onEvent: (name, data) => events.push({ name, ...data }),
+    });
+    const row = s.row(minted.id);
+    expect({ source: row?.source, claimed: row?.claimed }).toEqual({
+      source: "fallback",
+      claimed: PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING,
+    });
+    const doc = s.readProse(minted.id);
+    expect(doc.meta["claimedRaw"]).toBe(0.95);
+    const lift = events.find((e) => e["name"] === "salience.lifted");
+    expect({
+      claimed: lift?.["claimed"],
+      applied: lift?.["applied"],
+      ceiling: lift?.["ceiling"],
+      capped: lift?.["capped"],
+    }).toEqual({
+      claimed: 0.95,
+      applied: PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING,
+      ceiling: PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING,
+      capped: true,
+    });
+  });
+
+  test("a fallback claim UNDER the ceiling passes untouched — the cap is a ceiling, not a tax", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "A modest observation from a crashed session, modestly claimed.",
+      kind: "fact",
+      claimed: 0.5,
+    });
+    const minted = mintProposal(s, p, { channel: "fallback" });
+    const row = s.row(minted.id);
+    expect(row?.claimed).toBe(0.5);
+    expect(s.readProse(minted.id).meta["claimedRaw"]).toBeUndefined();
   });
 });

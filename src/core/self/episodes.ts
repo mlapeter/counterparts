@@ -313,6 +313,10 @@ export function appendChapter(
       kind: "self",
       body,
       meta: { sessionId: state.sessionId, chapters: chapter },
+      // The experiencer writing its own journal is the "episode" channel —
+      // consistent with the memory its ingestion mints (PR-2 review nit).
+      source: "episode",
+      origin: { session: state.sessionId },
     };
     if (opts.title !== undefined) input.title = opts.title;
     if (opts.happenedOn !== undefined) input.happenedOn = opts.happenedOn;

@@ -39,6 +39,7 @@ import {
   strength as strengthOf,
   successorSeed,
   supersedeRecord,
+  TUNABLES as PHYSICS_TUNABLES,
 } from "../physics/index.js";
 import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
@@ -486,6 +487,7 @@ export class Schemas {
       day: input.day,
       dimensions: input.dimensions,
       claimedSalience: input.claimedSalience ?? null,
+      ...(input.channel === undefined ? {} : { channel: input.channel }),
       protectedFlag: input.protected === true,
       meta: { groundedIn: [...(input.groundedIn ?? [])] },
     });
@@ -536,6 +538,7 @@ export class Schemas {
       day: input.day,
       dimensions: input.dimensions,
       claimedSalience: input.claimedSalience ?? null,
+      ...(input.channel === undefined ? {} : { channel: input.channel }),
       protectedFlag: false,
       happenedOn: statedOn,
       meta: { statedOn, statedOnDay: input.day },
@@ -569,27 +572,45 @@ export class Schemas {
     day: number;
     dimensions?: DimensionsInput;
     claimedSalience: number | null;
+    /** See `BeliefInput.channel`. Default "authored"; the ceiling and the
+     *  persisted `source` both derive from it — engine-set, never claimable. */
+    channel?: "authored" | "fallback" | "episode" | "accommodation" | "migrated";
     protectedFlag: boolean;
     happenedOn?: string;
     meta?: Record<string, unknown>;
     salience?: Salience;
     seed?: Partial<MemoryPhysics>;
   }): string {
+    // The CEILING derives from the channel with "authored" as the arithmetic
+    // default — but the PERSISTED source is `spec.channel ?? null`: a caller
+    // that says nothing records "unrecorded", never a claim of authorship. The
+    // PR-2 review's blocker was exactly this conflation: a `?? "authored"`
+    // persistence default stamped every migrated belief as authored-in-v2.
+    const channel = spec.channel ?? "authored";
     let salience: Salience;
     if (spec.salience !== undefined) {
       salience = spec.salience;
     } else {
       // novelty is null for an engine mint and is RECORDED as null, never
       // defaulted: novelty is prediction error at encoding, and this is not one.
+      //
+      // The reteller's cap applies HERE TOO (owner ruling 2026-08-29): this was
+      // the doctrine's latent second door — a belief placed on behalf of a
+      // transcript sweep would have carried the model's uncapped claim. No live
+      // caller uses the fallback channel today; when one is built, the cap is
+      // already structural.
       const seam = clampSalienceAtSeam(
         { novelty: null, ...(spec.dimensions ?? ZERO_DIMS) },
         spec.claimedSalience,
+        channel === "fallback" ? PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING : 1,
       );
       if (seam.event !== null) {
         this.emit("salience.lifted", spec.entityId, {
           computed: seam.event.computed,
           claimed: seam.event.claimed,
           applied: seam.event.applied,
+          ceiling: seam.event.ceiling,
+          capped: seam.event.capped,
         });
       }
       salience = seam.salience;
@@ -611,6 +632,7 @@ export class Schemas {
         protected: spec.protectedFlag,
         ...(spec.seed ?? {}),
       },
+      ...(spec.channel === undefined ? {} : { source: spec.channel }),
     };
     if (spec.happenedOn !== undefined) put.happenedOn = spec.happenedOn;
     const id = this.store.put(put);
@@ -807,6 +829,11 @@ export class Schemas {
         // a belief is as strongly held as what made it (NOTES §3).
         salience: challenger.salience,
         physics: { birthDay: input.day, lastUsedDay: input.day, ...seed },
+        // The channel vocabulary's fifth member finally has its writer (PR-2
+        // review should-fix 1): an accommodation successor is the engine
+        // revising under pressure, and its provenance is the challenger.
+        source: "accommodation",
+        origin: { ref: input.challengerId },
       },
       "revised-by-pressure",
     );

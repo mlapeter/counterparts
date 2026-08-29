@@ -311,6 +311,14 @@ export class Self {
         floor: true,
       });
     }
+    if (schema.quarantined > 0) {
+      // The F8 quarantine, observable: a stood-aside row is counted, never
+      // silently absent (scar §2.4).
+      this.emit("self.schema.quarantined", undefined, {
+        count: schema.quarantined,
+        bytes: schema.quarantinedBytes,
+      });
+    }
     if (schema.pressure) {
       this.emit("self.schema.pressure", undefined, {
         bytes: schema.bytes,
@@ -792,6 +800,10 @@ export class Self {
       kind: "self",
       body,
       meta: { episodeId: state.episodeId, episodeKey: key, sessionId, handles },
+      // The experiencer's own episode is lived testimony — the "episode"
+      // channel, recorded as provenance like every other mint (F9-light).
+      source: "episode",
+      origin: { session: sessionId, ref: state.episodeId },
     };
     if (proposal.title !== undefined) put.title = proposal.title;
     if (proposal.happenedOn !== undefined) put.happenedOn = proposal.happenedOn;
