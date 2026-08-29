@@ -88,3 +88,32 @@ two unbound servers share one gate-state row. It affects the `dedup-suppressed`
 verdict only — and deliberate recall admits that verdict anyway — so the blast
 radius is nil today. It would stop being nil the moment anything else keys off
 that row.
+
+## 7. `openServer` has no embedder socket — a memory noted through the tool gets no vector
+
+The launch adapter now builds a Voyage client (`adapters/claude-code/embed-client.ts`)
+and passes both halves — the sync `Embedder` the store indexes with, and the live
+one the novelty seam uses — into `Counterpart.open`. `openServer` does not, and
+deliberately: it takes `OpenServerOptions`, not an `AdapterConfig`, so it has no
+egress knob and no seat to read, and importing the claude-code client here would
+point one adapter at another (CONTRACT §5 G1 in spirit — adapters are leaves).
+
+**What it costs today.** A memory deposited through `note` is stored, indexed
+lexically, and left without a vector: `novelty` is null with reason
+`no-chunk-vector`, and box 3 holds no row for it until something rebuilds the
+cache with an embedder wired. The recall gate's semantic channel cannot see it.
+
+**The honest fix,** whichever the owner prefers:
+
+1. `OpenServerOptions` gains `embed?: Embedder` and `vectors?: LiveVectors` —
+   both CORE types, no cross-adapter import — and whoever launches the server
+   (`bin/serve.ts`, or a host that already built one) passes them in. Two lines
+   here, and the decision about egress stays with the caller who holds the
+   configuration.
+2. Or the embedder moves out of `adapters/claude-code/` into a place both
+   adapters may import, at which point the egress knob needs a home that is not
+   one host's config file.
+
+Filed rather than built: a socket wired to nothing that ever fills it is the
+"starved front door" shape this repo keeps finding, and the choice between (1)
+and (2) is the owner's, not this build's.

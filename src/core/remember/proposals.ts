@@ -216,6 +216,21 @@ export type GateVerdict =
       content: string;
       aliases?: readonly string[];
       feeling?: Feeling | null;
+      /**
+       * The COMPUTED salience dimension, from the gate that computed it.
+       *
+       * The other three dimensions are the author's and arrive on the draft;
+       * novelty is prediction error, which no author may claim (`encode/`'s §3).
+       * It travels back on the verdict because the gate is the only place that
+       * holds a vector — and without this field the number was computed, used
+       * for the gate decision, and then DROPPED before mint, which is how the
+       * store came to record `novelty: null` on every memory it holds.
+       *
+       * Optional and null-able, both on purpose: a gate with no vector source
+       * omits it, and a gate that tried and could not measure sends `null` —
+       * "never asked" and "asked, no answer" stay different records (scar §2.4).
+       */
+      novelty?: number | null;
     }
   | {
       ok: false;
@@ -371,6 +386,11 @@ export async function submitProposal(
     updates = await ctx.resolveUpdates(draft.updates, verdict.content);
   }
 
+  // Novelty stripped from the author's dimensions BEFORE the gate's computed
+  // value applies — see the salience comment below for why the strip must be
+  // explicit rather than an override.
+  const { novelty: _claimedNovelty, ...authoredDims } = draft.salience ?? {};
+
   const proposal: Proposal = {
     id: `prp_${randomBytes(6).toString("hex")}`,
     source: ctx.source,
@@ -379,7 +399,19 @@ export async function submitProposal(
     content: verdict.content,
     kind,
     title: draft.title ?? null,
-    salience: { ...(draft.salience ?? {}), claimed: draft.claimed ?? null },
+    // The author's three dimensions, with novelty STRIPPED explicitly before
+    // the gate's computed value is applied: novelty is prediction error at
+    // encoding — computed, never claimed (§2.9) — and relying on the gate's
+    // override alone let an author-supplied novelty survive whenever no vector
+    // source was wired, which is the DEFAULT config (PR-3 review: a claimed
+    // 0.99 reached the stored row and fed salience/banding — F5 through a new
+    // door). Stripping first also preserves the omitted-vs-null distinction:
+    // no vector source means novelty null ("never asked"), never the claim.
+    salience: {
+      ...authoredDims,
+      ...(verdict.novelty === undefined ? {} : { novelty: verdict.novelty }),
+      claimed: draft.claimed ?? null,
+    },
     feeling: verdict.feeling !== undefined ? verdict.feeling : draft.feeling ?? null,
     aliases: [...(verdict.aliases ?? draft.aliases ?? [])],
     updates,

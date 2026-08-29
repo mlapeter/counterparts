@@ -167,3 +167,114 @@ into the wrapper.
    code compares against it yet, because every foreground path is an appender and
    the heavy work is already detached. When something in the foreground can grow,
    this is the number it must be measured against.
+
+---
+
+## 8. The embedder: what it closed, and the four things it deliberately did not
+
+Written 2026-08-29 alongside `embed-client.ts` — the first embedder this package
+has ever had. `Store.open({ embed })` held the socket from the day it was
+written and nothing constructed one, so every memory in the store recorded
+`novelty: null`, reason `no-chunk-vector` (replay review F4/F5).
+
+**Closed.** A Voyage client on bare `fetch`, chunked with per-chunk failure
+isolation (E1), credential from `VOYAGE_API_KEY` alone with a named pre-flight
+refusal (§2.18), its own pinned seat with an expiring placeholder (§2.15), and
+egress behind an explicit `embedder.enabled` knob that defaults OFF. Both
+composition roots build it: `openAdapter` and `bin/runner.ts` — the second
+matters more, because the sweep is where most memories are minted.
+
+### 8a. `Embedder` was widened to `(text) => number[] | null` — a core edit
+
+A production embedder is a network client behind a cache, and `put` /
+`rebuildCache` are synchronous: a lookup that misses has nothing to return.
+Throwing would fail a write over a rebuildable cache; returning `[]` would write
+a dim-0 row that every cosine reads as 0.0 similarity. So a miss is `null` and is
+counted as `unrecomputed` — the same shape `tools/replay/INTERFACE-GAPS §4` asks
+for ("a cache miss must be a counted `not-exercised`"). Two call sites in
+`store/index.ts` changed; every existing sync embedder still typechecks.
+
+### 8b. The sweep door still passes NO `chunkVector` to `encodeChunk`
+
+Novelty on the fallback path needs `ChunkInput.chunkVector`, and supplying it
+also switches ON preselection's semantic channel — an owner decision that is
+still open. So the sweep WARMS the embedder for the proposals it is about to
+mint (one batched call per chunk, which is what fills box 3) and selects
+nothing. Swept memories therefore still record `novelty: null`; authored ones no
+longer do. When the owner rules on preselection, the vector is already in hand.
+
+### 8c. The episode door is BLIND, and now says so instead of pretending
+
+`EpisodeGate` is synchronous by type, so `episodeGate()` cannot pay for a live
+embedding the way `batteryGate()` can (`GateFn` may return a promise, and
+`submitProposal` awaits it). The first draft therefore gave it a cache-only
+lookup — which was worse than nothing: `EpisodeGateVerdict` has **no field for a
+novelty number**, so anything computed there fed a gate decision that never reads
+it (`gateProposal` consults `input.novelty` only after its refusal branch has
+returned) and was then dropped. A decorative wire, the same defect 8d describes,
+caught in review before it shipped.
+
+The parameter was REMOVED rather than kept with an apology in a comment.
+`episodeGate()` takes no vector source, computes `computeNovelty(null, [])`, and
+episodes record `novelty: null` with reason `no-chunk-vector` — which is exactly
+what they did before this build and is now the honest statement of it.
+
+**The honest fix, two halves, both outside this build:** `EpisodeGateVerdict`
+needs somewhere to carry the number (8d's change, applied to the other verdict
+type), and `self/` should consult its injected gate everywhere the way
+`ingestEpisode` does (gap 3). Until both, the door is blind by construction.
+
+### 8e. FOUND IN REVIEW: the authored door embedded RAW text — fixed by reordering
+
+**What happened.** `batteryGate` embedded `input.content` — the author's draft —
+and gated it afterwards. An adversarial review proved the leak through the real
+`submitSessionEnd` path: a planted Google API key reached the recorded embedder
+**verbatim** while the prose written to disk was correctly redacted. Egress
+bypassed a gate the store did not.
+
+Every existing secrets test passed the whole time, and that is the lesson worth
+keeping: they all assert what is DURABLE (`prose/` holds no credential), and this
+leak was on the wire. "A gate covers every ingestion path and every side channel"
+(scar §2.7) had an unwritten clause — the side channel can also be an EXIT.
+
+**The fix** is the ordering the sweep door already used
+(`counterpart.applySweep` warms `result.accepted`, post-gate): gate first with
+novelty not yet known, return immediately on a refusal (nothing refused is ever
+embedded), embed the gate's text, then compute novelty and attach it. Safe
+because the battery's accept/refuse never consults novelty — verified by reading
+`battery.ts`, not assumed. The rejected shortcut was calling `redactSecrets`
+before embedding: it would have stopped the credential and left 8f standing.
+
+**The tripwire** is `test/claude-code.test.ts` — "the embedder is handed the
+GATED text": it records what the embedder was actually handed and asserts
+`[REDACTED:` present and the credential absent. Confirmed to FAIL on the pre-fix
+tree (its failure message prints the raw key), which is the only reason to
+believe it would catch a regression.
+
+### 8f. FOUND IN REVIEW: a gate rewrite used to throw away the vector it paid for
+
+The same ordering bug, wearing its other face. The cache keys on the text it was
+asked for; `Store.indexOne` looks up `indexTextOf(title, body)` where `body` is
+the GATE's output. Embedding the raw draft therefore cached under a key the store
+never asks for, so every redaction, hedge or alias rewrite — 18.9% of chunks in
+the replay corpus — silently cost the deposit its vector, leaving box 3 emptier
+than the run's own telemetry implied.
+
+Fixed by the same reorder: one string, embedded once, looked up by the same key.
+Held by "a gate REWRITE keeps its vector", also confirmed failing pre-fix. The
+comments at `counterpart.ts` (`LiveVectors`) and `store/index.ts`
+(`indexTextOf`) asserted this property while it was false; both now name the
+ordering that makes it true and what breaks if it is reversed.
+
+### 8d. `GateVerdict` gained `novelty` — without it the wire was decorative
+
+The battery computed novelty at the authored door and the verdict had nowhere to
+put it, so `submitProposal` built the `Proposal` from the DRAFT's salience and
+the number was discarded before `mintProposal` ever saw it. Three lines in
+`remember/proposals.ts` (an optional field on the `ok` arm, and a merge into
+`proposal.salience`) carry it to the mint. It is optional and null-able on
+purpose: a gate with no vector source omits it, a gate that tried and could not
+measure sends `null`, and those stay different records. `verdictFor` therefore
+attaches NOTHING — it runs before any vector exists — and `batteryGate` attaches
+the value after the gate has spoken, which is what keeps the omitted/null
+distinction real rather than documented.

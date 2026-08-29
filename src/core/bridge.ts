@@ -32,62 +32,143 @@ import type {
   EncodeResult,
   Proposal as EncodeProposal,
 } from "./encode/index.js";
-import type { GateFn, SweepChunk } from "./remember/index.js";
+import type { GateFn, GateVerdict } from "./remember/index.js";
+import type { SweepChunk } from "./remember/index.js";
 import type { EpisodeGate } from "./self/index.js";
 
-/** Per-proposal gate for the authored paths (session-end dumps and jots). */
-export function batteryGate(): GateFn {
-  return (input) => {
-    const selfAuthored = input.source === "session-end" || input.source === "jot";
-    const proposal: EncodeProposal = {
-      ref: input.span?.hash ?? "authored",
-      content: input.content,
-      kind: input.kind,
-      aliases: input.aliases,
-      feeling:
-        input.feeling === null
-          ? null
-          : {
-              // remember says `feeling`, encode says `type` — same field.
-              type: input.feeling.feeling,
-              quote: input.feeling.quote,
-              subject: input.feeling.subject,
-            },
-      selfAuthoredFeeling: selfAuthored,
-      claimedSalience: input.claimed,
-    };
-    if (input.title !== null) {
-      proposal.title = input.title;
-      proposal.handles = [input.title];
-    }
-    const dims = dimensionsFrom(input.salience);
-    if (dims !== null) proposal.dimensions = dims;
+/**
+ * Where the vectors come from — injected, because `encode/` "supplies the inputs
+ * and holds no store handle" and this file holds no network client either. The
+ * composition root binds all three members; absent, both gates behave exactly as
+ * they did before one existed (novelty null, reason `no-chunk-vector`).
+ *
+ * Only the AUTHORED door takes one. `GateFn` may return a promise and
+ * `submitProposal` awaits it, so that door can pay for a live embedding;
+ * `EpisodeGate` is synchronous AND its verdict has nowhere to carry a novelty
+ * number, so `episodeGate()` takes no source at all rather than computing one to
+ * throw away (INTERFACE-GAPS §8c).
+ *
+ * Every member is asked for the text AS THE STORE WILL INDEX IT — the gate's
+ * output, never the author's draft. That is what makes one embedding serve both
+ * the novelty measurement and box 3, and it is also the egress rule: nothing
+ * reaches this interface that has not already been through the battery.
+ */
+export interface VectorSource {
+  /** Live: may reach the network. Only called where the caller can await. */
+  vector(title: string | null, content: string): Promise<number[] | null>;
+  /** E(m) — what this brain already holds near `vec`. Read-only. */
+  context(vec: readonly number[]): readonly (readonly number[])[];
+  /**
+   * Fetch vectors for memories about to be written, in ONE batched call. The
+   * sweep's only use: its mints happen in a loop, and a round trip each would be
+   * the shape scar E1 warns about paid for one item at a time.
+   */
+  warm(items: readonly { title: string | null; content: string }[]): Promise<void>;
+}
 
-    // No vectors reach this seam yet: novelty is null-with-reason, never a
-    // default (scar §2.9). Wiring vectors here is SEAMS follow-on work.
-    const outcome = gateProposal({
-      proposal,
-      span: input.span?.text ?? input.content,
-      novelty: computeNovelty(null, []),
-    });
-    const g = outcome.gated;
-    if (g.accepted) {
-      return {
-        ok: true,
-        content: g.content,
-        aliases: g.aliases,
-        feeling:
-          g.feeling === null
-            ? null
-            : { feeling: g.feeling.type, quote: "", subject: g.feeling.subject },
-      };
-    }
+/**
+ * Per-proposal gate for the authored paths (session-end dumps and jots).
+ *
+ * With a `VectorSource` the returned gate is ASYNC (a live embedding is one
+ * network call), which `GateFn` permits and `remember/submitProposal` awaits.
+ * WITHOUT one it stays synchronous — not for speed, but because a gate that
+ * became a promise for every caller would silently break any caller reading
+ * `verdict.ok` off the return value.
+ *
+ * **THE BATTERY RUNS BEFORE THE SOCKET DOES.** The first version of this
+ * function embedded `input.content` — the author's RAW draft — and then gated
+ * it, which put un-redacted text on the wire: a credential in a session-end dump
+ * reached the embedding provider verbatim while the prose written to disk was
+ * correctly redacted. The secrets gate is not ablatable and "durable" is not its
+ * scope; egress is egress. So the order here is the order the sweep door already
+ * used (`counterpart.applySweep` warms `result.accepted`, post-gate):
+ *
+ *   1. gate the proposal, with novelty NOT YET KNOWN;
+ *   2. a refusal returns immediately — nothing refused is ever embedded;
+ *   3. embed the GATE'S text, which is also the text the store will index;
+ *   4. compute novelty against E(m) and attach it to the verdict.
+ *
+ * Step 1 costs nothing in correctness because the battery's accept/refuse never
+ * consults novelty: `gateProposal` reads `input.novelty` only AFTER its refusal
+ * branch has returned, to tag the accepted proposal's salience and to emit
+ * `encode.blind`. Both of those are discarded here (this function returns a
+ * `GateVerdict`, not an `AcceptedProposal`, and drops `outcome.events`), so the
+ * placeholder cannot leak a wrong number into telemetry either — the novelty
+ * that survives is the one attached in step 4.
+ */
+export function batteryGate(vectors?: VectorSource): GateFn {
+  if (vectors === undefined) return (input) => verdictFor(input, computeNovelty(null, []));
+  return async (input): Promise<GateVerdict> => {
+    const verdict = verdictFor(input, computeNovelty(null, []));
+    // A refused proposal is not a memory, so it is not a vector either — and it
+    // is emphatically not something to send to a third party on the way out.
+    if (!verdict.ok) return verdict;
+    const vec = await vectors.vector(input.title, verdict.content);
+    const novelty = computeNovelty(vec, vec === null ? [] : vectors.context(vec));
+    return { ...verdict, novelty: novelty.novelty };
+  };
+}
+
+/** The battery run itself, novelty already decided. One body, two entrances. */
+function verdictFor(
+  input: Parameters<GateFn>[0],
+  novelty: ReturnType<typeof computeNovelty>,
+): GateVerdict {
+  const selfAuthored = input.source === "session-end" || input.source === "jot";
+  const proposal: EncodeProposal = {
+    ref: input.span?.hash ?? "authored",
+    content: input.content,
+    kind: input.kind,
+    aliases: input.aliases,
+    feeling:
+      input.feeling === null
+        ? null
+        : {
+            // remember says `feeling`, encode says `type` — same field.
+            type: input.feeling.feeling,
+            quote: input.feeling.quote,
+            subject: input.feeling.subject,
+          },
+    selfAuthoredFeeling: selfAuthored,
+    claimedSalience: input.claimed,
+  };
+  if (input.title !== null) {
+    proposal.title = input.title;
+    proposal.handles = [input.title];
+  }
+  const dims = dimensionsFrom(input.salience);
+  if (dims !== null) proposal.dimensions = dims;
+
+  // Novelty arrives DECIDED — computed against a real vector when the root wired
+  // a source, null-with-reason when it did not (scar §2.9: never a default, in
+  // either direction). Nothing here invents one.
+  const outcome = gateProposal({
+    proposal,
+    span: input.span?.text ?? input.content,
+    novelty,
+  });
+  const g = outcome.gated;
+  if (g.accepted) {
     return {
-      ok: false,
-      gate: g.reason,
-      reason: g.blockedBy.join("+"),
-      refusedByDesign: true,
+      ok: true,
+      content: g.content,
+      aliases: g.aliases,
+      feeling:
+        g.feeling === null
+          ? null
+          : { feeling: g.feeling.type, quote: "", subject: g.feeling.subject },
+      // NO `novelty` field here, deliberately: this function runs before any
+      // vector exists. `batteryGate` attaches the computed dimension after the
+      // gate has spoken, so an OMITTED field means "no source was wired" and an
+      // explicit null means "a source tried and could not measure" — the two
+      // records `remember/proposals.ts` documents on the field.
     };
+  }
+  return {
+    ok: false,
+    gate: g.reason,
+    reason: g.blockedBy.join("+"),
+    refusedByDesign: true,
   };
 }
 
@@ -149,6 +230,13 @@ export function episodeGate(): EpisodeGate {
       selfAuthoredFeeling: true,
     };
     if (input.handles.length > 0) proposal.handles = [...input.handles];
+    // NO VECTOR SOURCE, and the reason is structural rather than a shortcut:
+    // `EpisodeGateVerdict` has nowhere to put a novelty number, so anything
+    // computed here would be spent on a gate decision that never reads it and
+    // then dropped — exactly the decorative wire §8d exists to describe. An
+    // earlier draft took a `VectorSource` and looked one up anyway; it was
+    // removed rather than kept as a comment, and the door is filed in
+    // INTERFACE-GAPS §8c as blind until the verdict type can carry the value.
     const outcome = gateProposal({
       proposal,
       span: input.text,

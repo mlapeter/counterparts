@@ -11,9 +11,14 @@ export {
   ANTHROPIC_VERSION,
   API_KEY_ENV,
   CAPABILITIES,
+  DEFAULT_EMBED_MODEL,
   DEFAULT_INTERPRET_MODEL,
+  EMBED_KEY_ENV,
   TUNABLES,
+  VOYAGE_ENDPOINT,
   capabilities,
+  embedSeat,
+  embedderState,
   interpretSeat,
   loadConfig,
   seatStatus,
@@ -49,6 +54,18 @@ export type {
 export { InterpretError, SYSTEM_PROMPT, extractJson, interpretClient, readStream } from "./interpret-client.js";
 export type { FetchLike, InterpretClientOptions, InterpretRefusal, StreamRead } from "./interpret-client.js";
 
+export { EmbedError, createEmbedder, embedClient, openEmbedder } from "./embed-client.js";
+export type {
+  ChunkFailure,
+  EmbedBatch,
+  EmbedClientOptions,
+  EmbedFn,
+  EmbedRefusal,
+  EmbedderStats,
+  LiveEmbedder,
+  LiveEmbedderOptions,
+} from "./embed-client.js";
+
 export { DATA_DIR_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "./spawn.js";
 export type { PlanInput, SpawnOutcome, SpawnPlan, SpawnRefusal, Spawner } from "./spawn.js";
 
@@ -57,6 +74,8 @@ export type { TranscriptRead } from "./transcript.js";
 
 import { Counterpart } from "../../core/counterpart.js";
 import type { AdapterConfig } from "./config.js";
+import { openEmbedder } from "./embed-client.js";
+import type { LiveEmbedder, LiveEmbedderOptions } from "./embed-client.js";
 import { ClaudeCodeAdapter } from "./hooks.js";
 import type { AdapterOptions } from "./hooks.js";
 
@@ -70,9 +89,22 @@ import type { AdapterOptions } from "./hooks.js";
  */
 export function openAdapter(
   config: AdapterConfig,
-  opts: Omit<AdapterOptions, "counterpart" | "config"> = {},
+  opts: Omit<AdapterOptions, "counterpart" | "config"> & {
+    /** Injected so the whole path is provable without a socket. */
+    embedFetch?: LiveEmbedderOptions["fetch"];
+    /** Injected so a test can supply vectors without a client at all. */
+    embedder?: LiveEmbedder | null;
+  } = {},
 ): ClaudeCodeAdapter {
+  const { embedFetch, embedder: injected, ...adapterOpts } = opts;
+  const embedder =
+    injected !== undefined
+      ? injected
+      : openEmbedder(config, embedFetch === undefined ? {} : { fetch: embedFetch });
   const counterpart = Counterpart.open({
+    // Both halves of the same embedder: the SYNC face the store's index holds,
+    // and the LIVE face the novelty seam and the sweep's warm call use.
+    ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
     ...(config.dataDir === undefined ? {} : { dir: config.dataDir }),
     ...(config.injectionBudgetBytes === undefined
       ? {}
@@ -83,5 +115,5 @@ export function openAdapter(
       ? {}
       : { identity: { name: config.identity.name, aliases: [...(config.identity.aliases ?? [])] } }),
   });
-  return new ClaudeCodeAdapter({ counterpart, config, ...opts });
+  return new ClaudeCodeAdapter({ counterpart, config, ...adapterOpts });
 }

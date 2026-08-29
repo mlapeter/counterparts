@@ -541,6 +541,30 @@ describe("proposals (G5, G6, G7, §4.1 G8/G9)", () => {
     expect(res.proposal?.salience.claimed).toBe(0.8);
   });
 
+  test("novelty is COMPUTED, never claimed — an authored novelty is stripped even with no vector source (§2.9)", async () => {
+    // The PR-3 review's regression: with no vector source wired — the DEFAULT
+    // config — the gate's verdict carries no novelty, and relying on override
+    // alone let a claimed 0.99 survive to the stored row, feeding salience and
+    // banding (F5 through a new door). The strip must be explicit.
+    const b = buf();
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("a quiet afternoon"))] });
+    const res = await submitProposal(
+      b,
+      {
+        content: "The retry logic finally landed, and the afternoon stayed quiet.",
+        salience: { novelty: 0.99, relevance: 0.4, emotional: 0.3, predictive: 0.3 },
+        claimed: 0.5,
+      },
+      ctx(),
+    );
+    expect({ accepted: res.accepted, reason: res.reason }).toEqual({ accepted: true, reason: "ACCEPTED" });
+    // Null — "never asked" — not the author's 0.99, and not undefined either:
+    // the omitted-vs-null distinction is the gate's to make, not the author's.
+    expect(res.proposal?.salience.novelty ?? null).toBeNull();
+    // The three authored dimensions survive untouched.
+    expect(res.proposal?.salience.relevance).toBe(0.4);
+  });
+
   test("a REJECTED proposal claims no coverage — its spans stay in the sweep's input (G6)", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("still unauthored"))] });
