@@ -59,7 +59,7 @@ import type {
   SymmetryVerdictSummary,
 } from "./types.js";
 
-export const HARNESS_VERSION = "replay/1";
+export const HARNESS_VERSION = "replay/2";
 
 /** High enough that a replay's whole durable log is read, never a window: a
  *  truncated read would understate a rate and look like a result. */

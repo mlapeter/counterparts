@@ -43,7 +43,7 @@ import {
 } from "../physics/index.js";
 import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
-import { containsSecret } from "../encode/secrets.js";
+import { containsSecret, redactSecrets } from "../encode/secrets.js";
 import { occursAsWholeWord } from "../encode/words.js";
 import { Store, hashText, readProseFile, today } from "../store/index.js";
 import type { MemoryRow, PutInput } from "../store/index.js";
@@ -623,7 +623,14 @@ export class Schemas {
     const put: PutInput = {
       type: "schema",
       kind: spec.kind,
-      body: spec.body,
+      // The statement crosses the secrets gate on its way to disk (PR-6 review
+      // SF1): the direct addBelief/addCurrentState API gated the entity NAME
+      // and the aliases but never the STATEMENT body — so a credential could
+      // live in a belief on disk (and reach both the sweep prompt and the
+      // embedder, which redact at their own edges, but the store held it raw).
+      // Redacting at THE SOURCE closes all three at once, the way migrate's
+      // own runGate already treats a statement.
+      body: redactSecrets(spec.body),
       meta,
       salience,
       physics: {

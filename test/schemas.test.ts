@@ -1228,3 +1228,29 @@ const PRIVATE_HELPERS = new Set([
   "supersedeBelief",
   "liveElementIds",
 ]);
+
+describe("statement bodies cross the secrets gate at the source (PR-6 review SF1)", () => {
+  test("a credential in a belief statement is redacted on disk — not just at the prompt and embedder edges", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Deploy",
+      kind: "entity",
+      source: "Deploy pipeline notes",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = s.addBelief({
+      entityId,
+      statement: "The Deploy key is AIzaSyD-1234567890abcdefghijklmnopqrstuv and it broke the build.",
+      day: 0,
+    }).id as string;
+    // The STORED belief carries the redaction mark, never the credential —
+    // the store held it raw before this (name and aliases were gated; the
+    // statement body was not).
+    const body = s.store.readProse(beliefId).body;
+    expect(body).toContain("[REDACTED:google-api-key]");
+    expect(body).not.toContain("AIzaSyD-1234567890abcdefghijklmnopqrstuv");
+    // And the slice the sweep would show carries the redacted form too.
+    expect(s.slices()[0]?.beliefs[0]?.statement).toContain("[REDACTED:");
+  });
+});
