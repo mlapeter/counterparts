@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { indexTextOf } from "../src/core/store/index.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, validateWatchdog } from "../src/core/remember/index.js";
 import { BOOTSTRAP } from "../src/core/self/index.js";
 import {
@@ -28,22 +29,36 @@ import {
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   DATA_DIR_ENV,
+  DEFAULT_EMBED_MODEL,
+  EMBED_KEY_ENV,
+  EmbedError,
   HOOKS,
   InterpretError,
   SESSION_ENDING,
   TUNABLES,
+  VOYAGE_ENDPOINT,
   capabilities,
+  createEmbedder,
+  embedClient,
   extractJson,
   interpretClient,
   loadConfig,
   openAdapter,
+  openEmbedder,
   parseTranscript,
   planSpawn,
   seatStatus,
   spawnDetached,
   substanceOf,
 } from "../src/adapters/claude-code/index.js";
-import type { AdapterConfig, HookInput, HookName, SpawnPlan } from "../src/adapters/claude-code/index.js";
+import type {
+  AdapterConfig,
+  FetchLike,
+  HookInput,
+  HookName,
+  LiveEmbedder,
+  SpawnPlan,
+} from "../src/adapters/claude-code/index.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -52,14 +67,20 @@ const BUDGET_BYTES = 9000;
 let dir: string;
 let priorEnv: string | undefined;
 let priorKey: string | undefined;
+/** Saved and restored like the other two: a dev machine may really have one,
+ *  and a suite that reads the developer's key is a suite that can lie about
+ *  why it passed. */
+let priorEmbedKey: string | undefined;
 const open: Counterpart[] = [];
 
 beforeEach(() => {
   priorEnv = process.env[ENV];
   priorKey = process.env[API_KEY_ENV];
+  priorEmbedKey = process.env[EMBED_KEY_ENV];
   dir = mkdtempSync(join(tmpdir(), "counterparts-cc-"));
   process.env[ENV] = dir;
   process.env[API_KEY_ENV] = "sk-ant-test-not-a-real-key";
+  process.env[EMBED_KEY_ENV] = "pa-test-not-a-real-key";
 });
 
 afterEach(() => {
@@ -74,6 +95,8 @@ afterEach(() => {
   else process.env[ENV] = priorEnv;
   if (priorKey === undefined) delete process.env[API_KEY_ENV];
   else process.env[API_KEY_ENV] = priorKey;
+  if (priorEmbedKey === undefined) delete process.env[EMBED_KEY_ENV];
+  else process.env[EMBED_KEY_ENV] = priorEmbedKey;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -162,14 +185,14 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
     expect(offenders).toEqual([]);
   });
 
-  test("exactly ONE file reaches a model API, and no SDK is imported anywhere (scar E2's chokepoint)", () => {
+  test("the network surface is ENUMERATED — two files, two endpoints, no SDK (scar E2's chokepoint)", () => {
     const endpoints: string[] = [];
     const callers: string[] = [];
     for (const file of tsFiles(SRC)) {
       const raw = readFileSync(file, "utf8");
       // NOTE: line-comment stripping eats `https://…`, so the endpoint scan runs
       // on the raw text — which is stricter, not looser.
-      if (/api\.anthropic\.com/.test(raw)) endpoints.push(file.slice(SRC.length));
+      if (/api\.anthropic\.com|api\.voyageai\.com/.test(raw)) endpoints.push(file.slice(SRC.length));
       const text = raw.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
       // Zero runtime dependencies: no SDK import anywhere in the package.
       expect({ file: file.slice(SRC.length), sdk: /from\s+"@anthropic-ai\//.test(text) }).toEqual({
@@ -179,8 +202,15 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
       // The only place that resolves a network verb at all.
       if (/globalThis[^\n]*fetch|doFetch\s*\(/.test(text)) callers.push(file.slice(SRC.length));
     }
+    // BOTH endpoints live in config.ts, where an owner can read the whole egress
+    // surface of this package on one page — that is the property, not "one".
     expect(endpoints).toEqual(["adapters/claude-code/config.ts"]);
-    expect(callers).toEqual(["adapters/claude-code/interpret-client.ts"]);
+    // And exactly two files resolve a network verb, both named. The list is the
+    // point: a third one appearing is a review event, not a merge.
+    expect(callers.sort()).toEqual([
+      "adapters/claude-code/embed-client.ts",
+      "adapters/claude-code/interpret-client.ts",
+    ]);
   });
 
   test("every session-ending host event is wired, and each maps to a boundary kind", () => {
@@ -939,5 +969,498 @@ describe("every ingestion entrance this adapter creates goes through the battery
     const prose = files.join("\n");
     expect(prose.length).toBeGreaterThan(0);
     expect(prose).not.toContain(CREDENTIAL);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The embed client — batched, isolated per chunk, and refusing BY NAME
+//
+// NO TEST HERE MAKES A NETWORK CALL. Every one supplies its own `fetch`, and
+// the tests about a MISSING credential assert the fake was never reached — "it
+// failed" is not the property; "it refused before the socket" is.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A deterministic stand-in for a real vector: same text ⇒ same vector, always. */
+function vectorFor(text: string): number[] {
+  const v = [0, 0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < text.length; i += 1) {
+    const at = i % 8;
+    v[at] = ((v[at] as number) + text.charCodeAt(i)) % 97;
+  }
+  const norm = Math.sqrt(v.reduce((s, n) => s + n * n, 0)) || 1;
+  return v.map((n) => n / norm);
+}
+
+interface VoyageCall {
+  url: string;
+  init: RequestInit;
+  body: { model?: string; input?: string[] };
+}
+
+/**
+ * A fake Voyage endpoint. `poison` names a text whose CHUNK the far end rejects
+ * — the E1 scenario: one bad item, and the question is what becomes of its
+ * siblings.
+ */
+function voyageFetch(
+  opts: { poison?: string; short?: boolean; garbage?: boolean; status?: number } = {},
+): { calls: VoyageCall[]; fetch: FetchLike } {
+  const calls: VoyageCall[] = [];
+  return {
+    calls,
+    fetch: async (url: string, init: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init.body)) as { model?: string; input?: string[] };
+      calls.push({ url, init, body });
+      const input = body.input ?? [];
+      if (opts.poison !== undefined && input.includes(opts.poison)) {
+        return new Response("bad input", { status: opts.status ?? 400 });
+      }
+      if (opts.garbage === true) return new Response(JSON.stringify({ nope: true }), { status: 200 });
+      const data = input.map((t) => ({ embedding: vectorFor(t) }));
+      if (opts.short === true) data.pop();
+      return new Response(JSON.stringify({ data }), { status: 200 });
+    },
+  };
+}
+
+describe("embed-client — the request, the batches, and every refusal by name", () => {
+  test("the request carries the pinned model and the key as a HEADER, never a query", async () => {
+    const { calls, fetch } = voyageFetch();
+    const client = embedClient({ config: config(), fetch });
+    const batch = await client(["a memory about cold brew", "a memory about the dashboard"]);
+
+    expect(batch.requested).toBe(2);
+    expect(batch.returned).toBe(2);
+    expect(batch.chunks).toBe(1);
+    expect(batch.failures).toEqual([]);
+    expect(batch.model).toBe(DEFAULT_EMBED_MODEL);
+    expect(batch.vectors[0]).toEqual(vectorFor("a memory about cold brew"));
+
+    const call = calls[0] as VoyageCall;
+    expect(call.url).toBe(VOYAGE_ENDPOINT);
+    expect(call.body.model).toBe(DEFAULT_EMBED_MODEL);
+    expect(call.body.input).toEqual(["a memory about cold brew", "a memory about the dashboard"]);
+    // The credential is a header. A URL is logged by every proxy on the way.
+    const headers = call.init.headers as Record<string, string>;
+    expect(headers["authorization"]).toBe("Bearer pa-test-not-a-real-key");
+    expect(call.url).not.toContain("pa-test-not-a-real-key");
+  });
+
+  test("large input is CHUNKED, and one poisoned item fails only its own chunk (scar E1)", async () => {
+    const texts = Array.from({ length: 6 }, (_, i) => `memory number ${i}`);
+    const { calls, fetch } = voyageFetch({ poison: "memory number 3", status: 400 });
+    const events: { name: string; data: Record<string, unknown> }[] = [];
+    const client = embedClient({
+      config: config(),
+      fetch,
+      batchSize: 2,
+      onEvent: (name, data) => events.push({ name, data }),
+    });
+    const batch = await client(texts);
+
+    expect(batch.chunks).toBe(3);
+    expect(calls.length).toBe(3);
+    // The poisoned chunk's slots are NULL; every sibling's vector stands.
+    expect(batch.vectors[0]).toEqual(vectorFor("memory number 0"));
+    expect(batch.vectors[1]).toEqual(vectorFor("memory number 1"));
+    expect(batch.vectors[2]).toBe(null);
+    expect(batch.vectors[3]).toBe(null);
+    expect(batch.vectors[4]).toEqual(vectorFor("memory number 4"));
+    expect(batch.vectors[5]).toEqual(vectorFor("memory number 5"));
+    expect(batch.returned).toBe(4);
+    // And the failure NAMES itself — which chunk, where it started, and why.
+    expect(batch.failures).toEqual([
+      { chunk: 1, from: 2, count: 2, code: "HTTP_ERROR", status: 400 },
+    ]);
+    expect(events.filter((e) => e.name === "embed.chunk.failed").length).toBe(1);
+    // Telemetry is content-by-reference: no embedded text in any payload.
+    expect(JSON.stringify(events)).not.toContain("memory number");
+  });
+
+  test("a SHORT response is a failure, not data — vectors are never misaligned", async () => {
+    const { fetch } = voyageFetch({ short: true });
+    const client = embedClient({ config: config(), fetch });
+    const batch = await client(["one", "two", "three"]);
+    expect(batch.vectors).toEqual([null, null, null]);
+    expect(batch.failures[0]?.code).toBe("WRONG_VECTOR_COUNT");
+  });
+
+  test("a body with no embeddings in it refuses by name rather than inventing vectors", async () => {
+    const { fetch } = voyageFetch({ garbage: true });
+    const client = embedClient({ config: config(), fetch });
+    const batch = await client(["one"]);
+    expect(batch.vectors).toEqual([null]);
+    expect(batch.failures[0]?.code).toBe("BAD_RESPONSE");
+  });
+
+  test("a MISSING key refuses with the right reason, before any socket opens", async () => {
+    delete process.env[EMBED_KEY_ENV];
+    let called = false;
+    const client = embedClient({
+      config: config(),
+      fetch: async () => {
+        called = true;
+        return new Response("{}", { status: 200 });
+      },
+    });
+    await expect(client(["anything"])).rejects.toThrow(EmbedError);
+    // THE REASON, not merely the failure — and the socket was never reached.
+    expect(called).toBe(false);
+    try {
+      await client(["anything"]);
+      throw new Error("did not refuse");
+    } catch (err) {
+      expect((err as EmbedError).code).toBe("NO_API_KEY");
+      expect((err as EmbedError).detail["env"]).toBe(EMBED_KEY_ENV);
+    }
+  });
+
+  test("an EXPIRED placeholder seat refuses too — a vector's generation is its identity", async () => {
+    let called = false;
+    const client = embedClient({
+      config: config({
+        models: { embed: { id: "voyage-next", placeholder: true, expires: "2026-01-01" } },
+      }),
+      today: "2026-06-01",
+      fetch: async () => {
+        called = true;
+        return new Response("{}", { status: 200 });
+      },
+    });
+    try {
+      await client(["anything"]);
+      throw new Error("did not refuse");
+    } catch (err) {
+      expect((err as EmbedError).code).toBe("SEAT_UNUSABLE");
+      expect((err as EmbedError).detail["status"]).toBe("expired");
+    }
+    expect(called).toBe(false);
+  });
+
+  test("the key comes from the ENVIRONMENT only — never from a file (scar §2.18)", () => {
+    const src = readFileSync(
+      fileURLToPath(new URL("../src/adapters/claude-code/embed-client.ts", import.meta.url)),
+      "utf8",
+    );
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/.*$/gm, " ");
+    expect(/readFileSync|readFile\(|existsSync/.test(code)).toBe(false);
+    expect(code).toContain("process.env[EMBED_KEY_ENV]");
+  });
+
+  test("the injected signal reaches the socket, and an abort stops the run BY NAME", async () => {
+    const controller = new AbortController();
+    const { calls, fetch } = voyageFetch();
+    const client = embedClient({ config: config(), fetch, signal: controller.signal });
+    await client(["one"]);
+    // The caller's abort is the caller's: it is handed to fetch, not re-invented.
+    expect((calls[0] as VoyageCall).init.signal).toBe(controller.signal);
+
+    controller.abort();
+    const after = await client(["two", "three"]);
+    expect(calls.length).toBe(1); // no second socket was opened
+    expect(after.vectors).toEqual([null, null]);
+    expect(after.failures).toEqual([{ chunk: 0, from: 0, count: 2, code: "ABORTED" }]);
+  });
+
+  test("a fetch that REJECTS mid-run is isolated, and its siblings still land", async () => {
+    let n = 0;
+    const client = embedClient({
+      config: config(),
+      batchSize: 1,
+      fetch: async (_url, init) => {
+        n += 1;
+        if (n === 1) throw new Error("socket died");
+        const body = JSON.parse(String(init.body)) as { input: string[] };
+        return new Response(
+          JSON.stringify({ data: body.input.map((t) => ({ embedding: vectorFor(t) })) }),
+          { status: 200 },
+        );
+      },
+    });
+    const batch = await client(["first", "second"]);
+    expect(batch.vectors[0]).toBe(null);
+    expect(batch.vectors[1]).toEqual(vectorFor("second"));
+    expect(batch.failures[0]?.code).toBe("BAD_RESPONSE");
+  });
+});
+
+describe("the live embedder — a sync face over an async client, and an honest miss", () => {
+  test("the sync face never opens a socket: it MISSES until the live half fills it", async () => {
+    const { calls, fetch } = voyageFetch();
+    const events: string[] = [];
+    const live = createEmbedder({ config: config(), fetch, onEvent: (name) => events.push(name) });
+
+    // Before anything was fetched, the store's socket gets null — never `[]`,
+    // which would be a dim-0 row every cosine reads as 0.0 similarity.
+    expect(live.embed("cold brew, never iced")).toBe(null);
+    expect(calls.length).toBe(0);
+    expect(events).toContain("embed.cache.miss");
+    expect(live.stats().misses).toBe(1);
+
+    const got = await live.vector("cold brew, never iced");
+    expect(got).toEqual(vectorFor("cold brew, never iced"));
+    // Now the SAME text answers synchronously — this is what puts a vector in
+    // box 3 at put time for a memory the async door already paid for.
+    expect(live.embed("cold brew, never iced")).toEqual(vectorFor("cold brew, never iced"));
+    expect(live.stats().hits).toBe(1);
+    expect(calls.length).toBe(1);
+
+    // And a repeat costs nothing: the cache answers before the client is asked.
+    await live.vector("cold brew, never iced");
+    expect(calls.length).toBe(1);
+  });
+
+  test("`warm` fetches a whole batch at once, and a poisoned chunk costs only itself", async () => {
+    const texts = ["alpha thought", "beta thought", "gamma thought", "delta thought"];
+    const { calls, fetch } = voyageFetch({ poison: "gamma thought" });
+    const live = createEmbedder({ config: config(), fetch, batchSize: 2 });
+    const landed = await live.warm(texts);
+
+    expect(calls.length).toBe(2);
+    expect(landed).toBe(2);
+    expect(live.embed("alpha thought")).toEqual(vectorFor("alpha thought"));
+    expect(live.embed("gamma thought")).toBe(null);
+    expect(live.stats().failed).toBe(2);
+  });
+
+  test("a missing credential is LOUD in telemetry and NULL to the caller — never a throw", async () => {
+    delete process.env[EMBED_KEY_ENV];
+    const events: { name: string; data: Record<string, unknown> }[] = [];
+    const { calls, fetch } = voyageFetch();
+    const live = createEmbedder({
+      config: config(),
+      fetch,
+      onEvent: (name, data) => events.push({ name, data }),
+    });
+    // An embedder that cannot embed must never fail a deposit: box 3 is
+    // rebuildable, a memory is not.
+    expect(await live.vector("something worth keeping")).toBe(null);
+    expect(calls.length).toBe(0);
+    const refused = events.filter((e) => e.name === "embed.refused");
+    expect(refused.length).toBe(1);
+    expect(refused[0]?.data["code"]).toBe("NO_API_KEY");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The wiring: the store's socket, the egress knob, and novelty stops being null
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the embedder reaches the store — indexed at put, recomputed at rebuild", () => {
+  /** A sync fake in the shape the store's socket takes. No network anywhere. */
+  const fake = (text: string): number[] => vectorFor(text);
+
+  test("a fake Embedder through Counterpart.open indexes at PUT and again at REBUILD", () => {
+    const c = Counterpart.open({ dir, embed: fake });
+    open.push(c);
+    const id = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Cold brew every morning, never iced coffee",
+    });
+
+    // Indexed AT PUT: the vector is in box 3 and answers a vector query.
+    const cue = fake(indexTextOf(null, "Cold brew every morning, never iced coffee"));
+    expect(c.store.nearestTo(cue, 3)[0]?.id).toBe(id);
+    // And it is the context slice a novelty measurement is error against.
+    expect(c.store.neighbourVectors(cue, 3).length).toBe(1);
+
+    // Recomputed AT REBUILD: nothing is declared un-recomputed.
+    const report = c.store.rebuildCache();
+    expect(report.indexed).toBe(1);
+    expect(report.unrecomputed).toBe(0);
+    expect(report.declared).toEqual([]);
+    expect(c.store.nearestTo(cue, 3)[0]?.id).toBe(id);
+  });
+
+  test("an embedder that MISSES is counted and declared — never a dim-0 row", () => {
+    // The production shape: a cache-backed sync face with nothing warm in it.
+    const c = Counterpart.open({ dir, embed: () => null });
+    open.push(c);
+    c.store.put({ type: "memory", kind: "fact", body: "a memory nobody embedded" });
+
+    const report = c.store.rebuildCache();
+    expect(report.indexed).toBe(1);
+    expect(report.unrecomputed).toBe(1);
+    expect(report.declared[0]?.what).toBe("embeddings");
+    // Nothing was written to the vector table, so nothing lies about similarity.
+    expect(c.store.neighbourVectors([1, 0, 0], 5)).toEqual([]);
+    // The lexical index is untouched by any of this — box 3's other half works.
+    expect(c.store.search("embedded")[0]).toBeDefined();
+  });
+});
+
+describe("the egress knob — off by default, and honoured by both composition roots", () => {
+  test("without the knob NO client exists, even with a key in the environment", async () => {
+    expect(openEmbedder(config())).toBe(null);
+    expect(openEmbedder(config({ embedder: { enabled: false } }))).toBe(null);
+    // Switched on, but the session is an INSTRUMENT: an instrument opens no
+    // sockets (docs/observer-mode.md, scar E7).
+    expect(openEmbedder(config({ embedder: { enabled: true }, observer: true }))).toBe(null);
+    expect(openEmbedder(config({ embedder: { enabled: true } }))).not.toBe(null);
+
+    // And the whole adapter path: a deposit with the knob off touches no socket.
+    const { a } = adapter();
+    const out = await a.counterpart.submitSessionEnd(
+      { content: "A deposit made with the embedder switched off, which must reach no network.", kind: "fact" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.deposited).toBe(true);
+    // Nothing was embedded, so novelty stays null WITH ITS REASON — the record
+    // that says "no vector reached this seam", not a defaulted number.
+    expect(a.counterpart.store.physicsOf(out.memoryId as string).salience.novelty).toBe(null);
+  });
+
+  test("the config knob parses like every other, and a half-written one stands down", () => {
+    const loaded = loadConfig({
+      embedder: { enabled: true },
+      models: { embed: { id: "voyage-3-large" }, interpret: { id: "claude-opus-5" } },
+    });
+    expect(loaded.ok).toBe(true);
+    expect(loaded.config.embedder).toEqual({ enabled: true });
+    expect(loaded.config.models?.embed).toEqual({ id: "voyage-3-large" });
+    expect(loaded.config.models?.interpret).toEqual({ id: "claude-opus-5" });
+
+    // An unreadable egress knob fails toward STANDING DOWN, never toward "on".
+    const bad = loadConfig({ embedder: { enabled: "yes" } });
+    expect(bad.ok).toBe(false);
+    expect(bad.reason).toBe("unreadable");
+    expect(bad.config).toEqual({ observer: true });
+    expect(loadConfig({ models: { embed: { id: 7 } } }).config).toEqual({ observer: true });
+
+    // The seat has its own pinned default and its own expiry rules.
+    expect(seatStatus("embed", undefined, "2026-06-01", DEFAULT_EMBED_MODEL)).toEqual({
+      seat: "embed",
+      id: DEFAULT_EMBED_MODEL,
+      status: "pinned",
+      usable: true,
+    });
+  });
+});
+
+describe("novelty stops being null — the authored door measures prediction error", () => {
+  test("the FIRST deposit is blind for lack of CONTEXT, not for lack of a vector", async () => {
+    const { fetch, calls } = voyageFetch();
+    const { spawner } = fakeSpawner();
+    const a = openAdapter(config({ embedder: { enabled: true } }), {
+      command: "/bin/true",
+      args: ["runner"],
+      spawner,
+      embedFetch: fetch,
+    });
+    open.push(a.counterpart);
+
+    const first = await a.counterpart.submitSessionEnd(
+      {
+        content: "The rebuildable cache is deliberately left out of the backup set, because its loss is a re-index.",
+        kind: "fact",
+      },
+      { session: "s1", scope: "proj" },
+    );
+    expect(first.deposited).toBe(true);
+    // A vector WAS fetched — the door is live, not decorative.
+    expect(calls.length).toBe(1);
+    // Box 3 held nothing to be surprised against, so novelty is null. That is a
+    // DIFFERENT record from "no vector reached the seam", and the difference is
+    // the whole reason `NoveltyReason` is a vocabulary rather than a boolean.
+    const store = a.counterpart.store;
+    expect(store.physicsOf(first.memoryId as string).salience.novelty).toBe(null);
+    // The vector the gate paid for is the vector box 3 indexed: ONE call, both
+    // jobs — which is what makes the second deposit measurable.
+    expect(store.neighbourVectors(vectorFor("x"), 5).length).toBe(1);
+
+    const second = await a.counterpart.submitSessionEnd(
+      {
+        content: "Backups cover canonical prose and the operational database, and skip the cache on purpose.",
+        kind: "fact",
+      },
+      { session: "s1", scope: "proj" },
+    );
+    expect(second.deposited).toBe(true);
+    // AND HERE IT IS: a computed number, on a real memory, from a real vector.
+    const novelty = store.physicsOf(second.memoryId as string).salience.novelty;
+    expect(typeof novelty).toBe("number");
+    expect(novelty).toBeGreaterThanOrEqual(0);
+    expect(novelty).toBeLessThanOrEqual(1);
+    expect(calls.length).toBe(2);
+  });
+
+  test("the DETACHED WORKER embeds too — the root that mints is the root that must", async () => {
+    const { a } = adapter();
+    a.stop(input());
+    a.counterpart.close();
+    open.length = 0;
+
+    const embedded: string[][] = [];
+    const report = await runOnce({
+      config: config({ embedder: { enabled: true } }),
+      today: "2026-01-02",
+      date: "2026-01-02",
+      // ONE fake for the whole worker; it answers by endpoint, which is how a
+      // test proves the two clients are two clients.
+      fetch: async (url: string, init: RequestInit): Promise<Response> => {
+        if (url === VOYAGE_ENDPOINT) {
+          const body = JSON.parse(String(init.body)) as { input: string[] };
+          embedded.push(body.input);
+          return new Response(
+            JSON.stringify({ data: body.input.map((t) => ({ embedding: vectorFor(t) })) }),
+            { status: 200 },
+          );
+        }
+        return okResponse(
+          streamed(
+            '[{"content":"The cache is rebuildable from canonical files, which is why it never enters the backup set.","kind":"fact"}]',
+          ),
+        );
+      },
+    });
+    expect(report.minted).toBe(1);
+    // ONE batched call for the chunk's mints — not one round trip per proposal.
+    expect(embedded.length).toBe(1);
+    expect(embedded[0]?.length).toBe(1);
+
+    // And the vector landed in box 3, on the path that mints most memories.
+    const next = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(next.counterpart);
+    expect(next.counterpart.store.neighbourVectors(vectorFor("anything"), 5).length).toBe(1);
+  });
+
+  test("a deposit whose embedding FAILS still lands — blind, and countably so", async () => {
+    const { spawner } = fakeSpawner();
+    const a = openAdapter(config({ embedder: { enabled: true } }), {
+      command: "/bin/true",
+      args: ["runner"],
+      spawner,
+      embedFetch: async () => new Response("upstream is down", { status: 503 }),
+    });
+    open.push(a.counterpart);
+
+    const out = await a.counterpart.submitSessionEnd(
+      { content: "A memory made while the embedding provider was returning 503s all afternoon.", kind: "fact" },
+      { session: "s1", scope: "proj" },
+    );
+    // The memory is not lost to a failing side service (box 3 is rebuildable, a
+    // memory is not), and the failure is named in telemetry.
+    expect(out.deposited).toBe(true);
+    expect(a.counterpart.store.physicsOf(out.memoryId as string).salience.novelty).toBe(null);
+  });
+
+  test("an OBSERVER opens no socket at all — the stand-down is structural", async () => {
+    const { fetch, calls } = voyageFetch();
+    // An observer refuses to open a store that does not exist yet, so the dir is
+    // initialized by an ordinary session first — as it would be in life.
+    Counterpart.open({ dir }).close();
+
+    const c = Counterpart.open({
+      dir,
+      observer: true,
+      embed: (t: string) => vectorFor(t),
+      vectors: createEmbedder({ config: config(), fetch }),
+    });
+    open.push(c);
+    await c.submitSessionEnd(
+      { content: "An instrument's deposit, which deposits nothing and embeds nothing.", kind: "fact" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(calls.length).toBe(0);
   });
 });

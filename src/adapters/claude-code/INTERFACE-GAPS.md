@@ -167,3 +167,58 @@ into the wrapper.
    code compares against it yet, because every foreground path is an appender and
    the heavy work is already detached. When something in the foreground can grow,
    this is the number it must be measured against.
+
+---
+
+## 8. The embedder: what it closed, and the four things it deliberately did not
+
+Written 2026-08-29 alongside `embed-client.ts` — the first embedder this package
+has ever had. `Store.open({ embed })` held the socket from the day it was
+written and nothing constructed one, so every memory in the store recorded
+`novelty: null`, reason `no-chunk-vector` (replay review F4/F5).
+
+**Closed.** A Voyage client on bare `fetch`, chunked with per-chunk failure
+isolation (E1), credential from `VOYAGE_API_KEY` alone with a named pre-flight
+refusal (§2.18), its own pinned seat with an expiring placeholder (§2.15), and
+egress behind an explicit `embedder.enabled` knob that defaults OFF. Both
+composition roots build it: `openAdapter` and `bin/runner.ts` — the second
+matters more, because the sweep is where most memories are minted.
+
+### 8a. `Embedder` was widened to `(text) => number[] | null` — a core edit
+
+A production embedder is a network client behind a cache, and `put` /
+`rebuildCache` are synchronous: a lookup that misses has nothing to return.
+Throwing would fail a write over a rebuildable cache; returning `[]` would write
+a dim-0 row that every cosine reads as 0.0 similarity. So a miss is `null` and is
+counted as `unrecomputed` — the same shape `tools/replay/INTERFACE-GAPS §4` asks
+for ("a cache miss must be a counted `not-exercised`"). Two call sites in
+`store/index.ts` changed; every existing sync embedder still typechecks.
+
+### 8b. The sweep door still passes NO `chunkVector` to `encodeChunk`
+
+Novelty on the fallback path needs `ChunkInput.chunkVector`, and supplying it
+also switches ON preselection's semantic channel — an owner decision that is
+still open. So the sweep WARMS the embedder for the proposals it is about to
+mint (one batched call per chunk, which is what fills box 3) and selects
+nothing. Swept memories therefore still record `novelty: null`; authored ones no
+longer do. When the owner rules on preselection, the vector is already in hand.
+
+### 8c. The episode gate can only ask what is already cached
+
+`EpisodeGate` is synchronous by type, so `episodeGate()` cannot pay for a live
+embedding the way `batteryGate()` can (`GateFn` may return a promise, and
+`submitProposal` awaits it). It gets `VectorSource.cached`, which answers only
+when the text was already fetched — usually a miss, and now a counted one
+(`embed.cache.miss`). The honest fix is the same one gap 3 names: `self/` should
+take its gate the way `ingestEpisode` does, and the type could then admit a
+promise.
+
+### 8d. `GateVerdict` gained `novelty` — without it the wire was decorative
+
+The battery computed novelty at the authored door and the verdict had nowhere to
+put it, so `submitProposal` built the `Proposal` from the DRAFT's salience and
+the number was discarded before `mintProposal` ever saw it. Three lines in
+`remember/proposals.ts` (an optional field on the `ok` arm, and a merge into
+`proposal.salience`) carry it to the mint. It is optional and null-able on
+purpose: a gate with no vector source omits it, a gate that tried and could not
+measure sends `null`, and those stay different records.
