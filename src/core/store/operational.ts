@@ -338,10 +338,22 @@ function readSchemaVersion(db: Db): string | null {
  */
 export function openOperational(path: string, opts: OpenOperationalOptions = {}): Db {
   const db = openDb(path);
-  if (readSchemaVersion(db) === String(SCHEMA_VERSION)) return db;
+  const found = readSchemaVersion(db);
+  if (found === String(SCHEMA_VERSION)) return db;
+  // A store from a NEWER build must never be stamped backwards: v4 is the
+  // first version doing column surgery, and "migrating" a future file would
+  // mean rewriting state this build does not understand (PR-2 review nit).
+  if (found !== null && Number.parseInt(found, 10) > SCHEMA_VERSION) {
+    db.close();
+    throw new StoreError("SCHEMA_AHEAD", { path, expected: SCHEMA_VERSION, found });
+  }
   if (opts.initialize === false) {
     db.close();
-    throw new StoreError("STORE_UNINITIALIZED", { path, expected: SCHEMA_VERSION });
+    throw new StoreError("STORE_UNINITIALIZED", {
+      path,
+      expected: SCHEMA_VERSION,
+      found: found ?? "none",
+    });
   }
   db.transaction(() => {
     for (const sql of DDL) db.exec(sql);

@@ -282,6 +282,9 @@ function writeElement(
       day,
       protected: el.protected,
       claimedSalience: el.claimedSalience,
+      // Honest attribution (the PR-2 review's blocker): lived v1 state, full
+      // salience floor, and NEVER "authored" — nobody authored it in v2.
+      channel: "migrated",
     });
     id = outcome.id;
     reason = outcome.reason;
@@ -292,6 +295,7 @@ function writeElement(
       day,
       ...(el.statedOn === undefined || el.statedOn.length === 0 ? {} : { statedOn: el.statedOn }),
       claimedSalience: el.claimedSalience,
+      channel: "migrated",
     });
     id = outcome.id;
     reason = outcome.reason;

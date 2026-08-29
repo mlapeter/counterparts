@@ -487,7 +487,7 @@ export class Schemas {
       day: input.day,
       dimensions: input.dimensions,
       claimedSalience: input.claimedSalience ?? null,
-      channel: input.channel ?? "authored",
+      ...(input.channel === undefined ? {} : { channel: input.channel }),
       protectedFlag: input.protected === true,
       meta: { groundedIn: [...(input.groundedIn ?? [])] },
     });
@@ -538,7 +538,7 @@ export class Schemas {
       day: input.day,
       dimensions: input.dimensions,
       claimedSalience: input.claimedSalience ?? null,
-      channel: input.channel ?? "authored",
+      ...(input.channel === undefined ? {} : { channel: input.channel }),
       protectedFlag: false,
       happenedOn: statedOn,
       meta: { statedOn, statedOnDay: input.day },
@@ -581,6 +581,11 @@ export class Schemas {
     salience?: Salience;
     seed?: Partial<MemoryPhysics>;
   }): string {
+    // The CEILING derives from the channel with "authored" as the arithmetic
+    // default — but the PERSISTED source is `spec.channel ?? null`: a caller
+    // that says nothing records "unrecorded", never a claim of authorship. The
+    // PR-2 review's blocker was exactly this conflation: a `?? "authored"`
+    // persistence default stamped every migrated belief as authored-in-v2.
     const channel = spec.channel ?? "authored";
     let salience: Salience;
     if (spec.salience !== undefined) {
@@ -627,7 +632,7 @@ export class Schemas {
         protected: spec.protectedFlag,
         ...(spec.seed ?? {}),
       },
-      source: channel,
+      ...(spec.channel === undefined ? {} : { source: spec.channel }),
     };
     if (spec.happenedOn !== undefined) put.happenedOn = spec.happenedOn;
     const id = this.store.put(put);
@@ -824,6 +829,11 @@ export class Schemas {
         // a belief is as strongly held as what made it (NOTES §3).
         salience: challenger.salience,
         physics: { birthDay: input.day, lastUsedDay: input.day, ...seed },
+        // The channel vocabulary's fifth member finally has its writer (PR-2
+        // review should-fix 1): an accommodation successor is the engine
+        // revising under pressure, and its provenance is the challenger.
+        source: "accommodation",
+        origin: { ref: input.challengerId },
       },
       "revised-by-pressure",
     );

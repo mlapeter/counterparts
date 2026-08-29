@@ -843,10 +843,29 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
       const rows = d
         .prepare("PRAGMA table_info(memories)")
         .all() as { name: string; type: string; notnull: number; dflt_value: unknown }[];
+      // Indexes too (PR-2 review nit): a future ADDED_COLUMNS entry carrying an
+      // index would otherwise diverge under a green test.
+      const indexes = d.prepare("PRAGMA index_list(memories)").all() as { name: string }[];
       d.close();
-      return rows.map((r) => `${r.name} ${r.type} ${r.notnull} ${String(r.dflt_value)}`).sort();
+      return [
+        ...rows.map((r) => `${r.name} ${r.type} ${r.notnull} ${String(r.dflt_value)}`),
+        ...indexes.map((i) => `index ${i.name}`),
+      ].sort();
     };
     expect(info(paths.operational(dir))).toEqual(info(paths.operational(freshDir)));
+  });
+
+  test("a store from a NEWER build is refused, never stamped backwards (SCHEMA_AHEAD)", async () => {
+    store().close();
+    open.length = 0;
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(paths.operational(dir));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '99')");
+    db.close();
+    // v4 is the first version doing column surgery: "migrating" a future file
+    // would mean rewriting state this build does not understand.
+    expect(code(() => store())).toBe("SCHEMA_AHEAD");
+    expect(code(() => store({ observer: true }))).toBe("SCHEMA_AHEAD");
   });
 
   test("an ABSENT store refuses under observer — and leaves NOTHING behind (cli §7)", () => {

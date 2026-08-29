@@ -1583,6 +1583,24 @@ describe("SEAMS N — a self-claim repeat routes through the freeze at the minti
     expect(/source:\s*channel/.test(code)).toBe(true);
     expect(/source:\s*proposal\./.test(code)).toBe(false);
     expect(/channel:\s*proposal\./.test(code)).toBe(false);
+
+    // The SAME guard for the schemas path (PR-2 review should-fix 3): the
+    // element seam's channel flows only from the input's own `channel` field —
+    // never from a statement, a claim, or any parsed author content — and the
+    // PERSISTED source only from `spec.channel`, never a default: an unstated
+    // channel must record nothing (the review's blocker was a `?? "authored"`
+    // persistence default stamping migrated beliefs as authored-in-v2).
+    const schemasSrc = readFileSync(
+      fileURLToPath(new URL("../src/core/schemas/index.ts", import.meta.url)),
+      "utf8",
+    );
+    const schemasCode = schemasSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(/channel:\s*input\.channel\b/.test(schemasCode)).toBe(true);
+    expect(/source:\s*spec\.channel\b/.test(schemasCode)).toBe(true);
+    expect(/source:\s*(?:channel\b|"authored")/.test(schemasCode)).toBe(false);
+    expect(
+      /channel:\s*(?:input|spec)\.(?:statement|claimedSalience|dimensions)/.test(schemasCode),
+    ).toBe(false);
   });
 
   test("a claim against an ORDINARY memory is not self-narration and moves normally", async () => {

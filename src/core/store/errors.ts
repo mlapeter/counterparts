@@ -38,6 +38,8 @@ export type StoreErrorCode =
   /** An instrument opened a store that does not exist yet, or is a schema behind:
    *  initializing it would be writing at open, which an observer may not do. */
   | "STORE_UNINITIALIZED"
+  /** A store written by a NEWER build: refused rather than stamped backwards. */
+  | "SCHEMA_AHEAD"
   | "SQLITE_UNAVAILABLE"
   | "LAYOUT_UNCLASSIFIED";
 

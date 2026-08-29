@@ -240,8 +240,9 @@ export function computedSal(s: Salience): number {
 export interface SalienceLiftEvent {
   readonly event: "salience.lifted";
   readonly computed: number;
-  /** The RAW claim as the author made it — pre-cap. Telemetry must carry it, or
-   *  the re-run's watch metrics cannot propose the right ceiling. */
+  /** The claim as the author made it (clamped to [0,1] at intake), pre-CAP.
+   *  Telemetry must carry it, or the re-run's watch metrics cannot propose
+   *  the right ceiling. */
   readonly claimed: number;
   /** The claim actually stored (post-cap): what `sal(m)` will honor. */
   readonly applied: number;

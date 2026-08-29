@@ -425,6 +425,8 @@ export interface SchemaBytesReport {
    * this very valve seven times.
    */
   readonly quarantined: number;
+  /** The bytes those rows would have weighed — what the quarantine set aside. */
+  readonly quarantinedBytes: number;
 }
 
 /**
@@ -437,18 +439,29 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
   const seen = new Set<string>();
   const weighed: { id: string; bytes: number }[] = [];
   let quarantined = 0;
+  let quarantinedBytes = 0;
   for (const id of [
     ...store.list({ band: "identity", archived: false }),
     ...store.list({ kind: "self", archived: false }),
   ]) {
     if (seen.has(id)) continue;
     seen.add(id);
-    // The quarantine (see the report field). Identity-band rows are exempt by
-    // construction: nothing is born into identity, so an identity row got there
-    // by a counted crossing, which is earned whatever its birth channel was.
+    // The quarantine (see the report field). Two exemptions, both earned:
+    // identity-band rows got there by a counted crossing (nothing is born into
+    // identity), and PROTECTED rows are a deliberate owner act — and since
+    // `enumerate()` renders every protected row, exempting them here keeps the
+    // measured set equal to the rendered set (PR-2 review should-fix 2: a
+    // weighed prompt byte must never be invisible to the byte valve).
     const row = store.row(id);
-    if (row !== undefined && row.source === "fallback" && row.band !== "identity") {
+    if (
+      row !== undefined &&
+      row.source === "fallback" &&
+      row.band !== "identity" &&
+      row.protected !== 1
+    ) {
       quarantined += 1;
+      const q = enumerateOne(store, id, day);
+      if (q !== null) quarantinedBytes += q.bytes;
       continue;
     }
     const e = enumerateOne(store, id, day);
@@ -466,5 +479,6 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
     tripped: bytes >= t.SCHEMA_BYTES_TRIP,
     heaviest: weighed.slice(0, 5),
     quarantined,
+    quarantinedBytes,
   };
 }

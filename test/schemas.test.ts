@@ -607,13 +607,75 @@ describe("belief revision by pressure", () => {
     expect(s.store.row(migrated)?.claimed).toBe(0.9);
     expect(s.store.row(migrated)?.source).toBe("migrated");
 
-    // And the default channel is authored — recorded, not assumed silent.
+    // A caller that names NO channel records NOTHING — the persisted source is
+    // never defaulted (the PR-2 review's blocker: a `?? "authored"` persistence
+    // default stamped every migrated belief as authored-in-v2). The ceiling
+    // arithmetic still defaults authored; only the CLAIM of authorship must be
+    // explicit.
+    const unstated = s.addBelief({
+      entityId,
+      statement: "Beliefs placed with no channel stay honestly unrecorded.",
+      day: 0,
+    }).id as string;
+    expect(s.store.row(unstated)?.source).toBeNull();
+
+    // Authorship, when actually stated, records.
     const authored = s.addBelief({
       entityId,
       statement: "Beliefs placed by the experiencer keep their testimony whole.",
       day: 0,
+      channel: "authored",
     }).id as string;
     expect(s.store.row(authored)?.source).toBe("authored");
+  });
+
+  test("the ONLY live belief-placement caller stamps 'migrated' — asserted on the real path, not a hand-passed channel", async () => {
+    // The reviewer's catch: the previous test passed channel by hand while the
+    // real caller omitted it — a test passing for a reason unrelated to the
+    // production path. This one drives the migrate tool's own writeElements
+    // and reads the row it produced.
+    const { migrateAndRender } = await import("../tools/migrate/index.js");
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const v1 = mkdtempSync(join(tmpdir(), "counterparts-mig-v1-"));
+    const v2 = mkdtempSync(join(tmpdir(), "counterparts-mig-v2-"));
+    try {
+      mkdirSync(join(v1, "traces"), { recursive: true });
+      writeFileSync(
+        join(v1, "traces", "tr_belief.md"),
+        [
+          "---",
+          "id: tr_beliefsrc01",
+          "kind: person",
+          "scope: global",
+          "confidentiality: normal",
+          "salience: 0.6",
+          "gradient: 0.2",
+          "created_active_day: 3",
+          "---",
+          "Ada prefers async review over synchronous meetings, consistently.",
+        ].join("\n"),
+        "utf8",
+      );
+      const { report } = migrateAndRender({ source: v1, target: join(v2, "store"), apply: true });
+      expect(report.source_readonly.identical).toBe(true);
+      const migrated = Store.open({ dir: join(v2, "store") });
+      open.push(migrated);
+      const sources = migrated
+        .list({})
+        .map((id) => migrated.row(id)?.source)
+        .filter((s2) => s2 !== undefined);
+      // Every row the cutover minted is attributed migrated or honestly
+      // unrecorded — and NONE claims v2 authorship.
+      expect(sources.length).toBeGreaterThan(0);
+      expect(sources).not.toContain("authored");
+      expect(sources).toContain("migrated");
+    } finally {
+      const { rmSync } = await import("node:fs");
+      rmSync(v1, { recursive: true, force: true });
+      rmSync(v2, { recursive: true, force: true });
+    }
   });
 
   test("the belief row inherits the ENTITY's kind, so its inertia is the person's", () => {

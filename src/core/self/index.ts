@@ -314,7 +314,10 @@ export class Self {
     if (schema.quarantined > 0) {
       // The F8 quarantine, observable: a stood-aside row is counted, never
       // silently absent (scar §2.4).
-      this.emit("self.schema.quarantined", undefined, { count: schema.quarantined });
+      this.emit("self.schema.quarantined", undefined, {
+        count: schema.quarantined,
+        bytes: schema.quarantinedBytes,
+      });
     }
     if (schema.pressure) {
       this.emit("self.schema.pressure", undefined, {
