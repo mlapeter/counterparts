@@ -567,6 +567,55 @@ describe("belief revision by pressure", () => {
     return { s, entityId, beliefId };
   }
 
+  test("a FALLBACK-channel belief's claim is capped; a migrated one keeps the full floor (owner ruling 2026-08-29)", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai keeps shipping",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+
+    // The latent second door, closed: a belief placed on behalf of a sweep
+    // carries the model's claim, and the ceiling cuts it at the element seam.
+    const swept = s.addBelief({
+      entityId,
+      statement: "Bansai is the most important project that has ever existed.",
+      day: 0,
+      dimensions: { relevance: 0.3, emotional: 0.2, predictive: 0.3 },
+      claimedSalience: 0.95,
+      channel: "fallback",
+    }).id as string;
+    expect(s.store.row(swept)?.claimed).toBe(0.6);
+    expect(s.store.row(swept)?.source).toBe("fallback");
+    const lift = events.find((e) => e.event === "salience.lifted" && e.data?.["capped"] === true);
+    expect({ claimed: lift?.data?.["claimed"], ceiling: lift?.data?.["ceiling"] }).toEqual({
+      claimed: 0.95,
+      ceiling: 0.6,
+    });
+
+    // Migrated is lived v1 state: full floor, honestly attributed.
+    const migrated = s.addBelief({
+      entityId,
+      statement: "A v1 belief whose aggregate salience was earned by living it.",
+      day: 0,
+      dimensions: { relevance: 0.3, emotional: 0.2, predictive: 0.3 },
+      claimedSalience: 0.9,
+      channel: "migrated",
+    }).id as string;
+    expect(s.store.row(migrated)?.claimed).toBe(0.9);
+    expect(s.store.row(migrated)?.source).toBe("migrated");
+
+    // And the default channel is authored — recorded, not assumed silent.
+    const authored = s.addBelief({
+      entityId,
+      statement: "Beliefs placed by the experiencer keep their testimony whole.",
+      day: 0,
+    }).id as string;
+    expect(s.store.row(authored)?.source).toBe("authored");
+  });
+
   test("the belief row inherits the ENTITY's kind, so its inertia is the person's", () => {
     const { s, beliefId } = setup();
     expect(s.element(beliefId)?.kind).toBe("person");

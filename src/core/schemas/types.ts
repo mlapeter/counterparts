@@ -123,8 +123,15 @@ export interface BeliefInput {
   statement: string;
   day: number;
   dimensions?: DimensionsInput;
-  /** A FLOOR, never a value (physics §5.1). Clamped at the mint. */
+  /** A FLOOR, never a value (physics §5.1). Clamped at the mint — and capped
+   *  by the CHANNEL's ceiling (the authorship doctrine, owner ruling
+   *  2026-08-29): a fallback author's claim cuts to `SWEEP_CLAIM_CEILING`. */
   claimedSalience?: number | null;
+  /** Who is placing this belief. ENGINE-SET by the composition, defaulting
+   *  "authored"; the caller placing on behalf of a transcript sweep MUST pass
+   *  "fallback", and the migrate tool passes "migrated" (full floor — lived
+   *  v1 state). Persisted as the element's `source`. */
+  channel?: "authored" | "fallback" | "episode" | "accommodation" | "migrated";
   protected?: boolean;
   /** Provenance: the memory ids that grounded this belief. */
   groundedIn?: readonly string[];
@@ -150,6 +157,8 @@ export interface CurrentStateInput {
   statedOn?: string;
   dimensions?: DimensionsInput;
   claimedSalience?: number | null;
+  /** See `BeliefInput.channel` — same doctrine, same ceiling. */
+  channel?: "authored" | "fallback" | "episode" | "accommodation" | "migrated";
 }
 
 /**
