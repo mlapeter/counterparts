@@ -44,6 +44,19 @@ export const TUNABLES = {
   /** Distinct lived days of reinforcement required to promote (owner ruling N = 3).
    *  Same number, same ancestry, as the slow-kind revision pace (Amendment 15). */
   N_PROMOTION_DAYS: 3,
+  /**
+   * The salience-claim ceiling for a FALLBACK-minted memory (owner ruling
+   * 2026-08-29, the authorship doctrine's salience half): the experiencer's own
+   * "remember this" commands the full 0-1 floor — lived testimony, the analog
+   * of affect stamping a memory vivid at encoding — but the crash fallback's
+   * author is a model retelling a transcript after the fact, and a reteller's
+   * claim is CAPPED. The first blind replay showed why: 97.9% of sweep mints
+   * self-claimed importance (mode 0.8), parking ~75% of the store above
+   * THETA_SEM with no independent check (review F5). 0.6 clears the semantic
+   * floor (a crashed day still matters) and sits structurally below THETA_ID.
+   * WORKING DEFAULT — to be revisited against the re-run's watch metrics.
+   */
+  SWEEP_CLAIM_CEILING: 0.6,
 
   // --- §5.4 decay ---
   /** Stability base, lived days. Reproduces v0's -0.015/day over ~a month. */
@@ -227,8 +240,15 @@ export function computedSal(s: Salience): number {
 export interface SalienceLiftEvent {
   readonly event: "salience.lifted";
   readonly computed: number;
+  /** The RAW claim as the author made it — pre-cap. Telemetry must carry it, or
+   *  the re-run's watch metrics cannot propose the right ceiling. */
   readonly claimed: number;
+  /** The claim actually stored (post-cap): what `sal(m)` will honor. */
   readonly applied: number;
+  /** The ceiling this claim was subject to (1 for lived testimony). */
+  readonly ceiling: number;
+  /** True when the raw claim exceeded the ceiling and was cut down to it. */
+  readonly capped: boolean;
 }
 
 export interface SeamClamp {
@@ -236,6 +256,11 @@ export interface SeamClamp {
   salience: Salience;
   lifted: boolean;
   blind: boolean;
+  /** True when the author's raw claim was cut to the ceiling. */
+  capped: boolean;
+  /** The raw claim when it was capped, else null — the minting seam preserves
+   *  it in prose meta so the un-capped testimony is never silently lost. */
+  rawClaim: number | null;
   event: SalienceLiftEvent | null;
 }
 
@@ -244,9 +269,23 @@ export interface SeamClamp {
  * `sal(m) >= sal_claimed(m)`, clamped here, and ANY LIFT EMITS AN EVENT.
  * The stored dimensions are never rewritten to satisfy the claim, so salience
  * stays fixed at birth and a null novelty stays null.
+ *
+ * `ceiling` is the authorship doctrine's salience half (owner ruling
+ * 2026-08-29): lived testimony — the experiencer's own deposit — passes 1, the
+ * full floor; a retelling author (the crash-fallback sweep) passes
+ * `TUNABLES.SWEEP_CLAIM_CEILING`, and a raw claim above it is CUT to it, with
+ * the cut recorded on the event and the raw claim handed back for prose meta.
+ * The cap runs here and nowhere else, exactly like the floor ("clamped here,
+ * once" stays literally true).
  */
-export function clampSalienceAtSeam(dims: Salience, claimedSal: number | null): SeamClamp {
-  const claimed = claimedSal === null ? null : clamp01(claimedSal);
+export function clampSalienceAtSeam(
+  dims: Salience,
+  claimedSal: number | null,
+  ceiling = 1,
+): SeamClamp {
+  const raw = claimedSal === null ? null : clamp01(claimedSal);
+  const capped = raw !== null && raw > ceiling;
+  const claimed = raw === null ? null : Math.min(raw, ceiling);
   const salience: Salience = { ...dims, claimed };
   const computed = computedSal(salience);
   const lifted = claimed !== null && claimed > computed;
@@ -254,14 +293,19 @@ export function clampSalienceAtSeam(dims: Salience, claimedSal: number | null): 
     salience,
     lifted,
     blind: isBlindEncoding(salience),
-    event: lifted
-      ? {
-          event: "salience.lifted",
-          computed,
-          claimed: claimed as number,
-          applied: sal(salience),
-        }
-      : null,
+    capped,
+    rawClaim: capped ? raw : null,
+    event:
+      lifted || capped
+        ? {
+            event: "salience.lifted",
+            computed,
+            claimed: raw as number,
+            applied: sal(salience),
+            ceiling,
+            capped,
+          }
+        : null,
   };
 }
 

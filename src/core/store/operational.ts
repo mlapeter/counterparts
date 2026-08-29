@@ -15,14 +15,25 @@ import { StoreError } from "./errors.js";
 import type { ProseType } from "./prose.js";
 
 /**
- * Bumped to 3 (2026-08-25, the box-2 chase): `removal_tombstone`.
- * Version 2 was SEAMS items B + K (`gate_session` and `events`).
- * No live store exists yet, so the FRESH-OPEN path is the only migration — the
- * DDL below is `CREATE TABLE IF NOT EXISTS` and nothing rewrites an older file.
- * Every bump so far ADDS a table, so an older file gains the table on open and
- * loses nothing.
+ * Bumped to 4 (2026-08-29, the mint-source doctrine): `source` + three
+ * `origin_*` columns on `memories`. Version 3 was the box-2 chase
+ * (`removal_tombstone`); version 2 was SEAMS items B + K (`gate_session` and
+ * `events`).
+ *
+ * Migration is ADDITIVE and idempotent: the DDL below is `CREATE TABLE IF NOT
+ * EXISTS`, and columns added after a table first shipped live in
+ * `ADDED_COLUMNS`, applied by `ensureAddedColumns` — a `pragma table_info`
+ * check, then `ALTER TABLE ADD COLUMN` for whatever is missing, inside the
+ * same one-transaction migrate-at-open. A fresh open and a migrated open MUST
+ * converge on the identical schema; a test asserts table_info equality.
+ *
+ * The v4 columns are all NULLABLE, deliberately: a pre-v4 row's provenance was
+ * never recorded, and a DEFAULT would fabricate it (the one existing v3 store
+ * is the replay evidence store, whose rows are almost all SWEPT — defaulting
+ * them 'authored' would be a false claim in the very column that exists for
+ * honest attribution). NULL renders as "unrecorded", by name.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2). */
 export const DEFAULT_RETENTION_DAYS = 90;
 
@@ -58,7 +69,11 @@ const DDL: readonly string[] = [
      content_hash      TEXT NOT NULL,
      prose_path        TEXT NOT NULL,
      learned_on        TEXT NOT NULL,
-     happened_on       TEXT
+     happened_on       TEXT,
+     source            TEXT,
+     origin_session    TEXT,
+     origin_scope      TEXT,
+     origin_ref        TEXT
    )`,
   `CREATE INDEX IF NOT EXISTS memories_band ON memories (band, archived)`,
   `CREATE INDEX IF NOT EXISTS memories_kind ON memories (kind, archived)`,
@@ -209,6 +224,14 @@ export interface MemoryRow extends Row {
   prose_path: string;
   learned_on: string;
   happened_on: string | null;
+  /** Who minted this memory (engine-set at the seam; mint.ts `ClaimChannel`,
+   *  plus "migrated" from the v1 importer). NULL = a pre-v4 row whose
+   *  provenance was never recorded — rendered "unrecorded", never defaulted. */
+  source: string | null;
+  origin_session: string | null;
+  origin_scope: string | null;
+  /** The proposal / trace id this memory was minted from. Ids only, never text. */
+  origin_ref: string | null;
 }
 
 export interface VersionRow extends Row {
@@ -322,6 +345,7 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
   }
   db.transaction(() => {
     for (const sql of DDL) db.exec(sql);
+    ensureAddedColumns(db);
     const put = db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)");
     put.run("livedDay", "0");
     put.run("lastActiveDate", "");
@@ -331,6 +355,36 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", String(SCHEMA_VERSION));
   });
   return db;
+}
+
+/**
+ * Columns added to a table AFTER it first shipped. `CREATE TABLE IF NOT EXISTS`
+ * cannot grow an existing table, so a pre-existing store gains these here —
+ * checked against `pragma table_info` and added one `ALTER TABLE` at a time,
+ * inside the migrate-at-open transaction. Idempotent by construction, and a
+ * fresh CREATE must list the same columns so both paths converge (a test
+ * asserts table_info equality between a fresh open and a migrated one).
+ */
+const ADDED_COLUMNS: readonly { table: string; column: string; ddl: string }[] = [
+  // v4 — the mint-source doctrine. Nullable on purpose (see SCHEMA_VERSION).
+  { table: "memories", column: "source", ddl: "ALTER TABLE memories ADD COLUMN source TEXT" },
+  { table: "memories", column: "origin_session", ddl: "ALTER TABLE memories ADD COLUMN origin_session TEXT" },
+  { table: "memories", column: "origin_scope", ddl: "ALTER TABLE memories ADD COLUMN origin_scope TEXT" },
+  { table: "memories", column: "origin_ref", ddl: "ALTER TABLE memories ADD COLUMN origin_ref TEXT" },
+];
+
+function ensureAddedColumns(db: Db): void {
+  const byTable = new Map<string, Set<string>>();
+  for (const spec of ADDED_COLUMNS) {
+    let have = byTable.get(spec.table);
+    if (have === undefined) {
+      have = new Set(
+        db.all<{ name: string }>(`PRAGMA table_info(${spec.table})`).map((r) => r.name),
+      );
+      byTable.set(spec.table, have);
+    }
+    if (!have.has(spec.column)) db.exec(spec.ddl);
+  }
 }
 
 export function rowToSalience(row: MemoryRow): Salience {

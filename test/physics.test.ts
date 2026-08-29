@@ -190,6 +190,8 @@ describe("[M] guarantee 2 — salience is fixed at birth; a claim is a floor wit
       computed: 0.4,
       claimed: 0.8,
       applied: 0.8,
+      ceiling: 1,
+      capped: false,
     });
     expect(sal(clamped.salience)).toBeCloseTo(0.8, 10);
     // the dimensions themselves are NOT rewritten — salience stays as authored
@@ -202,6 +204,38 @@ describe("[M] guarantee 2 — salience is fixed at birth; a claim is a floor wit
     expect(clamped.lifted).toBe(false);
     expect(clamped.event).toBeNull();
     expect(sal(clamped.salience)).toBeCloseTo(0.6, 10);
+  });
+
+  test("a ceiling CUTS a raw claim — the reteller's cap (owner ruling 2026-08-29)", () => {
+    const clamped = clampSalienceAtSeam(S(0.3), 0.95, TUNABLES.SWEEP_CLAIM_CEILING);
+    expect({ capped: clamped.capped, lifted: clamped.lifted }).toEqual({ capped: true, lifted: true });
+    // The STORED claim is the ceiling; the raw testimony survives for prose meta.
+    expect(clamped.salience.claimed).toBe(TUNABLES.SWEEP_CLAIM_CEILING);
+    expect(clamped.rawClaim).toBe(0.95);
+    expect(sal(clamped.salience)).toBeCloseTo(TUNABLES.SWEEP_CLAIM_CEILING, 10);
+    expect(clamped.event).toEqual({
+      event: "salience.lifted",
+      computed: 0.3,
+      claimed: 0.95,
+      applied: TUNABLES.SWEEP_CLAIM_CEILING,
+      ceiling: TUNABLES.SWEEP_CLAIM_CEILING,
+      capped: true,
+    });
+  });
+
+  test("a capped-but-not-lifting claim still emits — the cut is observable even when nothing rose", () => {
+    // raw 0.9 > ceiling 0.6, but computed 0.7 > stored claim 0.6: no lift, yet
+    // the author's testimony WAS cut, and a silent cut is a silent divergence.
+    const clamped = clampSalienceAtSeam(S(0.7), 0.9, TUNABLES.SWEEP_CLAIM_CEILING);
+    expect({ capped: clamped.capped, lifted: clamped.lifted }).toEqual({ capped: true, lifted: false });
+    expect(sal(clamped.salience)).toBeCloseTo(0.7, 10);
+    expect(clamped.event?.capped).toBe(true);
+    expect(clamped.event?.claimed).toBe(0.9);
+  });
+
+  test("the ceiling sits between the semantic and identity floors by construction", () => {
+    expect(TUNABLES.SWEEP_CLAIM_CEILING).toBeGreaterThanOrEqual(TUNABLES.THETA_SEM);
+    expect(TUNABLES.SWEEP_CLAIM_CEILING).toBeLessThan(TUNABLES.THETA_ID);
   });
 
   test("salience does not move with use or with the clock", () => {

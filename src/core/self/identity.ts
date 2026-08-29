@@ -416,6 +416,15 @@ export interface SchemaBytesReport {
   readonly tripped: boolean;
   /** The heaviest elements, id + bytes, so the report names its own cause. */
   readonly heaviest: { id: string; bytes: number }[];
+  /**
+   * Fallback-minted self memories EXCLUDED from this weighing — the quarantine
+   * (owner ruling 2026-08-29, review F8): a model reading transcripts must not
+   * grow the self through the rumination pathway the CONTRACT forswears. They
+   * remain ordinary, recallable memories; here they are counted, never silently
+   * absent (scar §2.4). The first blind replay minted 205 of them and tripped
+   * this very valve seven times.
+   */
+  readonly quarantined: number;
 }
 
 /**
@@ -427,12 +436,21 @@ export interface SchemaBytesReport {
 export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaBytesReport {
   const seen = new Set<string>();
   const weighed: { id: string; bytes: number }[] = [];
+  let quarantined = 0;
   for (const id of [
     ...store.list({ band: "identity", archived: false }),
     ...store.list({ kind: "self", archived: false }),
   ]) {
     if (seen.has(id)) continue;
     seen.add(id);
+    // The quarantine (see the report field). Identity-band rows are exempt by
+    // construction: nothing is born into identity, so an identity row got there
+    // by a counted crossing, which is earned whatever its birth channel was.
+    const row = store.row(id);
+    if (row !== undefined && row.source === "fallback" && row.band !== "identity") {
+      quarantined += 1;
+      continue;
+    }
     const e = enumerateOne(store, id, day);
     if (e !== null) weighed.push({ id, bytes: e.bytes });
   }
@@ -447,5 +465,6 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
     pressure: bytes >= pressureAt,
     tripped: bytes >= t.SCHEMA_BYTES_TRIP,
     heaviest: weighed.slice(0, 5),
+    quarantined,
   };
 }

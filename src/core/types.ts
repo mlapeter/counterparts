@@ -9,6 +9,15 @@ export type Kind = "self" | "person" | "entity" | "skill" | "place" | "fact";
 
 export type Band = "episodic" | "semantic" | "identity";
 
+/**
+ * Who minted a memory — ENGINE-SET at the mint seam, never claimable by an
+ * author or an interpreter (the authorship doctrine, owner ruling 2026-08-29).
+ * The first four are `mint.ts`'s `ClaimChannel` vocabulary, persisted;
+ * "migrated" is the v1 importer's. An absent value (a pre-v4 row) reads as
+ * "unrecorded" — a default here would fabricate provenance.
+ */
+export type MemorySource = "authored" | "fallback" | "episode" | "accommodation" | "migrated";
+
 /** Four dimensions, 0-1, fixed at encoding. novelty is null for a blind write
  *  (no schema context existed) — recorded, never defaulted (scar §2.9). */
 export interface Salience {

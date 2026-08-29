@@ -572,6 +572,53 @@ describe("identity ordering and enumeration", () => {
     expect(events).toContain("self.schema.pressure");
     expect(events).toContain("self.schema.tripped");
   });
+
+  test("a FALLBACK-minted self memory is QUARANTINED from the self weighing — counted, recallable, never weighed (F8, owner ruling 2026-08-29)", () => {
+    const s = store();
+    const authored = s.put({
+      type: "memory",
+      kind: "self",
+      body: "A lesson the experiencer wrote about itself, in its own hand.",
+      salience: { relevance: 0.7, emotional: 0.4, predictive: 0.5 },
+      source: "authored",
+    });
+    const swept = s.put({
+      type: "memory",
+      kind: "self",
+      body: "A trait a summarizer inferred about the assistant from a crashed transcript.",
+      salience: { relevance: 0.7, emotional: 0.4, predictive: 0.5 },
+      source: "fallback",
+    });
+    // A pre-doctrine row: provenance unrecorded. It is NOT assumed swept —
+    // quarantining it would fabricate the very attribution the column refuses
+    // to fabricate — so it weighs normally.
+    const unrecorded = s.put({
+      type: "memory",
+      kind: "self",
+      body: "An old row from before the source column existed at all.",
+      salience: { relevance: 0.7, emotional: 0.4, predictive: 0.5 },
+    });
+
+    const events: { name: string; data?: Record<string, unknown> }[] = [];
+    const self = new Self({
+      store: s,
+      onEvent: (e) => events.push({ name: e.name, data: e.data as Record<string, unknown> }),
+    });
+    const report = self.schemaBytes(0);
+    expect(report.quarantined).toBe(1);
+    expect(report.elements).toBe(2);
+
+    // Quarantined, not destroyed: the memory stays an ordinary, readable row.
+    expect(s.readProse(swept).body).toContain("summarizer inferred");
+    expect(s.list({ kind: "self", archived: false }).sort()).toEqual(
+      [authored, swept, unrecorded].sort(),
+    );
+
+    // And the stand-aside is OBSERVABLE at the boundary (scar §2.4).
+    self.boundary({ budgetBytes: 100_000, day: 0 });
+    const q = events.find((e) => e.name === "self.schema.quarantined");
+    expect(q?.data?.["count"]).toBe(1);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

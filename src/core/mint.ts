@@ -40,7 +40,7 @@
  * claim is a repeat of which element — that matcher is `remember/`'s `updates:`
  * resolution, upstream, and this file does not write a second one.
  */
-import { clampSalienceAtSeam } from "./physics/index.js";
+import { TUNABLES as PHYSICS, clampSalienceAtSeam } from "./physics/index.js";
 import type { Proposal } from "./remember/index.js";
 import type { Store } from "./store/index.js";
 import type { Band, Salience } from "./types.js";
@@ -119,13 +119,19 @@ export function directionOf(method: string | undefined): ClaimDirection {
 }
 
 export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions = {}): MintResult {
+  const channel = opts.channel ?? "authored";
   const dims: Salience = {
     novelty: proposal.salience.novelty ?? null,
     relevance: proposal.salience.relevance ?? 0,
     emotional: proposal.salience.emotional ?? 0,
     predictive: proposal.salience.predictive ?? 0,
   };
-  const clamp = clampSalienceAtSeam(dims, proposal.salience.claimed ?? null);
+  // The authorship doctrine's salience half (owner ruling 2026-08-29): lived
+  // testimony commands the full floor; the fallback's retelling author is
+  // capped. The ceiling is ENGINE-SET off the channel — like the channel
+  // itself, no author field can move it.
+  const ceiling = channel === "fallback" ? PHYSICS.SWEEP_CLAIM_CEILING : 1;
+  const clamp = clampSalienceAtSeam(dims, proposal.salience.claimed ?? null, ceiling);
 
   // The RESOLVED id, and only when it resolved (sleep/INTERFACE-GAPS.md §4:
   // "the minting seam persists the RESOLVED id there, and states which it is").
@@ -139,6 +145,10 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   if (proposal.unresolved) meta[UNRESOLVED_META_KEY] = true;
   if (proposal.aliases.length > 0) meta["aliases"] = [...proposal.aliases];
   if (proposal.feeling !== null) meta["feeling"] = proposal.feeling.feeling;
+  // A capped claim's RAW value survives in prose meta: the cap is doctrine,
+  // but silently discarding what the author actually said would be its own
+  // small destruction — and the re-run's ceiling decision needs the evidence.
+  if (clamp.rawClaim !== null) meta["claimedRaw"] = clamp.rawClaim;
 
   const id = store.put({
     type: "memory",
@@ -149,6 +159,10 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     band: opts.band ?? "episodic",
     salience: clamp.salience,
     physics: { birthDay: proposal.day, lastUsedDay: proposal.day },
+    // Engine-set provenance (F9-light): the channel as recorded fact, and ids
+    // only — session, scope, and the proposal id. Never span or body text.
+    source: channel,
+    origin: { session: proposal.session, scope: proposal.scope, ref: proposal.id },
   });
 
   if (clamp.event !== null) {
@@ -157,6 +171,8 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
       computed: clamp.event.computed,
       claimed: clamp.event.claimed,
       applied: clamp.event.applied,
+      ceiling: clamp.event.ceiling,
+      capped: clamp.event.capped,
     });
   }
   // SEAMS item N: a resolved `updates:` IS a claim against an existing element.
@@ -165,7 +181,7 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   if (resolved !== null && opts.self !== undefined) {
     const outcome = opts.self.noteSelfConfirmation({
       elementId: resolved,
-      source: opts.channel ?? "authored",
+      source: channel,
       direction,
       day: proposal.day,
     });
@@ -178,7 +194,7 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     opts.onEvent?.("mint.claim", {
       id,
       element: resolved,
-      channel: opts.channel ?? "authored",
+      channel,
       direction,
       frozen: outcome.frozen,
       reason: outcome.reason,

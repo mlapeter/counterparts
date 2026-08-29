@@ -26,7 +26,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
+import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { Db } from "./db.js";
@@ -118,6 +118,12 @@ export interface PutInput {
   band?: Band;
   salience?: Partial<Salience>;
   physics?: Partial<Omit<MemoryPhysics, "kind" | "salience">>;
+  /** Who is minting (engine-set upstream; see `types.MemorySource`). Absent
+   *  writes NULL — "unrecorded" — never a defaulted claim of authorship. */
+  source?: MemorySource;
+  /** Light provenance: ids only, never text (F9, owner ruling 2026-08-29).
+   *  Mirrored into the prose doc's meta so the document is self-describing. */
+  origin?: { session?: string; scope?: string; ref?: string };
 }
 
 export interface StoredMemory {
@@ -1224,12 +1230,23 @@ export class Store {
       throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
     }
     const day = this.livedDay();
+    // Source and origin mirror into the prose meta: the document is canonical
+    // and self-describing; the columns are the query surface for the same fact.
+    const meta: Record<string, unknown> = { ...(input.meta ?? {}) };
+    if (input.source !== undefined) meta["source"] = input.source;
+    if (input.origin !== undefined) {
+      const origin: Record<string, string> = {};
+      if (input.origin.session !== undefined) origin["session"] = input.origin.session;
+      if (input.origin.scope !== undefined) origin["scope"] = input.origin.scope;
+      if (input.origin.ref !== undefined) origin["ref"] = input.origin.ref;
+      if (Object.keys(origin).length > 0) meta["origin"] = origin;
+    }
     const doc: ProseDoc = {
       id,
       type: input.type,
       learnedOn: input.learnedOn ?? today(),
       bornDay: input.physics?.birthDay ?? day,
-      meta: input.meta ?? {},
+      meta,
       body: input.body,
     };
     if (input.title !== undefined) doc.title = input.title;
@@ -1248,8 +1265,8 @@ export class Store {
          claimed, birth_day, uses, last_used_day, reinforced_days, consolidated,
          promoted_identity, protected, pressure, last_challenged_day, archived,
          archived_reason, superseded_by, revision, content_hash, prose_path,
-         learned_on, happened_on)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?)`,
+         learned_on, happened_on, source, origin_session, origin_scope, origin_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.type,
       input.kind,
@@ -1273,6 +1290,10 @@ export class Store {
       staged.finalPath,
       doc.learnedOn,
       doc.happenedOn ?? null,
+      input.source ?? null,
+      input.origin?.session ?? null,
+      input.origin?.scope ?? null,
+      input.origin?.ref ?? null,
     );
     return { staged, doc };
   }
