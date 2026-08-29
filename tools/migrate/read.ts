@@ -542,21 +542,35 @@ export function readV1(dir: string): V1Store {
 
   const ledger: V1LedgerEntry[] = [];
   const rawLedger = readJson(dir, "ledger.json", malformed);
-  if (rawLedger !== null && typeof rawLedger === "object" && !Array.isArray(rawLedger)) {
+  // v1's REAL ledger.json is an ARRAY of entries carrying their own ids — the
+  // object-keyed assumption read the live store's 9 entries (7 open) as ZERO,
+  // blinding the parked LEDGER_TO_PRESSURE question to its own data (found by
+  // the 2026-08-29 pre-cutover dry run). The array is primary; the object
+  // shape stays as tolerance, same policy as the span shapes (NOTES §1).
+  const ledgerEntries: [string | undefined, Record<string, unknown>][] = [];
+  if (Array.isArray(rawLedger)) {
+    for (const v of rawLedger) {
+      if (v === null || typeof v !== "object" || Array.isArray(v)) continue;
+      const e = v as Record<string, unknown>;
+      ledgerEntries.push([str(e["id"]), e]);
+    }
+  } else if (rawLedger !== null && typeof rawLedger === "object") {
     for (const [id, v] of Object.entries(rawLedger as Record<string, unknown>)) {
       if (v === null || typeof v !== "object") continue;
-      const e = v as Record<string, unknown>;
-      const ref = str(e["schemaElementRef"]);
-      if (ref === undefined) continue;
-      ledger.push({
-        id,
-        schemaElementRef: ref,
-        evidenceCount: Array.isArray(e["evidence"]) ? e["evidence"].length : 0,
-        cumulativeScore: num(e["cumulativeScore"]) ?? 0,
-        status: str(e["status"]) ?? "open",
-        closedReason: str(e["closedReason"]) ?? null,
-      });
+      ledgerEntries.push([id, v as Record<string, unknown>]);
     }
+  }
+  for (const [id, e] of ledgerEntries) {
+    const ref = str(e["schemaElementRef"]);
+    if (id === undefined || id === null || ref === undefined || ref === null) continue;
+    ledger.push({
+      id,
+      schemaElementRef: ref,
+      evidenceCount: Array.isArray(e["evidence"]) ? e["evidence"].length : 0,
+      cumulativeScore: num(e["cumulativeScore"]) ?? 0,
+      status: str(e["status"]) ?? "open",
+      closedReason: str(e["closedReason"]) ?? null,
+    });
   }
 
   const rawMeta = readJson(dir, "meta.json", malformed);
