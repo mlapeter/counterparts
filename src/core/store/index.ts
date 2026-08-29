@@ -1342,11 +1342,17 @@ export class Store {
 }
 
 /**
- * The string box 3 indexes for a document — and, because the same string is what
- * an embedder is asked for, the shape a CALLER must embed if it wants its vector
- * to be the one this store looks up at `put` time. Exported for exactly that:
- * `counterpart.ts` composes it from a proposal's title and content before the
- * memory exists, so one live call serves both the novelty seam and box 3.
+ * The string box 3 indexes for a document — and therefore the string a CALLER
+ * must embed if it wants its vector to be the one this store looks up at `put`
+ * time. Exported for exactly that: `counterpart.ts` composes it from a
+ * proposal's title and its GATED content before the memory exists, so one live
+ * call serves both the novelty seam and box 3.
+ *
+ * The word gated is the whole contract. This function is a pure join, so it
+ * cannot enforce which content it is handed — a caller that composes it from the
+ * author's raw draft will cache under a key `indexOne` never asks for, and every
+ * redaction or hedge silently costs the deposit its vector. The ordering that
+ * makes it true lives in `bridge.batteryGate`, and a test asserts it.
  */
 export function indexTextOf(title: string | null | undefined, body: string): string {
   return [title ?? "", body].join("\n");

@@ -42,17 +42,20 @@ import type { EpisodeGate } from "./self/index.js";
  * composition root binds all three members; absent, both gates behave exactly as
  * they did before one existed (novelty null, reason `no-chunk-vector`).
  *
- * The split between `vector` and `cached` is not a convenience, it is the shape
- * of the seams: `GateFn` may return a promise and `submitProposal` awaits it, so
- * the authored door can pay for a live embedding; `EpisodeGate` is strictly
- * synchronous, so the episode door may only ask what is already known. A cache
- * miss there is today's behaviour, and it is counted rather than hidden.
+ * Only the AUTHORED door takes one. `GateFn` may return a promise and
+ * `submitProposal` awaits it, so that door can pay for a live embedding;
+ * `EpisodeGate` is synchronous AND its verdict has nowhere to carry a novelty
+ * number, so `episodeGate()` takes no source at all rather than computing one to
+ * throw away (INTERFACE-GAPS §8c).
+ *
+ * Every member is asked for the text AS THE STORE WILL INDEX IT — the gate's
+ * output, never the author's draft. That is what makes one embedding serve both
+ * the novelty measurement and box 3, and it is also the egress rule: nothing
+ * reaches this interface that has not already been through the battery.
  */
 export interface VectorSource {
   /** Live: may reach the network. Only called where the caller can await. */
   vector(title: string | null, content: string): Promise<number[] | null>;
-  /** Cache-only: never blocks, never opens a socket, null when it does not know. */
-  cached(title: string | null, content: string): number[] | null;
   /** E(m) — what this brain already holds near `vec`. Read-only. */
   context(vec: readonly number[]): readonly (readonly number[])[];
   /**
@@ -71,12 +74,38 @@ export interface VectorSource {
  * WITHOUT one it stays synchronous — not for speed, but because a gate that
  * became a promise for every caller would silently break any caller reading
  * `verdict.ok` off the return value.
+ *
+ * **THE BATTERY RUNS BEFORE THE SOCKET DOES.** The first version of this
+ * function embedded `input.content` — the author's RAW draft — and then gated
+ * it, which put un-redacted text on the wire: a credential in a session-end dump
+ * reached the embedding provider verbatim while the prose written to disk was
+ * correctly redacted. The secrets gate is not ablatable and "durable" is not its
+ * scope; egress is egress. So the order here is the order the sweep door already
+ * used (`counterpart.applySweep` warms `result.accepted`, post-gate):
+ *
+ *   1. gate the proposal, with novelty NOT YET KNOWN;
+ *   2. a refusal returns immediately — nothing refused is ever embedded;
+ *   3. embed the GATE'S text, which is also the text the store will index;
+ *   4. compute novelty against E(m) and attach it to the verdict.
+ *
+ * Step 1 costs nothing in correctness because the battery's accept/refuse never
+ * consults novelty: `gateProposal` reads `input.novelty` only AFTER its refusal
+ * branch has returned, to tag the accepted proposal's salience and to emit
+ * `encode.blind`. Both of those are discarded here (this function returns a
+ * `GateVerdict`, not an `AcceptedProposal`, and drops `outcome.events`), so the
+ * placeholder cannot leak a wrong number into telemetry either — the novelty
+ * that survives is the one attached in step 4.
  */
 export function batteryGate(vectors?: VectorSource): GateFn {
   if (vectors === undefined) return (input) => verdictFor(input, computeNovelty(null, []));
   return async (input): Promise<GateVerdict> => {
-    const vec = await vectors.vector(input.title, input.content);
-    return verdictFor(input, computeNovelty(vec, vec === null ? [] : vectors.context(vec)));
+    const verdict = verdictFor(input, computeNovelty(null, []));
+    // A refused proposal is not a memory, so it is not a vector either — and it
+    // is emphatically not something to send to a third party on the way out.
+    if (!verdict.ok) return verdict;
+    const vec = await vectors.vector(input.title, verdict.content);
+    const novelty = computeNovelty(vec, vec === null ? [] : vectors.context(vec));
+    return { ...verdict, novelty: novelty.novelty };
   };
 }
 
@@ -128,9 +157,11 @@ function verdictFor(
         g.feeling === null
           ? null
           : { feeling: g.feeling.type, quote: "", subject: g.feeling.subject },
-      // The computed dimension travels to the mint. Without this line the
-      // number is measured, spent on the gate decision, and thrown away.
-      novelty: novelty.novelty,
+      // NO `novelty` field here, deliberately: this function runs before any
+      // vector exists. `batteryGate` attaches the computed dimension after the
+      // gate has spoken, so an OMITTED field means "no source was wired" and an
+      // explicit null means "a source tried and could not measure" — the two
+      // records `remember/proposals.ts` documents on the field.
     };
   }
   return {
@@ -190,7 +221,7 @@ export function gateSweepChunk(
  * A body secret is REDACTED, not fatal, and the redacted text comes back on the
  * verdict — the same rule every other ingestion path follows.
  */
-export function episodeGate(vectors?: VectorSource): EpisodeGate {
+export function episodeGate(): EpisodeGate {
   return (input) => {
     const proposal: EncodeProposal = {
       ref: `episode:${input.sessionId}`,
@@ -199,15 +230,17 @@ export function episodeGate(vectors?: VectorSource): EpisodeGate {
       selfAuthoredFeeling: true,
     };
     if (input.handles.length > 0) proposal.handles = [...input.handles];
-    // CACHE-ONLY, and that is a structural fact, not a shortcut: `EpisodeGate` is
-    // synchronous by type, so this door cannot pay for a live embedding. It gets
-    // a vector when one was already fetched for this text and null otherwise —
-    // which is what the door had before, now countable (`embed.cache.miss`).
-    const vec = vectors?.cached(null, input.text) ?? null;
+    // NO VECTOR SOURCE, and the reason is structural rather than a shortcut:
+    // `EpisodeGateVerdict` has nowhere to put a novelty number, so anything
+    // computed here would be spent on a gate decision that never reads it and
+    // then dropped — exactly the decorative wire §8d exists to describe. An
+    // earlier draft took a `VectorSource` and looked one up anyway; it was
+    // removed rather than kept as a comment, and the door is filed in
+    // INTERFACE-GAPS §8c as blind until the verdict type can carry the value.
     const outcome = gateProposal({
       proposal,
       span: input.text,
-      novelty: computeNovelty(vec, vec === null ? [] : vectors?.context(vec) ?? []),
+      novelty: computeNovelty(null, []),
     });
     const g = outcome.gated;
     if (g.accepted) return { ok: true, text: g.content };

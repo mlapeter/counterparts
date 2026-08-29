@@ -203,15 +203,68 @@ mint (one batched call per chunk, which is what fills box 3) and selects
 nothing. Swept memories therefore still record `novelty: null`; authored ones no
 longer do. When the owner rules on preselection, the vector is already in hand.
 
-### 8c. The episode gate can only ask what is already cached
+### 8c. The episode door is BLIND, and now says so instead of pretending
 
 `EpisodeGate` is synchronous by type, so `episodeGate()` cannot pay for a live
 embedding the way `batteryGate()` can (`GateFn` may return a promise, and
-`submitProposal` awaits it). It gets `VectorSource.cached`, which answers only
-when the text was already fetched — usually a miss, and now a counted one
-(`embed.cache.miss`). The honest fix is the same one gap 3 names: `self/` should
-take its gate the way `ingestEpisode` does, and the type could then admit a
-promise.
+`submitProposal` awaits it). The first draft therefore gave it a cache-only
+lookup — which was worse than nothing: `EpisodeGateVerdict` has **no field for a
+novelty number**, so anything computed there fed a gate decision that never reads
+it (`gateProposal` consults `input.novelty` only after its refusal branch has
+returned) and was then dropped. A decorative wire, the same defect 8d describes,
+caught in review before it shipped.
+
+The parameter was REMOVED rather than kept with an apology in a comment.
+`episodeGate()` takes no vector source, computes `computeNovelty(null, [])`, and
+episodes record `novelty: null` with reason `no-chunk-vector` — which is exactly
+what they did before this build and is now the honest statement of it.
+
+**The honest fix, two halves, both outside this build:** `EpisodeGateVerdict`
+needs somewhere to carry the number (8d's change, applied to the other verdict
+type), and `self/` should consult its injected gate everywhere the way
+`ingestEpisode` does (gap 3). Until both, the door is blind by construction.
+
+### 8e. FOUND IN REVIEW: the authored door embedded RAW text — fixed by reordering
+
+**What happened.** `batteryGate` embedded `input.content` — the author's draft —
+and gated it afterwards. An adversarial review proved the leak through the real
+`submitSessionEnd` path: a planted Google API key reached the recorded embedder
+**verbatim** while the prose written to disk was correctly redacted. Egress
+bypassed a gate the store did not.
+
+Every existing secrets test passed the whole time, and that is the lesson worth
+keeping: they all assert what is DURABLE (`prose/` holds no credential), and this
+leak was on the wire. "A gate covers every ingestion path and every side channel"
+(scar §2.7) had an unwritten clause — the side channel can also be an EXIT.
+
+**The fix** is the ordering the sweep door already used
+(`counterpart.applySweep` warms `result.accepted`, post-gate): gate first with
+novelty not yet known, return immediately on a refusal (nothing refused is ever
+embedded), embed the gate's text, then compute novelty and attach it. Safe
+because the battery's accept/refuse never consults novelty — verified by reading
+`battery.ts`, not assumed. The rejected shortcut was calling `redactSecrets`
+before embedding: it would have stopped the credential and left 8f standing.
+
+**The tripwire** is `test/claude-code.test.ts` — "the embedder is handed the
+GATED text": it records what the embedder was actually handed and asserts
+`[REDACTED:` present and the credential absent. Confirmed to FAIL on the pre-fix
+tree (its failure message prints the raw key), which is the only reason to
+believe it would catch a regression.
+
+### 8f. FOUND IN REVIEW: a gate rewrite used to throw away the vector it paid for
+
+The same ordering bug, wearing its other face. The cache keys on the text it was
+asked for; `Store.indexOne` looks up `indexTextOf(title, body)` where `body` is
+the GATE's output. Embedding the raw draft therefore cached under a key the store
+never asks for, so every redaction, hedge or alias rewrite — 18.9% of chunks in
+the replay corpus — silently cost the deposit its vector, leaving box 3 emptier
+than the run's own telemetry implied.
+
+Fixed by the same reorder: one string, embedded once, looked up by the same key.
+Held by "a gate REWRITE keeps its vector", also confirmed failing pre-fix. The
+comments at `counterpart.ts` (`LiveVectors`) and `store/index.ts`
+(`indexTextOf`) asserted this property while it was false; both now name the
+ordering that makes it true and what breaks if it is reversed.
 
 ### 8d. `GateVerdict` gained `novelty` — without it the wire was decorative
 
@@ -221,4 +274,7 @@ the number was discarded before `mintProposal` ever saw it. Three lines in
 `remember/proposals.ts` (an optional field on the `ok` arm, and a merge into
 `proposal.salience`) carry it to the mint. It is optional and null-able on
 purpose: a gate with no vector source omits it, a gate that tried and could not
-measure sends `null`, and those stay different records.
+measure sends `null`, and those stay different records. `verdictFor` therefore
+attaches NOTHING — it runs before any vector exists — and `batteryGate` attaches
+the value after the gate has spoken, which is what keeps the omitted/null
+distinction real rather than documented.

@@ -42,6 +42,24 @@
  * cannot see, cannot count, and cannot turn off (a deliberate deviation from the
  * donor, recorded here rather than silently).
  *
+ * **The levers that replace it**, named so "the injector owns it" is a design
+ * and not a shrug — a caller implementing 429 backoff has, without editing this
+ * file:
+ *
+ *   - `EmbedBatch.failures[]`, each carrying `code: "HTTP_ERROR"` and the
+ *     `status` — so 429 is distinguishable from 500 and from a bad request, and
+ *     `from`/`count` say exactly which inputs to re-ask for. Retrying is
+ *     re-calling with that slice; nothing here is stateful.
+ *   - the `embed.chunk.failed` event, same fields, for a caller that watches
+ *     rates rather than return values.
+ *   - `signal`, which stops the run at the next chunk boundary and reports
+ *     `ABORTED` rather than pretending the remaining inputs were empty — a
+ *     timeout is therefore the injector's `AbortSignal.timeout(ms)`, and a
+ *     backoff sleep is the injector's, between calls.
+ *
+ * What this file will NOT do is sleep. A client that sleeps inside a batch holds
+ * a detached worker's watchdog budget hostage to a header the far end chose.
+ *
  * There is no SDK and no dependency: `fetch` is the runtime's.
  */
 import type { Embedder } from "../../core/store/index.js";

@@ -124,8 +124,16 @@ export interface CounterpartOptions extends Stance {
    * the client, exactly as it owns `InterpretFn` (`remember/INTERFACE-GAPS §3`).
    *
    * Wiring it turns novelty from `no-chunk-vector` into a measurement on the
-   * authored door, and — because the text it embeds is shaped the way the store
-   * indexes it — the vector one deposit pays for is the vector box 3 stores.
+   * authored door, and the vector one deposit pays for is the vector box 3
+   * stores — but ONLY because of an ordering that is easy to break: the text
+   * embedded is the GATE'S output, shaped by `indexTextOf`, which is exactly
+   * what `Store.indexOne` will look the vector up by.
+   *
+   * Embed the author's draft instead and BOTH halves fail at once: raw text goes
+   * on the wire (the redaction is bypassed), and every gate rewrite — 18.9% of
+   * chunks in the replay corpus — caches under a key the store never asks for,
+   * so the deposit pays for a vector it then discards. `bridge.batteryGate`
+   * holds that order; `test/claude-code.test.ts` holds it to it.
    */
   vectors?: LiveVectors;
   /** Retention window for the bounded logs. `store/` owns the default. */
@@ -368,7 +376,6 @@ export class Counterpart {
               live === undefined
                 ? embed?.(indexTextOf(title, content)) ?? null
                 : live.vector(indexTextOf(title, content)),
-            cached: (title, content) => embed?.(indexTextOf(title, content)) ?? null,
             // One batched call for a whole chunk's mints. Without a live half
             // there is nothing to warm — the cache is whatever it already was.
             warm: async (items) => {
@@ -398,7 +405,7 @@ export class Counterpart {
     // SEAMS H: the REAL battery, so `self/`'s refusing default is unreachable.
     this.self = new Self({
       store: this.store,
-      gate: episodeGate(this.vectors),
+      gate: episodeGate(),
       onEvent: (e) => this.relay("self", e),
       now: this.nowFn,
     });
@@ -569,7 +576,7 @@ export class Counterpart {
     text: string,
     opts: { day?: number; title?: string; happenedOn?: string } = {},
   ): ChapterResult {
-    const verdict = episodeGate(this.vectors)({ text, handles: [], sessionId });
+    const verdict = episodeGate()({ text, handles: [], sessionId });
     if (!verdict.ok) {
       this.emit("counterpart.episode.chapter.refused", sessionId, {
         gate: verdict.gate,

@@ -199,8 +199,27 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
         file: file.slice(SRC.length),
         sdk: false,
       });
-      // The only place that resolves a network verb at all.
-      if (/globalThis[^\n]*fetch|doFetch\s*\(/.test(text)) callers.push(file.slice(SRC.length));
+      // Anything that could OPEN a connection, not just this package's idiom.
+      //
+      // The scan used to be `/globalThis…fetch|doFetch\(/` — which recognises
+      // exactly the two clients that already exist and would wave through a
+      // third written any other way. A raw `node:https` request, an `undici`
+      // pool, a bare socket or a WebSocket are all egress, and none of them
+      // mentions `fetch`. Naming the shapes is the point: a new one appearing is
+      // a review event, and if that means a false positive on some future file
+      // that merely imports `node:net` for something else, a reviewer reading
+      // this list is exactly the outcome intended.
+      const opensAConnection =
+        /globalThis[^\n]*fetch|doFetch\s*\(/.test(text) ||
+        /from\s+"node:(https?|net|tls|dgram)"/.test(text) ||
+        /from\s+"(undici|node-fetch|axios|got|superagent)"/.test(text) ||
+        /require\(\s*"node:(https?|net|tls)"\s*\)/.test(text) ||
+        /\bnew\s+WebSocket\s*\(/.test(text) ||
+        /\bnavigator\.sendBeacon\s*\(/.test(text) ||
+        // A bare `fetch(` call that never touches `globalThis` — the shape the
+        // original pattern was one keyword away from missing entirely.
+        /(^|[^.\w])fetch\s*\(\s*(?:"|`|https?|url|endpoint|ENDPOINT)/m.test(text);
+      if (opensAConnection) callers.push(file.slice(SRC.length));
     }
     // BOTH endpoints live in config.ts, where an owner can read the whole egress
     // surface of this package on one page — that is the property, not "one".
@@ -1442,6 +1461,89 @@ describe("novelty stops being null — the authored door measures prediction err
     // memory is not), and the failure is named in telemetry.
     expect(out.deposited).toBe(true);
     expect(a.counterpart.store.physicsOf(out.memoryId as string).salience.novelty).toBe(null);
+  });
+
+  /**
+   * THE TRIPWIRE FOR A WHOLE CLASS OF BUG, and it is worth saying what class.
+   *
+   * The first version of `batteryGate` embedded the author's RAW draft and gated
+   * it afterwards, so a credential in a session-end dump reached the embedding
+   * provider verbatim while the prose written to disk was correctly redacted.
+   * Every existing secrets test passed throughout: they all assert what is
+   * DURABLE, and this leak was on the wire, which no test looked at.
+   *
+   * So this test does not check the store. It records what the embedder was
+   * ACTUALLY HANDED and asserts the gate ran first — which is the only thing
+   * that makes "the secrets battery is not ablatable" true of egress too.
+   */
+  test("the embedder is handed the GATED text — a credential never reaches the wire", async () => {
+    const CREDENTIAL = "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q";
+    const seen: string[] = [];
+    const c = Counterpart.open({
+      dir,
+      embed: (t: string) => vectorFor(t),
+      vectors: {
+        vector: async (text: string) => {
+          seen.push(text);
+          return vectorFor(text);
+        },
+        warm: async (texts: readonly string[]) => {
+          seen.push(...texts);
+          return texts.length;
+        },
+      },
+    });
+    open.push(c);
+
+    const out = await c.submitSessionEnd(
+      {
+        content: `The deploy job authenticates with the key ${CREDENTIAL} which I pasted into the config by mistake.`,
+        kind: "fact",
+      },
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.deposited).toBe(true);
+
+    // The embedder WAS called — this test can fail by omission otherwise.
+    expect(seen.length).toBeGreaterThan(0);
+    // And what it got had already been through the battery.
+    for (const text of seen) {
+      expect(text).toContain("[REDACTED:");
+      expect(text).not.toContain(CREDENTIAL);
+    }
+    // The stored prose agrees, as it always did — the point is that the wire
+    // now agrees WITH it rather than differing from it.
+    expect(c.store.readProse(out.memoryId as string).body).not.toContain(CREDENTIAL);
+  });
+
+  test("a gate REWRITE keeps its vector: cache and lookup key on the same gated text", async () => {
+    const CREDENTIAL = "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q";
+    // A real client's cache, so the sync face and the live half are the same
+    // object the production wiring uses — not two fakes agreeing with each other.
+    const { fetch } = voyageFetch();
+    const live = createEmbedder({ config: config(), fetch });
+    const c = Counterpart.open({ dir, embed: live.embed, vectors: live });
+    open.push(c);
+
+    // Content the gate REWRITES. Before the reorder, the deposit paid for a
+    // vector keyed on the raw draft and `indexOne` then looked up the redacted
+    // text, missed, and stored no vector at all.
+    const out = await c.submitSessionEnd(
+      { content: `Rotated ${CREDENTIAL} out of the deploy config this afternoon.`, kind: "fact" },
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.deposited).toBe(true);
+    const body = c.store.readProse(out.memoryId as string).body;
+    expect(body).toContain("[REDACTED:");
+
+    // THE VECTOR SURVIVED THE REWRITE: box 3 holds a row for this memory, and
+    // the sync face hits on the exact string the store indexes.
+    expect(live.embed(indexTextOf(null, body))).not.toBe(null);
+    expect(live.stats().misses).toBe(0);
+    expect(c.store.neighbourVectors(vectorFor(indexTextOf(null, body)), 5).length).toBe(1);
+    expect(c.store.nearestTo(vectorFor(indexTextOf(null, body)), 1)[0]?.id).toBe(
+      out.memoryId as string,
+    );
   });
 
   test("an OBSERVER opens no socket at all — the stand-down is structural", async () => {
