@@ -74,12 +74,36 @@ export interface SeatVerdict {
  */
 export const DEFAULT_INTERPRET_MODEL = "claude-opus-5";
 
+/**
+ * The default EMBED seat. Its own knob, its own pinned id, its own provider —
+ * scar §2.15b is exactly the case where one knob fed several call sites, and an
+ * embedding model and an interpreter model are not interchangeable in any sense
+ * (different vendor, different credential, different failure mode).
+ *
+ * PINNED, not an alias: `voyage-3` and `voyage-3-large` are different spaces, and
+ * a store's vectors are only comparable to vectors from the generation that
+ * wrote them. The id is therefore part of the data's identity, not a preference.
+ */
+export const DEFAULT_EMBED_MODEL = "voyage-3-large";
+
 /** The Messages API, raw. No SDK, no runtime dependency (constitution 10). */
 export const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
 
+/** Voyage's embeddings endpoint, raw. Same rule: no SDK, no dependency. */
+export const VOYAGE_ENDPOINT = "https://api.voyageai.com/v1/embeddings";
+
 /** The ONE environment variable a credential may come from. Never a file. */
 export const API_KEY_ENV = "ANTHROPIC_API_KEY";
+
+/**
+ * The embedder's ONE environment variable — the same name v1 reads, so an owner
+ * who already has a key in their environment does not learn a second name.
+ * v1 also accepted a `.env` FILE as a fallback (`resolveVoyageKey`); that half is
+ * deliberately dropped here. §2.18: the credential comes from one configured
+ * source the package names, and a file the process happens to find is not one.
+ */
+export const EMBED_KEY_ENV = "VOYAGE_API_KEY";
 
 /**
  * The adapter's own tunables, in one visible place (the shape every core module
@@ -95,6 +119,11 @@ export const TUNABLES = {
   /** Identical consecutive spawn failures before the worker ESCALATES instead
    *  of re-logging the same line forever (scar E4's widening). */
   ESCALATE_AFTER: 3,
+  /** Texts per embeddings request. The provider's documented ceiling, and the
+   *  unit of FAILURE ISOLATION: one poisoned input fails its own chunk and
+   *  leaves every sibling chunk's vectors standing (scar E1). v1 used the same
+   *  128. */
+  EMBED_BATCH_SIZE: 128,
 } as const;
 
 export interface AdapterConfig {
@@ -108,8 +137,20 @@ export interface AdapterConfig {
   readonly socketLifetimeMs?: number;
   /** The detached worker's watchdog, ms. */
   readonly watchdogMs?: number;
-  /** One knob per seat (scar §2.15b). Today there is exactly one seat. */
-  readonly models?: { readonly interpret?: ModelSeat };
+  /** One knob per seat (scar §2.15b). Two seats, two knobs, two providers. */
+  readonly models?: { readonly interpret?: ModelSeat; readonly embed?: ModelSeat };
+  /**
+   * THE EGRESS KNOB, and it defaults to OFF.
+   *
+   * Embedding means sending the text of a memory to a third party. v2's
+   * "no-silent-egress" rescope (2026-08-25) is the reason this is a decision the
+   * owner makes rather than a capability a key in the environment switches on:
+   * a `VOYAGE_API_KEY` exported for some other tool must never be the thing that
+   * starts shipping this store's contents anywhere. Absent ⇒ no client is built,
+   * no socket is opened, and the brain runs exactly as it does today — blind,
+   * and countably so (`novelty.reason = "no-chunk-vector"`).
+   */
+  readonly embedder?: { readonly enabled: boolean };
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
@@ -144,7 +185,8 @@ export function loadConfig(raw: unknown): LoadedConfig {
     executionCeilingMs?: number;
     socketLifetimeMs?: number;
     watchdogMs?: number;
-    models?: { interpret?: ModelSeat };
+    models?: { interpret?: ModelSeat; embed?: ModelSeat };
+    embedder?: { enabled: boolean };
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -181,21 +223,50 @@ export function loadConfig(raw: unknown): LoadedConfig {
     if (typeof rec["observer"] !== "boolean") unreadable = true;
     else out.observer = rec["observer"];
   }
+  // One parser, both seats: a second spelling of "what a seat is" is how the two
+  // knobs drift apart while both look configured (scar §2.15b).
+  const readSeat = (raw: unknown): ModelSeat | undefined => {
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      unreadable = true;
+      return undefined;
+    }
+    const s = raw as Record<string, unknown>;
+    if (typeof s["id"] !== "string" || s["id"].length === 0) {
+      unreadable = true;
+      return undefined;
+    }
+    const parsed: { id: string; placeholder?: boolean; expires?: string } = { id: s["id"] };
+    if (s["placeholder"] === true) parsed.placeholder = true;
+    if (typeof s["expires"] === "string") parsed.expires = s["expires"];
+    return parsed;
+  };
+
   const models = rec["models"];
   if (models !== undefined) {
-    const seat = (models as Record<string, unknown>)["interpret"];
-    if (seat !== undefined && typeof seat === "object" && seat !== null) {
-      const s = seat as Record<string, unknown>;
-      if (typeof s["id"] === "string" && s["id"].length > 0) {
-        const parsed: { id: string; placeholder?: boolean; expires?: string } = { id: s["id"] };
-        if (s["placeholder"] === true) parsed.placeholder = true;
-        if (typeof s["expires"] === "string") parsed.expires = s["expires"];
-        out.models = { interpret: parsed };
-      } else {
-        unreadable = true;
-      }
-    } else if (seat !== undefined) {
+    if (typeof models !== "object" || models === null || Array.isArray(models)) {
       unreadable = true;
+    } else {
+      const interpret = readSeat((models as Record<string, unknown>)["interpret"]);
+      const embed = readSeat((models as Record<string, unknown>)["embed"]);
+      if (interpret !== undefined || embed !== undefined) {
+        out.models = {
+          ...(interpret === undefined ? {} : { interpret }),
+          ...(embed === undefined ? {} : { embed }),
+        };
+      }
+    }
+  }
+  const embedder = rec["embedder"];
+  if (embedder !== undefined) {
+    // The egress knob is read STRICTLY. A misspelled or half-written `embedder`
+    // block must not resolve to "on" by accident, and the unreadable rule below
+    // sends the whole configuration to observer rather than guessing.
+    const e = embedder as Record<string, unknown>;
+    if (typeof embedder !== "object" || embedder === null || Array.isArray(embedder) || typeof e["enabled"] !== "boolean") {
+      unreadable = true;
+    } else {
+      out.embedder = { enabled: e["enabled"] };
     }
   }
   const identity = rec["identity"];
@@ -262,8 +333,10 @@ export function seatStatus(
   name: string,
   seat: ModelSeat | undefined,
   today: string,
+  /** The pinned id this seat falls back to when the host configured none. */
+  fallbackId: string = DEFAULT_INTERPRET_MODEL,
 ): SeatVerdict {
-  const resolved: ModelSeat = seat ?? { id: DEFAULT_INTERPRET_MODEL };
+  const resolved: ModelSeat = seat ?? { id: fallbackId };
   if (resolved.placeholder !== true) {
     return { seat: name, id: resolved.id, status: "pinned", usable: true };
   }
@@ -281,4 +354,26 @@ export function seatStatus(
 /** The interpreter seat, resolved. One seat, one knob (scar §2.15b). */
 export function interpretSeat(config: AdapterConfig, today: string): SeatVerdict {
   return seatStatus("interpret", config.models?.interpret, today);
+}
+
+/** The embedder seat, resolved. Its own knob, its own pinned default. */
+export function embedSeat(config: AdapterConfig, today: string): SeatVerdict {
+  return seatStatus("embed", config.models?.embed, today, DEFAULT_EMBED_MODEL);
+}
+
+/**
+ * Is the embedder switched on, and is its credential present? Both halves are
+ * REPORTED rather than inferred, so "the owner said no" and "the owner said yes
+ * and the key is missing" are different records — the second is a refusal worth
+ * an event, the first is not (scar §2.4).
+ */
+export function embedderState(config: AdapterConfig): {
+  readonly enabled: boolean;
+  readonly credential: boolean;
+} {
+  const key = process.env[EMBED_KEY_ENV];
+  return {
+    enabled: config.embedder?.enabled === true,
+    credential: key !== undefined && key.trim().length > 0,
+  };
 }

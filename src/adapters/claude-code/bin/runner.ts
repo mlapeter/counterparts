@@ -24,6 +24,7 @@ import { Counterpart } from "../../../core/counterpart.js";
 
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
+import { openEmbedder } from "../index.js";
 import { interpretClient } from "../interpret-client.js";
 import type { FetchLike } from "../interpret-client.js";
 import { DATA_DIR_ENV, WATCHDOG_ENV } from "../spawn.js";
@@ -64,8 +65,23 @@ export async function runOnce(input: {
     return { ran: false, reason: "observer", swept: 0, minted: 0, code: null };
   }
 
+  // The embedder, when the owner switched it on. This is the composition root
+  // that MINTS — the fallback sweep runs here — so an embedder wired only into
+  // `openAdapter` would be an embedder the memories never meet. Its `fetch` is
+  // the same injected one the interpreter uses, so the whole worker stays
+  // provable without a socket.
+  const embedder = openEmbedder(config, {
+    // ONE injected `fetch` for the whole worker; the two clients call different
+    // endpoints, and a fake that answers both is how a test proves that.
+    ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+    ...(input.today === undefined ? {} : { today: input.today }),
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    onEvent: emit,
+  });
+
   const counterpart = Counterpart.open({
     dir: config.dataDir,
+    ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
     ...(config.injectionBudgetBytes === undefined
       ? {}
       : { budgetBytes: config.injectionBudgetBytes }),
