@@ -30,6 +30,13 @@ import type { ChannelRecord, ChannelState, EncodeEvent } from "./types.js";
 
 export type Channel = "lexical" | "semantic";
 
+/** One element on a slice: a verbatim statement, optionally with its ADDRESS —
+ *  the id an `updates:` declaration names, which is what lets a shown
+ *  contradiction become a DECLARED revision instead of a loose restatement.
+ *  Bare strings stay accepted for address-less context (an id renders only
+ *  when real — never invented). */
+export type SliceStatement = string | { readonly id: string; readonly statement: string };
+
 export interface SchemaSlice {
   id: string;
   name: string;
@@ -37,11 +44,19 @@ export interface SchemaSlice {
   /** Supplied by the caller. Encode never fetches or computes one. */
   vector?: readonly number[] | null;
   /** Rendered VERBATIM (§8 G7): the surface contradiction detection runs on. */
-  beliefs?: readonly string[];
+  beliefs?: readonly SliceStatement[];
   /** Rendered VERBATIM, same reason. */
-  currentState?: readonly string[];
+  currentState?: readonly SliceStatement[];
   /** Rendered COMPRESSED, under a byte budget, with the elision announced. */
   identityCore?: string;
+}
+
+export function sliceStatementOf(s: SliceStatement): string {
+  return typeof s === "string" ? s : s.statement;
+}
+
+export function sliceAddressOf(s: SliceStatement): string | null {
+  return typeof s === "string" ? null : s.id;
 }
 
 export interface SelectedSchema {
@@ -225,8 +240,21 @@ export function renderSchemaContext(
       ? "named in this span"
       : "named in — or closely related to — this span";
     lines.push(`## ${s.name} (${framing})`);
-    for (const b of s.beliefs ?? []) lines.push(`- belief: ${b}`);
-    for (const c of s.currentState ?? []) lines.push(`- now: ${c}`);
+    // The id is the belief's ADDRESS: shown so a contradiction can be DECLARED
+    // (`updates: <id>`) rather than loosely restated — declared revisions are
+    // what the accommodation path resolves first.
+    for (const b of s.beliefs ?? []) {
+      const addr = sliceAddressOf(b);
+      lines.push(
+        addr === null ? `- belief: ${sliceStatementOf(b)}` : `- belief [${addr}]: ${sliceStatementOf(b)}`,
+      );
+    }
+    for (const c of s.currentState ?? []) {
+      const addr = sliceAddressOf(c);
+      lines.push(
+        addr === null ? `- now: ${sliceStatementOf(c)}` : `- now [${addr}]: ${sliceStatementOf(c)}`,
+      );
+    }
     const core = s.identityCore ?? "";
     if (core.length > 0) {
       if (core.length <= budget) lines.push(core);

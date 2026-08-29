@@ -771,9 +771,11 @@ describe("belief revision by pressure", () => {
     expect(successor?.role).toBe("belief");
     expect(successor?.kind).toBe("person");
     expect(s.beliefs(entityId).map((b) => b.id)).toEqual([successorId]);
-    expect(s.slices()[0]?.beliefs).toEqual([
+    expect(s.slices()[0]?.beliefs.map((b) => b.statement)).toEqual([
       "Ada asked for a live walkthrough instead",
     ]);
+    // Every card element carries its ADDRESS — what an updates: declaration names.
+    expect(s.slices()[0]?.beliefs[0]?.id).toBe(successorId);
   });
 
   test("one credited challenge per target per lived day — a second is refused by name", () => {
@@ -942,7 +944,7 @@ describe("status lives on the entity, never in identity", () => {
     // should flip on one clear correction (§4.3, chosen out loud).
     expect(row?.kind).toBe("entity");
     // Rendered verbatim to the author: a paraphrase cannot be contradicted.
-    expect(s.slices()[0]?.currentState).toEqual(["2 of 4 through the fix queue"]);
+    expect(s.slices()[0]?.currentState.map((c) => c.statement)).toEqual(["2 of 4 through the fix queue"]);
   });
 
   test("placement refusals name their reason, one per failure mode", () => {
