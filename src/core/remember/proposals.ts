@@ -386,6 +386,11 @@ export async function submitProposal(
     updates = await ctx.resolveUpdates(draft.updates, verdict.content);
   }
 
+  // Novelty stripped from the author's dimensions BEFORE the gate's computed
+  // value applies — see the salience comment below for why the strip must be
+  // explicit rather than an override.
+  const { novelty: _claimedNovelty, ...authoredDims } = draft.salience ?? {};
+
   const proposal: Proposal = {
     id: `prp_${randomBytes(6).toString("hex")}`,
     source: ctx.source,
@@ -394,11 +399,16 @@ export async function submitProposal(
     content: verdict.content,
     kind,
     title: draft.title ?? null,
-    // The author's dimensions, then the gate's computed one. Order matters: a
-    // draft cannot claim a novelty it has no way to measure, so the gate's value
-    // wins whenever the gate had one.
+    // The author's three dimensions, with novelty STRIPPED explicitly before
+    // the gate's computed value is applied: novelty is prediction error at
+    // encoding — computed, never claimed (§2.9) — and relying on the gate's
+    // override alone let an author-supplied novelty survive whenever no vector
+    // source was wired, which is the DEFAULT config (PR-3 review: a claimed
+    // 0.99 reached the stored row and fed salience/banding — F5 through a new
+    // door). Stripping first also preserves the omitted-vs-null distinction:
+    // no vector source means novelty null ("never asked"), never the claim.
     salience: {
-      ...(draft.salience ?? {}),
+      ...authoredDims,
       ...(verdict.novelty === undefined ? {} : { novelty: verdict.novelty }),
       claimed: draft.claimed ?? null,
     },
