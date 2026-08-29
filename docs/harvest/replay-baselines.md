@@ -239,6 +239,27 @@ and on-demand CLI runs.
   attempts"). `observer.skip`: 9 (`boundary.encode` — observer mode correctly skipping
   the encode path, scar #7).
 - `session.start`: 15 · `session.end`: 14 (reasons: `prompt_input_exit` 8, `other` 6).
+- **Salience self-claim** (`salience.liftRate` / `salience.meanLift` / `salience.capRate`,
+  added 2026-08-29 after review finding F5, WATCH-ONLY): no v1 number — the first
+  blind replay (2026-08-26, run_6b037641d8aa) found `salience.lifted` on 1656 of
+  1691 mints (97.9%), mean lift +0.150 (mode 0.8), with nothing watching lift
+  rate or claimed-vs-computed divergence. `liftRate` reads `mint.proposal`'s own
+  `lifted` flag (not a raw `salience.lifted` count, which has a second emit site
+  in `schemas/` entity placement); `meanLift` and `capRate` read the seam event's
+  `applied`/`computed`/`capped` fields directly. `capRate` is defensive by
+  construction: `capped` is not on the event in the shipped build, so it renders
+  not-exercised until a sweep-ceiling extension adds it, rather than guessing
+  zero. All three are watch-only bands (0–1 / −1–1), not health claims — bars get
+  proposed once the re-run has a profile to set them against.
+- **Schema-birth refusal** (`schema.birthRefusalShare` / `schema.birthRefusalMix`,
+  added 2026-08-29 after review finding 5, WATCH-ONLY): no v1 number — the same
+  run found 3 births against 279 refusals (98.9% refused), 267 of them
+  `name-not-in-source`, 11 `birth-cap`, 1 `collision-near`, with "no scorecard
+  metric covers birth at all." `birthRefusalShare` is refused over (born +
+  refused); `birthRefusalMix` mirrors `gate.refusalMix`'s pattern by naming the
+  one dominant reason the first run found (`name-not-in-source`) rather than
+  re-deriving a mode per run. Watch-only — bars proposed after the re-run's
+  profile.
 
 ---
 
