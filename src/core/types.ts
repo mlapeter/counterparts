@@ -15,8 +15,19 @@ export type Band = "episodic" | "semantic" | "identity";
  * The first four are `mint.ts`'s `ClaimChannel` vocabulary, persisted;
  * "migrated" is the v1 importer's. An absent value (a pre-v4 row) reads as
  * "unrecorded" — a default here would fabricate provenance.
+ *
+ * The ARRAY is the totality anchor: a member added here without a live writer
+ * fails the member-to-writer test (PR-2 review — "accommodation" shipped
+ * writerless once).
  */
-export type MemorySource = "authored" | "fallback" | "episode" | "accommodation" | "migrated";
+export const MEMORY_SOURCES = [
+  "authored",
+  "fallback",
+  "episode",
+  "accommodation",
+  "migrated",
+] as const;
+export type MemorySource = (typeof MEMORY_SOURCES)[number];
 
 /** Four dimensions, 0-1, fixed at encoding. novelty is null for a blind write
  *  (no schema context existed) — recorded, never defaulted (scar §2.9). */

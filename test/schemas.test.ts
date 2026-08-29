@@ -642,6 +642,7 @@ describe("belief revision by pressure", () => {
     const v2 = mkdtempSync(join(tmpdir(), "counterparts-mig-v2-"));
     try {
       mkdirSync(join(v1, "traces"), { recursive: true });
+      mkdirSync(join(v1, "schemas"), { recursive: true });
       writeFileSync(
         join(v1, "traces", "tr_belief.md"),
         [
@@ -658,6 +659,28 @@ describe("belief revision by pressure", () => {
         ].join("\n"),
         "utf8",
       );
+      // The reviewer's proof of vacuity: a trace-only fixture never reaches
+      // writeElement -> addBelief — the exact path the blocker lived in. A v1
+      // SCHEMA file with a belief is what drives it (test/migrate.test.ts's
+      // fixture idiom: the authoritative record rides in the item comment).
+      const beliefStatement =
+        "Ada consistently prefers asynchronous review over synchronous meetings.";
+      writeFileSync(
+        join(v1, "schemas", "person-ada.md"),
+        [
+          "---",
+          "id: sch_ada",
+          "kind: person",
+          "name: Ada",
+          'aliases: ["ada l"]',
+          "---",
+          "## Beliefs",
+          "",
+          `- ${beliefStatement} <!--${JSON.stringify({ id: "el_ada1", statement: beliefStatement })}-->`,
+          "",
+        ].join("\n"),
+        "utf8",
+      );
       const { report } = migrateAndRender({ source: v1, target: join(v2, "store"), apply: true });
       expect(report.source_readonly.identical).toBe(true);
       const migrated = Store.open({ dir: join(v2, "store") });
@@ -671,6 +694,17 @@ describe("belief revision by pressure", () => {
       expect(sources.length).toBeGreaterThan(0);
       expect(sources).not.toContain("authored");
       expect(sources).toContain("migrated");
+      // The assertion the earlier version only CLAIMED to make: a row that
+      // went through writeElement -> addBelief — role "belief", the blocker's
+      // own path — is stamped migrated.
+      const beliefRows = migrated
+        .list({ type: "schema" })
+        .map((id) => ({ row: migrated.row(id), meta: migrated.readProse(id).meta }))
+        .filter((r) => r.meta["role"] === "belief");
+      expect(beliefRows.length).toBeGreaterThan(0);
+      expect(beliefRows.map((r) => r.row?.source)).toEqual(
+        beliefRows.map(() => "migrated"),
+      );
     } finally {
       const { rmSync } = await import("node:fs");
       rmSync(v1, { recursive: true, force: true });
@@ -708,6 +742,12 @@ describe("belief revision by pressure", () => {
     // The pressure field lives ON THE TARGET ROW — there is no second object.
     const successorId = last?.successorId as string;
     expect(successorId).not.toBeNull();
+    // And the successor carries its channel: an accommodation successor is the
+    // engine revising under pressure, its provenance the challenger that
+    // carried the crossing (PR-2 review: SF1 was correct but unmechanized —
+    // this is the row-level assertion behind the vocabulary's fifth member).
+    expect(s.store.row(successorId)?.source).toBe("accommodation");
+    expect(typeof s.store.row(successorId)?.origin_ref).toBe("string");
     expect(s.store.physicsOf(beliefId).pressure).toBeGreaterThan(0);
     expect(s.store.physicsOf(beliefId).lastChallengedDay).toBe(3);
 
