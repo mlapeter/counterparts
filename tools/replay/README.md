@@ -31,9 +31,12 @@ result.cleanup();                  // removes ONLY the temp store it created
 | `decay-shapes.ts` | physics OQ1: the same corpus under flat / exponential / power-law, divergence per band. Evidence, not a verdict |
 | `report.ts` | the renderer and the machine-readable pass record. Numbers, counts, verdicts — never memory text |
 
-**Four verdicts, and no fifth:** `pass` / `fail` / `needs-rater` /
-`not-exercised`. A run containing a `not-exercised` is never a clean pass, and
-`gateOpen()` — what a runtime switch calls — refuses anything less.
+**Four graded verdicts** — `pass` / `fail` / `needs-rater` / `not-exercised` —
+**plus `watch`, which is not a grade:** a measured number with no bar yet
+(bars are proposed from a run's profile, never invented), which can neither
+pass nor fail a run. A run containing a `not-exercised` is never a clean pass,
+and `gateOpen()` — what a runtime switch calls — refuses anything less;
+`watch` rows affect neither direction.
 
 **Safety.** The harness errors on a pre-set `COUNTERPARTS_DATA_DIR` rather than
 honouring it, makes its own temp store, removes only what it made, and never

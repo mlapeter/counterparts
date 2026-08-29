@@ -22,9 +22,19 @@
  * harness cannot compute at all also lands here, with its reason spelled out,
  * rather than being dropped from the scorecard.
  */
-export type Verdict = "pass" | "fail" | "needs-rater" | "not-exercised";
+export type Verdict = "pass" | "fail" | "needs-rater" | "not-exercised" | "watch";
 
-export const VERDICTS: readonly Verdict[] = ["pass", "fail", "needs-rater", "not-exercised"];
+export const VERDICTS: readonly Verdict[] = [
+  "pass",
+  "fail",
+  "needs-rater",
+  "not-exercised",
+  // `watch` is the UNGRADED verdict (PR-5 review): a measured number with no
+  // bar yet. It can neither pass nor fail a run — rendering it as `pass` with
+  // an always-true range was scar §2.4's vacuous-PASS shape in miniature, the
+  // same reasoning that moved session.boundaryCoverage to not-exercised.
+  "watch",
+];
 
 /** Why a metric is `not-exercised`. Never absent when the verdict is. */
 export type NotExercisedReason =
@@ -302,6 +312,9 @@ export interface RunRecord {
 
 export type Grading =
   | { readonly kind: "range"; readonly range: Range; readonly note?: string }
+  /** Measured, UNGRADED: a real number with no bar yet — bars are proposed
+   *  from a run's profile, not invented. Renders `watch`, never `pass`. */
+  | { readonly kind: "watch"; readonly note: string }
   /** Human-rated: the harness computes the surface, a person renders the verdict. */
   | { readonly kind: "rater"; readonly bar: string }
   /** The harness structurally cannot produce this number. `why` is mandatory. */

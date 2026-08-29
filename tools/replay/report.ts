@@ -82,6 +82,7 @@ function pad(s: string, n: number): string {
 
 const MARK: Record<Verdict, string> = {
   pass: "PASS",
+  watch: "WATCH",
   fail: "FAIL",
   "needs-rater": "RATER",
   "not-exercised": "N/EX",
@@ -218,7 +219,7 @@ export function renderReport(input: RenderInput): string {
   out.push("VERDICTS");
   out.push("-".repeat(78));
   out.push(
-    `pass ${scorecard.counts.pass} · fail ${scorecard.counts.fail} · needs-rater ${scorecard.counts["needs-rater"]} · not-exercised ${scorecard.counts["not-exercised"]}`,
+    `pass ${scorecard.counts.pass} · fail ${scorecard.counts.fail} · needs-rater ${scorecard.counts["needs-rater"]} · not-exercised ${scorecard.counts["not-exercised"]} · watch ${scorecard.counts.watch}`,
   );
   out.push(
     scorecard.clean
