@@ -303,13 +303,26 @@ export interface ElementView {
  * guarantee 8 requires. Beliefs and current state are VERBATIM — a paraphrase
  * of a belief cannot be honestly confirmed or contradicted (§8 G7).
  */
+/** One element on a card: the id is the ADDRESS an `updates:` declaration can
+ *  name, the statement is verbatim (§8 G7 — a paraphrase cannot be honestly
+ *  contradicted). */
+export interface SliceElement {
+  id: string;
+  statement: string;
+}
+
 export interface SchemaSliceOut {
   id: string;
   name: string;
   aliases: string[];
-  beliefs: string[];
-  currentState: string[];
-  /** Announced as a count, never a silent omission (§5 G8). Zero here today. */
+  beliefs: SliceElement[];
+  currentState: SliceElement[];
+  /**
+   * Announced as a count, never a silent omission (§5 G8). Nonzero when the
+   * caller asked for the interpreter's view: protected elements never render
+   * into the falsification path (§14.1 G2), and each one filtered is counted
+   * here rather than silently absent.
+   */
   elided: number;
 }
 

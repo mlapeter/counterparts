@@ -35,11 +35,12 @@ import { tmpdir } from "node:os";
 import { join, relative, isAbsolute, resolve } from "node:path";
 
 import { Counterpart } from "../../src/core/counterpart.js";
-import type { CounterpartEvent } from "../../src/core/counterpart.js";
+import type { CounterpartEvent, LiveVectors } from "../../src/core/counterpart.js";
 import { band as liveBand } from "../../src/core/physics/index.js";
 import type { InterpretFn, Turn } from "../../src/core/remember/index.js";
 import type { IdentityCoreSpec } from "../../src/core/self/index.js";
 import { DATA_DIR_ENV, assertSafeDataDir } from "../../src/core/store/index.js";
+import type { Embedder } from "../../src/core/store/index.js";
 import type { CycleReport } from "../../src/core/sleep/index.js";
 
 import { Corpus } from "./corpus.js";
@@ -58,7 +59,7 @@ import type {
   SymmetryVerdictSummary,
 } from "./types.js";
 
-export const HARNESS_VERSION = "replay/1";
+export const HARNESS_VERSION = "replay/2";
 
 /** High enough that a replay's whole durable log is read, never a window: a
  *  truncated read would understate a rate and look like a result. */
@@ -110,6 +111,13 @@ export interface DriverOptions {
   readonly chunkBytes?: number;
   readonly now?: () => number;
   readonly identity?: IdentityCoreSpec;
+  /** Both halves of a live embedder, when the run wires one (--embed): the
+   *  sync face box 3 indexes through and the live face the novelty seam and
+   *  the cards' semantic channel use. Absent = a lexical-only run, and the
+   *  report says which. (`vectors` above is the PINNED GENERATION NAME on the
+   *  run record — a different thing, hence the distinct field name here.) */
+  readonly embed?: Embedder;
+  readonly liveVectors?: LiveVectors;
   readonly onDay?: (date: string, index: number, total: number) => void;
 }
 
@@ -152,6 +160,8 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
     owner: true,
     budgetBytes: opts.budgetBytes,
     ...(opts.identity === undefined ? {} : { identity: opts.identity }),
+    ...(opts.embed === undefined ? {} : { embed: opts.embed }),
+    ...(opts.liveVectors === undefined ? {} : { vectors: opts.liveVectors }),
     ...(opts.now === undefined ? {} : { now: opts.now }),
     onEvent: (e: CounterpartEvent) => {
       events.push({ name: e.name, data: { ...(e.data ?? {}) } });

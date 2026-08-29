@@ -968,6 +968,27 @@ describe("the report renderer", () => {
     result.cleanup();
   });
 
+  test("a SAMPLE run says so everywhere, and its pass record can NEVER open the gate", async () => {
+    const result = await runFixture("samplerun");
+    const input = {
+      scorecard: result.scorecard,
+      observation: result.run.observation,
+      decay: result.decay,
+      sample: true,
+    };
+    // The banner is the first thing a reader sees...
+    expect(renderReport(input).split("\n")[0]).toContain("SAMPLE RUN");
+    // ...the record carries the mark durably...
+    const pass = passRecord(input);
+    expect(pass.sample).toBe(true);
+    // ...and the gate refuses it STRUCTURALLY: a sample proves wiring, never
+    // readiness, whatever its verdicts say.
+    expect(gateOpen(pass, HARNESS_VERSION)).toBe(false);
+    // The unsampled path is unchanged: sample defaults false.
+    expect(passRecord({ ...input, sample: undefined }).sample).toBe(false);
+    result.cleanup();
+  });
+
   test("a scorecard with an unaccounted metric THROWS rather than rendering a blank", () => {
     const hollow = spec({ id: "hollow", grading: { kind: "range", range: { lo: 0, hi: 1 } } });
     const card = scoreRun(EMPTY_OBSERVATION, RECORD, [hollow], STUB_DOC);

@@ -43,7 +43,7 @@ import {
 } from "../physics/index.js";
 import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
-import { containsSecret } from "../encode/secrets.js";
+import { containsSecret, redactSecrets } from "../encode/secrets.js";
 import { occursAsWholeWord } from "../encode/words.js";
 import { Store, hashText, readProseFile, today } from "../store/index.js";
 import type { MemoryRow, PutInput } from "../store/index.js";
@@ -623,7 +623,14 @@ export class Schemas {
     const put: PutInput = {
       type: "schema",
       kind: spec.kind,
-      body: spec.body,
+      // The statement crosses the secrets gate on its way to disk (PR-6 review
+      // SF1): the direct addBelief/addCurrentState API gated the entity NAME
+      // and the aliases but never the STATEMENT body — so a credential could
+      // live in a belief on disk (and reach both the sweep prompt and the
+      // embedder, which redact at their own edges, but the store held it raw).
+      // Redacting at THE SOURCE closes all three at once, the way migrate's
+      // own runGate already treats a statement.
+      body: redactSecrets(spec.body),
       meta,
       salience,
       physics: {
@@ -1032,19 +1039,35 @@ export class Schemas {
    * What the author is shown at encoding (§8 G7). Beliefs and current state are
    * VERBATIM — a paraphrase of a belief cannot be honestly confirmed or
    * contradicted, and contradiction detection is the whole reason the slice
-   * exists. Faded entities are absent: that is what "fades out of preselection"
-   * means. Nothing is elided today, and the count says so rather than the
-   * absence of a field saying nothing (§5 G8).
+   * exists — and each element carries its ID, the address an `updates:`
+   * declaration names. Faded entities are absent: that is what "fades out of
+   * preselection" means.
+   *
+   * `excludeProtected` is the INTERPRETER's view (§14.1 G2: protected elements
+   * never render into the falsification path — a model must not be handed the
+   * one class of statement it is forbidden to challenge). The filter is
+   * PER-ELEMENT, never per-entity, and every filtered element is COUNTED in
+   * `elided` rather than silently absent (§5 G8). One builder serves both the
+   * prompt cards and the gate slices, so the two surfaces cannot drift.
    */
-  slices(): SchemaSliceOut[] {
-    return this.entities().map((e) => ({
-      id: e.id,
-      name: e.name,
-      aliases: [...e.aliases],
-      beliefs: this.beliefs(e.id).map((b) => b.statement),
-      currentState: this.currentState(e.id).map((c) => c.statement),
-      elided: 0,
-    }));
+  slices(opts: { excludeProtected?: boolean } = {}): SchemaSliceOut[] {
+    return this.entities().map((e) => {
+      let elided = 0;
+      const keep = (v: ElementView): boolean => {
+        if (opts.excludeProtected === true && v.protected) {
+          elided += 1;
+          return false;
+        }
+        return true;
+      };
+      const beliefs = this.beliefs(e.id)
+        .filter(keep)
+        .map((b) => ({ id: b.id, statement: b.statement }));
+      const currentState = this.currentState(e.id)
+        .filter(keep)
+        .map((c) => ({ id: c.id, statement: c.statement }));
+      return { id: e.id, name: e.name, aliases: [...e.aliases], beliefs, currentState, elided };
+    });
   }
 
   /** The index recall borrows (SEAMS §6). Live object; treat it as read-only. */

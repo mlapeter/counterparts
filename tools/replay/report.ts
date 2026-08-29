@@ -50,6 +50,10 @@ export interface RenderInput {
    * exactly where it matters. The question is what the curves do WEEKS later.
    */
   readonly decayHorizon?: DecayShapeReport;
+  /** True for a SAMPLED run — a subset of the corpus's days, priced small.
+   *  The banner says so, the pass record carries it, and `gateOpen` refuses
+   *  it structurally: a sample proves wiring, never readiness. */
+  readonly sample?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +121,11 @@ export function renderReport(input: RenderInput): string {
   const c = observation.corpus;
   const out: string[] = [];
 
-  out.push("COUNTERPARTS REPLAY SCORECARD");
+  out.push(
+    input.sample === true
+      ? "COUNTERPARTS REPLAY SCORECARD — SAMPLE RUN (a subset of the corpus's days; proves wiring, never readiness; its pass record cannot open the gate)"
+      : "COUNTERPARTS REPLAY SCORECARD",
+  );
   out.push("=".repeat(78));
   out.push(`run             ${r.runId}`);
   out.push(`harness         ${r.harnessVersion}`);
@@ -316,6 +324,8 @@ export interface PassRecord {
   readonly corpusDigest: string;
   readonly budgetBytes: number;
   readonly readOnlyProof: boolean;
+  /** A sampled run's record can never open the runtime gate. */
+  readonly sample: boolean;
   readonly clean: boolean;
   readonly counts: Readonly<Record<Verdict, number>>;
   readonly totalityOk: boolean;
@@ -394,6 +404,7 @@ export function passRecord(input: RenderInput): PassRecord {
     corpusDigest: r.corpusDigest,
     budgetBytes: r.budgetBytes,
     readOnlyProof: r.readOnlyProof,
+    sample: input.sample === true,
     clean: scorecard.clean,
     counts: scorecard.counts,
     totalityOk: scorecard.totality.ok,
@@ -414,6 +425,7 @@ export function writePassRecord(path: string, record: PassRecord): void {
  */
 export function gateOpen(record: PassRecord, harnessVersion: string): boolean {
   return (
+    record.sample !== true &&
     record.clean &&
     record.totalityOk &&
     record.readOnlyProof &&
