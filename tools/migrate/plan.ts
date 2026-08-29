@@ -386,6 +386,10 @@ function planTrace(
   if (trace.lastDecayedDay !== undefined) tally.drop("trace.lastDecayedDay");
 
   const uses = usesOf(trace, t, tally);
+  // ONE predicate for the promotion and its exemption tally — written twice,
+  // they can drift apart and the count stops matching the ink (PR-4 review).
+  const gradientQualifies = trace.gradient >= t.IDENTITY_GRADIENT_CUT;
+  const retiredInV1 = trace.mergedInto !== undefined || trace.archived === true;
   const doc: PlannedDoc = {
     v2Id: docId("memory", sourceRef),
     sourceRef,
@@ -407,17 +411,11 @@ function planTrace(
       // high-gradient rows — the 2026-08-29 pre-cutover dry run found an
       // archived/superseded self trace at 0.95 that would otherwise have
       // taken the twentieth promotion. Exemptions are counted below.
-      promotedIdentity:
-        trace.gradient >= t.IDENTITY_GRADIENT_CUT &&
-        trace.mergedInto === undefined &&
-        trace.archived !== true,
+      promotedIdentity: gradientQualifies && !retiredInV1,
       protected: false,
     },
   };
-  if (
-    trace.gradient >= t.IDENTITY_GRADIENT_CUT &&
-    (trace.mergedInto !== undefined || trace.archived === true)
-  ) {
+  if (gradientQualifies && retiredInV1) {
     tally.approximate(
       "IDENTITY_CUT_ARCHIVED_EXEMPT",
       "gradient qualified but the trace is archived/merged in v1 — retired memories do not arrive permanent",

@@ -560,9 +560,19 @@ export function readV1(dir: string): V1Store {
       ledgerEntries.push([id, v as Record<string, unknown>]);
     }
   }
-  for (const [id, e] of ledgerEntries) {
+  for (const [index, [id, e]] of ledgerEntries.entries()) {
     const ref = str(e["schemaElementRef"]);
-    if (id === undefined || id === null || ref === undefined || ref === null) continue;
+    if (id === undefined || id === null || ref === undefined || ref === null) {
+      // Skipped and COUNTED — never silently (the readLines idiom). This PR
+      // exists because a silent ledger zero blinded LEDGER_TO_PRESSURE; a
+      // partial read must not look identical to a complete one, or the
+      // cutover run cannot prove it read all 9 real entries.
+      malformed.push({
+        relPath: "ledger.json",
+        reason: `ledger-entry-${index}: missing ${id === undefined || id === null ? "id" : "schemaElementRef"}`,
+      });
+      continue;
+    }
     ledger.push({
       id,
       schemaElementRef: ref,

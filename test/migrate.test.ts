@@ -944,6 +944,32 @@ describe("tools/migrate", () => {
 // The 2026-08-29 pre-cutover dry-run findings, pinned (docs/DECISIONS.md arc)
 // ═══════════════════════════════════════════════════════════════════════════
 describe("dry-run findings — the ledger's real shape, and no ink for the retired", () => {
+  test("a ledger entry missing its id or ref is skipped and COUNTED — a partial read never looks complete", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-migledgerbad-"));
+    try {
+      writeFileSync(
+        join(dir, "ledger.json"),
+        JSON.stringify([
+          { id: "led_ok", schemaElementRef: "el_x", evidence: [], cumulativeScore: 0.2, status: "open" },
+          { schemaElementRef: "el_y", status: "open" }, // no id
+          { id: "led_noref", status: "open" }, // no ref
+        ]),
+        "utf8",
+      );
+      const v1 = readV1(dir);
+      expect(v1.ledger.length).toBe(1);
+      // The cutover run can now PROVE it read every real entry: the two it
+      // could not use are named, not vanished (the finding this PR fixes was
+      // exactly a silent ledger zero).
+      const ledgerMalformed = v1.malformed.filter((m) => m.relPath === "ledger.json");
+      expect(ledgerMalformed.length).toBe(2);
+      expect(ledgerMalformed.map((m) => m.reason).join(" ")).toContain("missing id");
+      expect(ledgerMalformed.map((m) => m.reason).join(" ")).toContain("missing schemaElementRef");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("an object-keyed ledger still reads — tolerance, like the span near-misses", () => {
     const dir = mkdtempSync(join(tmpdir(), "counterparts-migledger-"));
     try {
