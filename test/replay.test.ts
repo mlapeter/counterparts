@@ -1217,7 +1217,7 @@ describe("the gate metrics compute from the durable record", () => {
 describe("the salience and schema-birth watch metrics compute from relayed events (review F5 / finding 5)", () => {
   test("salience.liftRate reads mint.proposal's own `lifted` flag, not a raw salience.lifted count", () => {
     const metric = metricById("salience.liftRate") as MetricSpec;
-    expect(metric.grading.kind).toBe("range");
+    expect(metric.grading.kind).toBe("watch");
     const o = observed({
       events: [
         { name: "mint.proposal", data: { id: "m1", proposal: "p1", kind: "fact", updates: null, updatesReason: "NO_DECLARATION", lifted: true, blind: false } },
@@ -1231,7 +1231,7 @@ describe("the salience and schema-birth watch metrics compute from relayed event
     const sample = metric.compute?.(o);
     expect(sample?.numerator).toBe(2);
     expect(sample?.denominator).toBe(3);
-    expect(scoreMetric(metric, o).verdict).toBe("pass");
+    expect(scoreMetric(metric, o).verdict).toBe("watch");
   });
 
   test("no mint proposals in the run is not-exercised, never a zero that passes", () => {
@@ -1253,10 +1253,10 @@ describe("the salience and schema-birth watch metrics compute from relayed event
     // (0.8 - 0) + (0.6 - 0.2) = 1.2, over 2 lifts = 0.6
     expect(sample?.value).toBeCloseTo(0.6, 10);
     expect(sample?.denominator).toBe(2);
-    expect(scoreMetric(metric, o).verdict).toBe("pass");
+    expect(scoreMetric(metric, o).verdict).toBe("watch");
   });
 
-  test("salience.capRate is not-exercised when `capped` is absent from every lift (today's shipped shape)", () => {
+  test("salience.capRate is not-exercised when `capped` is absent from every lift (the pre-doctrine shape, retained for old observations)", () => {
     const metric = metricById("salience.capRate") as MetricSpec;
     const o = observed({
       events: [{ name: "salience.lifted", data: { id: "m1", computed: 0, claimed: 0.8, applied: 0.8 } }],
@@ -1283,7 +1283,7 @@ describe("the salience and schema-birth watch metrics compute from relayed event
     const sample = metric.compute?.(o);
     expect(sample?.numerator).toBe(1);
     expect(sample?.denominator).toBe(2);
-    expect(scoreMetric(metric, o).verdict).toBe("pass");
+    expect(scoreMetric(metric, o).verdict).toBe("watch");
   });
 
   test("schema.birthRefusalShare is refused over (born + refused)", () => {
@@ -1298,7 +1298,7 @@ describe("the salience and schema-birth watch metrics compute from relayed event
     const sample = metric.compute?.(o);
     expect(sample?.numerator).toBe(2);
     expect(sample?.denominator).toBe(3);
-    expect(scoreMetric(metric, o).verdict).toBe("pass");
+    expect(scoreMetric(metric, o).verdict).toBe("watch");
   });
 
   test("a run with no birth attempts at all is not-exercised, never a zero that passes", () => {
@@ -1320,10 +1320,10 @@ describe("the salience and schema-birth watch metrics compute from relayed event
     const sample = metric.compute?.(o);
     expect(sample?.numerator).toBe(2);
     expect(sample?.denominator).toBe(3);
-    expect(scoreMetric(metric, o).verdict).toBe("pass");
+    expect(scoreMetric(metric, o).verdict).toBe("watch");
   });
 
-  test("all five watch metrics are computable range entries claiming §1.11", () => {
+  test("all five watch metrics are computable WATCH entries claiming §1.11 — measured, never a vacuous pass", () => {
     for (const id of [
       "salience.liftRate",
       "salience.meanLift",
@@ -1333,7 +1333,11 @@ describe("the salience and schema-birth watch metrics compute from relayed event
     ]) {
       const metric = metricById(id);
       expect(metric?.section).toBe("1.11");
-      expect(metric?.grading.kind).toBe("range");
+      // The PR-5 review's SF3: an unfailable range renders `pass`, and a
+      // vacuous PASS reads healthier than an honest absence (scar §2.4) — so
+      // these grade as `watch`, the measured-ungraded verdict, which can
+      // neither pass nor fail a run.
+      expect(metric?.grading.kind).toBe("watch");
       expect(metric?.compute).toBeDefined();
     }
   });
@@ -1429,15 +1433,33 @@ describe("the salience watch metrics wire through a real replay (review F5)", ()
     expect(proposals.some((e) => e.data.lifted === true)).toBe(true);
 
     const card = result.scorecard;
-    for (const id of ["salience.liftRate", "salience.meanLift", "schema.birthRefusalShare", "schema.birthRefusalMix"]) {
+    // The salience pair COMPUTES on this fixture (claims fire): watch, with a
+    // real number behind it.
+    for (const id of ["salience.liftRate", "salience.meanLift"]) {
       const row = card.metrics.find((m) => m.id === id);
-      expect(row?.reason).not.toBe("not-computable");
+      expect({ id, verdict: row?.verdict }).toEqual({ id, verdict: "watch" });
+      expect(row?.observed).not.toBeNull();
     }
-    // capRate reads not-exercised under today's shipped event shape, or computes
-    // once `capped` ships — either way it renders a real verdict, never a throw.
+    // The birth pair has NO denominator here — the fixture births nothing —
+    // and says so honestly rather than guessing a zero.
+    for (const id of ["schema.birthRefusalShare", "schema.birthRefusalMix"]) {
+      const row = card.metrics.find((m) => m.id === id);
+      expect({ id, verdict: row?.verdict, reason: row?.reason }).toEqual({
+        id,
+        verdict: "not-exercised",
+        reason: "no-denominator",
+      });
+    }
+    // The PR-5 review's tautology, closed: the old assertion accepted every
+    // verdict the scorer can produce. `capped` ships on the seam event now
+    // (the mint-source doctrine) and this fixture's claimed 0.95 exceeds the
+    // fallback ceiling, so capRate must COMPUTE — a real numerator over the
+    // lifted events, all of which were capped.
     const capRow = card.metrics.find((m) => m.id === "salience.capRate");
-    expect(capRow).toBeDefined();
-    expect(["pass", "fail", "not-exercised"]).toContain(capRow?.verdict ?? "");
+    expect({ verdict: capRow?.verdict, value: capRow?.observed?.value }).toEqual({
+      verdict: "watch",
+      value: 1,
+    });
 
     // Watch-only, never a content leak.
     expect(result.report).not.toContain(SPAN_MARKER);

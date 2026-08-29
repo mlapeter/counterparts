@@ -713,9 +713,8 @@ export const METRICS: readonly MetricSpec[] = [
     v1: "no v1 counterpart — first blind run (2026-08-26, run_6b037641d8aa): 1656/1691 mints lifted (97.9%), mean +0.150, mode 0.8 (review finding F5: 'salience is self-assigned and shaped the whole store... No metric watches lift rate or claimed-vs-computed divergence')",
     unit: "rate",
     grading: {
-      kind: "range",
-      range: { lo: 0, hi: 1 },
-      note: "watch-only — bars proposed after the re-run's profile. Read off `mint.proposal`'s own `lifted` flag rather than counting `salience.lifted` events directly: that event has a SECOND emit site (`schemas/index.ts` entity placement, carrying no proposal id) that would drift the numerator off the mint-proposal denominator if counted straight.",
+      kind: "watch",
+      note: "watch-only — bars proposed after the re-run's profile. NOT like-for-like with F5's 97.9%: `lifted` is now computed after the reteller's cap (a cut claim landing below computed reads unlifted) and a wired embedder makes novelty non-null, which moves computedSal — two structural shifts since the first-run number; read a change against them, not as behaviour alone. Read off `mint.proposal`'s own `lifted` flag rather than counting `salience.lifted` events directly: that event has a SECOND emit site (`schemas/index.ts` entity placement, carrying no proposal id) that would drift the numerator off the mint-proposal denominator if counted straight.",
     },
     compute: (o) => {
       const proposals = eventsNamed(o, "mint.proposal");
@@ -730,9 +729,8 @@ export const METRICS: readonly MetricSpec[] = [
     v1: "no v1 counterpart — first blind run: mean +0.150, mode 0.8 (review finding F5)",
     unit: "mean",
     grading: {
-      kind: "range",
-      range: { lo: -1, hi: 1 },
-      note: "watch-only — bars proposed after the re-run's profile. Computed over the SEAM event, not the mint proposal: once a sweep-ceiling extension lands, `salience.lifted` also fires on capped-without-lift, where applied−computed can read near zero and dilute the mean — a widening gap against F5's +0.150 first-run baseline is itself a reading, not noise.",
+      kind: "watch",
+      note: "watch-only — bars proposed after the re-run's profile. Computed over the SEAM event, not the mint proposal: since the sweep ceiling landed (the mint-source doctrine), `salience.lifted` also fires on capped-without-lift, where applied−computed can read near zero and dilute the mean — a widening gap against F5's +0.150 first-run baseline is itself a reading, not noise.",
     },
     compute: (o) => {
       const events = eventsNamed(o, "salience.lifted");
@@ -752,12 +750,11 @@ export const METRICS: readonly MetricSpec[] = [
     id: "salience.capRate",
     section: "1.11",
     label: "Share of `salience.lifted` seam events whose raw claim was capped",
-    v1: "no v1 counterpart, and `capped` is absent from `salience.lifted` today — absent until a sweep-ceiling PR lands; this reads not-exercised until then, by construction rather than by guess.",
+    v1: "no v1 counterpart. `capped`/`ceiling` SHIP on `salience.lifted` (the mint-source doctrine), so this computes on a current run; a replay of a pre-doctrine observation still reads not-exercised by construction rather than by guess.",
     unit: "rate",
     grading: {
-      kind: "range",
-      range: { lo: 0, hi: 1 },
-      note: "watch-only — bars proposed after the re-run's profile. Defensive by construction (scar §2.4's zero-vs-never-asked): `capped` is a field the event may not yet carry, so this renders not-exercised (no-denominator) rather than a guessed zero when no event in the run has it, and counts only over events that do.",
+      kind: "watch",
+      note: "watch-only — bars proposed after the re-run's profile. `capped` ships on the event; the defensive branch is RETAINED for replaying a pre-doctrine observation (scar §2.4's zero-vs-never-asked): when no event in a run carries the field this renders not-exercised (no-denominator) rather than a guessed zero, and it counts only over events that do.",
     },
     compute: (o) => {
       const events = eventsNamed(o, "salience.lifted");
@@ -775,8 +772,7 @@ export const METRICS: readonly MetricSpec[] = [
     v1: "no v1 counterpart — first blind run: 3 births vs 279 refusals = 98.9% refused (review finding 5: 'No scorecard metric covers birth at all')",
     unit: "rate",
     grading: {
-      kind: "range",
-      range: { lo: 0, hi: 1 },
+      kind: "watch",
       note: "watch-only — bars proposed after the re-run's profile.",
     },
     compute: (o) => {
@@ -792,8 +788,7 @@ export const METRICS: readonly MetricSpec[] = [
     v1: "no v1 counterpart — first blind run: name-not-in-source 267/279 (95.7%), birth-cap 11, collision-near 1 (review finding 5)",
     unit: "rate",
     grading: {
-      kind: "range",
-      range: { lo: 0, hi: 1 },
+      kind: "watch",
       note: "watch-only — bars proposed after the re-run's profile. Mirrors `gate.refusalMix`'s pattern: names the ONE reason the first run found dominant instead of re-deriving a mode per run, so a shift away from `name-not-in-source` shows up as a falling share rather than as silence.",
     },
     compute: (o) => {

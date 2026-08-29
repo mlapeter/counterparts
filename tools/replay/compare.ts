@@ -1,16 +1,20 @@
 /**
  * `tools/replay/compare.ts` — the distributional comparator, and the scorer.
  *
- * Turns one replay observation into a scorecard: a four-value verdict per
- * metric, plus the totality tripwire that says whether the scorecard covers the
- * baselines document at all.
+ * Turns one replay observation into a scorecard: a verdict per metric, plus
+ * the totality tripwire that says whether the scorecard covers the baselines
+ * document at all.
  *
  * THREE RULES THIS FILE EXISTS TO KEEP:
  *
- *   1. **Four values, never three.** `not-exercised` is a real outcome with a
- *      reason attached. A metric nothing ran, a metric this harness cannot
- *      compute, and a metric measured on another model seat all say so
- *      (guarantee 4, scar §2.4).
+ *   1. **Four GRADED values, never three — and `watch` is not a grade.**
+ *      `not-exercised` is a real outcome with a reason attached: a metric
+ *      nothing ran, a metric this harness cannot compute, and a metric
+ *      measured on another model seat all say so (guarantee 4, scar §2.4).
+ *      `watch` (added with the salience watch metrics) is measured-ungraded —
+ *      a real number with no bar yet, which can neither pass nor fail a run:
+ *      rendering it as `pass` behind an unfailable range would be the vacuous
+ *      PASS the same scar names.
  *   2. **A run with a `not-exercised` is not a clean pass.** `clean` is true only
  *      when every metric passed AND totality held. There is no "mostly".
  *   3. **The scorer is independent** (guarantee 5). Nothing here imports `src/`:
@@ -71,9 +75,12 @@ export function totality(
   const claimed = new Set(metrics.map((m) => m.section));
   const unclaimedSections = sections.filter((s) => s.startsWith("1.") && !claimed.has(s));
   const unknownSections = [...claimed].filter((s) => !sections.includes(s)).sort();
-  // A range with no scorer is the silent hole: it LOOKS graded and never is.
+  // A range (or watch) with no scorer is the silent hole: it LOOKS measured
+  // and never is.
   const unaccounted = metrics
-    .filter((m) => m.grading.kind === "range" && m.compute === undefined)
+    .filter(
+      (m) => (m.grading.kind === "range" || m.grading.kind === "watch") && m.compute === undefined,
+    )
     .map((m) => m.id);
   return {
     sections,
@@ -120,6 +127,35 @@ export function scoreMetric(spec: MetricSpec, o: ReplayObservation): MetricResul
       observed: null,
       range: null,
     };
+  }
+
+  if (spec.grading.kind === "watch") {
+    if (spec.compute === undefined) {
+      return {
+        ...head,
+        verdict: "not-exercised",
+        reason: "not-computable",
+        why: "The registry entry declares a watch but supplies no scorer (totality tripwire).",
+        observed: null,
+        range: null,
+      };
+    }
+    const observed = spec.compute(o);
+    if (observed === null) {
+      return {
+        ...head,
+        verdict: "not-exercised",
+        reason: "no-denominator",
+        why: "This run produced no denominator for the metric — never asked, not zero.",
+        observed: null,
+        range: null,
+      };
+    }
+    // Measured, UNGRADED: the number is real, the verdict says only that it
+    // was watched — never `pass` (scar §2.4: an unfailable range is a vacuous
+    // PASS, the same reasoning that moved session.boundaryCoverage out of the
+    // range vocabulary in PR-1).
+    return { ...head, verdict: "watch", reason: null, why: spec.grading.note, observed, range: null };
   }
 
   const range = spec.grading.range;
@@ -174,6 +210,7 @@ export function scoreRun(
     fail: 0,
     "needs-rater": 0,
     "not-exercised": 0,
+    watch: 0,
   };
   for (const r of results) counts[r.verdict] += 1;
   const tripwire = totality(metrics, doc);
