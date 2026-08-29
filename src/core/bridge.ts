@@ -32,62 +32,112 @@ import type {
   EncodeResult,
   Proposal as EncodeProposal,
 } from "./encode/index.js";
-import type { GateFn, SweepChunk } from "./remember/index.js";
+import type { GateFn, GateVerdict } from "./remember/index.js";
+import type { SweepChunk } from "./remember/index.js";
 import type { EpisodeGate } from "./self/index.js";
 
-/** Per-proposal gate for the authored paths (session-end dumps and jots). */
-export function batteryGate(): GateFn {
-  return (input) => {
-    const selfAuthored = input.source === "session-end" || input.source === "jot";
-    const proposal: EncodeProposal = {
-      ref: input.span?.hash ?? "authored",
-      content: input.content,
-      kind: input.kind,
-      aliases: input.aliases,
-      feeling:
-        input.feeling === null
-          ? null
-          : {
-              // remember says `feeling`, encode says `type` — same field.
-              type: input.feeling.feeling,
-              quote: input.feeling.quote,
-              subject: input.feeling.subject,
-            },
-      selfAuthoredFeeling: selfAuthored,
-      claimedSalience: input.claimed,
-    };
-    if (input.title !== null) {
-      proposal.title = input.title;
-      proposal.handles = [input.title];
-    }
-    const dims = dimensionsFrom(input.salience);
-    if (dims !== null) proposal.dimensions = dims;
+/**
+ * Where the vectors come from — injected, because `encode/` "supplies the inputs
+ * and holds no store handle" and this file holds no network client either. The
+ * composition root binds all three members; absent, both gates behave exactly as
+ * they did before one existed (novelty null, reason `no-chunk-vector`).
+ *
+ * The split between `vector` and `cached` is not a convenience, it is the shape
+ * of the seams: `GateFn` may return a promise and `submitProposal` awaits it, so
+ * the authored door can pay for a live embedding; `EpisodeGate` is strictly
+ * synchronous, so the episode door may only ask what is already known. A cache
+ * miss there is today's behaviour, and it is counted rather than hidden.
+ */
+export interface VectorSource {
+  /** Live: may reach the network. Only called where the caller can await. */
+  vector(title: string | null, content: string): Promise<number[] | null>;
+  /** Cache-only: never blocks, never opens a socket, null when it does not know. */
+  cached(title: string | null, content: string): number[] | null;
+  /** E(m) — what this brain already holds near `vec`. Read-only. */
+  context(vec: readonly number[]): readonly (readonly number[])[];
+  /**
+   * Fetch vectors for memories about to be written, in ONE batched call. The
+   * sweep's only use: its mints happen in a loop, and a round trip each would be
+   * the shape scar E1 warns about paid for one item at a time.
+   */
+  warm(items: readonly { title: string | null; content: string }[]): Promise<void>;
+}
 
-    // No vectors reach this seam yet: novelty is null-with-reason, never a
-    // default (scar §2.9). Wiring vectors here is SEAMS follow-on work.
-    const outcome = gateProposal({
-      proposal,
-      span: input.span?.text ?? input.content,
-      novelty: computeNovelty(null, []),
-    });
-    const g = outcome.gated;
-    if (g.accepted) {
-      return {
-        ok: true,
-        content: g.content,
-        aliases: g.aliases,
-        feeling:
-          g.feeling === null
-            ? null
-            : { feeling: g.feeling.type, quote: "", subject: g.feeling.subject },
-      };
-    }
+/**
+ * Per-proposal gate for the authored paths (session-end dumps and jots).
+ *
+ * With a `VectorSource` the returned gate is ASYNC (a live embedding is one
+ * network call), which `GateFn` permits and `remember/submitProposal` awaits.
+ * WITHOUT one it stays synchronous — not for speed, but because a gate that
+ * became a promise for every caller would silently break any caller reading
+ * `verdict.ok` off the return value.
+ */
+export function batteryGate(vectors?: VectorSource): GateFn {
+  if (vectors === undefined) return (input) => verdictFor(input, computeNovelty(null, []));
+  return async (input): Promise<GateVerdict> => {
+    const vec = await vectors.vector(input.title, input.content);
+    return verdictFor(input, computeNovelty(vec, vec === null ? [] : vectors.context(vec)));
+  };
+}
+
+/** The battery run itself, novelty already decided. One body, two entrances. */
+function verdictFor(
+  input: Parameters<GateFn>[0],
+  novelty: ReturnType<typeof computeNovelty>,
+): GateVerdict {
+  const selfAuthored = input.source === "session-end" || input.source === "jot";
+  const proposal: EncodeProposal = {
+    ref: input.span?.hash ?? "authored",
+    content: input.content,
+    kind: input.kind,
+    aliases: input.aliases,
+    feeling:
+      input.feeling === null
+        ? null
+        : {
+            // remember says `feeling`, encode says `type` — same field.
+            type: input.feeling.feeling,
+            quote: input.feeling.quote,
+            subject: input.feeling.subject,
+          },
+    selfAuthoredFeeling: selfAuthored,
+    claimedSalience: input.claimed,
+  };
+  if (input.title !== null) {
+    proposal.title = input.title;
+    proposal.handles = [input.title];
+  }
+  const dims = dimensionsFrom(input.salience);
+  if (dims !== null) proposal.dimensions = dims;
+
+  // Novelty arrives DECIDED — computed against a real vector when the root wired
+  // a source, null-with-reason when it did not (scar §2.9: never a default, in
+  // either direction). Nothing here invents one.
+  const outcome = gateProposal({
+    proposal,
+    span: input.span?.text ?? input.content,
+    novelty,
+  });
+  const g = outcome.gated;
+  if (g.accepted) {
     return {
-      ok: false,
-      gate: g.reason,
-      reason: g.blockedBy.join("+"),
-      refusedByDesign: true,
+      ok: true,
+      content: g.content,
+      aliases: g.aliases,
+      feeling:
+        g.feeling === null
+          ? null
+          : { feeling: g.feeling.type, quote: "", subject: g.feeling.subject },
+      // The computed dimension travels to the mint. Without this line the
+      // number is measured, spent on the gate decision, and thrown away.
+      novelty: novelty.novelty,
     };
+  }
+  return {
+    ok: false,
+    gate: g.reason,
+    reason: g.blockedBy.join("+"),
+    refusedByDesign: true,
   };
 }
 
@@ -140,7 +190,7 @@ export function gateSweepChunk(
  * A body secret is REDACTED, not fatal, and the redacted text comes back on the
  * verdict — the same rule every other ingestion path follows.
  */
-export function episodeGate(): EpisodeGate {
+export function episodeGate(vectors?: VectorSource): EpisodeGate {
   return (input) => {
     const proposal: EncodeProposal = {
       ref: `episode:${input.sessionId}`,
@@ -149,10 +199,15 @@ export function episodeGate(): EpisodeGate {
       selfAuthoredFeeling: true,
     };
     if (input.handles.length > 0) proposal.handles = [...input.handles];
+    // CACHE-ONLY, and that is a structural fact, not a shortcut: `EpisodeGate` is
+    // synchronous by type, so this door cannot pay for a live embedding. It gets
+    // a vector when one was already fetched for this text and null otherwise —
+    // which is what the door had before, now countable (`embed.cache.miss`).
+    const vec = vectors?.cached(null, input.text) ?? null;
     const outcome = gateProposal({
       proposal,
       span: input.text,
-      novelty: computeNovelty(null, []),
+      novelty: computeNovelty(vec, vec === null ? [] : vectors?.context(vec) ?? []),
     });
     const g = outcome.gated;
     if (g.accepted) return { ok: true, text: g.content };

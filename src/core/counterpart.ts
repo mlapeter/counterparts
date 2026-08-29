@@ -41,6 +41,7 @@ import { Associate } from "./associate/index.js";
 import type { Credited, FlushReport } from "./associate/index.js";
 import { selfRenderer } from "./briefing.js";
 import { batteryGate, episodeGate, gateSweepChunk } from "./bridge.js";
+import type { VectorSource } from "./bridge.js";
 import { mintProposal } from "./mint.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
@@ -70,8 +71,9 @@ import { Self } from "./self/index.js";
 import type { ChapterAppend, ChapterAsk, IdentityCoreSpec, IngestResult, WakeResult } from "./self/index.js";
 import { runCycle } from "./sleep/index.js";
 import type { CycleReport } from "./sleep/index.js";
-import { Store, assertSafeDataDir, hashText } from "./store/index.js";
+import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
 import type { Embedder, StoreEvent } from "./store/index.js";
+import { TUNABLES as PHYSICS } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
 
@@ -84,6 +86,21 @@ export interface CounterpartEvent {
   name: string;
   ref?: string;
   data?: Record<string, string | number | boolean | null>;
+}
+
+/**
+ * The LIVE half of an embedder — the half that may reach a network, kept apart
+ * from `Embedder` because the store's socket is synchronous and a network call
+ * is not. Whoever owns the host owns this, exactly as it owns `InterpretFn`
+ * (`remember/INTERFACE-GAPS §3`); `adapters/claude-code/embed-client.ts` is the
+ * implementation for this repo's first host, and nothing in `core/` names it.
+ *
+ * `warm` exists because the fallback sweep mints in batches: one batched call
+ * for a chunk's accepted proposals, rather than one round trip each.
+ */
+export interface LiveVectors {
+  vector(text: string): Promise<number[] | null>;
+  warm(texts: readonly string[]): Promise<unknown>;
 }
 
 export interface CounterpartOptions extends Stance {
@@ -100,6 +117,17 @@ export interface CounterpartOptions extends Stance {
   /** Is this the owner's own session? Defaults FALSE in `recall/` (§15 G7). */
   owner?: boolean;
   embed?: Embedder;
+  /**
+   * The LIVE half of the same embedder: text in, vector out, and it may reach a
+   * network. Injected separately from `embed` because the store's socket is
+   * synchronous and a network call is not — the adapter that owns the host owns
+   * the client, exactly as it owns `InterpretFn` (`remember/INTERFACE-GAPS §3`).
+   *
+   * Wiring it turns novelty from `no-chunk-vector` into a measurement on the
+   * authored door, and — because the text it embeds is shaped the way the store
+   * indexes it — the vector one deposit pays for is the vector box 3 stores.
+   */
+  vectors?: LiveVectors;
   /** Retention window for the bounded logs. `store/` owns the default. */
   retentionDays?: number;
   /** The identity core's name is the OWNER's; there is no default (SEAMS F). */
@@ -292,6 +320,8 @@ export class Counterpart {
   /** One predicate, one definition: the store's. Never re-derived here. */
   readonly observer: boolean;
 
+  /** Undefined when no embedder was wired, and under observer. See below. */
+  private readonly vectors: VectorSource | undefined;
   private reportedBudget: number | null;
   private readonly onEvent: ((e: CounterpartEvent) => void) | undefined;
   private readonly nowFn: () => number;
@@ -319,6 +349,38 @@ export class Counterpart {
       onEvent: (e: StoreEvent) => this.relay("store", e),
     });
 
+    // THE VECTOR SOURCE (bridge `VectorSource`), assembled from the two halves
+    // the host injected and the ONE thing only this file holds: the store the
+    // context slice is read from. Absent both halves it stays undefined and the
+    // gates behave exactly as they did before an embedder existed.
+    //
+    // NOT UNDER OBSERVER. An instrument opens no sockets: embedding a text is
+    // egress, it costs money, and observer mode's rule is that a stood-down
+    // instrument leaves the world as it found it (docs/observer-mode.md, scar
+    // E7). The stand-down is visible — `novelty.reason` stays `no-chunk-vector`.
+    const embed = opts.embed;
+    const live = opts.vectors;
+    this.vectors =
+      this.observer || (embed === undefined && live === undefined)
+        ? undefined
+        : {
+            vector: async (title, content) =>
+              live === undefined
+                ? embed?.(indexTextOf(title, content)) ?? null
+                : live.vector(indexTextOf(title, content)),
+            cached: (title, content) => embed?.(indexTextOf(title, content)) ?? null,
+            // One batched call for a whole chunk's mints. Without a live half
+            // there is nothing to warm — the cache is whatever it already was.
+            warm: async (items) => {
+              if (live === undefined) return;
+              await live.warm(items.map((i) => indexTextOf(i.title, i.content)));
+            },
+            // E(m): the K nearest memories this brain already holds. K is
+            // `physics/`'s CAL number, imported — a size chosen here would be a
+            // threshold with no home (the rule at the top of this file).
+            context: (vec) => this.store.neighbourVectors(vec, PHYSICS.K_NEAREST),
+          };
+
     // SEAMS E: `schemas/` may not import `associate/`, so the retarget callback
     // is injected — which means the edge graph must exist FIRST. Without this
     // line a revision leaves its successor cold (scar §2.2, live until wired).
@@ -336,7 +398,7 @@ export class Counterpart {
     // SEAMS H: the REAL battery, so `self/`'s refusing default is unreachable.
     this.self = new Self({
       store: this.store,
-      gate: episodeGate(),
+      gate: episodeGate(this.vectors),
       onEvent: (e) => this.relay("self", e),
       now: this.nowFn,
     });
@@ -507,7 +569,7 @@ export class Counterpart {
     text: string,
     opts: { day?: number; title?: string; happenedOn?: string } = {},
   ): ChapterResult {
-    const verdict = episodeGate()({ text, handles: [], sessionId });
+    const verdict = episodeGate(this.vectors)({ text, handles: [], sessionId });
     if (!verdict.ok) {
       this.emit("counterpart.episode.chapter.refused", sessionId, {
         gate: verdict.gate,
@@ -649,7 +711,7 @@ export class Counterpart {
       session: ctx.session,
       scope: ctx.scope,
       source,
-      gate: batteryGate(),
+      gate: batteryGate(this.vectors),
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
       resolveUpdates: (declared, content) => this.resolveUpdatesFor(ctx.scope, declared, content),
     });
@@ -808,6 +870,20 @@ export class Counterpart {
     }
     // A fully-gated chunk moves nothing, and neither does an observer's.
     if (result.fullyGated || result.observer) return;
+
+    // ONE batched embedding call for everything this chunk is about to mint.
+    // The store's `Embedder` socket is synchronous and serves a cache, so this
+    // is what puts vectors in box 3 on the path that mints most memories — and
+    // it is the reason `context()` above has anything to be error against.
+    //
+    // It does NOT reach `encodeChunk`: passing a chunk vector there would switch
+    // on preselection's semantic channel, which is an owner decision that is
+    // still open. This warms the store's index; it selects nothing.
+    if (this.vectors !== undefined) {
+      await this.vectors.warm(
+        result.accepted.map((a) => ({ title: a.title ?? null, content: a.content })),
+      );
+    }
 
     for (const accepted of result.accepted) {
       const updates = await this.resolveUpdatesFor(

@@ -216,6 +216,21 @@ export type GateVerdict =
       content: string;
       aliases?: readonly string[];
       feeling?: Feeling | null;
+      /**
+       * The COMPUTED salience dimension, from the gate that computed it.
+       *
+       * The other three dimensions are the author's and arrive on the draft;
+       * novelty is prediction error, which no author may claim (`encode/`'s §3).
+       * It travels back on the verdict because the gate is the only place that
+       * holds a vector — and without this field the number was computed, used
+       * for the gate decision, and then DROPPED before mint, which is how the
+       * store came to record `novelty: null` on every memory it holds.
+       *
+       * Optional and null-able, both on purpose: a gate with no vector source
+       * omits it, and a gate that tried and could not measure sends `null` —
+       * "never asked" and "asked, no answer" stay different records (scar §2.4).
+       */
+      novelty?: number | null;
     }
   | {
       ok: false;
@@ -379,7 +394,14 @@ export async function submitProposal(
     content: verdict.content,
     kind,
     title: draft.title ?? null,
-    salience: { ...(draft.salience ?? {}), claimed: draft.claimed ?? null },
+    // The author's dimensions, then the gate's computed one. Order matters: a
+    // draft cannot claim a novelty it has no way to measure, so the gate's value
+    // wins whenever the gate had one.
+    salience: {
+      ...(draft.salience ?? {}),
+      ...(verdict.novelty === undefined ? {} : { novelty: verdict.novelty }),
+      claimed: draft.claimed ?? null,
+    },
     feeling: verdict.feeling !== undefined ? verdict.feeling : draft.feeling ?? null,
     aliases: [...(verdict.aliases ?? draft.aliases ?? [])],
     updates,

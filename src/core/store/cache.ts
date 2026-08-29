@@ -144,6 +144,23 @@ export function nearest(db: Db, vec: readonly number[], limit = 10): Hit[] {
   return hits.slice(0, limit);
 }
 
+/**
+ * The same ranking as `nearest`, returning the VECTORS rather than the ids —
+ * the context slice a novelty measurement is error against. One scan, one
+ * ordering, no second definition of "nearest" to drift from the first.
+ */
+export function nearestVectors(db: Db, vec: readonly number[], limit = 10): number[][] {
+  const rows = db.all<{ memory_id: string; vec: string }>("SELECT memory_id, vec FROM embeddings");
+  const scored: { id: string; score: number; vec: number[] }[] = [];
+  for (const row of rows) {
+    const other = JSON.parse(row.vec) as number[];
+    if (other.length === 0) continue;
+    scored.push({ id: row.memory_id, score: cosine(vec, other), vec: other });
+  }
+  scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return scored.slice(0, limit).map((s) => s.vec);
+}
+
 export function cosine(a: readonly number[], b: readonly number[]): number {
   const n = Math.min(a.length, b.length);
   let dot = 0;

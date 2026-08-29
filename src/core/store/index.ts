@@ -54,7 +54,7 @@ import {
   stageProse,
 } from "./prose.js";
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
-import { indexDoc, nearest, openCache, resetCache, searchIndex } from "./cache.js";
+import { indexDoc, nearest, nearestVectors, openCache, resetCache, searchIndex } from "./cache.js";
 import type { Hit } from "./cache.js";
 
 export * from "./errors.js";
@@ -93,7 +93,20 @@ export interface StoreEvent {
   data?: Record<string, string | number | boolean | null>;
 }
 
-export type Embedder = (text: string) => number[];
+/**
+ * Text in, vector out — or NULL when this embedder has no vector for this text.
+ *
+ * The null arm is load-bearing and was added when the first real embedder was
+ * built (`adapters/claude-code/embed-client.ts`). Every production embedder is a
+ * network client behind a cache, and `put`/`rebuildCache` are synchronous: a
+ * lookup that misses has nothing to return. The two dishonest alternatives are
+ * both worse — throwing fails a write over a rebuildable cache, and returning
+ * `[]` writes a dim-0 row that `cosine` reads as 0.0 similarity, which is a lie
+ * with a number on it. A miss is counted (`unrecomputed`), exactly as a
+ * missing embedder already was, and `tools/replay/INTERFACE-GAPS §4` asks for
+ * the same shape ("a cache miss must be a counted `not-exercised`").
+ */
+export type Embedder = (text: string) => number[] | null;
 
 export interface StoreOptions extends Stance {
   /** Defaults to `dataDir()` — resolved at call time, so tests redirect via env. */
@@ -960,22 +973,29 @@ export class Store {
       }
       const doc = readProseFile(row.prose_path, row.id);
       const text = indexText(doc);
-      if (this.embed) indexDoc(this.cache, row.id, text, this.embed(text));
+      // A configured embedder that MISSES counts exactly as no embedder does:
+      // the row is indexed lexically and its vector is declared un-recomputed.
+      const vec = this.embed ? this.embed(text) : null;
+      if (vec !== null) indexDoc(this.cache, row.id, text, vec);
       else {
         indexDoc(this.cache, row.id, text);
         unrecomputed += 1;
       }
       indexed += 1;
     }
-    const declared = this.embed
-      ? []
-      : [
-          {
-            what: "embeddings",
-            owner: "encode/ (the embedder)",
-            repair: "Store.open({ embed }) then rebuildCache()",
-          },
-        ];
+    // Declared when there is no embedder at all, AND when a configured one
+    // could not answer for some rows — both are "box 3 does not hold what a
+    // vector channel would need", and a silent partial is the worse of the two.
+    const declared =
+      this.embed !== undefined && unrecomputed === 0
+        ? []
+        : [
+            {
+              what: "embeddings",
+              owner: "encode/ (the embedder)",
+              repair: "Store.open({ embed }) then rebuildCache()",
+            },
+          ];
     const report: RebuildReport = { indexed, skippedDenied, unrecomputed, declared };
     this.emit("cache.rebuild", undefined, {
       indexed,
@@ -1183,6 +1203,20 @@ export class Store {
     return nearest(this.cache, vec, limit);
   }
 
+  /**
+   * The vectors of the `limit` memories nearest `vec` — E(m), the context a
+   * novelty measurement is prediction error AGAINST (physics §5.1). Read-only,
+   * box 3 only, and it strengthens nothing: this is an instrument's read.
+   *
+   * Returns fewer than `limit` (or none) whenever box 3 holds fewer vectors,
+   * which is the ordinary state of a store whose embedder is switched off — and
+   * `computeNovelty` turns that emptiness into `blind-no-context` rather than a
+   * number, which is the whole point of asking it this way.
+   */
+  neighbourVectors(vec: readonly number[], limit = 10): number[][] {
+    return nearestVectors(this.cache, vec, limit);
+  }
+
   livedDay(): number {
     return Number(this.getMeta("livedDay") ?? "0");
   }
@@ -1301,13 +1335,25 @@ export class Store {
   /** Box 3 is best-effort by design: it is rebuildable, so it never fails a write. */
   private indexOne(doc: ProseDoc): void {
     const text = indexText(doc);
-    if (this.embed) indexDoc(this.cache, doc.id, text, this.embed(text));
+    const vec = this.embed ? this.embed(text) : null;
+    if (vec !== null) indexDoc(this.cache, doc.id, text, vec);
     else indexDoc(this.cache, doc.id, text);
   }
 }
 
+/**
+ * The string box 3 indexes for a document — and, because the same string is what
+ * an embedder is asked for, the shape a CALLER must embed if it wants its vector
+ * to be the one this store looks up at `put` time. Exported for exactly that:
+ * `counterpart.ts` composes it from a proposal's title and content before the
+ * memory exists, so one live call serves both the novelty seam and box 3.
+ */
+export function indexTextOf(title: string | null | undefined, body: string): string {
+  return [title ?? "", body].join("\n");
+}
+
 function indexText(doc: ProseDoc): string {
-  return [doc.title ?? "", doc.body].join("\n");
+  return indexTextOf(doc.title, doc.body);
 }
 
 export function newId(type: ProseType): string {
