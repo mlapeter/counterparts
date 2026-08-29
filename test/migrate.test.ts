@@ -323,11 +323,16 @@ function writeFixture(dir: string): void {
       2,
     ),
   );
+  // v1's REAL ledger shape is an ARRAY of entries carrying their own ids — the
+  // fixture used to mirror the reader's object-keyed assumption, so the
+  // assumption tested itself while the live store's 9 entries read as zero
+  // (the 2026-08-29 pre-cutover dry run's finding). Array here; the object
+  // shape keeps a tolerance test of its own below.
   put(
     "ledger.json",
     JSON.stringify(
-      {
-        led_1: {
+      [
+        {
           id: "led_1",
           schemaElementRef: "el_kbelief",
           evidence: [{ traceId: "tr_plain", surprise: "mild", salience: 0.5, confidence: "medium" }],
@@ -335,7 +340,7 @@ function writeFixture(dir: string): void {
           openedAtCycle: 4,
           status: "open",
         },
-      },
+      ],
       null,
       2,
     ),
@@ -932,5 +937,126 @@ describe("tools/migrate", () => {
         /SOURCE_TARGET_OVERLAP/,
       );
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The 2026-08-29 pre-cutover dry-run findings, pinned (docs/DECISIONS.md arc)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("dry-run findings — the ledger's real shape, and no ink for the retired", () => {
+  test("a ledger entry missing its id or ref is skipped and COUNTED — a partial read never looks complete", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-migledgerbad-"));
+    try {
+      writeFileSync(
+        join(dir, "ledger.json"),
+        JSON.stringify([
+          { id: "led_ok", schemaElementRef: "el_x", evidence: [], cumulativeScore: 0.2, status: "open" },
+          { schemaElementRef: "el_y", status: "open" }, // no id
+          { id: "led_noref", status: "open" }, // no ref
+        ]),
+        "utf8",
+      );
+      const v1 = readV1(dir);
+      expect(v1.ledger.length).toBe(1);
+      // The cutover run can now PROVE it read every real entry: the two it
+      // could not use are named, not vanished (the finding this PR fixes was
+      // exactly a silent ledger zero).
+      const ledgerMalformed = v1.malformed.filter((m) => m.relPath === "ledger.json");
+      expect(ledgerMalformed.length).toBe(2);
+      expect(ledgerMalformed.map((m) => m.reason).join(" ")).toContain("missing id");
+      expect(ledgerMalformed.map((m) => m.reason).join(" ")).toContain("missing schemaElementRef");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an object-keyed ledger still reads — tolerance, like the span near-misses", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-migledger-"));
+    try {
+      writeFileSync(
+        join(dir, "ledger.json"),
+        JSON.stringify({
+          led_obj: {
+            id: "led_obj",
+            schemaElementRef: "el_x",
+            evidence: [],
+            cumulativeScore: 0.2,
+            status: "open",
+          },
+        }),
+        "utf8",
+      );
+      const v1 = readV1(dir);
+      expect(v1.ledger.length).toBe(1);
+      expect(v1.ledger[0]?.id).toBe("led_obj");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an ARCHIVED trace's gradient earns NO permanent ink — retired memories do not arrive identity", () => {
+    // The dry run against the real store found an archived/superseded self
+    // trace at gradient 0.95: NOTES §6's histogram measured the LIVE set only,
+    // and without this rule the cut would have minted a twentieth promotion
+    // for a memory v1 itself had already retired.
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-migarch-"));
+    const out = mkdtempSync(join(tmpdir(), "counterparts-migarch-out-"));
+    try {
+      mkdirSync(join(dir, "traces"), { recursive: true });
+      writeFileSync(
+        join(dir, "traces", "tr_retired.md"),
+        [
+          "---",
+          "id: tr_retired01",
+          "kind: self",
+          "scope: global",
+          "confidentiality: normal",
+          "salience: 0.95",
+          "gradient: 0.95",
+          "created_active_day: 2",
+          "archived: true",
+          "archive_reason: superseded",
+          "---",
+          "A once-central self understanding that v1 later superseded and retired.",
+        ].join("\n"),
+        "utf8",
+      );
+      writeFileSync(
+        join(dir, "traces", "tr_live.md"),
+        [
+          "---",
+          "id: tr_live01",
+          "kind: self",
+          "scope: global",
+          "confidentiality: normal",
+          "salience: 0.95",
+          "gradient: 0.95",
+          "created_active_day: 2",
+          "---",
+          "A still-lived self understanding that remains at the very top tier.",
+        ].join("\n"),
+        "utf8",
+      );
+      const report = migrate({ source: dir, target: join(out, "store"), apply: true });
+      const cp = open(join(out, "store"));
+      try {
+        const retired = findByBody(cp, "later superseded and retired");
+        const live = findByBody(cp, "remains at the very top tier");
+        expect(retired).not.toBeNull();
+        expect(live).not.toBeNull();
+        expect(cp.store.physicsOf(retired as string).promotedIdentity).toBe(false);
+        expect(cp.store.physicsOf(live as string).promotedIdentity).toBe(true);
+      } finally {
+        cp.close();
+      }
+      // Both counted, by name: one promotion, one exemption.
+      expect(report.approximations.find((a) => a.name === "IDENTITY_GRADIENT_CUT")?.applied).toBe(1);
+      expect(
+        report.approximations.find((a) => a.name === "IDENTITY_CUT_ARCHIVED_EXEMPT")?.applied,
+      ).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(out, { recursive: true, force: true });
+    }
   });
 });
