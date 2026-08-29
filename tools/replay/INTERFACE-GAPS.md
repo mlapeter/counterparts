@@ -38,19 +38,20 @@ durable record now carry `chunkKey`, the content address of the chunk's own span
 hashes. The positional zip in `collectChunks` survives only because
 `SweepReport.chunks[]` — owned by `remember/` — has no field for it (**§1b**).
 
-### §1a. `applySweep` passes NO schema slice, so preselection has nothing to select
+### §1a. `applySweep` passes NO schema slice — CLOSED 2026-08-29 (owner ruling)
 
-Now visible, which is the point. `gateSweepChunk(chunk, drafts, day, {observer})`
-supplies no `schemas`, so `preselection.candidates` is 0, every chunk reads
-`blind`, and `preselect.meanSchemasShown` computes **0.00 and FAILS** its
-v1-anchored band. That failing line is the honest surface of the gap: before the
-record existed, the same defect showed up as an absence nobody had to answer for.
-
-Wiring the slice in is a behaviour change, not a logging one — schema slices
-drive entity mentions, prediction checks and novelty, all of which move durable
-state — so it belongs to whoever owns the encode path, with its own tests.
-`EncodeResult.effects` is dropped at the same site for the same reason: the
-fallback path mints through `mintProposal` and applies no `DurableEffect`.
+Closed exactly as filed: `sweepFallback` now builds the slices once per sweep
+(protected elements filtered per-element and counted), hands each chunk's
+prompt the cards its own preselection chose, and `applySweep` passes the same
+slices and the same memoized chunk vector to `gateSweepChunk` — so
+`preselect.meanSchemasShown`, `blindRate` and `channelMix` measure a live
+mechanism. The prompt/gate agreement is pinned by test (card ids == the
+durable record's shown ids). PREDICTION CHECKS remain a named gap: the sweep
+intake accepts no `checks` field yet, so `ChunkInput.predictionChecks` stays
+unfed on the fallback path — filed here rather than left silent.
+`EncodeResult.effects` is still dropped at the same site, same reason as
+before: the fallback path mints through `mintProposal` and applies no
+`DurableEffect`.
 
 ### §1b. The join key exists on the event; the sweep report has no field for it
 

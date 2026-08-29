@@ -194,14 +194,15 @@ counted as `unrecomputed` — the same shape `tools/replay/INTERFACE-GAPS §4` a
 for ("a cache miss must be a counted `not-exercised`"). Two call sites in
 `store/index.ts` changed; every existing sync embedder still typechecks.
 
-### 8b. The sweep door still passes NO `chunkVector` to `encodeChunk`
+### 8b. The sweep door and `chunkVector` — CLOSED 2026-08-29 (the slices ruling)
 
-Novelty on the fallback path needs `ChunkInput.chunkVector`, and supplying it
-also switches ON preselection's semantic channel — an owner decision that is
-still open. So the sweep WARMS the embedder for the proposals it is about to
-mint (one batched call per chunk, which is what fills box 3) and selects
-nothing. Swept memories therefore still record `novelty: null`; authored ones no
-longer do. When the owner rules on preselection, the vector is already in hand.
+The owner ruled, and the vector now reaches `encodeChunk`: `sweepFallback`
+memoizes one chunk vector per content key (raw transcript crossing
+`redactSecrets` before the embedder — the egress rule held on a pre-battery
+surface) and both the prompt cards and the gate select against it. Swept
+memories record real novelty whenever a vector source is wired; without one
+the semantic channel reads `skipped` and the run is lexical-only, said out
+loud. The warm call remains the box-3 half.
 
 ### 8c. The episode door is BLIND, and now says so instead of pretending
 

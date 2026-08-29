@@ -25,10 +25,20 @@
  * not eat a paid, non-resumable run. `cleanup()` is deliberately never called —
  * the replayed store is the run's evidence and outlives the process.
  */
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
-import { API_KEY_ENV, DEFAULT_INTERPRET_MODEL, TUNABLES } from "../../../src/adapters/claude-code/config.js";
+import { API_KEY_ENV, DEFAULT_INTERPRET_MODEL, EMBED_KEY_ENV, TUNABLES } from "../../../src/adapters/claude-code/config.js";
+import { openEmbedder } from "../../../src/adapters/claude-code/embed-client.js";
 import { InterpretError, interpretClient } from "../../../src/adapters/claude-code/interpret-client.js";
 import type { InterpretFn } from "../../../src/core/remember/index.js";
 import { assertSafeDataDir } from "../../../src/core/store/index.js";
@@ -110,6 +120,14 @@ interface Args {
   readonly corpusDir: string;
   readonly outDir: string | null;
   readonly fire: boolean;
+  /** SAMPLE mode: replay only the first N of the corpus's days. The pass
+   *  record is marked and can never open the gate; priced-inventory gates are
+   *  skipped (a sample is not the corpus the price was quoted against) while
+   *  every structural gate stays. */
+  readonly days: number | null;
+  /** Wire the live Voyage embedder (VOYAGE_API_KEY): the semantic channel and
+   *  novelty run. Absent = a LEXICAL-ONLY run, said in the log. */
+  readonly embed: boolean;
 }
 
 function usage(): never {
@@ -123,6 +141,11 @@ function usage(): never {
       "  --fire        actually run — real model calls, real money. Without it",
       "                this is a free read-only pre-flight against the priced",
       "                inventory, and no socket is opened.",
+      "  --days <n>    SAMPLE: replay only the first n days. The pass record is",
+      "                marked sample and can never open the gate.",
+      "  --embed       wire the live Voyage embedder (VOYAGE_API_KEY) so the",
+      "                cards' semantic channel and novelty run. Absent, the run",
+      "                is lexical-only and the log says so.",
       "",
     ].join("\n"),
   );
@@ -133,10 +156,18 @@ function parseArgs(argv: readonly string[]): Args {
   let corpusDir: string | null = null;
   let outDir: string | null = null;
   let fire = false;
+  let days: number | null = null;
+  let embed = false;
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--fire") fire = true;
-    else if (a === "--out") {
+    else if (a === "--embed") embed = true;
+    else if (a === "--days") {
+      const v = Number.parseInt(argv[i + 1] ?? "", 10);
+      if (!Number.isFinite(v) || v < 1) usage();
+      days = v;
+      i += 1;
+    } else if (a === "--out") {
       const v = argv[i + 1];
       if (v === undefined) usage();
       outDir = v;
@@ -145,22 +176,56 @@ function parseArgs(argv: readonly string[]): Args {
     else usage();
   }
   if (corpusDir === null) usage();
-  return { corpusDir, outDir, fire };
+  return { corpusDir, outDir, fire, days, embed };
 }
 
-/** Pre-flight: every gate, each printed PASS/FAIL. Returns the failures. */
-function preflight(corpus: Corpus): string[] {
+/**
+ * Assemble a SAMPLE corpus: the first `days` day-directories plus their event
+ * logs, and everything else (index, meta, config) verbatim. A copy, never a
+ * view — the reader's byte-identity proof must hold on the sample itself.
+ */
+function buildSampleCorpus(corpusDir: string, days: number, outDir: string): string {
+  const sampleDir = join(outDir, `sample-corpus-${days}d`);
+  rmSync(sampleDir, { recursive: true, force: true });
+  mkdirSync(join(sampleDir, "buffer-archive"), { recursive: true });
+  mkdirSync(join(sampleDir, "logs"), { recursive: true });
+  const dayDirs = readdirSync(join(corpusDir, "buffer-archive")).sort().slice(0, days);
+  for (const day of dayDirs) {
+    cpSync(join(corpusDir, "buffer-archive", day), join(sampleDir, "buffer-archive", day), {
+      recursive: true,
+    });
+    const log = join(corpusDir, "logs", `events-${day}.jsonl`);
+    if (existsSync(log)) cpSync(log, join(sampleDir, "logs", `events-${day}.jsonl`));
+  }
+  for (const name of readdirSync(corpusDir)) {
+    if (name === "buffer-archive" || name === "logs") continue;
+    cpSync(join(corpusDir, name), join(sampleDir, name), { recursive: true });
+  }
+  return sampleDir;
+}
+
+/** Pre-flight: every gate, each printed PASS/FAIL. Returns the failures.
+ *  In SAMPLE mode the priced-inventory equalities are skipped — a sample is
+ *  not the corpus the price was quoted against — while every STRUCTURAL gate
+ *  (zero malformed, index present, write probe) stays. */
+function preflight(corpus: Corpus, opts: { sample?: boolean } = {}): string[] {
   const s = corpus.summary();
   const refused = corpus.probeWriteRefused();
+  const inventory: readonly [string, boolean, string][] =
+    opts.sample === true
+      ? []
+      : [
+          ["spans parse at the priced count", s.spans === EXPECTED.spans, `${s.spans} (expected ${EXPECTED.spans})`],
+          ["event lines at the priced count", s.eventLines === EXPECTED.eventLines, `${s.eventLines} (expected ${EXPECTED.eventLines})`],
+          [`pin ${VECTORS} at inventoried rows`, s.pinnedRows === EXPECTED.pinnedRows, `${s.pinnedRows} (expected ${EXPECTED.pinnedRows})`],
+        ];
   const checks: readonly [string, boolean, string][] = [
-    ["spans parse at the priced count", s.spans === EXPECTED.spans, `${s.spans} (expected ${EXPECTED.spans})`],
+    ...inventory,
     ["no malformed spans", s.malformedSpans === 0, `${s.malformedSpans}`],
     ["no assumed shapes (v1 shape is primary)", s.assumedShape === 0, `${s.assumedShape}`],
     ["no unrecognized span files", s.unrecognizedSpanFiles === 0, `${s.unrecognizedSpanFiles}`],
-    ["event lines at the priced count", s.eventLines === EXPECTED.eventLines, `${s.eventLines} (expected ${EXPECTED.eventLines})`],
     ["no malformed event lines", s.malformedEventLines === 0, `${s.malformedEventLines}`],
     ["index present", s.indexPresent, `${s.indexPresent}`],
-    [`pin ${VECTORS} at inventoried rows`, s.pinnedRows === EXPECTED.pinnedRows, `${s.pinnedRows} (expected ${EXPECTED.pinnedRows})`],
     ["corpus write probe REFUSED", refused, `${refused}`],
   ];
   const failures: string[] = [];
@@ -204,21 +269,44 @@ async function main(argv: readonly string[]): Promise<number> {
       process.stderr.write("refusing to fire: --out already holds a pass record\n");
       return 2;
     }
+    if (args.embed) {
+      const voyage = process.env[EMBED_KEY_ENV];
+      if (voyage === undefined || voyage.trim().length === 0) {
+        process.stderr.write(`refusing to fire: --embed but ${EMBED_KEY_ENV} is not set\n`);
+        return 2;
+      }
+    }
   }
 
-  const corpus = Corpus.open(args.corpusDir, { pinModel: VECTORS });
+  const sample = args.days !== null;
+  // SAMPLE mode assembles a copy — a subset of days, never a view of the real
+  // corpus — so the reader's byte-identity proof holds on what actually ran.
+  const corpusDir =
+    args.days === null || args.outDir === null
+      ? args.corpusDir
+      : (mkdirSync(args.outDir, { recursive: true }),
+        buildSampleCorpus(args.corpusDir, args.days, args.outDir));
+  if (sample) log(`SAMPLE mode: first ${args.days} days -> ${corpusDir}`);
+
+  const corpus = Corpus.open(corpusDir, { pinModel: VECTORS });
   try {
-    const failures = preflight(corpus);
+    const failures = preflight(corpus, { sample });
     if (args.outDir !== null) exerciseStoreDir(args.outDir);
     if (failures.length > 0) {
-      log(`preflight VERDICT: NOT the priced corpus — refusing (${failures.length} failed)`);
+      log(`preflight VERDICT: ${sample ? "sample failed structural gates" : "NOT the priced corpus"} — refusing (${failures.length} failed)`);
       return 1;
     }
-    log("preflight VERDICT: ready to fire");
+    log(sample ? "preflight VERDICT: sample structurally sound — ready to fire" : "preflight VERDICT: ready to fire");
     if (!args.fire) return 0;
 
     const outDir = args.outDir as string;
-    log(`fire seat=${DEFAULT_INTERPRET_MODEL} vectors=${VECTORS} budgetBytes=${BUDGET_BYTES} harness=${HARNESS_VERSION}`);
+    // The live embedder, knob explicitly ON for this run only (--embed): the
+    // cards' semantic channel and novelty run. Absent, this is a LEXICAL-ONLY
+    // run and the log line says so — semanticState will read `skipped`.
+    const embedder = args.embed ? openEmbedder({ embedder: { enabled: true } }) : null;
+    log(
+      `fire seat=${DEFAULT_INTERPRET_MODEL} vectors=${VECTORS} embed=${embedder !== null ? "LIVE" : "off (lexical-only cards)"} sample=${sample} budgetBytes=${BUDGET_BYTES} harness=${HARNESS_VERSION}`,
+    );
     const run = await runReplay({
       corpus,
       interpret: realInterpret(),
@@ -227,6 +315,7 @@ async function main(argv: readonly string[]): Promise<number> {
       budgetBytes: BUDGET_BYTES,
       workRoot: outDir,
       identity: { name: OWNER.name, aliases: [...OWNER.aliases] },
+      ...(embedder === null ? {} : { embed: embedder.embed, liveVectors: embedder }),
       onDay: (date, index, total) => log(`day ${index}/${total} ${date}`),
     });
 
@@ -240,13 +329,29 @@ async function main(argv: readonly string[]): Promise<number> {
       writeFileSync(join(outDir, "scorecard.json"), `${JSON.stringify(scorecard, null, 2)}\n`, "utf8");
       const decay = decayShapes(run.counterpart.store);
       const decayHorizon = decayShapes(run.counterpart.store, { day: decay.day + DEFAULT_DECAY_HORIZON_DAYS });
-      const input = { scorecard, observation: run.observation, decay, decayHorizon };
+      const input = { scorecard, observation: run.observation, decay, decayHorizon, sample };
       const report = renderReport(input);
       writeFileSync(join(outDir, "report.txt"), `${report}\n`, "utf8");
       const pass = passRecord(input);
       writePassRecord(join(outDir, "pass-record.json"), pass);
       process.stdout.write(`\n${report}\n\n`);
-      log(`gateOpen=${gateOpen(pass, HARNESS_VERSION)} clean=${pass.clean} totalityOk=${pass.totalityOk}`);
+      // The wiring proof a sample exists for is the TREND, not the aggregate:
+      // every replay starts from an empty store, so early days are blind by
+      // construction and an aggregate would understate steady state.
+      const byDay = new Map<number, { gated: number; blind: number; shown: number }>();
+      for (const g of run.observation.gateRecords) {
+        const row = byDay.get(g.day) ?? { gated: 0, blind: 0, shown: 0 };
+        row.gated += 1;
+        if (g.blind) row.blind += 1;
+        row.shown += g.shown;
+        byDay.set(g.day, row);
+      }
+      for (const [day, row] of [...byDay.entries()].sort((a, b) => a[0] - b[0])) {
+        log(
+          `cards trend day=${day} gated=${row.gated} blind=${row.blind} meanShown=${(row.shown / Math.max(1, row.gated)).toFixed(2)}`,
+        );
+      }
+      log(`gateOpen=${gateOpen(pass, HARNESS_VERSION)} clean=${pass.clean} totalityOk=${pass.totalityOk} sample=${pass.sample}`);
     } catch (err) {
       // The run is paid for and persisted; the scorer owes an explanation, not
       // the corpus another $30.
