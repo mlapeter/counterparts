@@ -31,9 +31,14 @@ reached the model through stderr + exit 2 (precondition 8); one `recall.decision
 (precondition 9); bansai muted at every hook since the flip with zero deliveries; four
 sweeps ran once the credentials file landed; cross-encoding zero both directions.
 
-**Day-1 watches added from day 0:** recall `latency-abort` rate (the surfacing race has
-a 250 ms budget and the live cue embedding is a network call — the first real turn
-aborted); mint yield per day against bansai's; the ask cadence (now paced on 8 turns
+**Day-1 watches added from day 0:** recall `latency-abort` rate — diagnosed on day 0:
+the first recall in every fresh hook process paid ~800 ms warming the page cache over
+the token index after the worker's writes and aborted at the 250 ms budget (5 of 6
+real turns; the MCP recall tool reported an empty store); the budget is 1200 ms since
+PR #16 (calibration, surface set unchanged), and the structural watch is the cache
+file itself: `cache.sqlite` grew 101 → 263 MB in the first hour (1.06 M token rows,
+no duplicate embeddings), which reads as the index being rewritten each cycle —
+measure its size per daily; mint yield per day against bansai's; the ask cadence (now paced on 8 turns
 and 8,000 bytes since the last ask); vector coverage (512 texts unembedded); **the
 wake's lane balance** — the first speaking session's wake was eight identity elements
 filling the whole 9 KB budget with craft, threads and horizon at zero (the trim order
