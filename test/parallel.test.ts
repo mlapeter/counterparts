@@ -2729,7 +2729,11 @@ describe("guarantee 1 — nothing but the run directory", () => {
     // it would resolve the REAL `~/.memory-ab` inside a test that believed it
     // had redirected it. That hole is nailed shut structurally, here.
     const OS = 'from "node:os"';
-    for (const name of ["gate.ts", "readers.ts", "record.ts", "preflight.ts", "writer.ts", "types.ts", "index.ts"]) {
+    // EVERY non-bin module, walked rather than listed, so a new file cannot be
+    // added to this tool without the rule applying to it.
+    const modules = readdirSync(toolRoot).filter((n) => n.endsWith(".ts")).sort();
+    expect(modules.length).toBeGreaterThan(7);
+    for (const name of modules) {
       const src = readFileSync(join(toolRoot, name), "utf8");
       expect(`${name}:${src.includes(OS)}`).toBe(`${name}:false`);
     }

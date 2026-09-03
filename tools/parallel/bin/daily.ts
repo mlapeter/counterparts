@@ -238,6 +238,13 @@ function main(argv: readonly string[]): number {
     `  ${pad("v2 store", 18)}read-only proof ${String(r.v2.readOnlyProof)} · memories ${r.v2.memories.total} · created ${r.tally.v2.created} · exited ${r.tally.v2.exited}`,
   );
   out.push(`  ${pad("v2 not durable", 18)}${r.v2.nonDurable.join(", ")}`);
+  out.push(
+    `  ${pad("quarantine", 18)}${
+      r.quarantine.present
+        ? `${r.quarantine.lines} span(s) across ${r.quarantine.files} scope ledger(s) (remember.span.quarantined, recomputed)`
+        : "no spans/ directory — nothing to recompute"
+    }`,
+  );
   if (r.v2.truncated) {
     out.push(
       `  ${pad("v2 events", 18)}TRUNCATED at ${r.v2.eventRowsRead} rows — every v2 count on this day is a FLOOR, not a total`,

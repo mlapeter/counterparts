@@ -225,7 +225,7 @@ with its reason attached, never a zero.
 
 ## Guarantee 1 — the instrument writes nothing but its own run directory
 
-Two structural tests, not a promise in a comment:
+Three structural guarantees, not a promise in a comment:
 
 1. **Byte-identity.** `test/parallel.test.ts` manifests every fixture input
    directory (v1, v2, engram, the assignment dir, transcripts, the replay out
@@ -238,13 +238,14 @@ Two structural tests, not a promise in a comment:
    anywhere. `RunDir` also refuses any path that escapes its root (by
    **realpath**, so a symlink cannot walk out) and any run directory that
    overlaps a live store, in either direction, **before** it mkdirs anything.
-
 3. **The write probe leaves nothing behind.** The read-only handle is proved by
    an attempted DDL write wrapped in `BEGIN IMMEDIATE` … `ROLLBACK` — the old
    probe was a bare `CREATE TABLE IF NOT EXISTS`, a real committed write into
    the owner's live store if the read-only flag ever failed to take. A handle
    that ACCEPTS the write makes the reader throw rather than report.
 
-A third test holds the hermetic line: no module but `bin/` may import `node:os`.
+A fourth test holds the hermetic line: no module but `bin/` may import
+`node:os` — every module in the directory is walked, so a new one cannot slip
+past the rule.
 `homedir()` does not read `$HOME` on Bun, so a module that used it would resolve
 the real `~/.memory-ab` inside a test that believed it had redirected it.
