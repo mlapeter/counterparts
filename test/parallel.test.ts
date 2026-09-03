@@ -2386,7 +2386,10 @@ function fixture(): Fixture {
   });
 
   const configPath = at("config", "adapter.json");
+  const credentialsPath = join(runDir, "..", "credentials.env");
+  writeFileSync(credentialsPath, "ANTHROPIC_API_KEY=test-key-not-a-real-credential\nVOYAGE_API_KEY=test-voyage-not-a-real-credential\n", "utf8");
   writeJson(configPath, {
+    credentialsFile: credentialsPath,
     dataDir: v2Dir,
     parallel: { enabled: true },
     injectionBudgetBytes: 9_000,
@@ -2795,6 +2798,26 @@ describe("the preflight — Phase 0, as a gate", () => {
     const row = rowOf(f, "host.hooks");
     expect(row?.status).toBe("not-exercised");
     expect(row?.detail).toContain("SessionEnd budget was never measured");
+  });
+
+  test("v2.config judges a HOOK-SHAPED env: keys in the preflight's own shell do not count, the configured file does", () => {
+    const f = fixture();
+    process.env["ANTHROPIC_API_KEY"] = "shell-key-not-a-real-credential";
+    process.env["VOYAGE_API_KEY"] = "shell-voyage-not-a-real-credential";
+    try {
+      const withFile = rowOf(f, "v2.config");
+      expect(withFile?.status).toBe("pass");
+      expect(withFile?.detail).toContain("present (file)");
+      const cfg = JSON.parse(readFileSync(f.configPath, "utf8")) as Record<string, unknown>;
+      delete cfg["credentialsFile"];
+      writeJson(f.configPath, cfg);
+      const without = rowOf(f, "v2.config");
+      expect(without?.status).toBe("fail");
+      expect(without?.detail).toContain("no credentialsFile configured");
+    } finally {
+      delete process.env["ANTHROPIC_API_KEY"];
+      delete process.env["VOYAGE_API_KEY"];
+    }
   });
 
   test("host.hooks PASSES by COMPLETION evidence when the host recorded no attachment — a durable session-end boundary row on the day", () => {

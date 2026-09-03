@@ -35,6 +35,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { embedSeat, interpretSeat, loadConfig } from "../../src/adapters/claude-code/config.js";
+import { loadCredentials } from "../../src/adapters/claude-code/credentials.js";
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../../src/adapters/claude-code/config.js";
 import { SELF_TUNABLES } from "../../src/core/self/tunables.js";
 
@@ -213,18 +214,33 @@ function v2ConfigRow(opts: PreflightOptions): CheckRow {
 
   const embedderEnabled = config.embedder?.enabled === true;
   // CREDENTIAL NAMES ONLY. The value never enters a report, a log or a record.
-  const apiKeyPresent = (process.env[API_KEY_ENV] ?? "").trim().length > 0;
-  const embedKeyPresent = (process.env[EMBED_KEY_ENV] ?? "").trim().length > 0;
-  if (embedderEnabled && !embedKeyPresent) problems.push(`embedder enabled but ${EMBED_KEY_ENV} is absent`);
-  if (!apiKeyPresent) problems.push(`${API_KEY_ENV} is absent`);
+  // A HOOK-SHAPED environment, not this process's. Measured day 0 (2026-09-03):
+  // the host's hook processes carry neither key even with both exported in the
+  // login shell, and this row said "present" because the preflight ran in that
+  // shell — the false green that let the hooks run blind. So the check starts
+  // from an EMPTY env and lets only the configured credentials file fill it,
+  // which is exactly what a hook process gets.
+  const hookEnv: NodeJS.ProcessEnv = {};
+  const creds = loadCredentials(config.credentialsFile, hookEnv);
+  const apiKeyPresent = (hookEnv[API_KEY_ENV] ?? "").trim().length > 0;
+  const embedKeyPresent = (hookEnv[EMBED_KEY_ENV] ?? "").trim().length > 0;
+  if (config.credentialsFile === undefined) {
+    problems.push(
+      `no credentialsFile configured — the host's hook environment carries no keys (measured day 0), so the worker would refuse every spawn`,
+    );
+  } else if (creds.reason !== "loaded") {
+    problems.push(`credentialsFile ${config.credentialsFile} is ${creds.reason}`);
+  }
+  if (embedderEnabled && !embedKeyPresent) problems.push(`embedder enabled but ${EMBED_KEY_ENV} is absent from the credentials file`);
+  if (!apiKeyPresent) problems.push(`${API_KEY_ENV} is absent from the credentials file`);
 
   const detail =
     `parallel.enabled=${String(config.parallel?.enabled === true)} · dataDir=${opts.v2DataDir} · ` +
     `interpret=${interpret.id}/${interpret.status}${interpret.usable ? "" : " UNUSABLE"} · ` +
     `embed=${embed.id}/${embed.status}${embed.usable ? "" : " UNUSABLE"} · ` +
     `embedder=${embedderEnabled ? "on" : "off"} · ` +
-    `${API_KEY_ENV}=${apiKeyPresent ? "present" : "absent"} · ` +
-    `${EMBED_KEY_ENV}=${embedKeyPresent ? "present" : "absent"}` +
+    `${API_KEY_ENV}=${apiKeyPresent ? "present (file)" : "absent"} · ` +
+    `${EMBED_KEY_ENV}=${embedKeyPresent ? "present (file)" : "absent"}` +
     (loaded.ok ? "" : ` · config ${loaded.reason}`);
 
   return problems.length === 0
