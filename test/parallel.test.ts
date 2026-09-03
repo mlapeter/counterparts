@@ -143,6 +143,13 @@ function v1Log(v1Dir: string, date: string, events: readonly V1Ev[]): void {
   writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
 }
 
+/** The same, but writing EXACTLY the given fields — no `seq` is invented. */
+function v1LogRaw(v1Dir: string, date: string, events: readonly Record<string, unknown>[]): void {
+  const path = join(v1Dir, "logs", `events-${date}.jsonl`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`, "utf8");
+}
+
 /** A REAL v2 store, built with the store's own API, then read back read-only. */
 function buildStore(dataDir: string, build: (s: Store) => void): void {
   const prior = process.env[DATA_DIR_ENV];
@@ -432,6 +439,35 @@ describe("reading the record and the waivers off disk", () => {
     });
     expect(typeof parsed).not.toBe("string");
     expect((parsed as GateReadableRecord).verdicts["gate.chunkBlockRate"]?.verdict).toBe("pass");
+  });
+
+  test("the fail cross-check agrees with the REAL passRecord shape, not just a fixture", () => {
+    // The cross-check is only safe because `report.ts#passRecord` derives BOTH
+    // halves from one array: `counts` is tallied over `scoreRun`'s `results`
+    // and `verdicts` is built from `scorecard.metrics`, which IS that array.
+    // If they ever came from different row sets this predicate would refuse
+    // every genuine replay record and the gate would be permanently shut — so
+    // the invariant is asserted here rather than reasoned about in a comment.
+    const verdicts: Record<string, { verdict: GateReadableRecord["verdicts"][string]["verdict"] }> = {};
+    const counts: Record<string, number> = { pass: 0, fail: 0, "needs-rater": 0, "not-exercised": 0, watch: 0 };
+    for (const id of KNOWN_NOT_EXERCISED) {
+      verdicts[id] = { verdict: "not-exercised" };
+      counts["not-exercised"] = (counts["not-exercised"] ?? 0) + 1;
+    }
+    for (const id of RATER_DEFERRED) {
+      verdicts[id] = { verdict: "needs-rater" };
+      counts["needs-rater"] = (counts["needs-rater"] ?? 0) + 1;
+    }
+    for (const m of METRICS) {
+      if (verdicts[m.id] !== undefined) continue;
+      verdicts[m.id] = { verdict: "pass" };
+      counts["pass"] = (counts["pass"] ?? 0) + 1;
+    }
+    // Every metric in the registry is accounted for, tallied the way `scoreRun`
+    // tallies — and the gate opens.
+    expect(Object.keys(verdicts).length).toBe(METRICS.length);
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(METRICS.length);
+    expect(parallelGateOpen({ ...CLEAN, counts, verdicts }, [])).toEqual({ open: true, reasons: [] });
   });
 
   test("a record with no verdicts block is refused with a reason, never defaulted", () => {
@@ -1277,6 +1313,24 @@ describe("the cross-encoding meter", () => {
     expect(meter.v2IntoV1.scanned).toBe(1);
   });
 
+  test("a DATED v1 directory does not swallow its own buffer files", () => {
+    // `--v1-dir ~/.bansai-2026-08-15` is an ordinary dated backup. Matching
+    // dates in the absolute path would drop every file in it as "another day"
+    // and the direction would meter nothing while reporting a clean zero.
+    const v1 = dir("bansai-2026-08-15");
+    const V2_ASK = "Write what you learned, in your own words, while you have the pen.";
+    const buffer = join(v1, "buffer", "scope.1.jsonl");
+    mkdirSync(dirname(buffer), { recursive: true });
+    writeFileSync(
+      buffer,
+      `${JSON.stringify({ ts: `${DAY}T09:00:00Z`, sessionId: "s", spanText: V2_ASK })}\n`,
+      "utf8",
+    );
+    const meter = crossEncoding({ ...METER, v2DataDir: dir("v2"), v1Dir: v1, v2Ritual: [V2_ASK] });
+    expect(meter.v2IntoV1.scanned).toBe(1);
+    expect(meter.v2IntoV1.hits).toBe(1);
+  });
+
   // ── review blocker 7c: OQ4's two rules, by phase ─────────────────────────
   test("PHASE S red-lines on ANY hit — the host's exclusion is what changed", () => {
     const data = v2WithSpan(RITUAL);
@@ -1514,24 +1568,45 @@ describe("day classes", () => {
     expect(r.class).toBe("mixed");
   });
 
-  test("the same seq numbers with the timestamps REVERSED are not a straddle", () => {
+  test("with NO seq at all the TIMESTAMP still decides — file order does not", () => {
     const s = scene(3);
-    // Identical `seq` values, identical file order — only the clock differs.
-    // Under the old `seq` comparison this read as mixed just like the case
-    // above; under the real clock the mute came first and nothing straddled.
-    v1Log(s.v1Dir, DATE, [
-      { seq: 0, ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
-      { seq: 3, ts: `${DATE}T09:06:00.000Z`, session: "s1", type: "wake.rendered" },
-      { seq: 0, ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
-      { seq: 1, ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
-      { seq: 2, ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
-      { seq: 1, ts: `${DATE}T09:05:00.000Z`, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
-      { seq: 0, ts: `${DATE}T09:07:00.000Z`, session: "s1", type: "session.end" },
+    // The discriminating case. With no `seq`, the old reader fell back to
+    // `declared ?? ordinal` and compared FILE ORDER: the delivery at ordinal 1
+    // and the mute at ordinal 5 read as a straddle. The clock says otherwise —
+    // the mute happened at 09:05 and the delivery at 09:06 — and the clock is
+    // what a hook actually stamps.
+    v1LogRaw(s.v1Dir, DATE, [
+      { ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
+      { ts: `${DATE}T09:06:00.000Z`, session: "s1", type: "wake.rendered" },
+      { ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
+      { ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
+      { ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
+      { ts: `${DATE}T09:05:00.000Z`, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { ts: `${DATE}T09:07:00.000Z`, session: "s1", type: "session.end" },
     ]);
     v2Delivering(s);
     const r = classOf(s);
     expect(r.v1.sessions[0]?.straddled).toBe(false);
     expect(r.flags).not.toContain("mixed");
+    // The ordinals really are in the order that used to fool it, so this is not
+    // passing because the fixture is easy.
+    expect(r.v1.sessions[0]?.firstDelivery).toBe(1);
+    expect(r.v1.sessions[0]?.lastMuted).toBe(5);
+    expect(r.v1.sessions[0]?.firstDeliveryAt).toBe(`${DATE}T09:06:00.000Z`);
+
+    // And with the timestamps in the other order the SAME file IS a straddle.
+    const other = scene(3);
+    v1LogRaw(other.v1Dir, DATE, [
+      { ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
+      { ts: `${DATE}T09:01:00.000Z`, session: "s1", type: "wake.rendered" },
+      { ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
+      { ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
+      { ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
+      { ts: `${DATE}T09:05:00.000Z`, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { ts: `${DATE}T09:07:00.000Z`, session: "s1", type: "session.end" },
+    ]);
+    v2Delivering(other);
+    expect(classOf(other).class).toBe("mixed");
   });
 
   test("SILENT: v1 muted at session start and v2 stood down — nobody spoke into it", () => {
@@ -2269,7 +2344,7 @@ describe("the preflight — Phase 0, as a gate", () => {
     expect(row?.detail).toContain("RED-LINE");
   });
 
-  test("canary.transcripts fails on RECOGNIZER DRIFT — the exclusion stopped applying", () => {
+  test("the canary and classifyBlock AGREE today, so the drift branch stays empty", () => {
     const f = fixture();
     // An episode-ask marker whose text `classifyBlock` would NOT call foreign
     // is the breach itself: `enters()` no longer refuses it. Constructed by
@@ -2286,8 +2361,12 @@ describe("the preflight — Phase 0, as a gate", () => {
         return path;
       })(),
     ]);
-    // On today's recognizers the two agree, so this reads as by-design. The row
-    // below is what fires if they ever stop agreeing.
+    // The drift branch is UNREACHABLE today by construction: `foreignMarkerIndex`
+    // and `classifyBlock` walk the same `FOREIGN_MARKERS` with the same
+    // `trimStart()`, so they cannot disagree. It is a guard against future
+    // divergence — if either recognizer is ever changed alone, the exclusion
+    // silently stops applying and that branch is what says so. This test pins
+    // the agreement rather than exercising the branch, and says which.
     expect(scan.recognizerDrift).toEqual([]);
     expect(scan.byDesignHits.length).toBe(1);
   });
@@ -2382,6 +2461,16 @@ describe("the preflight — Phase 0, as a gate", () => {
     // DATED means dated: a non-empty string is not a date (§5 G15).
     writeJson(join(f.runDir, "bars.json"), { activeDayTurnFloor: 3, crossEncodingBar: 0, committedAt: "yes" });
     expect(rowOf(f, "bars.committed")?.status).toBe("fail");
+  });
+
+  test("bars.committed FAILS once the precondition drop-dead has passed", () => {
+    const f = fixture();
+    expect(preflight(f, { today: "2026-09-07" }).checks.find((c) => c.id === "bars.committed")?.status).toBe("pass");
+    // §5 P1 / §9 OQ5: past the drop-dead the run does not start and v1 flips
+    // as-is. A date that lives only in a sentence is a date nobody compares.
+    const late = preflight(f, { today: "2026-09-09" }).checks.find((c) => c.id === "bars.committed");
+    expect(late?.status).toBe("fail");
+    expect(late?.detail).toContain("drop-dead 2026-09-08 has passed");
   });
 
   test("store.schemaBytes is not-exercised on an empty store, and precondition 5 follows it", () => {

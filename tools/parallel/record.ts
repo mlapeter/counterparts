@@ -17,7 +17,7 @@
  * the caller hands them to `writer.ts` (G1).
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { contentAddress } from "../replay/corpus.js";
 
@@ -325,7 +325,7 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   const v1Files = [
     ...jsonlFiles(join(input.v1Dir, "buffer")),
     ...jsonlFiles(join(input.v1Dir, "buffer-archive")),
-  ].filter((p) => !hasOtherDate(p, input.date));
+  ].filter((p) => !hasOtherDate(relative(input.v1Dir, p), input.date));
   const v1Corpus = addressFiles(v1Files, spanTextsFor(input.date), min);
 
   const v1IntoV2 = meterInto(v1Probes, v2Corpus, excludedMigrated);
@@ -374,9 +374,17 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   };
 }
 
-/** True when a path names a `YYYY-MM-DD` that is NOT the day being metered. */
-function hasOtherDate(path: string, date: string): boolean {
-  const found = path.match(/\d{4}-\d{2}-\d{2}/g);
+/**
+ * True when a path names a `YYYY-MM-DD` that is NOT the day being metered.
+ *
+ * RELATIVE TO THE v1 DIRECTORY, always. Given an absolute path this would read
+ * the dates in the ROOT — a `--v1-dir` of `~/.bansai-2026-08-15` (an ordinary
+ * dated backup someone points the tool at) would silently drop every buffer
+ * file in it as "another date", and the v2→v1 direction would meter nothing
+ * while reporting a clean zero. The caller passes the relative path.
+ */
+function hasOtherDate(relPath: string, date: string): boolean {
+  const found = relPath.match(/\d{4}-\d{2}-\d{2}/g);
   return found !== null && found.length > 0 && !found.includes(date);
 }
 
