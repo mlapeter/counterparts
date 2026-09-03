@@ -290,7 +290,9 @@ divergence logs; the cutover pass record; the dashboard comparison views.
    evidence: v1's `ab.muted {hook: session_start}` and `ab.muted {hook:
    user_prompt_submit}`, and v2's `adapter.primacy.standdown {hook}`, counted per day
    from durable logs. Contamination: a primary-phase day on which the muted side emits
-   ANY of `wake.rendered` / `wake.delivered` (wake), `surface.decision {phase: inject}`
+   ANY of `wake.delivered` (wake — never `wake.rendered`, which is v1's runner
+   re-rendering its file after every consolidation and delivers to nobody; day 0
+   measured five renders on a muted day), `surface.decision {phase: inject}`
    (recall), `episode.asked` (ritual) on v1's side, or `adapter.wake.injected` with
    bytes / `adapter.recall` with bytes / `adapter.episode.ask` on v2's side, is a
    **contaminated day** — machine-detected, excluded from phase minimums, named in the

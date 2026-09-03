@@ -641,9 +641,15 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // file reads as positive evidence that the muted side stayed muted, which is
   // the one thing an unread log cannot show (scar §2.4, §5 G4). v1's 30-day
   // retention makes this a real case, not a hypothetical.
+  // v1's wake channel: `wake.delivered` ONLY. `wake.rendered` is the RUNNER
+  // re-rendering the wake file after every consolidation (session-less, 5–17 a
+  // day) and delivers to nobody — counting it flagged the first muted day as
+  // contaminated on five runner renders (day 0, 2026-09-03; scar §2.3: render
+  // is not delivery). `wake.delivered` fires in v1's session-start hook at the
+  // moment the bundle is injected, which IS the delivery.
   const v1Detectors: ContaminationDetectors = v1.present
     ? {
-        wake: Math.max(v1.wakeRendered, v1.wakeDelivered),
+        wake: v1.wakeDelivered,
         recall: v1.surfaceInject,
         ritual: v1.episodeAsked,
       }

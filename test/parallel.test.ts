@@ -1734,6 +1734,24 @@ describe("day classes", () => {
     expect(artifacts.run.activeDays["P"]).toBe(0);
   });
 
+  test("a muted v1's RUNNER re-rendering its wake is not a delivery — `wake.rendered` on a muted day stays clean (scar §2.3)", () => {
+    const s = scene(3);
+    v1Muted(s, [
+      { seq: 20, session: "runner", type: "wake.rendered" },
+      { seq: 21, session: "runner", type: "wake.rendered" },
+      { seq: 22, session: "runner", type: "wake.rendered" },
+    ]);
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.contamination.v1.wake).toBe(0);
+    expect(r.class).toBe("active");
+    // And a real delivery on the muted side still contaminates.
+    const s2 = scene(3);
+    v1Muted(s2, [{ seq: 20, session: "s1", type: "wake.delivered" }]);
+    v2Delivering(s2);
+    expect(classOf(s2).class).toBe("contaminated");
+  });
+
   test("CONTAMINATED: v1 rendered a wake on a Phase-P day, when it was the muted side", () => {
     const s = scene(3);
     v1Muted(s, [{ seq: 7, session: "s2", type: "wake.rendered" }]);
