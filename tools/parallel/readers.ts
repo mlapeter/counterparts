@@ -40,7 +40,11 @@ import {
   classifyBlock,
 } from "../../src/adapters/claude-code/index.js";
 import type { AssignmentHealth } from "../../src/adapters/claude-code/index.js";
-import { PRIMACY_DELIVER_EVENT, PRIMACY_STANDDOWN_EVENT } from "../../src/core/counterpart.js";
+import {
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  RECALL_DECISION_EVENT,
+} from "../../src/core/counterpart.js";
 import { isWithin } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
@@ -106,13 +110,33 @@ export const V1_DETECTOR_TYPES: readonly string[] = [
 
 export interface V1Line {
   readonly type: string;
-  readonly seq: number;
+  /**
+   * v1's OWN `seq`, carried for the record and never for ordering. v1 stamps it
+   * per PROCESS and every hook is a fresh process, so it resets many times a
+   * day: two lines with seq 3 and seq 1 say nothing about which happened first
+   * (review blocker 4). `ordinal` and `ts` are the clocks.
+   */
+  readonly declaredSeq: number | null;
+  /** This line's position in the day's file. The tiebreak clock, always total. */
+  readonly ordinal: number;
   readonly session: string | null;
   readonly ts: string | null;
   readonly hook: string | null;
   readonly phase: string | null;
   /** The raw line, kept ONLY so `record.ts` can copy detector lines verbatim. */
   readonly raw: string;
+}
+
+/**
+ * IS `a` LATER THAN `b`? — the one ordering rule this file has, stated once.
+ *
+ * The ISO timestamp decides when both lines carry one and they differ; the
+ * file's own order decides otherwise. v1 appends its log, so the file order is
+ * a real clock; `seq` is not, because it restarts in every hook process.
+ */
+export function laterThan(a: V1Line, b: V1Line): boolean {
+  if (a.ts !== null && b.ts !== null && a.ts !== b.ts) return a.ts > b.ts;
+  return a.ordinal > b.ordinal;
 }
 
 export function v1LogPath(v1Dir: string, date: string): string {
@@ -161,13 +185,17 @@ export function readV1Lines(
       malformed += 1;
       continue;
     }
-    // v1 stamps its own `seq`. When one is absent the file's own order is the
-    // clock — never 0 for everything, which would make "later" meaningless and
-    // silently break the MIXED-day check.
+    // `declared ?? ordinal` MIXED TWO CLOCKS INTO ONE FIELD and then compared
+    // across them. v1's `seq` counts within one hook PROCESS and restarts with
+    // the next, so a delivery at seq 3 and a later mute at seq 1 read as
+    // "earlier" and the straddling session — the flip's own signature — went
+    // unseen. The two clocks are kept apart here and only the honest ones are
+    // compared (see `laterThan`).
     const declared = typeof o["seq"] === "number" && Number.isFinite(o["seq"]) ? o["seq"] : null;
     lines.push({
       type,
-      seq: declared ?? ordinal,
+      declaredSeq: declared,
+      ordinal,
       session: str(o["session"]),
       ts: str(o["ts"]),
       hook: str(o["hook"]),
@@ -196,8 +224,8 @@ export function readV1Day(v1Dir: string, date: string): V1DayCounts {
   let surfaceInject = 0;
 
   interface Order {
-    firstDelivery: number | null;
-    lastMuted: number | null;
+    firstDelivery: V1Line | null;
+    lastMuted: V1Line | null;
     mutedAtStart: boolean;
   }
   const order = new Map<string, Order>();
@@ -215,7 +243,7 @@ export function readV1Day(v1Dir: string, date: string): V1DayCounts {
       bump(abMutedByHook, line.hook ?? "unknown");
       if (line.session !== null) {
         const o = orderFor(line.session);
-        o.lastMuted = line.seq;
+        if (o.lastMuted === null || laterThan(line, o.lastMuted)) o.lastMuted = line;
         if (line.hook === "session_start") o.mutedAtStart = true;
       }
       continue;
@@ -227,7 +255,7 @@ export function readV1Day(v1Dir: string, date: string): V1DayCounts {
       line.type === V1_RITUAL_EVENT;
     if (isDelivery && line.session !== null) {
       const o = orderFor(line.session);
-      if (o.firstDelivery === null || line.seq < o.firstDelivery) o.firstDelivery = line.seq;
+      if (o.firstDelivery === null || laterThan(o.firstDelivery, line)) o.firstDelivery = line;
     }
   }
 
@@ -235,10 +263,12 @@ export function readV1Day(v1Dir: string, date: string): V1DayCounts {
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([session, o]) => ({
       session,
-      firstDelivery: o.firstDelivery,
-      lastMuted: o.lastMuted,
+      firstDelivery: o.firstDelivery === null ? null : o.firstDelivery.ordinal,
+      lastMuted: o.lastMuted === null ? null : o.lastMuted.ordinal,
+      firstDeliveryAt: o.firstDelivery?.ts ?? null,
+      lastMutedAt: o.lastMuted?.ts ?? null,
       straddled:
-        o.firstDelivery !== null && o.lastMuted !== null && o.lastMuted > o.firstDelivery,
+        o.firstDelivery !== null && o.lastMuted !== null && laterThan(o.lastMuted, o.firstDelivery),
     }));
 
   return {
@@ -270,10 +300,14 @@ export function readV1Day(v1Dir: string, date: string): V1DayCounts {
 interface RawStatement {
   all(...p: unknown[]): unknown;
 }
-interface RawDb {
+export interface RawDb {
   prepare(sql: string): RawStatement;
+  exec(sql: string): unknown;
   close(): unknown;
 }
+
+/** How a handle on the live store is obtained. Production has exactly one. */
+export type StoreOpener = (path: string) => RawDb;
 
 function isBun(): boolean {
   return typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
@@ -285,7 +319,7 @@ function isBun(): boolean {
  * store the instrument is supposed to observe (CONTRACT §5 Inputs, CLI §7).
  * Same opener shape as `tools/replay/corpus.ts`, same reason.
  */
-function openReadOnly(path: string): RawDb {
+export function openReadOnly(path: string): RawDb {
   if (isBun()) {
     const { Database } = require_("bun:sqlite") as {
       Database: new (p: string, o?: unknown) => RawDb;
@@ -296,6 +330,96 @@ function openReadOnly(path: string): RawDb {
     DatabaseSync: new (p: string, o?: unknown) => RawDb;
   };
   return new DatabaseSync(path, { readOnly: true });
+}
+
+/**
+ * How long a read waits for a writer's lock before it becomes a READ ERROR.
+ *
+ * The subjects are LIVE and write their own stores while the instrument reads
+ * them (CONTRACT §5 Inputs), so a hook holding a write lock at the moment the
+ * daily runs is ordinary, not exceptional. Without a busy timeout every such
+ * read raced and lost silently; with one it waits, and if it still loses the
+ * failure is carried on the record rather than swallowed into a zero.
+ */
+export const READ_BUSY_TIMEOUT_MS = 5_000;
+
+/** The name the write probe would create if the read-only flag did not take. */
+const PROBE_TABLE = "__parallel_probe";
+
+export type ReadOnlyVerdict = "refused" | "writable" | "inconclusive";
+
+export interface ReadOnlyProbe {
+  readonly verdict: ReadOnlyVerdict;
+  /** sqlite's own words. Never store content — this is DDL, not a row read. */
+  readonly detail: string;
+}
+
+function messageOf(err: unknown): string {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  const code = typeof e?.code === "string" ? `${e.code}: ` : "";
+  return `${code}${typeof e?.message === "string" ? e.message : String(err)}`;
+}
+
+/**
+ * A refusal is only a refusal when sqlite says READONLY. `SQLITE_BUSY` — a live
+ * hook holding the write lock — would otherwise read as proof of read-only-ness,
+ * which is a fabricated guarantee: the handle might be perfectly writable and
+ * merely blocked this instant (scar §2.4's shape, applied to a lock).
+ */
+function isReadOnlyRefusal(err: unknown): boolean {
+  const text = messageOf(err).toLowerCase();
+  return text.includes("readonly") || text.includes("read-only") || text.includes("read only");
+}
+
+/**
+ * THE WRITE PROBE, and it leaves NOTHING behind on either outcome.
+ *
+ * The old probe was `CREATE TABLE IF NOT EXISTS __parallel_probe` executed
+ * bare: if the read-only flag ever failed to take, that statement was a real,
+ * committed, un-rolled-back WRITE into the owner's live store — the instrument
+ * breaking CONTRACT §5 G1 in the very line that claims to verify it.
+ *
+ * So the write is wrapped: `BEGIN IMMEDIATE` … `CREATE TABLE` … `ROLLBACK`. On
+ * a read-only handle the DDL is refused inside an empty transaction; on a
+ * writable one it lands and is rolled back, and the store file is byte-identical
+ * either way (verified against bun:sqlite before this was written). `BEGIN
+ * IMMEDIATE` alone is NOT the discriminator — measured 2026-09-03: bun's
+ * read-only handle accepts it and defers the lock — so the DDL is what decides.
+ */
+export function probeReadOnly(db: RawDb): ReadOnlyProbe {
+  let began = false;
+  let wrote = false;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    began = true;
+    db.exec(`CREATE TABLE ${PROBE_TABLE} (x INTEGER)`);
+    wrote = true;
+    return {
+      verdict: "writable",
+      detail: "the handle ACCEPTED a DDL write; the read-only flag did not take",
+    };
+  } catch (err) {
+    return {
+      verdict: isReadOnlyRefusal(err) ? "refused" : "inconclusive",
+      detail: messageOf(err),
+    };
+  } finally {
+    if (began) {
+      try {
+        db.exec("ROLLBACK");
+      } catch (err) {
+        // A failed rollback after a landed write is the one path that can leave
+        // the probe table behind. It is a red-line and it is named, never
+        // shrugged off in a bare `catch {}`.
+        if (wrote) {
+          throw new ReaderError("PROBE_ROLLBACK_FAILED", {
+            table: PROBE_TABLE,
+            detail: messageOf(err),
+          });
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -320,6 +444,20 @@ export const NON_DURABLE_DETECTORS: readonly string[] = [
  * sake: in Phase S they are the contamination detectors on v2's side (§5 G4),
  * and each carries `date` and `session` in its payload.
  */
+/**
+ * The two durable events that record a memory LEAVING the live set.
+ *
+ * `versions.archived_at` never was that record: `Store.archive()` writes no
+ * versions row at all (read `store/index.ts#archive` — it is one UPDATE on
+ * `memories`), so the join this reader used to perform counted zero forever and
+ * reported it as a fact. These two rows are the real exit evidence, and they
+ * are emitted by `sleep/prune.ts` and `sleep/dedup.ts` with the memory id in
+ * `ref` (scar §2.17's other half: created-versus-exited, per kind, per system).
+ */
+export const MEMORY_PRUNED_EVENT = "memory.pruned";
+export const MEMORY_MERGED_EVENT = "memory.merged";
+export const DURABLE_EXIT_EVENTS: readonly string[] = [MEMORY_PRUNED_EVENT, MEMORY_MERGED_EVENT];
+
 export const DURABLE_DETECTORS: readonly string[] = [
   PRIMACY_STANDDOWN_EVENT,
   PRIMACY_DELIVER_EVENT,
@@ -329,6 +467,11 @@ export const DURABLE_DETECTORS: readonly string[] = [
   "adapter.episode.ask",
   "gate.chunk",
   "band.transition",
+  // Precondition 9's evidence: the per-turn surfacing decision, durable. The
+  // S→P preflight reads its presence out of the store rather than taking the
+  // CONTRACT's word that it is persisted (replay INTERFACE-GAPS §7).
+  RECALL_DECISION_EVENT,
+  ...DURABLE_EXIT_EVENTS,
 ];
 
 export function v2StorePath(dataDir: string): string {
@@ -346,35 +489,84 @@ export interface V2DayOptions {
    */
   readonly livedDay?: number;
   /**
-   * The row cap. The store's own `eventLog` defaults to 500, which a real day
-   * would blow past silently; the instrument passes its own, large, explicit.
+   * The row cap. It is a BACKSTOP now rather than the selection rule: the query
+   * filters by name and by day/date in SQL, so a real day's rows are bounded by
+   * the day, not by an arbitrary head of the table.
    */
   readonly limit?: number;
+  /**
+   * TEST SEAM, and the only one in this file. Production never passes it — the
+   * read-only opener above is the sole handle on a live store. The suite passes
+   * a deliberately WRITABLE opener to prove the write probe actually refuses:
+   * that guard is otherwise unfalsifiable, because sqlite's own read-only flag
+   * is exactly what it exists to distrust.
+   */
+  readonly open?: StoreOpener;
 }
 
 const DEFAULT_EVENT_LIMIT = 200_000;
 
 interface OpenStore {
   readonly db: RawDb;
-  readonly readOnlyProof: boolean;
+  /** Always `true` when this returns: a false verdict THROWS instead. */
+  readonly readOnlyProof: true;
 }
 
-function openStore(path: string): OpenStore {
-  const db = openReadOnly(path);
-  let readOnlyProof: boolean;
+/**
+ * Open the live store, prove the handle cannot write, and REFUSE to read
+ * through one that can.
+ *
+ * The old shape recorded the verdict on the day record and read on regardless,
+ * which made §5 G1 a field in a JSON file rather than a guarantee. A handle
+ * that accepts a write is an instrument that could corrupt the subject; there
+ * is nothing to report from it that is worth the risk of holding it open.
+ */
+function openStore(path: string, open: StoreOpener = openReadOnly): OpenStore {
+  const db = open(path);
+  const shut = (): void => {
+    try {
+      db.close();
+    } catch {
+      /* the handle is being abandoned either way */
+    }
+  };
   try {
-    db.prepare("CREATE TABLE IF NOT EXISTS __parallel_probe (x INTEGER)").all();
-    readOnlyProof = false;
+    // Allowed on a read-only handle (measured on bun:sqlite 1.3), and needed:
+    // the subjects write these stores while this reads them.
+    db.exec(`PRAGMA busy_timeout = ${READ_BUSY_TIMEOUT_MS}`);
   } catch {
-    readOnlyProof = true;
+    /* an older build without the pragma still reads; the timeout is a courtesy */
   }
-  return { db, readOnlyProof };
+  let probe: ReadOnlyProbe;
+  try {
+    probe = probeReadOnly(db);
+  } catch (err) {
+    shut();
+    throw err;
+  }
+  if (probe.verdict !== "refused") {
+    shut();
+    throw new ReaderError("STORE_NOT_PROVED_READ_ONLY", {
+      path,
+      verdict: probe.verdict,
+      detail: probe.detail,
+    });
+  }
+  return { db, readOnlyProof: true };
 }
 
-function rowsOf<T>(db: RawDb, sql: string, ...args: unknown[]): T[] {
+/**
+ * One read, and its failure if it fails. `catch { return [] }` turned a locked
+ * or schema-drifted store into an empty day that looked lived — the fabricated
+ * zero scar §2.4 names. Errors accumulate on the day record and POISON its
+ * detectors; nothing downstream may read a count taken beside one.
+ */
+function rowsOf<T>(ctx: { db: RawDb; errors: string[] }, sql: string, ...args: unknown[]): T[] {
   try {
-    return db.prepare(sql).all(...args) as T[];
-  } catch {
+    return ctx.db.prepare(sql).all(...args) as T[];
+  } catch (err) {
+    // The SQL and sqlite's message — schema vocabulary, never row content.
+    ctx.errors.push(`${sql.replace(/\s+/g, " ").trim().slice(0, 80)} — ${messageOf(err)}`);
     return [];
   }
 }
@@ -382,13 +574,17 @@ function rowsOf<T>(db: RawDb, sql: string, ...args: unknown[]): T[] {
 const EMPTY_V2 = (path: string): V2DayCounts => ({
   present: false,
   path,
-  readOnlyProof: true,
+  // NOT `true`. An absent store was never opened, so nothing was proved about
+  // it; claiming the proof here is the same fabrication as claiming a zero.
+  readOnlyProof: null,
   livedDayNow: null,
   lastActiveDate: null,
   truncated: false,
   eventRowsRead: 0,
+  readErrors: [],
   byNameForDate: {},
   primacyByHook: { deliver: {}, standdown: {} },
+  bySessionForDate: {},
   byNameForLivedDay: {},
   livedDayRead: null,
   nonDurable: [...NON_DURABLE_DETECTORS],
@@ -399,33 +595,57 @@ const EMPTY_V2 = (path: string): V2DayCounts => ({
     createdOnDate: 0,
     createdByKind: {},
     createdBySource: {},
-    exitedOnDate: 0,
+    exitedOnDate: null,
     exitedByKind: {},
+    exitedNote: "no store was opened",
     archivedTotal: 0,
   },
 });
 
-/** UTC calendar date of an epoch-ms stamp — the clock `versions.archived_at` uses. */
-function dateOf(ms: number): string {
+/** UTC calendar date of an epoch-ms stamp. */
+export function dateOf(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** `IN (?, ?, …)` for a fixed name list — the names are ours, never input. */
+function placeholders(n: number): string {
+  return new Array(n).fill("?").join(", ");
 }
 
 export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}): V2DayCounts {
   const path = v2StorePath(dataDir);
   if (!existsSync(path)) return EMPTY_V2(path);
-  const { db, readOnlyProof } = openStore(path);
+  const { db, readOnlyProof } = openStore(path, opts.open);
+  const ctx = { db, errors: [] as string[] };
   try {
     const limit = opts.limit ?? DEFAULT_EVENT_LIMIT;
 
-    const meta = rowsOf<{ key: string; value: string }>(db, "SELECT key, value FROM meta");
+    const meta = rowsOf<{ key: string; value: string }>(ctx, "SELECT key, value FROM meta");
     const metaOf = (key: string): string | null =>
       meta.find((m) => m.key === key)?.value ?? null;
     const livedDayRaw = metaOf("livedDay");
     const livedDayNow = livedDayRaw === null ? null : Number.parseInt(livedDayRaw, 10);
 
-    const events = rowsOf<{ name: string; day: number; payload: string | null }>(
-      db,
-      "SELECT name, day, payload FROM events ORDER BY seq ASC LIMIT ?",
+    const livedDay = opts.livedDay ?? null;
+
+    // THE DAY IS SELECTED IN SQL, not carved out of the head of the table.
+    // `ORDER BY seq ASC LIMIT n` kept the OLDEST rows on overflow, so a store
+    // with history reported a floor made of the wrong day entirely. The filter
+    // is the day: the payload's calendar `date` for the adapter rows, the `day`
+    // column for the core rows that carry no date. `DESC` is the backstop's
+    // direction — if the cap is ever reached it is the NEWEST rows that survive.
+    const names = [...DURABLE_DETECTORS];
+    const events = rowsOf<{ name: string; day: number; ref: string | null; payload: string | null }>(
+      ctx,
+      `SELECT name, day, ref, payload FROM events
+        WHERE name IN (${placeholders(names.length)})
+          AND (day = ? OR payload LIKE ?)
+        ORDER BY seq DESC LIMIT ?`,
+      ...names,
+      // `day` is a non-negative counter, so -1 matches nothing when the caller
+      // gave no lived day — the date half of the OR then carries the query.
+      livedDay ?? -1,
+      `%"date":"${date}"%`,
       limit,
     );
 
@@ -433,7 +653,8 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
     const byNameForLivedDay: Record<string, number> = {};
     const deliver: Record<string, number> = {};
     const standdown: Record<string, number> = {};
-    const livedDay = opts.livedDay ?? null;
+    const bySessionForDate: Record<string, Record<string, number>> = {};
+    const exitedRefs: { ref: string | null; name: string }[] = [];
 
     for (const row of events) {
       let payload: Record<string, unknown> = {};
@@ -453,8 +674,21 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
         const hook = str(payload["hook"]) ?? "unknown";
         if (row.name === PRIMACY_DELIVER_EVENT) bump(deliver, hook);
         if (row.name === PRIMACY_STANDDOWN_EVENT) bump(standdown, hook);
+        // PER SESSION, which the `silent` class needs and used to approximate
+        // away: every adapter record carries `session: input.sessionId`
+        // (`hooks.ts#deliveryVerdict` and `#record`), the HOST's session id —
+        // the same id v1 stamps on its own log lines.
+        const session = str(payload["session"]);
+        if (session !== null) {
+          const into = bySessionForDate[session] ?? {};
+          bump(into, row.name === PRIMACY_DELIVER_EVENT ? `deliver:${hook}` : row.name);
+          bySessionForDate[session] = into;
+        }
       }
-      if (livedDay !== null && row.day === livedDay) bump(byNameForLivedDay, row.name);
+      if (livedDay !== null && row.day === livedDay) {
+        bump(byNameForLivedDay, row.name);
+        if (DURABLE_EXIT_EVENTS.includes(row.name)) exitedRefs.push({ ref: row.ref, name: row.name });
+      }
     }
 
     // ── memory rows: kind × mint source, and the day's created-vs-exited ─────
@@ -464,7 +698,7 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       source: string | null;
       learned_on: string;
       archived: number;
-    }>(db, "SELECT id, kind, source, learned_on, archived FROM memories");
+    }>(ctx, "SELECT id, kind, source, learned_on, archived FROM memories");
 
     const byKind: Record<string, number> = {};
     const bySource: Record<string, number> = {};
@@ -490,24 +724,31 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       }
     }
 
-    // EXIT is attributed through `versions.archived_at` — the only per-event
-    // timestamp the schema keeps for a row leaving the live set. `memories`
-    // itself has no archived-at column, which is why this is a join and why
-    // the day record says so on its face.
+    // EXIT is the DURABLE EXIT EVENTS, counted by the store's lived day.
+    //
+    // The join this used to perform — `memories.archived` against
+    // `versions.archived_at` — could only ever return zero: `Store.archive()`
+    // writes no versions row. So the number was a fabricated zero dressed as a
+    // measurement. `memory.pruned` and `memory.merged` are the real record, and
+    // they carry only the LIVED day, so without one this reads `not-exercised`
+    // (null) with the reason on the record rather than a guessed zero.
     const kindById = new Map(memories.map((m) => [m.id, m.kind]));
-    const archivedIds = new Set(memories.filter((m) => m.archived === 1).map((m) => m.id));
-    const versions = rowsOf<{ memory_id: string; archived_at: number }>(
-      db,
-      "SELECT memory_id, archived_at FROM versions",
-    );
-    const exited = new Set<string>();
-    for (const v of versions) {
-      if (!archivedIds.has(v.memory_id)) continue;
-      if (dateOf(v.archived_at) !== date) continue;
-      exited.add(v.memory_id);
-    }
     const exitedByKind: Record<string, number> = {};
-    for (const id of exited) bump(exitedByKind, kindById.get(id) ?? "unknown");
+    let exitedOnDate: number | null = null;
+    let exitedNote: string;
+    if (livedDay === null) {
+      exitedNote = `not-exercised: \`${MEMORY_PRUNED_EVENT}\` and \`${MEMORY_MERGED_EVENT}\` carry only the store's LIVED day (no hook advances it and neither event stamps a calendar date), so no --lived-day means no attributable exit count`;
+    } else {
+      const seen = new Set<string>();
+      for (const e of exitedRefs) {
+        const id = e.ref;
+        if (id === null || seen.has(id)) continue;
+        seen.add(id);
+        bump(exitedByKind, kindById.get(id) ?? "unknown");
+      }
+      exitedOnDate = seen.size;
+      exitedNote = `durable \`${MEMORY_PRUNED_EVENT}\`/\`${MEMORY_MERGED_EVENT}\` rows on lived day ${livedDay}, de-duplicated by the memory id in \`ref\``;
+    }
 
     return {
       present: true,
@@ -517,8 +758,10 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       lastActiveDate: metaOf("lastActiveDate"),
       truncated: events.length >= limit,
       eventRowsRead: events.length,
+      readErrors: [...ctx.errors],
       byNameForDate,
       primacyByHook: { deliver, standdown },
+      bySessionForDate,
       byNameForLivedDay,
       livedDayRead: livedDay,
       nonDurable: [...NON_DURABLE_DETECTORS],
@@ -529,8 +772,9 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
         createdOnDate,
         createdByKind,
         createdBySource,
-        exitedOnDate: exited.size,
+        exitedOnDate,
         exitedByKind,
+        exitedNote,
         archivedTotal,
       },
     };
@@ -548,18 +792,51 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
  * prose file sits in the same directory as an authored one — which is why this
  * has to come off the store rather than off the filesystem.
  */
-export function migratedProse(dataDir: string): string[] {
+export interface ProseRow {
+  /** The path as the row spells it. */
+  readonly path: string;
+  /** The SAME path realpathed — the only spelling a filesystem join may use. */
+  readonly realpath: string;
+  readonly source: string | null;
+  readonly learnedOn: string;
+}
+
+/**
+ * Every live row's prose path, its mint source and its created date.
+ *
+ * REALPATH ON BOTH SIDES. The join that used this was raw string equality
+ * against a directory walk, and on macOS `/var/...` walks as
+ * `/private/var/...`: every migrated row silently failed to match its own file
+ * and re-entered the meter as contamination. `realpathOr` is the one spelling
+ * rule this tool has (scar §2.13), and it is applied here at the source.
+ */
+export function proseRows(dataDir: string): { rows: ProseRow[]; readErrors: string[] } {
   const path = v2StorePath(dataDir);
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) return { rows: [], readErrors: [] };
   const { db } = openStore(path);
+  const ctx = { db, errors: [] as string[] };
   try {
-    return rowsOf<{ prose_path: string }>(
-      db,
-      "SELECT prose_path FROM memories WHERE source = 'migrated'",
-    ).map((r) => r.prose_path);
+    const rows = rowsOf<{
+      prose_path: string;
+      source: string | null;
+      learned_on: string;
+    }>(ctx, "SELECT prose_path, source, learned_on FROM memories WHERE archived = 0").map((r) => ({
+      path: r.prose_path,
+      realpath: realpathOr(r.prose_path),
+      source: r.source,
+      learnedOn: r.learned_on,
+    }));
+    return { rows, readErrors: [...ctx.errors] };
   } finally {
     db.close();
   }
+}
+
+/** The realpaths of every `migrated` row's prose. The meter's exclusion set. */
+export function migratedProse(dataDir: string): string[] {
+  return proseRows(dataDir)
+    .rows.filter((r) => r.source === "migrated")
+    .map((r) => r.realpath);
 }
 
 // ── the self-store byte reading (precondition 5), reproduced read-only ──────
@@ -570,6 +847,8 @@ export interface SchemaBytesReading {
   readonly elements: number;
   readonly quarantined: number;
   readonly empty: boolean;
+  /** Reads that FAILED. A byte total taken beside one is not a reading. */
+  readonly readErrors: readonly string[];
 }
 
 /**
@@ -590,8 +869,11 @@ export interface SchemaBytesReading {
  */
 export function readSchemaBytes(dataDir: string): SchemaBytesReading {
   const path = v2StorePath(dataDir);
-  if (!existsSync(path)) return { present: false, bytes: 0, elements: 0, quarantined: 0, empty: true };
+  if (!existsSync(path)) {
+    return { present: false, bytes: 0, elements: 0, quarantined: 0, empty: true, readErrors: [] };
+  }
   const { db } = openStore(path);
+  const ctx = { db, errors: [] as string[] };
   try {
     const rows = rowsOf<{
       id: string;
@@ -601,7 +883,7 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
       protected: number;
       prose_path: string;
     }>(
-      db,
+      ctx,
       `SELECT id, band, kind, source, protected, prose_path FROM memories
         WHERE archived = 0 AND (band = 'identity' OR kind = 'self')`,
     );
@@ -621,8 +903,8 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
       bytes += Buffer.byteLength(body, "utf8");
       elements += 1;
     }
-    const total = rowsOf<{ n: number }>(db, "SELECT COUNT(*) AS n FROM memories")[0]?.n ?? 0;
-    return { present: true, bytes, elements, quarantined, empty: total === 0 };
+    const total = rowsOf<{ n: number }>(ctx, "SELECT COUNT(*) AS n FROM memories")[0]?.n ?? 0;
+    return { present: true, bytes, elements, quarantined, empty: total === 0, readErrors: [...ctx.errors] };
   } finally {
     db.close();
   }
@@ -742,7 +1024,7 @@ export function hookModel(records: readonly HookRecord[]): HookModelReport {
 
   const perHookMap = new Map<string, number[]>();
   for (const r of records) {
-    const key = `${r.hookEvent} ${r.hookName}`;
+    const key = `${r.hookEvent} ${r.hookName}`;
     const list = perHookMap.get(key) ?? [];
     list.push(r.durationMs);
     perHookMap.set(key, list);
@@ -750,7 +1032,7 @@ export function hookModel(records: readonly HookRecord[]): HookModelReport {
   const perHook: HookDurations[] = [...perHookMap.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, durations]) => {
-      const [hookEvent = "", hookName = ""] = key.split(" ");
+      const [hookEvent = "", hookName = ""] = key.split(" ");
       const sorted = [...durations].sort((a, b) => a - b);
       return {
         hookEvent,

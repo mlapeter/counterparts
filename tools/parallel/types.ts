@@ -101,7 +101,8 @@ export interface ContaminationDetectors {
 
 export interface CreatedExited {
   readonly created: number;
-  readonly exited: number;
+  /** NULL when the exit path could not be attributed to this day at all. */
+  readonly exited: number | null;
   readonly byKind: Readonly<Record<string, number>>;
   readonly bySource: Readonly<Record<string, number>>;
   /** False when the tally could not be attributed to this date from the store. */
@@ -171,10 +172,16 @@ export interface DailyRecord {
 
 export interface V1SessionOrder {
   readonly session: string;
-  /** Sequence of the first delivery event in this session, or null. */
+  /**
+   * FILE ORDINAL of the first delivery event in this session, or null — never
+   * v1's own `seq`, which restarts in every hook process (review blocker 4).
+   */
   readonly firstDelivery: number | null;
-  /** Sequence of the last `ab.muted` in this session, or null. */
+  /** File ordinal of the last `ab.muted` in this session, or null. */
   readonly lastMuted: number | null;
+  /** The ISO stamps the ordering actually used, so the verdict is auditable. */
+  readonly firstDeliveryAt: string | null;
+  readonly lastMutedAt: string | null;
   /** A delivery followed LATER by a mute: the flip straddled this session. */
   readonly straddled: boolean;
 }
@@ -203,20 +210,38 @@ export interface V1DayCounts {
 export interface V2DayCounts {
   readonly present: boolean;
   readonly path: string;
-  /** sqlite refused a write through the very handle this reader used. */
-  readonly readOnlyProof: boolean;
+  /**
+   * sqlite refused a write through the very handle this reader used. NULL when
+   * no store was opened at all — an unopened store proves nothing, and `true`
+   * there was a fabricated guarantee. It is never `false`: a handle that
+   * accepts a write makes the reader THROW rather than report (readers.ts).
+   */
+  readonly readOnlyProof: boolean | null;
   readonly livedDayNow: number | null;
   readonly lastActiveDate: string | null;
   /** True when the event read hit its row cap: the counts below are a FLOOR,
    *  not a total. A counter that quietly caps is the scar §2.4 failure. */
   readonly truncated: boolean;
   readonly eventRowsRead: number;
+  /**
+   * Reads that FAILED — the SQL and sqlite's message, never a row. A day with
+   * any of these cannot be classified: `record.ts` poisons its detectors to
+   * null and refuses `active` (scar §2.4 — a swallowed error is a zero).
+   */
+  readonly readErrors: readonly string[];
   /** Durable rows whose PAYLOAD carries `date === <date>` (the adapter events). */
   readonly byNameForDate: Readonly<Record<string, number>>;
   readonly primacyByHook: {
     readonly deliver: Readonly<Record<string, number>>;
     readonly standdown: Readonly<Record<string, number>>;
   };
+  /**
+   * The same rows keyed by the HOST session id every adapter record carries in
+   * its payload, then by what happened (`deliver:<hook>`, or the event name).
+   * The `silent` class's right half, and the reason it is a join rather than a
+   * difference of counts.
+   */
+  readonly bySessionForDate: Readonly<Record<string, Readonly<Record<string, number>>>>;
   /** Durable rows counted by the store's LIVED-day column, when one was given. */
   readonly byNameForLivedDay: Readonly<Record<string, number>>;
   readonly livedDayRead: number | null;
@@ -233,8 +258,16 @@ export interface V2DayCounts {
     readonly createdOnDate: number;
     readonly createdByKind: Readonly<Record<string, number>>;
     readonly createdBySource: Readonly<Record<string, number>>;
-    readonly exitedOnDate: number;
+    /**
+     * Exits counted from the durable `memory.pruned` / `memory.merged` rows.
+     * NULL is `not-exercised`: those rows carry only the store's LIVED day, so
+     * without a `--lived-day` there is nothing to attribute them to, and a zero
+     * would read as "nothing left the store" (scar §2.4).
+     */
+    readonly exitedOnDate: number | null;
     readonly exitedByKind: Readonly<Record<string, number>>;
+    /** How the number above was obtained — or why there is none. */
+    readonly exitedNote: string;
     readonly archivedTotal: number;
   };
 }

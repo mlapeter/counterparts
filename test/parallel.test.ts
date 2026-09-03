@@ -15,6 +15,7 @@
  * module but the writer.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import {
   existsSync,
   mkdirSync,
@@ -54,6 +55,7 @@ import {
 import {
   hookModel,
   overlaps,
+  probeReadOnly,
   readAssignmentAs,
   readSchemaBytes,
   readV1Day,
@@ -269,6 +271,50 @@ describe("parallelGateOpen — precondition 1, branch by branch", () => {
   test("a waiver for a DIFFERENT precondition does not open precondition 1", () => {
     const other: Waiver = { ...WAIVER("replay-2026-09-04"), precondition: 5 };
     expect(parallelGateOpen(record({ sample: true }), [other]).open).toBe(false);
+  });
+
+  // ── review blocker 1: the three fields that used to fail OPEN ─────────────
+  test("a record with `sample` OMITTED is refused — absent is not a full re-run", () => {
+    const r = record();
+    const { sample: _dropped, ...withoutSample } = r;
+    const v = parallelGateOpen(withoutSample as GateReadableRecord, []);
+    expect(v.open).toBe(false);
+    expect(v.reasons.join(" ")).toContain("sample is absent");
+  });
+
+  test("`counts: {}` is refused — an absent failure count is not zero failures", () => {
+    const v = parallelGateOpen(record({ counts: {} }), []);
+    expect(v.open).toBe(false);
+    expect(v.reasons.join(" ")).toContain("counts.fail is absent");
+  });
+
+  test("an UNKNOWN verdict string is refused, not cast into the vocabulary", () => {
+    const r = record();
+    const verdicts = {
+      ...r.verdicts,
+      "gate.chunkBlockRate": { verdict: "green" as unknown as GateReadableRecord["verdicts"][string]["verdict"] },
+    };
+    const v = parallelGateOpen({ ...r, verdicts }, []);
+    expect(v.open).toBe(false);
+    expect(v.reasons.join(" ")).toContain("outside the replay vocabulary");
+    expect(v.reasons.join(" ")).toContain("gate.chunkBlockRate");
+  });
+
+  test("a fail COUNT that disagrees with the fail VERDICTS shuts the gate", () => {
+    const r = record();
+    // The header says zero failures; a row says otherwise. Which half is wrong
+    // is not for the gate to decide — it refuses to read the record at all.
+    const verdicts = { ...r.verdicts, "gate.chunkBlockRate": { verdict: "fail" as const } };
+    const v = parallelGateOpen({ ...r, verdicts }, []);
+    expect(v.open).toBe(false);
+    expect(v.reasons.join(" ")).toContain("the summary and the rows disagree");
+
+    // And when they AGREE the gate is shut by the failure itself, not by the
+    // cross-check — so the assertion above is not passing for the wrong reason.
+    const agreed = parallelGateOpen({ ...r, verdicts, counts: { ...CLEAN.counts, fail: 1 } }, []);
+    expect(agreed.open).toBe(false);
+    expect(agreed.reasons.join(" ")).toContain("counts.fail is 1");
+    expect(agreed.reasons.join(" ")).not.toContain("disagree");
   });
 });
 
@@ -761,6 +807,116 @@ describe("the v2 store reader", () => {
     const day = readV2Day(join(root, "no-such-store"), "2026-09-04");
     expect(day.present).toBe(false);
     expect(day.memories.total).toBe(0);
+    // NOT `true`. Nothing was opened, so nothing was proved (review blocker 2).
+    expect(day.readOnlyProof).toBeNull();
+  });
+
+  // ── review blocker 2: the write probe, and what it must never leave ────────
+  test("a WRITABLE handle makes the probe report NOT refused, and leaves no table behind", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      s.put({ type: "memory", kind: "fact", body: "A synthetic fixture memory." });
+    });
+    const path = join(data, "operational.sqlite");
+    const before = createHash("sha256").update(readFileSync(path)).digest("hex");
+
+    const writable = new Database(path);
+    const schemaOf = (db: Database): string[] =>
+      (db.prepare("SELECT name FROM sqlite_master ORDER BY name").all() as { name: string }[]).map(
+        (r) => r.name,
+      );
+    const schemaBefore = schemaOf(writable);
+    const verdict = probeReadOnly(writable);
+    // The probe DID write — that is the point: a handle that accepts one is not
+    // read-only, whatever flag it was opened with.
+    expect(verdict.verdict).toBe("writable");
+    expect(verdict.verdict).not.toBe("refused");
+    // And it rolled back: the schema is exactly what it was, probe table absent.
+    expect(schemaOf(writable)).toEqual(schemaBefore);
+    expect(schemaOf(writable).some((n) => n.includes("__parallel_probe"))).toBe(false);
+    writable.close();
+    expect(createHash("sha256").update(readFileSync(path)).digest("hex")).toBe(before);
+
+    // The ordinary read-only handle reaches the other verdict, so the assertion
+    // above is not passing because the probe always says "writable".
+    const readonly = new Database(path, { readonly: true });
+    expect(probeReadOnly(readonly).verdict).toBe("refused");
+    readonly.close();
+  });
+
+  test("the READER REFUSES a handle that can write — it throws rather than reporting", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      s.put({ type: "memory", kind: "fact", body: "A synthetic fixture memory." });
+    });
+    // The seam exists for exactly this: sqlite's own read-only flag is what the
+    // probe distrusts, so the only way to test the refusal is to hand the
+    // reader a handle that really can write.
+    expect(() => readV2Day(data, "2026-09-04", { open: (p) => new Database(p) })).toThrow(
+      /STORE_NOT_PROVED_READ_ONLY/,
+    );
+    // And the store is untouched by the attempt.
+    const path = join(data, "operational.sqlite");
+    const db = new Database(path, { readonly: true });
+    const names = (db.prepare("SELECT name FROM sqlite_master").all() as { name: string }[]).map(
+      (r) => r.name,
+    );
+    db.close();
+    expect(names.some((n) => n.includes("__parallel_probe"))).toBe(false);
+  });
+
+  // ── review blocker 9: a read that FAILS is not a day that was quiet ────────
+  test("a sqlite read ERROR is carried, never swallowed into a zero", () => {
+    const data = dir("v2");
+    // A store file with a `meta` table and nothing else: every other read fails.
+    const db = new Database(join(data, "operational.sqlite"), { create: true });
+    db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.exec("INSERT INTO meta VALUES ('livedDay', '4')");
+    db.close();
+
+    const day = readV2Day(data, "2026-09-04");
+    expect(day.present).toBe(true);
+    expect(day.readErrors.length).toBeGreaterThan(0);
+    expect(day.readErrors.join(" ")).toContain("events");
+    // The counts beside the error are empty — and that is exactly why they may
+    // not be read as evidence of silence.
+    expect(day.byNameForDate).toEqual({});
+  });
+
+  // ── review blocker 8: the exit path is the durable events, not `versions` ──
+  test("EXITS count the durable memory.pruned / memory.merged rows, by lived day", () => {
+    const data = dir("v2");
+    let pruned = "";
+    let merged = "";
+    buildStore(data, (s) => {
+      pruned = s.put({ type: "memory", kind: "fact", body: "A fact that will be let go." });
+      merged = s.put({ type: "memory", kind: "person", body: "A duplicate that will merge." });
+      s.put({ type: "memory", kind: "fact", body: "A fact that stays." });
+      // The shape `sleep/prune.ts` and `sleep/dedup.ts` write: the memory id in
+      // `ref`, the store's LIVED day in `day`, and no calendar date anywhere.
+      s.appendEvent({ name: "memory.pruned", day: 7, ref: pruned, payload: { event: "memory.pruned" } });
+      s.appendEvent({ name: "memory.merged", day: 7, ref: merged, payload: { event: "memory.merged" } });
+      s.appendEvent({ name: "memory.pruned", day: 6, ref: "other", payload: { event: "memory.pruned" } });
+      s.archive(pruned, "pruned");
+      s.archive(merged, "merged");
+    });
+
+    const withDay = readV2Day(data, "2026-09-04", { livedDay: 7 });
+    expect(withDay.memories.exitedOnDate).toBe(2);
+    expect(withDay.memories.exitedByKind).toEqual({ fact: 1, person: 1 });
+
+    // `Store.archive()` writes no versions row, so the old join could only ever
+    // return zero — which is why the number was never a measurement.
+    const roDb = new Database(join(data, "operational.sqlite"), { readonly: true });
+    const versions = roDb.prepare("SELECT COUNT(*) AS n FROM versions").all() as { n: number }[];
+    roDb.close();
+    expect(versions[0]?.n).toBe(0);
+
+    // Without a lived day there is nothing to attribute the rows to: NULL, and
+    // the reason travels with it. A zero here would read as "nothing left".
+    const without = readV2Day(data, "2026-09-04");
+    expect(without.memories.exitedOnDate).toBeNull();
+    expect(without.memories.exitedNote).toContain("not-exercised");
   });
 
   test("hitting the row cap is REPORTED — a counter that quietly caps is a lie", () => {
@@ -1035,6 +1191,47 @@ describe("day classes", () => {
     expect(r.flags).not.toContain("mixed");
   });
 
+  // ── review blocker 4: v1's `seq` restarts per hook process, `ts` does not ──
+  test("MIXED is decided by the TIMESTAMP: a mute at seq 1 AFTER a delivery at seq 3", () => {
+    const s = scene(3);
+    // Every hook is a fresh v1 process and `seq` counts within one of them, so
+    // this is the ordinary shape of a straddled session, not a contrived one:
+    // the delivery hook got to 3, the later mute hook was on its first line.
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
+      { seq: 3, ts: `${DATE}T09:01:00.000Z`, session: "s1", type: "wake.rendered" },
+      { seq: 0, ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
+      { seq: 1, ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
+      { seq: 2, ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
+      { seq: 1, ts: `${DATE}T09:05:00.000Z`, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { seq: 0, ts: `${DATE}T09:06:00.000Z`, session: "s1", type: "session.end" },
+    ]);
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.v1.sessions[0]?.straddled).toBe(true);
+    expect(r.class).toBe("mixed");
+  });
+
+  test("the same seq numbers with the timestamps REVERSED are not a straddle", () => {
+    const s = scene(3);
+    // Identical `seq` values, identical file order — only the clock differs.
+    // Under the old `seq` comparison this read as mixed just like the case
+    // above; under the real clock the mute came first and nothing straddled.
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
+      { seq: 3, ts: `${DATE}T09:06:00.000Z`, session: "s1", type: "wake.rendered" },
+      { seq: 0, ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
+      { seq: 1, ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
+      { seq: 2, ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
+      { seq: 1, ts: `${DATE}T09:05:00.000Z`, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { seq: 0, ts: `${DATE}T09:07:00.000Z`, session: "s1", type: "session.end" },
+    ]);
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.v1.sessions[0]?.straddled).toBe(false);
+    expect(r.flags).not.toContain("mixed");
+  });
+
   test("SILENT: v1 muted at session start and v2 delivered no session-start — nobody spoke", () => {
     const s = scene(3);
     v1Muted(s);
@@ -1248,8 +1445,17 @@ describe("day classes", () => {
     const r = classOf(s);
     expect(r.tally.v1).toMatchObject({ created: 2, exited: 1, attributable: true });
     expect(r.tally.v1.note).toContain("UPPER BOUND");
-    expect(r.tally.v2).toMatchObject({ created: 1, exited: 0 });
+    // v2's exits are the durable `memory.pruned`/`memory.merged` rows, which
+    // carry only the store's LIVED day — with no `--lived-day` there is nothing
+    // to attribute them to, so this is NULL and says why (review blocker 8).
+    expect(r.tally.v2).toMatchObject({ created: 1, exited: null });
+    expect(r.tally.v2.note).toContain("not-exercised");
     expect(r.tally.v2.byKind).toEqual({ fact: 1 });
+
+    // Hand it the lived day and the same day reads a real number instead.
+    const withDay = classOf(s, { livedDay: 0 });
+    expect(withDay.tally.v2.exited).toBe(0);
+    expect(withDay.tally.v2.note).toContain("memory.pruned");
   });
 });
 

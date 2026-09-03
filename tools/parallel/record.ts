@@ -33,6 +33,7 @@ import {
   readV1Day,
   readV1Lines,
   readV2Day,
+  realpathOr,
 } from "./readers.js";
 import type {
   Bars,
@@ -232,11 +233,19 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
  * this asks it for the rows rather than opening a second one.
  */
 function nonMigratedProse(dataDir: string): { paths: string[]; excludedMigrated: number } {
-  const all = filesUnder(join(dataDir, "prose"), (n) => n.endsWith(".md"));
+  // REALPATH ON BOTH SIDES. `filesUnder` walks the spelling the caller handed
+  // in; `proseRows` realpaths the spelling the store recorded. On macOS those
+  // differ for anything under `/var`, so a raw-string join silently excluded
+  // NOTHING and every migrated row re-entered the meter as contamination — a
+  // manufactured red-line on the one path §5 G7 excludes by construction.
+  const all = filesUnder(join(dataDir, "prose"), (n) => n.endsWith(".md")).map((p) => ({
+    path: p,
+    realpath: realpathOr(p),
+  }));
   const migrated = new Set(migratedProse(dataDir));
-  if (migrated.size === 0) return { paths: all, excludedMigrated: 0 };
-  const paths = all.filter((p) => !migrated.has(p));
-  return { paths, excludedMigrated: all.length - paths.length };
+  if (migrated.size === 0) return { paths: all.map((f) => f.path), excludedMigrated: 0 };
+  const kept = all.filter((f) => !migrated.has(f.realpath));
+  return { paths: kept.map((f) => f.path), excludedMigrated: all.length - kept.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +401,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     byKind: v2.memories.createdByKind,
     bySource: v2.memories.createdBySource,
     attributable: v2.present,
-    note: "created by `memories.learned_on`; exited by an archived row's `versions.archived_at` on this UTC date — the schema keeps no archived-at on the row itself",
+    note: `created by \`memories.learned_on\`; exited by ${v2.memories.exitedNote}`,
   };
 
   // ── the cross-encoding meter ──────────────────────────────────────────────

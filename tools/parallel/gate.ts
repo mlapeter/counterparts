@@ -32,6 +32,7 @@
  * Nothing here imports either system under test (the independent-scorer rule,
  * [v1] §17.2 / replay G5) and nothing here writes.
  */
+import { VERDICTS } from "../replay/types.js";
 import type { Verdict } from "../replay/types.js";
 
 import type { GateVerdict, Waiver } from "./types.js";
@@ -160,6 +161,14 @@ export function parseGateRecord(raw: unknown): GateReadableRecord | string {
   if (verdicts === null || typeof verdicts !== "object" || Array.isArray(verdicts)) {
     return `pass record ${runId} carries no per-metric verdicts`;
   }
+  // ABSENT IS NOT FALSE. `r["sample"] === true` read a record with no `sample`
+  // field as a full re-run — the permissive answer — and a record whose sample
+  // flag was mis-serialized as the string "true" the same way. A gate whose
+  // fields fail open is a document (review blocker 1).
+  const sample = r["sample"];
+  if (typeof sample !== "boolean") {
+    return `pass record ${runId} carries no boolean \`sample\` field (got ${describe(sample)}): a missing sample flag is not a full re-run`;
+  }
   const out: Record<string, { verdict: Verdict }> = {};
   for (const [id, value] of Object.entries(verdicts as Record<string, unknown>)) {
     const v = value as Record<string, unknown> | null;
@@ -167,20 +176,36 @@ export function parseGateRecord(raw: unknown): GateReadableRecord | string {
     if (typeof verdict !== "string") {
       return `pass record ${runId} has a verdict-less entry for ${id}`;
     }
+    // The vocabulary is replay's own, imported as a VALUE rather than cast to
+    // its type: `verdict as Verdict` made every string a legal verdict, so a
+    // typo'd or renamed value sailed through as neither pass nor fail.
+    if (!(VERDICTS as readonly string[]).includes(verdict)) {
+      return `pass record ${runId} has an unknown verdict for ${id}: ${JSON.stringify(verdict)} is not one of ${VERDICTS.join(", ")}`;
+    }
     out[id] = { verdict: verdict as Verdict };
   }
   const numeric: Record<string, number> = {};
   for (const [k, v] of Object.entries(counts as Record<string, unknown>)) {
     if (typeof v === "number") numeric[k] = v;
   }
+  if (typeof numeric["fail"] !== "number") {
+    return `pass record ${runId} carries no numeric counts.fail: an absent failure count is not zero failures`;
+  }
   return {
     runId,
     readOnlyProof: r["readOnlyProof"] === true,
     totalityOk: r["totalityOk"] === true,
-    sample: r["sample"] === true,
+    sample,
     counts: numeric,
     verdicts: out,
   };
+}
+
+/** What a refusal may say about a value it rejected: its shape, never a secret. */
+function describe(v: unknown): string {
+  if (v === undefined) return "absent";
+  if (v === null) return "null";
+  return typeof v;
 }
 
 /**
@@ -204,20 +229,62 @@ export function parallelGateOpen(
   if (!record.totalityOk) {
     reasons.push("totalityOk is false: the scorecard does not cover the baselines");
   }
-  const fails = record.counts["fail"] ?? 0;
-  if (fails !== 0) {
+
+  // ── THE THREE FIELDS THAT USED TO FAIL OPEN (review blocker 1) ────────────
+  //
+  // This predicate is re-checked here rather than trusted from `parseGateRecord`
+  // because it is the thing a cutover switch calls, and a caller can hand it a
+  // record it built itself. Each of these was previously a coercion:
+  // `sample: r["sample"] === true` (absent read as a full re-run), `counts.fail
+  // ?? 0` (absent read as zero failures), and `verdict as Verdict` (any string
+  // read as a legal verdict). Every one of them opened the gate on missing
+  // evidence, which is the opposite of what a gate is for.
+  const sample: unknown = record.sample;
+  if (typeof sample !== "boolean") {
+    reasons.push(
+      `sample is ${describe(sample)}, not a boolean: an absent sample flag is not a full re-run`,
+    );
+  }
+  const fails: unknown = record.counts["fail"];
+  if (typeof fails !== "number" || !Number.isFinite(fails)) {
+    reasons.push(
+      `counts.fail is ${describe(fails)}, not a number: an absent failure count is not zero failures`,
+    );
+  } else if (fails !== 0) {
     reasons.push(`counts.fail is ${fails}: only a run with zero failures opens this gate`);
   }
 
   const strayNotExercised: string[] = [];
   const strayRater: string[] = [];
+  const unknownVerdicts: string[] = [];
+  let failVerdicts = 0;
   for (const [id, entry] of Object.entries(record.verdicts)) {
-    if (entry.verdict === "not-exercised" && !KNOWN_NOT_EXERCISED.includes(id)) {
+    const verdict: unknown = entry?.verdict;
+    if (typeof verdict !== "string" || !(VERDICTS as readonly string[]).includes(verdict)) {
+      unknownVerdicts.push(`${id}=${describe(verdict)}`);
+      continue;
+    }
+    if (verdict === "fail") failVerdicts += 1;
+    if (verdict === "not-exercised" && !KNOWN_NOT_EXERCISED.includes(id)) {
       strayNotExercised.push(id);
     }
-    if (entry.verdict === "needs-rater" && !RATER_DEFERRED.includes(id)) {
+    if (verdict === "needs-rater" && !RATER_DEFERRED.includes(id)) {
       strayRater.push(id);
     }
+  }
+  if (unknownVerdicts.length > 0) {
+    reasons.push(
+      `verdicts outside the replay vocabulary (${VERDICTS.join(", ")}): ${unknownVerdicts.sort().join(", ")}`,
+    );
+  }
+  // THE COUNTS AND THE ROWS MUST AGREE. `counts` is a summary the report writes
+  // beside the rows it summarizes; a record whose header says zero failures
+  // over a body that holds one is not a record this gate can read at all —
+  // and which half is wrong is not for the gate to decide.
+  if (typeof fails === "number" && Number.isFinite(fails) && fails !== failVerdicts) {
+    reasons.push(
+      `counts.fail is ${fails} but ${failVerdicts} per-metric verdict(s) read "fail": the summary and the rows disagree`,
+    );
   }
   if (strayNotExercised.length > 0) {
     reasons.push(
