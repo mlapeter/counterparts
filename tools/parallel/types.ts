@@ -131,15 +131,48 @@ export interface CrossEncodingDirection {
   readonly excludedMigrated: number;
   /** Lines scanned on the receiving side. */
   readonly scanned: number;
+  /**
+   * Probe lines dropped for being shorter than the committed floor. `---` and
+   * `## Notes` address identically in every store; offered as probes they hit
+   * everything and mean nothing (review blocker 7a).
+   */
+  readonly probesRejectedShort: number;
+  /** The same floor applied to the receiving corpus. */
+  readonly corpusRejectedShort: number;
+  /**
+   * Lines whose own date could not be read, and which were therefore INCLUDED
+   * rather than dropped: for a red-line, failing toward detection is right, and
+   * the count is here so the number can be read knowing it.
+   */
+  readonly undatedScanned: number;
 }
 
 export interface CrossEncodingMeter {
+  /** Which phase's rule was applied. The rules differ; §9 OQ4 sets both. */
+  readonly phase: RunPhase;
   readonly bar: number;
+  /** The committed probe floor this reading used (`bars.json`). */
+  readonly minLineChars: number;
+  /** Phase P's red-line share of v1's daily mints (`bars.json`, 0.10). */
+  readonly ratioBar: number;
   readonly v1IntoV2: CrossEncodingDirection;
   readonly v2IntoV1: CrossEncodingDirection;
   readonly total: number;
-  /** Above the bar. CONTRACT §5 G7 + G10: a red-line halts the day count. */
+  /**
+   * CONTRACT §5 G7 + G10: a red-line halts the day count. Phase S: ANY hit.
+   * Phase P: only above `ratioBar` of v1's mints that day (§9 OQ4, RULED
+   * 2026-09-03) — v1 keeps v2's injected text by design, so a small count there
+   * is the accepted cost, not a breach.
+   */
   readonly redLine: boolean;
+  /** Phase P, at or below the ratio: a NAMED FINDING, reported, not a halt. */
+  readonly namedFinding: boolean;
+  /** v1 lines carrying a verbatim v2 line ÷ v1's mints that day. Null if unread. */
+  readonly ratio: number | null;
+  /** v1's mints on this day — the ratio's denominator, shown with it always. */
+  readonly ratioDenominator: number | null;
+  /** Which rule was applied and against what. Prose, so the number is legible. */
+  readonly ratioNote: string;
   /**
    * §5 G7's named blind spot, carried beside the number so it can never be read
    * without it: the exposure denominator this meter does NOT cover. NULL when
@@ -401,5 +434,22 @@ export interface Bars {
   /** K — the active-day conversational-turn floor, committed before Phase S. */
   readonly activeDayTurnFloor: number;
   readonly crossEncodingBar: number;
+  /**
+   * The cross-encoding meter's PROBE FLOOR, in characters. Committed like every
+   * other bar and required like every other bar: without it `---` and `## Notes`
+   * are probes, and the meter manufactures hits out of markdown punctuation.
+   * There is no default — a floor chosen after seeing the data is not a bar.
+   */
+  readonly crossEncodingMinLineChars: number;
+  /**
+   * Phase P's red-line share of v1's daily mints (§9 OQ4, RULED 2026-09-03:
+   * 0.10). Phase S's bar is zero hits and does not use this.
+   */
+  readonly crossEncodingRatioBar: number;
   readonly committedAt: string;
+  /**
+   * Precondition 1's drop-dead, as a DATE the preflight can compare rather than
+   * a sentence in a document (§5 P1: "drop-dead 2026-09-08").
+   */
+  readonly preconditionDropDead: string;
 }

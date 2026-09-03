@@ -167,6 +167,21 @@ function buildStore(dataDir: string, build: (s: Store) => void): void {
  */
 const NO_STORES: LiveStores = { v1Dir: "", v2DataDir: "", engramDir: "", abDir: "" };
 
+/**
+ * The committed bars, in the shape `bars.json` must carry. Every field is
+ * required — there is no default anywhere in the tool, which is the point:
+ * `activeDayTurnFloor: 0` would let every lived day clear the floor, and a
+ * probe floor chosen after seeing the data is not a bar (§5 G7, G15).
+ */
+const BARS = (activeDayTurnFloor = 3) => ({
+  activeDayTurnFloor,
+  crossEncodingBar: 0,
+  crossEncodingMinLineChars: 12,
+  crossEncodingRatioBar: 0.1,
+  committedAt: "2026-09-03",
+  preconditionDropDead: "2026-09-08",
+});
+
 const STORES = (f: {
   v1Dir: string;
   v2Dir: string;
@@ -1073,40 +1088,55 @@ describe("the schemaBytes reading, reproduced read-only", () => {
 
 describe("the cross-encoding meter", () => {
   const RITUAL = "Before this session closes, what did you learn that is worth keeping?";
+  const DAY = "2026-09-04";
+  const AT = Date.parse(`${DAY}T09:00:00.000Z`);
 
-  function v2WithSpan(text: string): string {
+  /** The committed bars every reading is taken against. No defaults anywhere. */
+  const METER = {
+    date: DAY,
+    phase: "S" as const,
+    bar: 0,
+    minLineChars: 12,
+    ratioBar: 0.1,
+  };
+
+  function v2WithSpan(text: string, at = AT): string {
     const data = dir("v2");
     const spanFile = join(data, "spans", "scopekey", "buffer.jsonl");
     mkdirSync(dirname(spanFile), { recursive: true });
-    writeFileSync(spanFile, `${JSON.stringify({ hash: "h", session: "s", scope: "p", kind: "conversation", text, at: 0, day: 0, from: 0, to: 1 })}\n`, "utf8");
+    writeFileSync(
+      spanFile,
+      `${JSON.stringify({ hash: "h", session: "s", scope: "p", kind: "conversation", text, at, day: 0, from: 0, to: 1 })}\n`,
+      "utf8",
+    );
     return data;
   }
 
   test("a VERBATIM injected line found in v2's captured spans is a hit", () => {
     const data = v2WithSpan(`Some ordinary turn.\n${RITUAL}\nAnd more.`);
     const meter = crossEncoding({
+      ...METER,
       v2DataDir: data,
       v1Dir: dir("v1"),
-      bar: 0,
       v1Ritual: [RITUAL],
     });
     expect(meter.v1IntoV2.hits).toBe(1);
-    expect(meter.v1IntoV2.hitAddresses).toEqual([...addressLines(RITUAL)]);
+    expect(meter.v1IntoV2.hitAddresses).toEqual([...addressLines(RITUAL).addresses]);
     expect(meter.redLine).toBe(true);
   });
 
   test("below the bar it is a finding, above it a RED-LINE", () => {
     const data = v2WithSpan(RITUAL);
-    expect(crossEncoding({ v2DataDir: data, v1Dir: dir("v1"), bar: 1, v1Ritual: [RITUAL] }).redLine).toBe(false);
-    expect(crossEncoding({ v2DataDir: data, v1Dir: dir("v1"), bar: 0, v1Ritual: [RITUAL] }).redLine).toBe(true);
+    expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), bar: 1, v1Ritual: [RITUAL] }).redLine).toBe(false);
+    expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] }).redLine).toBe(true);
   });
 
   test("a MIGRATED row is excluded by construction — the migration is not contamination", () => {
     const data = dir("v2");
     buildStore(data, (s) => {
-      s.put({ type: "memory", kind: "fact", body: RITUAL, source: "migrated" });
+      s.put({ type: "memory", kind: "fact", body: RITUAL, source: "migrated", learnedOn: DAY });
     });
-    const meter = crossEncoding({ v2DataDir: data, v1Dir: dir("v1"), bar: 0, v1Ritual: [RITUAL] });
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] });
     expect(meter.v1IntoV2.hits).toBe(0);
     expect(meter.v1IntoV2.excludedMigrated).toBe(1);
     expect(meter.redLine).toBe(false);
@@ -1115,20 +1145,20 @@ describe("the cross-encoding meter", () => {
   test("the SAME line in a non-migrated row IS a hit — the exclusion is by row, not by text", () => {
     const data = dir("v2");
     buildStore(data, (s) => {
-      s.put({ type: "memory", kind: "fact", body: RITUAL, source: "authored" });
+      s.put({ type: "memory", kind: "fact", body: RITUAL, source: "authored", learnedOn: DAY });
     });
-    const meter = crossEncoding({ v2DataDir: data, v1Dir: dir("v1"), bar: 0, v1Ritual: [RITUAL] });
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] });
     expect(meter.v1IntoV2.hits).toBe(1);
     expect(meter.v1IntoV2.excludedMigrated).toBe(0);
   });
 
   test("the v2→v1 direction reads v1's buffer the same way", () => {
     const v1 = dir("v1");
-    const buffer = join(v1, "buffer-archive", "2026-09-04", "scope.1.jsonl");
+    const buffer = join(v1, "buffer-archive", DAY, "scope.1.jsonl");
     mkdirSync(dirname(buffer), { recursive: true });
     const V2_ASK = "Write what you learned, in your own words, while you still have the pen.";
     writeFileSync(buffer, `${JSON.stringify({ ts: "2026-09-04T09:00:00Z", sessionId: "s", spanText: V2_ASK, project: "p" })}\n`, "utf8");
-    const meter = crossEncoding({ v2DataDir: dir("v2"), v1Dir: v1, bar: 0, v2Ritual: [V2_ASK] });
+    const meter = crossEncoding({ ...METER, v2DataDir: dir("v2"), v1Dir: v1, v2Ritual: [V2_ASK] });
     expect(meter.v2IntoV1.hits).toBe(1);
     expect(meter.total).toBe(1);
   });
@@ -1137,25 +1167,169 @@ describe("the cross-encoding meter", () => {
     const wake = at("wake", "v1-wake-2026-09-04.txt");
     writeFileSync(wake, `\n\n${RITUAL}\n   \n`, "utf8");
     const data = v2WithSpan(RITUAL);
-    const meter = crossEncoding({ v2DataDir: data, v1Dir: dir("v1"), bar: 0, v1WakeFile: wake });
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1WakeFile: wake });
     expect(meter.v1IntoV2.probes).toBe(1);
     expect(meter.v1IntoV2.hits).toBe(1);
   });
 
   test("no probe offered reads UNMEASURED, never a clean 0/0", () => {
-    const meter = crossEncoding({ v2DataDir: dir("v2"), v1Dir: dir("v1"), bar: 0 });
+    const meter = crossEncoding({ ...METER, v2DataDir: dir("v2"), v1Dir: dir("v1") });
     expect(meter.v1IntoV2.measured).toBe(false);
     expect(meter.v2IntoV1.measured).toBe(false);
     expect(meter.v1IntoV2.probes).toBe(0);
     // One probe, no hit, is a real measurement of zero — a different fact.
-    const measured = crossEncoding({ v2DataDir: dir("v2"), v1Dir: dir("v1"), bar: 0, v1Ritual: [RITUAL] });
+    const measured = crossEncoding({ ...METER, v2DataDir: dir("v2"), v1Dir: dir("v1"), v1Ritual: [RITUAL] });
     expect(measured.v1IntoV2.measured).toBe(true);
     expect(measured.v1IntoV2.hits).toBe(0);
   });
 
+  // ── review blocker 7a: the probe floor, committed ────────────────────────
+  test("SHORT structural lines are not probes — `---` and `## Notes` are rejected", () => {
+    const data = v2WithSpan(`---\n## Notes\nYes.\n${RITUAL}`);
+    const meter = crossEncoding({
+      ...METER,
+      v2DataDir: data,
+      v1Dir: dir("v1"),
+      v1Ritual: [`---\n## Notes\nYes.\n${RITUAL}`],
+    });
+    // Only the ritual line survives the floor. Without one, `---` addresses
+    // identically in every store and every day reads as a verbatim hit.
+    expect(meter.v1IntoV2.probes).toBe(1);
+    expect(meter.v1IntoV2.probesRejectedShort).toBe(2);
+    expect(meter.v1IntoV2.hits).toBe(1);
+    expect(meter.minLineChars).toBe(12);
+  });
+
+  test("a frontmatter RULE inside a body is structure, never a probe", () => {
+    // `---` is dropped before the floor is even applied, so raising the floor
+    // is not what saves it — it is not text.
+    const zeroFloor = crossEncoding({
+      ...METER,
+      minLineChars: 1,
+      v2DataDir: v2WithSpan("---"),
+      v1Dir: dir("v1"),
+      v1Ritual: ["---"],
+    });
+    expect(zeroFloor.v1IntoV2.probes).toBe(0);
+    expect(zeroFloor.v1IntoV2.hits).toBe(0);
+    expect(zeroFloor.redLine).toBe(false);
+  });
+
+  // ── review blocker 7b: the corpus is THE DAY, not the whole store ────────
+  test("a span from ANOTHER day is not in this day's corpus", () => {
+    const yesterday = Date.parse("2026-09-03T09:00:00.000Z");
+    const data = v2WithSpan(RITUAL, yesterday);
+    const meter = crossEncoding({
+      ...METER,
+      v2DataDir: data,
+      v1Dir: dir("v1"),
+      v1Ritual: [RITUAL],
+    });
+    // Scanning the whole store made one legitimate hit re-fire every day for
+    // the rest of the run, and the number said nothing about the day it was
+    // printed beside.
+    expect(meter.v1IntoV2.hits).toBe(0);
+    // The same span ON the day is a hit, so the filter is not simply blind.
+    expect(
+      crossEncoding({
+        ...METER,
+        v2DataDir: v2WithSpan(RITUAL, AT),
+        v1Dir: dir("v1"),
+        v1Ritual: [RITUAL],
+      }).v1IntoV2.hits,
+    ).toBe(1);
+  });
+
+  test("prose is scoped by its CREATED date, and v1's buffer by the day's files", () => {
+    const data = dir("v2");
+    buildStore(data, (store) => {
+      store.put({ type: "memory", kind: "fact", body: RITUAL, source: "authored", learnedOn: "2026-08-01" });
+    });
+    expect(
+      crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] }).v1IntoV2.hits,
+    ).toBe(0);
+
+    const v1 = dir("v1");
+    const V2_ASK = "Write what you learned, in your own words, while you have the pen.";
+    for (const day of ["2026-09-03", DAY]) {
+      const buffer = join(v1, "buffer-archive", day, "scope.1.jsonl");
+      mkdirSync(dirname(buffer), { recursive: true });
+      writeFileSync(
+        buffer,
+        `${JSON.stringify({ ts: `${day}T09:00:00Z`, sessionId: "s", spanText: V2_ASK })}\n`,
+        "utf8",
+      );
+    }
+    const meter = crossEncoding({ ...METER, v2DataDir: dir("v2"), v1Dir: v1, v2Ritual: [V2_ASK] });
+    // One hit, not two: yesterday's archive directory names another date.
+    expect(meter.v2IntoV1.hits).toBe(1);
+    expect(meter.v2IntoV1.scanned).toBe(1);
+  });
+
+  // ── review blocker 7c: OQ4's two rules, by phase ─────────────────────────
+  test("PHASE S red-lines on ANY hit — the host's exclusion is what changed", () => {
+    const data = v2WithSpan(RITUAL);
+    const meter = crossEncoding({
+      ...METER,
+      phase: "S",
+      v2DataDir: data,
+      v1Dir: dir("v1"),
+      v1Ritual: [RITUAL],
+      v1CreatedThatDay: 1_000,
+    });
+    expect(meter.redLine).toBe(true);
+    // Even a vast denominator cannot buy it down: Phase S has no ratio.
+    expect(meter.ratioNote).toContain("ZERO hits in either direction");
+  });
+
+  test("PHASE P: a hit is a NAMED FINDING, and a red-line only above the ratio", () => {
+    const v1 = dir("v1");
+    const V2_ASK = "Write what you learned, in your own words, while you have the pen.";
+    const buffer = join(v1, "buffer-archive", DAY, "scope.1.jsonl");
+    mkdirSync(dirname(buffer), { recursive: true });
+    writeFileSync(
+      buffer,
+      `${JSON.stringify({ ts: `${DAY}T09:00:00Z`, sessionId: "s", spanText: V2_ASK })}\n`,
+      "utf8",
+    );
+    const meter = (v1CreatedThatDay: number | null) =>
+      crossEncoding({
+        ...METER,
+        phase: "P",
+        v2DataDir: dir("v2"),
+        v1Dir: v1,
+        v2Ritual: [V2_ASK],
+        v1CreatedThatDay,
+      });
+
+    // 1 hit against 40 v1 mints = 2.5%: v1 keeps v2's injected text BY DESIGN
+    // (§9 OQ4, accept-and-meter), so this is a finding, not a halt.
+    const under = meter(40);
+    expect(under.v2IntoV1.hits).toBe(1);
+    expect(under.redLine).toBe(false);
+    expect(under.namedFinding).toBe(true);
+    expect(under.ratio).toBeCloseTo(0.025, 5);
+    expect(under.ratioDenominator).toBe(40);
+
+    // 1 hit against 5 mints = 20%, above the committed 10% — a red-line.
+    const over = meter(5);
+    expect(over.redLine).toBe(true);
+    expect(over.namedFinding).toBe(false);
+    expect(over.ratio).toBeCloseTo(0.2, 5);
+    expect(over.ratioNote).toContain("red-line above 0.1");
+
+    // No denominator: the rule cannot be evaluated, and the meter says so
+    // rather than dividing by a zero it invented.
+    const none = meter(null);
+    expect(none.ratio).toBeNull();
+    expect(none.redLine).toBe(false);
+    expect(none.namedFinding).toBe(true);
+    expect(none.ratioNote).toContain("NO denominator");
+  });
+
   test("the meter carries addresses, never the line", () => {
     const data = v2WithSpan(RITUAL);
-    const meter = crossEncoding({ v2DataDir: data, v1Dir: dir("v1"), bar: 0, v1Ritual: [RITUAL] });
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] });
     expect(JSON.stringify(meter)).not.toContain("worth keeping");
   });
 });
@@ -1173,13 +1347,16 @@ describe("day classes", () => {
     v2Dir: string;
   }
 
+  /**
+   * v1's ritual text, as the operator supplies it. The daily record REFUSES to
+   * run without a v1 probe (review blocker 7d): without one the v1->v2
+   * direction silently reads zero and the day's isolation is unmetered.
+   */
+  const V1_RITUAL = "What did you learn in this session that is worth keeping?";
+
   function scene(k = 3): Scene {
     const runDir = dir("run");
-    writeJson(join(runDir, "bars.json"), {
-      activeDayTurnFloor: k,
-      crossEncodingBar: 0,
-      committedAt: "2026-09-03",
-    });
+    writeJson(join(runDir, "bars.json"), BARS(k));
     return { runDir, v1Dir: dir("v1"), v2Dir: dir("v2") };
   }
 
@@ -1227,6 +1404,7 @@ describe("day classes", () => {
       v2DataDir: s.v2Dir,
       phase: "P",
       primacy: "v2",
+      v1Ritual: [V1_RITUAL],
       ...over,
     }).record;
   }
@@ -1250,6 +1428,7 @@ describe("day classes", () => {
       date: DATE,
       v1Dir: s.v1Dir,
       v2DataDir: s.v2Dir,
+      v1Ritual: [V1_RITUAL],
       phase: "P",
       primacy: "v2",
     });
@@ -1553,6 +1732,7 @@ describe("day classes", () => {
       date: DATE,
       v1Dir: s.v1Dir,
       v2DataDir: s.v2Dir,
+      v1Ritual: [V1_RITUAL],
       phase: "P",
       primacy: "v2",
     });
@@ -1578,6 +1758,7 @@ describe("day classes", () => {
       date: DATE,
       v1Dir: s.v1Dir,
       v2DataDir: s.v2Dir,
+      v1Ritual: [V1_RITUAL],
       phase: "P",
       primacy: "v2",
       v2ConfigPath: configPath,
@@ -1634,6 +1815,7 @@ describe("day classes", () => {
         date,
         v1Dir: s.v1Dir,
         v2DataDir: s.v2Dir,
+      v1Ritual: [V1_RITUAL],
         phase,
         primacy,
       });
@@ -1675,6 +1857,7 @@ describe("day classes", () => {
       date: DATE,
       v1Dir: s.v1Dir,
       v2DataDir: s.v2Dir,
+      v1Ritual: [V1_RITUAL],
       phase: "P",
       primacy: "v2",
       eventLimit: 1,
@@ -1686,6 +1869,75 @@ describe("day classes", () => {
     // Uncapped, the very same day is active — so the class above is the cap
     // talking, not the fixture.
     expect(classOf(s).class).toBe("active");
+  });
+
+  // ── review blocker 7d: the daily record REFUSES to run unmetered ─────────
+  test("no v1 probe is a NAMED REFUSAL, not a silent zero in the v1→v2 direction", () => {
+    const s = scene(3);
+    v1Muted(s);
+    v2Delivering(s);
+    expect(() =>
+      dailyRecord({
+        runDir: s.runDir,
+        date: DATE,
+        v1Dir: s.v1Dir,
+        v2DataDir: s.v2Dir,
+        phase: "P",
+        primacy: "v2",
+      }),
+    ).toThrow(/NO_V1_CROSS_ENCODING_PROBE/);
+    // A wake file alone is a probe too — either channel satisfies it.
+    const wake = at("wake", "v1-wake.txt");
+    writeFileSync(wake, "The standing bundle, rendered for this session.\n", "utf8");
+    expect(classOf(s, { v1Ritual: [], v1WakeFile: wake }).crossEncoding.v1IntoV2.measured).toBe(true);
+  });
+
+  // ── review should-fix: bars.json is REQUIRED, never defaulted ────────────
+  test("a run directory with NO bars.json refuses to record a day", () => {
+    const runDir = dir("run-no-bars");
+    expect(() =>
+      dailyRecord({
+        runDir,
+        date: DATE,
+        v1Dir: dir("v1"),
+        v2DataDir: dir("v2"),
+        phase: "S",
+        primacy: "v1",
+        v1Ritual: [V1_RITUAL],
+      }),
+    ).toThrow(/BARS_NOT_COMMITTED/);
+    // `activeDayTurnFloor: 0` was the fabricated default, under which EVERY
+    // lived day clears the floor and the active-day count means nothing.
+    writeJson(join(runDir, "bars.json"), { ...BARS(3), crossEncodingMinLineChars: undefined });
+    expect(() =>
+      dailyRecord({
+        runDir,
+        date: DATE,
+        v1Dir: dir("v1"),
+        v2DataDir: dir("v2"),
+        phase: "S",
+        primacy: "v1",
+        v1Ritual: [V1_RITUAL],
+      }),
+    ).toThrow(/BARS_NOT_COMMITTED/);
+  });
+
+  // ── review should-fix: the operator's --primacy against the FILE ─────────
+  test("a --primacy that disagrees with the assignment file is FATAL", () => {
+    const s = scene(3);
+    v1Muted(s);
+    v2Delivering(s);
+    // The file is what both resolvers read at every hook. Recording a day
+    // stamped with the operator's belief instead would misattribute every
+    // contamination verdict on it (§5 G3).
+    expect(() => classOf(s, { assignmentOverride: "bansai" })).toThrow(
+      /PRIMACY_DISAGREES_WITH_ASSIGNMENT/,
+    );
+    expect(() => classOf(s, { assignmentOverride: "none" })).toThrow(
+      /PRIMACY_DISAGREES_WITH_ASSIGNMENT/,
+    );
+    // Agreement records normally.
+    expect(classOf(s, { assignmentOverride: "engram" }).primacy).toBe("v2");
   });
 
   test("the tally is created-versus-exited, per kind, per system, with its caveat named", () => {
@@ -1758,11 +2010,7 @@ function fixture(): Fixture {
     models: { interpret: { id: "claude-opus-5" }, embed: { id: "voyage-3-large" } },
   });
 
-  writeJson(join(runDir, "bars.json"), {
-    activeDayTurnFloor: 3,
-    crossEncodingBar: 0,
-    committedAt: "2026-09-03",
-  });
+  writeJson(join(runDir, "bars.json"), BARS(3));
   writeJson(join(runDir, "pricing.json"), {
     approvedBy: "owner",
     approvedAt: "2026-09-03",
@@ -2201,6 +2449,7 @@ describe("guarantee 1 — nothing but the run directory", () => {
       v2ConfigPath: f.configPath,
       phase: "P",
       primacy: "v2",
+      v1Ritual: ["What did you learn in this session that is worth keeping?"],
     });
     for (const [rel, value] of Object.entries(artifacts.json)) run.writeJson(rel, value);
     for (const [rel, text] of Object.entries(artifacts.files)) run.writeText(rel, text);

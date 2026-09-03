@@ -338,18 +338,31 @@ export function readBars(runDir: string): Bars | null {
   // DATED means dated: §5 G15 commits the bars "in the run directory, dated",
   // and `committedAt: "yes"` would satisfy a non-empty check while proving
   // nothing about when the commitment was made.
+  // EVERY BAR IS REQUIRED, and none of them has a default anywhere in this tool.
+  // `crossEncodingMinLineChars` in particular: a probe floor chosen after seeing
+  // the data is not a committed bar, and without one the meter addresses `---`.
+  // `preconditionDropDead` is §5 P1's date, machine-readable rather than prose.
+  const dropDead = r["preconditionDropDead"];
   if (
     typeof r["activeDayTurnFloor"] !== "number" ||
     typeof r["crossEncodingBar"] !== "number" ||
+    typeof r["crossEncodingMinLineChars"] !== "number" ||
+    r["crossEncodingMinLineChars"] < 1 ||
+    typeof r["crossEncodingRatioBar"] !== "number" ||
     typeof r["committedAt"] !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}/.test(r["committedAt"])
+    !/^\d{4}-\d{2}-\d{2}/.test(r["committedAt"]) ||
+    typeof dropDead !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(dropDead)
   ) {
     return null;
   }
   return {
     activeDayTurnFloor: r["activeDayTurnFloor"],
     crossEncodingBar: r["crossEncodingBar"],
+    crossEncodingMinLineChars: r["crossEncodingMinLineChars"],
+    crossEncodingRatioBar: r["crossEncodingRatioBar"],
     committedAt: r["committedAt"],
+    preconditionDropDead: dropDead,
   };
 }
 
@@ -359,14 +372,25 @@ function barsRow(opts: PreflightOptions): CheckRow {
     return row(
       "bars.committed",
       "fail",
-      `bars.json must exist in the run directory with activeDayTurnFloor (K), crossEncodingBar and a dated committedAt: ${join(opts.runDir, "bars.json")}`,
+      "bars.json must exist in the run directory with activeDayTurnFloor (K), " +
+        "crossEncodingBar, crossEncodingMinLineChars (>=1), crossEncodingRatioBar, " +
+        `a dated committedAt and a dated preconditionDropDead: ${join(opts.runDir, "bars.json")}`,
     );
   }
-  return row(
-    "bars.committed",
-    "pass",
-    `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} · committed ${bars.committedAt}`,
-  );
+  const late = opts.today > bars.preconditionDropDead;
+  const detail =
+    `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} · ` +
+    `probe floor ${bars.crossEncodingMinLineChars} chars · Phase-P ratio bar ${bars.crossEncodingRatioBar} · ` +
+    `committed ${bars.committedAt} · precondition drop-dead ${bars.preconditionDropDead}`;
+  // §5 P1's drop-dead is a DATE the preflight compares, not a sentence someone
+  // remembers: past it, the run does not start and v1 flips as-is (§9 OQ5).
+  return late
+    ? row(
+        "bars.committed",
+        "fail",
+        `the precondition drop-dead ${bars.preconditionDropDead} has passed (today ${opts.today}): §5 P1 / §9 OQ5 say the run does not start and v1 flips as-is — ${detail}`,
+      )
+    : row("bars.committed", "pass", detail);
 }
 
 /** Precondition 5's second reading: `schemaBytes` on the store, read-only. */

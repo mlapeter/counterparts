@@ -26,10 +26,11 @@ import {
   V1_CREATED_EVENT,
   V1_DETECTOR_TYPES,
   V1_EXITED_EVENT,
+  dateOf,
   fileHash,
   filesUnder,
   jsonlFiles,
-  migratedProse,
+  proseRows,
   readV1Day,
   readV1Lines,
   readV2Day,
@@ -64,23 +65,57 @@ import type {
  * shape. Empty and whitespace-only lines are dropped — they would match
  * everything.
  */
-export function addressLines(text: string): Set<string> {
-  const out = new Set<string>();
+export function addressLines(text: string, minChars = 0): {
+  addresses: Set<string>;
+  rejectedShort: number;
+} {
+  const addresses = new Set<string>();
+  let rejectedShort = 0;
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
-    out.add(contentAddress(trimmed));
+    // A MARKDOWN RULE IS NOT A PROBE. `---` is both the frontmatter fence and
+    // an ordinary horizontal rule inside a body, so it addresses identically in
+    // every prose file in the store: offered as a probe it hits everything, and
+    // sitting in the corpus it makes every `---` probe hit. It is dropped on
+    // both sides, before the floor, because it is structure rather than text.
+    if (/^-{3,}$/.test(trimmed) || /^\*{3,}$/.test(trimmed) || /^_{3,}$/.test(trimmed)) continue;
+    // THE COMMITTED FLOOR. Without one, `## Notes`, `Yes.` and `---` are
+    // probes: short, structural lines that recur in every store by coincidence
+    // and manufacture verbatim "hits" that mean nothing. The floor is a
+    // pre-committed number in `bars.json`, dated like every other bar (§5 G15),
+    // never a default this file chooses after seeing the data.
+    if (trimmed.length < minChars) {
+      rejectedShort += 1;
+      continue;
+    }
+    addresses.add(contentAddress(trimmed));
   }
-  return out;
+  return { addresses, rejectedShort };
 }
 
-/** Every non-empty line of every file, addressed. Read-only, never throws. */
-function addressFiles(files: readonly string[], extract: (raw: string) => string[]): {
+interface Corpus {
   addresses: Set<string>;
   scanned: number;
-} {
-  const addresses = new Set<string>();
-  let scanned = 0;
+  rejectedShort: number;
+  /** Lines whose own date could not be read. Included, and SAID (see below). */
+  undated: number;
+}
+
+const EMPTY_CORPUS = (): Corpus => ({
+  addresses: new Set<string>(),
+  scanned: 0,
+  rejectedShort: 0,
+  undated: 0,
+});
+
+/** Every qualifying line of every file, addressed. Read-only, never throws. */
+function addressFiles(
+  files: readonly string[],
+  extract: (raw: string) => { texts: string[]; undated: number },
+  minChars: number,
+): Corpus {
+  const out = EMPTY_CORPUS();
   for (const file of files) {
     let raw: string;
     try {
@@ -88,32 +123,67 @@ function addressFiles(files: readonly string[], extract: (raw: string) => string
     } catch {
       continue;
     }
-    for (const text of extract(raw)) {
-      for (const address of addressLines(text)) {
-        addresses.add(address);
-        scanned += 1;
+    const got = extract(raw);
+    out.undated += got.undated;
+    for (const text of got.texts) {
+      const { addresses, rejectedShort } = addressLines(text, minChars);
+      out.rejectedShort += rejectedShort;
+      for (const address of addresses) {
+        out.addresses.add(address);
+        out.scanned += 1;
       }
     }
   }
-  return { addresses, scanned };
+  return out;
 }
 
-/** A `.jsonl` of v2 spans: every `text` field. Nothing else leaves the file. */
-function spanTexts(raw: string): string[] {
-  const out: string[] = [];
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    try {
-      const o = JSON.parse(trimmed) as Record<string, unknown>;
-      // v2's own span shape, then v1's (`spanText`) — one reader, both sides.
-      const text = o["text"] ?? o["spanText"];
-      if (typeof text === "string" && text.length > 0) out.push(text);
-    } catch {
-      continue;
-    }
+/**
+ * THE DAY THIS LINE BELONGS TO, off the line itself.
+ *
+ * v2 spans carry `at` (epoch ms) and `day` (the lived day); v1's buffer lines
+ * carry an ISO `ts`. One reader, both shapes — and `day` is deliberately NOT
+ * used, because it is the lived day, not the calendar day the record is about.
+ */
+function lineDate(o: Record<string, unknown>): string | null {
+  for (const key of ["ts", "timestamp", "at"] as const) {
+    const v = o[key];
+    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+    if (typeof v === "number" && Number.isFinite(v)) return dateOf(v);
   }
-  return out;
+  return null;
+}
+
+/**
+ * A `.jsonl` of spans: the `text` of every line that belongs to THIS DAY.
+ *
+ * The meter used to scan the whole store on every run, so one legitimate hit
+ * kept re-firing for the rest of the run and the number said nothing about the
+ * day it was printed beside. A line whose date cannot be read is INCLUDED and
+ * counted as `undated`: for a red-line, failing toward detection is the right
+ * direction, and the count rides on the record so the number stays legible.
+ */
+function spanTextsFor(date: string): (raw: string) => { texts: string[]; undated: number } {
+  return (raw: string) => {
+    const texts: string[] = [];
+    let undated = 0;
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      try {
+        const o = JSON.parse(trimmed) as Record<string, unknown>;
+        // v2's own span shape, then v1's (`spanText`) — one reader, both sides.
+        const text = o["text"] ?? o["spanText"];
+        if (typeof text !== "string" || text.length === 0) continue;
+        const on = lineDate(o);
+        if (on === null) undated += 1;
+        else if (on !== date) continue;
+        texts.push(text);
+      } catch {
+        continue;
+      }
+    }
+    return { texts, undated };
+  };
 }
 
 const FENCE = "---";
@@ -157,29 +227,42 @@ export interface MeterSide {
  * v1-origin text in v2's store is the migration, not contamination.
  */
 function meterInto(
-  probes: ReadonlySet<string>,
-  corpus: { addresses: Set<string>; scanned: number },
+  probes: { addresses: Set<string>; rejectedShort: number },
+  corpus: Corpus,
   excludedMigrated: number,
 ): CrossEncodingDirection {
   const hitAddresses: string[] = [];
-  for (const probe of probes) {
+  for (const probe of probes.addresses) {
     if (corpus.addresses.has(probe)) hitAddresses.push(probe);
   }
   hitAddresses.sort();
   return {
-    probes: probes.size,
+    probes: probes.addresses.size,
     hits: hitAddresses.length,
-    measured: probes.size > 0,
+    measured: probes.addresses.size > 0,
     hitAddresses,
     excludedMigrated,
     scanned: corpus.scanned,
+    probesRejectedShort: probes.rejectedShort,
+    corpusRejectedShort: corpus.rejectedShort,
+    undatedScanned: corpus.undated,
   };
 }
 
 export interface CrossEncodingInput {
   readonly v2DataDir: string;
   readonly v1Dir: string;
+  /** THE DAY. The corpus is scoped to it on both sides; there is no default. */
+  readonly date: string;
+  /** Which phase's rule applies (OQ4, RULED 2026-09-03). See below. */
+  readonly phase: RunPhase;
   readonly bar: number;
+  /** The committed probe floor: `bars.json#crossEncodingMinLineChars`. */
+  readonly minLineChars: number;
+  /** Phase P's red-line ratio: `bars.json#crossEncodingRatioBar` (0.10). */
+  readonly ratioBar: number;
+  /** v1's mints on THIS day — the Phase-P ratio's denominator. Null if unread. */
+  readonly v1CreatedThatDay?: number | null;
   /** v1's rendered wake for the day, as a file the owner points the tool at. */
   readonly v1WakeFile?: string | null;
   /** v1's ritual prompt strings — the asks that go into a real context. */
@@ -201,45 +284,98 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
       return "";
     }
   };
+  const min = input.minLineChars;
 
-  const v1Probes = new Set<string>();
-  for (const a of addressLines(readText(input.v1WakeFile))) v1Probes.add(a);
-  for (const text of input.v1Ritual ?? []) for (const a of addressLines(text)) v1Probes.add(a);
+  const probesOf = (file: string | null | undefined, texts: readonly string[]) => {
+    const addresses = new Set<string>();
+    let rejectedShort = 0;
+    for (const text of [readText(file), ...texts]) {
+      const got = addressLines(text, min);
+      rejectedShort += got.rejectedShort;
+      for (const a of got.addresses) addresses.add(a);
+    }
+    return { addresses, rejectedShort };
+  };
+  const v1Probes = probesOf(input.v1WakeFile, input.v1Ritual ?? []);
+  const v2Probes = probesOf(input.v2WakeFile, input.v2Ritual ?? []);
 
-  const v2Probes = new Set<string>();
-  for (const a of addressLines(readText(input.v2WakeFile))) v2Probes.add(a);
-  for (const text of input.v2Ritual ?? []) for (const a of addressLines(text)) v2Probes.add(a);
-
-  // ── the v2 side of the corpus: captured spans + non-migrated prose ────────
+  // ── the v2 side of the corpus: THIS DAY's spans + THIS DAY's prose ────────
   const spanFiles = jsonlFiles(join(input.v2DataDir, "spans"));
-  const spanCorpus = addressFiles(spanFiles, spanTexts);
+  const spanCorpus = addressFiles(spanFiles, spanTextsFor(input.date), min);
 
-  const { paths: prosePaths, excludedMigrated } = nonMigratedProse(input.v2DataDir);
-  const proseCorpus = addressFiles(prosePaths, (raw) => [proseBodyOf(raw)]);
-  const v2Corpus = {
+  const { paths: prosePaths, excludedMigrated } = nonMigratedProse(input.v2DataDir, input.date);
+  const proseCorpus = addressFiles(
+    prosePaths,
+    (raw) => ({ texts: [proseBodyOf(raw)], undated: 0 }),
+    min,
+  );
+  const v2Corpus: Corpus = {
     addresses: new Set<string>([...spanCorpus.addresses, ...proseCorpus.addresses]),
     scanned: spanCorpus.scanned + proseCorpus.scanned,
+    rejectedShort: spanCorpus.rejectedShort + proseCorpus.rejectedShort,
+    undated: spanCorpus.undated + proseCorpus.undated,
   };
 
-  // ── the v1 side: its buffer, read the same way ────────────────────────────
+  // ── the v1 side: its buffer, read the same way, scoped to the same day ────
+  // v1 archives its buffer into a per-DATE directory, so the path carries the
+  // day for archived files; live buffer lines carry their own `ts`. Files whose
+  // path names another date are dropped before they are opened.
   const v1Files = [
     ...jsonlFiles(join(input.v1Dir, "buffer")),
     ...jsonlFiles(join(input.v1Dir, "buffer-archive")),
-  ];
-  const v1Corpus = addressFiles(v1Files, spanTexts);
+  ].filter((p) => !hasOtherDate(p, input.date));
+  const v1Corpus = addressFiles(v1Files, spanTextsFor(input.date), min);
 
   const v1IntoV2 = meterInto(v1Probes, v2Corpus, excludedMigrated);
   const v2IntoV1 = meterInto(v2Probes, v1Corpus, 0);
   const total = v1IntoV2.hits + v2IntoV1.hits;
 
+  // ── OQ4's two rules, RULED 2026-09-03 ────────────────────────────────────
+  //
+  // Phase S: ZERO verbatim hits in either direction. The host's transcript
+  // shape carries v1's exclusion, so any hit means the host changed — a
+  // red-line on its own, no ratio involved.
+  //
+  // Phase P: any hit is a NAMED FINDING, and a red-line only above 10% of v1's
+  // daily mints carrying a verbatim v2 line. v1 keeps v2's injected text in its
+  // capture buffer BY DESIGN (§4, §9 OQ4: accept-and-meter), so a nonzero count
+  // in Phase P is expected; what is not expected is that share becoming large.
+  //
+  // `redLine = total > bar` had no phase branch at all, which made Phase P's
+  // ruled 10% allowance unreachable and Phase S's zero bar a coincidence of
+  // whatever `bar` happened to be committed.
+  const phaseS = input.phase !== "P";
+  const denominator = input.v1CreatedThatDay ?? null;
+  const ratio =
+    denominator === null || denominator === 0 ? null : v2IntoV1.hits / denominator;
+  const redLine = phaseS ? total > input.bar : ratio !== null && ratio > input.ratioBar;
+  const namedFinding = !phaseS && total > 0 && !redLine;
+
   return {
+    phase: input.phase,
     bar: input.bar,
+    minLineChars: min,
+    ratioBar: input.ratioBar,
     v1IntoV2,
     v2IntoV1,
     total,
-    redLine: total > input.bar,
+    redLine,
+    namedFinding,
+    ratio,
+    ratioDenominator: denominator,
+    ratioNote: phaseS
+      ? `Phase ${input.phase}: ZERO hits in either direction is the bar (§9 OQ4, RULED 2026-09-03) — the host's transcript shape carries v1's exclusion, so any hit means the host changed`
+      : denominator === null
+        ? "Phase P: the ratio has NO denominator — v1's mints for this day could not be read, so the 10% rule cannot be evaluated and any hit stands as a named finding"
+        : `Phase P: ${v2IntoV1.hits} v1 line(s) carrying a verbatim v2 line against ${denominator} v1 mint(s) that day — red-line above ${input.ratioBar}`,
     exposureDenominator: input.exposureDenominator ?? null,
   };
+}
+
+/** True when a path names a `YYYY-MM-DD` that is NOT the day being metered. */
+function hasOtherDate(path: string, date: string): boolean {
+  const found = path.match(/\d{4}-\d{2}-\d{2}/g);
+  return found !== null && found.length > 0 && !found.includes(date);
 }
 
 /**
@@ -250,20 +386,27 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
  * (PR-2 doctrine, §5 G7). `readers.ts` owns every sqlite handle in this tool;
  * this asks it for the rows rather than opening a second one.
  */
-function nonMigratedProse(dataDir: string): { paths: string[]; excludedMigrated: number } {
-  // REALPATH ON BOTH SIDES. `filesUnder` walks the spelling the caller handed
-  // in; `proseRows` realpaths the spelling the store recorded. On macOS those
-  // differ for anything under `/var`, so a raw-string join silently excluded
-  // NOTHING and every migrated row re-entered the meter as contamination — a
-  // manufactured red-line on the one path §5 G7 excludes by construction.
-  const all = filesUnder(join(dataDir, "prose"), (n) => n.endsWith(".md")).map((p) => ({
-    path: p,
-    realpath: realpathOr(p),
-  }));
-  const migrated = new Set(migratedProse(dataDir));
-  if (migrated.size === 0) return { paths: all.map((f) => f.path), excludedMigrated: 0 };
-  const kept = all.filter((f) => !migrated.has(f.realpath));
-  return { paths: kept.map((f) => f.path), excludedMigrated: all.length - kept.length };
+function nonMigratedProse(
+  dataDir: string,
+  date: string,
+): { paths: string[]; excludedMigrated: number } {
+  // THE DAY'S ROWS, not the whole store. `memories.learned_on` is the created
+  // date, so the corpus is the prose v2 minted ON this day — otherwise one
+  // legitimate hit re-fires every day for the rest of the run.
+  //
+  // REALPATH ON BOTH SIDES. The store records one spelling of a path and a
+  // directory walk produces another (on macOS anything under `/var`), so the
+  // migrated-row exclusion is done on realpaths (scar §2.13).
+  const rows = proseRows(dataDir).rows.filter((r) => r.learnedOn === date);
+  const onDisk = new Set(
+    filesUnder(join(dataDir, "prose"), (n) => n.endsWith(".md")).map((p) => realpathOr(p)),
+  );
+  const present = rows.filter((r) => onDisk.has(r.realpath));
+  const kept = present.filter((r) => r.source !== "migrated");
+  return {
+    paths: kept.map((r) => r.realpath),
+    excludedMigrated: present.length - kept.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +431,12 @@ export interface DailyOptions {
   readonly v1Ritual?: readonly string[];
   readonly v2WakeFile?: string | null;
   readonly v2Ritual?: readonly string[];
+  /**
+   * The assignment file's `override`, read through `primacy.ts`. When given it
+   * is CROSS-CHECKED against `primacy` and a disagreement is fatal — the file
+   * is what both resolvers actually read (§5 G3).
+   */
+  readonly assignmentOverride?: string | null;
   /** The store's lived day for this date, when the caller knows it. */
   readonly livedDay?: number;
   /** The event read's row cap. A day that hits it cannot be classified. */
@@ -303,11 +452,6 @@ export interface DailyArtifacts {
   readonly json: Readonly<Record<string, unknown>>;
 }
 
-const DEFAULT_BARS: Bars = {
-  activeDayTurnFloor: 0,
-  crossEncodingBar: 0,
-  committedAt: "",
-};
 
 export class RecordError extends Error {
   readonly code: string;
@@ -363,7 +507,53 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const prior = readRunRecord(opts.runDir);
   const phase = opts.phase ?? prior?.phase ?? "S";
   const primacy: Primacy = opts.primacy ?? prior?.primacy ?? (phase === "P" ? "v2" : "v1");
-  const bars = opts.bars ?? readBars(opts.runDir) ?? DEFAULT_BARS;
+
+  // BARS ARE REQUIRED, never defaulted. `DEFAULT_BARS` fabricated
+  // `activeDayTurnFloor: 0`, under which EVERY lived day clears the floor and
+  // the active-day count — the run's central number — is meaningless. §5 G15
+  // commits the bars in the run directory, dated, before Phase S day 1; the
+  // instrument's job is to refuse to run without them, not to invent them.
+  const bars = opts.bars ?? readBars(opts.runDir);
+  if (bars === null) {
+    throw new RecordError("BARS_NOT_COMMITTED", {
+      runDir: opts.runDir,
+      remedy:
+        "write bars.json with activeDayTurnFloor, crossEncodingBar, crossEncodingMinLineChars, crossEncodingRatioBar, committedAt and preconditionDropDead before the first day (§5 G7, G15)",
+    });
+  }
+
+  // THE CROSS-ENCODING METER NEEDS A v1 PROBE, and reads 0 without one.
+  // `UNMEASURED` on the direction was not enough: the daily record is the run's
+  // evidence, and a day recorded with the v1→v2 direction never asked is a day
+  // whose isolation was never metered at all (§5 G7: metered CONTINUOUSLY).
+  const v1Ritual = (opts.v1Ritual ?? []).filter((t) => t.trim().length > 0);
+  const hasV1Probe = v1Ritual.length > 0 || (opts.v1WakeFile ?? "").length > 0;
+  if (!hasV1Probe) {
+    throw new RecordError("NO_V1_CROSS_ENCODING_PROBE", {
+      date: opts.date,
+      remedy:
+        "pass --v1-wake <file> and/or --v1-ritual <file>. Without one the v1->v2 direction reads zero and the day's isolation is unmetered (§5 G7)",
+    });
+  }
+
+  // THE OPERATOR'S `--primacy` AGAINST THE FILE THAT ACTUALLY DECIDES. v1 and
+  // v2 both resolve primacy from the assignment file's `override` at every
+  // hook; a record stamped with the operator's belief instead would misattribute
+  // every contamination verdict on the day (§5 G3). Disagreement is fatal.
+  const declared = opts.assignmentOverride ?? null;
+  if (declared !== null) {
+    const fromFile: Primacy | null =
+      declared === "engram" ? "v2" : declared === "bansai" ? "v1" : null;
+    if (fromFile === null || fromFile !== primacy) {
+      throw new RecordError("PRIMACY_DISAGREES_WITH_ASSIGNMENT", {
+        declared: primacy,
+        assignmentOverride: declared,
+        resolved: fromFile ?? "neither bansai nor engram",
+        remedy:
+          "the assignment file is what both resolvers read; fix the file or the flag, never record past the disagreement (§5 G3)",
+      });
+    }
+  }
 
   const v1 = readV1Day(opts.v1Dir, opts.date);
   const v2 = readV2Day(opts.v2DataDir, opts.date, {
@@ -525,9 +715,16 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const meter = crossEncoding({
     v2DataDir: opts.v2DataDir,
     v1Dir: opts.v1Dir,
+    date: opts.date,
+    phase,
     bar: bars.crossEncodingBar,
+    minLineChars: bars.crossEncodingMinLineChars,
+    ratioBar: bars.crossEncodingRatioBar,
+    // Phase P's denominator: v1's mints on THIS day, from v1's own log. Null
+    // when the log is absent, and the meter then says the ratio has none.
+    v1CreatedThatDay: tallyV1.attributable ? tallyV1.created : null,
     v1WakeFile: opts.v1WakeFile ?? null,
-    v1Ritual: opts.v1Ritual ?? [],
+    v1Ritual,
     v2WakeFile: opts.v2WakeFile ?? null,
     v2Ritual: opts.v2Ritual ?? [],
     // §5 G7's named blind spot: the semantic path this meter cannot see is

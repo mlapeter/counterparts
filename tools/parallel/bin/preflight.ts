@@ -74,7 +74,8 @@ function parseArgs(argv: readonly string[]): Args {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === undefined) break;
-    if (!flag.startsWith("--") || value === undefined) usage();
+    // A value that begins with `--` is a MISSING value, not a path.
+    if (!flag.startsWith("--") || value === undefined || value.startsWith("--")) usage();
     i += 1;
     switch (flag) {
       case "--run-dir":

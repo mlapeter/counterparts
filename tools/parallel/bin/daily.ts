@@ -11,7 +11,13 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { AUTHORSHIP_ASK } from "../../../src/adapters/claude-code/index.js";
+// THE LEAF MODULE, not the barrel. `adapters/claude-code/index.js` re-exports
+// `Counterpart` and `Store`, so importing the ask through it pulled both
+// systems-under-test into the instrument's process — the independent-scorer
+// rule's whole point ([v1] §17.2, replay G5). `hooks.js` is where the constant
+// lives; nothing else comes with it.
+import { AUTHORSHIP_ASK } from "../../../src/adapters/claude-code/hooks.js";
+import { primacyFromAssignment } from "../assignment.js";
 import { dailyRecord } from "../record.js";
 import type { Primacy, RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
@@ -87,7 +93,10 @@ function parseArgs(argv: readonly string[]): Args {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === undefined) break;
-    if (!flag.startsWith("--") || value === undefined) usage();
+    // A VALUE THAT STARTS WITH `--` IS A MISSING VALUE. `--date --v1-dir /x`
+    // otherwise silently recorded a day literally named `--v1-dir`, and every
+    // path flag would swallow the next flag as its argument.
+    if (!flag.startsWith("--") || value === undefined || value.startsWith("--")) usage();
     i += 1;
     switch (flag) {
       case "--run-dir":
@@ -138,8 +147,11 @@ function parseArgs(argv: readonly string[]): Args {
         args.vectors = value;
         break;
       case "--lived-day": {
+        // `parseInt("3abc")` is 3 and `Number.isFinite` is happy with it, so the
+        // guard is on the SPELLING, not on the parse.
+        if (!/^\d+$/.test(value)) usage();
         const n = Number.parseInt(value, 10);
-        if (!Number.isFinite(n)) usage();
+        if (!Number.isSafeInteger(n)) usage();
         args.livedDay = n;
         break;
       }
@@ -187,6 +199,11 @@ function main(argv: readonly string[]): number {
     ...(args.seat === null ? {} : { seat: args.seat }),
     ...(args.vectors === null ? {} : { vectors: args.vectors }),
     ...(args.livedDay === null ? {} : { livedDay: args.livedDay }),
+    // The assignment file is what both resolvers actually read; when the
+    // operator points at one, `--primacy` is checked against it (§5 G3).
+    ...(args.assignment === null
+      ? {}
+      : { assignmentOverride: primacyFromAssignment(args.assignment) }),
     v1WakeFile: args.v1Wake,
     v2WakeFile: args.v2Wake,
     ...(args.v1Ritual === null ? {} : { v1Ritual: [readTextOr(args.v1Ritual)] }),
@@ -230,17 +247,54 @@ function main(argv: readonly string[]): number {
   const shown = (d: typeof m.v1IntoV2): string =>
     d.measured ? `${d.hits}/${d.probes}` : "UNMEASURED (no probe offered)";
   out.push(
-    `  ${pad("cross-encoding", 18)}v1→v2 ${shown(m.v1IntoV2)} · v2→v1 ${shown(m.v2IntoV1)} · bar ${m.bar} · exposure denominator ${m.exposureDenominator}`,
+    `  ${pad("cross-encoding", 18)}v1→v2 ${shown(m.v1IntoV2)} · v2→v1 ${shown(m.v2IntoV1)} · bar ${m.bar} · ` +
+      `probe floor ${m.minLineChars} chars · exposure denominator ${m.exposureDenominator ?? "UNREAD"}`,
+  );
+  out.push(
+    `  ${pad("cross-encoding rule", 18)}${m.ratioNote}${m.ratio === null ? "" : ` — ratio ${m.ratio.toFixed(4)} of ${m.ratioDenominator}`}`,
   );
   out.push(`  ${pad("v1 log copy", 18)}${r.v1LogCopy ?? "no detector lines on this day"}`);
   out.push("");
+  // ── EVERY RED-LINE EXITS NONZERO, not only the meter's ───────────────────
+  //
+  // §5 G10 is "red-lines halt and preserve", and the exit code is how this
+  // process says so. A day whose store could not be proved read-only, whose
+  // event read errored or capped, or which was classified `contaminated` is
+  // every bit as much a halt as a cross-encoding breach — and each of them used
+  // to print in the table above and exit 0.
+  const halts: string[] = [];
+  if (m.redLine) {
+    halts.push(
+      m.phase === "P"
+        ? `cross-encoding is above the committed ${m.ratioBar} share of v1's daily mints (${m.ratioNote})`
+        : "cross-encoding recorded a verbatim hit, and Phase S's bar is zero",
+    );
+  }
+  if (r.v2.present && r.v2.readOnlyProof !== true) {
+    halts.push("v2's store was not proved read-only through the handle this instrument used");
+  }
+  if (r.v2.readErrors.length > 0) {
+    halts.push(`${r.v2.readErrors.length} sqlite read error(s): ${r.v2.readErrors.join(" | ")}`);
+  }
+  if (r.v2.truncated) {
+    halts.push(`the event read capped at ${r.v2.eventRowsRead} rows — every v2 count is a floor`);
+  }
+  if (r.class === "contaminated") {
+    halts.push(`the day is CONTAMINATED: ${r.why}`);
+  }
+  if (m.namedFinding) {
+    out.push(
+      `  ${pad("finding", 18)}cross-encoding recorded ${m.total} hit(s) at or below the Phase-P ratio — a NAMED FINDING, not a halt (${m.ratioNote})`,
+    );
+  }
+  out.push("");
   out.push(
-    m.redLine
-      ? "RED-LINE — cross-encoding is above its committed bar. The run stops counting days; both stores and this run directory are the evidence (§5 G10)."
-      : "no red-line on this day.",
+    halts.length === 0
+      ? "no red-line on this day."
+      : `RED-LINE — the run stops counting days; both stores and this run directory are the evidence (§5 G10):\n  - ${halts.join("\n  - ")}`,
   );
   process.stdout.write(`${out.join("\n")}\n`);
-  return m.redLine ? 1 : 0;
+  return halts.length === 0 ? 0 : 1;
 }
 
 process.exit(main(process.argv.slice(2)));
