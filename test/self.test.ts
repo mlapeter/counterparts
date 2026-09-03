@@ -549,6 +549,31 @@ describe("identity ordering and enumeration", () => {
     expect(out.text).not.toContain("- Mike");
   });
 
+  test("the byte counter weighs the SELF SCHEMA, not the journal or the import — episodes and migrated rows are counted, never weighed", () => {
+    const s = store();
+    for (let i = 0; i < 2; i++) identity(s, `A real identity statement ${i}. ${"x".repeat(300)}`);
+    // The journal: kind self, type episode — 224 of these arrived by migration and
+    // read the valve tripped at 3 MB on day 0 before anyone had written to it.
+    s.put({ type: "episode", kind: "self", body: `Chapter. ${"e".repeat(3_000)}`, source: "migrated" });
+    // A migrated self-kind memory: v1's, arrived in one write, not accumulation.
+    s.put({ type: "memory", kind: "self", body: `Imported self trace. ${"m".repeat(3_000)}`, source: "migrated" });
+    const self = new Self({ store: s, tunables: { SCHEMA_BYTES_TRIP: 2_000, SCHEMA_BYTES_PRESSURE: 0.5 } });
+    const report = self.schemaBytes(0);
+    expect(report.elements).toBe(2);
+    expect(report.tripped).toBe(false);
+    expect(report.episodes).toBe(1);
+    expect(report.episodeBytes).toBeGreaterThan(3_000);
+    expect(report.migrated).toBe(1);
+    expect(report.migratedBytes).toBeGreaterThan(3_000);
+    // A PROTECTED episode is an owner act on the self and IS weighed (PR-9 NEW-1):
+    // what `enumerate()` renders as protected must never be invisible to the valve.
+    const pid = s.put({ type: "episode", kind: "self", body: `Protected chapter. ${"p".repeat(2_000)}` });
+    s.updatePhysics(pid, { protected: true });
+    const again = self.schemaBytes(0);
+    expect(again.elements).toBe(3);
+    expect(again.episodes).toBe(1);
+  });
+
   test("the self-schema byte counter reports, and trips, with its own cause named", () => {
     const s = store();
     for (let i = 0; i < 6; i++) identity(s, `Status accretion ${i}. ${"x".repeat(400)}`);

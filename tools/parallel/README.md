@@ -29,7 +29,7 @@ directory at all, so nothing else can reach one by accident.
 | `--ab-dir` | the primacy assignment directory | `$MEMORY_AB_DIR` or `~/.memory-ab` |
 | `--replay-out` | the replay run's `--out` dir (holds `pass-record.json`) | — |
 | `--transcripts` | a transcript file or directory; repeatable | — |
-| `--phase` | `0`, `S` or `P` — which phase's gates to enforce | `0` |
+| `--phase` | `0` (the day-0 preflight) or `P` (the daily re-check). There is no `S` | `0` |
 | `--v1-wake` / `--v2-wake` | a rendered wake, for the cross-encoding meter | — |
 | `--v1-ritual` *(daily)* | v1's ritual ask text, as cross-encoding probes | — |
 | `--engram-dir` / `--ab-dir` *(daily too)* | checked disjoint from `--run-dir` before anything is created | as above |
@@ -49,21 +49,21 @@ exits 0 is a document.
 
 ```
 <run-dir>/
-  bars.json               K, the cross-encoding bar, the meter's probe floor
-                          (crossEncodingMinLineChars), Phase P's ratio bar
-                          (crossEncodingRatioBar), a committedAt date and
-                          preconditionDropDead. YOU write this, before Phase S day 1
+  bars.json               K, the cross-encoding bar (v1→v2, zero in every phase), the
+                          meter's probe floor (crossEncodingMinLineChars), the v2→v1
+                          ratio bar (crossEncodingRatioBar), a committedAt date and
+                          preconditionDropDead. YOU write this, on day 0 before the flip
                           (§5 G7, G15). BOTH commands fail without it — there is no
                           default for any bar anywhere in the tool.
   ask-channel.json        precondition 8's observation, machine-read: {observedAt,
                           channel, exitCode, session}, written by YOU after the
-                          throwaway-session probe.
+                          throwaway-session probe. Binding at --phase 0.
   pricing.json            approvedBy / approvedAt (§5 precondition 7). You write this too.
-  waivers.json            owner-signed waivers. Precondition 1's is `{precondition: 1,
-                          recordId, signedBy, signedAt, reason}` naming the replay record.
   migration-report.json   the migrate tool's report, with source_readonly.identical (§5 P6).
-  preflight.json          one row per check, four-valued, plus `ready` and `deferred`.
-  gate-sets.json          the three enumerated id sets, copied in as precondition 1 requires.
+  preflight.json          one row per check, four-valued, plus `ready`. No `deferred`
+                          list: with the shadow phase gone, nothing is deferred.
+  gate-sets.json          the three enumerated id sets AND the wiring-alive checks,
+                          copied in as precondition 1 requires.
   run.json                start date, phase, primacy, active days PER PHASE, the
                           day-class list (each day stamped with its own phase), both
                           config hashes, the seat / vector pins, and `surfaceSet` —
@@ -84,30 +84,74 @@ exits 0 is a document.
 | `assignment.realpath` | Both hook environments resolve the **same realpath**, and `MEMORY_AB_DIR` is unset for both — the variable can split the two processes onto different files, in the one file they must share (scar §2.13). |
 | `datadirs.disjoint` | v2's data dir, v1's dir, the engram dir **and the run directory** are pairwise disjoint by **realpath**, none nested in another. Realpath only — a directory is never opened to find out. A path that does not exist yet is resolved through its nearest existing ancestor, so a not-yet-created nested dir cannot read as disjoint on a symlinked temp root. `RunDir.open` enforces the run-directory half structurally, before any mkdir. |
 | `v2.config` | `parallel.enabled` is true, a data dir is set, both seats are `usable` per `seatStatus`, the embedder flag is reported, and credential **NAMES** are reported present/absent. A value never enters a report. |
-| `replay.gate` | `parallelGateOpen` over the pass record at `<replay-out>/pass-record.json` and the waivers at `<run-dir>/waivers.json`. Every refusal names its reason. |
+| `replay.gate` | `parallelGateOpen` over the pass record at `<replay-out>/pass-record.json`. **No waiver, no signature** (RULED 2026-09-03): a `sample: true` record opens the gate on the same terms as a full re-run — `readOnlyProof`, `totalityOk`, the enumerated-set checks, and the three `WIRING_ALIVE` channels proven alive off the record's own rows (`preselect.meanSchemasShown` passing, `preselect.blindRate` below 1.0, `gate.refusalMix` computed). Band failures are the run's to re-earn (§5 G15) and do not shut it; MISSING evidence still does — an absent `sample` flag, an absent `counts.fail`, an unknown verdict string, a header that disagrees with its rows, an unreadable wiring row. The row prints the wiring readings it passed on. |
 | `canary.transcripts` | Graded **by marker class**. v1's wake/recall markers (`FOREIGN_MARKERS` 2–4) inside a user/assistant **conversation** block are the red-line: that exclusion is carried by the host's transcript shape, so one here means the host changed. v1's **episode ask** (markers 0–1) in a user-role block is §5 G8's *designed* case — it passes, counted as `byDesign`, with `classifyBlock` asserted to agree it is `foreign`; a disagreement is its own red-line (recognizer drift). `tool_result` blocks and entries with no message role are counted as `attachmentHits`. With **no v1 marker seen anywhere** the row is `not-exercised`: an empty scan and a clean one are indistinguishable. |
 | `host.hooks` | The host's hook execution model, **measured** from `hook_success` attachments, grouped **per session** (the transcript file) so hooks from different days cannot manufacture an overlap; per-hook duration min/median/max; and the **worst single session's** SessionEnd cost against the host's 1.5 s shared budget — summed when sequential, max when parallel, `Stop` excluded (a different event with a different budget). One hook alone reads `unknown`, and an unmeasured budget reads `not-exercised`. Neither is a pass (scar §2.18). |
-| `bars.committed` | `bars.json` exists with `activeDayTurnFloor` (K), `crossEncodingBar`, `crossEncodingMinLineChars` (≥1), `crossEncodingRatioBar`, a dated `committedAt` and a dated `preconditionDropDead`. Undated — or `"yes"` — is a failure, and a drop-dead already past is a failure too (§5 P1, §9 OQ5). |
+| `bars.committed` | `bars.json` exists with `activeDayTurnFloor` (K), `crossEncodingBar`, `crossEncodingMinLineChars` (≥1), `crossEncodingRatioBar`, a dated `committedAt` and a dated `preconditionDropDead`. Undated — or `"yes"` — is a failure. A drop-dead already past fails **at `--phase 0` only**: it bars a run from STARTING (§9 OQ5), and the daily re-check runs every day of a ≥7-day run, all of them past 09-08 by arithmetic. At `--phase P` the row passes and says the date is behind us. |
 | `store.schemaBytes` | Precondition 5's second reading: `self/identity.ts#schemaBytes` reproduced against a **read-only** handle (identity-band + self-kind rows, minus the F8 fallback quarantine, weighed by prose-body bytes), reported against the trip. An empty store reads `not-exercised`. |
 | `precondition.2/3/4` | Carry the **names of the tests** that verify them (the G12 symmetry consumer, the `SCHEME_TAIL` bound, the poison-pill quarantine). The suite asserts those names still exist — a citation that has rotted is worse than none. |
 | `precondition.5` | Follows the `store.schemaBytes` row, carrying its reading. |
 | `precondition.6` | `migration-report.json` in the run directory with **`mode: "apply"`** (a dry run writes nothing, so its manifest proof is vacuous), a **`target` whose realpath is this run's `--v2-data-dir`**, and `source_readonly.identical: true` (OQ2 RULED migrated, 2026-09-03). |
 | `precondition.7` | `pricing.json` with `approvedBy` and `approvedAt`. |
-| `precondition.8` | `ask-channel.json` in the run directory recording `{observedAt (dated), channel, exitCode (numeric), session}` — the throwaway-session observation, machine-read rather than asserted in prose. Absent, `not-exercised`; present but incomplete, `fail`. |
-| `precondition.9` | Two readings off real artifacts: the v2 store holds ≥1 durable `recall.decision` row (replay INTERFACE-GAPS §7 recorded them as not persisted — only the rows can say), **and** `run.json` carries a `surfaceSet` hash matching this build's `surfaceSetFields()`. A mismatch is G12's carry-forward rule firing. |
-| | 8 and 9 gate the **S→P flip**, not day 1 — run `--phase P` and they stop being deferred. |
+| `precondition.8` | `ask-channel.json` in the run directory recording `{observedAt (dated), channel, exitCode (numeric), session}` — the throwaway-session observation, machine-read rather than asserted in prose. Absent, `not-exercised`; present but incomplete, `fail`. The throwaway session must be one in which **v2 delivers**: its Stop ask never fires while it is standing down. |
+| `precondition.9` | Two readings off real artifacts: the v2 store holds ≥1 durable `recall.decision` row (replay INTERFACE-GAPS §7 recorded them as not persisted — only the rows can say), **and** `run.json` carries a `surfaceSet` hash matching this build's `surfaceSetFields()`. A mismatch is G12's carry-forward rule firing. v2 records a decision only on a turn it DELIVERED, so the rows come from the same throwaway session as 8. |
+| | 8 and 9 gate the **day-0 flip**. There is no S→P flip to defer them to. |
 
-### `ready` is phase-scoped, and why
+### Day 0, in order — and why the preflight is last
 
-The CONTRACT says preconditions 8 and 9 "gate the S→P flip, not day 1", so
-before Phase P they are `not-exercised` by design. Every row therefore declares
-which gate it holds, and `ready` is computed over the rows gating the phase you
-are flying; the rest are listed in `deferred`. Run `--phase P` and the whole set
-must pass.
+The full sequence with its owner-present steps lives in
+`docs/PARALLEL-RUN-STATUS.md`; what belongs here is the ORDER the two commands
+sit in, because it is not the obvious one:
+
+```
+… migrate, config, bars.json, wire v2's hooks, one ordinary muted session …
+  daily.ts   --date <day-0> --phase 0     writes run.json + the G12 surfaceSet hash
+  (throwaway session, override flipped to "engram" and back, no session open)
+                                          leaves ask-channel.json + recall.decision rows
+  preflight.ts --run-dir <dir> --phase 0  must exit 0: every row, 8 and 9 included
+  (the flip: override -> "engram", tmp+rename, no session open, wall clock stamped)
+```
+
+Two orderings that are load-bearing rather than stylistic:
+
+- **The daily runs BEFORE the throwaway, once.** The throwaway is v2 speaking on
+  a day whose primacy is still v1 — precisely the G4 contamination detector — so
+  a daily re-run afterwards classes day 0 `contaminated` and exits 1, on rows
+  from the one session that was supposed to speak.
+- **The preflight runs LAST**, because preconditions 8 and 9 are read off the
+  artifacts the two steps above leave behind.
+
+### `ready` means every row passed
+
+The shadow phase is dropped (RULED 2026-09-03), so preconditions 8 and 9 gate
+the day-0 flip and `--phase 0` binds them like everything else. `ready` is
+therefore what the CONTRACT said in the first place — every row `pass` — and the
+report carries no `deferred` list.
+
+What makes 8 and 9 *reachable* at day 0 is the ORDER of the day-0 sequence, not a
+softer rule: the throwaway session (which leaves the ask observation AND the
+first `recall.decision` rows) and the day-0 daily run (which writes G12's
+baseline hash into `run.json`) both come BEFORE the preflight. A row reading
+`not-exercised` is telling you a step is still owed.
+
+Two rows that look like candidates for an exemption and are deliberately not:
+`store.schemaBytes` on an empty store (OQ2 ruled a MIGRATED starting store, so an
+empty one is the setup not done) and `canary.transcripts` with no v1 marker in
+the corpus (an empty scan and a clean one are indistinguishable). Both read
+`not-exercised` and both sink `ready`.
+
+The only thing `--phase` changes is the drop-dead: it binds the run's START.
+One consequence for the daily re-check: at `--phase P` v1 is muted and emits no
+wake markers, so point `--transcripts` at pre-flip days as well, or the canary
+row reads `not-exercised` and sinks readiness on a corpus that never had a
+marker to find.
 
 ## What the daily record says
 
-**The day's class** (§5 "What counts as a day"). `active` requires that both
+**The day's class** (§5 "What counts as a day"). Days are stamped `0` (day 0,
+before the flip) or `P` (the run, from day 1) — there is no `S`, and `run.json`'s
+`activeDays` is keyed by phase, so only `P` days count toward the ≥7 minimum.
+`active` requires that both
 systems reached at least one session boundary *and* the day carried at least K
 conversational turns. Everything else is recorded with a class and does **not**
 count toward a phase minimum: `thin`, `contaminated`, `mixed`, `silent`.
@@ -161,12 +205,15 @@ side's store. Five things govern it:
   run. Lines whose date cannot be read are included and counted as
   `undatedScanned` — for a red-line, failing toward detection is right, and it
   is said out loud rather than assumed.
-- **The rule is the PHASE's** (§9 OQ4, RULED 2026-09-03). Phase S: any hit in
-  either direction is a red-line — the host's transcript shape carries v1's
-  exclusion, so a hit means the host changed. Phase P: any hit is a **named
-  finding**, and a red-line only above `crossEncodingRatioBar` (0.10) of v1's
-  mints that day, reported with the ratio and its denominator. With no
-  denominator the ratio is `null` and says so.
+- **The rule is the DIRECTION's** (§9 OQ4, RULED 2026-09-03, mapped onto the
+  single phase). **v1→v2** — v1's ritual text inside v2's capture — is a red-line
+  on ANY hit, in every phase: that exclusion is carried by the host's transcript
+  shape, so a hit means the host changed, and no denominator can buy it down.
+  **v2→v1** is OQ4's accepted cost: a **named finding** at or below
+  `crossEncodingRatioBar` (0.10) of v1's mints that day, a red-line above it,
+  always reported with the ratio and its denominator. With no denominator the
+  ratio is `null`, says so, and any hit red-lines. Before the flip (`--phase 0`)
+  v2 delivers nothing, so both directions carry the zero bar.
 - **v1's probe is required.** Without `--v1-wake` or `--v1-ritual` the v1→v2
   direction reads a silent zero, so the daily REFUSES rather than recording an
   unmetered day. v2's own probes come from the adapter's `AUTHORSHIP_ASK`
@@ -189,7 +236,8 @@ delivery records that were not durable now are.** Box 2's `events` table takes
 exactly the **thirteen** names in `DURABLE_EVENTS`. On 2026-09-03 the four
 delivery records (`adapter.wake.injected`, `adapter.wake.delivered`,
 `adapter.recall`, `adapter.episode.ask`) joined that list, each carrying `date`
-and `session` in its payload, because in Phase S they ARE the contamination
+and `session` in its payload, because on any day v2 is the muted side — day 0,
+and any day the run reverts — they ARE the contamination
 detectors on v2's side (§5 G4) and a detector that dies with the hook process
 cannot be counted after the fact (§5 G2). This reader also counts
 `recall.decision` (precondition 9's evidence) and `memory.pruned` /

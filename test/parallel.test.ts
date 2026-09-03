@@ -43,9 +43,9 @@ import {
   NOT_APPLICABLE_TO_RUN,
   PARALLEL_EXERCISABLE,
   RATER_DEFERRED,
+  WIRING_ALIVE,
   parallelGateOpen,
   parseGateRecord,
-  parseWaivers,
 } from "../tools/parallel/gate.js";
 import {
   addressLines,
@@ -64,14 +64,13 @@ import {
   scanTranscripts,
   transcriptFiles,
 } from "../tools/parallel/readers.js";
-import { runPreflight } from "../tools/parallel/preflight.js";
+import { preflightArtifacts, readBars, runPreflight } from "../tools/parallel/preflight.js";
 import { surfaceSetComponents, surfaceSetHash } from "../tools/parallel/surface.js";
 import { surfaceSetFields } from "../src/core/counterpart.js";
 import { readRunRecord } from "../tools/parallel/record.js";
 import { RunDir } from "../tools/parallel/writer.js";
 import type { LiveStores } from "../tools/parallel/writer.js";
-import type { GateReadableRecord } from "../tools/parallel/gate.js";
-import type { Waiver } from "../tools/parallel/types.js";
+import type { GateEntry, GateReadableRecord } from "../tools/parallel/gate.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Fixtures — all synthetic
@@ -236,35 +235,39 @@ const CLEAN: GateReadableRecord = {
   verdicts: {},
 };
 
+/** The three WIRING_ALIVE channels, alive — the shape a live record carries. */
+const WIRED: Record<string, GateEntry> = {
+  "preselect.meanSchemasShown": { verdict: "pass", value: 0.54 },
+  "preselect.blindRate": { verdict: "pass", value: 0.22 },
+  "gate.refusalMix": { verdict: "pass", value: 0.31 },
+};
+
 function record(over: Partial<GateReadableRecord> = {}): GateReadableRecord {
-  const verdicts: Record<string, { verdict: GateReadableRecord["verdicts"][string]["verdict"] }> = {};
-  for (const id of KNOWN_NOT_EXERCISED) verdicts[id] = { verdict: "not-exercised" };
-  for (const id of RATER_DEFERRED) verdicts[id] = { verdict: "needs-rater" };
-  verdicts["gate.chunkBlockRate"] = { verdict: "pass" };
+  const verdicts: Record<string, GateEntry> = { ...WIRED };
+  for (const id of KNOWN_NOT_EXERCISED) verdicts[id] = { verdict: "not-exercised", value: null };
+  for (const id of RATER_DEFERRED) verdicts[id] = { verdict: "needs-rater", value: null };
+  verdicts["gate.chunkBlockRate"] = { verdict: "pass", value: 0.1 };
   return { ...CLEAN, verdicts, ...over };
 }
 
-const WAIVER = (recordId: string): Waiver => ({
-  precondition: 1,
-  recordId,
-  signedBy: "owner",
-  signedAt: "2026-09-04",
-  reason: "the queued --days 5..7 sample, read on the per-day trend (§5 P1, RULED 2026-09-03)",
-});
-
 describe("parallelGateOpen — precondition 1, branch by branch", () => {
   test("a clean, non-sample record opens the gate with no reasons", () => {
-    expect(parallelGateOpen(record(), [])).toEqual({ open: true, reasons: [] });
+    expect(parallelGateOpen(record())).toEqual({ open: true, reasons: [] });
   });
 
-  test("counts.fail > 0 shuts it, and names the count", () => {
-    const v = parallelGateOpen(record({ counts: { ...CLEAN.counts, fail: 3 } }), []);
-    expect(v.open).toBe(false);
-    expect(v.reasons.join(" ")).toContain("counts.fail is 3");
+  test("BAND FAILURES DO NOT SHUT IT — the run re-earns v1's numbers (RULED 2026-09-03)", () => {
+    // `counts.fail === 0` was the old regime's other half, and it made the
+    // owner's own ruled sample route unsatisfiable. §5 G15: v1's numbers are
+    // "calibration to re-earn, not inherited law". The rows and the header must
+    // still AGREE — that is a record-integrity check, not a bar.
+    const r = record();
+    const verdicts = { ...r.verdicts, "gate.chunkBlockRate": { verdict: "fail" as const, value: 0.9 } };
+    const v = parallelGateOpen({ ...r, verdicts, counts: { ...CLEAN.counts, fail: 1 } });
+    expect(v).toEqual({ open: true, reasons: [] });
   });
 
   test("readOnlyProof false and totalityOk false each name themselves", () => {
-    const v = parallelGateOpen(record({ readOnlyProof: false, totalityOk: false }), []);
+    const v = parallelGateOpen(record({ readOnlyProof: false, totalityOk: false }));
     expect(v.open).toBe(false);
     expect(v.reasons.length).toBe(2);
     expect(v.reasons[0]).toContain("readOnlyProof");
@@ -273,8 +276,8 @@ describe("parallelGateOpen — precondition 1, branch by branch", () => {
 
   test("a not-exercised id on NEITHER enumerated set shuts the gate, by name", () => {
     const r = record();
-    const verdicts = { ...r.verdicts, "interpret.mintsPerChunk": { verdict: "not-exercised" as const } };
-    const v = parallelGateOpen({ ...r, verdicts }, []);
+    const verdicts = { ...r.verdicts, "interpret.mintsPerChunk": { verdict: "not-exercised" as const, value: null } };
+    const v = parallelGateOpen({ ...r, verdicts });
     expect(v.open).toBe(false);
     expect(v.reasons.join(" ")).toContain("interpret.mintsPerChunk");
     expect(v.reasons.join(" ")).toContain("not-exercised outside");
@@ -282,64 +285,121 @@ describe("parallelGateOpen — precondition 1, branch by branch", () => {
 
   test("a needs-rater id outside RATER_DEFERRED shuts the gate, by name", () => {
     const r = record();
-    const verdicts = { ...r.verdicts, "briefing.overBudgetRate": { verdict: "needs-rater" as const } };
-    const v = parallelGateOpen({ ...r, verdicts }, []);
+    const verdicts = { ...r.verdicts, "briefing.overBudgetRate": { verdict: "needs-rater" as const, value: null } };
+    const v = parallelGateOpen({ ...r, verdicts });
     expect(v.open).toBe(false);
     expect(v.reasons.join(" ")).toContain("needs-rater outside RATER_DEFERRED: briefing.overBudgetRate");
   });
 
-  test("sample: true with NO waiver is refused, naming the record", () => {
-    const v = parallelGateOpen(record({ sample: true }), []);
+  // ── RULED 2026-09-03: no waiver; the wiring-alive predicate replaces it ──
+  test("sample: true opens the gate on the SAME terms as a full re-run — no signature", () => {
+    // The owner: "I'm not sure our intent was to require signing things to
+    // change them." A sample whose channels are alive is a sample this gate
+    // accepts; nothing about it is waived, because nothing about it is excused.
+    expect(parallelGateOpen(record({ sample: true }))).toEqual({ open: true, reasons: [] });
+  });
+
+  test("THE OWNER'S OWN SAMPLE RECORD opens the gate — 11 band failures and all", () => {
+    // `run_6530ad2ee770`, the queued `--days 7 --embed` sample read on
+    // 2026-09-03 (docs/PARALLEL-RUN-STATUS.md): 15 pass / 11 fail / 2
+    // needs-rater / 23 not-exercised, cards climbing to a 0.54 aggregate that
+    // passes its band, a 60% blind rate that fails one, refusal mix computed.
+    // This test is the ruling pinned to the record it was made for: the wiring
+    // is alive, the bands are the run's to re-earn.
+    const verdicts: Record<string, GateEntry> = {
+      "preselect.meanSchemasShown": { verdict: "pass", value: 0.54 },
+      "preselect.blindRate": { verdict: "fail", value: 0.6 },
+      "gate.refusalMix": { verdict: "pass", value: 0.31 },
+    };
+    for (const id of KNOWN_NOT_EXERCISED) verdicts[id] = { verdict: "not-exercised", value: null };
+    for (const id of RATER_DEFERRED) verdicts[id] = { verdict: "needs-rater", value: null };
+    // Ten more band failures on ids that are nobody's wiring, to reach 11.
+    const alsoFailing = METRICS.map((m) => m.id)
+      .filter((id) => verdicts[id] === undefined)
+      .slice(0, 10);
+    for (const id of alsoFailing) verdicts[id] = { verdict: "fail", value: 1 };
+    expect(alsoFailing.length).toBe(10);
+    const sample: GateReadableRecord = {
+      runId: "run_6530ad2ee770",
+      readOnlyProof: true,
+      totalityOk: true,
+      sample: true,
+      counts: { pass: 15, fail: 11, "needs-rater": 2, "not-exercised": 23, watch: 5 },
+      verdicts,
+    };
+    expect(parallelGateOpen(sample)).toEqual({ open: true, reasons: [] });
+  });
+
+  test("a DEAD cards channel shuts it: meanSchemasShown not passing", () => {
+    const r = record();
+    // The first replay run's reading: `applySweep` passed no schema slice, so
+    // preselection had nothing to select from and every chunk read blind. That
+    // record must never open this gate, sample or not.
+    const verdicts = {
+      ...r.verdicts,
+      "preselect.meanSchemasShown": { verdict: "fail" as const, value: 0 },
+    };
+    const v = parallelGateOpen({ ...r, verdicts, counts: { ...CLEAN.counts, fail: 1 } });
     expect(v.open).toBe(false);
-    expect(v.reasons.join(" ")).toContain("sample: true and no precondition-1 waiver names record replay-2026-09-04");
+    expect(v.reasons.join(" ")).toContain("no schema cards reached the chunk gate");
   });
 
-  test("sample: true with a waiver naming the WRONG record is still refused", () => {
-    const v = parallelGateOpen(record({ sample: true }), [WAIVER("some-other-run")]);
+  test("a blind rate of 1.0 shuts it — every chunk encoded blind is the dead wire", () => {
+    const r = record();
+    const verdicts = { ...r.verdicts, "preselect.blindRate": { verdict: "fail" as const, value: 1 } };
+    const v = parallelGateOpen({ ...r, verdicts, counts: { ...CLEAN.counts, fail: 1 } });
     expect(v.open).toBe(false);
-    expect(v.reasons.join(" ")).toContain("names some-other-run, not replay-2026-09-04");
+    expect(v.reasons.join(" ")).toContain("EVERY gated chunk encoded blind");
+    // And 0.999 — a bad number on a live wire — does not: this predicate asks
+    // whether the channel exists, never whether it is good (§5 G15).
+    const nearly = { ...r.verdicts, "preselect.blindRate": { verdict: "fail" as const, value: 0.999 } };
+    expect(parallelGateOpen({ ...r, verdicts: nearly, counts: { ...CLEAN.counts, fail: 1 } }).open).toBe(true);
   });
 
-  test("sample: true with the RIGHT waiver opens the gate", () => {
-    expect(parallelGateOpen(record({ sample: true }), [WAIVER("replay-2026-09-04")])).toEqual({
-      open: true,
-      reasons: [],
-    });
-  });
-
-  test("a waiver missing signedBy/signedAt/reason is not a signature", () => {
-    const unsigned: Waiver = { ...WAIVER("replay-2026-09-04"), signedBy: "", signedAt: "", reason: "" };
-    const v = parallelGateOpen(record({ sample: true }), [unsigned]);
+  test("gate.refusalMix `not-exercised` shuts it — a mix never computed is not a live gate", () => {
+    const r = record();
+    const verdicts = {
+      ...r.verdicts,
+      "gate.refusalMix": { verdict: "not-exercised" as const, value: null },
+    };
+    const v = parallelGateOpen({ ...r, verdicts });
     expect(v.open).toBe(false);
-    expect(v.reasons.join(" ")).toContain("missing signedBy, a dated signedAt");
+    expect(v.reasons.join(" ")).toContain("gate.refusalMix is not-exercised");
+    // `gate.refusalMix` is not on any enumerated set, so the stray-row check
+    // fires too — and BOTH reasons are named, never just the first.
+    expect(v.reasons.join(" ")).toContain("not-exercised outside");
   });
 
-  test("`signedAt: \"yes\"` is not a date — the signature is dated like the bars", () => {
-    // A non-empty check satisfies the letter of "signed" while proving nothing
-    // about when, and precondition 1 is a dated owner decision with a
-    // drop-dead attached (§5 P1, §5 G15's discipline).
-    const undated: Waiver = { ...WAIVER("replay-2026-09-04"), signedAt: "yes" };
-    const v = parallelGateOpen(record({ sample: true }), [undated]);
+  test("a wiring row that is ABSENT is refused — a row not there is not a live channel", () => {
+    const r = record();
+    for (const check of WIRING_ALIVE) {
+      const verdicts = { ...r.verdicts };
+      delete verdicts[check.id];
+      const v = parallelGateOpen({ ...r, verdicts });
+      expect(`${check.id}:${v.open}`).toBe(`${check.id}:false`);
+      expect(v.reasons.join(" ")).toContain(`${check.id} is absent from the record's verdicts`);
+    }
+  });
+
+  test("a wiring row with NO observed value is refused, never read as zero", () => {
+    const r = record();
+    const verdicts = { ...r.verdicts, "preselect.blindRate": { verdict: "pass" as const, value: null } };
+    const v = parallelGateOpen({ ...r, verdicts });
     expect(v.open).toBe(false);
-    expect(v.reasons.join(" ")).toContain("a dated signedAt");
-  });
-
-  test("a waiver for a DIFFERENT precondition does not open precondition 1", () => {
-    const other: Waiver = { ...WAIVER("replay-2026-09-04"), precondition: 5 };
-    expect(parallelGateOpen(record({ sample: true }), [other]).open).toBe(false);
+    expect(v.reasons.join(" ")).toContain("carries no observed value");
   });
 
   // ── review blocker 1: the three fields that used to fail OPEN ─────────────
   test("a record with `sample` OMITTED is refused — absent is not a full re-run", () => {
     const r = record();
     const { sample: _dropped, ...withoutSample } = r;
-    const v = parallelGateOpen(withoutSample as GateReadableRecord, []);
+    const v = parallelGateOpen(withoutSample as GateReadableRecord);
     expect(v.open).toBe(false);
     expect(v.reasons.join(" ")).toContain("sample is absent");
   });
 
   test("`counts: {}` is refused — an absent failure count is not zero failures", () => {
-    const v = parallelGateOpen(record({ counts: {} }), []);
+    const v = parallelGateOpen(record({ counts: {} }));
     expect(v.open).toBe(false);
     expect(v.reasons.join(" ")).toContain("counts.fail is absent");
   });
@@ -348,9 +408,12 @@ describe("parallelGateOpen — precondition 1, branch by branch", () => {
     const r = record();
     const verdicts = {
       ...r.verdicts,
-      "gate.chunkBlockRate": { verdict: "green" as unknown as GateReadableRecord["verdicts"][string]["verdict"] },
+      "gate.chunkBlockRate": {
+        verdict: "green" as unknown as GateEntry["verdict"],
+        value: null,
+      },
     };
-    const v = parallelGateOpen({ ...r, verdicts }, []);
+    const v = parallelGateOpen({ ...r, verdicts });
     expect(v.open).toBe(false);
     expect(v.reasons.join(" ")).toContain("outside the replay vocabulary");
     expect(v.reasons.join(" ")).toContain("gate.chunkBlockRate");
@@ -360,17 +423,16 @@ describe("parallelGateOpen — precondition 1, branch by branch", () => {
     const r = record();
     // The header says zero failures; a row says otherwise. Which half is wrong
     // is not for the gate to decide — it refuses to read the record at all.
-    const verdicts = { ...r.verdicts, "gate.chunkBlockRate": { verdict: "fail" as const } };
-    const v = parallelGateOpen({ ...r, verdicts }, []);
+    const verdicts = { ...r.verdicts, "gate.chunkBlockRate": { verdict: "fail" as const, value: 0.9 } };
+    const v = parallelGateOpen({ ...r, verdicts });
     expect(v.open).toBe(false);
     expect(v.reasons.join(" ")).toContain("the summary and the rows disagree");
 
-    // And when they AGREE the gate is shut by the failure itself, not by the
-    // cross-check — so the assertion above is not passing for the wrong reason.
-    const agreed = parallelGateOpen({ ...r, verdicts, counts: { ...CLEAN.counts, fail: 1 } }, []);
-    expect(agreed.open).toBe(false);
-    expect(agreed.reasons.join(" ")).toContain("counts.fail is 1");
-    expect(agreed.reasons.join(" ")).not.toContain("disagree");
+    // And when they AGREE the record is readable and the gate OPENS on it: the
+    // failure is a band the run re-earns, not a refusal (RULED 2026-09-03). So
+    // the assertion above is passing on the disagreement, not on the fail.
+    const agreed = parallelGateOpen({ ...r, verdicts, counts: { ...CLEAN.counts, fail: 1 } });
+    expect(agreed).toEqual({ open: true, reasons: [] });
   });
 });
 
@@ -402,9 +464,9 @@ describe("the enumerated sets are the registry's, not a guess", () => {
   /**
    * THE DEVIATION, EVIDENCED. The CONTRACT's precondition-1 sentence names two
    * sets. Read strictly — accepting ONLY `PARALLEL_EXERCISABLE` — the owner's
-   * own ruled route (§5 P1, RULED 2026-09-03: the `--days 5..7` sample plus a
-   * signed waiver) can never open the gate, because ten registry rows are
-   * `not-exercised` for reasons no run can move. That is why
+   * own ruled route (§5 P1, RULED 2026-09-03: the `--days 5..7` sample, judged
+   * on the wiring-alive predicate) can never open the gate, because ten
+   * registry rows are `not-exercised` for reasons no run can move. That is why
    * `NOT_APPLICABLE_TO_RUN` exists, under §5 G13's own word. This test is the
    * argument, so it cannot rot into prose.
    */
@@ -423,11 +485,11 @@ describe("the enumerated sets are the registry's, not a guess", () => {
     expect(strictlyStray.length).toBe(10);
     expect([...strictlyStray].sort()).toEqual([...NOT_APPLICABLE_TO_RUN].sort());
     // With the third set the same record opens — which is the whole deviation.
-    expect(parallelGateOpen(r, [WAIVER("replay-2026-09-04")]).open).toBe(true);
+    expect(parallelGateOpen(r).open).toBe(true);
   });
 });
 
-describe("reading the record and the waivers off disk", () => {
+describe("reading the record off disk", () => {
   test("pass-record.json is the file that carries per-id verdicts", () => {
     // The shape `tools/replay/report.ts#passRecord` writes, verbatim.
     const parsed = parseGateRecord({
@@ -449,26 +511,32 @@ describe("reading the record and the waivers off disk", () => {
     // If they ever came from different row sets this predicate would refuse
     // every genuine replay record and the gate would be permanently shut — so
     // the invariant is asserted here rather than reasoned about in a comment.
-    const verdicts: Record<string, { verdict: GateReadableRecord["verdicts"][string]["verdict"] }> = {};
+    const verdicts: Record<string, GateEntry> = {};
     const counts: Record<string, number> = { pass: 0, fail: 0, "needs-rater": 0, "not-exercised": 0, watch: 0 };
     for (const id of KNOWN_NOT_EXERCISED) {
-      verdicts[id] = { verdict: "not-exercised" };
+      verdicts[id] = { verdict: "not-exercised", value: null };
       counts["not-exercised"] = (counts["not-exercised"] ?? 0) + 1;
     }
     for (const id of RATER_DEFERRED) {
-      verdicts[id] = { verdict: "needs-rater" };
+      verdicts[id] = { verdict: "needs-rater", value: null };
       counts["needs-rater"] = (counts["needs-rater"] ?? 0) + 1;
     }
     for (const m of METRICS) {
       if (verdicts[m.id] !== undefined) continue;
-      verdicts[m.id] = { verdict: "pass" };
+      // The wiring rows carry their observed numbers, because one of the three
+      // checks reads a value rather than a verdict.
+      verdicts[m.id] = { verdict: "pass", value: WIRED[m.id]?.value ?? null };
       counts["pass"] = (counts["pass"] ?? 0) + 1;
     }
     // Every metric in the registry is accounted for, tallied the way `scoreRun`
     // tallies — and the gate opens.
     expect(Object.keys(verdicts).length).toBe(METRICS.length);
     expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(METRICS.length);
-    expect(parallelGateOpen({ ...CLEAN, counts, verdicts }, [])).toEqual({ open: true, reasons: [] });
+    expect(parallelGateOpen({ ...CLEAN, counts, verdicts })).toEqual({ open: true, reasons: [] });
+    // And every WIRING_ALIVE id is a REAL registry id, so a rename of one of
+    // them shows up here rather than as a gate that quietly never opens again.
+    const known = new Set(METRICS.map((m) => m.id));
+    for (const check of WIRING_ALIVE) expect(`${check.id}:${known.has(check.id)}`).toBe(`${check.id}:true`);
   });
 
   test("a record with no verdicts block is refused with a reason, never defaulted", () => {
@@ -477,11 +545,25 @@ describe("reading the record and the waivers off disk", () => {
     expect(parseGateRecord("nope")).toContain("not a JSON object");
   });
 
-  test("waivers parse from a bare array or a { waivers: [...] } wrapper, malformed counted", () => {
-    const one = WAIVER("r1");
-    expect(parseWaivers([one, 5, { precondition: 1 }])).toEqual({ waivers: [one], malformed: 2 });
-    expect(parseWaivers({ waivers: [one] }).waivers).toEqual([one]);
-    expect(parseWaivers(null)).toEqual({ waivers: [], malformed: 0 });
+  test("the OBSERVED VALUE is parsed off the record, and a non-number reads null", () => {
+    // `passRecord` writes `value: m.observed === null ? null : m.observed.value`.
+    // The wiring checks read that number, so a string or a missing field must
+    // become `null` — a refusal — rather than being coerced into a reading.
+    const parsed = parseGateRecord({
+      runId: "r1",
+      readOnlyProof: true,
+      totalityOk: true,
+      sample: true,
+      counts: { fail: 0 },
+      verdicts: {
+        "preselect.blindRate": { verdict: "pass", value: 0.22 },
+        "preselect.meanSchemasShown": { verdict: "pass", value: null },
+        "gate.refusalMix": { verdict: "pass", value: "0.31" },
+      },
+    }) as GateReadableRecord;
+    expect(parsed.verdicts["preselect.blindRate"]?.value).toBe(0.22);
+    expect(parsed.verdicts["preselect.meanSchemasShown"]?.value).toBeNull();
+    expect(parsed.verdicts["gate.refusalMix"]?.value).toBeNull();
   });
 });
 
@@ -1129,6 +1211,40 @@ describe("the schemaBytes reading, reproduced read-only", () => {
     expect(readSchemaBytes(data).empty).toBe(true);
   });
 
+  test("readBars refuses a ratio bar outside (0, 1] — a committed 1.5 would disarm the v2→v1 direction", () => {
+    const runDir = dir("run");
+    writeJson(join(runDir, "bars.json"), { ...BARS(3), crossEncodingRatioBar: 1.5 });
+    expect(readBars(runDir)).toBeNull();
+    writeJson(join(runDir, "bars.json"), { ...BARS(3), crossEncodingRatioBar: 0 });
+    expect(readBars(runDir)).toBeNull();
+  });
+
+  test("a PROTECTED episode is weighed — the exclusion carries the identity/protected guard (PR-9 NEW-1)", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      const id = s.put({ type: "episode", kind: "self", body: `Protected chapter. ${"p".repeat(2_000)}` });
+      s.updatePhysics(id, { protected: true });
+    });
+    const reading = readSchemaBytes(data);
+    expect(reading.elements).toBe(1);
+    expect(reading.episodes).toBe(0);
+    expect(reading.bytes).toBeGreaterThan(2_000);
+  });
+
+  test("the reader weighs the SELF SCHEMA only — episodes and migrated self rows are counted, not weighed (mirrors self/identity.ts)", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      s.put({ type: "memory", kind: "self", body: `A real identity statement. ${"x".repeat(300)}` });
+      s.put({ type: "episode", kind: "self", body: `Chapter. ${"e".repeat(3_000)}`, source: "migrated" });
+      s.put({ type: "memory", kind: "self", body: `Imported self trace. ${"m".repeat(3_000)}`, source: "migrated" });
+    });
+    const reading = readSchemaBytes(data);
+    expect(reading.elements).toBe(1);
+    expect(reading.bytes).toBeLessThan(1_000);
+    expect(reading.episodes).toBe(1);
+    expect(reading.migrated).toBe(1);
+  });
+
   test("a failed memories read is NOT a 0-byte reading — readErrors ride out (delta N5)", () => {
     const data = dir("v2");
     mkdirSync(data, { recursive: true });
@@ -1153,7 +1269,7 @@ describe("the cross-encoding meter", () => {
   /** The committed bars every reading is taken against. No defaults anywhere. */
   const METER = {
     date: DAY,
-    phase: "S" as const,
+    phase: "0" as const,
     bar: 0,
     minLineChars: 12,
     ratioBar: 0.1,
@@ -1184,9 +1300,9 @@ describe("the cross-encoding meter", () => {
     expect(meter.redLine).toBe(true);
   });
 
-  test("PHASE S: the bar is ZERO by rule — a committed bar of 1 still red-lines on one hit (delta N1)", () => {
+  test("PHASE 0: the bar is ZERO by rule — a committed bar of 1 still red-lines on one hit (delta N1)", () => {
     const data = v2WithSpan(RITUAL);
-    // §9 OQ4 rules Phase S at zero. A committed number cannot loosen it, and
+    // §9 OQ4 rules the pre-flip day at zero. A committed number cannot loosen it, and
     // `readBars` refuses a nonzero `crossEncodingBar` so the file agrees.
     expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), bar: 1, v1Ritual: [RITUAL] }).redLine).toBe(true);
     expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] }).redLine).toBe(true);
@@ -1371,18 +1487,18 @@ describe("the cross-encoding meter", () => {
   });
 
   // ── review blocker 7c: OQ4's two rules, by phase ─────────────────────────
-  test("PHASE S red-lines on ANY hit — the host's exclusion is what changed", () => {
+  test("PHASE 0 (before the flip) red-lines on ANY hit — the host's exclusion is what changed", () => {
     const data = v2WithSpan(RITUAL);
     const meter = crossEncoding({
       ...METER,
-      phase: "S",
+      phase: "0",
       v2DataDir: data,
       v1Dir: dir("v1"),
       v1Ritual: [RITUAL],
       v1CreatedThatDay: 1_000,
     });
     expect(meter.redLine).toBe(true);
-    // Even a vast denominator cannot buy it down: Phase S has no ratio.
+    // Even a vast denominator cannot buy it down: phase 0 has no ratio.
     expect(meter.ratioNote).toContain("ZERO hits in either direction");
   });
 
@@ -1430,6 +1546,68 @@ describe("the cross-encoding meter", () => {
     expect(none.redLine).toBe(true);
     expect(none.namedFinding).toBe(false);
     expect(none.ratioNote).toContain("NO denominator");
+  });
+
+  // ── the single-phase ruling: the two rules are BY DIRECTION, not by phase ──
+  test("PHASE P, v1 -> v2: ANY hit red-lines, and no denominator can buy it down", () => {
+    // v1's ritual text inside v2's capture. That exclusion is carried by the
+    // HOST's transcript shape (§5 G8), not by v2 and not by the mute, so it is
+    // the same zero bar in every phase — the ratio belongs to the other
+    // direction, where v1 keeps v2's text by design.
+    const data = v2WithSpan(RITUAL);
+    const meter = crossEncoding({
+      ...METER,
+      phase: "P",
+      v2DataDir: data,
+      v1Dir: dir("v1"),
+      v1Ritual: [RITUAL],
+      v1CreatedThatDay: 1_000,
+    });
+    expect(meter.v1IntoV2.hits).toBe(1);
+    expect(meter.redLine).toBe(true);
+    expect(meter.namedFinding).toBe(false);
+    // The ratio is computed and is far under the bar — and is not what decided.
+    expect(meter.ratio).toBe(0);
+    expect(meter.ratioNote).toContain("v1→v2 1 hit(s), where the bar is ZERO in every phase");
+  });
+
+  test("PHASE P: a v2 -> v1 hit under the ratio is a finding UNTIL a v1 -> v2 hit lands", () => {
+    const v1 = dir("v1");
+    const V2_ASK = "Write what you learned, in your own words, while you have the pen.";
+    const buffer = join(v1, "buffer-archive", DAY, "scope.1.jsonl");
+    mkdirSync(dirname(buffer), { recursive: true });
+    writeFileSync(
+      buffer,
+      `${JSON.stringify({ ts: `${DAY}T09:00:00Z`, sessionId: "s", spanText: V2_ASK })}\n`,
+      "utf8",
+    );
+    // v2's ask in v1's buffer: 1 hit against 40 mints, the accepted cost.
+    const finding = crossEncoding({
+      ...METER,
+      phase: "P",
+      v2DataDir: dir("v2-clean"),
+      v1Dir: v1,
+      v2Ritual: [V2_ASK],
+      v1CreatedThatDay: 40,
+    });
+    expect(finding.redLine).toBe(false);
+    expect(finding.namedFinding).toBe(true);
+
+    // The same day, plus one v1 line in v2's capture: the host-shape breach
+    // halts the day whatever the other direction's ratio says.
+    const both = crossEncoding({
+      ...METER,
+      phase: "P",
+      v2DataDir: v2WithSpan(RITUAL),
+      v1Dir: v1,
+      v1Ritual: [RITUAL],
+      v2Ritual: [V2_ASK],
+      v1CreatedThatDay: 40,
+    });
+    expect(both.v1IntoV2.hits).toBe(1);
+    expect(both.v2IntoV1.hits).toBe(1);
+    expect(both.redLine).toBe(true);
+    expect(both.namedFinding).toBe(false);
   });
 
   test("a receiving side that cannot be READ is unmeasured, never a clean zero (delta N3)", () => {
@@ -1882,7 +2060,7 @@ describe("day classes", () => {
           });
         }
       });
-      return classOf(s, { phase: "S", primacy: "v1" });
+      return classOf(s, { phase: "0", primacy: "v1" });
     };
     // The session ended through `session-end` only: no `stop`, so no primacy
     // row and no episode ask — the boundary row is the evidence. Control first:
@@ -1891,7 +2069,7 @@ describe("day classes", () => {
     expect(build(true).class).toBe("active");
   });
 
-  test("CONTAMINATED in Phase S: a muted v2 that injected a wake is caught by its own durable row", () => {
+  test("CONTAMINATED before the flip: a muted v2 that injected a wake is caught by its own durable row", () => {
     const s = scene(3);
     // v1 primary and delivering normally; v2 stood down at every hook — except
     // that one wake bundle went out. The primacy stand-down rows say "muted";
@@ -1919,10 +2097,10 @@ describe("day classes", () => {
         payload: { ok: true, reason: "ok", bytes: 900, budget: 9000, sentinel: true, date: DATE, session: "s1" },
       });
     });
-    const r = classOf(s, { phase: "S", primacy: "v1" });
+    const r = classOf(s, { phase: "0", primacy: "v1" });
     expect(r.class).toBe("contaminated");
     expect(r.contamination.v2.wake).toBe(1);
-    expect(r.contamination.v1.wake).toBe(1); // v1 delivering is its job in Phase S
+    expect(r.contamination.v1.wake).toBe(1); // v1 delivering is its job before the flip
   });
 
   test("the day's v1 DETECTOR lines are copied into the run directory, and nothing else is", () => {
@@ -1979,14 +2157,15 @@ describe("day classes", () => {
   });
 
   // ── review blocker 5: activeDays is PER PHASE, and every day says which ───
-  test("3 active S days then 1 active P day reads activeDays {S: 3, P: 1}", () => {
+  test("an active day 0 then 3 active P days reads activeDays {0: 1, P: 3} — and no S", () => {
     const s = scene(3);
     const dates = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"];
-    // v1 is the primary through Phase S, so it delivers and v2 stands down;
-    // the flip on the fourth day inverts it. Every day is otherwise identical.
+    // Day 0 is before the flip: v1 delivers and v2 stands down. The flip
+    // happens at the end of that day, and from day 1 it is inverted — the
+    // single-phase shape (RULED 2026-09-03). Every day is otherwise identical.
     for (const [i, date] of dates.entries()) {
-      const phase = i < 3 ? ("S" as const) : ("P" as const);
-      const primacy = i < 3 ? ("v1" as const) : ("v2" as const);
+      const phase = i < 1 ? ("0" as const) : ("P" as const);
+      const primacy = i < 1 ? ("v1" as const) : ("v2" as const);
       v1Log(s.v1Dir, date, [
         { seq: 0, session: `s${i}`, type: "session.start" },
         ...(phase === "P"
@@ -2029,8 +2208,10 @@ describe("day classes", () => {
     // The old line counted EVERY active day in the run into the running phase,
     // so P would have read 4 on its first day and cleared a 7-day minimum four
     // days early.
-    expect(run?.activeDays).toEqual({ "0": 0, S: 3, P: 1 });
-    expect(run?.days.map((d) => d.phase)).toEqual(["S", "S", "S", "P"]);
+    expect(run?.activeDays).toEqual({ "0": 1, P: 3 });
+    expect(run?.days.map((d) => d.phase)).toEqual(["0", "P", "P", "P"]);
+    // There is no shadow phase to count: the key does not exist at all.
+    expect(Object.keys(run?.activeDays ?? {})).toEqual(["0", "P"]);
   });
 
   // ── review blocker 9, the record's half: a poisoned read is never active ──
@@ -2103,7 +2284,7 @@ describe("day classes", () => {
         date: DATE,
         v1Dir: dir("v1"),
         v2DataDir: dir("v2"),
-        phase: "S",
+        phase: "0",
         primacy: "v1",
         v1Ritual: [V1_RITUAL],
       }),
@@ -2117,7 +2298,7 @@ describe("day classes", () => {
         date: DATE,
         v1Dir: dir("v1"),
         v2DataDir: dir("v2"),
-        phase: "S",
+        phase: "0",
         primacy: "v1",
         v1Ritual: [V1_RITUAL],
       }),
@@ -2205,7 +2386,10 @@ function fixture(): Fixture {
   });
 
   const configPath = at("config", "adapter.json");
+  const credentialsPath = join(runDir, "..", "credentials.env");
+  writeFileSync(credentialsPath, "ANTHROPIC_API_KEY=test-key-not-a-real-credential\nVOYAGE_API_KEY=test-voyage-not-a-real-credential\n", "utf8");
   writeJson(configPath, {
+    credentialsFile: credentialsPath,
     dataDir: v2Dir,
     parallel: { enabled: true },
     injectionBudgetBytes: 9_000,
@@ -2235,7 +2419,30 @@ function fixture(): Fixture {
     counts: { pass: 31, fail: 0, "needs-rater": 2, "not-exercised": 23, watch: 0 },
     verdicts: record().verdicts,
   });
-  writeJson(join(runDir, "waivers.json"), [WAIVER("replay-sample-5d")]);
+  // THE DAY-0 SEQUENCE, COMPLETE — preconditions 8 and 9 bind at phase 0 now
+  // that there is no shadow phase to defer them past (RULED 2026-09-03), and
+  // what makes them measurable is the order of that sequence: the throwaway
+  // session in which v2 DELIVERED (its ask observed, its first surfacing
+  // decisions durable), then the day-0 daily run that writes G12's baseline
+  // hash into run.json, and only then this preflight.
+  writeJson(join(runDir, "ask-channel.json"), {
+    observedAt: "2026-09-04",
+    channel: "stdout",
+    exitCode: 0,
+    session: "throwaway-1",
+  });
+  writeJson(join(runDir, "run.json"), {
+    startDate: "2026-09-04",
+    phase: "0",
+    primacy: "v1",
+    activeDays: { "0": 0, P: 0 },
+    days: [],
+    configHashes: { v2Config: null, assignment: null },
+    seat: "",
+    vectors: "",
+    surfaceSet: surfaceSetHash(),
+    updatedAt: "2026-09-04T11:00:00.000Z",
+  });
 
   // A clean transcript with a measurable, parallel hook model — and v1's wake
   // arriving the way the host actually routes it, as an attachment with no
@@ -2266,6 +2473,11 @@ function fixture(): Fixture {
   buildStore(v2Dir, (s) => {
     s.put({ type: "memory", kind: "self", body: "A synthetic standing self note.", source: "authored" });
     s.put({ type: "memory", kind: "fact", body: "A synthetic migrated fact.", source: "migrated" });
+    // The throwaway session's durable surfacing decision (precondition 9): v2
+    // writes one only on a turn it DELIVERED, since the primacy stand-down
+    // precedes `recallForTurn` — so this row is evidence that the session
+    // happened, not decoration.
+    s.appendEvent({ name: "recall.decision", day: 0, payload: { surfaced: 2 } });
   });
 
   return { runDir, v1Dir, v2Dir, engramDir, configPath, replayOut, transcripts, abDir };
@@ -2291,15 +2503,20 @@ function preflight(f: Fixture, over: Partial<Parameters<typeof runPreflight>[0]>
 }
 
 describe("the preflight — Phase 0, as a gate", () => {
-  test("a complete fixture reaches ready: true, with 8 and 9 deferred to the S→P flip", () => {
+  test("a complete fixture reaches ready: true, with EVERY row binding — nothing deferred", () => {
     const f = fixture();
     process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-credential";
     try {
       const report = preflight(f);
-      const failing = report.checks.filter((c) => c.gates === "day-1" && c.status !== "pass");
+      const failing = report.checks.filter((c) => c.status !== "pass");
       expect(failing.map((c) => `${c.id}: ${c.detail}`)).toEqual([]);
       expect(report.ready).toBe(true);
-      expect(report.deferred).toEqual(["precondition.8", "precondition.9"]);
+      // Preconditions 8 and 9 are in the passing set, not in a deferred one:
+      // with the shadow phase dropped they gate the DAY-0 flip (RULED
+      // 2026-09-03), and the report has no `deferred` list at all any more.
+      expect(report.checks.find((c) => c.id === "precondition.8")?.status).toBe("pass");
+      expect(report.checks.find((c) => c.id === "precondition.9")?.status).toBe("pass");
+      expect("deferred" in report).toBe(false);
       // HERMETIC, PROVED: every path the preflight actually resolved is inside
       // this test's temp tree. A green preflight that had reached the real
       // `~/.memory-ab` would look identical without this line.
@@ -2318,16 +2535,60 @@ describe("the preflight — Phase 0, as a gate", () => {
     }
   });
 
-  test("run it as the S→P flip and 8 and 9 stop being free — ready goes false", () => {
+  test("PHASE 0 BINDS 8 AND 9: without the day-0 session's evidence, ready is false", () => {
+    // The old build deferred these two to an S→P flip that no longer exists,
+    // which under the single-phase ruling would let the run flip to v2-primary
+    // with the ask channel unproven — and day 1 is the authored dump's first
+    // fire anywhere. Each is removed on its own, so neither is carrying the
+    // other's failure.
+    process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-credential";
+    try {
+      const noAsk = fixture();
+      rmSync(join(noAsk.runDir, "ask-channel.json"));
+      const a = preflight(noAsk);
+      expect(a.ready).toBe(false);
+      expect(a.checks.find((c) => c.id === "precondition.8")?.status).toBe("not-exercised");
+      expect(a.checks.find((c) => c.id === "precondition.9")?.status).toBe("pass");
+
+      const noHash = fixture();
+      rmSync(join(noHash.runDir, "run.json"));
+      const b = preflight(noHash);
+      expect(b.ready).toBe(false);
+      expect(b.checks.find((c) => c.id === "precondition.9")?.status).toBe("not-exercised");
+      expect(b.checks.find((c) => c.id === "precondition.8")?.status).toBe("pass");
+    } finally {
+      delete process.env["ANTHROPIC_API_KEY"];
+    }
+  });
+
+  test("--phase P is the daily re-check: the same rows, and the drop-dead behind us", () => {
+    // §5 P1's drop-dead bars a run from STARTING (§9 OQ5). The daily re-check
+    // runs for every day of a ≥7-day run — every one of them past 09-08 by
+    // arithmetic — so failing that row mid-run would tell an already-running
+    // run that it should not have started, which is not a thing it can act on.
     const f = fixture();
     process.env["ANTHROPIC_API_KEY"] = "test-key-not-a-real-credential";
     try {
-      const report = preflight(f, { phase: "P" });
-      expect(report.ready).toBe(false);
-      expect(report.deferred).toEqual([]);
-      const eight = report.checks.find((c) => c.id === "precondition.8");
-      expect(eight?.status).toBe("not-exercised");
-      expect(eight?.detail).toContain("Gates the S→P flip, not day 1");
+      const late = { today: "2026-09-15" };
+      const atZero = preflight(f, { ...late, phase: "0" as const });
+      expect(atZero.ready).toBe(false);
+      expect(atZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
+
+      // Without a day 0 on record, the re-check cannot buy the drop-dead (NEW-2).
+      const noDayZero = preflight(f, { ...late, phase: "P" as const });
+      expect(noDayZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
+      expect(noDayZero.ready).toBe(false);
+
+      const runJson = JSON.parse(readFileSync(join(f.runDir, "run.json"), "utf8")) as Record<string, unknown>;
+      writeJson(join(f.runDir, "run.json"), {
+        ...runJson,
+        days: [{ date: "2026-09-04", class: "active", phase: "0" }],
+      });
+      const running = preflight(f, { ...late, phase: "P" as const });
+      const bars = running.checks.find((c) => c.id === "bars.committed");
+      expect(bars?.status).toBe("pass");
+      expect(bars?.detail).toContain("bars a run from STARTING");
+      expect(running.ready).toBe(true);
     } finally {
       delete process.env["ANTHROPIC_API_KEY"];
     }
@@ -2412,12 +2673,33 @@ describe("the preflight — Phase 0, as a gate", () => {
     expect(row?.detail).toContain("expired");
   });
 
-  test("replay.gate fails when the waiver names another record", () => {
+  test("replay.gate PASSES on a sample record with no signature anywhere", () => {
+    // The fixture's pass record is `sample: true` and the run directory holds
+    // no waivers file at all — there is no such file any more (RULED
+    // 2026-09-03). The row carries the wiring readings it passed on, so a green
+    // gate can be read rather than trusted.
     const f = fixture();
-    writeJson(join(f.runDir, "waivers.json"), [WAIVER("a-different-run")]);
+    expect(existsSync(join(f.runDir, "waivers.json"))).toBe(false);
+    const row = rowOf(f, "replay.gate");
+    expect(row?.status).toBe("pass");
+    expect(row?.detail).toContain("sample=true");
+    expect(row?.detail).toContain("wiring: preselect.meanSchemasShown=pass");
+  });
+
+  test("replay.gate FAILS when the record's wiring is dead, naming the channel", () => {
+    const f = fixture();
+    const dead = record();
+    writeJson(join(f.replayOut, "pass-record.json"), {
+      runId: "replay-sample-5d",
+      readOnlyProof: true,
+      totalityOk: true,
+      sample: true,
+      counts: { pass: 30, fail: 1, "needs-rater": 2, "not-exercised": 23, watch: 0 },
+      verdicts: { ...dead.verdicts, "preselect.blindRate": { verdict: "fail", value: 1 } },
+    });
     const row = rowOf(f, "replay.gate");
     expect(row?.status).toBe("fail");
-    expect(row?.detail).toContain("not replay-sample-5d");
+    expect(row?.detail).toContain("EVERY gated chunk encoded blind");
   });
 
   test("replay.gate fails when there is no pass record at all", () => {
@@ -2516,6 +2798,43 @@ describe("the preflight — Phase 0, as a gate", () => {
     const row = rowOf(f, "host.hooks");
     expect(row?.status).toBe("not-exercised");
     expect(row?.detail).toContain("SessionEnd budget was never measured");
+  });
+
+  test("v2.config judges a HOOK-SHAPED env: keys in the preflight's own shell do not count, the configured file does", () => {
+    const f = fixture();
+    process.env["ANTHROPIC_API_KEY"] = "shell-key-not-a-real-credential";
+    process.env["VOYAGE_API_KEY"] = "shell-voyage-not-a-real-credential";
+    try {
+      const withFile = rowOf(f, "v2.config");
+      expect(withFile?.status).toBe("pass");
+      expect(withFile?.detail).toContain("present (file)");
+      const cfg = JSON.parse(readFileSync(f.configPath, "utf8")) as Record<string, unknown>;
+      delete cfg["credentialsFile"];
+      writeJson(f.configPath, cfg);
+      const without = rowOf(f, "v2.config");
+      expect(without?.status).toBe("fail");
+      expect(without?.detail).toContain("no credentialsFile configured");
+    } finally {
+      delete process.env["ANTHROPIC_API_KEY"];
+      delete process.env["VOYAGE_API_KEY"];
+    }
+  });
+
+  test("host.hooks PASSES by COMPLETION evidence when the host recorded no attachment — a durable session-end boundary row on the day", () => {
+    const f = fixture();
+    buildStore(f.v2Dir, (s) => {
+      s.appendEvent({
+        name: "adapter.boundary",
+        day: 0,
+        payload: { hook: "session-end", kind: "session-end", captured: false, spans: 0, date: "2026-09-04", session: "probe" },
+      });
+    });
+    const row = rowOf(f, "host.hooks", { transcripts: [dir("empty-transcripts")], today: "2026-09-04" });
+    expect(row?.status).toBe("pass");
+    expect(row?.detail).toContain("evidenced by COMPLETION");
+    // A different day's row is not this day's evidence.
+    const other = rowOf(f, "host.hooks", { transcripts: [dir("empty-transcripts")], today: "2026-09-05" });
+    expect(other?.status).toBe("not-exercised");
   });
 
   test("host.hooks is NOT-EXERCISED when the model could not be measured", () => {
@@ -2628,10 +2947,13 @@ describe("the preflight — Phase 0, as a gate", () => {
   //     reachable rather than impossible by construction ────────────────────
   test("precondition 8 reads a machine-readable ask-channel record, not prose", () => {
     const f = fixture();
+    rmSync(join(f.runDir, "ask-channel.json"));
     let r = rowOf(f, "precondition.8");
     expect(r?.status).toBe("not-exercised");
-    expect(r?.gates).toBe("s-to-p");
     expect(r?.detail).toContain("ask-channel.json");
+    // And it names WHY a muted throwaway session cannot prove it: v2's Stop
+    // ask never fires while it is standing down.
+    expect(r?.detail).toContain("v2 DELIVERS");
 
     // A record missing any field is a FAIL, not a pass: the observation has to
     // say what was seen, when, through which channel, and with what exit code.
@@ -2652,15 +2974,22 @@ describe("the preflight — Phase 0, as a gate", () => {
   });
 
   test("precondition 9 reads recall.decision ROWS and the surfaceSet hash", () => {
-    const f = fixture();
-    // Nothing in the store yet: replay INTERFACE-GAPS §7's gap, unclosed.
-    let r = rowOf(f, "precondition.9");
+    // A store with no surfacing decision in it: replay INTERFACE-GAPS §7's gap,
+    // unclosed — and, in the single-phase shape, the day-0 throwaway session
+    // still owed, since a muted v2 decides nothing (the stand-down precedes
+    // `recallForTurn`).
+    const empty = fixture();
+    const bare = dir("bare-store");
+    buildStore(bare, () => {
+      /* a store, no decisions */
+    });
+    let r = rowOf(empty, "precondition.9", { v2DataDir: bare });
     expect(r?.status).toBe("not-exercised");
     expect(r?.detail).toContain("recall.decision");
+    expect(r?.detail).toContain("the day-0 throwaway session still owed");
 
-    buildStore(f.v2Dir, (store) => {
-      store.appendEvent({ name: "recall.decision", day: 0, payload: { surfaced: 2 } });
-    });
+    const f = fixture();
+    rmSync(join(f.runDir, "run.json"));
     // The rows are there, but G12 still has nothing to compare a change against.
     r = rowOf(f, "precondition.9");
     expect(r?.status).toBe("not-exercised");
@@ -2673,7 +3002,7 @@ describe("the preflight — Phase 0, as a gate", () => {
       date: "2026-09-04",
       v1Dir: f.v1Dir,
       v2DataDir: f.v2Dir,
-      phase: "S",
+      phase: "0",
       primacy: "v1",
       v1Ritual: ["What did you learn in this session that is worth keeping?"],
     });
@@ -2703,6 +3032,29 @@ describe("the preflight — Phase 0, as a gate", () => {
     const row = rowOf(f, "precondition.7");
     expect(row?.status).toBe("fail");
     expect(row?.detail).toContain("no approvedBy/approvedAt");
+  });
+
+  test("gate-sets.json copies FOUR enumerations into the run dir, wiring included", () => {
+    // Precondition 1's sets are "copied into the run directory" so the run's own
+    // artifacts say what the gate asked about. The wiring checks are part of
+    // that now (RULED 2026-09-03: the predicate replaced the signature), and a
+    // predicate nobody can read from the run directory is the same ceremony in
+    // a different costume.
+    const f = fixture();
+    const artifacts = preflightArtifacts(preflight(f), readBars(f.runDir));
+    const sets = artifacts["gate-sets.json"];
+    expect(sets.parallelExercisable).toEqual([...PARALLEL_EXERCISABLE]);
+    expect(sets.raterDeferred).toEqual([...RATER_DEFERRED]);
+    expect(sets.notApplicableToRun).toEqual([...NOT_APPLICABLE_TO_RUN]);
+    expect(sets.wiringAlive.map((w) => w.id)).toEqual([
+      "preselect.meanSchemasShown",
+      "preselect.blindRate",
+      "gate.refusalMix",
+    ]);
+    for (const w of sets.wiringAlive) expect(w.proves.length).toBeGreaterThan(10);
+    expect(sets.preconditionDropDead).toBe("2026-09-08");
+    // And no waivers file is written or read anywhere in the artifacts.
+    expect(Object.keys(artifacts)).toEqual(["preflight.json", "gate-sets.json"]);
   });
 
   test("preconditions 2, 3 and 4 carry the NAMES of the tests that verify them", () => {

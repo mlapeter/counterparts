@@ -427,6 +427,23 @@ export interface SchemaBytesReport {
   readonly quarantined: number;
   /** The bytes those rows would have weighed — what the quarantine set aside. */
   readonly quarantinedBytes: number;
+  /**
+   * Episodes EXCLUDED from this weighing (day-0 finding, 2026-09-03): the journal
+   * is `kind: self` prose, but it is not the self schema — v1's ~72 KB scar was
+   * status accreting on `self.md`, not the diary. Weighing 224 migrated chapters
+   * read the valve tripped at 3 MB on a store nobody had written to yet, and every
+   * authored chapter after would have kept it tripped. Counted, never absent.
+   */
+  readonly episodes: number;
+  readonly episodeBytes: number;
+  /**
+   * Migrated self rows EXCLUDED for the same reason the fallback rows are: the
+   * valve watches what THIS system accumulates on the self (§5 G4: "status does
+   * not accumulate"), and v1's thousand self-kind traces arrived in one write.
+   * They remain ordinary, recallable memories; here they are counted.
+   */
+  readonly migrated: number;
+  readonly migratedBytes: number;
 }
 
 /**
@@ -440,6 +457,10 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
   const weighed: { id: string; bytes: number }[] = [];
   let quarantined = 0;
   let quarantinedBytes = 0;
+  let episodes = 0;
+  let episodeBytes = 0;
+  let migrated = 0;
+  let migratedBytes = 0;
   for (const id of [
     ...store.list({ band: "identity", archived: false }),
     ...store.list({ kind: "self", archived: false }),
@@ -453,6 +474,23 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
     // measured set equal to the rendered set (PR-2 review should-fix 2: a
     // weighed prompt byte must never be invisible to the byte valve).
     const row = store.row(id);
+    if (row !== undefined && row.type === "episode" && row.band !== "identity" && row.protected !== 1) {
+      episodes += 1;
+      const e = enumerateOne(store, id, day);
+      if (e !== null) episodeBytes += e.bytes;
+      continue;
+    }
+    if (
+      row !== undefined &&
+      row.source === "migrated" &&
+      row.band !== "identity" &&
+      row.protected !== 1
+    ) {
+      migrated += 1;
+      const m = enumerateOne(store, id, day);
+      if (m !== null) migratedBytes += m.bytes;
+      continue;
+    }
     if (
       row !== undefined &&
       row.source === "fallback" &&
@@ -480,5 +518,9 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
     heaviest: weighed.slice(0, 5),
     quarantined,
     quarantinedBytes,
+    episodes,
+    episodeBytes,
+    migrated,
+    migratedBytes,
   };
 }

@@ -26,8 +26,34 @@
  * So they get the CONTRACT's own third word. §5 G13: `not-applicable` — "a
  * criterion structurally out of scope ... enumerated in the run directory
  * before the phase begins; it needs no waiver and can never render green."
- * `NOT_APPLICABLE_TO_RUN` is that enumeration, and all three sets are copied
- * into the run directory exactly as precondition 1 requires.
+ * `NOT_APPLICABLE_TO_RUN` is that enumeration, and all three sets — plus the
+ * fourth below, `WIRING_ALIVE` — are copied into the run directory exactly as
+ * precondition 1 requires.
+ *
+ * ── NO WAIVER. THE WIRING-ALIVE PREDICATE (RULED 2026-09-03, owner) ─────────
+ *
+ * The first build of this file refused a `sample: true` record unless an
+ * owner-signed `waivers.json` in the run directory named it. The owner struck
+ * that: *"I'm not sure our intent was to require signing things to change
+ * them."* Signing is ceremony, and a signature proves who typed it, never that
+ * the instrument was plugged in.
+ *
+ * What the gate asks instead is mechanical and reads the record itself: **is
+ * the wiring proven alive?** `WIRING_ALIVE` below is that question as a small
+ * named set of checks over the pass record's own per-metric verdicts and
+ * observed values — cards were shown, not every chunk encoded blind, the gate
+ * battery's mix was actually computed. A record that carries those channels
+ * alive opens this gate whether it is a full re-run or the queued sample.
+ *
+ * BAND FAILURES ARE NOT WAIVED BY ANYONE — they are simply not this gate's
+ * business. `counts.fail === 0` was the old regime's other half, and it made
+ * the owner's own ruled sample route unsatisfiable: the sample's bands are v1's
+ * numbers, which §5 G15 says are "calibration to re-earn, not inherited law"
+ * (replay G10). The run's own bands judge the run. What is still refused is
+ * MISSING EVIDENCE: an absent `sample` flag, an absent `counts.fail`, a verdict
+ * outside replay's vocabulary, a header that disagrees with its own rows, or a
+ * wiring channel that cannot be read. A gate whose fields fail open is a
+ * document.
  *
  * Nothing here imports either system under test (the independent-scorer rule,
  * [v1] §17.2 / replay G5) and nothing here writes.
@@ -35,7 +61,7 @@
 import { VERDICTS } from "../replay/types.js";
 import type { Verdict } from "../replay/types.js";
 
-import type { GateVerdict, Waiver } from "./types.js";
+import type { GateVerdict } from "./types.js";
 
 /**
  * The `not-exercised` ids ONLY a parallel run can exercise — §6's charter, id
@@ -108,31 +134,108 @@ export const KNOWN_NOT_EXERCISED: readonly string[] = [
   ...NOT_APPLICABLE_TO_RUN,
 ];
 
-/** The three sets, in the shape precondition 1 copies into the run directory. */
-export function gateSets(): {
-  readonly parallelExercisable: readonly string[];
-  readonly raterDeferred: readonly string[];
-  readonly notApplicableToRun: readonly string[];
-} {
-  return {
-    parallelExercisable: [...PARALLEL_EXERCISABLE],
-    raterDeferred: [...RATER_DEFERRED],
-    notApplicableToRun: [...NOT_APPLICABLE_TO_RUN],
-  };
-}
-
 /**
  * What this predicate needs from a replay pass record. Structural, not nominal:
  * a record read off disk is JSON, and demanding the full `PassRecord` type
  * would make the reader import the renderer (which holds a write API).
+ *
+ * `value` is the metric's OBSERVED number (`report.ts#passRecord`:
+ * `value: m.observed === null ? null : m.observed.value`), and it is here
+ * because one wiring check reads a number rather than a verdict: a blind rate
+ * of exactly 1.0 can sit inside no band at all and still be the one reading
+ * that means the cards channel reached nothing.
  */
+export interface GateEntry {
+  readonly verdict: Verdict;
+  readonly value: number | null;
+}
+
 export interface GateReadableRecord {
   readonly runId: string;
   readonly readOnlyProof: boolean;
   readonly totalityOk: boolean;
   readonly sample: boolean;
   readonly counts: Readonly<Record<string, number>>;
-  readonly verdicts: Readonly<Record<string, { readonly verdict: Verdict }>>;
+  readonly verdicts: Readonly<Record<string, GateEntry>>;
+}
+
+/**
+ * ONE WIRING CHECK: a channel this run depends on, read off the record the run
+ * starts from, with its own refusal sentence.
+ */
+export interface WiringCheck {
+  /** The pass-record metric id it reads. */
+  readonly id: string;
+  /** Which channel being alive this reading proves. Copied into the run dir. */
+  readonly proves: string;
+  /** The refusal, or null when the channel is proven alive. */
+  readonly refusal: (entry: GateEntry | undefined) => string | null;
+}
+
+const absent = (id: string): string =>
+  `${id} is absent from the record's verdicts: precondition 1 reads the wiring off the rows, and a row that is not there is not a live channel`;
+
+/**
+ * PRECONDITION 1's replacement for the waiver (RULED 2026-09-03, owner): the
+ * wiring is proven alive, checked mechanically, on whichever record the run
+ * starts from — sample or full.
+ *
+ * Three channels, each the one that was DEAD in the first replay run and had to
+ * be rebuilt (the schema-slice wire, PR #6): preselection showing cards at all,
+ * the cards reaching some chunk rather than every chunk encoding blind, and the
+ * gate battery's mix actually computed rather than never fired. Bands are not
+ * asked about here — a channel can be alive and out of v1's band, which is what
+ * "calibration to re-earn" means (§5 G15).
+ */
+export const WIRING_ALIVE: readonly WiringCheck[] = [
+  {
+    id: "preselect.meanSchemasShown",
+    proves: "cards were shown — preselection had a schema slice to select from",
+    refusal: (e) => {
+      if (e === undefined) return absent("preselect.meanSchemasShown");
+      return e.verdict === "pass"
+        ? null
+        : `preselect.meanSchemasShown reads ${e.verdict} (observed ${e.value ?? "null"}): no schema cards reached the chunk gate, so the preselect channel is not proven alive`;
+    },
+  },
+  {
+    id: "preselect.blindRate",
+    proves: "not every chunk encoded blind — the cards reached real chunks",
+    refusal: (e) => {
+      if (e === undefined) return absent("preselect.blindRate");
+      if (e.value === null || !Number.isFinite(e.value)) {
+        return "preselect.blindRate carries no observed value: an unreadable blind rate is not a low one";
+      }
+      return e.value < 1
+        ? null
+        : `preselect.blindRate is ${e.value}: EVERY gated chunk encoded blind, which is the dead-wire reading precondition 1 exists to catch`;
+    },
+  },
+  {
+    id: "gate.refusalMix",
+    proves: "the gate battery fired and its mix was computed",
+    refusal: (e) => {
+      if (e === undefined) return absent("gate.refusalMix");
+      return e.verdict === "not-exercised"
+        ? "gate.refusalMix is not-exercised: the battery's per-gate mix was never computed, so the gate channel is not proven alive"
+        : null;
+    },
+  },
+];
+
+/** The three sets and the wiring checks, as precondition 1 copies them in. */
+export function gateSets(): {
+  readonly parallelExercisable: readonly string[];
+  readonly raterDeferred: readonly string[];
+  readonly notApplicableToRun: readonly string[];
+  readonly wiringAlive: readonly { readonly id: string; readonly proves: string }[];
+} {
+  return {
+    parallelExercisable: [...PARALLEL_EXERCISABLE],
+    raterDeferred: [...RATER_DEFERRED],
+    notApplicableToRun: [...NOT_APPLICABLE_TO_RUN],
+    wiringAlive: WIRING_ALIVE.map((w) => ({ id: w.id, proves: w.proves })),
+  };
 }
 
 /**
@@ -169,7 +272,7 @@ export function parseGateRecord(raw: unknown): GateReadableRecord | string {
   if (typeof sample !== "boolean") {
     return `pass record ${runId} carries no boolean \`sample\` field (got ${describe(sample)}): a missing sample flag is not a full re-run`;
   }
-  const out: Record<string, { verdict: Verdict }> = {};
+  const out: Record<string, GateEntry> = {};
   for (const [id, value] of Object.entries(verdicts as Record<string, unknown>)) {
     const v = value as Record<string, unknown> | null;
     const verdict = v === null ? undefined : v["verdict"];
@@ -182,7 +285,14 @@ export function parseGateRecord(raw: unknown): GateReadableRecord | string {
     if (!(VERDICTS as readonly string[]).includes(verdict)) {
       return `pass record ${runId} has an unknown verdict for ${id}: ${JSON.stringify(verdict)} is not one of ${VERDICTS.join(", ")}`;
     }
-    out[id] = { verdict: verdict as Verdict };
+    // A NON-NUMBER OBSERVED VALUE IS NULL, never coerced: the wiring checks
+    // read `value` for a number, and `null` there means "not readable", which
+    // is a refusal rather than a zero (a blind rate of 0 would be perfect).
+    const observed = v === null ? null : v["value"];
+    out[id] = {
+      verdict: verdict as Verdict,
+      value: typeof observed === "number" && Number.isFinite(observed) ? observed : null,
+    };
   }
   const numeric: Record<string, number> = {};
   for (const [k, v] of Object.entries(counts as Record<string, unknown>)) {
@@ -212,15 +322,13 @@ function describe(v: unknown): string {
  * PRECONDITION 1, as a predicate. Every refusal names its reason; an open gate
  * returns an empty reason list, so a caller cannot mistake silence for detail.
  *
- * `sample: true` is refused UNLESS the run directory's `waivers.json` carries a
- * precondition-1 entry whose `recordId` is THIS record's `runId`. A waiver
- * naming another record is not a waiver for this one — that check is the reason
- * the id is on the file at all.
+ * **RULED 2026-09-03 (owner): no waiver — the wiring-alive predicate replaces
+ * it.** A `sample: true` record is accepted on the same terms as a full re-run:
+ * `readOnlyProof && totalityOk`, every enumerated-set check, and every
+ * `WIRING_ALIVE` channel proven alive off the record's own rows. The sample's
+ * band failures are not waived by anyone — they are the run's to re-earn.
  */
-export function parallelGateOpen(
-  record: GateReadableRecord,
-  waivers: readonly Waiver[],
-): GateVerdict {
+export function parallelGateOpen(record: GateReadableRecord): GateVerdict {
   const reasons: string[] = [];
 
   if (!record.readOnlyProof) {
@@ -230,7 +338,7 @@ export function parallelGateOpen(
     reasons.push("totalityOk is false: the scorecard does not cover the baselines");
   }
 
-  // ── THE THREE FIELDS THAT USED TO FAIL OPEN (review blocker 1) ────────────
+  // ── THE FIELDS THAT USED TO FAIL OPEN (review blocker 1) ──────────────────
   //
   // This predicate is re-checked here rather than trusted from `parseGateRecord`
   // because it is the thing a cutover switch calls, and a caller can hand it a
@@ -239,6 +347,11 @@ export function parallelGateOpen(
   // ?? 0` (absent read as zero failures), and `verdict as Verdict` (any string
   // read as a legal verdict). Every one of them opened the gate on missing
   // evidence, which is the opposite of what a gate is for.
+  //
+  // `sample` is still REQUIRED and still recorded — the run says which record it
+  // started from — but it no longer decides anything by itself (RULED
+  // 2026-09-03). `counts.fail` is required as EVIDENCE, not as a bar: a number
+  // that is not there cannot be cross-checked against the rows below.
   const sample: unknown = record.sample;
   if (typeof sample !== "boolean") {
     reasons.push(
@@ -250,8 +363,6 @@ export function parallelGateOpen(
     reasons.push(
       `counts.fail is ${describe(fails)}, not a number: an absent failure count is not zero failures`,
     );
-  } else if (fails !== 0) {
-    reasons.push(`counts.fail is ${fails}: only a run with zero failures opens this gate`);
   }
 
   const strayNotExercised: string[] = [];
@@ -297,69 +408,11 @@ export function parallelGateOpen(
     reasons.push(`needs-rater outside RATER_DEFERRED: ${strayRater.sort().join(", ")}`);
   }
 
-  if (record.sample) {
-    const signed = waivers.filter(
-      (w) => w.precondition === 1 && w.recordId === record.runId,
-    );
-    if (signed.length === 0) {
-      const named = waivers
-        .filter((w) => w.precondition === 1)
-        .map((w) => w.recordId)
-        .sort();
-      reasons.push(
-        named.length === 0
-          ? `sample: true and no precondition-1 waiver names record ${record.runId}`
-          : `sample: true and the precondition-1 waiver names ${named.join(", ")}, not ${record.runId}`,
-      );
-    } else {
-      // `signedAt` IS DATED, exactly as `committedAt` is (§5 G15's discipline,
-      // applied to the signature). A non-empty string check accepts `"yes"`,
-      // which satisfies the letter of "signed" while proving nothing about
-      // when — and precondition 1's whole point is a dated owner decision with
-      // a drop-dead attached.
-      const incomplete = signed.filter(
-        (w) =>
-          w.signedBy.trim().length === 0 ||
-          !/^\d{4}-\d{2}-\d{2}/.test(w.signedAt.trim()) ||
-          w.reason.trim().length === 0,
-      );
-      if (incomplete.length === signed.length) {
-        reasons.push(
-          `sample: true and the waiver for ${record.runId} is missing signedBy, a dated signedAt (YYYY-MM-DD) or reason`,
-        );
-      }
-    }
+  // ── THE WIRING, PROVEN ALIVE (the waiver's replacement) ───────────────────
+  for (const check of WIRING_ALIVE) {
+    const refusal = check.refusal(record.verdicts[check.id]);
+    if (refusal !== null) reasons.push(refusal);
   }
 
   return { open: reasons.length === 0, reasons };
-}
-
-/** Waivers as read off `waivers.json`. Malformed entries are dropped, counted. */
-export function parseWaivers(raw: unknown): { waivers: Waiver[]; malformed: number } {
-  const list = Array.isArray(raw)
-    ? raw
-    : raw !== null && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>)["waivers"])
-      ? ((raw as Record<string, unknown>)["waivers"] as unknown[])
-      : [];
-  const waivers: Waiver[] = [];
-  let malformed = 0;
-  for (const entry of list) {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-      malformed += 1;
-      continue;
-    }
-    const e = entry as Record<string, unknown>;
-    if (typeof e["precondition"] !== "number" || typeof e["recordId"] !== "string") {
-      malformed += 1;
-      continue;
-    }
-    waivers.push({
-      precondition: e["precondition"],
-      recordId: e["recordId"],
-      signedBy: typeof e["signedBy"] === "string" ? e["signedBy"] : "",
-      signedAt: typeof e["signedAt"] === "string" ? e["signedAt"] : "",
-      reason: typeof e["reason"] === "string" ? e["reason"] : "",
-    });
-  }
-  return { waivers, malformed };
 }

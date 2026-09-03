@@ -45,7 +45,9 @@ function usage(): never {
       "  --ab-dir <dir>        the primacy assignment dir.     default ~/.memory-ab",
       "  --replay-out <dir>    the replay run's --out dir (holds pass-record.json).",
       "  --transcripts <path>  a transcript file or directory. Repeatable.",
-      "  --phase <0|S|P>       which phase's gates to enforce. default 0.",
+      "  --phase <0|P>         0 = the day-0 preflight (the flip's gate; the",
+      "                        drop-dead binds here). P = the daily re-check.",
+      "                        default 0.",
       "  --today <YYYY-MM-DD>  seat-expiry clock. default: today.",
       "",
     ].join("\n"),
@@ -102,7 +104,8 @@ function parseArgs(argv: readonly string[]): Args {
         args.transcripts.push(value);
         break;
       case "--phase":
-        if (value !== "0" && value !== "S" && value !== "P") usage();
+        // No `S`: the shadow phase is dropped (RULED 2026-09-03, owner).
+        if (value !== "0" && value !== "P") usage();
         args.phase = value;
         break;
       case "--today":
@@ -173,13 +176,12 @@ function main(argv: readonly string[]): number {
     out.push(`  ${pad(MARK[check.status] ?? check.status, 6)}${pad(check.id, 24)}${check.detail}`);
   }
   out.push("");
-  if (report.deferred.length > 0) {
-    out.push(`deferred to the S→P flip: ${report.deferred.join(", ")}`);
-  }
   out.push(
     report.ready
-      ? "READY — every check gating this phase passed."
-      : "NOT READY — a check gating this phase did not pass. Day 1 does not start.",
+      ? "READY — every check passed."
+      : report.phase === "0"
+        ? "NOT READY — a check did not pass. The flip does not happen and day 1 does not start."
+        : "NOT READY — a check did not pass. This day does not count; name it or stop the run.",
   );
   process.stdout.write(`${out.join("\n")}\n`);
   return report.ready ? 0 : 1;

@@ -49,6 +49,8 @@ import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/ind
 
 import { capabilities, interpretSeat } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
+import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
+import type { CredentialLoad } from "./credentials.js";
 import { primacy } from "./primacy.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
@@ -134,6 +136,14 @@ export interface AdapterOptions {
   readonly spawner?: Spawner;
   readonly onEvent?: (e: AdapterEvent) => void;
   readonly now?: () => number;
+  /**
+   * What this PROCESS's credential file answered, from the entry point that
+   * loaded it (`bin/hook.ts`). Passed in rather than looked up: provenance is a
+   * fact about one process's startup, and the adapter's only jobs with it are to
+   * say `env` or `file` on the capability row and to leave ONE ring event saying
+   * the file was used. Names and counts only — never a value.
+   */
+  readonly credentials?: CredentialLoad;
 }
 
 /**
@@ -165,6 +175,7 @@ export class ClaudeCodeAdapter {
   private readonly spawner: Spawner | undefined;
   private readonly onEvent: ((e: AdapterEvent) => void) | undefined;
   private readonly nowFn: () => number;
+  private readonly credentials: CredentialLoad | undefined;
   private readonly ring: AdapterEvent[] = [];
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
@@ -182,6 +193,15 @@ export class ClaudeCodeAdapter {
     this.spawner = opts.spawner;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
+    this.credentials = opts.credentials;
+    // ONE event, and only when the file actually answered. A run whose keys came
+    // from the environment says nothing here, so the presence of this line in
+    // the ring IS the record that the configured file was the source (§4 G4:
+    // a host fact, surfaced rather than assumed). Last in the constructor:
+    // `emit` needs `nowFn`.
+    if (opts.credentials !== undefined && opts.credentials.loaded.length > 0) {
+      this.emit(CREDENTIAL_FILE_EVENT, credentialRow(opts.credentials));
+    }
   }
 
   events(name?: string): AdapterEvent[] {
@@ -190,7 +210,7 @@ export class ClaudeCodeAdapter {
 
   /** §4 G4: every host-dependent limit, as a checkable value. */
   capabilities(): CapabilityReport[] {
-    return capabilities(this.config);
+    return capabilities(this.config, process.env, this.credentials);
   }
 
   // ── session start: the wake ────────────────────────────────────────────────

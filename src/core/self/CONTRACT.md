@@ -118,7 +118,10 @@ recompression proposals and their archive; render and delivery telemetry.
    is not an identity element, discriminated at encode time by one question: *would this
    still be a true memory worth holding after the date passes?* A standing counter reports
    self-schema bytes and trips before it can dominate a prompt again (earned-mechanism #5:
-   ~72 KB, measured).
+   ~72 KB, measured). The counter weighs what THIS system accumulates on the self:
+   episodes (the journal, not the schema) and migrated rows are excluded and counted
+   beside the fallback-minted quarantine — a migrated store read 3 MB tripped on day 0
+   before anyone had written to it (2026-09-03).
 5. **[M]** Identity strength comes from lived salience only. A fallback-authored
    confirmation against a self- or skill-kind element moves nothing — no `uses`, no strength,
    no band crossing, no lived day burned — and emits its frozen marker anyway, on the

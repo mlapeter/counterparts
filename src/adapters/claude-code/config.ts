@@ -23,6 +23,8 @@
  * And one from observer-mode G5: an unreadable configuration resolves to
  * OBSERVER, never to "encode anyway". `loadConfig` never throws.
  */
+import type { CredentialLoad } from "./credentials.js";
+
 
 /** Every host-dependent limit this adapter depends on. One row each. */
 export const CAPABILITIES = [
@@ -39,6 +41,13 @@ export interface CapabilityReport {
   readonly reported: boolean;
   readonly value: number | boolean | null;
   readonly why: string;
+  /**
+   * WHICH SOURCE ANSWERED, name-level only. On the credential row: `"env"` when
+   * the process environment carried the name, `"file"` when the configured
+   * credentials file filled the gap, `"absent"` when nothing did. Never a value,
+   * never a hash of one.
+   */
+  readonly detail?: string;
 }
 
 /**
@@ -93,15 +102,22 @@ export const ANTHROPIC_VERSION = "2023-06-01";
 /** Voyage's embeddings endpoint, raw. Same rule: no SDK, no dependency. */
 export const VOYAGE_ENDPOINT = "https://api.voyageai.com/v1/embeddings";
 
-/** The ONE environment variable a credential may come from. Never a file. */
+/**
+ * The ONE environment variable a credential may come from — and, when the
+ * environment is silent, the one file `credentialsFile` NAMES. See that knob for
+ * the whole rule; the short form is: the environment first, a file the config
+ * names second, a file found by convention never.
+ */
 export const API_KEY_ENV = "ANTHROPIC_API_KEY";
 
 /**
  * The embedder's ONE environment variable — the same name v1 reads, so an owner
  * who already has a key in their environment does not learn a second name.
- * v1 also accepted a `.env` FILE as a fallback (`resolveVoyageKey`); that half is
- * deliberately dropped here. §2.18: the credential comes from one configured
- * source the package names, and a file the process happens to find is not one.
+ * v1 also accepted a `.env` FILE found by CONVENTION (`resolveVoyageKey`, in
+ * whatever directory the process happened to sit in); that half stays dropped.
+ * §2.18: the credential comes from one configured source the package names, and
+ * a file the process happens to FIND is not one — while a file the package's own
+ * configuration NAMES is (`credentialsFile`).
  */
 export const EMBED_KEY_ENV = "VOYAGE_API_KEY";
 
@@ -129,6 +145,32 @@ export const TUNABLES = {
 export interface AdapterConfig {
   /** Where the memory lives. Pinned onto the child's environment LAST. */
   readonly dataDir?: string;
+  /**
+   * THE CREDENTIAL FILE, and it is the source only because THIS FILE NAMES IT.
+   *
+   * Measured on day 0 of the parallel run: this host's hook processes carry
+   * neither documented name, even with both exported in the owner's shell rc —
+   * the host's process environment is not the login shell's. So a `process.env`
+   * that answers in a terminal answers nothing in a hook, and every spawn
+   * refuses `NO_CREDENTIAL` while the embedder never opens.
+   *
+   * The rules, mechanized in `credentials.ts`:
+   *
+   *   - the file is `KEY=value` lines (`export KEY=value`, quotes and CRLF
+   *     tolerated; blank and `#` lines skipped);
+   *   - ONLY the two documented names are honored — `API_KEY_ENV` and
+   *     `EMBED_KEY_ENV`. Anything else in the file is IGNORED AND COUNTED;
+   *   - a value already present in `process.env` WINS. The environment stays the
+   *     first source; the file only fills the gap;
+   *   - values are never logged, never emitted, never hashed. Names and counts
+   *     are the only things that leave.
+   *
+   * §2.18 permits exactly this and no more: "credentials come from one
+   * configured source the package owns". A file the package's own configuration
+   * NAMES is that source. A file found by CONVENTION — v1's `.env` in whatever
+   * directory the process sat in — is not, and stays forbidden.
+   */
+  readonly credentialsFile?: string;
   /** The host's reported injection ceiling, in bytes. NO DEFAULT (scar §2.18). */
   readonly injectionBudgetBytes?: number;
   /** How long the host lets a foreground hook run, ms. Reported, not assumed. */
@@ -194,6 +236,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
   const rec = raw as Record<string, unknown>;
   const out: {
     dataDir?: string;
+    credentialsFile?: string;
     injectionBudgetBytes?: number;
     executionCeilingMs?: number;
     socketLifetimeMs?: number;
@@ -219,6 +262,12 @@ export function loadConfig(raw: unknown): LoadedConfig {
 
   if (typeof rec["dataDir"] === "string") out.dataDir = rec["dataDir"];
   else if (rec["dataDir"] !== undefined) unreadable = true;
+
+  // Validated exactly like `dataDir`, and for the same reason: a path this
+  // package will OPEN is either a string the owner wrote or a configuration we
+  // did not understand, and the second one stands down rather than guessing.
+  if (typeof rec["credentialsFile"] === "string") out.credentialsFile = rec["credentialsFile"];
+  else if (rec["credentialsFile"] !== undefined) unreadable = true;
 
   const injection = num("injectionBudgetBytes");
   if (injection !== undefined) out.injectionBudgetBytes = injection;
@@ -324,9 +373,23 @@ export function loadConfig(raw: unknown): LoadedConfig {
  * The capability report — one row per host-dependent limit, each saying whether
  * the host actually reported it. This is the "surfaced as a checkable value"
  * half of §4 G4; the "exceeding one is an event" half lives at the call sites.
+ *
+ * The credential row also says WHICH SOURCE ANSWERED. `load` is the result of
+ * this process's `loadCredentials` call, passed in rather than looked up: the
+ * provenance of a credential is a fact about one process's startup, and a module
+ * that remembered it globally would leak between the runs of a test suite and
+ * lie about which source answered.
  */
-export function capabilities(config: AdapterConfig): CapabilityReport[] {
-  const key = process.env[API_KEY_ENV];
+export function capabilities(
+  config: AdapterConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  load?: CredentialLoad,
+): CapabilityReport[] {
+  const key = env[API_KEY_ENV];
+  const present = key !== undefined && key.trim().length > 0;
+  // Name-level only. "Which source" is the whole answer; the value never
+  // reaches this function's output in any form.
+  const source = !present ? "absent" : load?.loaded.includes(API_KEY_ENV) === true ? "file" : "env";
   return [
     {
       name: "injectionBudgetBytes",
@@ -349,8 +412,9 @@ export function capabilities(config: AdapterConfig): CapabilityReport[] {
     {
       name: "credential",
       reported: key !== undefined,
-      value: key !== undefined && key.length > 0,
+      value: present,
       why: "The detached worker starved for two days on a credential it expected to inherit (scar E4).",
+      detail: source,
     },
   ];
 }
@@ -394,11 +458,14 @@ export function embedSeat(config: AdapterConfig, today: string): SeatVerdict {
  * and the key is missing" are different records — the second is a refusal worth
  * an event, the first is not (scar §2.4).
  */
-export function embedderState(config: AdapterConfig): {
+export function embedderState(
+  config: AdapterConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): {
   readonly enabled: boolean;
   readonly credential: boolean;
 } {
-  const key = process.env[EMBED_KEY_ENV];
+  const key = env[EMBED_KEY_ENV];
   return {
     enabled: config.embedder?.enabled === true,
     credential: key !== undefined && key.trim().length > 0,

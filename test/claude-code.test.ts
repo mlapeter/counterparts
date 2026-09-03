@@ -14,7 +14,7 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,7 @@ import {
   AB_DIR_ENV,
   API_KEY_ENV,
   AUTHORSHIP_ASK,
+  CREDENTIAL_FILE_EVENT,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   DATA_DIR_ENV,
@@ -53,9 +54,11 @@ import {
   extractJson,
   interpretClient,
   loadConfig,
+  loadCredentials,
   openAdapter,
   openEmbedder,
   parseTranscript,
+  permissionWarning,
   planSpawn,
   primacy,
   readAssignment,
@@ -71,7 +74,8 @@ import type {
   LiveEmbedder,
   SpawnPlan,
 } from "../src/adapters/claude-code/index.js";
-import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
+import { hostConfig } from "../src/adapters/claude-code/bin/hook.js";
+import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const BUDGET_BYTES = 9000;
@@ -1228,7 +1232,8 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
   });
 
   test("the DELIVERY is evidenced too: wake, recall, delivery-check and episode-ask rows are durable (G2/G4)", () => {
-    // In Phase S v2 is the muted side, so a v2 delivery event IS the
+    // On any day v2 is the muted side — day 0, or a reverted day — a v2
+    // delivery event IS the
     // contamination detector — and a detector that lives only in the hook
     // process's ring cannot be counted after the process is gone. Every
     // delivering hook leaves a box-2 row carrying the calendar date and the
@@ -2018,5 +2023,307 @@ describe("novelty stops being null — the authored door measures prediction err
       { session: "s1", scope: "proj" },
     );
     expect(calls.length).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The credential file — the ONE file the package's own config names
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * MEASURED, day 0 of the parallel run: this host's hook processes carry neither
+ * `ANTHROPIC_API_KEY` nor `VOYAGE_API_KEY`, even with both exported in the
+ * owner's `~/.zshrc` — a host's process environment is not the login shell's. So
+ * every test here hands the loader a FRESH env object rather than the suite's
+ * `process.env`: an empty object is the hook process as the host really starts
+ * it, and a test that read the developer's own environment could not tell the
+ * fix from the machine it ran on.
+ */
+describe("credentials — the environment first, then the ONE file the config names", () => {
+  /**
+   * The credentials file gets its OWN directory, never the data dir: the store
+   * refuses an unclassified top-level entry (`store` §5 G11), so a credentials
+   * file dropped beside the memory would fail the store open — which is also the
+   * deployment note. Keep it outside `dataDir`.
+   */
+  let host: string;
+  beforeEach(() => {
+    host = mkdtempSync(join(tmpdir(), "counterparts-cred-"));
+  });
+  afterEach(() => {
+    rmSync(host, { recursive: true, force: true });
+  });
+
+  /** A credentials file in that directory, removed with it. */
+  function credFile(body: string, name = "creds.env"): string {
+    const path = join(host, name);
+    writeFileSync(path, body);
+    chmodSync(path, 0o600);
+    return path;
+  }
+
+  test("every shape a human writes parses; blank and # lines are not attempts", () => {
+    // export, double quotes, single quotes, CRLF, a comment, a blank line.
+    const path = credFile(
+      [
+        "# the two names this package documents",
+        "",
+        `export ${API_KEY_ENV}="sk-ant-from-the-file"`,
+        `${EMBED_KEY_ENV}='pa-from-the-file'`,
+        "",
+      ].join("\r\n"),
+    );
+    const env: NodeJS.ProcessEnv = {};
+    const load = loadCredentials(path, env);
+    expect(load.reason).toBe("loaded");
+    expect(load.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
+    expect(load.ignoredLines).toBe(0);
+    expect(env[API_KEY_ENV]).toBe("sk-ant-from-the-file");
+    expect(env[EMBED_KEY_ENV]).toBe("pa-from-the-file");
+  });
+
+  test("THE ENVIRONMENT WINS: a name already answered is never overwritten", () => {
+    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "sk-ant-from-the-environment" };
+    const load = loadCredentials(credFile(`${API_KEY_ENV}=sk-ant-from-the-file`), env);
+    expect(env[API_KEY_ENV]).toBe("sk-ant-from-the-environment");
+    expect(load.skippedPresent).toEqual([API_KEY_ENV]);
+    expect(load.loaded).toEqual([]);
+  });
+
+  test("an EMPTY environment variable is a gap the file may fill", () => {
+    // Every reader of these names tests `.trim().length`, so "exported but
+    // empty" is absent everywhere else too — one definition of "present".
+    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "   " };
+    const load = loadCredentials(credFile(`${API_KEY_ENV}=sk-ant-from-the-file`), env);
+    expect(load.loaded).toEqual([API_KEY_ENV]);
+    expect(env[API_KEY_ENV]).toBe("sk-ant-from-the-file");
+  });
+
+  test("ONLY the two documented names are honored — a third is ignored and COUNTED", () => {
+    const env: NodeJS.ProcessEnv = {};
+    const load = loadCredentials(
+      credFile(
+        [
+          `${API_KEY_ENV}=sk-ant-yes`,
+          "OPENAI_API_KEY=sk-not-ours",
+          "PATH=/tmp/hijacked",
+          "a line with no equals sign",
+        ].join("\n"),
+      ),
+      env,
+    );
+    expect(load.loaded).toEqual([API_KEY_ENV]);
+    expect(load.ignoredLines).toBe(3);
+    // The bound, proven on the object: this is not a general env loader.
+    expect(Object.keys(env)).toEqual([API_KEY_ENV]);
+  });
+
+  test("an empty value is not a credential, and the FIRST line for a name wins", () => {
+    const env: NodeJS.ProcessEnv = {};
+    const load = loadCredentials(
+      credFile([`${EMBED_KEY_ENV}=`, `${API_KEY_ENV}=sk-first`, `${API_KEY_ENV}=sk-second`].join("\n")),
+      env,
+    );
+    expect(load.loaded).toEqual([API_KEY_ENV]);
+    expect(env[API_KEY_ENV]).toBe("sk-first");
+    expect(env[EMBED_KEY_ENV]).toBeUndefined();
+    expect(load.ignoredLines).toBe(2);
+  });
+
+  test("not-configured, absent and unreadable are three different records", () => {
+    // No file named at all — the ordinary case for an owner who exports both.
+    expect(loadCredentials(undefined, {}).reason).toBe("not-configured");
+    expect(loadCredentials("   ", {}).reason).toBe("not-configured");
+    // Named but not there.
+    expect(loadCredentials(join(host, "nope.env"), {}).reason).toBe("absent");
+    // Named and unreadable (a directory is not a credentials file).
+    expect(loadCredentials(host, {}).reason).toBe("unreadable");
+    // And none of them throws or writes anything.
+    const env: NodeJS.ProcessEnv = {};
+    loadCredentials(join(host, "nope.env"), env);
+    expect(Object.keys(env)).toEqual([]);
+  });
+
+  test("a group/other-readable file is WARNED about by mode, never refused", () => {
+    const path = credFile(`${API_KEY_ENV}=sk-ant-loose`, "loose.env");
+    chmodSync(path, 0o644);
+    const env: NodeJS.ProcessEnv = {};
+    const load = loadCredentials(path, env);
+    expect(load.mode).toBe("644");
+    expect(load.permissive).toBe(true);
+    // Warned — and the key is loaded anyway. The owner's machine, their call.
+    expect(load.loaded).toEqual([API_KEY_ENV]);
+    expect(permissionWarning(path, load)).toContain("mode 644");
+    chmodSync(path, 0o600);
+    const tight = loadCredentials(path, {});
+    expect(tight.mode).toBe("600");
+    expect(tight.permissive).toBe(false);
+    expect(permissionWarning(path, tight)).toBeNull();
+  });
+
+  test("the capability row says WHICH SOURCE answered: env, file, or absent", () => {
+    const fromEnv = capabilities({}, { [API_KEY_ENV]: "sk-ant-x" }).find((r) => r.name === "credential");
+    expect({ reported: fromEnv?.reported, value: fromEnv?.value, detail: fromEnv?.detail }).toEqual({
+      reported: true,
+      value: true,
+      detail: "env",
+    });
+    const env: NodeJS.ProcessEnv = {};
+    const load = loadCredentials(credFile(`${API_KEY_ENV}=sk-ant-x`), env);
+    const fromFile = capabilities({}, env, load).find((r) => r.name === "credential");
+    expect(fromFile?.detail).toBe("file");
+    const none = capabilities({}, {}).find((r) => r.name === "credential");
+    expect({ reported: none?.reported, value: none?.value, detail: none?.detail }).toEqual({
+      reported: false,
+      value: false,
+      detail: "absent",
+    });
+  });
+
+  test("the config knob is validated like dataDir: a non-string is UNREADABLE", () => {
+    expect(loadConfig({ credentialsFile: "/tmp/creds.env" }).config.credentialsFile).toBe("/tmp/creds.env");
+    const bad = loadConfig({ credentialsFile: 42 });
+    expect(bad.ok).toBe(false);
+    expect(bad.reason).toBe("unreadable");
+    // And an unreadable configuration still stands down, credentials or not.
+    expect(bad.config.observer).toBe(true);
+  });
+
+  // ── the two process entry points ─────────────────────────────────────────
+
+  /** A host config file naming a credentials file, both under the temp dir. */
+  function hostFiles(over: Record<string, unknown> = {}, body?: string): { cfg: string; creds: string } {
+    const creds = credFile(body ?? `${API_KEY_ENV}=sk-ant-DAY0-TOKEN\n${EMBED_KEY_ENV}=pa-DAY0-TOKEN`);
+    const cfg = join(host, "claude-code.json");
+    writeFileSync(
+      cfg,
+      JSON.stringify({ dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true, credentialsFile: creds, ...over }),
+    );
+    return { cfg, creds };
+  }
+
+  test("THE DAY-0 FAILURE, pinned: an empty hook environment refuses every spawn", () => {
+    // What the host actually hands a hook process. Without the file this is the
+    // whole run: no worker, no interpretation, and the parallel run measures
+    // nothing while looking healthy.
+    const cfg = join(host, "claude-code.json");
+    writeFileSync(cfg, JSON.stringify({ dataDir: dir, owner: true }));
+    const env: NodeJS.ProcessEnv = {};
+    const { config: c, credentials } = hostConfig(cfg, env);
+    expect(credentials.reason).toBe("not-configured");
+    const plan = planSpawn({ config: c, command: "/bin/true", args: [], baseEnv: env });
+    expect(plan.ok).toBe(false);
+    expect(plan.reason).toBe("NO_CREDENTIAL");
+  });
+
+  test("hostConfig fills the gap: capabilities say 'file' and planSpawn READIES", () => {
+    const { cfg } = hostFiles();
+    const env: NodeJS.ProcessEnv = {};
+    const { config: c, credentials } = hostConfig(cfg, env);
+    expect(credentials.reason).toBe("loaded");
+    expect(credentials.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
+
+    const row = capabilities(c, env, credentials).find((r) => r.name === "credential");
+    expect({ reported: row?.reported, value: row?.value, detail: row?.detail }).toEqual({
+      reported: true,
+      value: true,
+      detail: "file",
+    });
+
+    // The refusal becomes a plan, and the CHILD carries the key (§2.13's order
+    // is untouched: the data dir is still pinned last).
+    const plan = planSpawn({ config: c, command: "/bin/true", args: [], baseEnv: env });
+    expect(plan.ok).toBe(true);
+    expect(plan.reason).toBe("ready");
+    expect(plan.env[API_KEY_ENV]).toBe("sk-ant-DAY0-TOKEN");
+    expect(plan.env[EMBED_KEY_ENV]).toBe("pa-DAY0-TOKEN");
+    expect(plan.env[DATA_DIR_ENV]).toBe(dir);
+  });
+
+  test("the ring records that the FILE answered — names and counts, never a value", () => {
+    const { cfg } = hostFiles({}, `${API_KEY_ENV}=sk-ant-DAY0-TOKEN\nOPENAI_API_KEY=sk-ignored`);
+    const env: NodeJS.ProcessEnv = {};
+    const { config: c, credentials } = hostConfig(cfg, env);
+    const { spawner } = fakeSpawner();
+    const a = openAdapter(c, { command: "/bin/true", args: ["runner"], spawner, credentials });
+    open.push(a.counterpart);
+
+    const row = a.events(CREDENTIAL_FILE_EVENT);
+    expect(row.length).toBe(1);
+    expect(row[0]?.data).toEqual({
+      reason: "loaded",
+      loaded: API_KEY_ENV,
+      skipped: "",
+      ignoredLines: 1,
+      mode: "600",
+      permissive: false,
+    });
+    expect(a.capabilities().find((r) => r.name === "credential")?.detail).toBe("file");
+  });
+
+  test("the VALUE never reaches an event payload — the whole ring, scanned", () => {
+    // THE PRODUCTION PATH, end to end, and the only test that runs it: the file
+    // fills the REAL `process.env`, which is the `base` the spawner defaults to.
+    // A fresh env object here would prove nothing — the token would never reach
+    // anything `emit` could see, and the scan below would pass on its absence.
+    // (`afterEach` restores both names; a dev machine's own key is saved too.)
+    const { cfg } = hostFiles();
+    delete process.env[API_KEY_ENV];
+    delete process.env[EMBED_KEY_ENV];
+    const { config: c, credentials } = hostConfig(cfg);
+    expect(credentials.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
+
+    const { calls, spawner } = fakeSpawner();
+    const a = openAdapter(c, { command: "/bin/true", args: ["runner"], spawner, credentials });
+    open.push(a.counterpart);
+    a.hook("session-start", input());
+    a.hook("stop", input());
+    a.hook("session-end", input());
+
+    // The plan PROVABLY held the token — the worker starts with the credential
+    // the file supplied, which is the whole fix.
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0]?.env[API_KEY_ENV]).toBe("sk-ant-DAY0-TOKEN");
+    expect(a.events("spawn.started").length).toBeGreaterThan(0);
+
+    // ...and the ring provably did not. Names may travel; values may not.
+    const ring = JSON.stringify(a.events());
+    expect(ring).not.toContain("sk-ant-DAY0-TOKEN");
+    expect(ring).not.toContain("pa-DAY0-TOKEN");
+    expect(ring).toContain(API_KEY_ENV);
+  });
+
+  test("nothing is emitted when the ENVIRONMENT answered — the event is the record", () => {
+    // The environment answered, so the file loaded no name and the ring stays
+    // silent: the event's presence IS the record that the file was the source.
+    const { cfg } = hostFiles();
+    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "sk-ant-from-the-environment", [EMBED_KEY_ENV]: "pa-env" };
+    const { config: c, credentials } = hostConfig(cfg, env);
+    expect(credentials.loaded).toEqual([]);
+    expect(credentials.skippedPresent).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
+    const { spawner } = fakeSpawner();
+    const a = openAdapter(c, { command: "/bin/true", args: ["runner"], spawner, credentials });
+    open.push(a.counterpart);
+    expect(a.events(CREDENTIAL_FILE_EVENT)).toEqual([]);
+  });
+
+  test("THE RUNNER loads it too — belt and braces, and the PIN still wins", () => {
+    const { cfg } = hostFiles({ dataDir: join(dir, "configured") });
+    const pinned = join(dir, "pinned");
+    const env: NodeJS.ProcessEnv = { [DATA_DIR_ENV]: pinned };
+    const { config: c, credentials } = runnerConfig(cfg, env);
+    expect(credentials.loaded).toEqual([API_KEY_ENV, EMBED_KEY_ENV]);
+    expect(env[API_KEY_ENV]).toBe("sk-ant-DAY0-TOKEN");
+    // The spawner wrote the data dir last precisely so nothing else can win.
+    expect(c.dataDir).toBe(pinned);
+    expect(c.credentialsFile).toBe(join(host, "creds.env"));
+  });
+
+  test("the runner honours an inherited key rather than overwriting it", () => {
+    const { cfg } = hostFiles();
+    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: "sk-ant-inherited-from-the-spawn" };
+    const { credentials } = runnerConfig(cfg, env);
+    expect(env[API_KEY_ENV]).toBe("sk-ant-inherited-from-the-spawn");
+    expect(credentials.skippedPresent).toEqual([API_KEY_ENV]);
+    expect(credentials.loaded).toEqual([EMBED_KEY_ENV]);
   });
 });

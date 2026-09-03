@@ -6,13 +6,27 @@
  * check, four-valued, each carrying the verification the CONTRACT names, and an
  * overall `ready` a caller can branch on.
  *
- * ── ONE REFINEMENT THE CONTRACT FORCES ──────────────────────────────────────
- * "`ready` is true only when every row is pass" is unreachable as written:
- * preconditions 8 and 9 end with "Gates the S→P flip, not day 1", so before
- * Phase P they are `not-exercised` BY DESIGN. Every row therefore declares
- * which gate it holds (`CheckGate`), and `ready` is computed over the rows
- * gating the phase being flown. Run it with `phase: "P"` and 8 and 9 must pass
- * like everything else — that is the S→P flip preflight the CONTRACT asks for.
+ * ── TWO PHASES, AND NOTHING IS DEFERRED (RULED 2026-09-03, owner) ───────────
+ *
+ * The shadow phase is dropped, so there is no S→P flip for preconditions 8 and
+ * 9 to gate: they gate the DAY-0 flip, and `--phase 0` binds them like every
+ * other row. `ready` is therefore what the CONTRACT said in the first place —
+ * every row passes — and the report carries no `deferred` list, because there
+ * is nothing to defer to.
+ *
+ * WHAT MAKES 8 AND 9 MEASURABLE AT DAY 0 is the ORDER of the day-0 sequence,
+ * not a relaxation here (README, "Day 0, in order"; the owner-present steps are
+ * in `docs/PARALLEL-RUN-STATUS.md`): the day-0 daily run and then the
+ * ask-channel throwaway session, BOTH before this preflight. Both are needed by
+ * construction — v2 records a `recall.decision` only when it delivers (the
+ * stand-down precedes `recallForTurn` in `hooks.ts#userPromptSubmit`), and
+ * `run.json`'s G12 baseline hash is written by `dailyRecord`, not by this file.
+ * A row that reads `not-exercised` here is telling the operator that a step of
+ * that sequence has not happened yet, which is exactly what a gate is for.
+ *
+ * The one thing the phase changes: §5 P1's DROP-DEAD is a bar on the run
+ * STARTING (§9 OQ5), so it is enforced at phase 0 and reported without judgment
+ * at phase P — a run that started in time is not retroactively late on day 6.
  *
  * Nothing here writes. `runPreflight` returns the report; the caller hands it
  * to `writer.ts` (G1: one writer, one run directory).
@@ -21,12 +35,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { embedSeat, interpretSeat, loadConfig } from "../../src/adapters/claude-code/config.js";
+import { loadCredentials } from "../../src/adapters/claude-code/credentials.js";
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../../src/adapters/claude-code/config.js";
 import { SELF_TUNABLES } from "../../src/core/self/tunables.js";
 
 import { RECALL_DECISION_EVENT } from "../../src/core/counterpart.js";
 
-import { gateSets, parallelGateOpen, parseGateRecord, parseWaivers } from "./gate.js";
+import { WIRING_ALIVE, gateSets, parallelGateOpen, parseGateRecord } from "./gate.js";
 import {
   overlaps,
   readAssignmentAs,
@@ -41,7 +56,6 @@ import type { AssignmentReading, HookEnvSpec } from "./readers.js";
 import type {
   Bars,
   CanaryHit,
-  CheckGate,
   CheckRow,
   CheckStatus,
   PreflightReport,
@@ -63,13 +77,11 @@ export interface PreflightOptions {
   /** Today, ISO. Drives seat expiry only. */
   readonly today: string;
   readonly phase?: RunPhase;
-  /** Where `waivers.json` lives. Defaults to the run directory (CONTRACT §5 P1). */
-  readonly waiversPath?: string;
   readonly at?: string;
 }
 
-function row(id: string, status: CheckStatus, detail: string, gates: CheckGate = "day-1"): CheckRow {
-  return { id, status, detail, gates };
+function row(id: string, status: CheckStatus, detail: string): CheckRow {
+  return { id, status, detail };
 }
 
 function readJson(path: string): unknown | null {
@@ -202,18 +214,33 @@ function v2ConfigRow(opts: PreflightOptions): CheckRow {
 
   const embedderEnabled = config.embedder?.enabled === true;
   // CREDENTIAL NAMES ONLY. The value never enters a report, a log or a record.
-  const apiKeyPresent = (process.env[API_KEY_ENV] ?? "").trim().length > 0;
-  const embedKeyPresent = (process.env[EMBED_KEY_ENV] ?? "").trim().length > 0;
-  if (embedderEnabled && !embedKeyPresent) problems.push(`embedder enabled but ${EMBED_KEY_ENV} is absent`);
-  if (!apiKeyPresent) problems.push(`${API_KEY_ENV} is absent`);
+  // A HOOK-SHAPED environment, not this process's. Measured day 0 (2026-09-03):
+  // the host's hook processes carry neither key even with both exported in the
+  // login shell, and this row said "present" because the preflight ran in that
+  // shell — the false green that let the hooks run blind. So the check starts
+  // from an EMPTY env and lets only the configured credentials file fill it,
+  // which is exactly what a hook process gets.
+  const hookEnv: NodeJS.ProcessEnv = {};
+  const creds = loadCredentials(config.credentialsFile, hookEnv);
+  const apiKeyPresent = (hookEnv[API_KEY_ENV] ?? "").trim().length > 0;
+  const embedKeyPresent = (hookEnv[EMBED_KEY_ENV] ?? "").trim().length > 0;
+  if (config.credentialsFile === undefined) {
+    problems.push(
+      `no credentialsFile configured — the host's hook environment carries no keys (measured day 0), so the worker would refuse every spawn`,
+    );
+  } else if (creds.reason !== "loaded") {
+    problems.push(`credentialsFile ${config.credentialsFile} is ${creds.reason}`);
+  }
+  if (embedderEnabled && !embedKeyPresent) problems.push(`embedder enabled but ${EMBED_KEY_ENV} is absent from the credentials file`);
+  if (!apiKeyPresent) problems.push(`${API_KEY_ENV} is absent from the credentials file`);
 
   const detail =
     `parallel.enabled=${String(config.parallel?.enabled === true)} · dataDir=${opts.v2DataDir} · ` +
     `interpret=${interpret.id}/${interpret.status}${interpret.usable ? "" : " UNUSABLE"} · ` +
     `embed=${embed.id}/${embed.status}${embed.usable ? "" : " UNUSABLE"} · ` +
     `embedder=${embedderEnabled ? "on" : "off"} · ` +
-    `${API_KEY_ENV}=${apiKeyPresent ? "present" : "absent"} · ` +
-    `${EMBED_KEY_ENV}=${embedKeyPresent ? "present" : "absent"}` +
+    `${API_KEY_ENV}=${apiKeyPresent ? "present (file)" : "absent"} · ` +
+    `${EMBED_KEY_ENV}=${embedKeyPresent ? "present (file)" : "absent"}` +
     (loaded.ok ? "" : ` · config ${loaded.reason}`);
 
   return problems.length === 0
@@ -233,13 +260,19 @@ function replayGateRow(opts: PreflightOptions): CheckRow {
   const parsed = parseGateRecord(readJson(recordPath));
   if (typeof parsed === "string") return row("replay.gate", "fail", parsed);
 
-  const waiversPath = opts.waiversPath ?? join(opts.runDir, "waivers.json");
-  const { waivers, malformed } = parseWaivers(readJson(waiversPath));
-  const verdict = parallelGateOpen(parsed, waivers);
+  const verdict = parallelGateOpen(parsed);
+  // The wiring channels are shown WITH their readings, so an operator reading a
+  // green row can see what it was green on (RULED 2026-09-03: no waiver — the
+  // wiring-alive predicate replaces it, and a predicate nobody can read is the
+  // same ceremony in a different costume).
+  const wiring = WIRING_ALIVE.map((w) => {
+    const e = parsed.verdicts[w.id];
+    return `${w.id}=${e === undefined ? "ABSENT" : `${e.verdict}${e.value === null ? "" : `/${e.value}`}`}`;
+  }).join(" ");
   const shape =
     `record=${parsed.runId} sample=${String(parsed.sample)} fail=${parsed.counts["fail"] ?? 0} ` +
     `readOnlyProof=${String(parsed.readOnlyProof)} totalityOk=${String(parsed.totalityOk)} ` +
-    `waivers=${waivers.length}${malformed === 0 ? "" : ` (${malformed} malformed)`}`;
+    `· wiring: ${wiring}`;
   return verdict.open
     ? row("replay.gate", "pass", `parallelGateOpen: open · ${shape}`)
     : row("replay.gate", "fail", `${verdict.reasons.join("; ")} · ${shape}`);
@@ -318,8 +351,25 @@ function canaryRow(opts: PreflightOptions): { row: CheckRow; hookRow: CheckRow }
   // SessionEnd budget the host shares across all hooks MEASURED with both
   // systems' hooks installed", and `sessionEndWorstMs === null` is that
   // measurement missing, not that measurement passing.
+  // MEASURED on this host (2026-09-03): the transcript records a `hook_success`
+  // attachment only for a hook that PRODUCED OUTPUT — a silent hook (v2 muted,
+  // every Stop/SessionEnd) leaves none — so the execution model and the
+  // SessionEnd budget cannot be timed from transcripts on a muted day. The
+  // honest substitute, named as one: the host's documentation says multiple
+  // hooks on one event run in parallel, and a durable `adapter.boundary` row
+  // from the `session-end` hook on this date proves that hook COMPLETED inside
+  // the host's shared budget (a hook the host killed writes no row after the
+  // kill). Evidenced by completion, not timed — the row says so.
+  const evidence = readSurfaceEvidence(opts.v2DataDir, opts.today);
+  const completed = evidence.sessionEndBoundaries;
   const hookRow =
-    h.model === "unknown"
+    h.model === "unknown" && completed > 0
+      ? row(
+          "host.hooks",
+          "pass",
+          `evidenced by COMPLETION, not timed: ${completed} durable session-end boundary row(s) on ${opts.today} (the host records no attachment for a silent hook); execution model documented parallel (code.claude.com/docs/en/hooks) — ${hookDetail}`,
+        )
+      : h.model === "unknown"
       ? row("host.hooks", "not-exercised", `the execution model was not measured — ${hookDetail}`)
       : h.sessionEndOk === null
         ? row(
@@ -354,6 +404,7 @@ export function readBars(runDir: string): Bars | null {
     typeof r["crossEncodingMinLineChars"] !== "number" ||
     r["crossEncodingMinLineChars"] < 1 ||
     typeof r["crossEncodingRatioBar"] !== "number" ||
+    !(r["crossEncodingRatioBar"] > 0 && r["crossEncodingRatioBar"] <= 1) ||
     typeof r["committedAt"] !== "string" ||
     !/^\d{4}-\d{2}-\d{2}/.test(r["committedAt"]) ||
     typeof dropDead !== "string" ||
@@ -371,7 +422,7 @@ export function readBars(runDir: string): Bars | null {
   };
 }
 
-function barsRow(opts: PreflightOptions): CheckRow {
+function barsRow(opts: PreflightOptions, phase: RunPhase): CheckRow {
   const bars = readBars(opts.runDir);
   if (bars === null) {
     return row(
@@ -383,19 +434,43 @@ function barsRow(opts: PreflightOptions): CheckRow {
     );
   }
   const late = opts.today > bars.preconditionDropDead;
+  // A `--phase P` re-check may only be lenient about the drop-dead on a run
+  // that actually HAD a day 0: without this, an empty run dir plus one flag
+  // would buy its way past §5 P1's date (PR-9 narrow review, NEW-2). The
+  // evidence is run.json's own day list — the day-0 daily writes it.
+  const runJson = readJson(join(opts.runDir, "run.json")) as { days?: unknown } | null;
+  const dayZero =
+    Array.isArray(runJson?.days) &&
+    runJson.days.some((d) => typeof d === "object" && d !== null && (d as { phase?: unknown }).phase === "0");
   const detail =
-    `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} · ` +
-    `probe floor ${bars.crossEncodingMinLineChars} chars · Phase-P ratio bar ${bars.crossEncodingRatioBar} · ` +
+    `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} (v1→v2, every phase) · ` +
+    `probe floor ${bars.crossEncodingMinLineChars} chars · Phase-P v2→v1 ratio bar ${bars.crossEncodingRatioBar} · ` +
     `committed ${bars.committedAt} · precondition drop-dead ${bars.preconditionDropDead}`;
   // §5 P1's drop-dead is a DATE the preflight compares, not a sentence someone
-  // remembers: past it, the run does not start and v1 flips as-is (§9 OQ5).
-  return late
+  // remembers: past it, the run does not START and v1 flips as-is (§9 OQ5).
+  //
+  // IT IS A BAR ON STARTING, so it binds at phase 0 only. The daily re-check
+  // runs at `--phase P` for the whole run — every day of it past 09-08 by
+  // arithmetic — and failing that row on day 6 would say the run should not
+  // have started, which is not a thing a running run can act on.
+  if (!late) return row("bars.committed", "pass", detail);
+  return phase === "0"
     ? row(
         "bars.committed",
         "fail",
         `the precondition drop-dead ${bars.preconditionDropDead} has passed (today ${opts.today}): §5 P1 / §9 OQ5 say the run does not start and v1 flips as-is — ${detail}`,
       )
-    : row("bars.committed", "pass", detail);
+    : !dayZero
+        ? row(
+            "bars.committed",
+            "fail",
+            `the drop-dead ${bars.preconditionDropDead} is behind us (today ${opts.today}) and run.json holds NO day-0 entry — a re-check cannot buy a start it never had (§5 P1) — ${detail}`,
+          )
+        : row(
+        "bars.committed",
+        "pass",
+        `the drop-dead ${bars.preconditionDropDead} is behind us (today ${opts.today}), which bars a run from STARTING and not a started one from continuing (§9 OQ5) — ${detail}`,
+      );
 }
 
 /** Precondition 5's second reading: `schemaBytes` on the store, read-only. */
@@ -428,7 +503,8 @@ function schemaBytesRow(opts: PreflightOptions): CheckRow {
   }
   const detail =
     `${reading.bytes} B over ${reading.elements} element(s) vs trip ${trip} B ` +
-    `(pressure at ${pressureAt} B) · ${reading.quarantined} fallback-minted self row(s) quarantined by F8`;
+    `(pressure at ${pressureAt} B) · ${reading.quarantined} fallback-minted self row(s) quarantined by F8 · ` +
+    `${reading.episodes} episode(s) and ${reading.migrated} migrated self row(s) counted, not weighed`;
   return reading.bytes >= trip
     ? row("store.schemaBytes", "fail", `the valve is TRIPPED at preflight — ${detail}`)
     : row("store.schemaBytes", "pass", detail);
@@ -537,10 +613,10 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
         ),
   );
 
-  // 8 and 9 — pre-Phase-P, and NOW WITH INPUTS. Hardcoding them
-  // `not-exercised` made the S→P flip preflight — the one the CONTRACT says
-  // they gate — impossible to pass by construction: `--phase P` could never
-  // reach `ready: true`. Each now has a machine-readable artifact to read.
+  // 8 and 9 — the flip's own two gates, each with a machine-readable input.
+  // They bind the day-0 preflight now that there is no shadow phase to defer
+  // them past; what makes them reachable is the ORDER of the day-0 sequence,
+  // not a softer rule here (see this file's header, and the README).
   out.push(askChannelRow(opts));
   out.push(surfaceRecordRow(opts));
 
@@ -548,7 +624,7 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
 }
 
 /**
- * PRECONDITION 8 — the ask channel, proven on this host.
+ * PRECONDITION 8 — the ask channel, proven on this host, BEFORE THE FLIP.
  *
  * "A v2 Stop-hook ask is observed arriving in the model's context at least once
  * in a throwaway session, with the channel and exit code recorded as an adapter
@@ -558,6 +634,11 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
  * directory, carrying what was seen, when, through which channel, and with what
  * exit code. Prose in a document is exactly what §5's "none waived by prose"
  * refuses.
+ *
+ * With the shadow phase dropped there are no shadow days to discover a dead
+ * channel in: day 1 IS v2 primary, and the authored dump's first fire anywhere
+ * would be a silent zero. So this binds the day-0 preflight, and the day-0
+ * sequence runs the throwaway session before it (README).
  */
 function askChannelRow(opts: PreflightOptions): CheckRow {
   const path = join(opts.runDir, "ask-channel.json");
@@ -571,8 +652,7 @@ function askChannelRow(opts: PreflightOptions): CheckRow {
     return row(
       "precondition.8",
       "not-exercised",
-      `the ask channel has not been proven on this host: run a throwaway session, observe a v2 Stop-hook ask arriving in the model's context, and record {observedAt, channel, exitCode, session} at ${path}. v2 writes its asks to plain stdout and exits 0, a channel no v2 hook has yet demonstrated here (v1 blocks with stderr + exit 2), so Phase P day 1 would otherwise be the authored dump's first fire anywhere. Gates the S→P flip, not day 1.`,
-      "s-to-p",
+      `the ask channel has not been proven on this host: run a throwaway session in which v2 DELIVERS (its Stop-hook ask never fires while it is muted), observe the ask arriving in the model's context, and record {observedAt, channel, exitCode, session} at ${path}. v2 writes its asks to plain stdout and exits 0, a channel no v2 hook has yet demonstrated here (v1 blocks with stderr + exit 2), so day 1 would otherwise be the authored dump's first fire anywhere. Gates the day-0 flip.`,
     );
   }
   if (!/^\d{4}-\d{2}-\d{2}/.test(observedAt)) missing.push("a dated observedAt");
@@ -584,13 +664,11 @@ function askChannelRow(opts: PreflightOptions): CheckRow {
         "precondition.8",
         "pass",
         `the ask arrived on ${channel} with exit code ${String(exitCode)}, observed ${observedAt} in session ${session} — ${path}`,
-        "s-to-p",
       )
     : row(
         "precondition.8",
         "fail",
         `${path} is missing ${missing.join(", ")}: the observation must be machine-readable, not prose`,
-        "s-to-p",
       );
 }
 
@@ -603,6 +681,13 @@ function askChannelRow(opts: PreflightOptions): CheckRow {
  * carries the hash of `surfaceSetFields()`, which is what G12's carry-forward
  * rule compares a mid-run change against: "provably identical" needs something
  * to hash, and it has to have been written down BEFORE the change.
+ *
+ * BOTH READINGS COME FROM STEPS THE DAY-0 SEQUENCE RUNS BEFORE THIS FILE, and
+ * the refusal says which: the rows exist only once v2 has DELIVERED on a real
+ * turn (the primacy stand-down precedes `recallForTurn`, so a muted v2 decides
+ * nothing and records nothing), and the hash is written by `dailyRecord`, which
+ * the day-0 daily run does. This is a gate, not a chicken-and-egg: the sequence
+ * is ordered so both are true before the flip.
  */
 function surfaceRecordRow(opts: PreflightOptions): CheckRow {
   const evidence = readSurfaceEvidence(opts.v2DataDir);
@@ -614,7 +699,7 @@ function surfaceRecordRow(opts: PreflightOptions): CheckRow {
   else if (evidence.readErrors.length > 0) problems.push(`the store read failed: ${evidence.readErrors.join(" | ")}`);
   else if (evidence.recallDecisions === 0) {
     problems.push(
-      `the store holds no \`${RECALL_DECISION_EVENT}\` rows, so no §6 Recall criterion is recomputable from it (replay INTERFACE-GAPS §7)`,
+      `the store holds no \`${RECALL_DECISION_EVENT}\` rows, so no §6 Recall criterion is recomputable from it (replay INTERFACE-GAPS §7) — v2 records one only on a turn it DELIVERED, so this is the day-0 throwaway session still owed`,
     );
   }
   if (recorded.length === 0) {
@@ -627,9 +712,8 @@ function surfaceRecordRow(opts: PreflightOptions): CheckRow {
         "precondition.9",
         "pass",
         `${evidence.recallDecisions} durable \`${RECALL_DECISION_EVENT}\` row(s) · surfaceSet ${current} recorded in run.json`,
-        "s-to-p",
       )
-    : row("precondition.9", "not-exercised", `${problems.join("; ")}. Gates the S→P flip, not day 1.`, "s-to-p");
+    : row("precondition.9", "not-exercised", `${problems.join("; ")}. Gates the day-0 flip.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -637,6 +721,7 @@ function surfaceRecordRow(opts: PreflightOptions): CheckRow {
 // ---------------------------------------------------------------------------
 
 export function runPreflight(opts: PreflightOptions): PreflightReport {
+  const phase = opts.phase ?? "0";
   const readings = opts.envs.map((env) => readAssignmentAs(env));
   const { row: canary, hookRow } = canaryRow(opts);
   const schemaBytes = schemaBytesRow(opts);
@@ -649,35 +734,42 @@ export function runPreflight(opts: PreflightOptions): PreflightReport {
     replayGateRow(opts),
     canary,
     hookRow,
-    barsRow(opts),
+    barsRow(opts, phase),
     schemaBytes,
     ...preconditionRows(opts, schemaBytes),
   ];
 
-  const phase = opts.phase ?? "0";
-  const gatingNow = (c: CheckRow): boolean => c.gates === "day-1" || phase === "P";
-  const ready = checks.filter(gatingNow).every((c) => c.status === "pass");
-  const deferred = checks.filter((c) => !gatingNow(c)).map((c) => c.id);
+  // EVERY ROW, IN BOTH PHASES. No exemption list, and the two candidates for
+  // one are refused deliberately: `store.schemaBytes` on an empty store reads
+  // `not-exercised` and still sinks readiness, because OQ2 RULED a MIGRATED
+  // starting store and an empty one is the setup not done; a canary that saw
+  // no v1 marker proved nothing and sinks it too. A row that cannot be measured
+  // yet is a step of the day-0 sequence still owed, not a row to excuse.
+  const ready = checks.every((c) => c.status === "pass");
 
   return {
     at: opts.at ?? new Date().toISOString(),
     phase,
     runDir: opts.runDir,
     ready,
-    deferred,
     checks,
   };
 }
 
 /**
- * The three enumerated id sets, as precondition 1 copies them into the run dir
- * — plus the DROP-DEAD, as a dated field.
+ * The three enumerated id sets AND the wiring-alive checks, as precondition 1
+ * copies them into the run dir — plus the DROP-DEAD, as a dated field.
+ *
+ * The wiring checks are copied for the same reason the sets are: precondition 1
+ * is now a predicate over named channels rather than a signature (RULED
+ * 2026-09-03), and the run directory has to carry which channels were asked
+ * about, in the run's own artifacts, not only in this repo's source.
  *
  * §5 P1 ends "drop-dead 2026-09-08", and a date that lives only in a sentence
  * is a date nobody compares. It is committed in `bars.json`, checked by the
- * `bars.committed` row against `--today`, and copied here beside the sets it
- * belongs to, so the artifact precondition 1 leaves behind carries its own
- * deadline.
+ * `bars.committed` row against `--today` at phase 0, and copied here beside the
+ * sets it belongs to, so the artifact precondition 1 leaves behind carries its
+ * own deadline.
  */
 export function preflightArtifacts(
   report: PreflightReport,

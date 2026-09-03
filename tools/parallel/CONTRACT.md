@@ -1,8 +1,9 @@
 # `tools/parallel/` — CONTRACT
 
 *Adversarially reviewed 2026-09-03 before merge — six blockers and five should-fixes,
-all applied in this text (PR #7). A design document; the build follows the owner's §9
-rulings.*
+all applied in this text (PR #7). Amended the same evening by two owner rulings: **no
+waiver** (§5 P1, §9 P1) and **no shadow phase** (§5 Shape, §9 note). A design document;
+the build follows the owner's §9 rulings.*
 
 ## 1. Purpose
 
@@ -46,8 +47,9 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
   document.
 - **Ranges, not points; not-comparable, and say so.** [v1] §17.3 — encode-side
   comparisons here are same-day, same-input (both systems encode every session, all
-  run); delivered-loop comparisons are cross-phase and therefore different-days, and are
-  reported as ranges with that caveat, never as paired numbers.
+  run, muted or not). Delivered-loop comparisons have no same-day v1 pairing at all
+  now that the run is single-phase: v1's delivered baseline is OQ6's standing 30-day
+  window, reported as a range with that caveat, never as a paired number.
 - **The independent-scorer rule.** [v1] §17.2, replay G5 — the scorer implements its own
   arithmetic and imports neither system under test.
 - **The two richest comparison surfaces**, now produced by BOTH systems on the SAME
@@ -63,7 +65,9 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
 - **Created-versus-exited per kind, per system, per day.** [v1] scar §2.17 — how a
   starved curation path becomes visible, now side by side.
 - **The pre-committed bars discipline.** [v1] §17.2 — every bar in §7 is committed
-  before Phase P begins; v1's numbers are calibration to re-earn, not law (replay G10).
+  at day 0, before the flip; v1's numbers are calibration to re-earn, not law (replay
+  G10). That last clause is what precondition 1 now rests on: a replay record's band
+  failures are the run's to re-earn, so they do not gate the run's start.
 - **The carry-forward rule, extended to run continuity.** [v1] §17.2 — a mid-run change
   to v2 keeps its accumulated verdicts only when the machine-scored surface set is
   provably identical; otherwise the phase clock restarts (§5 G12).
@@ -95,9 +99,11 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
 
 ### Preconditions — each verified by the preflight, none waived by prose
 
-1. **The replay gate is green for this run's purposes** — read by the preflight from a
+1. **The replay gate is green for this run's purposes — which means THE WIRING IS
+   PROVEN ALIVE, not that a human signed for it** — read by the preflight from a
    machine-readable pass record through a predicate THIS tool defines,
-   `parallelGateOpen(record)`: `readOnlyProof && totalityOk && counts.fail === 0 &&`
+   `parallelGateOpen(record)`: `readOnlyProof && totalityOk &&` every `WIRING_ALIVE`
+   channel alive `&&`
    every `not-exercised` id ∈ `PARALLEL_EXERCISABLE` ∪ `NOT_APPLICABLE_TO_RUN` `&&` every
    `needs-rater` id ∈ `RATER_DEFERRED` — all three sets enumerated in `tools/parallel/`
    and copied into the run directory; an id outside them shuts the gate. (The third set
@@ -108,15 +114,28 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
    also demands zero `not-exercised` and zero `needs-rater`) is the CUTOVER gate and
    cannot be satisfied by any replay record: its 23 `not-exercised` rows are §6's
    charter and its 2 `needs-rater` rows have no rater outside this run (replay
-   INTERFACE-GAPS §3, §5, §7). It is untouched and unused here. What the predicate
-   still requires is `fail === 0`, which only a re-run produces: either the full 26-day
-   re-run, or the queued sample (`--days 5..7`), whose `sample: true` the predicate
-   refuses unless an **owner-signed waiver file** in the run directory names that
-   record's id and the reason — the preflight reads the waiver; prose does not. **Owner
-   decision, dated in the run record; drop-dead 2026-09-08** (OQ5's arithmetic).
-   **RULED 2026-09-03 (owner): the sample route** — the queued `--days 5..7` sample,
-   its previously-failing channels read on the per-day trend, and the signed waiver
-   file naming that record; the full re-run stays available if the trend is bad.
+   INTERFACE-GAPS §3, §5, §7). It is untouched and unused here.
+
+   **`WIRING_ALIVE` is the fourth enumerated set, and it is what a record has to
+   earn**: `preselect.meanSchemasShown` reads `pass` (cards were shown at all),
+   `preselect.blindRate`'s observed value is below 1.0 (the cards reached some chunk
+   — not every chunk encoded blind), and `gate.refusalMix` carries a computed verdict
+   (the battery fired, whatever its mix). Three channels, because those three were the
+   dead ones the schema-slice wire had to rebuild; the set is copied into the run
+   directory beside the other three.
+
+   **A `sample: true` record is ACCEPTED on those terms, and its band failures are
+   waived by nobody** — they are simply not this gate's business. §5 G15 says v1's
+   numbers are calibration the run re-earns (replay G10), so `counts.fail === 0` is no
+   longer required and no signature stands in for it. What is still refused is missing
+   evidence: an absent `sample` flag, an absent `counts.fail`, a verdict outside
+   replay's vocabulary, a header that disagrees with its own rows, or a wiring channel
+   that cannot be read. **Owner decision, dated in the run record; drop-dead
+   2026-09-08** (OQ5's arithmetic).
+   **RULED 2026-09-03 (owner): the sample route, and no waiver** — the queued
+   `--days 5..7` sample, its previously-failing channels read on the per-day trend and
+   on the wiring-alive predicate; the full re-run stays available if the trend is bad.
+   *"I'm not sure our intent was to require signing things to change them."*
 2. **The G12 symmetry consumer is live** (BUILD-STATUS gap 2: the ratchet tripwire
    "must be live DURING the parallel run; that is when it earns its keep").
 3. **`scanSecrets` is bounded** (replay review follow-up: a non-ablatable gate with a
@@ -136,17 +155,23 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
 7. **The run is priced and approved, not assumed** — marginal spend is v2's embeddings
    plus crash-fallback sweeps; the authored dump rides the owner's session context, and
    that cost is named too.
-8. **The ask channel is proven on this host — before Phase P.** A v2 Stop-hook ask is
-   observed arriving in the model's context at least once in a throwaway session, with
-   the channel and exit code recorded as an adapter capability (adapter G4, scar §2.18).
+8. **The ask channel is proven on this host — on day 0, before the flip.** A v2
+   Stop-hook ask is observed arriving in the model's context at least once in a
+   throwaway session, with the channel and exit code recorded as an adapter capability
+   (adapter G4, scar §2.18), machine-readable in `ask-channel.json`.
    v2's `bin/hook.ts` writes its asks to plain stdout and exits 0, a channel no v2 hook
-   has yet demonstrated on this host (v1 blocks with stderr + exit 2). Phase S asks
-   nothing, so Phase P day 1 is the authored dump's first fire anywhere: a dead channel
-   there is a silent zero, not a low number. Gates the S→P flip, not day 1.
-9. **The per-turn surfacing decision record is durable — before Phase P.** G2 and G12
-   both stand on it (replay INTERFACE-GAPS §7: not persisted today). Without it no §6
-   Recall criterion is recomputable from the store and G12's "provably identical" has
-   nothing to hash. Gates the S→P flip, not day 1.
+   has yet demonstrated on this host (v1 blocks with stderr + exit 2). With no shadow
+   days, day 1 is the authored dump's first fire anywhere: a dead channel
+   there is a silent zero, not a low number. The throwaway session must be one in which
+   v2 DELIVERS — its Stop ask never fires while it is standing down. **Gates the day-0
+   flip.**
+9. **The per-turn surfacing decision record is durable — on day 0, before the flip.**
+   G2 and G12 both stand on it (replay INTERFACE-GAPS §7: not persisted today). Without
+   it no §6 Recall criterion is recomputable from the store and G12's "provably
+   identical" has nothing to hash. Both halves come out of day 0's own sequence: the
+   `recall.decision` rows from the throwaway session (a muted v2 decides nothing — the
+   primacy stand-down precedes `recallForTurn`), and the `surfaceSet` hash from the
+   day-0 daily run. **Gates the day-0 flip.**
 
 ### Shape
 
@@ -164,13 +189,16 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
   — if hooks run sequentially, two per-turn races stack, and the turn budget must be
   re-approved (scar §2.18); the SessionEnd budget the host shares across all hooks
   measured with both systems' hooks installed. The cross-encoding bar (G7) and the
-  active-day floor (below) are committed here, dated, before Phase S day 1.
-- **Phase S — v1 primary, v2 shadow. ≥3 active days.** v1 runs exactly as it has all
-  bake-in; v2 captures and encodes every session, delivers nothing, asks nothing. v2's
-  encode loop, gates, mint volume, and store health are graded here against v1's on the
-  same days. Exit on a checklist, not a date: isolation meters clean, encode parity
-  bands holding, zero red-lines.
-- **Phase P — v2 primary, v1 shadow. ≥7 active days.** One write to the assignment
+  active-day floor (below) are committed here, dated, before day 1. Day 0 also runs the throwaway session that
+  proves the ask channel (P8) and leaves the first surfacing decisions durable (P9),
+  and the day-0 daily that writes G12's baseline hash — the preflight is the LAST step
+  before the flip, not the first, because those two preconditions are read off the
+  artifacts those steps leave.
+- **Phase P — v2 primary, v1 muted but still encoding. From day 1. ≥7 active days.**
+  ONE PHASE (RULED 2026-09-03, below): the shadow phase is dropped for launch speed,
+  and ≥7 active days is a MINIMUM before a verdict, never a cap. The flip happens at
+  the END of day 0, after the canaries and the ask-channel proof. One write to the
+  assignment
   file's `override` — `"engram"`, the slot v2 occupies; the only field touched; written
   tmp+rename **with no host session open** (v1's resolver re-reads the file at every
   hook and latches nothing per session, so a mid-session flip is two voices in one
@@ -180,13 +208,22 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
   continues untouched — v1's own A/B design, the vocabulary of its file honored as-is).
   v2 delivers the wake, surfaces recalls, owns the session-end choreography: the
   authored dump and the episode ask. Every delivered-loop criterion is graded here.
+  **The safety net is not a phase, it is the muted-but-encoding v1 plus a one-line
+  revert**: v1 keeps encoding every session all run (its own A/B design gates OUTPUT,
+  never collection), so REVERT restores a system whose memory did not stop.
+- **Day 1 — the go/no-go, the same day, named.** What the shadow days used to buy is
+  now bought in one day, deliberately: wake bytes sane and **a human read the first
+  rendered v2 wake before a workday ran on it**; recalls non-empty on real turns; the
+  ask observed reaching the model; the mute evidenced (v1's `ab.muted` present, no v1
+  delivery events); the cross-encoding meter clean in both directions. Any failure here
+  is REVERT the same day, named in the run record — not an extension, not a wait.
 - **Verdict.** At Phase P's minimum with the scorecard rendered: PROMOTE, EXTEND, or
   REVERT (§7). REVERT is one config write back — reversibility is a file, which is why
   the run reuses v1's mechanism instead of inventing one.
 - **What counts as a day.** An **active day** is a lived day (scar E8) on which both
   systems reached at least one session boundary AND the day carried at least K
-  conversational turns, K committed in the run directory before Phase S day 1. Every
-  other lived day is recorded with a class and NOT counted toward a phase minimum:
+  conversational turns, K committed in the run directory before day 1. Every other
+  lived day is recorded with a class and NOT counted toward a phase minimum:
   **thin** (below the floor), **contaminated** (the muted side delivered — G4),
   **mixed** (a session straddled the flip: a delivery event and a later `ab.muted` in
   the same v1 session), **silent** (v1 muted at session start and no v2 delivery record
@@ -267,17 +304,25 @@ divergence logs; the cutover pass record; the dashboard comparison views.
    the run says so wherever it cites them.
 5. **[M] Shadow is encode-only, and honest.** No reinforcement fires on undelivered
    surfacing; no episode is asked by the shadow; every delivered-loop metric on the
-   shadow side reads `not-exercised` for that phase.
+   shadow side reads `not-exercised` for that phase. With one phase, the shadow is
+   **v1, from day 1 to the verdict** — and encode-only is exactly what makes it the
+   safety net the dropped phase used to be: it keeps encoding every session it lives
+   through, so REVERT hands back a system whose memory did not stop (the gap is its
+   episode journal, named in G9).
 6. **[M] Isolation preflight gates day 1.** Data dirs realpath-disjoint; the spawner
    pins the child's data-dir variable last (existing adapter G5); canary probes per
    injection channel, per direction, pass before any day counts (scar §2.18: a
    guarantee carried by the host's transcript format is verified, never assumed).
 7. **[M] Cross-encoding is metered continuously, both directions, by content address** —
    v2's wake/dump/ritual text scanned against v1's spans and mints, v1's ritual text
-   against v2's — with a bar committed **before Phase S day 1** (the meter is a red-line
-   from the preflight forward; a bar committed at Phase P would leave it toothless for
-   the phase that exposes v2 most); above the bar it is a red-line, below it a named
-   finding. Rows whose mint source is `migrated` (PR-2 doctrine) are excluded from the
+   against v2's — with a bar committed **before day 1** (the meter is a red-line from
+   the preflight forward; a bar committed after the flip would leave it toothless for
+   exactly the days that expose v2 most). **The two rules OQ4 gave to two phases are
+   now the two DIRECTIONS, which is what they were always about**: v1→v2 (v1's text in
+   v2's capture) is ZERO in every phase, because that exclusion is carried by the host's
+   transcript shape (G8) and a hit means the host changed; v2→v1 is OQ4's accepted cost
+   — a named finding at or below the ratio bar, a red-line above it. Before the flip,
+   v2 delivers nothing and so can inject nothing: both directions are the zero bar. Rows whose mint source is `migrated` (PR-2 doctrine) are excluded from the
    meter by construction — v1-origin text in v2's store is the migration, not
    contamination. **[A] Content address catches verbatim re-minting and nothing else.**
    The dominant path is semantic: the primary injects a recall, the assistant restates
@@ -344,11 +389,11 @@ divergence logs; the cutover pass record; the dashboard comparison views.
     the run directory, never through either store.
 15. **[A] The bars are committed before Phase P begins**, in the run directory, dated —
     and v1's numbers are calibration to re-earn, not inherited law (replay G10).
-16. **[A] Shadow-recall telemetry is optional and second-class.** v2 MAY compute
-    undelivered surfacing decisions during Phase S for same-turn comparison against
-    v1's delivered ones — reinforcement structurally off, never admissible as liveness
-    evidence, and dropped without ceremony if the preflight shows the turn budget
-    cannot afford a second race.
+16. **[A] Shadow-recall telemetry — NOT USED (2026-09-03).** It was Phase S's
+    consolation prize: v2 computing undelivered surfacing decisions for same-turn
+    comparison against v1's delivered ones. With the shadow phase dropped there is no
+    window for it, and v2's decisions are delivered ones from day 1. The line stays as
+    a record of what was considered and set aside, not as a thing to build.
 
 ## 6. What this run measures that replay could not — the turn loop
 
@@ -408,11 +453,12 @@ and detached-worker health under real days; marginal cost per day.
    neighborhood on the same days; kind mix; gates-**acting** rate (replay F7's
    reframe — v1's refusal vocabulary does not map, so acting-rate is the comparable);
    duplication share; briefing bytes under ceiling; hook latency within the host
-   budget. Encode-side bands are same-day paired **for v2's crash-fallback sweep, which
-   is what Phase S exercises** — the strongest comparability this project has ever had,
-   for the path v2 intends to demote; v2's authored path has no same-day v1 pairing by
-   construction and is reported cross-phase, as a range, with that caveat, as are the
-   delivered-loop bands.
+   budget. Encode-side bands are same-day paired **because v1 keeps encoding while
+   muted, all through Phase P** — its A/B mechanism gates output, never collection, so
+   every run day yields both systems' mints on the same lived input. That is the
+   strongest comparability this project has ever had, and dropping the shadow phase
+   does not cost it. The delivered-loop bands have no same-day v1 pairing at all and
+   are reported against OQ6's standing 30-day window, as ranges, with that caveat.
 4. **The owner's paired verdict, not-worse**: paired samples — the same lived day's
    minted memories from both systems, origin-masked, drawn **within a single day and
    presented in randomized order**, never grouped by week or phase (the week identifies
@@ -420,10 +466,10 @@ and detached-worker health under real days; marginal cost per day.
    authorship thesis — first-person experiencer against third-person sweep — so the
    blind is not assumed intact: the rater records a **guess of origin before the
    preference**, the guess rate is reported with the verdict, and above chance the
-   criterion downgrades openly to a labeled preference test. Phase-S pairs (both
-   systems sweeping) are the clean same-path comparison; Phase-P pairs compare authored
-   against swept and say so on their face. A needs-rater criterion; the carry-forward
-   rule protects the ratings.
+   criterion downgrades openly to a labeled preference test. Every pair in this run
+   compares v2's authored (or swept) mint against v1's swept one on the same day, and
+   says so on its face. A needs-rater criterion; the carry-forward rule protects the
+   ratings.
 
 **The verdict is one of three, recorded in the pass record:** **PROMOTE** — v2 stays
 primary, v1's hooks retire to warm standby, the post-run watches (§9 OQ7) begin.
@@ -476,9 +522,13 @@ content-by-reference; ids in state, text at render).
    two numbers: Phase S, ZERO verbatim hits in either direction (the host's transcript
    shape carries v1's exclusion, so any hit means the host changed — red-line); Phase P,
    any hit is a named finding, and a red-line only above **10% of v1's daily mints**
-   carrying a verbatim v2 line.
-5. **Phase minimums, spend, and the rail arithmetic.** 3+7 active days plus preflight
-   fits before ~09-22 only if the §5 preconditions close by roughly 09-08. Priced and
+   carrying a verbatim v2 line. *Mapped onto the single phase (2026-09-03 evening, the
+   ruling below): the ruled numbers are unchanged, but they are now read BY DIRECTION
+   rather than by phase — v1→v2 carries the zero bar in every phase (that is the
+   host-shape claim the Phase-S number was really making), v2→v1 carries the 10% ratio
+   from day 1 (that is the accept-and-meter cost, and it exists only while v2 speaks).*
+5. **Phase minimums, spend, and the rail arithmetic.** ≥7 active days from day 1, plus
+   day 0, fits before ~09-22 only if the §5 preconditions close by roughly 09-08. Priced and
    approved, not assumed — including the authored dump's session-context cost, which
    lands on your account, not an API line item. If the replay-record decision
    (precondition 1) and preconditions 4–5 do not land inside that window, the run does
@@ -498,3 +548,24 @@ content-by-reference; ids in state, text at render).
    v1's store kept readable indefinitely — it is the owner's history, not a fixture.
    **RULED 2026-09-03 (owner): as proposed** — the list is written into the run
    directory at PROMOTE, and v1's store stays readable.
+
+---
+
+**RULED 2026-09-03 (owner): no waiver — the wiring-alive predicate replaces it.** P1 as
+built required an owner-signed waiver file before a `sample: true` replay record could
+open the gate. *"I'm not sure our intent was to require signing things to change them."*
+A signature proves who typed it, never that the instrument was plugged in. What the gate
+asks now is mechanical and reads the record itself: are the channels alive
+(`WIRING_ALIVE`, §5 P1)? The sample's band failures are waived by nobody — the run's own
+bands judge them, exactly as G15 always said. `waivers.json` no longer exists.
+
+**RULED 2026-09-03 (owner): single phase — the shadow phase is dropped for launch
+speed.** v2 is primary from day 1; there is no Phase S. The safety net is not a phase:
+it is the **muted-but-encoding v1** (its A/B mechanism gates output, never collection,
+so its memory never stops) plus a **one-line revert** — `override` back to `"bansai"`,
+tmp+rename, no session open. The **day-1 go/no-go** (§5 Shape) replaces the shadow days:
+the wake read by a human before a workday runs on it, recalls non-empty on real turns,
+the ask observed reaching the model, the mute evidenced, the meter clean — any failure
+is REVERT that same day, named. What this costs is named too: the shadow days' encode
+parity is now measured while v1 is muted rather than while it is primary, and the first
+delivered day is a real workday rather than a rehearsal.

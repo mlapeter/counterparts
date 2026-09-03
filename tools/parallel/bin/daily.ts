@@ -58,7 +58,7 @@ function usage(): never {
       "  --v2-wake <file>      v2's rendered wake for the day (the other direction).",
       "  --v1-ritual <file>    v1's ritual ask text, one probe per line. v2's own asks",
       "                        are taken from the adapter's AUTHORSHIP_ASK constant.",
-      "  --phase <0|S|P>       overrides run.json.",
+      "  --phase <0|P>         overrides run.json. P from day 1.",
       "  --primacy <v1|v2>     overrides run.json.",
       "  --seat <id>           the acting seat, pinned into run.json.",
       "  --vectors <id>        the pinned vector generation.",
@@ -133,7 +133,7 @@ function parseArgs(argv: readonly string[]): Args {
         args.v1Ritual = value;
         break;
       case "--phase":
-        if (value !== "0" && value !== "S" && value !== "P") usage();
+        if (value !== "0" && value !== "P") usage();
         args.phase = value;
         break;
       case "--primacy":
@@ -272,9 +272,11 @@ function main(argv: readonly string[]): number {
   const halts: string[] = [];
   if (m.redLine) {
     halts.push(
-      m.phase === "P"
-        ? `cross-encoding is above the committed ${m.ratioBar} share of v1's daily mints (${m.ratioNote})`
-        : "cross-encoding recorded a verbatim hit, and Phase S's bar is zero",
+      m.phase !== "P"
+        ? `cross-encoding recorded a verbatim hit before the flip, where the bar is zero in both directions (${m.ratioNote})`
+        : m.v1IntoV2.hits > 0
+          ? `cross-encoding found ${m.v1IntoV2.hits} v1 line(s) in v2's capture — the v1→v2 bar is ZERO in every phase, so the host's own exclusion has changed (§5 G8)`
+          : `cross-encoding is above the committed ${m.ratioBar} share of v1's daily mints (${m.ratioNote})`,
     );
   }
   if (r.v2.present && r.v2.readOnlyProof !== true) {
@@ -291,7 +293,7 @@ function main(argv: readonly string[]): number {
   }
   if (m.namedFinding) {
     out.push(
-      `  ${pad("finding", 18)}cross-encoding recorded ${m.total} hit(s) at or below the Phase-P ratio — a NAMED FINDING, not a halt (${m.ratioNote})`,
+      `  ${pad("finding", 18)}cross-encoding recorded ${m.total} hit(s) at or below the v2→v1 ratio — a NAMED FINDING, not a halt (${m.ratioNote})`,
     );
   }
   out.push("");

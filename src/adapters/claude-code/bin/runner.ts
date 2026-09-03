@@ -16,14 +16,18 @@
  *
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../../../core/counterpart.js";
+import { dataDir } from "../../../core/store/index.js";
 
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
+import { loadCredentials, permissionWarning } from "../credentials.js";
+import type { CredentialLoad } from "../credentials.js";
 import { openEmbedder } from "../index.js";
 import { interpretClient } from "../interpret-client.js";
 import type { FetchLike } from "../interpret-client.js";
@@ -143,22 +147,49 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
-async function main(): Promise<void> {
-  const { readFileSync } = await import("node:fs");
+/**
+ * This process's configuration, its pinned data dir, and its credential load.
+ *
+ * BELT AND BRACES on the credential. A worker the hook spawned already carries
+ * the keys — the spawner copies `process.env` into the child, and the hook
+ * filled the gap before that copy — but this process also runs when nothing
+ * spawned it that way, and it reads the same configuration, so it loads from the
+ * same configured file rather than assuming an ancestor did. The load is a no-op
+ * where the keys are already there: the ENVIRONMENT WINS, always, and an
+ * inherited key is reported as `skippedPresent`, not overwritten.
+ *
+ * Exported and injectable so the runner's credential path is provable without a
+ * process (the entry point itself is not importable).
+ */
+export function runnerConfig(
+  path = CONFIG_PATH,
+  env: NodeJS.ProcessEnv = process.env,
+): { config: AdapterConfig; credentials: CredentialLoad } {
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+    raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {
     raw = undefined;
   }
   const loaded = loadConfig(raw);
-  const pinned = pinnedDataDir();
-  const { dataDir } = await import("../../../core/store/index.js");
-  const config: AdapterConfig = {
-    ...loaded.config,
-    // The PIN wins. The spawner wrote it last precisely so nothing else can.
-    dataDir: pinned ?? loaded.config.dataDir ?? dataDir(),
+  const credentials = loadCredentials(loaded.config.credentialsFile, env);
+  const pinned = pinnedDataDir(env);
+  return {
+    config: {
+      ...loaded.config,
+      // The PIN wins. The spawner wrote it last precisely so nothing else can.
+      dataDir: pinned ?? loaded.config.dataDir ?? dataDir(),
+    },
+    credentials,
   };
+}
+
+async function main(): Promise<void> {
+  const { config, credentials } = runnerConfig();
+  // No ring here — the worker has no adapter — so the permission warning is a
+  // stderr line and nothing else. Warned, never refused (§4).
+  const warning = permissionWarning(config.credentialsFile, credentials);
+  if (warning !== null) process.stderr.write(`${warning}\n`);
 
   const timeout = watchdogMs();
   const controller = new AbortController();

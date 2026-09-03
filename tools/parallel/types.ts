@@ -16,52 +16,41 @@
 /** The four-value vocabulary, narrowed: a preflight row never needs a rater. */
 export type CheckStatus = "pass" | "fail" | "not-exercised";
 
-/**
- * WHICH GATE A ROW HOLDS. The CONTRACT's §5 preconditions 8 and 9 say it in
- * their own last line — "Gates the S→P flip, not day 1" — so a row that is
- * legitimately unmeasurable before Phase P must not sink Phase S's readiness.
- * Without this field `ready` is unreachable by construction, which would make
- * the preflight a document rather than a gate.
- */
-export type CheckGate = "day-1" | "s-to-p";
-
 export interface CheckRow {
   readonly id: string;
   readonly status: CheckStatus;
   /** The instrument's own prose plus numbers. Never either system's content. */
   readonly detail: string;
-  readonly gates: CheckGate;
 }
 
-export type RunPhase = "0" | "S" | "P";
+/**
+ * TWO PHASES, and `0` is not a running one.
+ *
+ * **RULED 2026-09-03 (owner): single phase — the shadow phase is dropped.**
+ * `0` is the day-0 preflight, before the flip; `P` is v2-primary, from day 1,
+ * and it is the only phase a lived day can be counted in. There is no `S`: v1
+ * stays installed and KEEPS ENCODING while muted, which is the safety net the
+ * shadow days used to buy, at the price of one line in the assignment file.
+ */
+export type RunPhase = "0" | "P";
 
 export interface PreflightReport {
   readonly at: string;
   readonly phase: RunPhase;
   readonly runDir: string;
-  /** True when every row gating THIS phase passed. See `CheckGate`. */
+  /**
+   * True when EVERY row passed. Nothing is deferred any more: with the shadow
+   * phase gone, preconditions 8 and 9 gate the day-0 flip rather than an S→P
+   * one, and the day-0 sequence puts the throwaway session and its first daily
+   * BEFORE the preflight so both are measurable when this runs (README).
+   */
   readonly ready: boolean;
-  /** Ids of rows deferred to a later phase — named, never silently dropped. */
-  readonly deferred: readonly string[];
   readonly checks: readonly CheckRow[];
 }
 
 // ---------------------------------------------------------------------------
 // The replay gate (precondition 1)
 // ---------------------------------------------------------------------------
-
-/**
- * The owner-signed waiver the CONTRACT's precondition 1 requires before a
- * SAMPLE record may open this gate. It names the record, so a waiver signed for
- * one sample cannot travel to another (`recordId` is checked, not just present).
- */
-export interface Waiver {
-  readonly precondition: number;
-  readonly recordId: string;
-  readonly signedBy: string;
-  readonly signedAt: string;
-  readonly reason: string;
-}
 
 export interface GateVerdict {
   readonly open: boolean;
@@ -155,21 +144,25 @@ export interface CrossEncodingDirection {
 }
 
 export interface CrossEncodingMeter {
-  /** Which phase's rule was applied. The rules differ; §9 OQ4 sets both. */
+  /** Which phase's rule was applied. §9 OQ4 sets the numbers; see `redLine`. */
   readonly phase: RunPhase;
+  /** The v1→v2 bar: ZERO, in every phase (host shape, §5 G8). */
   readonly bar: number;
   /** The committed probe floor this reading used (`bars.json`). */
   readonly minLineChars: number;
-  /** Phase P's red-line share of v1's daily mints (`bars.json`, 0.10). */
+  /** The v2→v1 red-line share of v1's daily mints (`bars.json`, 0.10). */
   readonly ratioBar: number;
   readonly v1IntoV2: CrossEncodingDirection;
   readonly v2IntoV1: CrossEncodingDirection;
   readonly total: number;
   /**
-   * CONTRACT §5 G7 + G10: a red-line halts the day count. Phase S: ANY hit.
-   * Phase P: only above `ratioBar` of v1's mints that day (§9 OQ4, RULED
-   * 2026-09-03) — v1 keeps v2's injected text by design, so a small count there
-   * is the accepted cost, not a breach.
+   * CONTRACT §5 G7 + G10: a red-line halts the day count. Phase 0 (pre-flip,
+   * nobody delivering but v1): ANY hit, either direction. Phase P, BY
+   * DIRECTION — v1→v2 is the host-shape bar and red-lines on any hit at all
+   * (v1's exclusion is carried by the host's transcript shape, so a hit means
+   * the host changed); v2→v1 is OQ4's accepted cost and red-lines only above
+   * `ratioBar` of v1's mints that day, because v1 keeps v2's injected text by
+   * design.
    */
   readonly redLine: boolean;
   /** Phase P, at or below the ratio: a NAMED FINDING, reported, not a halt. */
@@ -424,8 +417,11 @@ export interface RunRecord {
   readonly phase: RunPhase;
   readonly primacy: Primacy;
   /**
-   * Active days, PER PHASE. Recomputed from `days[].phase` on every write, so a
-   * Phase P count can never inherit Phase S's days (review blocker 5).
+   * Active days, PER PHASE, recomputed from `days[].phase` on every write —
+   * so a phase's minimum can never be cleared by another phase's days (review
+   * blocker 5). Keyed by phase, and TOLERANT of an absent key: with the shadow
+   * phase dropped there is no `S`, and an older record that carries one is read
+   * without complaint rather than migrated.
    */
   readonly activeDays: Readonly<Record<string, number>>;
   /**
@@ -454,7 +450,7 @@ export interface RunRecord {
 }
 
 export interface Bars {
-  /** K — the active-day conversational-turn floor, committed before Phase S. */
+  /** K — the active-day conversational-turn floor, committed on day 0. */
   readonly activeDayTurnFloor: number;
   readonly crossEncodingBar: number;
   /**
@@ -465,8 +461,9 @@ export interface Bars {
    */
   readonly crossEncodingMinLineChars: number;
   /**
-   * Phase P's red-line share of v1's daily mints (§9 OQ4, RULED 2026-09-03:
-   * 0.10). Phase S's bar is zero hits and does not use this.
+   * The v2→v1 direction's red-line share of v1's daily mints (§9 OQ4, RULED
+   * 2026-09-03: 0.10), applied from day 1. The v1→v2 direction's bar is
+   * `crossEncodingBar`, which is zero in every phase and does not use this.
    */
   readonly crossEncodingRatioBar: number;
   readonly committedAt: string;
