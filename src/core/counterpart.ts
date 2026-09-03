@@ -49,7 +49,7 @@ import type { Stance } from "./observer.js";
 import { Prospective } from "./prospective/index.js";
 import { Recall } from "./recall/index.js";
 import type { CreditResult, Turn as RecallTurn, RecallResult } from "./recall/index.js";
-import { SpanBuffer, TUNABLES as REMEMBER, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
+import { SpanBuffer, TUNABLES as REMEMBER, errCode, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
 import type {
   BoundaryKind,
   BoundaryRecord,
@@ -84,6 +84,24 @@ import type { Kind } from "./types.js";
 
 /** The durable per-chunk gate record (dashboard registry imports this literal). */
 export const GATE_CHUNK_EVENT = "gate.chunk";
+
+/**
+ * The durable events an ADAPTER may write, and the whole list of them.
+ *
+ * A mild tension with constitution line 5 (the core knows nothing about any
+ * particular host), taken deliberately and narrowly: the NAMES live here, beside
+ * `GATE_CHUNK_EVENT`, because `adapters/dashboard/registries.ts` derives
+ * `DurableEventName` from string literals and a `name: string` seam would
+ * silently break the property that file exists to keep — a new durable event
+ * fails `tsc` in the registry before it can go missing on screen. The core knows
+ * two names; it knows nothing about what a hook, a primacy file or a parallel
+ * run is.
+ */
+export const PRIMACY_STANDDOWN_EVENT = "adapter.primacy.standdown";
+export const PRIMACY_DELIVER_EVENT = "adapter.primacy.deliver";
+export type AdapterDurableEventName =
+  | typeof PRIMACY_STANDDOWN_EVENT
+  | typeof PRIMACY_DELIVER_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
@@ -617,6 +635,38 @@ export class Counterpart {
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */
   noteOrphanTail(sessionId: string, substance: { turns: number; bytes: number }, day?: number): void {
     this.self.noteOrphanTail(sessionId, substance, day);
+  }
+
+  /**
+   * THE NARROW DURABLE SEAM FOR AN ADAPTER (SEAMS K's log).
+   *
+   * An adapter's own telemetry lives in an in-process ring that dies with the
+   * hook process, which is fine for everything the adapter can re-derive — and
+   * useless for a claim about a RUN. "v2 stood down 14 times today" has to be
+   * countable out of the store after the fact, or it is a hope. So exactly the
+   * two names above may cross into box 2, addressed by name and carrying their
+   * own calendar date in the payload.
+   *
+   * No `dedupKey`: these ACCUMULATE (a day has many hooks), unlike the day-gated
+   * records the replay latch exists for. Returns whether the row landed, and
+   * never throws — an observer refuses at the store's own seam, and a stand-down
+   * that threw would cost the boundary that follows it.
+   */
+  noteAdapterEvent(
+    name: AdapterDurableEventName,
+    data: Record<string, string | number | boolean | null>,
+  ): boolean {
+    if (this.observer) {
+      this.emit("counterpart.adapter.standdown", undefined, { name });
+      return false;
+    }
+    try {
+      const seq = this.store.appendEvent({ name, day: this.store.livedDay(), payload: data });
+      return seq > 0;
+    } catch (err) {
+      this.emit("counterpart.adapter.event.failed", undefined, { name, code: errCode(err) });
+      return false;
+    }
   }
 
   // ── boundaries ─────────────────────────────────────────────────────────────

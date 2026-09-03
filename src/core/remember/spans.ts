@@ -56,8 +56,12 @@ import { TUNABLES } from "./tunables.js";
 
 /** Provenance of a turn. Only conversational text (and host-injected context)
  *  enters capture; tool output, file contents and images never do. This is a
- *  DECLARED blind spot, not an oversight (§3, behavioral-spec §2 G10/G11). */
-export type TurnSource = "conversation" | "injected" | "tool" | "file" | "image";
+ *  DECLARED blind spot, not an oversight (§3, behavioral-spec §2 G10/G11).
+ *
+ *  `foreign` is the parallel run's addition: material ANOTHER memory system's
+ *  hooks put into this host's context. It is not the host speaking (`injected`)
+ *  and it is certainly not the user, so it enters nothing — see `enters()`. */
+export type TurnSource = "conversation" | "injected" | "tool" | "file" | "image" | "foreign";
 
 export interface Turn {
   role: "user" | "assistant";
@@ -1132,6 +1136,12 @@ export class SpanBuffer {
  *  context does (it is conversational material the model actually saw). */
 export function enters(turn: Turn): boolean {
   const source = turn.source ?? "conversation";
+  // THE FOREIGN EXCLUSION, named rather than left to fall through the clause
+  // below: another memory system's injection is text this store would otherwise
+  // read as lived experience and encode as its own — v1's briefing coming back
+  // to v2 as a memory of having thought it. `injected` is kept and merely
+  // unpaced; `foreign` is refused outright.
+  if (source === "foreign") return false;
   return source === "conversation" || source === "injected";
 }
 

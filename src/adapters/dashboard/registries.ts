@@ -25,7 +25,7 @@ import { PHASES } from "../../core/sleep/index.js";
 import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
-import { GATE_CHUNK_EVENT } from "../../core/counterpart.js";
+import { GATE_CHUNK_EVENT, PRIMACY_DELIVER_EVENT, PRIMACY_STANDDOWN_EVENT } from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
@@ -47,16 +47,19 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
 
 /**
  * Every event name that reaches box 2's `events` table — the DURABLE log, the
- * one that survives the process. Four writers append to it today: `sleep/`'s
- * consolidate, prune and dedup phases, and `schemas/`'s credited challenge.
+ * one that survives the process. `sleep/`'s consolidate, prune and dedup phases
+ * append to it, `schemas/`'s credited challenge does, the chunk gate does, and
+ * so does the one narrow seam an ADAPTER may write through
+ * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
  *
  * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
  * declares its `event` as a string literal; the `satisfies` below is keyed on
- * the union of those four literals, so a fifth durable record type — or a
- * renamed literal — fails `tsc` here rather than quietly never appearing in the
- * feed. That is the totality test applied to the log itself: "consolidation has
+ * the union of those literals, so a new durable record type — or a renamed
+ * literal — fails `tsc` here rather than quietly never appearing in the feed.
+ * That is the totality test applied to the log itself: "consolidation has
  * promoted nothing, ever" must be a line the owner can read, not an empty space
- * (scar §2.17, §2.4).
+ * (scar §2.17, §2.4). The adapter seam is typed rather than `name: string` for
+ * exactly this reason.
  */
 export type DurableEventName =
   | PromotionCrossing["event"]
@@ -64,9 +67,13 @@ export type DurableEventName =
   | MergeRecord["event"]
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
-  | typeof BAND_TRANSITION_EVENT;
+  | typeof BAND_TRANSITION_EVENT
+  | typeof PRIMACY_STANDDOWN_EVENT
+  | typeof PRIMACY_DELIVER_EVENT;
 
 export const DURABLE_EVENTS = {
+  "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
+  "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",
   "band.promoted": "a memory crossed into the identity band",
   "band.transition": "a memory changed bands (the symmetry counter's food)",
   "gate.chunk": "a swept chunk met the gate battery",
