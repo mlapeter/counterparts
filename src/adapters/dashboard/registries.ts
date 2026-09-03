@@ -25,7 +25,12 @@ import { PHASES } from "../../core/sleep/index.js";
 import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
-import { GATE_CHUNK_EVENT, PRIMACY_DELIVER_EVENT, PRIMACY_STANDDOWN_EVENT } from "../../core/counterpart.js";
+import {
+  GATE_CHUNK_EVENT,
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  RECALL_DECISION_EVENT,
+} from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
@@ -47,14 +52,15 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
 
 /**
  * Every event name that reaches box 2's `events` table — the DURABLE log, the
- * one that survives the process. `sleep/`'s consolidate, prune and dedup phases
- * append to it, `schemas/`'s credited challenge does, the chunk gate does, and
- * so does the one narrow seam an ADAPTER may write through
+ * one that survives the process. Its writers today: `sleep/`'s consolidate,
+ * prune, dedup and decay phases, `schemas/`'s credited challenge, the
+ * composition root's two records — the chunk gate's, and one per turn's
+ * surfacing decision — and the one narrow seam an ADAPTER may write through
  * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
  *
  * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
  * declares its `event` as a string literal; the `satisfies` below is keyed on
- * the union of those literals, so a new durable record type — or a renamed
+ * the union of those literals, so one more durable record type — or a renamed
  * literal — fails `tsc` here rather than quietly never appearing in the feed.
  * That is the totality test applied to the log itself: "consolidation has
  * promoted nothing, ever" must be a line the owner can read, not an empty space
@@ -67,6 +73,7 @@ export type DurableEventName =
   | MergeRecord["event"]
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
+  | typeof RECALL_DECISION_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT;
@@ -79,6 +86,7 @@ export const DURABLE_EVENTS = {
   "gate.chunk": "a swept chunk met the gate battery",
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
+  "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief took a credited challenge",
 } as const satisfies Record<DurableEventName, string>;
 
