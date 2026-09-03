@@ -119,13 +119,19 @@ export const WAKE_INJECTED_EVENT = "adapter.wake.injected";
 export const WAKE_DELIVERED_EVENT = "adapter.wake.delivered";
 export const RECALL_DELIVERED_EVENT = "adapter.recall";
 export const EPISODE_ASK_EVENT = "adapter.episode.ask";
+/** The boundary itself — every session-ending path leaves one, so a day whose
+ *  sessions ended only through `session-end` / `pre-compact` (no `stop`, no
+ *  primacy row) is still evidenced as having reached a boundary (parallel-run
+ *  "what counts as a day"). Counts and cursors; never text. */
+export const BOUNDARY_EVENT = "adapter.boundary";
 export type AdapterDurableEventName =
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
   | typeof WAKE_INJECTED_EVENT
   | typeof WAKE_DELIVERED_EVENT
   | typeof RECALL_DELIVERED_EVENT
-  | typeof EPISODE_ASK_EVENT;
+  | typeof EPISODE_ASK_EVENT
+  | typeof BOUNDARY_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {

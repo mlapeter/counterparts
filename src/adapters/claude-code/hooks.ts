@@ -35,6 +35,7 @@
  *   (parallel-run G4: the mute is evidenced, not asserted).
  */
 import {
+  BOUNDARY_EVENT,
   Counterpart,
   EPISODE_ASK_EVENT,
   PRIMACY_DELIVER_EVENT,
@@ -449,7 +450,7 @@ export class ClaudeCodeAdapter {
       scope: input.scope,
       kind: BOUNDARY_KIND[hook],
     });
-    this.emit("adapter.boundary", {
+    this.record(BOUNDARY_EVENT, input, {
       hook,
       kind: record.kind,
       captured: captured.captured,

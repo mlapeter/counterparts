@@ -1793,6 +1793,42 @@ describe("day classes", () => {
     expect(r.v2.nonDurable).not.toContain("adapter.wake.injected");
   });
 
+  test("a day whose only v2 boundary evidence is a durable `adapter.boundary` row still counts as reached", () => {
+    const build = (withBoundaryRow: boolean): ReturnType<typeof classOf> => {
+      const s = scene(3);
+      v1Log(s.v1Dir, DATE, [
+        { seq: 0, session: "s1", type: "session.start" },
+        { seq: 1, session: "s1", type: "wake.rendered" },
+        { seq: 2, session: "s1", type: "buffer.append" },
+        { seq: 3, session: "s1", type: "buffer.append" },
+        { seq: 4, session: "s1", type: "buffer.append" },
+        { seq: 5, session: "s1", type: "session.end" },
+      ]);
+      buildStore(s.v2Dir, (store) => {
+        for (const hook of ["session-start", "user-prompt-submit"]) {
+          store.appendEvent({
+            name: PRIMACY_STANDDOWN_EVENT,
+            day: 0,
+            payload: { hook, reason: "override-bansai", system: "v1", date: DATE, session: "s1" },
+          });
+        }
+        if (withBoundaryRow) {
+          store.appendEvent({
+            name: "adapter.boundary",
+            day: 0,
+            payload: { hook: "session-end", kind: "session-end", captured: true, spans: 3, date: DATE, session: "s1" },
+          });
+        }
+      });
+      return classOf(s, { phase: "S", primacy: "v1" });
+    };
+    // The session ended through `session-end` only: no `stop`, so no primacy
+    // row and no episode ask — the boundary row is the evidence. Control first:
+    // the scene's store is reused by name, so the row must be added last.
+    expect(build(false).class).toBe("thin");
+    expect(build(true).class).toBe("active");
+  });
+
   test("CONTAMINATED in Phase S: a muted v2 that injected a wake is caught by its own durable row", () => {
     const s = scene(3);
     // v1 primary and delivering normally; v2 stood down at every hook — except

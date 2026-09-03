@@ -26,6 +26,7 @@ import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import {
+  BOUNDARY_EVENT,
   EPISODE_ASK_EVENT,
   GATE_CHUNK_EVENT,
   PRIMACY_DELIVER_EVENT,
@@ -84,9 +85,11 @@ export type DurableEventName =
   | typeof WAKE_INJECTED_EVENT
   | typeof WAKE_DELIVERED_EVENT
   | typeof RECALL_DELIVERED_EVENT
-  | typeof EPISODE_ASK_EVENT;
+  | typeof EPISODE_ASK_EVENT
+  | typeof BOUNDARY_EVENT;
 
 export const DURABLE_EVENTS = {
+  "adapter.boundary": "a session-ending path reached the boundary (spans captured, cursor moved)",
   "adapter.episode.ask": "the session-end episode ask was evaluated (asked or not, and why)",
   "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
   "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",

@@ -664,18 +664,19 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const silentSessions = silentSessionIds.length;
 
   const turns = v1.turns;
-  // v2's DURABLE boundary evidence is a primacy record from the `stop` hook.
-  // `session-end` and `pre-compact` reach `claim()` but never `deliveryVerdict`,
-  // and their own `adapter.boundary` event is RING-ONLY — it dies with the hook
-  // process and is not in `DURABLE_EVENTS`. So the other two session-ending
-  // paths leave no durable trace at all, and a day that ended only through them
-  // is not `thin` (a fact about the day) but unevidenced (a fact about the
-  // instrument). That distinction is said in `why` rather than scored.
+  // v2's DURABLE boundary evidence, three witnesses: a primacy record from the
+  // `stop` hook, the episode-ask record, and — since 2026-09-03 — the boundary's
+  // own `adapter.boundary` row, which every session-ending path leaves
+  // (`session-end` and `pre-compact` included), so no path is unevidenced.
   const v2StopBoundaries = (deliverHooks["stop"] ?? 0) + (v2.primacyByHook.standdown["stop"] ?? 0);
   // The episode ask only fires on a session-ending path, so its durable record
   // is second-hand boundary evidence where the primacy row is absent.
   const v2AskBoundaries = v2.byNameForDate["adapter.episode.ask"] ?? 0;
-  const v2Boundaries = v2StopBoundaries + v2AskBoundaries;
+  // And the boundary's own durable row (every session-ending path leaves one,
+  // `session-end` and `pre-compact` included), so a day whose sessions never
+  // passed through `stop` is still evidenced.
+  const v2BoundaryRows = v2.byNameForDate["adapter.boundary"] ?? 0;
+  const v2Boundaries = v2StopBoundaries + v2AskBoundaries + v2BoundaryRows;
   const bothReachedBoundary = v1.sessionEnd > 0 && v2Boundaries > 0;
 
   const flags: DayClass[] = [];
@@ -876,7 +877,7 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
         return "no v2 store was found at the given data dir, so v2 reached no boundary this instrument can see";
       }
       if (f.v2StopBoundaries + f.v2AskBoundaries === 0) {
-        return "one of the two systems reached no session boundary on this day. NOTE: v2's only DURABLE boundary evidence is the `stop` hook's primacy record and the episode-ask record; `session-end` and `pre-compact` emit `adapter.boundary` to the RING ONLY, so a day whose sessions ended only through those two paths is unevidenced here rather than genuinely boundary-less.";
+        return "one of the two systems reached no session boundary on this day (v2's evidence: a `stop` primacy record, an episode-ask record, or the durable `adapter.boundary` row every session-ending path leaves).";
       }
       return "one of the two systems reached no session boundary on this day";
     case "active":

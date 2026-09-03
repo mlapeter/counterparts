@@ -1265,6 +1265,23 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     for (const name of DELIVERING) expect(muted.events(name)).toEqual([]);
   });
 
+  test("every session-ending path leaves a DURABLE boundary row — session-end and pre-compact included", () => {
+    assign({ override: "bansai" });
+    const { a } = adapter(PARALLEL);
+    a.sessionEnd(input());
+    a.preCompact(input({ sessionId: "s2" }));
+    a.stop(input({ sessionId: "s3" }));
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.boundary", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.map((r) => [r["hook"], r["session"], r["date"]])).toEqual([
+      ["session-end", "s1", "2026-01-02"],
+      ["pre-compact", "s2", "2026-01-02"],
+      ["stop", "s3", "2026-01-02"],
+    ]);
+    for (const r of rows) for (const v of Object.values(r)) expect(["string", "number", "boolean"].includes(typeof v) || v === null).toBe(true);
+  });
+
   test("the mute is EVIDENCED: the day's stand-downs are countable out of the store (G4)", () => {
     assign({ override: "bansai" });
     const { a } = adapter(PARALLEL);

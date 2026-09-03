@@ -508,6 +508,7 @@ export const DURABLE_DETECTORS: readonly string[] = [
   "adapter.wake.delivered",
   "adapter.recall",
   "adapter.episode.ask",
+  "adapter.boundary",
   "gate.chunk",
   "band.transition",
   // Precondition 9's evidence: the per-turn surfacing decision, durable. The
