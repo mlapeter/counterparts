@@ -122,15 +122,45 @@ async function main(): Promise<void> {
   });
   try {
     const result = adapter.hook(name, toHookInput(payload));
-    // The injection, then the asks. `authorshipAsk` is v2's front door and goes
-    // first: the episode is the day's narration, the dump is the day's memory.
-    const out = [result.injection, result.authorshipAsk, result.ask]
-      .filter((s): s is string => s !== null && s.length > 0)
-      .join("\n\n");
-    if (out.length > 0) process.stdout.write(out);
+    const delivery = hostDelivery(name, result, payload);
+    if (delivery.stdout.length > 0) process.stdout.write(delivery.stdout);
+    if (delivery.stderr.length > 0) process.stderr.write(delivery.stderr);
+    process.exitCode = delivery.exitCode;
   } finally {
     adapter.counterpart.close();
   }
+}
+
+/**
+ * How each hook's output reaches the model on THIS host — measured, not
+ * assumed (scar §2.18), on day 0 of the parallel run (2026-09-03):
+ *
+ *   - SessionStart / UserPromptSubmit: plain stdout with exit 0 is added to the
+ *     model's context. The wake (8,859 B) arrived that way.
+ *   - Stop: plain stdout with exit 0 reaches NOBODY. An ask written that way
+ *     was recorded (`adapter.episode.ask asked:true`) and never seen. The one
+ *     channel proven on this host is the blocking one bansai has used all along:
+ *     the text on STDERR and exit code 2, which the host feeds back to the model
+ *     as "Stop hook feedback" and lets it continue. The host then re-fires Stop
+ *     with `stop_hook_active: true`; that re-fire must ask NOTHING or the ask
+ *     loops forever (v1's anti-loop, kept here for the same reason).
+ *
+ * Pure, so the test proves the channel choice without a process.
+ */
+export function hostDelivery(
+  name: HookName,
+  result: { injection: string | null; authorshipAsk: string | null; ask: string | null },
+  payload: Record<string, unknown>,
+): { stdout: string; stderr: string; exitCode: 0 | 2 } {
+  const asks = [result.authorshipAsk, result.ask].filter((s): s is string => s !== null && s.length > 0);
+  if (name !== "stop") {
+    const out = [result.injection, ...asks].filter((s) => s.length > 0).join("\n\n");
+    return { stdout: out, stderr: "", exitCode: 0 };
+  }
+  if (payload["stop_hook_active"] === true || asks.length === 0) {
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+  return { stdout: "", stderr: asks.join("\n\n"), exitCode: 2 };
 }
 
 /** True only when this file is the process entry point — so a test may import
@@ -142,7 +172,7 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 
 if (isEntryPoint(process.argv[1], import.meta.url)) {
   void main().then(
-    () => process.exit(0),
+    () => process.exit(process.exitCode === 2 ? 2 : 0),
     (err: unknown) => {
       // A failed hook is a QUIET hook, never a failed session — but a
       // stand-down stays observable (observer-mode G6). One line names it:
