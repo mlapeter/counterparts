@@ -5,22 +5,36 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
-## State — 2026-09-03
+## State — 2026-09-03, evening: STARTED
 
-**NOT STARTED.** Preconditions closed in code (branch reviewed twice, PR #8); the
-sample replay is done and read below, and it opens the gate on the wiring-alive
-predicate — there is no waiver to wait for. Day 0 needs the owner's hand several times
-(snapshot, hook wiring, the throwaway session, the flip) and happens in-session; the
-flip is day 0's LAST step, and day 1 is v2-primary.
+**The run is live.** Day 0 closed READY on every preflight row at 21:01 UTC; the flip
+(`override: "engram"`) was written at 20:43 UTC with no session open, backup beside the
+file, stamped in `flips.jsonl`. Counterparts is primary; bansai is muted and still
+encoding. **Day 1 is 2026-09-04.** Phase P minimum: ≥7 active days before a verdict.
 
 | | |
 |---|---|
-| Phase | 0 (day 0, pre-flip) — then P, from day 1. There is no Phase S |
-| Run directory | `~/counterparts-parallel-run/<start-date>/` — not yet created |
-| v2 data dir | `~/.counterparts/store` (a subdirectory on purpose — see *Known hazards*) |
-| v2 config | `~/.counterparts/claude-code.json` — drafted, not written |
-| Assignment file | `~/.memory-ab/assignment.json` = `override: "bansai"` (v1 primary; flipped to `"engram"` at the end of day 0) |
-| Rail | ~2026-09-22: no green verdict by then ⇒ v1 flips public as-is |
+| Phase | P (from day 1) |
+| Run directory | `~/counterparts-parallel-run/2026-09-03/` |
+| v2 data dir | `~/.counterparts/store` (14,753 memories imported; 13,727 vectors) |
+| v2 config | `~/.counterparts/claude-code.json` (`credentialsFile` → `~/.counterparts/credentials.env`, 0600) |
+| Hooks | counterparts' `bin/hook.ts` on all five events beside bansai's; backup `~/.claude/settings.json.bak-2026-09-03-pre-counterparts` |
+| MCP | `counterparts` (note, recall, status, session_end) registered; `bansai` and `engram` removed for the run (`mcp-servers-removed.json`; backup `~/.claude.json.bak-2026-09-03-pre-counterparts-mcp`) |
+| Assignment file | `~/.memory-ab/assignment.json` = `override: "engram"` |
+| Code | master `38a2829` (PRs #7–#14), suite 1239, typecheck clean — the hooks run the checkout, so master stays checked out for the run |
+| Rail | ~2026-09-22 |
+
+**Day-0 go/no-go evidence (all from the store and transcripts, none from impression):**
+the first wake injected (8,859 B, 8 identity elements) and saved for the owner to read
+at `first-wake-2026-09-03.md`; recall delivered footnotes on a real turn; the ask
+reached the model through stderr + exit 2 (precondition 8); one `recall.decision` row
+(precondition 9); bansai muted at every hook since the flip with zero deliveries; four
+sweeps ran once the credentials file landed; cross-encoding zero both directions.
+
+**Day-1 watches added from day 0:** recall `latency-abort` rate (the surfacing race has
+a 250 ms budget and the live cue embedding is a network call — the first real turn
+aborted); mint yield per day against bansai's; the ask cadence (now paced on 8 turns
+and 8,000 bytes since the last ask); vector coverage (512 texts unembedded).
 
 ## Rulings (owner, 2026-09-03 — all seven §9 questions, plus two the same evening)
 
