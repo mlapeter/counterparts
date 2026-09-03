@@ -161,7 +161,14 @@ export const TUNABLES: RecallTunables = {
   GIST_BYTES: 240,
   FOOTNOTE_TITLE_BYTES: 80,
   BUDGET_PRESSURE: 0.9,
-  BUDGET_MS: 250,
+  // 250 → 1200 on day 0 of the parallel run (2026-09-03): the first recall in a
+  // fresh process — every hook is one — measured 794–819 ms warming the page
+  // cache over a 263 MB token index after the worker's writes, and 5 of 6 real
+  // turns aborted. bansai runs its surfacing at 800 ms; 1200 covers the measured
+  // cold case with headroom. The structural fix (why the index churns after each
+  // cycle) is the day-1 watch; this is the calibration that makes recall exist
+  // in the meantime. CAL.
+  BUDGET_MS: 1200,
 
   MAX_SESSION_RECORDS: 200,
 };
