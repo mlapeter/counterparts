@@ -34,6 +34,15 @@ export type {
 } from "./config.js";
 
 export {
+  CREDENTIAL_FILE_EVENT,
+  CREDENTIAL_NAMES,
+  credentialRow,
+  loadCredentials,
+  permissionWarning,
+} from "./credentials.js";
+export type { CredentialLoad } from "./credentials.js";
+
+export {
   AUTHORSHIP_ASK,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,

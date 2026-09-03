@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 import { dataDir } from "../../../core/store/index.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
+import { loadCredentials, permissionWarning } from "../credentials.js";
+import type { CredentialLoad } from "../credentials.js";
 import { HOOKS, openAdapter } from "../index.js";
 import type { HookInput, HookName } from "../hooks.js";
 import { readTranscript } from "../transcript.js";
@@ -46,7 +48,23 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-export function hostConfig(path = CONFIG_PATH): AdapterConfig {
+/**
+ * The configuration this process runs on, AND the credential load it performed.
+ *
+ * The credentials are read HERE, at the process entry point, before anything
+ * asks for a key: the spawner's `base` env is `process.env`, the two clients
+ * read `process.env`, and the capability report reads `process.env` — so the gap
+ * must be filled before any of them look. Measured day 0 of the parallel run:
+ * this host's hook processes carry neither name, so without this line the worker
+ * refuses every spawn and the embedder never opens.
+ *
+ * `env` is injected so a test can prove the whole path over a fresh object
+ * instead of mutating the suite's own process.
+ */
+export function hostConfig(
+  path = CONFIG_PATH,
+  env: NodeJS.ProcessEnv = process.env,
+): { config: AdapterConfig; credentials: CredentialLoad } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -56,11 +74,14 @@ export function hostConfig(path = CONFIG_PATH): AdapterConfig {
     raw = undefined;
   }
   const loaded = loadConfig(raw).config;
+  // Only a configuration we UNDERSTOOD names a file. An unreadable one resolves
+  // to `{ observer: true }` above, and an observer opens no credential.
+  const credentials = loadCredentials(loaded.credentialsFile, env);
   // The data dir is RESOLVED here and carried explicitly, so the spawner has a
   // value to pin onto the child (scar §2.13). Leaving it undefined would make
   // the parent and the child resolve it independently, from an environment
   // either of them might have inherited differently.
-  return { ...loaded, dataDir: loaded.dataDir ?? dataDir() };
+  return { config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() }, credentials };
 }
 
 export function toHookInput(payload: Record<string, unknown>): HookInput {
@@ -88,10 +109,16 @@ async function main(): Promise<void> {
   const name = HOST_HOOKS[String(payload["hook_event_name"] ?? "")];
   if (name === undefined || !HOOKS.includes(name)) return;
 
-  const config = hostConfig();
+  const { config, credentials } = hostConfig();
+  // A file the group or the world can read is WARNED about, by mode, and never
+  // refused: the owner's machine, the owner's call (§5 G2 — a throw here would
+  // fail the host over a permission bit).
+  const warning = permissionWarning(config.credentialsFile, credentials);
+  if (warning !== null) process.stderr.write(`${warning}\n`);
   const adapter = openAdapter(config, {
     command: process.execPath,
     args: ["run", RUNNER_PATH],
+    credentials,
   });
   try {
     const result = adapter.hook(name, toHookInput(payload));

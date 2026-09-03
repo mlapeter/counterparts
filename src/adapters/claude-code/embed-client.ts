@@ -21,9 +21,11 @@
  *   same unit as the provider's batch ceiling on purpose — one boundary, not two.
  *
  *   **§2.18** — the credential comes from ONE environment variable this package
- *   names (`EMBED_KEY_ENV`), never from a file. v1's client accepted a `.env`
- *   fallback; that is dropped here (see `config.ts`). Missing means a NAMED
- *   refusal BEFORE any socket is opened.
+ *   names (`EMBED_KEY_ENV`), filled either by the environment or, where the host
+ *   hands a process none, by the file the package's own config NAMES
+ *   (`credentialsFile`, loaded at the entry point). v1's client accepted a
+ *   `.env` found by CONVENTION; that half stays dropped (see `config.ts`).
+ *   Missing means a NAMED refusal BEFORE any socket is opened.
  *
  *   **§2.15** — the model id comes from this adapter's own `embed` seat, pinned,
  *   with its own knob; an expired placeholder refuses the call. A vector's
