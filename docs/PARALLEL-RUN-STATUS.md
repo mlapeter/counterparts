@@ -34,7 +34,13 @@ sweeps ran once the credentials file landed; cross-encoding zero both directions
 **Day-1 watches added from day 0:** recall `latency-abort` rate (the surfacing race has
 a 250 ms budget and the live cue embedding is a network call — the first real turn
 aborted); mint yield per day against bansai's; the ask cadence (now paced on 8 turns
-and 8,000 bytes since the last ask); vector coverage (512 texts unembedded).
+and 8,000 bytes since the last ask); vector coverage (512 texts unembedded); **the
+wake's lane balance** — the first speaking session's wake was eight identity elements
+filling the whole 9 KB budget with craft, threads and horizon at zero (the trim order
+lets identity eat the budget on a migrated store); propose an identity-lane cap with
+day 1's numbers. The model in that session attributed the wake to bansai (the content
+is bansai-era memory, the frame was anonymous — fixed in PR #15) and wrote a
+misdiagnosis into its answer; a later session should revise it with `updates:`.
 
 ## Rulings (owner, 2026-09-03 — all seven §9 questions, plus two the same evening)
 
