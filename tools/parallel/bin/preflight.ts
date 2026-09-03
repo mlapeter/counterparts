@@ -149,7 +149,16 @@ function main(argv: readonly string[]): number {
     phase: args.phase,
   });
 
-  const run = RunDir.open(args.runDir);
+  // THE RUN DIRECTORY IS CHECKED BEFORE IT IS CREATED. `RunDir.open` refuses a
+  // run dir that overlaps any live store, in either direction, by realpath — so
+  // a mistyped `--run-dir` cannot mkdir the instrument's one write target
+  // inside the subject it observes (CONTRACT §5 G1, scar §2.13).
+  const run = RunDir.open(args.runDir, {
+    v1Dir: args.v1Dir,
+    v2DataDir: args.v2DataDir,
+    engramDir: args.engramDir,
+    abDir: args.abDir,
+  });
   run.writeJson("preflight.json", report);
   run.writeJson("gate-sets.json", gateSets());
 

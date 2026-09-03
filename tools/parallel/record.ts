@@ -16,7 +16,7 @@
  * Nothing here writes; `dailyRecord` returns the record and the artifacts, and
  * the caller hands them to `writer.ts` (G1).
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { contentAddress } from "../replay/corpus.js";
@@ -37,6 +37,7 @@ import {
 } from "./readers.js";
 import type {
   Bars,
+  ContaminationDetectors,
   CreatedExited,
   CrossEncodingDirection,
   CrossEncodingMeter,
@@ -127,6 +128,23 @@ function proseBodyOf(raw: string): string {
   return raw;
 }
 
+/**
+ * The durable records that mean V2 SPOKE into a session. `adapter.wake.injected`
+ * and `adapter.recall` are the two injection channels; `adapter.episode.ask` is
+ * the ritual. `adapter.wake.delivered` is deliberately absent — it records the
+ * ARRIVAL of the previous session's wake on this turn, not a delivery into this
+ * session (scar §2.3: render and delivery are two events, and this list is
+ * about the speaking end).
+ */
+const DELIVERY_RECORDS: readonly string[] = [
+  "adapter.wake.injected",
+  "adapter.recall",
+  "adapter.episode.ask",
+];
+
+/** Every phase a day can be stamped with, so the counts below are total. */
+const RUN_PHASES: readonly RunPhase[] = ["0", "S", "P"];
+
 export interface MeterSide {
   /** The addresses this side INJECTED — the probes. */
   readonly probes: Set<string>;
@@ -171,7 +189,7 @@ export interface CrossEncodingInput {
   /** v2's ritual prompt strings (its two asks). */
   readonly v2Ritual?: readonly string[];
   /** How much recall the primary actually delivered — G7's exposure denominator. */
-  readonly exposureDenominator?: number;
+  readonly exposureDenominator?: number | null;
 }
 
 export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
@@ -220,7 +238,7 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
     v2IntoV1,
     total,
     redLine: total > input.bar,
-    exposureDenominator: input.exposureDenominator ?? 0,
+    exposureDenominator: input.exposureDenominator ?? null,
   };
 }
 
@@ -272,6 +290,8 @@ export interface DailyOptions {
   readonly v2Ritual?: readonly string[];
   /** The store's lived day for this date, when the caller knows it. */
   readonly livedDay?: number;
+  /** The event read's row cap. A day that hits it cannot be classified. */
+  readonly eventLimit?: number;
   readonly at?: string;
 }
 
@@ -289,13 +309,54 @@ const DEFAULT_BARS: Bars = {
   committedAt: "",
 };
 
-export function readRunRecord(runDir: string): RunRecord | null {
-  try {
-    const raw = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")) as RunRecord;
-    return typeof raw === "object" && raw !== null ? raw : null;
-  } catch {
-    return null;
+export class RecordError extends Error {
+  readonly code: string;
+  readonly detail: Readonly<Record<string, string>>;
+  constructor(code: string, detail: Record<string, string> = {}) {
+    super(`${code} ${JSON.stringify(detail)}`);
+    this.name = "RecordError";
+    this.code = code;
+    this.detail = detail;
   }
+}
+
+/**
+ * The run record, or null when there is not one yet — and a THROW when there is
+ * one that cannot be read.
+ *
+ * The old `catch { return null }` could not tell "no run has started" from "the
+ * run record is corrupt", so a truncated `run.json` silently restarted the
+ * phase clock: the day count, the class list and both config hashes reset, and
+ * the scorecard rendered off a run that had lost its own history. A corrupt
+ * record is evidence (§5 G10, "red-lines halt and PRESERVE"); the operator is
+ * told, and the file is left exactly as it was found.
+ */
+export function readRunRecord(runDir: string): RunRecord | null {
+  const path = join(runDir, "run.json");
+  if (!existsSync(path)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    throw new RecordError("RUN_RECORD_UNREADABLE", {
+      path,
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new RecordError("RUN_RECORD_CORRUPT", {
+      path,
+      detail: err instanceof Error ? err.message : String(err),
+      remedy: "the run record is preserved as evidence; repair or move it deliberately, never by re-running",
+    });
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new RecordError("RUN_RECORD_CORRUPT", { path, detail: "not a JSON object" });
+  }
+  return parsed as RunRecord;
 }
 
 export function dailyRecord(opts: DailyOptions): DailyArtifacts {
@@ -305,7 +366,10 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const bars = opts.bars ?? readBars(opts.runDir) ?? DEFAULT_BARS;
 
   const v1 = readV1Day(opts.v1Dir, opts.date);
-  const v2 = readV2Day(opts.v2DataDir, opts.date, opts.livedDay === undefined ? {} : { livedDay: opts.livedDay });
+  const v2 = readV2Day(opts.v2DataDir, opts.date, {
+    ...(opts.livedDay === undefined ? {} : { livedDay: opts.livedDay }),
+    ...(opts.eventLimit === undefined ? {} : { limit: opts.eventLimit }),
+  });
 
   const deliverHooks = v2.primacyByHook.deliver;
   const v2Delivered = Object.values(deliverHooks).reduce((n, x) => n + x, 0);
@@ -329,49 +393,94 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     recall: v1.surfaceInject,
     ritual: v1.episodeAsked,
   };
-  const v2Detectors = {
-    wake: v2.byNameForDate["adapter.wake.injected"] ?? 0,
-    recall: v2.byNameForDate["adapter.recall"] ?? 0,
-    ritual: v2.byNameForDate["adapter.episode.ask"] ?? 0,
-  };
+  // A READ THAT FAILED IS NOT A DAY THAT WAS QUIET (review blocker 9). When the
+  // event read errored, or capped, every count under it is a floor of unknown
+  // depth — so the detectors read `null`, exactly as `ContaminationDetectors`
+  // says they must, and the day cannot be classified `active` below.
+  const v2Unreadable = v2.readErrors.length > 0 || v2.truncated;
+  const v2Detectors: ContaminationDetectors = v2Unreadable
+    ? { wake: null, recall: null, ritual: null }
+    : {
+        wake: v2.byNameForDate["adapter.wake.injected"] ?? 0,
+        recall: v2.byNameForDate["adapter.recall"] ?? 0,
+        ritual: v2.byNameForDate["adapter.episode.ask"] ?? 0,
+      };
 
   const v1Contaminated = v1Muted && (v1Detectors.wake + v1Detectors.recall + v1Detectors.ritual) > 0;
-  const v2Contaminated =
-    v2Muted && (v2Delivered > 0 || v2Detectors.wake + v2Detectors.recall + v2Detectors.ritual > 0);
+  const v2Signal =
+    v2Detectors.wake === null ? null : v2Detectors.wake + (v2Detectors.recall ?? 0) + (v2Detectors.ritual ?? 0);
+  const v2Contaminated = v2Muted && !v2Unreadable && (v2Delivered > 0 || (v2Signal ?? 0) > 0);
 
   // ── the classes ───────────────────────────────────────────────────────────
   const straddled = v1.sessions.filter((s) => s.straddled);
 
-  // SILENT is a per-SESSION state — v1 muted at session start and v2 delivering
-  // nothing into that same session — and the join it needs does not exist:
-  // `deliveryVerdict`'s durable payload is `{hook, reason, system, date}` and
-  // carries NO session id, so a v2 record cannot be matched to a v1 session.
-  // The honest approximation is the count difference, and it is named as one
-  // rather than dressed up as a join: N v1 sessions muted at start against M
-  // v2 session-start deliveries leaves N-M sessions nobody spoke into. It
-  // under-detects only when v2 delivered into a session v1 never muted, which
-  // is the CONTAMINATED case and is caught by its own detector.
+  // SILENT IS A PER-SESSION JOIN, not a difference of counts.
+  //
+  // The old approximation subtracted M v2 session-start deliveries from N v1
+  // muted sessions, which cancels: v2 speaking into session A while nobody
+  // spoke into session B reads as zero silent sessions. The join exists after
+  // all — every adapter record carries `session: input.sessionId`
+  // (`hooks.ts#deliveryVerdict` and `#record`).
+  //
+  // THE ASSUMPTION, ASSERTED RATHER THAN ASSUMED: v1's `session` field and v2's
+  // `input.sessionId` are the SAME host session id. Both systems are hooks of
+  // one host and both stamp the id the host hands them; nothing derives or
+  // re-mints it. The suite pins this on a fixture that uses one id on both
+  // sides and asserts the join lands — if the host ever changes what it hands
+  // one of them, that test goes red rather than this number going quietly wrong.
+  const spokeInto = (session: string): boolean => {
+    const row = v2.bySessionForDate[session];
+    if (row === undefined) return false;
+    // A DELIVERY into that session, by any channel: the session-start primacy
+    // record, or any of the durable delivery records. A stand-down is not
+    // speaking — it is the mute working, and the session is still silent.
+    return Object.entries(row).some(
+      ([key, n]) => n > 0 && (key.startsWith("deliver:") || DELIVERY_RECORDS.includes(key)),
+    );
+  };
   const mutedAtStart = v1.mutedAtSessionStart.length;
   const v2SessionStarts = deliverHooks["session-start"] ?? 0;
-  const silentSessions = Math.max(0, mutedAtStart - v2SessionStarts);
+  // IS THE JOIN AVAILABLE AT ALL? Zero v2 rows for the date is a real answer —
+  // v2 spoke nowhere, so every muted session was silent. Rows that carry no
+  // `session` are NOT: that is a payload this instrument cannot join, and
+  // declaring silence from it would be inventing the very evidence the class
+  // is supposed to rest on. Unreadable counts are the same case.
+  const v2DateRows = Object.values(v2.byNameForDate).reduce((n, x) => n + x, 0);
+  const sessionsSeen = Object.keys(v2.bySessionForDate).length;
+  const joinAvailable = !v2Unreadable && (v2DateRows === 0 || sessionsSeen > 0);
+  const silentSessionIds = joinAvailable
+    ? v1.mutedAtSessionStart.filter((session) => !spokeInto(session))
+    : [];
+  const silentSessions = silentSessionIds.length;
 
   const turns = v1.turns;
-  // v2's only DURABLE boundary evidence is a primacy record from the `stop`
-  // hook: `sessionEnd` and `pre-compaction` never call `deliveryVerdict`, so a
-  // session-start record is not a boundary and must not be read as one.
-  const v2Boundaries = (deliverHooks["stop"] ?? 0) + (v2.primacyByHook.standdown["stop"] ?? 0);
+  // v2's DURABLE boundary evidence is a primacy record from the `stop` hook.
+  // `session-end` and `pre-compact` reach `claim()` but never `deliveryVerdict`,
+  // and their own `adapter.boundary` event is RING-ONLY — it dies with the hook
+  // process and is not in `DURABLE_EVENTS`. So the other two session-ending
+  // paths leave no durable trace at all, and a day that ended only through them
+  // is not `thin` (a fact about the day) but unevidenced (a fact about the
+  // instrument). That distinction is said in `why` rather than scored.
+  const v2StopBoundaries = (deliverHooks["stop"] ?? 0) + (v2.primacyByHook.standdown["stop"] ?? 0);
+  // The episode ask only fires on a session-ending path, so its durable record
+  // is second-hand boundary evidence where the primacy row is absent.
+  const v2AskBoundaries = v2.byNameForDate["adapter.episode.ask"] ?? 0;
+  const v2Boundaries = v2StopBoundaries + v2AskBoundaries;
   const bothReachedBoundary = v1.sessionEnd > 0 && v2Boundaries > 0;
 
   const flags: DayClass[] = [];
   if (straddled.length > 0) flags.push("mixed");
+  if (v2Unreadable) flags.push("unreadable");
   if (v1Contaminated || v2Contaminated) flags.push("contaminated");
   if (silentSessions > 0) flags.push("silent");
   if (turns < bars.activeDayTurnFloor || !bothReachedBoundary) flags.push("thin");
   if (flags.length === 0) flags.push("active");
 
   // PRECEDENCE, stated: mixed first (the flip is the run's own act, not a
-  // revived instrument), then contamination, then silence, then the floor.
-  const order: DayClass[] = ["mixed", "contaminated", "silent", "thin", "active"];
+  // revived instrument), then UNREADABLE (a day whose evidence could not be
+  // read is not a day with a diagnosis), then contamination, then silence,
+  // then the floor. Every match stays in `flags` either way.
+  const order: DayClass[] = ["mixed", "unreadable", "contaminated", "silent", "thin", "active"];
   const dayClass = (order.find((c) => flags.includes(c)) ?? "thin") as DayClass;
 
   const why = whyOf(dayClass, {
@@ -380,10 +489,18 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     bothReachedBoundary,
     straddled: straddled.length,
     silent: silentSessions,
+    silentSessions: silentSessionIds.length,
     mutedAtStart,
     v2SessionStarts,
     v1Contaminated,
     v2Contaminated,
+    v2Present: v2.present,
+    readErrors: v2.readErrors.length,
+    truncated: v2.truncated,
+    v2StopBoundaries,
+    v2AskBoundaries,
+    joinAvailable,
+    v2DateRows,
   });
 
   // ── the created-vs-exited tally, per kind, per system ─────────────────────
@@ -450,11 +567,21 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   };
 
   // ── run.json, maintained ──────────────────────────────────────────────────
-  const days = [...(prior?.days ?? []).filter((d) => d.date !== opts.date), { date: opts.date, class: dayClass }].sort(
-    (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0),
-  );
-  const activeDays: Record<string, number> = { ...(prior?.activeDays ?? {}) };
-  activeDays[phase] = days.filter((d) => d.class === "active").length;
+  //
+  // EVERY DAY CARRIES ITS OWN PHASE, and the per-phase counts are recomputed
+  // from that field on every write. The old line counted EVERY active day in
+  // the run into whichever phase happened to be running — so the first Phase P
+  // day inherited Phase S's whole tally and `activeDays.P` cleared its 7-day
+  // minimum on day one (review blocker 5). A phase minimum counted from the
+  // wrong phase's days is the run's central number being wrong.
+  const days = [
+    ...(prior?.days ?? []).filter((d) => d.date !== opts.date),
+    { date: opts.date, class: dayClass, phase },
+  ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const activeDays: Record<string, number> = {};
+  for (const p of RUN_PHASES) {
+    activeDays[p] = days.filter((d) => d.class === "active" && d.phase === p).length;
+  }
 
   const run: RunRecord = {
     startDate: opts.startDate ?? prior?.startDate ?? opts.date,
@@ -485,34 +612,55 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   };
 }
 
-function whyOf(
-  cls: DayClass,
-  f: {
-    turns: number;
-    floor: number;
-    bothReachedBoundary: boolean;
-    straddled: number;
-    silent: number;
-    mutedAtStart: number;
-    v2SessionStarts: number;
-    v1Contaminated: boolean;
-    v2Contaminated: boolean;
-  },
-): string {
+interface WhyFacts {
+  turns: number;
+  floor: number;
+  bothReachedBoundary: boolean;
+  straddled: number;
+  silent: number;
+  silentSessions: number;
+  mutedAtStart: number;
+  v2SessionStarts: number;
+  v1Contaminated: boolean;
+  v2Contaminated: boolean;
+  v2Present: boolean;
+  readErrors: number;
+  truncated: boolean;
+  v2StopBoundaries: number;
+  v2AskBoundaries: number;
+  joinAvailable: boolean;
+  v2DateRows: number;
+}
+
+function whyOf(cls: DayClass, f: WhyFacts): string {
   switch (cls) {
     case "mixed":
       return `${f.straddled} v1 session(s) carried a delivery event and a LATER ab.muted: the flip straddled a live session, which is two voices in one context (§5 G3)`;
+    case "unreadable":
+      return `v2's durable read did not complete — ${f.readErrors} sqlite read error(s)${f.truncated ? " and the event read hit its cap" : ""}. Every v2 count for this day is a floor of unknown depth, so the contamination detectors read null and the day is NOT classified. A read that failed is not a day that was quiet (scar §2.4).`;
     case "contaminated":
       return f.v1Contaminated
         ? "the MUTED v1 side emitted a wake, an inject-phase surface decision, or an episode ask (§5 G4)"
-        : "the MUTED v2 side recorded a durable adapter.primacy.deliver (§5 G4)";
+        : "the MUTED v2 side recorded a durable adapter.primacy.deliver or delivery record (§5 G4)";
     case "silent":
-      return `${f.mutedAtStart} v1 session(s) muted at session start against ${f.v2SessionStarts} v2 session-start deliver record(s): ${f.silent} session(s) nobody spoke into — the state G4 cannot see by counting extra voices, so it is counted by its absence. COUNT-LEVEL: v2's durable primacy payload carries no session id, so this is a difference of counts, not a per-session join.`;
+      return `${f.mutedAtStart} v1 session(s) were muted at session start and ${f.silentSessions} of them carry NO v2 delivery record for that same session id — nobody spoke into them. The state G4 cannot see by counting extra voices, so it is counted by its absence. PER-SESSION JOIN: v2's durable adapter payloads carry \`session\`, the host session id v1 stamps too, so this is a join rather than a difference of counts. A stand-down is not speaking.`;
     case "thin":
-      return f.bothReachedBoundary
-        ? `${f.turns} conversational turn(s) is below the committed floor of ${f.floor}`
-        : "one of the two systems reached no session boundary on this day";
+      if (f.bothReachedBoundary) {
+        return `${f.turns} conversational turn(s) is below the committed floor of ${f.floor}`;
+      }
+      if (!f.v2Present) {
+        return "no v2 store was found at the given data dir, so v2 reached no boundary this instrument can see";
+      }
+      if (f.v2StopBoundaries + f.v2AskBoundaries === 0) {
+        return "one of the two systems reached no session boundary on this day. NOTE: v2's only DURABLE boundary evidence is the `stop` hook's primacy record and the episode-ask record; `session-end` and `pre-compact` emit `adapter.boundary` to the RING ONLY, so a day whose sessions ended only through those two paths is unevidenced here rather than genuinely boundary-less.";
+      }
+      return "one of the two systems reached no session boundary on this day";
     case "active":
-      return `both systems reached a boundary and the day carried ${f.turns} turn(s), at or above the committed floor of ${f.floor}`;
+      return (
+        `both systems reached a boundary (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s), at or above the committed floor of ${f.floor}` +
+        (f.joinAvailable
+          ? ""
+          : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2DateRows} v2 row(s) for this date, none carrying a session id), so this day is not evidence that nobody was left unspoken to`)
+      );
   }
 }

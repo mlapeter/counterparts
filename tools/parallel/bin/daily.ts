@@ -21,6 +21,8 @@ interface Args {
   date: string;
   v1Dir: string;
   v2DataDir: string;
+  engramDir: string;
+  abDir: string;
   v2Config: string | null;
   assignment: string | null;
   v1Wake: string | null;
@@ -42,6 +44,8 @@ function usage(): never {
       "  --date <YYYY-MM-DD>   the lived day to record.",
       "  --v1-dir <dir>        v1's data dir (read-only).      default ~/.bansai",
       "  --v2-data-dir <dir>   v2's data dir (read-only).      default ~/.counterparts",
+      "  --engram-dir <dir>    the third store — the run dir must be disjoint from it.",
+      "  --ab-dir <dir>        the primacy assignment dir.     default ~/.memory-ab",
       "  --v2-config <file>    v2's adapter config JSON — hashed into run.json.",
       "  --assignment <file>   the primacy assignment file — hashed into run.json.",
       "  --v1-wake <file>      v1's rendered wake for the day (cross-encoding probe).",
@@ -66,6 +70,8 @@ function parseArgs(argv: readonly string[]): Args {
     date: "",
     v1Dir: join(home, ".bansai"),
     v2DataDir: join(home, ".counterparts"),
+    engramDir: join(home, ".claude-engram"),
+    abDir: process.env["MEMORY_AB_DIR"] ?? join(home, ".memory-ab"),
     v2Config: null,
     assignment: null,
     v1Wake: null,
@@ -95,6 +101,12 @@ function parseArgs(argv: readonly string[]): Args {
         break;
       case "--v2-data-dir":
         args.v2DataDir = value;
+        break;
+      case "--engram-dir":
+        args.engramDir = value;
+        break;
+      case "--ab-dir":
+        args.abDir = value;
         break;
       case "--v2-config":
         args.v2Config = value;
@@ -154,6 +166,15 @@ function readTextOr(path: string): string {
 
 function main(argv: readonly string[]): number {
   const args = parseArgs(argv);
+  // BEFORE ANY READ OR ANY MKDIR: a run directory that overlaps a live store is
+  // refused outright (CONTRACT §5 G1). Opening it first also means a refusal
+  // costs nothing — no directory is created, no store is opened.
+  const run = RunDir.open(args.runDir, {
+    v1Dir: args.v1Dir,
+    v2DataDir: args.v2DataDir,
+    engramDir: args.engramDir,
+    abDir: args.abDir,
+  });
   const artifacts = dailyRecord({
     runDir: args.runDir,
     date: args.date,
@@ -176,7 +197,6 @@ function main(argv: readonly string[]): number {
     v2Ritual: [AUTHORSHIP_ASK],
   });
 
-  const run = RunDir.open(args.runDir);
   for (const [rel, value] of Object.entries(artifacts.json)) run.writeJson(rel, value);
   for (const [rel, text] of Object.entries(artifacts.files)) run.writeText(rel, text);
 

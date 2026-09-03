@@ -146,6 +146,11 @@ function dataDirsRow(opts: PreflightOptions): CheckRow {
     ["v2 dataDir", opts.v2DataDir],
     ["v1 dir", opts.v1Dir],
     ["engram dir", opts.engramDir],
+    // THE RUN DIRECTORY IS IN THE ROW. It is the one thing this tool writes,
+    // so it is the one directory whose overlap with a live store would turn
+    // the instrument into a writer of its own subject (§5 G1). `RunDir.open`
+    // refuses it structurally; this row is where the operator SEES it.
+    ["run dir", opts.runDir],
   ];
   const resolved = pairs.map(([name, p]) => [name, realpathOr(p)] as const);
   const clashes: string[] = [];

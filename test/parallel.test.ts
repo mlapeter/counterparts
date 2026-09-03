@@ -65,7 +65,9 @@ import {
   transcriptFiles,
 } from "../tools/parallel/readers.js";
 import { runPreflight } from "../tools/parallel/preflight.js";
+import { readRunRecord } from "../tools/parallel/record.js";
 import { RunDir } from "../tools/parallel/writer.js";
+import type { LiveStores } from "../tools/parallel/writer.js";
 import type { GateReadableRecord } from "../tools/parallel/gate.js";
 import type { Waiver } from "../tools/parallel/types.js";
 
@@ -156,6 +158,26 @@ function buildStore(dataDir: string, build: (s: Store) => void): void {
     else process.env[DATA_DIR_ENV] = prior;
   }
 }
+
+/**
+ * `RunDir.open` takes the live stores it must stay clear of. A test that names
+ * none is asserting the run directory alone, which is why the empty set is
+ * spelled out rather than defaulted inside the writer — a default there would
+ * be the fail-open this check exists to close.
+ */
+const NO_STORES: LiveStores = { v1Dir: "", v2DataDir: "", engramDir: "", abDir: "" };
+
+const STORES = (f: {
+  v1Dir: string;
+  v2Dir: string;
+  engramDir: string;
+  abDir: string;
+}): LiveStores => ({
+  v1Dir: f.v1Dir,
+  v2DataDir: f.v2Dir,
+  engramDir: f.engramDir,
+  abDir: f.abDir,
+});
 
 /** Every file under a tree, with its size and content hash. The G1 instrument. */
 function manifest(base: string): Record<string, string> {
@@ -1095,13 +1117,23 @@ describe("day classes", () => {
     ]);
   }
 
-  function v2Delivering(s: Scene, hooks: readonly string[] = ["session-start", "user-prompt-submit", "stop"]): void {
+  /**
+   * v2 delivering into ONE session. The payload is the real one
+   * (`hooks.ts#deliveryVerdict`): `session` is `input.sessionId`, the HOST's
+   * session id — the same id v1 stamps on its own log lines, which is what
+   * makes the `silent` class a join rather than a difference of counts.
+   */
+  function v2Delivering(
+    s: Scene,
+    hooks: readonly string[] = ["session-start", "user-prompt-submit", "stop"],
+    session = "s1",
+  ): void {
     buildStore(s.v2Dir, (store) => {
       for (const hook of hooks) {
         store.appendEvent({
           name: PRIMACY_DELIVER_EVENT,
           day: 0,
-          payload: { hook, reason: "override-engram", system: "v2", date: DATE },
+          payload: { hook, reason: "override-engram", system: "v2", date: DATE, session },
         });
       }
     });
@@ -1232,17 +1264,18 @@ describe("day classes", () => {
     expect(r.flags).not.toContain("mixed");
   });
 
-  test("SILENT: v1 muted at session start and v2 delivered no session-start — nobody spoke", () => {
+  test("SILENT: v1 muted at session start and v2 stood down — nobody spoke into it", () => {
     const s = scene(3);
     v1Muted(s);
     // v2 stood down instead of delivering: the state G4 cannot see by counting
-    // extra voices, so it is counted by its absence.
+    // extra voices, so it is counted by its absence. A stand-down is NOT
+    // speaking, even though it is a durable row for that same session.
     buildStore(s.v2Dir, (store) => {
       for (const hook of ["session-start", "user-prompt-submit", "stop"]) {
         store.appendEvent({
           name: PRIMACY_STANDDOWN_EVENT,
           day: 0,
-          payload: { hook, reason: "override-bansai", system: "v1", date: DATE },
+          payload: { hook, reason: "override-bansai", system: "v1", date: DATE, session: "s1" },
         });
       }
     });
@@ -1252,12 +1285,12 @@ describe("day classes", () => {
     expect(r.mute.v2StanddownByHook["session-start"]).toBe(1);
   });
 
-  test("SILENT counts the DIFFERENCE: 2 v1 sessions muted at start against 1 v2 delivery", () => {
+  // ── review should-fix: `silent` is a PER-SESSION JOIN, not a difference ────
+  test("SILENT joins BY SESSION: v2 speaking into s1 does not cover s2", () => {
     const s = scene(3);
-    // Two sessions, both muted at session start; v2 delivered into only one.
-    // v2's durable primacy payload carries no session id, so the join is a
-    // count difference — and it must not round down to zero the moment v2
-    // spoke once (the fail direction that would hide a silent session).
+    // Two sessions, both muted at session start; v2 delivered into s1 only.
+    // The old count difference cancelled here — 2 muted minus 2 v2 rows — and
+    // read zero silent sessions while s2 sat in silence the whole day.
     v1Log(s.v1Dir, DATE, [
       { seq: 0, session: "s1", type: "session.start" },
       { seq: 1, session: "s1", type: "ab.muted", hook: "session_start" },
@@ -1268,11 +1301,66 @@ describe("day classes", () => {
       { seq: 6, session: "s1", type: "buffer.append" },
       { seq: 7, session: "s1", type: "session.end" },
     ]);
-    v2Delivering(s, ["session-start", "stop"]);
+    v2Delivering(s, ["session-start", "stop"], "s1");
     const r = classOf(s);
     expect(r.class).toBe("silent");
-    expect(r.why).toContain("2 v1 session(s) muted at session start against 1 v2 session-start deliver record(s): 1 session(s) nobody spoke into");
-    expect(r.why).toContain("COUNT-LEVEL");
+    expect(r.why).toContain("1 of them carry NO v2 delivery record");
+    expect(r.why).toContain("PER-SESSION JOIN");
+  });
+
+  test("v1's session id and v2's input.sessionId are the SAME host id — the join lands", () => {
+    const s = scene(3);
+    // The assumption the join rests on, pinned: one id, stamped by the host,
+    // written by both systems. If a host upgrade ever splits them, this goes
+    // red rather than the `silent` count going quietly wrong.
+    const HOST_SESSION = "0c9a51f2-host-session";
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: HOST_SESSION, type: "session.start" },
+      { seq: 1, session: HOST_SESSION, type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: HOST_SESSION, type: "buffer.append" },
+      { seq: 3, session: HOST_SESSION, type: "buffer.append" },
+      { seq: 4, session: HOST_SESSION, type: "buffer.append" },
+      { seq: 5, session: HOST_SESSION, type: "session.end" },
+    ]);
+    v2Delivering(s, ["session-start", "stop"], HOST_SESSION);
+    expect(classOf(s).flags).not.toContain("silent");
+  });
+
+  test("change ONLY v2's session id and the same day reads SILENT", () => {
+    const s = scene(3);
+    // The other half of the assumption above: the join is what makes the day
+    // read `active`, so a mismatched id must break it. Without this the test
+    // above could pass on a class that never fires.
+    const HOST_SESSION = "0c9a51f2-host-session";
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: HOST_SESSION, type: "session.start" },
+      { seq: 1, session: HOST_SESSION, type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: HOST_SESSION, type: "buffer.append" },
+      { seq: 3, session: HOST_SESSION, type: "buffer.append" },
+      { seq: 4, session: HOST_SESSION, type: "buffer.append" },
+      { seq: 5, session: HOST_SESSION, type: "session.end" },
+    ]);
+    v2Delivering(s, ["session-start", "stop"], "a-different-id");
+    expect(classOf(s).class).toBe("silent");
+  });
+
+  test("a v2 payload with NO session id makes the join UNAVAILABLE, never silent", () => {
+    const s = scene(3);
+    v1Muted(s);
+    // The short payload shape: rows for the date, none carrying a session.
+    // Declaring silence from it would invent the evidence the class rests on.
+    buildStore(s.v2Dir, (store) => {
+      for (const hook of ["session-start", "stop"]) {
+        store.appendEvent({
+          name: PRIMACY_DELIVER_EVENT,
+          day: 0,
+          payload: { hook, reason: "override-engram", system: "v2", date: DATE },
+        });
+      }
+    });
+    const r = classOf(s);
+    expect(r.flags).not.toContain("silent");
+    expect(r.why).toContain("silent-session join was UNAVAILABLE");
   });
 
   test("v2's BOUNDARY evidence is the stop hook only — a session-start deliver is not one", () => {
@@ -1419,12 +1507,105 @@ describe("day classes", () => {
       startDate: "2026-09-01",
     });
     expect(artifacts.run.activeDays["P"]).toBe(1);
-    expect(artifacts.run.days).toEqual([{ date: DATE, class: "active" }]);
+    expect(artifacts.run.days).toEqual([{ date: DATE, class: "active", phase: "P" }]);
     expect(artifacts.run.seat).toBe("claude-opus-5");
     expect(artifacts.run.vectors).toBe("voyage-3-large");
     expect(artifacts.run.configHashes.v2Config).toMatch(/^[0-9a-f]{64}$/);
     expect(artifacts.run.configHashes.assignment).toMatch(/^[0-9a-f]{64}$/);
     expect(artifacts.run.startDate).toBe("2026-09-01");
+  });
+
+  // ── review blocker 5: activeDays is PER PHASE, and every day says which ───
+  test("3 active S days then 1 active P day reads activeDays {S: 3, P: 1}", () => {
+    const s = scene(3);
+    const dates = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"];
+    // v1 is the primary through Phase S, so it delivers and v2 stands down;
+    // the flip on the fourth day inverts it. Every day is otherwise identical.
+    for (const [i, date] of dates.entries()) {
+      const phase = i < 3 ? ("S" as const) : ("P" as const);
+      const primacy = i < 3 ? ("v1" as const) : ("v2" as const);
+      v1Log(s.v1Dir, date, [
+        { seq: 0, session: `s${i}`, type: "session.start" },
+        ...(phase === "P"
+          ? [{ seq: 1, session: `s${i}`, type: "ab.muted", hook: "session_start" } as V1Ev]
+          : []),
+        { seq: 2, session: `s${i}`, type: "buffer.append" },
+        { seq: 3, session: `s${i}`, type: "buffer.append" },
+        { seq: 4, session: `s${i}`, type: "buffer.append" },
+        { seq: 5, session: `s${i}`, type: "session.end" },
+      ]);
+      buildStore(s.v2Dir, (store) => {
+        for (const hook of ["session-start", "stop"]) {
+          store.appendEvent({
+            name: phase === "P" ? PRIMACY_DELIVER_EVENT : PRIMACY_STANDDOWN_EVENT,
+            day: 0,
+            payload: {
+              hook,
+              reason: phase === "P" ? "override-engram" : "override-bansai",
+              system: phase === "P" ? "v2" : "v1",
+              date,
+              session: `s${i}`,
+            },
+          });
+        }
+      });
+      const artifacts = dailyRecord({
+        runDir: s.runDir,
+        date,
+        v1Dir: s.v1Dir,
+        v2DataDir: s.v2Dir,
+        phase,
+        primacy,
+      });
+      expect(artifacts.record.class).toBe("active");
+      RunDir.open(s.runDir, NO_STORES).writeJson("run.json", artifacts.run);
+    }
+
+    const run = readRunRecord(s.runDir);
+    // The old line counted EVERY active day in the run into the running phase,
+    // so P would have read 4 on its first day and cleared a 7-day minimum four
+    // days early.
+    expect(run?.activeDays).toEqual({ "0": 0, S: 3, P: 1 });
+    expect(run?.days.map((d) => d.phase)).toEqual(["S", "S", "S", "P"]);
+  });
+
+  // ── review blocker 9, the record's half: a poisoned read is never active ──
+  test("a v2 READ ERROR poisons the detectors to null and the day is UNREADABLE", () => {
+    const s = scene(3);
+    v1Muted(s);
+    // A store file the reader can open but not read past `meta`.
+    const db = new Database(join(s.v2Dir, "operational.sqlite"), { create: true });
+    db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.close();
+
+    const r = classOf(s);
+    expect(r.v2.readErrors.length).toBeGreaterThan(0);
+    expect(r.contamination.v2).toEqual({ wake: null, recall: null, ritual: null });
+    expect(r.class).toBe("unreadable");
+    expect(r.class).not.toBe("active");
+    expect(r.why).toContain("A read that failed is not a day that was quiet");
+  });
+
+  test("a TRUNCATED event read is the same refusal — every count under it is a floor", () => {
+    const s = scene(3);
+    v1Muted(s);
+    v2Delivering(s);
+    const capped = dailyRecord({
+      runDir: s.runDir,
+      date: DATE,
+      v1Dir: s.v1Dir,
+      v2DataDir: s.v2Dir,
+      phase: "P",
+      primacy: "v2",
+      eventLimit: 1,
+    }).record;
+    expect(capped.v2.truncated).toBe(true);
+    expect(capped.contamination.v2.wake).toBeNull();
+    expect(capped.class).toBe("unreadable");
+
+    // Uncapped, the very same day is active — so the class above is the cap
+    // talking, not the fixture.
+    expect(classOf(s).class).toBe("active");
   });
 
   test("the tally is created-versus-exited, per kind, per system, with its caveat named", () => {
@@ -1848,7 +2029,7 @@ describe("guarantee 1 — nothing but the run directory", () => {
     };
 
     const report = preflight(f);
-    const run = RunDir.open(f.runDir);
+    const run = RunDir.open(f.runDir, STORES(f));
     run.writeJson("preflight.json", report);
     const artifacts = dailyRecord({
       runDir: f.runDir,
@@ -1881,10 +2062,76 @@ describe("guarantee 1 — nothing but the run directory", () => {
   });
 
   test("the run-dir writer REFUSES a path that escapes its root", () => {
-    const run = RunDir.open(dir("run"));
+    const run = RunDir.open(dir("run"), NO_STORES);
     expect(() => run.writeText(join("..", "escaped.json"), "x")).toThrow(/RUN_DIR_ESCAPE/);
     expect(() => run.path("..", "..", "etc")).toThrow(/RUN_DIR_ESCAPE/);
     expect(existsSync(join(root, "escaped.json"))).toBe(false);
+  });
+
+  // -- review blocker 3: the run dir must be disjoint from every live store --
+  test("a run dir NESTED under a live store is refused BEFORE any mkdir", () => {
+    const v1Dir = dir("v1");
+    const nested = join(v1Dir, "runs", "parallel-2026-09");
+    expect(() => RunDir.open(nested, { ...NO_STORES, v1Dir })).toThrow(/RUN_DIR_OVERLAPS_STORE/);
+    // Nothing was created: a refusal that left a directory behind would have
+    // already written into the store it was refusing to write into.
+    expect(existsSync(nested)).toBe(false);
+    expect(existsSync(join(v1Dir, "runs"))).toBe(false);
+  });
+
+  test("the overlap is caught in BOTH directions, and by realpath", () => {
+    const runDir = dir("run");
+    // A store nested under the run directory is the same defect mirrored.
+    const v2DataDir = join(runDir, "store");
+    expect(() => RunDir.open(runDir, { ...NO_STORES, v2DataDir })).toThrow(
+      /RUN_DIR_OVERLAPS_STORE/,
+    );
+    // And a symlink is not a way around it: the run dir is realpathed first.
+    const real = dir("real-engram");
+    const link = join(root, "engram-link");
+    symlinkSync(real, link);
+    expect(() => RunDir.open(join(link, "run"), { ...NO_STORES, engramDir: real })).toThrow(
+      /RUN_DIR_OVERLAPS_STORE/,
+    );
+    // A genuinely disjoint sibling still opens, so this is not refusing all.
+    expect(RunDir.open(dir("run-ok"), NO_STORES).root.length).toBeGreaterThan(0);
+  });
+
+  test("the preflight's datadirs.disjoint row carries the RUN DIR too", () => {
+    const f = fixture();
+    const ok = preflight(f).checks.find((c) => c.id === "datadirs.disjoint");
+    expect(ok?.status).toBe("pass");
+    expect(ok?.detail).toContain("run dir=");
+
+    const inside = preflight(f, { runDir: join(f.v1Dir, "run") }).checks.find(
+      (c) => c.id === "datadirs.disjoint",
+    );
+    expect(inside?.status).toBe("fail");
+    expect(inside?.detail).toContain("run dir");
+  });
+
+  // -- review should-fix: run.json is written atomically, and a corrupt one
+  //    is EVIDENCE rather than a reason to restart the run -------------------
+  test("writeText leaves no partial file and no temp file behind", () => {
+    const run = RunDir.open(dir("run-atomic"), NO_STORES);
+    run.writeJson("run.json", { startDate: "2026-09-01" });
+    run.writeJson("run.json", { startDate: "2026-09-02" });
+    expect(readdirSync(run.root)).toEqual(["run.json"]);
+    expect(JSON.parse(readFileSync(join(run.root, "run.json"), "utf8"))).toEqual({
+      startDate: "2026-09-02",
+    });
+  });
+
+  test("an UNPARSABLE run.json THROWS — it never silently restarts the run", () => {
+    const runDir = dir("run-corrupt");
+    // The shape a killed process leaves: a truncated write.
+    const truncated = '{"startDate": "2026-09-01", "days": [';
+    writeFileSync(join(runDir, "run.json"), truncated, "utf8");
+    expect(() => readRunRecord(runDir)).toThrow(/RUN_RECORD_CORRUPT/);
+    // And the file is preserved exactly as found — it is the evidence (G10).
+    expect(readFileSync(join(runDir, "run.json"), "utf8")).toBe(truncated);
+    // A run that has not started is still simply null, not an error.
+    expect(readRunRecord(dir("run-fresh"))).toBeNull();
   });
 
   test("the SOURCE SCAN: no module but the writer imports a filesystem write API", () => {

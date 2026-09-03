@@ -73,8 +73,16 @@ export interface GateVerdict {
 // The daily record
 // ---------------------------------------------------------------------------
 
-/** CONTRACT §5 "What counts as a day". Only `active` counts toward a minimum. */
-export type DayClass = "active" | "thin" | "contaminated" | "mixed" | "silent";
+/**
+ * CONTRACT §5 "What counts as a day". Only `active` counts toward a minimum.
+ *
+ * `unreadable` is the sixth, and it is not one of the CONTRACT's diagnoses — it
+ * is the absence of one. A day whose durable read errored or capped has counts
+ * that are floors of unknown depth, and every other class here is a claim those
+ * counts cannot support. It exists so that such a day can never be `active`
+ * (review blocker 9); it is reported, never folded into a phase minimum.
+ */
+export type DayClass = "active" | "thin" | "contaminated" | "mixed" | "silent" | "unreadable";
 
 /** Which system holds the microphone, as the run record spells it. */
 export type Primacy = "v1" | "v2";
@@ -134,9 +142,11 @@ export interface CrossEncodingMeter {
   readonly redLine: boolean;
   /**
    * §5 G7's named blind spot, carried beside the number so it can never be read
-   * without it: the exposure denominator this meter does NOT cover.
+   * without it: the exposure denominator this meter does NOT cover. NULL when
+   * the primary's recall volume could not be read at all — a zero there would
+   * claim the blind spot was empty.
    */
-  readonly exposureDenominator: number;
+  readonly exposureDenominator: number | null;
 }
 
 export interface DailyRecord {
@@ -332,10 +342,21 @@ export interface RunRecord {
   readonly startDate: string;
   readonly phase: RunPhase;
   readonly primacy: Primacy;
-  /** Active days, per phase. Only `active` days are counted (scar E8). */
+  /**
+   * Active days, PER PHASE. Recomputed from `days[].phase` on every write, so a
+   * Phase P count can never inherit Phase S's days (review blocker 5).
+   */
   readonly activeDays: Readonly<Record<string, number>>;
-  /** Every lived day recorded, with its class. */
-  readonly days: readonly { readonly date: string; readonly class: DayClass }[];
+  /**
+   * Every lived day recorded, with its class AND the phase it was lived in —
+   * the field the per-phase counts are computed from. Without it the run record
+   * cannot say which minimum a day counted toward (scar E8).
+   */
+  readonly days: readonly {
+    readonly date: string;
+    readonly class: DayClass;
+    readonly phase: RunPhase;
+  }[];
   readonly configHashes: {
     readonly v2Config: string | null;
     readonly assignment: string | null;
