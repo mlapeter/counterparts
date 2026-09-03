@@ -30,6 +30,8 @@ export type {
   ClaimRefusal,
   CoverageMark,
   CoverageReport,
+  FailureOutcome,
+  FailureRecord,
   RememberEvent,
   Span,
   SpanKind,

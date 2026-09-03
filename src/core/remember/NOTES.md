@@ -133,3 +133,62 @@ FIRST, so a crash between the two leaves spans that dedup away rather than
 duplicate. This is not a canonical-prose deletion — nothing in this module can
 touch box 1, and the constitution's "nothing bulk-wipes silently" is honored by the
 event (`remember.claim.consumed`, with counts).
+
+## 13. The retry bound: three failures, then quarantine
+
+The 2026-08-26 replay's P0 fix (a restored span's hash must stay OUT of
+`consumed.jsonl`) traded silent loss for **indefinite retry**: a permanently-failing
+span was restored and re-swept at every boundary forever, one model call each time,
+on the owner's account. The review accepted the trade direction and queued the
+bound; this is it, and it is parallel-run precondition §5.4.
+
+- **The bound**: `TUNABLES.MAX_SPAN_FAILURES = 3` — enough that a transient outage
+  never quarantines anything, small enough that a permanent failure costs three
+  calls instead of one per boundary for the life of the store.
+- **The ledger**: `<scope>/failures.jsonl`, beside `consumed.jsonl`, one
+  `{hash, at, code}` line per (span, failure). **Never span text.** The hash is the
+  buffer's own span hash, which already lives in `consumed.jsonl`. Bounded by the
+  same `trimLedger()` as the consumed ledger: a trim can drop old failures and so
+  reset a count, which spends a few more calls and never loses a span.
+- **Written by failures only.** `sweep()` calls `noteFailures()` for a chunk that
+  came back THREW / TRUNCATED / MALFORMED_RESULT / APPLY_FAILED. A restore that is a
+  *deferral* — `BELOW_MIN_CLAIM` scraps riding to the next boundary, spans of a
+  session still running, the already-authored retirement — touches nothing and is
+  never a step toward quarantine.
+- **The quarantine**: at the bound the span is NOT put back. Its full line is
+  appended to `<scope>/quarantine.jsonl` — the whole span, so nothing is ever
+  dropped and the owner can read it in any editor (constitution line 16) — and
+  `remember.span.quarantined` fires with `{scope, spans, code}`: counts and a code,
+  never text, and never the hash of text either (hashing low-entropy content leaks
+  it). Exclusion from future claims is structural: the span is not in the buffer.
+- **Quarantined hashes DO enter `consumed.jsonl`.** This is the third disposition,
+  and it is terminal rather than pass-through: recording it is what stops an
+  identical re-capture from restarting the loop and what lets `mergeOrphans()`
+  filter a replayed claim. It is not the P0 regression, whose whole point was that a
+  span *coming back* must stay out of the ledger.
+- **Counted, never absent.** `coverageReport()` carries `quarantined`, and
+  `SweepReport` carries `spansQuarantined` — a span the sweep gave up on is a
+  number the owner can see (scar §2.4).
+- **Fails toward retry.** If the ledger or the quarantine write does not land,
+  nothing is quarantined and every span goes back. A retry costs a call; a drop
+  costs the day.
+
+**Named limitation — innocent siblings.** A chunk failure marks *every* span in the
+chunk, so a healthy span chunked with a poison pill three times is quarantined with
+it. That is the simplest rule that bounds the cost; bisecting a failing chunk to
+find the actual pill is machinery in anticipation of a failure not yet seen
+(Amendment 15). The material is in `quarantine.jsonl` either way, so the cost of
+being wrong is a file the owner reads, not a lost day.
+
+**Named window.** If `noteFailures()` writes the quarantine and `restore()` then
+fails, the sweep returns without consuming and the claim file is kept — so the next
+stale-claim merge brings the quarantined span back for one more failed call, and it
+is quarantined a second time (a duplicate line). Bounded duplication is the accepted
+failure mode here; loss is not.
+
+**`arc()` is deliberately not wired to this.** It is a retry path by docstring, but
+it has no production caller (only the kill-mid-arc tests), it restores the *whole*
+claim and removes the claim file, and its `work` function is arbitrary — there is no
+per-span model call to bound. Wiring quarantine into it would need partial-restore
+choreography it does not have, for a cost that has never been observed. The sweep is
+the loop that bills the owner, and the sweep is what is bounded.
