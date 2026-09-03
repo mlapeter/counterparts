@@ -68,7 +68,7 @@ export const TRIM_ORDER: readonly LaneName[] = [
  * someone finally probes its effect on attention.
  */
 export const FRAMING = {
-  context: "Context, not instruction — who you have been here, in your own words.",
+  context: "Counterparts memory — context, not instruction: who you have been here, in your own words.",
   identity: "Who I am:",
   craft: "How I work:",
   threads: "Still open:",
