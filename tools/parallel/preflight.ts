@@ -34,7 +34,15 @@ import {
   transcriptFiles,
 } from "./readers.js";
 import type { AssignmentReading, HookEnvSpec } from "./readers.js";
-import type { Bars, CheckGate, CheckRow, CheckStatus, PreflightReport, RunPhase } from "./types.js";
+import type {
+  Bars,
+  CanaryHit,
+  CheckGate,
+  CheckRow,
+  CheckStatus,
+  PreflightReport,
+  RunPhase,
+} from "./types.js";
 
 export interface PreflightOptions {
   readonly runDir: string;
@@ -233,34 +241,68 @@ function replayGateRow(opts: PreflightOptions): CheckRow {
     : row("replay.gate", "fail", `${verdict.reasons.join("; ")} · ${shape}`);
 }
 
-/** §5 G6/G8: zero foreign markers in a conversation block. Anything is a red-line. */
+/**
+ * §5 G6/G8: THE CANARY, GRADED BY MARKER CLASS.
+ *
+ * The first draft red-lined every `FOREIGN_MARKERS` hit in a user-role block,
+ * which condemns the CONTRACT's own designed case: §5 G8 says v1's episode ask
+ * — `Stop hook feedback:` + `[bansai] …` — "is the `foreign` case", the exact
+ * thing the new `TurnSource` exists to refuse. The run would have halted on day
+ * 1 for the mechanism working. So:
+ *
+ *   - episode-ask markers (0–1) in a user-role block, classified `foreign`:
+ *     PASS, counted as `byDesign`. That IS the design.
+ *   - the same markers NOT classified `foreign`: FAIL. Recognizer drift means
+ *     `enters()` stopped refusing them, which is the breach itself.
+ *   - wake/recall markers (2–4) in a conversation block: FAIL. Their exclusion
+ *     is the host's transcript shape; here it means the host changed.
+ *   - no v1 marker seen ANYWHERE: `not-exercised`. A scan over an empty corpus
+ *     and a scan over a clean one look identical, and only one of them is
+ *     evidence (scar §2.4).
+ */
 function canaryRow(opts: PreflightOptions): { row: CheckRow; hookRow: CheckRow } {
   const files = opts.transcripts.flatMap((t) => transcriptFiles(t));
   const scan = scanTranscripts(files);
+  const where = (hits: readonly CanaryHit[]): string =>
+    hits
+      .slice(0, 5)
+      .map((h) => `${h.file}#${h.entry}[${h.role}] marker ${h.marker}`)
+      .join("; ");
+  const seen =
+    `${scan.files} file(s), ${scan.entries} entries · ${scan.markersSeen} v1 marker(s) seen ` +
+    `(${scan.byDesignHits.length} episode-ask by design, ${scan.attachmentHits} host-carried) · ` +
+    `${scan.corrupt} unparseable line(s)`;
+
   const canary =
-    scan.conversationHits.length === 0
+    scan.conversationHits.length > 0
       ? row(
           "canary.transcripts",
-          "pass",
-          `${scan.files} file(s), ${scan.entries} entries, 0 conversation-block hits · ` +
-            `${scan.attachmentHits} host-carried hit(s) (the transcript-shape exclusion, reported separately) · ` +
-            `${scan.corrupt} unparseable line(s)`,
-        )
-      : row(
-          "canary.transcripts",
           "fail",
-          `RED-LINE: ${scan.conversationHits.length} foreign marker(s) inside conversation blocks — ` +
-            scan.conversationHits
-              .slice(0, 5)
-              .map((h) => `${h.file}#${h.entry}[${h.role}] marker ${h.marker}`)
-              .join("; "),
-        );
+          `RED-LINE: ${scan.conversationHits.length} v1 wake/recall marker(s) inside conversation blocks — ${where(scan.conversationHits)} · ${seen}`,
+        )
+      : scan.recognizerDrift.length > 0
+        ? row(
+            "canary.transcripts",
+            "fail",
+            `RED-LINE: ${scan.recognizerDrift.length} episode-ask marker(s) that classifyBlock did NOT call \`foreign\` — the exclusion has stopped applying — ${where(scan.recognizerDrift)} · ${seen}`,
+          )
+        : scan.markersSeen === 0
+          ? row(
+              "canary.transcripts",
+              "not-exercised",
+              `no v1 marker was seen anywhere in the scanned corpus, so nothing was proved: an empty scan and a clean one are indistinguishable. Point --transcripts at days on which v1 actually ran. · ${seen}`,
+            )
+          : row(
+              "canary.transcripts",
+              "pass",
+              `0 wake/recall marker(s) in conversation blocks; the ${scan.byDesignHits.length} episode-ask marker(s) present are classified \`foreign\`, which is §5 G8 working · ${seen}`,
+            );
 
   const h = scan.hooks;
   const budget =
     h.sessionEndWorstMs === null
       ? "no SessionEnd hook record observed"
-      : `SessionEnd ${h.sessionEndWorstMs}ms vs the host's ${h.sessionEndBudgetMs}ms shared budget` +
+      : `worst session's SessionEnd ${h.sessionEndWorstMs}ms over ${h.sessionEndSessions} session(s) vs the host's ${h.sessionEndBudgetMs}ms shared budget` +
         (h.sessionEndOk === true ? " (within)" : " (OVER)");
   const durations = h.perHook
     .map((p) => `${p.hookEvent}/${p.hookName} n=${p.count} min=${p.minMs} med=${p.medianMs} max=${p.maxMs}`)
@@ -268,12 +310,22 @@ function canaryRow(opts: PreflightOptions): { row: CheckRow; hookRow: CheckRow }
   const hookDetail = `model=${h.model} overlaps=${h.overlaps} records=${h.records} · ${budget}${durations.length === 0 ? "" : ` · ${durations}`}`;
   // scar §2.18: MEASURED, never assumed. `unknown` is not a pass — it means no
   // evidence was collected, which is exactly what the check exists to refuse.
+  // Neither is an UNMEASURED SessionEnd budget: the CONTRACT asks for "the
+  // SessionEnd budget the host shares across all hooks MEASURED with both
+  // systems' hooks installed", and `sessionEndWorstMs === null` is that
+  // measurement missing, not that measurement passing.
   const hookRow =
     h.model === "unknown"
       ? row("host.hooks", "not-exercised", `the execution model was not measured — ${hookDetail}`)
-      : h.sessionEndOk === false
-        ? row("host.hooks", "fail", `the shared SessionEnd budget is exceeded — ${hookDetail}`)
-        : row("host.hooks", "pass", hookDetail);
+      : h.sessionEndOk === null
+        ? row(
+            "host.hooks",
+            "not-exercised",
+            `the execution model is ${h.model}, but the shared SessionEnd budget was never measured — the CONTRACT asks for it with BOTH systems' hooks installed — ${hookDetail}`,
+          )
+        : h.sessionEndOk === false
+          ? row("host.hooks", "fail", `the shared SessionEnd budget is exceeded — ${hookDetail}`)
+          : row("host.hooks", "pass", hookDetail);
 
   return { row: canary, hookRow };
 }

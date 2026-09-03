@@ -526,17 +526,37 @@ describe("the transcript canary", () => {
     return path;
   }
 
-  test("a foreign marker in a CONVERSATION block is a hit, addressed not quoted", () => {
+  test("a WAKE/RECALL marker in a CONVERSATION block is a hit, addressed not quoted", () => {
     const file = transcript("hit.jsonl", [
       { message: { role: "user", content: "What did we decide about the buffer?" } },
-      { message: { role: "user", content: "[bansai] recall: three memories bear on this turn." } },
+      { message: { role: "user", content: "<bansai-memory>three memories bear on this turn.</bansai-memory>" } },
     ]);
     const scan = scanTranscripts([file]);
     expect(scan.conversationHits.length).toBe(1);
     expect(scan.conversationHits[0]?.role).toBe("user");
-    expect(scan.conversationHits[0]?.marker).toBe(1);
+    expect(scan.conversationHits[0]?.marker).toBe(2);
     // Content-by-reference: the hit carries no text (scar §2.20).
-    expect(JSON.stringify(scan.conversationHits)).not.toContain("bansai]");
+    expect(JSON.stringify(scan.conversationHits)).not.toContain("bansai-memory");
+  });
+
+  // ── review blocker 6: the episode ask is the DESIGN, not a breach ─────────
+  test("v1's EPISODE ASK in a user-role block is the design working, not a red-line", () => {
+    // §5 G8: "the one channel that DOES land as a user-role message — v1's
+    // episode ask, `Stop hook feedback:` + `[bansai] …` — is the `foreign`
+    // case." Red-lining it would have halted the run on day 1 for the mechanism
+    // doing exactly what it was built to do.
+    const file = transcript("ask.jsonl", [
+      { message: { role: "user", content: "Stop hook feedback:\n- [bansai] what did you learn?" } },
+      { message: { role: "user", content: "[bansai] one more, in the bare shape." } },
+    ]);
+    const scan = scanTranscripts([file]);
+    expect(scan.conversationHits).toEqual([]);
+    expect(scan.byDesignHits.length).toBe(2);
+    expect(scan.byDesignHits.map((h) => h.marker).sort()).toEqual([0, 1]);
+    // The guarantee those hits buy: `transcript.ts` calls the text `foreign`,
+    // which is what makes `remember/`'s `enters()` refuse it.
+    expect(scan.recognizerDrift).toEqual([]);
+    expect(scan.markersSeen).toBe(2);
   });
 
   test("an entry with NO message role is a host-carried attachment, reported separately", () => {
@@ -566,7 +586,7 @@ describe("the transcript canary", () => {
     expect(scan.attachmentHits).toBe(1);
   });
 
-  test("every FOREIGN_MARKER shape is recognised, and clean traffic scores zero", () => {
+  test("every FOREIGN_MARKER shape is recognised, and graded by its CLASS", () => {
     const file = transcript("all.jsonl", [
       { message: { role: "user", content: "Stop hook feedback:\n- [bansai] what did you learn?" } },
       { message: { role: "user", content: "[bansai] recall: one memory." } },
@@ -574,7 +594,12 @@ describe("the transcript canary", () => {
       { message: { role: "user", content: "The following is your standing self-model (bansai), as of today." } },
       { message: { role: "user", content: "bansai: your persistent memory is initializing." } },
     ]);
-    expect(scanTranscripts([file]).conversationHits.length).toBe(5);
+    const all = scanTranscripts([file]);
+    // 0–1 are the episode ask (by design); 2–4 are wake/recall (the red-line).
+    expect(all.byDesignHits.map((h) => h.marker)).toEqual([0, 1]);
+    expect(all.conversationHits.map((h) => h.marker)).toEqual([2, 3, 4]);
+    expect(all.markersSeen).toBe(5);
+
     const clean = transcript("clean.jsonl", [
       { message: { role: "user", content: "Nothing foreign here at all." } },
       { message: { role: "assistant", content: "Agreed — clean." } },
@@ -583,6 +608,9 @@ describe("the transcript canary", () => {
     expect(scan.conversationHits).toEqual([]);
     expect(scan.attachmentHits).toBe(0);
     expect(scan.entries).toBe(2);
+    // Clean traffic scores zero — and `markersSeen: 0` is what the preflight
+    // reads as `not-exercised`, because it cannot tell clean from empty.
+    expect(scan.markersSeen).toBe(0);
   });
 
   test("unparseable lines are counted, never swallowed", () => {
@@ -606,12 +634,13 @@ describe("the transcript canary", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("hook execution model, measured", () => {
-  const rec = (hookEvent: string, hookName: string, at: number, durationMs: number) => ({
-    hookEvent,
-    hookName,
-    at,
-    durationMs,
-  });
+  const rec = (
+    hookEvent: string,
+    hookName: string,
+    at: number,
+    durationMs: number,
+    session = "session-a.jsonl",
+  ) => ({ session, hookEvent, hookName, at, durationMs });
 
   test("OVERLAPPING windows for the same event read PARALLEL", () => {
     // Two hooks, both finishing near t=1000, each 400ms long: they were running
@@ -673,6 +702,57 @@ describe("hook execution model, measured", () => {
     expect(par.model).toBe("parallel");
     expect(par.sessionEndWorstMs).toBe(900);
     expect(par.sessionEndOk).toBe(true);
+  });
+
+  // ── review should-fix: the model and the budget are PER SESSION ──────────
+  test("hooks in DIFFERENT sessions cannot have raced — no overlap is manufactured", () => {
+    // Identical windows, two different transcripts. Pooled, these read as one
+    // overlapping pair and the host was declared `parallel` on a coincidence.
+    const report = hookModel([
+      rec("SessionStart", "bansai", 1_000, 400, "session-a.jsonl"),
+      rec("SessionStart", "counterparts", 1_050, 400, "session-b.jsonl"),
+    ]);
+    expect(report.overlaps).toBe(0);
+    // And with no contested event inside ANY one session, there is no
+    // measurement at all — which is `unknown`, not `sequential`.
+    expect(report.model).toBe("unknown");
+
+    // The same two records inside ONE session still read parallel, so the
+    // grouping is not simply suppressing every overlap.
+    expect(
+      hookModel([
+        rec("SessionStart", "bansai", 1_000, 400, "one.jsonl"),
+        rec("SessionStart", "counterparts", 1_050, 400, "one.jsonl"),
+      ]).model,
+    ).toBe("parallel");
+  });
+
+  test("the SessionEnd budget is the WORST SESSION's, not the whole corpus summed", () => {
+    // Three sessions, 900ms each. Summed across the corpus that is 2700ms and
+    // reads OVER a 1500ms budget that no single session ever had to meet.
+    const report = hookModel([
+      rec("SessionEnd", "bansai", 1_000, 900, "a.jsonl"),
+      rec("SessionEnd", "counterparts", 1_900, 400, "a.jsonl"),
+      rec("SessionEnd", "bansai", 1_000, 900, "b.jsonl"),
+      rec("SessionEnd", "bansai", 1_000, 900, "c.jsonl"),
+    ]);
+    expect(report.sessionEndSessions).toBe(3);
+    // Session a: 900 + 400 = 1300 sequential. b and c: 900 each.
+    expect(report.sessionEndWorstMs).toBe(1_300);
+    expect(report.worstSession).toBe("a.jsonl");
+    expect(report.sessionEndOk).toBe(true);
+  });
+
+  test("`Stop` is NOT SessionEnd — a different event with a different budget", () => {
+    // Stop fires at every turn end; folding it into SessionEnd's shared budget
+    // measured a cost no single budget has to cover.
+    const report = hookModel([
+      rec("Stop", "bansai", 1_000, 1_400, "a.jsonl"),
+      rec("Stop", "counterparts", 2_500, 1_400, "a.jsonl"),
+    ]);
+    expect(report.sessionEndWorstMs).toBeNull();
+    expect(report.sessionEndOk).toBeNull();
+    expect(report.sessionEndSessions).toBe(0);
   });
 
   test("hook_success attachments in a real transcript feed the model", () => {
@@ -1701,11 +1781,18 @@ function fixture(): Fixture {
   });
   writeJson(join(runDir, "waivers.json"), [WAIVER("replay-sample-5d")]);
 
-  // A clean transcript with a measurable, parallel hook model.
+  // A clean transcript with a measurable, parallel hook model — and v1's wake
+  // arriving the way the host actually routes it, as an attachment with no
+  // message role. That entry is what makes the canary a MEASUREMENT: without a
+  // single v1 marker anywhere the scan proves nothing and reads not-exercised.
   writeFileSync(
     join(transcripts, "session.jsonl"),
     [
       JSON.stringify({ message: { role: "user", content: "Nothing foreign in here." } }),
+      JSON.stringify({
+        type: "attachment",
+        content: "<bansai-memory>\nthe standing bundle\n</bansai-memory>",
+      }),
       JSON.stringify({
         type: "attachment",
         timestamp: "2026-09-04T09:00:01.000Z",
@@ -1888,12 +1975,87 @@ describe("the preflight — Phase 0, as a gate", () => {
     const f = fixture();
     writeFileSync(
       join(f.transcripts, "leaked.jsonl"),
-      `${JSON.stringify({ message: { role: "user", content: "[bansai] recall: leaked into capture." } })}\n`,
+      // A WAKE marker in a user-role block: the host's transcript shape changed
+      // and v1's injection is now reaching v2's capture. `[bansai] …` would be
+      // the episode ask, which is the designed case, not this one.
+      `${JSON.stringify({ message: { role: "user", content: "<bansai-memory>leaked into capture</bansai-memory>" } })}\n`,
       "utf8",
     );
     const row = rowOf(f, "canary.transcripts");
     expect(row?.status).toBe("fail");
     expect(row?.detail).toContain("RED-LINE");
+  });
+
+  test("canary.transcripts fails on RECOGNIZER DRIFT — the exclusion stopped applying", () => {
+    const f = fixture();
+    // An episode-ask marker whose text `classifyBlock` would NOT call foreign
+    // is the breach itself: `enters()` no longer refuses it. Constructed by
+    // making the marker match while the classifier's own rule does not — the
+    // canary and `transcript.ts` disagreeing is the whole signal.
+    const scan = scanTranscripts([
+      (() => {
+        const path = join(f.transcripts, "drift.jsonl");
+        writeFileSync(
+          path,
+          `${JSON.stringify({ message: { role: "user", content: "[bansai] an ordinary ask" } })}\n`,
+          "utf8",
+        );
+        return path;
+      })(),
+    ]);
+    // On today's recognizers the two agree, so this reads as by-design. The row
+    // below is what fires if they ever stop agreeing.
+    expect(scan.recognizerDrift).toEqual([]);
+    expect(scan.byDesignHits.length).toBe(1);
+  });
+
+  test("canary.transcripts is NOT-EXERCISED when the scan saw no v1 marker at all", () => {
+    const f = fixture();
+    const row = rowOf(f, "canary.transcripts", { transcripts: [dir("empty-transcripts")] });
+    // An empty scan and a clean one are indistinguishable, and only one of them
+    // is evidence. A vacuous pass here would have signed off the isolation
+    // guarantee on a corpus that was never read (review blocker 6).
+    expect(row?.status).toBe("not-exercised");
+    expect(row?.detail).toContain("no v1 marker was seen");
+  });
+
+  test("canary.transcripts PASSES on the episode ask alone — that is §5 G8 working", () => {
+    const f = fixture();
+    writeFileSync(
+      join(f.transcripts, "ask.jsonl"),
+      `${JSON.stringify({ message: { role: "user", content: "Stop hook feedback:\n- [bansai] what did you learn?" } })}\n`,
+      "utf8",
+    );
+    const row = rowOf(f, "canary.transcripts");
+    expect(row?.status).toBe("pass");
+    expect(row?.detail).toContain("§5 G8 working");
+  });
+
+  test("host.hooks is NOT-EXERCISED when the SessionEnd budget was never measured", () => {
+    const f = fixture();
+    // A measurable execution model, but no SessionEnd record anywhere: the
+    // CONTRACT asks for that budget measured with BOTH systems' hooks
+    // installed, and `sessionEndWorstMs === null` is the measurement MISSING.
+    // It used to pass, because `sessionEndOk === null` fell through to `pass`.
+    writeFileSync(
+      join(f.transcripts, "session.jsonl"),
+      [
+        JSON.stringify({
+          type: "attachment",
+          timestamp: "2026-09-04T09:00:01.000Z",
+          attachment: { type: "hook_success", hookEvent: "SessionStart", hookName: "bansai", durationMs: 400 },
+        }),
+        JSON.stringify({
+          type: "attachment",
+          timestamp: "2026-09-04T09:00:01.050Z",
+          attachment: { type: "hook_success", hookEvent: "SessionStart", hookName: "counterparts", durationMs: 400 },
+        }),
+      ].join("\n"),
+      "utf8",
+    );
+    const row = rowOf(f, "host.hooks");
+    expect(row?.status).toBe("not-exercised");
+    expect(row?.detail).toContain("SessionEnd budget was never measured");
   });
 
   test("host.hooks is NOT-EXERCISED when the model could not be measured", () => {

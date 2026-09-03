@@ -286,7 +286,7 @@ export interface V2DayCounts {
 // The transcript canary and the host's hook model
 // ---------------------------------------------------------------------------
 
-/** A foreign marker found in a CONVERSATION block. Address only, never text. */
+/** A foreign marker found in a message block. Address only, never text. */
 export interface CanaryHit {
   readonly file: string;
   readonly entry: number;
@@ -314,8 +314,17 @@ export interface HookModelReport {
   readonly perHook: readonly HookDurations[];
   /** The host's shared SessionEnd budget, in ms. */
   readonly sessionEndBudgetMs: number;
-  /** What SessionEnd actually cost — summed when sequential, max when parallel. */
+  /**
+   * What the WORST SINGLE SESSION's SessionEnd cost — summed across its hooks
+   * when sequential, the longest when parallel. Per session, and SessionEnd
+   * only: `Stop` is a different event with a different budget. NULL when no
+   * SessionEnd record was seen, which is `not-exercised`, never a pass.
+   */
   readonly sessionEndWorstMs: number | null;
+  /** How many sessions carried a SessionEnd record at all. The denominator. */
+  readonly sessionEndSessions: number;
+  /** Which session that worst cost came from — a path, so it can be re-read. */
+  readonly worstSession: string | null;
   readonly sessionEndOk: boolean | null;
 }
 
@@ -323,8 +332,30 @@ export interface CanaryScan {
   readonly files: number;
   readonly entries: number;
   readonly corrupt: number;
-  /** Foreign markers inside user/assistant CONVERSATION blocks. A red-line. */
+  /**
+   * v1's WAKE/RECALL markers (indexes 2–4) inside user/assistant CONVERSATION
+   * blocks. THE red-line: that exclusion is carried by the host's transcript
+   * shape, so one of these here means the host changed (§5 G8, scar §2.18).
+   */
   readonly conversationHits: readonly CanaryHit[];
+  /**
+   * v1's EPISODE-ASK markers (indexes 0–1) in a user-role block, WITH
+   * `classifyBlock` agreeing they are `foreign`. This is the design working —
+   * §5 G8's "the one channel that DOES land as a user-role message ... is the
+   * `foreign` case" — so it is counted, never red-lined.
+   */
+  readonly byDesignHits: readonly CanaryHit[];
+  /**
+   * An episode-ask marker whose text `classifyBlock` did NOT call `foreign`.
+   * Recognizer drift: the exclusion silently stopped applying. Its own red-line.
+   */
+  readonly recognizerDrift: readonly CanaryHit[];
+  /**
+   * Every v1 marker the scan saw anywhere, attachments included. ZERO means the
+   * scan proved nothing — an empty corpus and a clean one are indistinguishable
+   * — so the check reads `not-exercised` rather than passing vacuously.
+   */
+  readonly markersSeen: number;
   /**
    * Foreign markers in host-carried material — `tool_result` blocks and entries
    * with no message role. Reported SEPARATELY because that exclusion is carried

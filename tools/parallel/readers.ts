@@ -936,7 +936,16 @@ export function proseBody(path: string): string | null {
 // (c) the host transcript canary, and the hook execution model
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** The host's shared SessionEnd budget, in ms (scar §2.18: measured, not assumed). */
+/**
+ * The host's shared SessionEnd budget, in ms.
+ *
+ * SOURCE: Claude Code's hooks documentation — SessionEnd hooks share a 1.5 s
+ * window, after which the host stops waiting. It is a HOST fact, not a
+ * measurement of ours, which is why it is a named constant with its provenance
+ * on it rather than a number in an expression (scar §2.18: the host's hook
+ * semantics are measured or cited, never assumed silently). Re-verify it on any
+ * host upgrade during the run — the same re-probe the canary gets.
+ */
 export const HOST_SESSION_END_BUDGET_MS = 1_500;
 
 /** Every `.jsonl` under a directory, or the file itself. Paths only. */
@@ -973,12 +982,27 @@ export function transcriptFiles(target: string): string[] {
   return out;
 }
 
-interface HookRecord {
+export interface HookRecord {
+  /** WHICH SESSION. The transcript file is the session (review should-fix). */
+  readonly session: string;
   readonly hookEvent: string;
   readonly hookName: string;
   readonly durationMs: number;
   /** Completion time, epoch ms. The window is `[at - durationMs, at]`. */
   readonly at: number;
+}
+
+/**
+ * The host's SessionEnd event, and ONLY it.
+ *
+ * `Stop` was folded in here by a `/stop/i` in the regex, which is a different
+ * event with a different budget: `Stop` fires at every turn end, `SessionEnd`
+ * once when the host closes the session. Summing them measured a cost no single
+ * budget ever has to cover. The names are the host's own (`hookEvent` on a
+ * `hook_success` attachment).
+ */
+function isSessionEnd(hookEvent: string): boolean {
+  return /^session[_-]?end$/i.test(hookEvent.trim());
 }
 
 function median(sorted: readonly number[]): number {
@@ -1001,11 +1025,16 @@ function median(sorted: readonly number[]): number {
  * unchanged, which is why this discriminator is safe to build on.
  */
 export function hookModel(records: readonly HookRecord[]): HookModelReport {
+  // GROUPED BY SESSION FIRST. Two hooks that ran in different sessions cannot
+  // have raced, and pooling them across a whole scanned corpus manufactured
+  // overlaps out of unrelated days — reading the host as `parallel` on
+  // coincidence (review should-fix).
   const byEvent = new Map<string, HookRecord[]>();
   for (const r of records) {
-    const list = byEvent.get(r.hookEvent) ?? [];
+    const key = `${r.session}\u0000${r.hookEvent}`;
+    const list = byEvent.get(key) ?? [];
     list.push(r);
-    byEvent.set(r.hookEvent, list);
+    byEvent.set(key, list);
   }
   let overlaps = 0;
   for (const list of byEvent.values()) {
@@ -1022,21 +1051,29 @@ export function hookModel(records: readonly HookRecord[]): HookModelReport {
     }
   }
 
-  const perHookMap = new Map<string, number[]>();
+  // The pair rides in the VALUE, so the key is never split back apart — the
+  // old `split(" ")` could not survive a hook name with a space in it.
+  const perHookMap = new Map<
+    string,
+    { hookEvent: string; hookName: string; durations: number[] }
+  >();
   for (const r of records) {
     const key = `${r.hookEvent} ${r.hookName}`;
-    const list = perHookMap.get(key) ?? [];
-    list.push(r.durationMs);
-    perHookMap.set(key, list);
+    const entry = perHookMap.get(key) ?? {
+      hookEvent: r.hookEvent,
+      hookName: r.hookName,
+      durations: [],
+    };
+    entry.durations.push(r.durationMs);
+    perHookMap.set(key, entry);
   }
   const perHook: HookDurations[] = [...perHookMap.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, durations]) => {
-      const [hookEvent = "", hookName = ""] = key.split(" ");
-      const sorted = [...durations].sort((a, b) => a - b);
+    .map(([, entry]) => {
+      const sorted = [...entry.durations].sort((a, b) => a - b);
       return {
-        hookEvent,
-        hookName,
+        hookEvent: entry.hookEvent,
+        hookName: entry.hookName,
         count: sorted.length,
         minMs: sorted[0] ?? 0,
         medianMs: median(sorted),
@@ -1052,15 +1089,33 @@ export function hookModel(records: readonly HookRecord[]): HookModelReport {
   const model: HookModelReport["model"] =
     records.length === 0 || !contested ? "unknown" : overlaps > 0 ? "parallel" : "sequential";
 
-  const sessionEnd = records.filter((r) => /sessionend|session_end|stop/i.test(r.hookEvent));
-  // The budget is SHARED across all hooks on the event: sequential hooks spend
-  // it one after another (sum), concurrent ones spend the longest (max).
-  const worst =
-    sessionEnd.length === 0
-      ? null
-      : model === "parallel"
-        ? Math.max(...sessionEnd.map((r) => r.durationMs))
-        : sessionEnd.reduce((n, r) => n + r.durationMs, 0);
+  // THE BUDGET IS PER SESSION, and it is SessionEnd's alone.
+  //
+  // The old line summed every SessionEnd duration in the whole scanned corpus
+  // — a month of sessions added together — and folded `Stop` in besides, then
+  // compared that number to a one-session budget. What the host actually
+  // shares is one budget per SessionEnd event: sequential hooks spend it one
+  // after another (sum), concurrent ones spend the longest (max). The WORST
+  // session is the one that has to fit.
+  const bySession = new Map<string, HookRecord[]>();
+  for (const r of records) {
+    if (!isSessionEnd(r.hookEvent)) continue;
+    const list = bySession.get(r.session) ?? [];
+    list.push(r);
+    bySession.set(r.session, list);
+  }
+  let worst: number | null = null;
+  let worstSession: string | null = null;
+  for (const [session, list] of bySession) {
+    const cost =
+      model === "parallel"
+        ? Math.max(...list.map((r) => r.durationMs))
+        : list.reduce((n, r) => n + r.durationMs, 0);
+    if (worst === null || cost > worst) {
+      worst = cost;
+      worstSession = session;
+    }
+  }
 
   return {
     model,
@@ -1069,9 +1124,37 @@ export function hookModel(records: readonly HookRecord[]): HookModelReport {
     perHook,
     sessionEndBudgetMs: HOST_SESSION_END_BUDGET_MS,
     sessionEndWorstMs: worst,
+    sessionEndSessions: bySession.size,
+    worstSession,
     sessionEndOk: worst === null ? null : worst <= HOST_SESSION_END_BUDGET_MS,
   };
 }
+
+/**
+ * THE MARKERS SPLIT INTO TWO CLASSES, and the canary grades them oppositely.
+ *
+ * `FOREIGN_MARKERS` (src/adapters/claude-code/transcript.ts) is one list with
+ * two jobs in it:
+ *
+ *   0–1  v1's EPISODE ASK — `Stop hook feedback: [bansai] …` and `[bansai] …`.
+ *        CONTRACT §5 G8 names this exactly: "the one channel that DOES land as
+ *        a user-role message ... is the `foreign` case." Finding it in a
+ *        user-role block is the DESIGN WORKING, not a breach. The canary
+ *        asserts `classifyBlock` agrees it is `foreign` — because the guarantee
+ *        is that `enters()` refuses it, and that refusal is what the
+ *        classification buys.
+ *
+ *   2–4  v1's WAKE and RECALL — `<bansai-memory>`, the standing self-model, the
+ *        initializing banner. These arrive as `hook_additional_context`
+ *        ATTACHMENTS with no message role, an exclusion carried by the HOST's
+ *        transcript shape rather than by v2 (scar §2.18). One of these in a
+ *        conversation block means the host changed. That is the red-line.
+ *
+ * The old canary red-lined all five, so v1's episode ask — the very case the
+ * `foreign` source was built for — would have halted the run on day 1.
+ */
+export const EPISODE_ASK_MARKERS: readonly number[] = [0, 1];
+export const WAKE_RECALL_MARKERS: readonly number[] = [2, 3, 4];
 
 function foreignMarkerIndex(text: string): number {
   const probe = text.trimStart();
@@ -1102,6 +1185,8 @@ function foreignMarkerIndex(text: string): number {
  */
 export function scanTranscripts(files: readonly string[]): CanaryScan {
   const conversationHits: CanaryHit[] = [];
+  const byDesignHits: CanaryHit[] = [];
+  const recognizerDrift: CanaryHit[] = [];
   let attachmentHits = 0;
   let entries = 0;
   let corrupt = 0;
@@ -1140,6 +1225,11 @@ export function scanTranscripts(files: readonly string[]): CanaryScan {
         const at = Date.parse(str(entry["timestamp"]) ?? str(attachment["timestamp"]) ?? "");
         if (typeof durationMs === "number" && Number.isFinite(durationMs) && Number.isFinite(at)) {
           hookRecords.push({
+            // THE TRANSCRIPT FILE IS THE SESSION. Pooling hook records across
+            // sessions made two hooks from different days "overlap" and read
+            // the host as parallel, and summed a whole corpus of SessionEnd
+            // costs into one budget. Both are per-session facts.
+            session: file,
             hookEvent: str(attachment["hookEvent"]) ?? "unknown",
             hookName: str(attachment["hookName"]) ?? "unknown",
             durationMs,
@@ -1164,19 +1254,39 @@ export function scanTranscripts(files: readonly string[]): CanaryScan {
           attachmentHits += 1;
           continue;
         }
-        // Belt and braces: the reader's OWN classifier decides, so the canary
-        // and `transcript.ts` cannot disagree about what foreign looks like.
-        if (classifyBlock(block.text) !== "foreign") continue;
-        conversationHits.push({ file, entry: index, role: role as string, marker });
+        const hit: CanaryHit = { file, entry: index, role: role as string, marker };
+        if (EPISODE_ASK_MARKERS.includes(marker)) {
+          // THE DESIGNED CASE (§5 G8). The guarantee is not that this text
+          // never arrives — it is that when it does, `transcript.ts` classes it
+          // `foreign` and `remember/`'s `enters()` refuses it. So the canary
+          // asserts exactly that, and a DISAGREEMENT is its own red-line:
+          // recognizer drift means the exclusion silently stopped applying.
+          if (classifyBlock(block.text) === "foreign") byDesignHits.push(hit);
+          else recognizerDrift.push(hit);
+          continue;
+        }
+        // Markers 2–4: v1's wake and recall, whose exclusion is carried by the
+        // host's transcript shape. In a conversation block that shape changed.
+        conversationHits.push(hit);
       }
     }
   }
+
+  // TOTALITY OVER A VACUOUS PASS. Zero hits of any class means the scan saw no
+  // v1 material at all — which is what an empty corpus, a wrong `--transcripts`
+  // path, or a v1 that was not running all look like. It is `not-exercised`,
+  // never a clean bill of health (scar §2.4). Attachments count as "seen":
+  // they are v1's markers arriving through the channel the design expects.
+  const markersSeen = conversationHits.length + byDesignHits.length + attachmentHits;
 
   return {
     files: files.length,
     entries,
     corrupt,
     conversationHits,
+    byDesignHits,
+    recognizerDrift,
+    markersSeen,
     attachmentHits,
     hooks: hookModel(hookRecords),
   };
