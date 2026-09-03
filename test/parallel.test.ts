@@ -1752,9 +1752,9 @@ describe("day classes", () => {
     expect(classOf(s2).class).toBe("contaminated");
   });
 
-  test("CONTAMINATED: v1 rendered a wake on a Phase-P day, when it was the muted side", () => {
+  test("CONTAMINATED: v1 delivered a wake on a Phase-P day, when it was the muted side", () => {
     const s = scene(3);
-    v1Muted(s, [{ seq: 7, session: "s2", type: "wake.rendered" }]);
+    v1Muted(s, [{ seq: 7, session: "s2", type: "wake.delivered" }]);
     v2Delivering(s);
     const r = classOf(s);
     expect(r.class).toBe("contaminated");
@@ -1767,7 +1767,7 @@ describe("day classes", () => {
     const s = scene(3);
     v1Log(s.v1Dir, DATE, [
       { seq: 0, session: "s1", type: "session.start" },
-      { seq: 1, session: "s1", type: "wake.rendered" },
+      { seq: 1, session: "s1", type: "wake.delivered" },
       { seq: 2, session: "s1", type: "buffer.append" },
       { seq: 3, session: "s1", type: "buffer.append" },
       { seq: 4, session: "s1", type: "buffer.append" },
@@ -1788,7 +1788,7 @@ describe("day classes", () => {
       { seq: 1, session: "s1", type: "buffer.append" },
       { seq: 2, session: "s1", type: "buffer.append" },
       { seq: 3, session: "s1", type: "buffer.append" },
-      { seq: 4, session: "s1", type: "wake.rendered" },
+      { seq: 4, session: "s1", type: "wake.delivered" },
       { seq: 5, session: "s1", type: "session.end" },
     ]);
     v2Delivering(s);
@@ -1805,7 +1805,7 @@ describe("day classes", () => {
     // the delivery hook got to 3, the later mute hook was on its first line.
     v1Log(s.v1Dir, DATE, [
       { seq: 0, ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
-      { seq: 3, ts: `${DATE}T09:01:00.000Z`, session: "s1", type: "wake.rendered" },
+      { seq: 3, ts: `${DATE}T09:01:00.000Z`, session: "s1", type: "wake.delivered" },
       { seq: 0, ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
       { seq: 1, ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
       { seq: 2, ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
@@ -1827,7 +1827,7 @@ describe("day classes", () => {
     // what a hook actually stamps.
     v1LogRaw(s.v1Dir, DATE, [
       { ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
-      { ts: `${DATE}T09:06:00.000Z`, session: "s1", type: "wake.rendered" },
+      { ts: `${DATE}T09:06:00.000Z`, session: "s1", type: "wake.delivered" },
       { ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
       { ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
       { ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
@@ -1848,7 +1848,7 @@ describe("day classes", () => {
     const other = scene(3);
     v1LogRaw(other.v1Dir, DATE, [
       { ts: `${DATE}T09:00:00.000Z`, session: "s1", type: "session.start" },
-      { ts: `${DATE}T09:01:00.000Z`, session: "s1", type: "wake.rendered" },
+      { ts: `${DATE}T09:01:00.000Z`, session: "s1", type: "wake.delivered" },
       { ts: `${DATE}T09:02:00.000Z`, session: "s1", type: "buffer.append" },
       { ts: `${DATE}T09:03:00.000Z`, session: "s1", type: "buffer.append" },
       { ts: `${DATE}T09:04:00.000Z`, session: "s1", type: "buffer.append" },
@@ -1987,25 +1987,27 @@ describe("day classes", () => {
     expect(classOf(s).contamination.v1).toEqual({ wake: 0, recall: 0, ritual: 0 });
   });
 
-  test("v1's two wake events are ONE site — the channel counts the render, never the sum", () => {
+  test("v1's wake channel counts DELIVERIES only — the runner's renders never sum into it", () => {
+    // A muted v1 whose runner rendered its wake file three times and whose
+    // session-start delivered once: one delivery, not four events, not three.
     const s = scene(3);
     v1Muted(s, [
-      { seq: 7, session: "s2", type: "wake.rendered" },
-      { seq: 8, session: "s2", type: "wake.delivered" },
+      { seq: 20, session: "runner", type: "wake.rendered" },
+      { seq: 21, session: "runner", type: "wake.rendered" },
+      { seq: 22, session: "runner", type: "wake.rendered" },
+      { seq: 23, session: "s1", type: "wake.delivered" },
     ]);
     v2Delivering(s);
     const r = classOf(s);
-    expect(r.v1.wakeRendered).toBe(1);
-    expect(r.v1.wakeDelivered).toBe(1);
     expect(r.contamination.v1.wake).toBe(1);
+    expect(r.class).toBe("contaminated");
   });
-
   test("every matching class is kept in `flags`, and the winner is by stated precedence", () => {
     const s = scene(3);
     // A straddled session AND a muted-side wake: both true, mixed wins.
     v1Log(s.v1Dir, DATE, [
       { seq: 0, session: "s1", type: "session.start" },
-      { seq: 1, session: "s1", type: "wake.rendered" },
+      { seq: 1, session: "s1", type: "wake.delivered" },
       { seq: 2, session: "s1", type: "buffer.append" },
       { seq: 3, session: "s1", type: "buffer.append" },
       { seq: 4, session: "s1", type: "buffer.append" },
@@ -2056,7 +2058,7 @@ describe("day classes", () => {
       const s = scene(3);
       v1Log(s.v1Dir, DATE, [
         { seq: 0, session: "s1", type: "session.start" },
-        { seq: 1, session: "s1", type: "wake.rendered" },
+        { seq: 1, session: "s1", type: "wake.delivered" },
         { seq: 2, session: "s1", type: "buffer.append" },
         { seq: 3, session: "s1", type: "buffer.append" },
         { seq: 4, session: "s1", type: "buffer.append" },
@@ -2095,7 +2097,7 @@ describe("day classes", () => {
     // stood-down instrument must be distinguishable from a revived one).
     v1Log(s.v1Dir, DATE, [
       { seq: 0, session: "s1", type: "session.start" },
-      { seq: 1, session: "s1", type: "wake.rendered" },
+      { seq: 1, session: "s1", type: "wake.delivered" },
       { seq: 2, session: "s1", type: "buffer.append" },
       { seq: 3, session: "s1", type: "buffer.append" },
       { seq: 4, session: "s1", type: "buffer.append" },
