@@ -26,8 +26,11 @@
  *   regex.
  *
  *   **§2.18** — the credential comes from ONE configured source the package
- *   names (`ANTHROPIC_API_KEY`, from the environment) and never from a file, a
- *   rotation list, or a per-key cursor. Missing means a NAMED refusal before any
+ *   names: `ANTHROPIC_API_KEY` in the environment, or — where the host gives a
+ *   process no environment to inherit, which is what this host does to its hooks
+ *   — the file `credentialsFile` names, loaded into that same variable at the
+ *   process entry point. Never a rotation list, never a per-key cursor, and
+ *   never a file found by convention. Missing means a NAMED refusal before any
  *   socket is opened, not a mysterious failure at the far end.
  *
  *   **§2.15** — the model id comes from the adapter's own seat knob with a

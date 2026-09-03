@@ -37,6 +37,14 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   widening] v1's runner starved for two days for one project scope because it expected to
   inherit a credential from whatever shell launched the session; the backlog drained only
   when someone noticed.
+- **The credential comes from the environment first and, where the host gives a process
+  none, from the ONE file this package's own config names (`credentialsFile`).** [v1's
+  `.env` fallback, ported as a scar rather than as code] Measured day 0 of the parallel
+  run: this host's hook processes carry neither documented name even with both exported in
+  the owner's shell rc. A file the config NAMES is "one configured source the package
+  owns" (§2.18); a file found by CONVENTION is not, and stays forbidden. Only the two
+  documented names are honored, the environment always wins, and only names and counts
+  ever leave.
 - **Anti-loop re-entrancy guard on the turn hook.** [v1] test-triage `hooks.test.ts`.
 - **Observer stands down at the hook boundary and at the store seam.** [v1] §15, scar E7.
 
@@ -73,8 +81,8 @@ credential — belongs here, discovered at runtime, never assumed by the core.
 the host's transcript slice since the last boundary; host configuration.
 **Outputs** — an injected context block or the empty string; appended spans; the
 end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
-execution ceiling, socket lifetime, credential availability); delivery and stand-down
-telemetry.
+execution ceiling, socket lifetime, credential availability AND which source answered —
+`env` or `file`, name-level only); delivery and stand-down telemetry.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
