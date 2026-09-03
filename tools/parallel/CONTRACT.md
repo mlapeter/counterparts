@@ -98,9 +98,13 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
 1. **The replay gate is green for this run's purposes** — read by the preflight from a
    machine-readable pass record through a predicate THIS tool defines,
    `parallelGateOpen(record)`: `readOnlyProof && totalityOk && counts.fail === 0 &&`
-   every `not-exercised` id ∈ `PARALLEL_EXERCISABLE` `&&` every `needs-rater` id ∈
-   `RATER_DEFERRED` — both sets enumerated in `tools/parallel/` and copied into the run
-   directory; an id outside either set shuts the gate. Replay's own `gateOpen()` (which
+   every `not-exercised` id ∈ `PARALLEL_EXERCISABLE` ∪ `NOT_APPLICABLE_TO_RUN` `&&` every
+   `needs-rater` id ∈ `RATER_DEFERRED` — all three sets enumerated in `tools/parallel/`
+   and copied into the run directory; an id outside them shuts the gate. (The third set
+   was forced by the build: 23 registry rows read `not-exercised`, and only 13 name a
+   surface this run can move; the other 10 are v1 mechanisms with no v2 counterpart —
+   `ops.outcomeMix`, `gradient.moveMix`, `runner.duration` and their kin — and are
+   G13's `not-applicable`, named as such rather than laundered into "exercisable".) Replay's own `gateOpen()` (which
    also demands zero `not-exercised` and zero `needs-rater`) is the CUTOVER gate and
    cannot be satisfied by any replay record: its 23 `not-exercised` rows are §6's
    charter and its 2 `needs-rater` rows have no rater outside this run (replay
@@ -110,6 +114,9 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
    refuses unless an **owner-signed waiver file** in the run directory names that
    record's id and the reason — the preflight reads the waiver; prose does not. **Owner
    decision, dated in the run record; drop-dead 2026-09-08** (OQ5's arithmetic).
+   **RULED 2026-09-03 (owner): the sample route** — the queued `--days 5..7` sample,
+   its previously-failing channels read on the per-day trend, and the signed waiver
+   file naming that record; the full re-run stays available if the trend is bad.
 2. **The G12 symmetry consumer is live** (BUILD-STATUS gap 2: the ratchet tripwire
    "must be live DURING the parallel run; that is when it earns its keep").
 3. **`scanSecrets` is bounded** (replay review follow-up: a non-ablatable gate with a
@@ -182,10 +189,15 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
   other lived day is recorded with a class and NOT counted toward a phase minimum:
   **thin** (below the floor), **contaminated** (the muted side delivered — G4),
   **mixed** (a session straddled the flip: a delivery event and a later `ab.muted` in
-  the same v1 session), **silent** (v1 muted at session start and no v2
-  `adapter.wake.injected` for that session — the state G4 cannot see by counting extra
-  voices, so it is counted by its absence). Classes are reported side by side with the
-  active count, never folded into it.
+  the same v1 session), **silent** (v1 muted at session start and no v2 delivery record
+  — `adapter.primacy.deliver{session-start}` or any of the four delivery records —
+  naming that same host session id: the state G4 cannot see by counting extra voices,
+  so it is counted by its absence; a stand-down is not speaking), and **unreadable**
+  (added by the build, 2026-09-03: a day whose durable v2 read errored or hit its row
+  cap has counts that are floors of unknown depth, so its contamination detectors read
+  `null` and no other class's claim is supportable — a read that failed is not a day
+  that was quiet, scar §2.4). Classes are reported side by side with the active count,
+  never folded into it.
 
 ### Inputs
 
@@ -219,6 +231,11 @@ divergence logs; the cutover pass record; the dashboard comparison views.
    (replay G6, verbatim), **and every scorecard number is recomputable from the two
    durable stores plus logs after the fact.** The store the run leaves behind is the
    evidence; a metric derivable only from a live event ring is not a metric here.
+   Build note (2026-09-03): v2's delivery records (`adapter.wake.injected`,
+   `adapter.wake.delivered`, `adapter.recall`, `adapter.episode.ask`) and its primacy
+   verdicts are durable rows with the calendar date and session in the payload; the
+   symmetry verdict, the quarantine count and the self-store bytes are recomputed
+   read-only from durable state rather than stored — named as such by the instrument.
 3. **[M] Exactly one system delivers at any time.** Primacy is a single value in one
    shared file outside both data dirs; v1's resolver is its existing `src/ab.ts`,
    unchanged; v2's resolver delivers **only** on `override === "engram"` and **fails
@@ -436,32 +453,48 @@ content-by-reference; ids in state, text at render).
    parity (the strategic wins — SQLite-canonical operational state, packaging,
    legibility — ride outside the scorecard). The stricter bar: the paired rating must
    show v2 *preferred*, not tied. One sentence from you makes the verdict mechanical.
+   **RULED 2026-09-03 (owner): parity-plus-strategy.** Seven active days is a small
+   rating sample; a tie on it with the strategic wins outside the scorecard is an
+   honest PROMOTE, and the strict bar would convert noise into REVERT.
 2. **The starting store: migrated from v1, or empty?** PROPOSED: migrated — the run
    then live-verifies the migration (which cutover needs anyway), and v2's recall is
    not starved for the whole run. Costs: gap 5 (confidentiality mapping) graduates to
    hard precondition, and migrated rows must be origin-marked so paired ratings
    compare only same-window mints. Empty is cleaner but measures an amnesiac cutover
-   nobody plans to perform.
+   nobody plans to perform. **RULED 2026-09-03 (owner): migrated.** Precondition 6 is
+   therefore hard; the confidentiality mapping and the import-path secrets gate exist
+   with named tests (`test/migrate.test.ts` G1, G2), and what remains is the real
+   `--apply` into a fresh v2 data dir with the source-manifest proof.
 3. **At PROMOTE, is the parallel store THE production store?** PROPOSED: yes —
    anything else discards the verified weeks and performs a second, unverified
-   migration.
+   migration. **RULED 2026-09-03 (owner): yes.**
 4. **Cross-encoding disposition: accept-and-meter, or patch v1?** PROPOSED:
    accept-and-meter (§5 G7). v1 keeps injected text in its capture buffer *by design*
    (`hooks/boundary.ts`); a v1-side stripper is a capture behavior change to the
    reference instance mid-bake-in — the reference stops being a reference. You set the
-   meter's red-line bar.
+   meter's red-line bar. **RULED 2026-09-03 (owner): accept-and-meter.** The bar, in
+   two numbers: Phase S, ZERO verbatim hits in either direction (the host's transcript
+   shape carries v1's exclusion, so any hit means the host changed — red-line); Phase P,
+   any hit is a named finding, and a red-line only above **10% of v1's daily mints**
+   carrying a verbatim v2 line.
 5. **Phase minimums, spend, and the rail arithmetic.** 3+7 active days plus preflight
    fits before ~09-22 only if the §5 preconditions close by roughly 09-08. Priced and
    approved, not assumed — including the authored dump's session-context cost, which
    lands on your account, not an API line item. If the replay-record decision
    (precondition 1) and preconditions 4–5 do not land inside that window, the run does
    not start and v1 flips as-is — the outcome §7 already contemplates, and better than a
-   run whose clock restarts on its first red-line.
+   run whose clock restarts on its first red-line. **RULED 2026-09-03 (owner): approved
+   in principle** — the API side (v2's embeddings plus crash-fallback sweeps) is dollars,
+   the actual to be logged against the sample run's measured cost; the authored dump's
+   cost lands on the owner's subscription context and is named as such.
 6. **Which v1 window anchors the parity bands?** PROPOSED: v1's standing 30-day
    baselines set the band; the same-run shadow days are shown beside them as the
    paired anecdote. Same-days alone is too small an n to be a band; the standing
-   window alone ignores the best-matched data the run produces.
+   window alone ignores the best-matched data the run produces. **RULED 2026-09-03
+   (owner): the 30-day window sets the band; same-run days shown beside it.**
 7. **Which watches outlive PROMOTE?** Blind rate and self-share need weeks the run
    does not have; the salience-lift divergence and birth-rate watches are young.
    PROPOSED: a named post-cutover watch list with the same four-value discipline, and
    v1's store kept readable indefinitely — it is the owner's history, not a fixture.
+   **RULED 2026-09-03 (owner): as proposed** — the list is written into the run
+   directory at PROMOTE, and v1's store stays readable.

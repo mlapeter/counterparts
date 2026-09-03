@@ -151,6 +151,19 @@ export interface AdapterConfig {
    * and countably so (`novelty.reason = "no-chunk-vector"`).
    */
   readonly embedder?: { readonly enabled: boolean };
+  /**
+   * THE PARALLEL-RUN KNOB, and it defaults to ABSENT.
+   *
+   * Absent ⇒ v2 delivers on every delivering hook, which is what it does in
+   * every other situation and what every test that does not name this flag
+   * asserts. Present and true ⇒ every delivering hook first asks
+   * `primacy.ts` whether the OTHER system is speaking today, and stands down if
+   * the answer is anything but a clean "engram" (parallel-run G3). It is a knob
+   * rather than an inference for the same reason the egress knob is: the
+   * presence of v1's file on the machine must not be the thing that decides
+   * whether v2 speaks. RETIRED at PROMOTE.
+   */
+  readonly parallel?: { readonly enabled: boolean };
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
@@ -187,6 +200,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     watchdogMs?: number;
     models?: { interpret?: ModelSeat; embed?: ModelSeat };
     embedder?: { enabled: boolean };
+    parallel?: { enabled: boolean };
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -267,6 +281,19 @@ export function loadConfig(raw: unknown): LoadedConfig {
       unreadable = true;
     } else {
       out.embedder = { enabled: e["enabled"] };
+    }
+  }
+  const parallel = rec["parallel"];
+  if (parallel !== undefined) {
+    // Read as strictly as the egress knob, and for the same reason: a
+    // half-written `parallel` block must not resolve to "on" — and, this being
+    // the mute switch, it must not resolve to "off" by accident either. An
+    // unreadable one takes the whole configuration to observer below.
+    const p = parallel as Record<string, unknown>;
+    if (typeof parallel !== "object" || parallel === null || Array.isArray(parallel) || typeof p["enabled"] !== "boolean") {
+      unreadable = true;
+    } else {
+      out.parallel = { enabled: p["enabled"] };
     }
   }
   const identity = rec["identity"];

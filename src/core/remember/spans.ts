@@ -15,6 +15,8 @@
  *     <key>/coverage.jsonl       spanHash -> proposalId (the engine's claims)
  *     <key>/proposals.jsonl      minted proposals (also the content-idempotency ledger)
  *     <key>/consumed.jsonl       bounded hash ledger — dedup layer 2 after a claim dies
+ *     <key>/failures.jsonl       bounded {hash, at, code} ledger — the retry bound
+ *     <key>/quarantine.jsonl     spans that failed MAX_SPAN_FAILURES times, in full
  *     <key>/claims/<id>.jsonl    a claim, renamed ASIDE from the buffer
  *
  * Four structural properties, each load-bearing (contract §5 G3):
@@ -42,7 +44,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { hashText } from "../store/prose.js";
 import { dataDir } from "../store/paths.js";
@@ -54,8 +56,12 @@ import { TUNABLES } from "./tunables.js";
 
 /** Provenance of a turn. Only conversational text (and host-injected context)
  *  enters capture; tool output, file contents and images never do. This is a
- *  DECLARED blind spot, not an oversight (§3, behavioral-spec §2 G10/G11). */
-export type TurnSource = "conversation" | "injected" | "tool" | "file" | "image";
+ *  DECLARED blind spot, not an oversight (§3, behavioral-spec §2 G10/G11).
+ *
+ *  `foreign` is the parallel run's addition: material ANOTHER memory system's
+ *  hooks put into this host's context. It is not the host speaking (`injected`)
+ *  and it is certainly not the user, so it enters nothing — see `enters()`. */
+export type TurnSource = "conversation" | "injected" | "tool" | "file" | "image" | "foreign";
 
 export interface Turn {
   role: "user" | "assistant";
@@ -122,6 +128,7 @@ export const WRITE_SITES = [
   "coverage",
   "proposal",
   "sweep",
+  "failure",
 ] as const;
 export type WriteSite = (typeof WRITE_SITES)[number];
 
@@ -175,6 +182,26 @@ export interface CoverageMark {
   own: boolean;
 }
 
+/** One recorded interpretation failure. The hash is the buffer's own span hash —
+ *  the identifier that already lives in `consumed.jsonl` — and never the text. */
+export interface FailureRecord {
+  hash: string;
+  at: number;
+  /** The LIVED day of the failure (scar E8). The bound counts distinct days, not
+   *  attempts: three Stop hooks inside one API outage are one day's failure. */
+  day: number;
+  /** The chunk's failure code, or its `ChunkReason` when it carried none. */
+  code: string;
+}
+
+/** What `noteFailures()` decided about a batch of failed spans. */
+export interface FailureOutcome {
+  /** Still under the bound: these go back to the buffer and are retried. */
+  retry: Span[];
+  /** At the bound: written to `quarantine.jsonl` IN FULL and never restored. */
+  quarantined: Span[];
+}
+
 export interface CoverageReport {
   scope: string;
   spans: number;
@@ -185,6 +212,11 @@ export interface CoverageReport {
   unaskableSpans: number;
   unaskableBytes: number;
   lastBoundaryAt: number | null;
+  /** Spans that left the buffer at the retry bound. They are NOT in `spans`, and
+   *  counting them here is the point: a span the sweep gave up on is a number the
+   *  owner can see, never a silent absence (scar §2.4). The text is in
+   *  `quarantine.jsonl`. */
+  quarantined: number;
 }
 
 export interface BufferOptions extends Stance {
@@ -196,6 +228,7 @@ export interface BufferOptions extends Stance {
   minClaimBytes?: number;
   staleClaimMs?: number;
   consumedLedgerMax?: number;
+  maxSpanFailures?: number;
   onEvent?: (event: RememberEvent) => void;
 }
 
@@ -210,6 +243,7 @@ export class SpanBuffer {
   readonly minClaimBytes: number;
   readonly staleClaimMs: number;
   readonly consumedLedgerMax: number;
+  readonly maxSpanFailures: number;
   private readonly nowFn: () => number;
   private readonly dayFn: () => number;
   private readonly onEvent: ((e: RememberEvent) => void) | undefined;
@@ -222,6 +256,7 @@ export class SpanBuffer {
     this.minClaimBytes = opts.minClaimBytes ?? TUNABLES.MIN_CLAIM_BYTES;
     this.staleClaimMs = opts.staleClaimMs ?? TUNABLES.STALE_CLAIM_MS;
     this.consumedLedgerMax = opts.consumedLedgerMax ?? TUNABLES.CONSUMED_LEDGER_MAX;
+    this.maxSpanFailures = opts.maxSpanFailures ?? TUNABLES.MAX_SPAN_FAILURES;
     this.nowFn = opts.now ?? (() => Date.now());
     this.dayFn = opts.day ?? (() => 0);
     this.onEvent = opts.onEvent;
@@ -597,6 +632,7 @@ export class SpanBuffer {
       unaskableSpans: tail.length,
       unaskableBytes: tail.reduce((n, s) => n + s.text.length, 0),
       lastBoundaryAt: last,
+      quarantined: this.quarantined(scope).length,
     };
     this.emit("remember.coverage.measured", keyFor(scope), {
       spans: report.spans,
@@ -604,8 +640,108 @@ export class SpanBuffer {
       uncovered: report.uncovered,
       unaskableSpans: report.unaskableSpans,
       unaskableBytes: report.unaskableBytes,
+      quarantined: report.quarantined,
     });
     return report;
+  }
+
+  // ── the retry bound ────────────────────────────────────────────────────────
+
+  /** Failures recorded per span hash. History, not state: a span that later
+   *  succeeds keeps its lines and is consumed normally. */
+  /**
+   * Failures per span hash, counted as DISTINCT LIVED DAYS (PR-8 review): a
+   * poison pill fails every day it is tried; an outage fails every attempt of
+   * one day. Only the first shape should ever reach the bound. A line with no
+   * day (none exist in production; the field arrived with the cadence rule)
+   * counts as its own day, the conservative direction for an old ledger.
+   */
+  failureCounts(scope: string): Map<string, number> {
+    const days = new Map<string, Set<number>>();
+    for (const line of this.readLines<FailureRecord>(this.path(scope, "failures.jsonl"))) {
+      if (typeof line.hash !== "string") continue;
+      const set = days.get(line.hash) ?? new Set<number>();
+      set.add(typeof line.day === "number" ? line.day : -1 - set.size);
+      days.set(line.hash, set);
+    }
+    return new Map([...days.entries()].map(([hash, set]) => [hash, set.size]));
+  }
+
+  /** Spans the sweep gave up on, in full. Nothing is ever dropped: this file is
+   *  the owner's copy, readable in any editor (constitution line 16). */
+  quarantined(scope: string): Span[] {
+    return this.readSpans(this.path(scope, "quarantine.jsonl"));
+  }
+
+  /**
+   * Record one interpretation failure per span, and decide which of them may go
+   * back. A span that has now failed `maxSpanFailures` times is QUARANTINED — its
+   * full line appended to `quarantine.jsonl`, and never restored — so a
+   * permanently-failing span costs a bounded number of model calls instead of one
+   * per boundary forever (replay-review 2026-08-26 follow-up; the P0 fix traded
+   * silent loss for indefinite retry, and this is the other half of that trade).
+   *
+   * Only a FAILURE calls this. A restore that is merely a deferral — scraps under
+   * `MIN_CLAIM_BYTES` riding to the next boundary, spans of a session still
+   * running — touches no ledger and is never a step toward quarantine.
+   *
+   * Every failure mode here fails toward RETRY: if the ledger or the quarantine
+   * write does not land, nothing is quarantined and every span goes back. A
+   * retry costs a call; a drop costs the day.
+   */
+  noteFailures(scope: string, spans: readonly Span[], code: string): FailureOutcome {
+    if (spans.length === 0) return { retry: [], quarantined: [] };
+    const counts = this.failureCounts(scope);
+    const day = this.dayFn();
+    // Today's failures, per hash — a second failure on the SAME lived day does
+    // not move the count (the outage rule), so the pre-read set decides.
+    const failedToday = new Set(
+      this.readLines<FailureRecord>(this.path(scope, "failures.jsonl"))
+        .filter((l) => typeof l.hash === "string" && l.day === day)
+        .map((l) => l.hash),
+    );
+    const at = this.nowFn();
+    const retry: Span[] = [];
+    const quarantined: Span[] = [];
+    for (const span of spans) {
+      const n = (counts.get(span.hash) ?? 0) + (failedToday.has(span.hash) ? 0 : 1);
+      counts.set(span.hash, n);
+      if (n >= this.maxSpanFailures) quarantined.push(span);
+      else retry.push(span);
+    }
+
+    const out = this.mutate("failure", () => {
+      this.ensureScope(scope);
+      const file = this.path(scope, "failures.jsonl");
+      const lines = spans.map((s) => JSON.stringify({ hash: s.hash, at, day, code } satisfies FailureRecord));
+      appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
+      // Bounded exactly like the consumed ledger, and for the same reason: this is
+      // bookkeeping, not canonical memory. A trim can drop old failures and so
+      // reset a count — which spends a few more calls, never loses a span.
+      this.trimLedger(file);
+      if (quarantined.length > 0) {
+        // ONE append: a half-written batch would put a span in quarantine AND
+        // back in the buffer. Bounded duplication is the acceptable failure.
+        appendFileSync(
+          this.path(scope, "quarantine.jsonl"),
+          `${quarantined.map((s) => JSON.stringify(s)).join("\n")}\n`,
+          "utf8",
+        );
+      }
+    });
+    if (!out.ok) return { retry: [...spans], quarantined: [] };
+
+    if (quarantined.length > 0) {
+      // Counts and a code, never text — and never the hash of text either: hashing
+      // low-entropy content leaks it. (The hash inside `failures.jsonl` is the
+      // buffer's own span hash, which already lives in `consumed.jsonl`.)
+      this.emit("remember.span.quarantined", undefined, {
+        scope: keyFor(scope),
+        spans: quarantined.length,
+        code,
+      });
+    }
+    return { retry, quarantined };
   }
 
   // ── claim / consume / restore ──────────────────────────────────────────────
@@ -693,6 +829,12 @@ export class SpanBuffer {
    * this way (docs/replay-review-2026-08-26.md, P0), and scar E6 says an outage
    * must never mean "nothing durable". The ledger records what was CONSUMED —
    * never what merely passed through a claim.
+   *
+   * A QUARANTINED span is the third disposition, and it is NOT excepted: it left
+   * the buffer for good, its text is durable in `quarantine.jsonl`, and its hash
+   * belongs in the ledger — that is what stops an identical re-capture from
+   * restarting the retry loop, and what lets `mergeOrphans()` filter it out of a
+   * replayed claim. Terminal, not pass-through: this is not the P0 regression.
    */
   consume(
     claim: Claim,
@@ -968,6 +1110,9 @@ export class SpanBuffer {
     writeFileSync(tmp, `${keep.join("\n")}\n`, "utf8");
     renameSync(tmp, file);
     this.emit("remember.ledger.trimmed", undefined, {
+      // WHICH ledger: two of them trim now (consumed and failures), and a count
+      // with no name is a number nobody can act on.
+      ledger: basename(file),
       dropped: lines.length - keep.length,
       kept: keep.length,
     });
@@ -1011,6 +1156,12 @@ export class SpanBuffer {
  *  context does (it is conversational material the model actually saw). */
 export function enters(turn: Turn): boolean {
   const source = turn.source ?? "conversation";
+  // THE FOREIGN EXCLUSION, named rather than left to fall through the clause
+  // below: another memory system's injection is text this store would otherwise
+  // read as lived experience and encode as its own — v1's briefing coming back
+  // to v2 as a memory of having thought it. `injected` is kept and merely
+  // unpaced; `foreign` is refused outright.
+  if (source === "foreign") return false;
   return source === "conversation" || source === "injected";
 }
 

@@ -37,6 +37,7 @@ import {
   TUNABLES,
   WRITE_SITES,
   chunkSpans,
+  enters,
   intake,
   keyFor,
   markCovered,
@@ -55,6 +56,7 @@ import type {
   GateFn,
   GateInput,
   InterpretResult,
+  Span,
   SweepChunk,
   Turn,
   UpdatesContext,
@@ -109,6 +111,21 @@ const explode: GateFn = () => {
 function recorder(): { seen: GateInput[]; gate: GateFn } {
   const seen: GateInput[] = [];
   return { seen, gate: (input) => (seen.push(input), { ok: true, content: input.content }) };
+}
+
+/** A span that never entered a buffer — enough to reach a seam that takes one. */
+function fakeSpan(): Span {
+  return {
+    hash: "h0",
+    session: "s1",
+    scope: SCOPE,
+    kind: "conversation",
+    text: "x",
+    at: 0,
+    day: 3,
+    from: 0,
+    to: 1,
+  };
 }
 
 /** A claim() outcome, unwrapped — every call site here expects one. */
@@ -244,6 +261,32 @@ describe("capture (G1, G2, G3)", () => {
     });
   });
 
+  test("FOREIGN material — another memory system's injection — never enters (parallel-run G8)", () => {
+    // The failure this forbids: while v2 runs beside v1, v1's own wake bundle
+    // lands in the same transcript. It is user-role and it reads like prose, so
+    // without this rule v2 would encode v1's briefing as a memory of having
+    // thought it — two memory systems feeding each other.
+    const b = buf();
+    const r = b.capture({
+      session: "s1",
+      scope: SCOPE,
+      turns: [
+        { role: "user", text: "[bansai] recall: three memories bear on this turn", source: "foreign" },
+        { role: "user", text: "what I actually said", source: "conversation" },
+        { role: "user", text: "host-injected context", source: "injected" },
+      ],
+    });
+    expect({ excluded: r.excluded, text: r.spans[0]?.text }).toEqual({
+      excluded: 1,
+      text: "what I actually said\n\nhost-injected context",
+    });
+    // `injected` is kept and merely unpaced; `foreign` is refused outright.
+    expect(enters({ role: "user", text: "x", source: "foreign" })).toBe(false);
+    expect(enters({ role: "user", text: "x", source: "injected" })).toBe(true);
+    expect(enters({ role: "user", text: "x", source: "conversation" })).toBe(true);
+    expect(enters({ role: "user", text: "x" })).toBe(true);
+  });
+
   test("a boundary with nothing conversational still advances (ALL_EXCLUDED)", () => {
     const b = buf();
     const r = b.capture({
@@ -354,6 +397,7 @@ describe("observer (G8)", () => {
     const fake: Claim = { id: "clm_x", scope: SCOPE, path: join(dir, "nope"), spans: [], bytes: 0, mergedOrphans: [] };
     o.consume(fake);
     o.restore(fake);
+    o.noteFailures(SCOPE, [fakeSpan()], "THREW");
     await sweep(o, { scope: SCOPE, interpret: async () => ({ proposals: [] }) });
 
     const sites = new Set(o.events("remember.observer.standdown").map((e) => String(e.data?.site)));
@@ -941,6 +985,226 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
       applied: 1,
     });
     expect(b.spans(SCOPE)).toEqual([]);
+  });
+
+  /** A chunk failure that carries a real code, the way an injected client's would. */
+  function poison(counter: { calls: number }): () => Promise<InterpretResult> {
+    return async () => {
+      counter.calls += 1;
+      throw Object.assign(new Error("no json in response"), { code: "NO_JSON_IN_RESPONSE" });
+    };
+  }
+
+  test("the poison pill is BOUNDED: at MAX_SPAN_FAILURES distinct lived days the span is QUARANTINED, not restored again", async () => {
+    let day = 3;
+    const b = buf({ day: () => day });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("permanently doomed"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const doomed = b.spans(SCOPE)[0];
+    const counter = { calls: 0 };
+    const failing = poison(counter);
+
+    const reports = [];
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES; i++) {
+      reports.push(await sweep(b, { scope: SCOPE, interpret: failing }));
+      day += 1; // a poison pill fails on every day it is tried
+    }
+    // Every boundary up to the bound paid for one call; the last one quarantined.
+    expect(counter.calls).toBe(TUNABLES.MAX_SPAN_FAILURES);
+    expect(reports.map((r) => ({ restored: r.spansRestored, quarantined: r.spansQuarantined }))).toEqual([
+      ...Array.from({ length: TUNABLES.MAX_SPAN_FAILURES - 1 }, () => ({ restored: 1, quarantined: 0 })),
+      { restored: 0, quarantined: 1 },
+    ]);
+
+    // The buffer holds ZERO copies, and the span is not lost — it is readable.
+    expect(b.spans(SCOPE)).toEqual([]);
+    expect(b.quarantined(SCOPE).map((s) => s.hash)).toEqual([doomed?.hash ?? "missing"]);
+    expect(b.quarantined(SCOPE)[0]?.text).toBe(doomed?.text ?? "missing");
+    expect(b.coverageReport(SCOPE).quarantined).toBe(1);
+
+    // The event fired ONCE, for one span.
+    const fired = b.events("remember.span.quarantined");
+    expect(fired.length).toBe(1);
+    expect(fired[0]?.data?.spans).toBe(1);
+
+    // Nothing can resurrect it: the claim file is gone, so no orphan merge can
+    // bring it back, and the next boundary makes no model call at all.
+    expect(readdirSync(join(dir, "spans", keyFor(SCOPE), "claims"))).toEqual([]);
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const after = await sweep(b, { scope: SCOPE, interpret: failing });
+    expect({ reason: after.reason, calls: counter.calls }).toEqual({
+      reason: "NOTHING_TO_SWEEP",
+      calls: TUNABLES.MAX_SPAN_FAILURES,
+    });
+    expect(b.quarantined(SCOPE).length).toBe(1);
+  });
+
+  test("an OUTAGE is not a poison pill: any number of failures on ONE lived day never quarantines", async () => {
+    // Three Stop hooks inside one API outage would have quarantined the whole
+    // chunk under an attempt count (PR-8 review). The bound counts distinct
+    // lived days, so the same day's retries are one failure.
+    const b = buf({ day: () => 3 });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("caught in an outage"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const counter = { calls: 0 };
+    const failing = poison(counter);
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES + 2; i++) {
+      const r = await sweep(b, { scope: SCOPE, interpret: failing });
+      expect({ restored: r.spansRestored, quarantined: r.spansQuarantined }).toEqual({ restored: 1, quarantined: 0 });
+    }
+    expect(counter.calls).toBe(TUNABLES.MAX_SPAN_FAILURES + 2);
+    expect(b.spans(SCOPE).length).toBe(1);
+    expect(b.quarantined(SCOPE)).toEqual([]);
+    // The ledger still records every attempt — history, not the count.
+    expect(b.failureCounts(SCOPE).get(b.spans(SCOPE)[0]?.hash ?? "")).toBe(1);
+  });
+
+  test("BELOW the bound the span is restored and retried, and the ledger counts the failures", async () => {
+    let day = 3;
+    const b = buf({ day: () => day });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed for now"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const doomed = b.spans(SCOPE)[0];
+    const counter = { calls: 0 };
+
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
+      const report = await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+      day += 1;
+      expect({ restored: report.spansRestored, quarantined: report.spansQuarantined }).toEqual({
+        restored: 1,
+        quarantined: 0,
+      });
+      // Still in the buffer, still claimable: existing behavior, preserved.
+      expect(b.spans(SCOPE).map((s) => s.hash)).toEqual([doomed?.hash ?? "missing"]);
+    }
+    expect(counter.calls).toBe(TUNABLES.MAX_SPAN_FAILURES - 1);
+    expect(b.quarantined(SCOPE)).toEqual([]);
+    expect(b.events("remember.span.quarantined")).toEqual([]);
+
+    // The ledger on disk: one line per failure, by hash and code — never text.
+    const raw = readFileSync(scopeFile(SCOPE, "failures.jsonl"), "utf8");
+    const lines = raw.trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines.length).toBe(TUNABLES.MAX_SPAN_FAILURES - 1);
+    expect(lines.map((l) => Object.keys(l).sort())).toEqual(
+      lines.map(() => ["at", "code", "day", "hash"]),
+    );
+    expect(lines[0]?.["hash"]).toBe(doomed?.hash ?? "missing");
+    expect(lines[0]?.["code"]).toBe("NO_JSON_IN_RESPONSE");
+    expect(raw).not.toContain("doomed for now");
+    expect(b.failureCounts(SCOPE).get(doomed?.hash ?? "missing")).toBe(TUNABLES.MAX_SPAN_FAILURES - 1);
+  });
+
+  test("a restore that is a DEFERRAL, not a failure, never touches the failure ledger", async () => {
+    // 1. Scraps under the minimum ride to the next boundary (spec §2 G8).
+    const small = buf({ minClaimBytes: 5_000 });
+    small.capture({ session: "s1", scope: SCOPE, turns: [u(long("too small to run"))] });
+    small.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const scraps = await sweep(small, { scope: SCOPE, interpret: async () => ({ proposals: [] }) });
+    expect(scraps.reason).toBe("BELOW_MIN_CLAIM");
+    expect(small.spans(SCOPE).length).toBe(1);
+    expect(existsSync(scopeFile(SCOPE, "failures.jsonl"))).toBe(false);
+
+    // 2. Spans of a session that has not ended go straight back, unmarked.
+    const b = buf();
+    b.capture({ session: "ended", scope: SCOPE, turns: [u(long("done"))] });
+    b.capture({ session: "live", scope: SCOPE, turns: [u(long("still going"))] });
+    b.boundary({ session: "ended", scope: SCOPE, kind: "session-end" });
+    await sweep(b, { scope: SCOPE, interpret: interpretOk([]) });
+    expect(b.spans(SCOPE).map((s) => s.session)).toEqual(["live"]);
+    expect(existsSync(scopeFile(SCOPE, "failures.jsonl"))).toBe(false);
+
+    // 3. And the already-authored retirement, which restores without a call.
+    const authored = buf();
+    authored.capture({ session: "s1", scope: SCOPE, turns: [u(long("all authored"))] });
+    await submitProposal(
+      authored,
+      { content: "I wrote the whole session up myself." },
+      { session: "s1", scope: SCOPE, source: "session-end", gate: pass },
+    );
+    authored.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const retired = await sweep(authored, { scope: SCOPE, interpret: interpretOk([]) });
+    expect(retired.reason).toBe("NOTHING_UNCLAIMED");
+    expect(existsSync(scopeFile(SCOPE, "failures.jsonl"))).toBe(false);
+  });
+
+  test("the ledger is HISTORY, not state: a previously-failed span still converts normally", async () => {
+    let day = 3;
+    const b = buf({ day: () => day });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed then fine"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const doomed = b.spans(SCOPE)[0];
+    const counter = { calls: 0 };
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
+      await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+      day += 1;
+    }
+
+    const applied: unknown[] = [];
+    const report = await sweep(b, {
+      scope: SCOPE,
+      interpret: async () => ({ proposals: [{ content: "finally" }], stopReason: "end_turn" }),
+      apply: (proposals) => {
+        applied.push(...proposals);
+      },
+    });
+    expect({ swept: report.spansSwept, consumed: report.consumed, applied: applied.length }).toEqual({
+      swept: 1,
+      consumed: true,
+      applied: 1,
+    });
+    expect({ spans: b.spans(SCOPE).length, quarantined: b.quarantined(SCOPE).length }).toEqual({
+      spans: 0,
+      quarantined: 0,
+    });
+    // Success does not rewrite history — the failures stay on the record.
+    expect(b.failureCounts(SCOPE).get(doomed?.hash ?? "missing")).toBe(TUNABLES.MAX_SPAN_FAILURES - 1);
+  });
+
+  test("a ledger that cannot be written quarantines NOTHING — the failure path fails toward retry", async () => {
+    const b = buf();
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed, unwritable"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const doomed = b.spans(SCOPE)[0];
+    const counter = { calls: 0 };
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
+      await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+    }
+
+    // The bound is reached — but the ledger append cannot land. A quarantine with
+    // no durable record is a span in neither place: it must not happen.
+    harden(scopeFile(SCOPE, "failures.jsonl"));
+    const report = await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+    expect({ restored: report.spansRestored, quarantined: report.spansQuarantined }).toEqual({
+      restored: 1,
+      quarantined: 0,
+    });
+    expect(b.spans(SCOPE).map((s) => s.hash)).toEqual([doomed?.hash ?? "missing"]);
+    expect(existsSync(scopeFile(SCOPE, "quarantine.jsonl"))).toBe(false);
+    expect(b.events("remember.span.quarantined")).toEqual([]);
+    expect(b.events("remember.write.failed")[0]?.data?.site).toBe("failure");
+  });
+
+  test("the quarantine event carries counts and a code — never text, never a content hash", async () => {
+    let day = 3;
+    const b = buf({ day: () => day });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("secret-looking doom"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const doomed = b.spans(SCOPE)[0];
+    const counter = { calls: 0 };
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES; i++) {
+      await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+      day += 1;
+    }
+
+    const fired = b.events("remember.span.quarantined")[0];
+    expect(Object.keys(fired?.data ?? {}).sort()).toEqual(["code", "scope", "spans"]);
+    expect(fired?.data).toEqual({ scope: keyFor(SCOPE), spans: 1, code: "NO_JSON_IN_RESPONSE" });
+    // By REFERENCE: no span text, and not the hash of the text either — hashing
+    // low-entropy content leaks it.
+    expect(fired?.ref).toBeUndefined();
+    const serialized = JSON.stringify(fired);
+    expect(serialized).not.toContain("secret-looking");
+    expect(serialized).not.toContain(doomed?.hash ?? "missing");
   });
 
   test("a truncated response is a FAILURE, not data (scar E2)", async () => {

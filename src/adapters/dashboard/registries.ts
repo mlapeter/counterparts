@@ -25,7 +25,17 @@ import { PHASES } from "../../core/sleep/index.js";
 import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
-import { GATE_CHUNK_EVENT } from "../../core/counterpart.js";
+import {
+  BOUNDARY_EVENT,
+  EPISODE_ASK_EVENT,
+  GATE_CHUNK_EVENT,
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  RECALL_DECISION_EVENT,
+  RECALL_DELIVERED_EVENT,
+  WAKE_DELIVERED_EVENT,
+  WAKE_INJECTED_EVENT,
+} from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
@@ -47,16 +57,20 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
 
 /**
  * Every event name that reaches box 2's `events` table — the DURABLE log, the
- * one that survives the process. Four writers append to it today: `sleep/`'s
- * consolidate, prune and dedup phases, and `schemas/`'s credited challenge.
+ * one that survives the process. Its writers today: `sleep/`'s consolidate,
+ * prune, dedup and decay phases, `schemas/`'s credited challenge, the
+ * composition root's two records — the chunk gate's, and one per turn's
+ * surfacing decision — and the one narrow seam an ADAPTER may write through
+ * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
  *
  * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
  * declares its `event` as a string literal; the `satisfies` below is keyed on
- * the union of those four literals, so a fifth durable record type — or a
- * renamed literal — fails `tsc` here rather than quietly never appearing in the
- * feed. That is the totality test applied to the log itself: "consolidation has
+ * the union of those literals, so one more durable record type — or a renamed
+ * literal — fails `tsc` here rather than quietly never appearing in the feed.
+ * That is the totality test applied to the log itself: "consolidation has
  * promoted nothing, ever" must be a line the owner can read, not an empty space
- * (scar §2.17, §2.4).
+ * (scar §2.17, §2.4). The adapter seam is typed rather than `name: string` for
+ * exactly this reason.
  */
 export type DurableEventName =
   | PromotionCrossing["event"]
@@ -64,14 +78,30 @@ export type DurableEventName =
   | MergeRecord["event"]
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
-  | typeof BAND_TRANSITION_EVENT;
+  | typeof RECALL_DECISION_EVENT
+  | typeof BAND_TRANSITION_EVENT
+  | typeof PRIMACY_STANDDOWN_EVENT
+  | typeof PRIMACY_DELIVER_EVENT
+  | typeof WAKE_INJECTED_EVENT
+  | typeof WAKE_DELIVERED_EVENT
+  | typeof RECALL_DELIVERED_EVENT
+  | typeof EPISODE_ASK_EVENT
+  | typeof BOUNDARY_EVENT;
 
 export const DURABLE_EVENTS = {
+  "adapter.boundary": "a session-ending path reached the boundary (spans captured, cursor moved)",
+  "adapter.episode.ask": "the session-end episode ask was evaluated (asked or not, and why)",
+  "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
+  "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",
+  "adapter.recall": "a turn's recall was composed for injection (counts and bytes)",
+  "adapter.wake.delivered": "the previous wake's arrival was checked on the next turn",
+  "adapter.wake.injected": "a wake bundle was handed to the host (bytes, never text)",
   "band.promoted": "a memory crossed into the identity band",
   "band.transition": "a memory changed bands (the symmetry counter's food)",
   "gate.chunk": "a swept chunk met the gate battery",
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
+  "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief took a credited challenge",
 } as const satisfies Record<DurableEventName, string>;
 

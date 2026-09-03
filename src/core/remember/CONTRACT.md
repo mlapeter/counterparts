@@ -53,6 +53,10 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   [v1] §2 G9.
 - **Conversational text only** — tool output, file contents, images, and injected context
   never enter capture, and this is a **declared blind spot**. [v1] §2 G10.
+- **Foreign material never enters** — text ANOTHER memory system's hooks put into the
+  host's context is `foreign`, and `enters()` refuses it outright (unlike `injected`,
+  which is kept and merely unpaced). Added for the parallel run beside v1: without it,
+  each system encodes the other's briefing as a memory of having thought it.
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].
 
@@ -105,7 +109,10 @@ used?"); telemetry by reference.
 4. **[M] Restore-on-throw**: an outage means the arc is *retried*, not lost. The consumer
    commits its output or restores its input; a test kills it mid-arc and asserts the input
    is still claimable (scar E6). "Returned nothing" and "failed" are distinguishable in the
-   log (scar §2.4).
+   log (scar §2.4). **Retry is BOUNDED**: the sweep records each span's failures by lived day, and on
+   the `MAX_SPAN_FAILURES`-th distinct day the span is *quarantined* — written out in full, counted, and never
+   swept again — so a permanently-failing span cannot bill one model call per boundary
+   forever. Retried, then set aside; never silently dropped (NOTES §13).
 5. **[M] The engine claims coverage, never the author** — the author cannot see the buffer.
 6. **[M] A rejected proposal claims no coverage.**
 7. **[M] Coverage marks never enter gated text.**

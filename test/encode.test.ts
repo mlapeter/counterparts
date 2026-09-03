@@ -238,6 +238,32 @@ describe("guarantee 1 — the secrets gate is NOT ABLATABLE", () => {
     }
   });
 
+  test("the scan is bounded — a boundary-rich lowercase run stays linear (§5.3, precondition)", () => {
+    // The unbounded scheme tail `[a-z][a-z0-9+.-]*://` retried at every word
+    // boundary was O(n²): 744ms at 32KB, minutes at 512KB, inside the one gate
+    // with no off switch (replay review 2026-08-26 follow-up). The bound made it
+    // 2ms. The bar here is generous on purpose — it catches a regression to
+    // quadratic, not a slow CI box — and the three shapes are the three
+    // characters the scheme class can consume across a boundary.
+    for (const unit of ["a-", "ab.", "a+", "https://a.example.com/x,"]) {
+      const text = unit.repeat(Math.ceil((64 * 1024) / unit.length));
+      const t0 = performance.now();
+      const scan = scanSecrets(text);
+      const ms = performance.now() - t0;
+      expect(scan.fired).toBe(false);
+      expect(ms).toBeLessThan(250); // the URL-list shape read 179ms at 64KB before the second bound
+    }
+    // And the bound changes nothing a real URL needs: a 32-character scheme is
+    // longer than any registered one, and both URL families still fire.
+    const longScheme = "x".repeat(32);
+    expect(scanSecrets(`${longScheme}://user:hunter2hunter2@db.example.com/x`).findings.map((f) => f.family)).toEqual([
+      "url-credentials",
+    ]);
+    expect(scanSecrets("https://app.example.com/auth/magic/Ab3dEf9hIjKlMn0p").findings.map((f) => f.family)).toEqual([
+      "url-path-token",
+    ]);
+  });
+
   test("every declared family has a specimen — the table is total, not a sample", () => {
     const declared = SECRET_FAMILIES.map((f) => f.family).sort();
     const covered = [...new Set(SPECIMENS.map((s) => s.family))].sort();

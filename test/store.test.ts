@@ -108,6 +108,50 @@ describe("dataDir", () => {
     process.env[DATA_DIR_ENV] = dir;
   });
 
+  test("no source file names a live store's directory — the forbidden list and the read-only assignment resolver are the only two (parallel-run G9)", () => {
+    // The store seam refuses the directories (the tests below); this is the
+    // tripwire against the OTHER way a v1 path gets opened — someone hardcoding
+    // it in a hook, a tool, or a worker. Allowed: `store/paths.ts`, which names
+    // them precisely to forbid them, and `claude-code/primacy.ts`, which reads
+    // the shared assignment file and imports no write API.
+    const here = fileURLToPath(new URL(".", import.meta.url));
+    const roots = [join(here, "..", "src"), join(here, "..", "tools")];
+    const forbidden = [".bansai", ".claude-engram", ".memory-ab"];
+    // Also allowed: the parallel-run instrument's two CLIs, which carry the real
+    // read-only paths as DEFAULTS — `test/parallel.test.ts` proves nothing in
+    // that tool but its run-dir writer imports a write API.
+    const allowed = new Set([
+      "src/core/store/paths.ts",
+      "src/adapters/claude-code/primacy.ts",
+      "tools/parallel/bin/preflight.ts",
+      "tools/parallel/bin/daily.ts",
+    ]);
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".ts")) {
+          const rel = full.slice(join(here, "..").length + 1);
+          if (allowed.has(rel)) continue;
+          // Comments may cite the scars by name; code may not build the path.
+          const code = readFileSync(full, "utf8")
+            .split("\n")
+            .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+            .join("\n");
+          for (const name of forbidden) if (code.includes(name)) hits.push(`${rel}: ${name}`);
+        }
+      }
+    };
+    for (const r of roots) if (existsSync(r)) walk(r);
+    expect(hits).toEqual([]);
+    // And the one allowed reader really is read-only.
+    const primacy = readFileSync(join(here, "..", "src/adapters/claude-code/primacy.ts"), "utf8");
+    for (const api of ["writeFileSync", "appendFileSync", "mkdirSync", "renameSync", "rmSync", "unlinkSync"]) {
+      expect(primacy).not.toContain(api);
+    }
+  });
+
   test("refuses a pointer at a live v1 store — resolved before compared (scar §2.13)", () => {
     process.env[DATA_DIR_ENV] = join(homedir(), ".bansai");
     expect(code(() => dataDir())).toBe("DATA_DIR_FORBIDDEN");

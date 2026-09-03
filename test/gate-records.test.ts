@@ -27,7 +27,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Counterpart } from "../src/core/counterpart.js";
+import { Counterpart, GATE_CHUNK_FIELDS } from "../src/core/counterpart.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -113,6 +113,14 @@ const GOOD = {
 // 1. The record exists, durably, per chunk
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the chunk gate's record reaches the DURABLE log", () => {
+  test("the row's field set IS `GATE_CHUNK_FIELDS` — the G12 surface-set component cannot drift from the row", async () => {
+    const c = brain();
+    await sweepOnce(c, [GOOD]);
+    const [first] = records(c);
+    expect(first).toBeDefined();
+    expect(Object.keys(first?.payload ?? {}).sort()).toEqual([...GATE_CHUNK_FIELDS].sort());
+  });
+
   test("a swept chunk writes one `gate.chunk` row, addressed by a content key", async () => {
     const c = brain();
     await sweepOnce(c, [GOOD]);

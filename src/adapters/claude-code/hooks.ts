@@ -26,12 +26,30 @@
  *   from PACING but kept in CAPTURE.** `substanceOf` counts one and
  *   `captureSpans` receives the other; the two are computed from the same turns
  *   in the same function, so they cannot drift apart.
+ *   **The parallel run's G3/G5 — exactly one system delivers, and the shadow is
+ *   ENCODE-ONLY.** Behind `parallel.enabled` (absent by default), every
+ *   DELIVERING hook asks `primacy.ts` first and stands down when the answer is
+ *   anything but a clean "engram". A stand-down withholds the wake, the recall
+ *   and both asks; it withholds NOTHING from capture, because the shadow's whole
+ *   job is to encode the same days v1 encodes. Both verdicts are durable
+ *   (parallel-run G4: the mute is evidenced, not asserted).
  */
-import { Counterpart } from "../../core/counterpart.js";
+import {
+  BOUNDARY_EVENT,
+  Counterpart,
+  EPISODE_ASK_EVENT,
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  RECALL_DELIVERED_EVENT,
+  WAKE_DELIVERED_EVENT,
+  WAKE_INJECTED_EVENT,
+} from "../../core/counterpart.js";
+import type { AdapterDurableEventName } from "../../core/counterpart.js";
 import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
 
 import { capabilities, interpretSeat } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
+import { primacy } from "./primacy.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
 
@@ -184,6 +202,13 @@ export class ClaudeCodeAdapter {
    */
   sessionStart(input: HookInput): HookResult {
     return this.guard("session-start", input, (out) => {
+      // FIRST, before anything is read or composed: is this ours to deliver?
+      // A stand-down sets no delivery expectation, because there is no render
+      // for the next hook to check — recording one would put a false negative
+      // into scar §2.3's telemetry on every muted day.
+      if (!this.deliveryVerdict("session-start", input)) {
+        return { ...out, ok: true, reason: "primacy-standdown" };
+      }
       const budget = this.config.injectionBudgetBytes;
       if (budget === undefined) {
         // The tripwire. We inject what exists, and we say that nobody told us
@@ -198,7 +223,7 @@ export class ClaudeCodeAdapter {
         // bundle still goes: truncated-and-detectable beats absent.
         this.emit("adapter.injection.overbudget", { bytes: woke.bytes, budget });
       }
-      this.emit("adapter.wake.injected", {
+      this.record(WAKE_INJECTED_EVENT, input, {
         ok: woke.ok,
         reason: woke.reason,
         bytes: woke.bytes,
@@ -225,10 +250,16 @@ export class ClaudeCodeAdapter {
    */
   userPromptSubmit(input: HookInput): HookResult {
     return this.guard("user-prompt-submit", input, (out) => {
+      // The stand-down precedes the delivery check for the same reason it
+      // precedes the recall: a muted session rendered nothing, so there is no
+      // expectation to test and a "not delivered" record would be a lie.
+      if (!this.deliveryVerdict("user-prompt-submit", input)) {
+        return { ...out, ok: true, reason: "primacy-standdown" };
+      }
       if (input.sentinelSeen !== undefined) {
         const expected = this.expected.get(input.sessionId) ?? null;
         const delivered = this.counterpart.noteWakeDelivered(input.sentinelSeen, expected);
-        this.emit("adapter.wake.delivered", { delivered, expected: expected !== null });
+        this.record(WAKE_DELIVERED_EVENT, input, { delivered, expected: expected !== null });
       }
       const text = input.prompt ?? "";
       if (text.trim().length === 0) {
@@ -246,7 +277,7 @@ export class ClaudeCodeAdapter {
       );
       const decision = result.decision;
       this.expected.set(input.sessionId, decision.sentinel);
-      this.emit("adapter.recall", {
+      this.record(RECALL_DELIVERED_EVENT, input, {
         reason: decision.reason,
         surfaced: decision.surfaced.length,
         footnotes: decision.footnotes.length,
@@ -292,13 +323,19 @@ export class ClaudeCodeAdapter {
   stop(input: HookInput): HookResult {
     return this.guard("stop", input, (out) => {
       const claimed = this.claim("stop", input, out);
+      // The boundary is UNCONDITIONAL — the shadow encodes the same days v1
+      // encodes, and a parallel run that stopped capturing would be comparing
+      // nothing (parallel-run G5: encode-only, and honest). What the stand-down
+      // withholds is the two ASKS, which are delivery: an ask from a system the
+      // owner is not talking to today is exactly the double-voice G3 forbids.
+      const deliver = this.deliveryVerdict("stop", input);
       // THE AUTHORED FRONT DOOR, first: the experiencer writes its own memories
       // while it still has the pen, and the sweep the worker spawns below is
       // only the fallback for the day nobody got to (contract §4). The ask goes
       // out after the spans are durable, so a crash between the two costs a
       // dump, never a day.
-      const authorshipAsk = this.askForAuthorship(input);
-      const ask = this.askForEpisode(input);
+      const authorshipAsk = deliver ? this.askForAuthorship(input) : null;
+      const ask = deliver ? this.askForEpisode(input) : null;
       const spawn = this.spawnWorker();
       return { ...claimed, ask, authorshipAsk, spawn };
     });
@@ -345,6 +382,56 @@ export class ClaudeCodeAdapter {
   // ── internals ──────────────────────────────────────────────────────────────
 
   /**
+   * MAY THIS HOOK DELIVER? — the parallel run's G3, at every delivering channel.
+   *
+   * Without the knob this is `true` and nothing is emitted at all: the flag's
+   * absence must be indistinguishable from a build that never had it, or every
+   * test and every ordinary session grows a primacy record it cannot explain.
+   *
+   * With the knob, `primacy()` decides and BOTH verdicts are recorded — the
+   * stand-down because an unevidenced mute is indistinguishable from a broken
+   * hook (parallel-run G4, scar §2.4), and the delivery because a Phase P day
+   * has to be able to show positive evidence that v2 spoke. Each record goes to
+   * the ring AND to box 2, because the ring dies with the hook process and the
+   * daily count is a claim about the run.
+   *
+   * `date` rides in the durable payload deliberately: the log's `day` column is
+   * the store's LIVED day, which only the heavy cycle advances, so a hook-path
+   * row would stamp whatever lived day the store was already on.
+   */
+  private deliveryVerdict(hook: HookName, input: HookInput): boolean {
+    if (this.config.parallel?.enabled !== true) return true;
+    const verdict = primacy();
+    const name = verdict.deliver ? PRIMACY_DELIVER_EVENT : PRIMACY_STANDDOWN_EVENT;
+    const data = {
+      hook,
+      reason: verdict.reason,
+      system: verdict.system,
+      date: input.at ?? null,
+      session: input.sessionId,
+    };
+    this.emit(name, data);
+    this.counterpart.noteAdapterEvent(name, data);
+    return verdict.deliver;
+  }
+
+  /**
+   * A DELIVERY record: to the ring and to box 2, with the calendar date and the
+   * session riding in the payload for the same reason `deliveryVerdict` puts
+   * them there — the store's `day` column is the lived day, and the parallel
+   * run counts these per calendar day, per session, after the process is gone.
+   */
+  private record(
+    name: AdapterDurableEventName,
+    input: HookInput,
+    data: Record<string, string | number | boolean | null>,
+  ): void {
+    const row = { ...data, date: input.at ?? null, session: input.sessionId };
+    this.emit(name, row);
+    this.counterpart.noteAdapterEvent(name, row);
+  }
+
+  /**
    * Capture and record the boundary. ONE function for all three paths, so a
    * fourth session-ending event added later cannot accidentally get a different
    * shape (G3).
@@ -363,7 +450,7 @@ export class ClaudeCodeAdapter {
       scope: input.scope,
       kind: BOUNDARY_KIND[hook],
     });
-    this.emit("adapter.boundary", {
+    this.record(BOUNDARY_EVENT, input, {
       hook,
       kind: record.kind,
       captured: captured.captured,
@@ -409,7 +496,7 @@ export class ClaudeCodeAdapter {
   private askForEpisode(input: HookInput): string | null {
     try {
       const chapter = this.counterpart.episodeAsk(input.sessionId, substanceOf(input.turns ?? []));
-      this.emit("adapter.episode.ask", {
+      this.record(EPISODE_ASK_EVENT, input, {
         asked: chapter.asked,
         chapter: chapter.chapter,
         reason: chapter.verdict.reason,

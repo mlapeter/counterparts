@@ -48,8 +48,14 @@ import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
 import { Prospective } from "./prospective/index.js";
 import { Recall } from "./recall/index.js";
-import type { CreditResult, Turn as RecallTurn, RecallResult } from "./recall/index.js";
-import { SpanBuffer, TUNABLES as REMEMBER, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
+import type {
+  CandidateVerdict,
+  CreditResult,
+  RecallDecision,
+  Turn as RecallTurn,
+  RecallResult,
+} from "./recall/index.js";
+import { SpanBuffer, TUNABLES as REMEMBER, errCode, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
 import type {
   BoundaryKind,
   BoundaryRecord,
@@ -84,6 +90,61 @@ import type { Kind } from "./types.js";
 
 /** The durable per-chunk gate record (dashboard registry imports this literal). */
 export const GATE_CHUNK_EVENT = "gate.chunk";
+/**
+ * The gate record's field list, in order — one of the three components of the
+ * parallel run's machine-scored surface set (CONTRACT §5 G12: the surfacing
+ * decision's fields PLUS the gate-record and band-transition fields). Pinned by
+ * `satisfies` on the record literal below so the list cannot drift from the row.
+ */
+export const GATE_CHUNK_FIELDS = [
+  "chunkKey", "index", "scope", "session", "day", "proposals", "accepted", "refused",
+  "fullyGated", "effects", "blind", "shown", "shownIds", "shownLexicalOnly",
+  "shownSemanticOnly", "shownBoth", "candidates", "semanticState", "semanticReason",
+  "channels", "fires", "refusals", "refusalsByReason", "novelty", "noveltyReason",
+] as const;
+export type GateChunkField = (typeof GATE_CHUNK_FIELDS)[number];
+
+/** The durable per-turn surfacing record (same registry, same rule). */
+export const RECALL_DECISION_EVENT = "recall.decision";
+
+/**
+ * The durable events an ADAPTER may write, and the whole list of them.
+ *
+ * A mild tension with constitution line 5 (the core knows nothing about any
+ * particular host), taken deliberately and narrowly: the NAMES live here, beside
+ * `GATE_CHUNK_EVENT`, because `adapters/dashboard/registries.ts` derives
+ * `DurableEventName` from string literals and a `name: string` seam would
+ * silently break the property that file exists to keep — a new durable event
+ * fails `tsc` in the registry before it can go missing on screen. The core knows
+ * two names; it knows nothing about what a hook, a primacy file or a parallel
+ * run is.
+ */
+export const PRIMACY_STANDDOWN_EVENT = "adapter.primacy.standdown";
+export const PRIMACY_DELIVER_EVENT = "adapter.primacy.deliver";
+/**
+ * The four DELIVERY records, durable for the same reason the primacy pair is:
+ * during the parallel run they are the contamination detectors on v2's side
+ * (CONTRACT §5 G4 — a muted v2 that injected a wake is a contaminated day), and
+ * a detector that lives only in the hook process's ring cannot be counted out
+ * of the store after the fact (§5 G2). Counts, bytes, reasons, flags; no text.
+ */
+export const WAKE_INJECTED_EVENT = "adapter.wake.injected";
+export const WAKE_DELIVERED_EVENT = "adapter.wake.delivered";
+export const RECALL_DELIVERED_EVENT = "adapter.recall";
+export const EPISODE_ASK_EVENT = "adapter.episode.ask";
+/** The boundary itself — every session-ending path leaves one, so a day whose
+ *  sessions ended only through `session-end` / `pre-compact` (no `stop`, no
+ *  primacy row) is still evidenced as having reached a boundary (parallel-run
+ *  "what counts as a day"). Counts and cursors; never text. */
+export const BOUNDARY_EVENT = "adapter.boundary";
+export type AdapterDurableEventName =
+  | typeof PRIMACY_STANDDOWN_EVENT
+  | typeof PRIMACY_DELIVER_EVENT
+  | typeof WAKE_INJECTED_EVENT
+  | typeof WAKE_DELIVERED_EVENT
+  | typeof RECALL_DELIVERED_EVENT
+  | typeof EPISODE_ASK_EVENT
+  | typeof BOUNDARY_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
@@ -322,6 +383,117 @@ function gateChunkRecord(
   };
 }
 
+/**
+ * THE SURFACE SET'S SCHEMA — the ordered field list of the durable per-turn
+ * record, in the order `recallDecisionRecord` writes it.
+ *
+ * `tools/parallel` hashes the surface set to decide whether a human rating
+ * carries across a code change (§5 G12's "provably identical"), and a hash is
+ * only as trustworthy as the agreement about WHAT was hashed. So the field names
+ * are exported rather than restated at the reader: a field added on one side and
+ * not the other is a silently different hash, which is the carry-forward rule
+ * failing in the direction that laminates a stale verdict.
+ *
+ * Exhaustive BY TYPE, the way the dashboard's registries are: the record literal
+ * below is `satisfies Record<SurfaceSetField, unknown>`, so a field added to the
+ * record and not to this list — or listed and not written — fails `tsc` here.
+ */
+export const RECALL_DECISION_FIELDS = [
+  "session",
+  "turn",
+  "day",
+  "date",
+  "reason",
+  "observer",
+  "budgetBytes",
+  "bytes",
+  "surfacedCount",
+  "footnoteCount",
+  "affectFlag",
+  "affectReason",
+  "sentinelRendered",
+  "surfaced",
+  "footnotes",
+  "elapsedMs",
+  "aborted",
+] as const;
+
+export type SurfaceSetField = (typeof RECALL_DECISION_FIELDS)[number];
+
+/** The same list, as a call — the shape `tools/parallel` and the tests read. */
+export function surfaceSetFields(): readonly SurfaceSetField[] {
+  return RECALL_DECISION_FIELDS;
+}
+
+/** Ids with the numbers they were judged by. `verdicts` keeps every candidate,
+ *  including the ones the renderer trimmed, so the lookup is a copy, not a
+ *  derivation — and a missing verdict reports null rather than inventing 0. */
+function tierRows(
+  ids: readonly string[],
+  verdicts: readonly CandidateVerdict[],
+): { id: string; sal: number | null; activation: number | null }[] {
+  return ids.map((id) => {
+    const v = verdicts.find((x) => x.id === id);
+    return { id, sal: v?.sal ?? null, activation: v?.activation ?? null };
+  });
+}
+
+/**
+ * The per-turn surfacing decision, as it is PERSISTED (store `events`, SEAMS K).
+ *
+ * §17.3's richest comparison surface lived only in the in-process ring, which
+ * made every §6 Recall criterion un-recomputable from the store a parallel run
+ * leaves behind — "a metric derivable only from a live event ring is not a
+ * metric" (parallel CONTRACT §5 G2) — and left G12's carry-forward rule with
+ * nothing to hash (replay INTERFACE-GAPS §7).
+ *
+ * CONTENT-BY-REFERENCE, ALL OF IT (store §5 G10, scar §2.20): a session id, a
+ * turn number, ids, counts, bytes, closed-vocabulary reasons and the numbers the
+ * gate judged by. **No memory text, no cue text, and no hash of either** — a cue
+ * token is a word the user typed, and turn text is exactly what telemetry may not
+ * carry. `sentinelRendered` is a boolean for the same reason the sentinel itself
+ * is not copied: the counts it states are already fields here.
+ *
+ * This function DERIVES NOTHING. Every value is copied off the decision record
+ * `recall/` returned; a rule about what the surface set means would be a rule
+ * with no home here (the rule at the top of this file).
+ */
+function recallDecisionRecord(
+  d: RecallDecision,
+  ctx: { date: string | null },
+): Record<string, unknown> {
+  return {
+    // The raw session id, as `gate.chunk` records it and as `gate_session` has
+    // keyed its rows since SEAMS item B: hashing here would buy no privacy the
+    // same store does not already give away, and would cost the join between a
+    // turn's surfacing and the same session's gate state.
+    session: d.sessionId,
+    turn: d.turn,
+    day: d.day,
+    // The CALENDAR date the caller passed for the temporal channel, or null: a
+    // lived day is not a date, and a run that buckets by day needs both.
+    date: ctx.date,
+    reason: d.reason,
+    observer: d.observer,
+    budgetBytes: d.budgetBytes,
+    bytes: d.bytes,
+    surfacedCount: d.surfaced.length,
+    footnoteCount: d.footnotes.length,
+    affectFlag: d.affectFlag,
+    affectReason: d.affectReason,
+    sentinelRendered: d.sentinel !== null,
+    surfaced: tierRows(d.surfaced, d.verdicts),
+    footnotes: tierRows(d.footnotes, d.verdicts),
+    // The surfacing race, as the decision itself reports it. `aborted` is always
+    // false in a written row — an abort writes nothing at all (recall §5 G2) —
+    // and the field stays so the asymmetry is legible rather than assumed: the
+    // timeout arm is counted where a timeout is still allowed to be seen, the
+    // adapter's own `adapter.recall {reason: "latency-abort"}`.
+    elapsedMs: d.elapsedMs,
+    aborted: d.aborted,
+  } satisfies Record<SurfaceSetField, unknown>;
+}
+
 export class Counterpart {
   readonly store: Store;
   readonly spans: SpanBuffer;
@@ -511,11 +683,66 @@ export class Counterpart {
    * missing `at` means no temporal channel — a lived day is not a date.
    */
   recallForTurn(turn: RecallTurn, opts: { at?: string } = {}): RecallResult {
-    return recallTurn(this.recall, turn, {
+    const result = recallTurn(this.recall, turn, {
       schemas: this.schemas,
       prospective: this.prospective,
       associate: this.associate,
       ...(opts.at === undefined ? {} : { at: opts.at }),
+    });
+    this.recordDecision(result.decision, opts.at ?? null);
+    return result;
+  }
+
+  /**
+   * THE DURABLE RECORD of one turn's surfacing decision — the same seam
+   * `gate.chunk` is written through, for the same reason: the store a run leaves
+   * behind is the only evidence it leaves, and §17.3's comparison surface was
+   * reachable only from a live process (replay INTERFACE-GAPS §7).
+   *
+   * Two skips, and they are not the same skip:
+   *
+   *   - **An abort writes NOTHING, here or in the ring.** `recall/` §5 G2 is
+   *     "nothing injected, buffered, LOGGED, or spent" — a subconscious that
+   *     lost its race must not then pay for a durable write to say so. The
+   *     timeout arm of the race is counted by the adapter's own per-turn event
+   *     (`adapter.recall {reason: "latency-abort"}`), which is a log, not a ring.
+   *   - **An observer stands down at the store seam** and says so in the
+   *     in-process event, exactly as `recall/`'s own gate-state write does
+   *     (observer-mode.md G6): a stood-down instrument stays distinguishable
+   *     from a broken hook (scar §2.4).
+   *
+   * No `dedupKey` — deliberately. A turn number restarts at 1 whenever gate
+   * state is reset or evicted, so a `session:turn` latch would swallow a genuine
+   * second decision; and this is per-turn telemetry, which is exactly what the
+   * log's existing retention window is for. No retention rule is added here.
+   */
+  private recordDecision(d: RecallDecision, date: string | null): void {
+    if (d.aborted) return;
+    let durable = !this.observer;
+    if (durable) {
+      // Guarded like `noteAdapterEvent`: a lock lost to the detached worker
+      // must cost the ROW, never the turn's injection — a throw here would be
+      // swallowed by the adapter's guard and take the recall down with it.
+      try {
+        this.store.appendEvent({
+          name: RECALL_DECISION_EVENT,
+          day: d.day,
+          ref: d.sessionId,
+          payload: recallDecisionRecord(d, { date }),
+        });
+      } catch (err) {
+        durable = false;
+        this.emit("counterpart.recall.decision.failed", d.sessionId, { code: errCode(err) });
+      }
+    }
+    this.emit("counterpart.recall.decision", d.sessionId, {
+      turn: d.turn,
+      reason: d.reason,
+      surfaced: d.surfaced.length,
+      footnotes: d.footnotes.length,
+      bytes: d.bytes,
+      durable,
+      standdown: durable ? null : "observer",
     });
   }
 
@@ -617,6 +844,38 @@ export class Counterpart {
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */
   noteOrphanTail(sessionId: string, substance: { turns: number; bytes: number }, day?: number): void {
     this.self.noteOrphanTail(sessionId, substance, day);
+  }
+
+  /**
+   * THE NARROW DURABLE SEAM FOR AN ADAPTER (SEAMS K's log).
+   *
+   * An adapter's own telemetry lives in an in-process ring that dies with the
+   * hook process, which is fine for everything the adapter can re-derive — and
+   * useless for a claim about a RUN. "v2 stood down 14 times today" has to be
+   * countable out of the store after the fact, or it is a hope. So exactly the
+   * two names above may cross into box 2, addressed by name and carrying their
+   * own calendar date in the payload.
+   *
+   * No `dedupKey`: these ACCUMULATE (a day has many hooks), unlike the day-gated
+   * records the replay latch exists for. Returns whether the row landed, and
+   * never throws — an observer refuses at the store's own seam, and a stand-down
+   * that threw would cost the boundary that follows it.
+   */
+  noteAdapterEvent(
+    name: AdapterDurableEventName,
+    data: Record<string, string | number | boolean | null>,
+  ): boolean {
+    if (this.observer) {
+      this.emit("counterpart.adapter.standdown", undefined, { name });
+      return false;
+    }
+    try {
+      const seq = this.store.appendEvent({ name, day: this.store.livedDay(), payload: data });
+      return seq > 0;
+    } catch (err) {
+      this.emit("counterpart.adapter.event.failed", undefined, { name, code: errCode(err) });
+      return false;
+    }
   }
 
   // ── boundaries ─────────────────────────────────────────────────────────────

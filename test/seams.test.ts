@@ -20,7 +20,7 @@ import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility } from "../src/c
 import { MEMORY_SOURCES } from "../src/core/types.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import { SpanBuffer, WRITE_SITES, submitProposal, sweep } from "../src/core/remember/index.js";
-import type { Proposal } from "../src/core/remember/index.js";
+import type { Proposal, Span } from "../src/core/remember/index.js";
 import { batteryGate, episodeGate } from "../src/core/bridge.js";
 import { UPDATES_META_KEY, directionOf, mintProposal } from "../src/core/mint.js";
 import { SCALAR_REF, loadGateState, saveGateState } from "../src/core/recall/index.js";
@@ -72,6 +72,21 @@ function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
   const s = Store.open({ dir, ...opts });
   open.push(s);
   return s;
+}
+
+/** A span that never entered a buffer — enough to reach `noteFailures()`' seam. */
+function fakeSpan(scope: string): Span {
+  return {
+    hash: "h0",
+    session: "s1",
+    scope,
+    kind: "conversation",
+    text: "x",
+    at: 0,
+    day: 0,
+    from: 0,
+    to: 1,
+  };
 }
 
 function wrap(s: Store): SleepStore {
@@ -378,6 +393,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
     const fake = { id: "clm_x", scope: "seams", path: join(dir, "nope"), spans: [], bytes: 0, mergedOrphans: [] };
     o.consume(fake);
     o.restore(fake);
+    o.noteFailures("seams", [fakeSpan("seams")], "THREW");
     await sweep(o, { scope: "seams", interpret: async () => ({ proposals: [] }) });
     const rememberSites = new Set(
       o.events("remember.observer.standdown").map((e) => String(e.data?.site)),

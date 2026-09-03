@@ -45,6 +45,22 @@ export interface SecretPattern {
 const NOT_REDACTED = "(?!\\[REDACTED:)";
 
 /**
+ * The URL scheme's tail, BOUNDED. `[a-z][a-z0-9+.-]*://` retried at every word
+ * boundary of a long hyphen- or dot-rich lowercase run is O(n²): the star eats
+ * to the end of the run and backtracks looking for `://` from each start —
+ * measured 744ms at 32KB, ~3s at 64KB, minutes at 512KB, inside the one gate
+ * that has no off switch (replay review 2026-08-26, PR-1 follow-up; parallel-run
+ * precondition §5.3). No registered URI scheme is longer than 32 characters,
+ * so the bound changes what the family matches for no real URL.
+ */
+const SCHEME_TAIL = "[a-z0-9+.-]{0,32}";
+// The same lever exists one class later in `url-path-token`: an unbounded
+// host/path run (`[^\s"'<>]*`) retried across a comma-joined URL list was
+// quadratic too (179ms at 64KB, 2.8s at 256KB — PR-8 review). Bounded to 512:
+// longer than any real magic-link path, and a single oversized span can be its
+// own chunk, so the input size is not otherwise capped before the gate.
+
+/**
  * The families, in application order: block forms first, then prefixed vendor
  * keys (precise, no false positives), then the shape-based forms, then the
  * assignment form (broadest, and the only one that keeps its key name).
@@ -130,7 +146,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
   {
     family: "url-credentials",
     re: new RegExp(
-      `\\b([a-z][a-z0-9+.-]*://[^\\s/:@]+):${NOT_REDACTED}([^\\s/@]+)@`,
+      `\\b([a-z]${SCHEME_TAIL}://[^\\s/:@]+):${NOT_REDACTED}([^\\s/@]+)@`,
       "gi",
     ),
     value: 2,
@@ -139,7 +155,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
   {
     family: "url-path-token",
     re: new RegExp(
-      "\\b[a-z][a-z0-9+.-]*://[^\\s\"'<>]*/" +
+      `\\b[a-z]${SCHEME_TAIL}://[^\\s"'<>]{0,512}/` +
         "(?:login|logout|auth|magic|magic-?link|token|invite|reset|verify|otp|signin|sso|session)" +
         // One optional lowercase segment ("auth/callback/<token>") — but the
         // auth-shaped word itself is never optional. The second lookahead

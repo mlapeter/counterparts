@@ -14,16 +14,21 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart } from "../src/core/counterpart.js";
+import {
+  Counterpart,
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+} from "../src/core/counterpart.js";
 import { indexTextOf } from "../src/core/store/index.js";
-import { OK_STOP_REASONS, TUNABLES as REMEMBER, validateWatchdog } from "../src/core/remember/index.js";
+import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
 import { BOOTSTRAP } from "../src/core/self/index.js";
 import {
+  AB_DIR_ENV,
   API_KEY_ENV,
   AUTHORSHIP_ASK,
   BOUNDARY_KIND,
@@ -32,12 +37,17 @@ import {
   DEFAULT_EMBED_MODEL,
   EMBED_KEY_ENV,
   EmbedError,
+  FOREIGN_MARKERS,
   HOOKS,
   InterpretError,
   SESSION_ENDING,
   TUNABLES,
   VOYAGE_ENDPOINT,
+  abDir,
+  assignmentHealth,
+  assignmentPath,
   capabilities,
+  classifyBlock,
   createEmbedder,
   embedClient,
   extractJson,
@@ -47,6 +57,8 @@ import {
   openEmbedder,
   parseTranscript,
   planSpawn,
+  primacy,
+  readAssignment,
   seatStatus,
   spawnDetached,
   substanceOf,
@@ -71,14 +83,22 @@ let priorKey: string | undefined;
  *  and a suite that reads the developer's key is a suite that can lie about
  *  why it passed. */
 let priorEmbedKey: string | undefined;
+/** The A/B directory, redirected FOR THE WHOLE FILE. The owner's machine has a
+ *  real `~/.memory-ab/assignment.json` — v1's live switch — and a test that
+ *  read it would be reading production state and could flip with the day. */
+let abHome: string;
+let priorAbDir: string | undefined;
 const open: Counterpart[] = [];
 
 beforeEach(() => {
   priorEnv = process.env[ENV];
   priorKey = process.env[API_KEY_ENV];
   priorEmbedKey = process.env[EMBED_KEY_ENV];
+  priorAbDir = process.env[AB_DIR_ENV];
   dir = mkdtempSync(join(tmpdir(), "counterparts-cc-"));
+  abHome = mkdtempSync(join(tmpdir(), "counterparts-ab-"));
   process.env[ENV] = dir;
+  process.env[AB_DIR_ENV] = abHome;
   process.env[API_KEY_ENV] = "sk-ant-test-not-a-real-key";
   process.env[EMBED_KEY_ENV] = "pa-test-not-a-real-key";
 });
@@ -93,12 +113,22 @@ afterEach(() => {
   }
   if (priorEnv === undefined) delete process.env[ENV];
   else process.env[ENV] = priorEnv;
+  if (priorAbDir === undefined) delete process.env[AB_DIR_ENV];
+  else process.env[AB_DIR_ENV] = priorAbDir;
   if (priorKey === undefined) delete process.env[API_KEY_ENV];
   else process.env[API_KEY_ENV] = priorKey;
   if (priorEmbedKey === undefined) delete process.env[EMBED_KEY_ENV];
   else process.env[EMBED_KEY_ENV] = priorEmbedKey;
   rmSync(dir, { recursive: true, force: true });
+  rmSync(abHome, { recursive: true, force: true });
 });
+
+/** Write v1's assignment file into the redirected A/B directory. A string is
+ *  written verbatim (that is how a torn or non-object file is spelled). */
+function assign(value: Record<string, unknown> | string): void {
+  mkdirSync(abHome, { recursive: true });
+  writeFileSync(assignmentPath(), typeof value === "string" ? value : JSON.stringify(value));
+}
 
 /** A spawner that starts nothing and records the plan it was handed. */
 function fakeSpawner(): { calls: SpawnPlan[]; spawner: (p: SpawnPlan) => { pid: number } } {
@@ -930,6 +960,430 @@ describe("configuration — reported, checkable, and failing toward standing dow
       "The reply.",
     ]);
     expect(parseTranscript("").turns).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The primacy resolver — the parallel run's G3, and its fail direction
+// ═══════════════════════════════════════════════════════════════════════════
+describe("primacy — v2 delivers on ONE reading of v1's file and mutes on every other", () => {
+  test("a missing DIRECTORY is a named stand-down, never a throw", () => {
+    process.env[AB_DIR_ENV] = join(abHome, "nothing-here");
+    expect(primacy()).toEqual({ deliver: false, system: "v1", reason: "file-missing" });
+    expect(readAssignment().state).toBe("missing");
+  });
+
+  test("a missing FILE in a present directory stands down the same way", () => {
+    expect(primacy()).toEqual({ deliver: false, system: "v1", reason: "file-missing" });
+  });
+
+  test("a TORN file is `unreadable` — mid-write is not an assignment", () => {
+    assign('{"mode":"alternate-day","override":"eng');
+    expect(primacy()).toEqual({ deliver: false, system: "v1", reason: "unreadable" });
+    expect(readAssignment().state).toBe("unreadable");
+  });
+
+  test("JSON that is not an OBJECT is `malformed`, distinct from unparseable", () => {
+    assign('["engram"]');
+    expect(primacy().reason).toBe("malformed");
+    assign('"engram"');
+    expect(primacy().reason).toBe("malformed");
+    // A bare `null` parses and is not an object either.
+    assign("null");
+    expect(primacy().reason).toBe("malformed");
+  });
+
+  test("override `engram` is the ONLY reading that delivers — v2 holds the slot engram vacated", () => {
+    assign({ mode: "alternate-day", anchor: "2026-07-17", override: "engram" });
+    expect(primacy()).toEqual({ deliver: true, system: "v2", reason: "override-engram" });
+    const read = readAssignment();
+    expect({ ...read }).toEqual({
+      override: "engram",
+      mode: "alternate-day",
+      anchor: "2026-07-17",
+      state: "ok",
+    });
+  });
+
+  test("override `bansai` mutes v2 by name — the ordinary v1 day", () => {
+    assign({ mode: "alternate-day", anchor: "2026-07-17", override: "bansai" });
+    expect(primacy()).toEqual({ deliver: false, system: "v1", reason: "override-bansai" });
+  });
+
+  test("null, 'none' and any other string all read as ABSENT — v2 never guesses itself into speaking", () => {
+    for (const override of [null, "none", "counterparts", "v2", ""]) {
+      assign({ mode: "alternate-day", anchor: "2026-07-17", override });
+      expect({ override, ...primacy() }).toEqual({
+        override,
+        deliver: false,
+        system: "v1",
+        reason: "override-absent",
+      });
+    }
+    // And a file with no `override` key at all: day-alternation against a
+    // system that no longer exists is exactly what must not turn v2 on.
+    assign({ mode: "alternate-day", anchor: "2026-07-17" });
+    expect(primacy()).toEqual({ deliver: false, system: "v1", reason: "override-absent" });
+  });
+
+  test("assignmentHealth is true ONLY for bansai or engram, and reports mode advisorily", () => {
+    assign({ mode: "alternate-day", anchor: "2026-07-17", override: "bansai" });
+    expect(assignmentHealth()).toEqual({
+      healthy: true,
+      reason: "override-bansai",
+      mode: "alternate-day",
+      override: "bansai",
+    });
+    assign({ mode: "alternate-day", override: "engram" });
+    expect(assignmentHealth().healthy).toBe(true);
+    // The state the preflight exists to forbid: no override, so v1 falls back to
+    // alternate-day against a retired engram and mutes ITSELF every other day
+    // while v2 mutes every day. Neither resolver's own fail direction produces
+    // this; only the pair does.
+    assign({ mode: "alternate-day", anchor: "2026-07-17" });
+    expect(assignmentHealth()).toEqual({
+      healthy: false,
+      reason: "override-absent",
+      mode: "alternate-day",
+      override: null,
+    });
+    process.env[AB_DIR_ENV] = join(abHome, "nothing-here");
+    expect(assignmentHealth()).toEqual({
+      healthy: false,
+      reason: "file-missing",
+      mode: null,
+      override: null,
+    });
+  });
+
+  test("MEMORY_AB_DIR is read at CALL TIME, never cached", () => {
+    const second = mkdtempSync(join(tmpdir(), "counterparts-ab2-"));
+    try {
+      assign({ override: "engram" });
+      expect(primacy().deliver).toBe(true);
+      expect(abDir()).toBe(abHome);
+
+      process.env[AB_DIR_ENV] = second;
+      expect(abDir()).toBe(second);
+      expect(assignmentPath()).toBe(join(second, "assignment.json"));
+      // Same process, same module instance, different answer.
+      expect(primacy()).toEqual({ deliver: false, system: "v1", reason: "file-missing" });
+
+      writeFileSync(join(second, "assignment.json"), JSON.stringify({ override: "engram" }));
+      expect(primacy().deliver).toBe(true);
+    } finally {
+      rmSync(second, { recursive: true, force: true });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The parallel run wired in: one voice (G3), an encode-only shadow (G5),
+// and a mute with evidence behind it (G4)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("parallel.enabled — the delivering hooks stand down, and capture does not", () => {
+  const PARALLEL = { parallel: { enabled: true } } as const;
+
+  test("the knob parses like every other, and a half-written one stands down", () => {
+    expect(loadConfig({ parallel: { enabled: true } }).config.parallel).toEqual({ enabled: true });
+    expect(loadConfig({ parallel: { enabled: false } }).config.parallel).toEqual({ enabled: false });
+    for (const bad of [{ enabled: "yes" }, {}, [], null, true]) {
+      const loaded = loadConfig({ parallel: bad });
+      expect({ bad, ok: loaded.ok, observer: loaded.config.observer }).toEqual({
+        bad,
+        ok: false,
+        observer: true,
+      });
+    }
+  });
+
+  test("session-start under a stand-down injects NOTHING and says why", () => {
+    assign({ override: "bansai" });
+    const { a } = adapter(PARALLEL);
+    const result = a.sessionStart(input());
+    expect({ injection: result.injection, sentinel: result.sentinel, reason: result.reason }).toEqual({
+      injection: "",
+      sentinel: null,
+      reason: "primacy-standdown",
+    });
+    // The wake never ran, so there is no render record and no expectation set.
+    expect(a.events("adapter.wake.injected")).toEqual([]);
+    const standdown = a.events(PRIMACY_STANDDOWN_EVENT);
+    expect(standdown.length).toBe(1);
+    expect(standdown[0]?.data).toEqual({
+      hook: "session-start",
+      reason: "override-bansai",
+      system: "v1",
+      date: "2026-01-02",
+      session: "s1",
+    });
+  });
+
+  test("user-prompt-submit under a stand-down performs no recall", async () => {
+    assign({ override: "bansai" });
+    const { a } = adapter(PARALLEL);
+    a.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The storage split put canonical prose on disk and one small operational database.",
+      salience: { novelty: null, relevance: 0.9, emotional: 0.6, predictive: 0.8 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    const result = a.userPromptSubmit(input({ prompt: "what did we settle about storage?", sentinelSeen: "x" }));
+    expect({ injection: result.injection, reason: result.reason, surfaced: result.surfaced }).toEqual({
+      injection: "",
+      reason: "primacy-standdown",
+      surfaced: [],
+    });
+    expect(a.events("adapter.recall")).toEqual([]);
+    // No render happened, so no delivery claim is made about one.
+    expect(a.events("adapter.wake.delivered")).toEqual([]);
+    expect(a.events(PRIMACY_STANDDOWN_EVENT)[0]?.data?.hook).toBe("user-prompt-submit");
+  });
+
+  test("stop under a stand-down still CAPTURES and still spawns — the shadow is encode-only (G5)", () => {
+    assign({ override: "bansai" });
+    const { a, calls } = adapter(PARALLEL);
+    const result = a.stop(input());
+    // The boundary happened: spans are in the buffer, the worker was planned.
+    // (Two spans: the user's turns joined into one, the assistant's kept apart.)
+    expect(result.spansAppended).toBe(2);
+    expect(a.counterpart.spans.spans("proj").length).toBe(1);
+    expect(a.counterpart.spans.assistantSpans("proj").length).toBe(1);
+    expect(result.spawn?.started).toBe(true);
+    expect(calls.length).toBe(1);
+    // And NEITHER ask went out — no episode ask, no authorship ask (G5).
+    expect({ ask: result.ask, authorshipAsk: result.authorshipAsk }).toEqual({
+      ask: null,
+      authorshipAsk: null,
+    });
+    expect(a.events("adapter.episode.ask")).toEqual([]);
+    expect(a.events("adapter.authorship.ask")).toEqual([]);
+    expect(a.events(PRIMACY_STANDDOWN_EVENT)[0]?.data?.hook).toBe("stop");
+  });
+
+  test("override engram: the delivering hooks behave EXACTLY as the non-parallel adapter, plus a deliver record", () => {
+    assign({ override: "engram" });
+    // The control runs on its own data dir: two adapters over one store share a
+    // cursor and an episode clock, and the second would see the first's writes.
+    const control = mkdtempSync(join(tmpdir(), "counterparts-cc-ctl-"));
+    try {
+      const { a } = adapter(PARALLEL);
+      const plain = openAdapter(config({ dataDir: control }), {
+        command: "/bin/true",
+        args: ["runner"],
+        spawner: fakeSpawner().spawner,
+      });
+      open.push(plain.counterpart);
+
+      const pick = (r: ReturnType<ClaudeCodeAdapter["stop"]>): unknown => ({
+        ok: r.ok,
+        reason: r.reason,
+        injection: r.injection,
+        bytes: r.bytes,
+        sentinel: r.sentinel,
+        surfaced: r.surfaced,
+        footnotes: r.footnotes,
+        ask: r.ask,
+        authorshipAsk: r.authorshipAsk,
+        spansAppended: r.spansAppended,
+        started: r.spawn?.started ?? null,
+      });
+
+      expect(pick(a.sessionStart(input()))).toEqual(pick(plain.sessionStart(input())));
+      expect(pick(a.userPromptSubmit(input({ prompt: "what about storage?" })))).toEqual(
+        pick(plain.userPromptSubmit(input({ prompt: "what about storage?" }))),
+      );
+      const parallelStop = a.stop(input());
+      expect(pick(parallelStop)).toEqual(pick(plain.stop(input())));
+      expect(parallelStop.authorshipAsk).toBe(AUTHORSHIP_ASK);
+
+      // The only difference: three deliver records, one per delivering hook.
+      expect(a.events(PRIMACY_DELIVER_EVENT).map((e) => e.data?.hook)).toEqual([
+        "session-start",
+        "user-prompt-submit",
+        "stop",
+      ]);
+      expect(a.events(PRIMACY_STANDDOWN_EVENT)).toEqual([]);
+      expect(plain.events(PRIMACY_DELIVER_EVENT)).toEqual([]);
+    } finally {
+      rmSync(control, { recursive: true, force: true });
+    }
+  });
+
+  test("with NO `parallel` block the resolver is never consulted at all", () => {
+    // The file says stand down, loudly. Without the knob it is not even read.
+    assign({ override: "bansai" });
+    const { a } = adapter();
+    a.sessionStart(input());
+    a.userPromptSubmit(input({ prompt: "what about storage?" }));
+    const stopped = a.stop(input());
+    expect(a.events(PRIMACY_STANDDOWN_EVENT)).toEqual([]);
+    expect(a.events(PRIMACY_DELIVER_EVENT)).toEqual([]);
+    expect(stopped.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(a.counterpart.store.eventLog({ limit: 100 }).map((r) => r.name)).not.toContain(
+      PRIMACY_STANDDOWN_EVENT,
+    );
+  });
+
+  test("the DELIVERY is evidenced too: wake, recall, delivery-check and episode-ask rows are durable (G2/G4)", () => {
+    // In Phase S v2 is the muted side, so a v2 delivery event IS the
+    // contamination detector — and a detector that lives only in the hook
+    // process's ring cannot be counted after the process is gone. Every
+    // delivering hook leaves a box-2 row carrying the calendar date and the
+    // session; counts, bytes, reasons and flags only.
+    assign({ override: "engram" });
+    const { a } = adapter(PARALLEL);
+    a.sessionStart(input());
+    a.userPromptSubmit(input({ prompt: "what about storage?", sentinelSeen: "nope" }));
+    a.stop(input());
+    const store = a.counterpart.store;
+    const rows = (name: string): Record<string, unknown>[] =>
+      store
+        .eventLog({ name, limit: 100 })
+        .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    for (const name of ["adapter.wake.injected", "adapter.wake.delivered", "adapter.recall", "adapter.episode.ask"]) {
+      const got = rows(name);
+      expect(got.length).toBe(1);
+      expect(got[0]?.["date"]).toBe("2026-01-02");
+      expect(got[0]?.["session"]).toBe("s1");
+      for (const v of Object.values(got[0] ?? {})) expect(["string", "number", "boolean"].includes(typeof v) || v === null).toBe(true);
+    }
+    expect(typeof rows("adapter.wake.injected")[0]?.["bytes"]).toBe("number");
+    expect(typeof rows("adapter.recall")[0]?.["surfaced"]).toBe("number");
+    // And under a stand-down none of the three delivering rows is added — the
+    // absence is the mute. (Same store as above: count, do not assert empty.)
+    const DELIVERING = ["adapter.wake.injected", "adapter.recall", "adapter.episode.ask"];
+    const before = DELIVERING.map((name) => rows(name).length);
+    assign({ override: "bansai" });
+    const { a: muted } = adapter(PARALLEL);
+    muted.sessionStart(input());
+    muted.userPromptSubmit(input({ prompt: "what about storage?" }));
+    muted.stop(input());
+    expect(DELIVERING.map((name) => muted.counterpart.store.eventLog({ name, limit: 100 }).length)).toEqual(before);
+    for (const name of DELIVERING) expect(muted.events(name)).toEqual([]);
+  });
+
+  test("every session-ending path leaves a DURABLE boundary row — session-end and pre-compact included", () => {
+    assign({ override: "bansai" });
+    const { a } = adapter(PARALLEL);
+    a.sessionEnd(input());
+    a.preCompact(input({ sessionId: "s2" }));
+    a.stop(input({ sessionId: "s3" }));
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.boundary", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.map((r) => [r["hook"], r["session"], r["date"]])).toEqual([
+      ["session-end", "s1", "2026-01-02"],
+      ["pre-compact", "s2", "2026-01-02"],
+      ["stop", "s3", "2026-01-02"],
+    ]);
+    for (const r of rows) for (const v of Object.values(r)) expect(["string", "number", "boolean"].includes(typeof v) || v === null).toBe(true);
+  });
+
+  test("the mute is EVIDENCED: the day's stand-downs are countable out of the store (G4)", () => {
+    assign({ override: "bansai" });
+    const { a } = adapter(PARALLEL);
+    a.sessionStart(input());
+    a.userPromptSubmit(input({ prompt: "what about storage?" }));
+    a.stop(input());
+
+    // Read back the way `tools/replay/driver.ts` reads `gate.chunk`: by name,
+    // out of box 2, after the fact — not out of the adapter's in-process ring.
+    const rows = a.counterpart.store.eventLog({ name: PRIMACY_STANDDOWN_EVENT, limit: 100 });
+    expect(rows.length).toBe(3);
+    const payloads = rows.map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(payloads.map((p) => p["hook"])).toEqual([
+      "session-start",
+      "user-prompt-submit",
+      "stop",
+    ]);
+    // The calendar date rides in the payload: the log's `day` column is the
+    // store's LIVED day, which no hook advances.
+    expect(new Set(payloads.map((p) => p["date"]))).toEqual(new Set(["2026-01-02"]));
+    expect(new Set(payloads.map((p) => p["reason"]))).toEqual(new Set(["override-bansai"]));
+    const perDay = payloads.filter((p) => p["date"] === "2026-01-02").length;
+    expect(perDay).toBe(3);
+  });
+
+  test("an OBSERVER's stand-down costs no boundary — the durable write refuses without throwing", () => {
+    assign({ override: "bansai" });
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Counterpart.open({ dir, owner: true }).close();
+    const { a } = adapter({ ...PARALLEL, observer: true });
+    const result = a.sessionStart(input());
+    expect(result.ok).toBe(true);
+    // The ring still carries it (a stand-down must be observable), and the
+    // store refused the append rather than failing the hook.
+    expect(a.events(PRIMACY_STANDDOWN_EVENT).length).toBe(1);
+    expect(a.events("adapter.hook.failed")).toEqual([]);
+    expect(a.counterpart.store.eventLog({ name: PRIMACY_STANDDOWN_EVENT, limit: 10 })).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// G8 — foreign injection: another memory system's text never enters capture
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", () => {
+  const FOREIGN = [
+    "Stop hook feedback:\n- [bansai] Before this session closes, what did you learn?",
+    "Stop hook feedback: [bansai] anything worth keeping?",
+    "[bansai] recall: three memories bear on this turn.",
+    "<bansai-memory>\nthe standing bundle\n</bansai-memory>",
+    "The following is your standing self-model (bansai), as of this morning.",
+    "bansai: your persistent memory is initializing in the background.",
+  ];
+
+  test("every FOREIGN_MARKER shape is tagged `foreign`, and `enters()` refuses it", () => {
+    for (const text of FOREIGN) {
+      expect({ text, source: classifyBlock(text) }).toEqual({ text, source: "foreign" });
+      expect(enters({ role: "user", text, source: "foreign" })).toBe(false);
+    }
+    // The recognizers are ONE constant the preflight canary can reuse, and each
+    // entry earns its place: every marker matches at least one shape above.
+    expect(FOREIGN_MARKERS.length).toBe(5);
+    for (const marker of FOREIGN_MARKERS) {
+      expect(FOREIGN.some((t) => marker.test(t.trimStart()))).toBe(true);
+    }
+  });
+
+  test("foreign material reaches the reader as a turn and is dropped at capture, not here", () => {
+    const raw = FOREIGN.map((text) => JSON.stringify({ message: { role: "user", content: text } }))
+      .concat(JSON.stringify({ message: { role: "user", content: "What the user actually said." } }))
+      .join("\n");
+    const read = parseTranscript(raw);
+    expect(read.turns.map((t) => t.source)).toEqual([
+      ...FOREIGN.map(() => "foreign" as const),
+      "conversation",
+    ]);
+    // Same rule, one place: `remember/`'s `enters()` is what drops it.
+    const { a } = adapter();
+    const result = a.stop(input({ turns: read.turns }));
+    expect(result.spansAppended).toBe(1);
+    expect(a.counterpart.spans.spans("proj").map((s) => s.text)).toEqual([
+      "What the user actually said.",
+    ]);
+  });
+
+  test("a `<system-reminder>` is still `injected`, and injected still ENTERS", () => {
+    const text = "<system-reminder>the host's own note</system-reminder>";
+    expect(classifyBlock(text)).toBe("injected");
+    expect(enters({ role: "user", text, source: "injected" })).toBe(true);
+  });
+
+  test("a Stop-hook wrapper WITHOUT a foreign marker is not foreign — v2's own asks arrive that way", () => {
+    const ours = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+    expect(classifyBlock(ours)).not.toBe("foreign");
+    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(true);
+    // A bansai marker that is not at the start of the block is not a wrapper
+    // match either — only the containment marker crosses a block boundary.
+    expect(classifyBlock("we should ask whether [bansai] still runs here")).toBe("conversation");
+  });
+
+  test("ordinary conversation is untouched by the new rule", () => {
+    expect(classifyBlock("We settled the storage split today.")).toBe("conversation");
+    expect(classifyBlock("")).toBe("conversation");
   });
 });
 

@@ -177,17 +177,55 @@ what did v2 get).
 **What would close it:** index v1's `interpret.done` events by their span hashes
 and emit the same address on v2's chunk event.
 
-## §7. The two human-rated criteria have no rater path
+## §7. The two human-rated criteria have no rater path — the CARRY-FORWARD half CLOSED 2026-09-03
+
+*The problem is kept in full, because the shape of the fix is the useful part.*
 
 `surface.loudOffTopicRate` (A2, ≤5%) and `prospective.gateTable` (PR-F, ≤5% over
 ≥20 fires) return `needs-rater` and stop there. v1's carry-forward rule — a
 human verdict carries across a code change **only when the machine-scored surface
 set is provably identical** — needs the machine-scored surface set to be
-recorded and diffable before a rating can carry at all.
+recorded and diffable before a rating can carry at all. The record itself existed
+and was content-by-reference from day one; it lived in the in-process event ring
+and died with the process, so no §6 Recall criterion was recomputable from a store
+and G12 had nothing to hash (parallel CONTRACT precondition 9).
 
-**What would close it:** persist the per-turn surfacing decision record (§17.3's
-richest comparison surface, content-by-reference) and hash the surface set into
-the pass record.
+**What closed it:** one durable `recall.decision` event per turn, appended in
+`Counterpart.recallForTurn` through `store.appendEvent` — SEAMS K's log, the same
+seam `gate.chunk` is written through — carrying the decision content-by-reference:
+session and turn, the lived day and the calendar date, the reason, the budget and
+the composed bytes, the two tier counts, the affect flag with its reason, whether a
+sentinel was rendered, and the surfaced and footnoted ids each with the salience
+and activation the gate judged it by. No memory text, no cue text and no hash of
+either (scar §2.20) — pinned by a marker planted in both the memory body and the
+turn and asserted absent from the whole log. The registry entry landed with it, so
+the activity view can name the row — the `DURABLE_EVENTS` hole §2 above names.
+
+G12's carry-forward rule now has something to hash: `surfaceSetFields()`, exported
+beside the record in `src/core/counterpart.ts`, is the record's ordered field list,
+exhaustive BY TYPE against the record literal — so the writer and whatever hashes
+it cannot drift apart without failing `tsc`. Proof: `test/counterpart.test.ts`,
+"the surfacing decision is DURABLE — one row per turn, content-by-reference".
+
+**Three things this does not close, named rather than laundered:**
+
+- **`needs-rater` stays `needs-rater`.** A hashable surface set is the precondition
+  for a human verdict to CARRY across a change; it is not a rater. A2 and PR-F
+  still return `needs-rater` until the parallel run supplies one.
+- **A latency abort writes nothing at all** — no row, and no in-process event
+  either (`recall/` §5 G2: *nothing injected, buffered, logged, or spent*; a
+  subconscious that lost its race must not then pay for a durable write to say so).
+  So the surfacing race's WIN arm is in the store and its TIMEOUT arm is not: the
+  timeout is counted where a timeout is still allowed to be seen, the adapter's own
+  per-turn `adapter.recall {reason: "latency-abort"}` — a log, not a ring, which is
+  what parallel G2's "durable stores **plus logs**" admits. `aborted` and
+  `elapsedMs` stay in the field list; `aborted` is false in every written row, and
+  the field stays so the asymmetry is legible rather than assumed.
+- **No retention rule was added.** The row carries no `dedupKey`, so it ages out on
+  the log's existing window (`DEFAULT_RETENTION_DAYS` = 90, longer than any run this
+  contract plans) instead of being kept forever as a replay latch. A `session:turn`
+  latch was considered and rejected: a turn number restarts at 1 whenever gate state
+  is reset or evicted, so the latch would swallow a genuine second decision.
 
 ## §8. And the one that no interface can close
 
