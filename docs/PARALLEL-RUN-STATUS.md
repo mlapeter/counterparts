@@ -39,12 +39,12 @@ Journal: `~/bansai/docs/DECISIONS.md`, entries dated 2026-09-03.
 |---|---|---|---|
 | 1 | Replay gate green for this run | **pending the sample** | `parallelGateOpen` over `pass-record.json` + `waivers.json`; preflight row `replay.gate` |
 | 2 | G12 symmetry consumer live | closed | `test/sleep.test.ts` ("a RATCHET trips…", "never-asked…"), `test/dashboard.test.ts` ("renders by REASON"); daily: `sleep.symmetry` recomputed from `band.transition` |
-| 3 | `scanSecrets` bounded | closed on branch | `SCHEME_TAIL {0,32}`; `test/encode.test.ts` "the scan is bounded"; measured 744ms → 2ms at 32KB |
-| 4 | Poison-pill retry bounded | closed on branch | `MAX_SPAN_FAILURES=3`, `failures.jsonl`, `quarantine.jsonl`, `remember.span.quarantined`; six tests in `test/remember.test.ts` |
+| 3 | `scanSecrets` bounded | closed on branch | `SCHEME_TAIL {0,32}` and the `url-path-token` host/path class `{0,512}`; `test/encode.test.ts` "the scan is bounded" (four shapes); measured 744ms → 2ms at 32KB, 179ms → linear on the URL-list shape |
+| 4 | Poison-pill retry bounded | closed on branch | `MAX_SPAN_FAILURES=3` **distinct lived days** (an outage day is one failure), `failures.jsonl`, `quarantine.jsonl`, `remember.span.quarantined`; seven tests in `test/remember.test.ts` |
 | 5 | Self-store valve: relief or evidence | **pending two readings** | the sample's `self.schema.tripped` count; `schemaBytes` on the migrated store (preflight row `store.schemaBytes`) |
 | 6 | Migration: confidentiality + secrets gate | code closed; **apply pending** | `test/migrate.test.ts` G1/G2; dry run 2026-09-03 on the live store: 26 redactions (19 google-api-key), 10 floor refusals named; `--apply` from a quiescent snapshot on day 0 with `source_readonly.identical: true` |
 | 7 | Priced and approved | approved in principle | `pricing.json` in the run dir; actuals below |
-| 8 | Ask channel proven on host | **pre-Phase-P** | a v2 Stop-hook ask observed in a throwaway session; capability recorded |
+| 8 | Ask channel proven on host | **pre-Phase-P** | a v2 Stop-hook ask observed in a throwaway session; recorded as `ask-channel.json` `{observedAt, channel, exitCode, session}` in the run dir, read by the `--phase P` preflight |
 | 9 | Surfacing decision record durable | closed on branch | `recall.decision` rows; `surfaceSetFields()`; `test/counterpart.test.ts` "the surfacing decision is DURABLE" |
 
 Also landed on the branch: v2's primacy resolver (deliver iff `override === "engram"`,
@@ -76,8 +76,11 @@ refusal mix · novelty non-null · birth grounding · `self.schema.tripped`.
 4. Write `~/.counterparts/claude-code.json` (draft: dataDir subdirectory, `owner: true`,
    `injectionBudgetBytes: 9000`, `embedder.enabled: true`, `parallel.enabled: true`,
    identity anchor).
-5. Write `bars.json` (`activeDayTurnFloor`, `crossEncodingBar: 0` for Phase S,
-   `committedAt`), `pricing.json`, `waivers.json` (P1) into the run dir.
+5. Write `bars.json` into the run dir — all five fields, dated: `activeDayTurnFloor`,
+   `crossEncodingBar: 0` (Phase S), `crossEncodingRatioBar: 0.10` (Phase P, OQ4),
+   `crossEncodingMinLineChars` (the probe floor), `committedAt`, `preconditionDropDead:
+   2026-09-08` — plus `pricing.json` and `waivers.json` (P1). The instrument refuses to
+   run without them; it never invents a bar.
 6. Preflight: `bun tools/parallel/bin/preflight.ts --run-dir <dir> --v2-config … --replay-out … --transcripts …`
    must exit 0 with `ready: true`.
 7. Wire v2's hooks into `~/.claude/settings.json` beside v1's (same command for
@@ -91,8 +94,13 @@ refusal mix · novelty non-null · birth grounding · `self.schema.tripped`.
 ## The daily check (two minutes)
 
 ```
-bun tools/parallel/bin/daily.ts --run-dir <dir> --date <YYYY-MM-DD> [--v1-ritual …]
+bun tools/parallel/bin/daily.ts --run-dir <dir> --date <YYYY-MM-DD> --v1-wake ~/.bansai/render/wake.md [--v1-ritual "<the ask's first line>"]
 ```
+
+The daily refuses to run without a v1 probe (the wake render file is the natural one),
+and exits non-zero on a red-line, an unreadable v2 store, a truncated read, or a
+contaminated day. Its class vocabulary has six values: active / thin / contaminated /
+mixed / silent / unreadable.
 
 Read three lines of `days/<date>.json`: the **class** (active / thin / contaminated /
 mixed / silent — only `active` counts toward a phase minimum), the **cross-encoding
@@ -148,9 +156,12 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - v2's default data dir is `~/.counterparts` itself and the hook config lives inside it;
   the store's layout check rejects the config file at open. The run uses a subdirectory.
   Filed for the launch session.
-- `silent` is a count-level approximation (v1 muted-at-start minus v2 session-start
-  deliveries), not a per-session join; the payloads now carry `session`, so the join is
-  a small instrument upgrade.
+- `silent` is a per-session join on the host session id, which v1's log and v2's
+  durable payloads both carry; the assumption that the two ids are the same string is
+  asserted in the instrument's tests and re-checked on day 1.
+- The cross-encoding meter takes its v1 probes from `--v1-wake` / `--v1-ritual`; there
+  is no built-in v1 ritual text constant (the recognizers are prefixes, and the meter
+  addresses whole lines), so the wake render is the probe source.
 - The cross-encoding meter catches verbatim lines only; the paraphrase path is named as
   its blind spot and bounded by the delivered recall volume (`exposureDenominator`).
 - v1's Stop hook logs no `ab.muted`; the episode-ask mute is graded by absence only.
