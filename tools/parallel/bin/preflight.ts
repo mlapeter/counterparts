@@ -15,8 +15,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { gateSets } from "../gate.js";
-import { runPreflight } from "../preflight.js";
+import { preflightArtifacts, readBars, runPreflight } from "../preflight.js";
 import type { RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
 
@@ -160,8 +159,9 @@ function main(argv: readonly string[]): number {
     engramDir: args.engramDir,
     abDir: args.abDir,
   });
-  run.writeJson("preflight.json", report);
-  run.writeJson("gate-sets.json", gateSets());
+  for (const [rel, value] of Object.entries(preflightArtifacts(report, readBars(args.runDir)))) {
+    run.writeJson(rel, value);
+  }
 
   const out: string[] = [];
   out.push(`COUNTERPARTS PARALLEL-RUN PREFLIGHT — phase ${report.phase}`);
@@ -185,4 +185,18 @@ function main(argv: readonly string[]): number {
   return report.ready ? 0 : 1;
 }
 
-process.exit(main(process.argv.slice(2)));
+/** A named refusal prints its sentence and exits 2, never a stack trace. */
+function run(argv: readonly string[]): number {
+  try {
+    return main(argv);
+  } catch (err) {
+    const named = err as { name?: unknown; message?: unknown };
+    if (named?.name === "WriterError" || named?.name === "RecordError" || named?.name === "ReaderError") {
+      process.stderr.write(`REFUSED — ${String(named.message)}\n`);
+      return 2;
+    }
+    throw err;
+  }
+}
+
+process.exit(run(process.argv.slice(2)));

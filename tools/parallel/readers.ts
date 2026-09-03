@@ -6,8 +6,9 @@
  * ways rather than promised: it imports NO filesystem write API (a source-scan
  * in `test/parallel.test.ts` fails the suite if that changes — the pattern is
  * `tools/migrate/read.ts`'s, copied deliberately), and the sqlite handle it
- * opens is probed with an attempted write whose REFUSAL is recorded on the day
- * record, exactly as `tools/replay/corpus.ts` does it.
+ * opens is probed with a write wrapped in `BEGIN IMMEDIATE` … `ROLLBACK` whose
+ * REFUSAL is required before a single row is read — a handle that accepts the
+ * write makes this file THROW rather than report (see `probeReadOnly`).
  *
  * EVERY REAL PATH IS A PARAMETER. Nothing in this file resolves `~/.bansai`,
  * `~/.counterparts`, `~/.memory-ab` or `~/.claude/projects` on its own; the
@@ -15,17 +16,23 @@
  * suite be hermetic without the tool being a toy.
  *
  * WHAT IS NOT HERE, AND WHY IT IS NAMED INSTEAD OF ZEROED. The brief and the
- * CONTRACT both list v2 detectors — `adapter.wake.injected`, `adapter.recall`,
- * `adapter.episode.ask`, `sleep.symmetry`, `remember.span.quarantined`,
- * `self.schema.*` — as if they were readable out of box 2. They are not: box
- * 2's `events` table takes exactly the eight names in
- * `adapters/dashboard/registries.ts`'s `DURABLE_EVENTS`, and those six are
- * EPHEMERAL ring events that die with the hook process. Counting them from the
- * store would return 0 forever, and a fabricated zero reads as evidence of
- * silence — scar §2.4, and the precise failure §5 G4 exists to prevent. So the
- * reader returns them in `nonDurable`, by name, and the day record prints them
- * as absent BY CONSTRUCTION. It is a real gap in §5 G2 ("recomputable from the
- * two durable stores"), and this is where it is visible.
+ * CONTRACT both list v2 detectors — `sleep.symmetry`,
+ * `remember.span.quarantined`, `self.schema.*` — as if they were readable out
+ * of box 2. They are not: box 2's `events` table takes exactly the THIRTEEN
+ * names in `adapters/dashboard/registries.ts`'s `DURABLE_EVENTS`, and those
+ * five are EPHEMERAL ring events that die with the hook process. Counting them
+ * from the store would return 0 forever, and a fabricated zero reads as
+ * evidence of silence — scar §2.4, and the precise failure §5 G4 exists to
+ * prevent. So the reader returns them in `nonDurable`, by name, and the day
+ * record prints them as absent BY CONSTRUCTION. It is a real gap in §5 G2
+ * ("recomputable from the two durable stores"), and this is where it is visible.
+ *
+ * The four DELIVERY records (`adapter.wake.injected`, `adapter.wake.delivered`,
+ * `adapter.recall`, `adapter.episode.ask`) joined `DURABLE_EVENTS` on
+ * 2026-09-03 and ARE counted here, each by the calendar date and session in its
+ * payload; `recall.decision` joined this reader's list for precondition 9, and
+ * `memory.pruned`/`memory.merged` for the exit count `versions.archived_at`
+ * never provided.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
@@ -423,20 +430,56 @@ export function probeReadOnly(db: RawDb): ReadOnlyProbe {
 }
 
 /**
- * The DURABLE detectors the CONTRACT names that box 2 CANNOT carry. Read the
- * file header for why this list exists rather than six zero counters.
+ * The detectors the CONTRACT names that box 2 CANNOT carry as rows. Read the
+ * file header for why this list exists rather than five zero counters.
+ *
+ * `remember.span.quarantined` is NOT here: the README promised its line count
+ * and the reader never produced one, which is a claim with nothing behind it.
+ * It is cheap — the lines of each scope's `quarantine.jsonl` — so it is
+ * computed (see `readQuarantineLines`) rather than deleted.
  */
 export const NON_DURABLE_DETECTORS: readonly string[] = [
   // Recomputable read-only rather than durable as a row: the symmetry verdict
-  // is arithmetic over `band.transition`; the quarantine count is the lines of
-  // each scope's `quarantine.jsonl`; the self-store bytes are `schemaBytes` over
-  // the rows. Named here so a day record never reports them as a zero.
+  // is arithmetic over `band.transition`; the self-store bytes are
+  // `schemaBytes` over the rows. Named here so a day record never reports them
+  // as a zero.
   "sleep.symmetry",
-  "remember.span.quarantined",
   "self.schema.pressure",
   "self.schema.tripped",
   "self.schema.quarantined",
 ];
+
+/**
+ * `remember.span.quarantined`, recomputed: the lines of every scope's
+ * `quarantine.jsonl` under `<dataDir>/spans/`.
+ *
+ * The F8 poison-pill bound writes a span there IN FULL when it hits
+ * `MAX_SPAN_FAILURES` (`remember/spans.ts`), so the line count IS the number of
+ * spans this store gave up on. Lines only — no line's CONTENT is read, because
+ * a quarantined span is verbatim lived text (scar §2.20).
+ */
+export function readQuarantineLines(dataDir: string): {
+  present: boolean;
+  files: number;
+  lines: number;
+} {
+  const root = join(dataDir, "spans");
+  if (!existsSync(root)) return { present: false, files: 0, lines: 0 };
+  const files = filesUnder(root, (n) => n === "quarantine.jsonl");
+  let lines = 0;
+  for (const file of files) {
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of raw.split("\n")) {
+      if (line.trim().length > 0) lines += 1;
+    }
+  }
+  return { present: true, files: files.length, lines };
+}
 
 /**
  * The durable names this reader counts. All exist in `DURABLE_EVENTS`. The four
@@ -837,6 +880,40 @@ export function migratedProse(dataDir: string): string[] {
   return proseRows(dataDir)
     .rows.filter((r) => r.source === "migrated")
     .map((r) => r.realpath);
+}
+
+/**
+ * PRECONDITION 9's evidence, read out of the store rather than asserted.
+ *
+ * "The per-turn surfacing decision record is durable — before Phase P." Replay
+ * INTERFACE-GAPS §7 recorded it as not persisted; the only way to know whether
+ * that changed is to count the rows. `recall.decision` is in `DURABLE_EVENTS`
+ * and in this reader's `DURABLE_DETECTORS`, so the count is a fact about the
+ * store, not a claim about the code.
+ */
+export function readSurfaceEvidence(dataDir: string): {
+  present: boolean;
+  recallDecisions: number;
+  readErrors: readonly string[];
+} {
+  const path = v2StorePath(dataDir);
+  if (!existsSync(path)) return { present: false, recallDecisions: 0, readErrors: [] };
+  const { db } = openStore(path);
+  const ctx = { db, errors: [] as string[] };
+  try {
+    const rows = rowsOf<{ n: number }>(
+      ctx,
+      "SELECT COUNT(*) AS n FROM events WHERE name = ?",
+      RECALL_DECISION_EVENT,
+    );
+    return {
+      present: true,
+      recallDecisions: rows[0]?.n ?? 0,
+      readErrors: [...ctx.errors],
+    };
+  } finally {
+    db.close();
+  }
 }
 
 // ── the self-store byte reading (precondition 5), reproduced read-only ──────

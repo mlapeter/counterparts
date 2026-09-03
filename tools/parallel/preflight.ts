@@ -24,15 +24,19 @@ import { embedSeat, interpretSeat, loadConfig } from "../../src/adapters/claude-
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../../src/adapters/claude-code/config.js";
 import { SELF_TUNABLES } from "../../src/core/self/tunables.js";
 
+import { RECALL_DECISION_EVENT } from "../../src/core/counterpart.js";
+
 import { gateSets, parallelGateOpen, parseGateRecord, parseWaivers } from "./gate.js";
 import {
   overlaps,
   readAssignmentAs,
   readSchemaBytes,
+  readSurfaceEvidence,
   realpathOr,
   scanTranscripts,
   transcriptFiles,
 } from "./readers.js";
+import { surfaceSetHash } from "./surface.js";
 import type { AssignmentReading, HookEnvSpec } from "./readers.js";
 import type {
   Bars,
@@ -466,30 +470,44 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
     ),
   );
 
-  // 6 — the migrated starting store (OQ2, RULED 2026-09-03). The evidence the
-  // CONTRACT asks for is the migration report, IN the run directory, whose
-  // source-manifest proof holds.
+  // 6 — the migrated starting store (OQ2, RULED 2026-09-03).
+  //
+  // THREE THINGS, not one. A dry-run report carries `source_readonly.identical`
+  // too — of course it does, a dry run writes nothing — so the old check passed
+  // on a report that proved the migration had NOT happened. The CONTRACT wants
+  // "the real `--apply` into a fresh v2 data dir with the source-manifest
+  // proof", which is: mode is `apply`, the target IS the data dir this run
+  // measures (by realpath, not by spelling), and the source is unharmed.
   const reportPath = join(opts.runDir, "migration-report.json");
   const report = readJson(reportPath);
-  const proof =
-    report !== null && typeof report === "object" && !Array.isArray(report)
-      ? ((report as Record<string, unknown>)["source_readonly"] as Record<string, unknown> | undefined)
-      : undefined;
-  const identical = proof?.["identical"] === true;
+  const asObj = (v: unknown): Record<string, unknown> | undefined =>
+    v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  const rep = asObj(report);
+  const proof = asObj(rep?.["source_readonly"]);
+  const mode = rep?.["mode"];
+  const target = typeof rep?.["target"] === "string" ? (rep["target"] as string) : null;
+  const targetReal = target === null ? null : realpathOr(target);
+  const wantReal = realpathOr(opts.v2DataDir);
+  const p6: string[] = [];
+  if (rep === undefined) {
+    p6.push(`no migration report at ${reportPath} (OQ2 RULED migrated: the run needs the real --apply)`);
+  } else {
+    // `tools/migrate/types.ts`: `mode: "dry-run" | "apply"`, `target: string`.
+    if (mode !== "apply") p6.push(`the report's mode is ${JSON.stringify(mode)}, not "apply" — a dry run wrote nothing`);
+    if (target === null) p6.push("the report names no target");
+    else if (targetReal !== wantReal) {
+      p6.push(`the report's target ${targetReal} is not the v2 dataDir this run measures (${wantReal})`);
+    }
+    if (proof?.["identical"] !== true) p6.push("source_readonly.identical is not true");
+  }
   out.push(
-    identical
+    p6.length === 0
       ? row(
           "precondition.6",
           "pass",
-          `migration report present with manifestIdentical: true over ${String(proof?.["files"] ?? "?")} source file(s) — ${reportPath}`,
+          `migration report: mode=apply · target=${targetReal} === the run's v2 dataDir · source_readonly.identical over ${String(proof?.["files"] ?? "?")} file(s) — ${reportPath}`,
         )
-      : row(
-          "precondition.6",
-          "fail",
-          report === null
-            ? `no migration report at ${reportPath} (OQ2 RULED migrated: the run needs the real --apply and its source-manifest proof)`
-            : `the migration report at ${reportPath} does not carry source_readonly.identical === true`,
-        ),
+      : row("precondition.6", "fail", `${p6.join("; ")} — ${reportPath}`),
   );
 
   // 7 — priced and approved, not assumed.
@@ -509,26 +527,99 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
         ),
   );
 
-  // 8 and 9 — pre-Phase-P, in the CONTRACT's own wording, so the S→P flip
-  // preflight has something to flip rather than something to invent.
-  out.push(
-    row(
-      "precondition.8",
-      "not-exercised",
-      "The ask channel is proven on this host — before Phase P. A v2 Stop-hook ask observed arriving in the model's context at least once in a throwaway session, with the channel and exit code recorded as an adapter capability. Gates the S→P flip, not day 1.",
-      "s-to-p",
-    ),
-  );
-  out.push(
-    row(
-      "precondition.9",
-      "not-exercised",
-      "The per-turn surfacing decision record is durable — before Phase P. Without it no §6 Recall criterion is recomputable from the store and G12's \"provably identical\" has nothing to hash. Gates the S→P flip, not day 1.",
-      "s-to-p",
-    ),
-  );
+  // 8 and 9 — pre-Phase-P, and NOW WITH INPUTS. Hardcoding them
+  // `not-exercised` made the S→P flip preflight — the one the CONTRACT says
+  // they gate — impossible to pass by construction: `--phase P` could never
+  // reach `ready: true`. Each now has a machine-readable artifact to read.
+  out.push(askChannelRow(opts));
+  out.push(surfaceRecordRow(opts));
 
   return out;
+}
+
+/**
+ * PRECONDITION 8 — the ask channel, proven on this host.
+ *
+ * "A v2 Stop-hook ask is observed arriving in the model's context at least once
+ * in a throwaway session, with the channel and exit code recorded as an adapter
+ * capability." That observation is a HUMAN act — someone runs a throwaway
+ * session and watches — so what the preflight can check is that the observation
+ * was RECORDED, in a shape a machine reads: `ask-channel.json` in the run
+ * directory, carrying what was seen, when, through which channel, and with what
+ * exit code. Prose in a document is exactly what §5's "none waived by prose"
+ * refuses.
+ */
+function askChannelRow(opts: PreflightOptions): CheckRow {
+  const path = join(opts.runDir, "ask-channel.json");
+  const raw = readJson(path) as Record<string, unknown> | null;
+  const missing: string[] = [];
+  const observedAt = typeof raw?.["observedAt"] === "string" ? (raw["observedAt"] as string) : "";
+  const channel = typeof raw?.["channel"] === "string" ? (raw["channel"] as string) : "";
+  const exitCode = raw?.["exitCode"];
+  const session = typeof raw?.["session"] === "string" ? (raw["session"] as string) : "";
+  if (raw === null) {
+    return row(
+      "precondition.8",
+      "not-exercised",
+      `the ask channel has not been proven on this host: run a throwaway session, observe a v2 Stop-hook ask arriving in the model's context, and record {observedAt, channel, exitCode, session} at ${path}. v2 writes its asks to plain stdout and exits 0, a channel no v2 hook has yet demonstrated here (v1 blocks with stderr + exit 2), so Phase P day 1 would otherwise be the authored dump's first fire anywhere. Gates the S→P flip, not day 1.`,
+      "s-to-p",
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2}/.test(observedAt)) missing.push("a dated observedAt");
+  if (channel.trim().length === 0) missing.push("channel");
+  if (typeof exitCode !== "number") missing.push("a numeric exitCode");
+  if (session.trim().length === 0) missing.push("session");
+  return missing.length === 0
+    ? row(
+        "precondition.8",
+        "pass",
+        `the ask arrived on ${channel} with exit code ${String(exitCode)}, observed ${observedAt} in session ${session} — ${path}`,
+        "s-to-p",
+      )
+    : row(
+        "precondition.8",
+        "fail",
+        `${path} is missing ${missing.join(", ")}: the observation must be machine-readable, not prose`,
+        "s-to-p",
+      );
+}
+
+/**
+ * PRECONDITION 9 — the per-turn surfacing decision record is durable.
+ *
+ * Two readings, both off real artifacts. (a) The store actually HOLDS
+ * `recall.decision` rows — replay INTERFACE-GAPS §7 recorded them as not
+ * persisted, and only the rows can say whether that changed. (b) `run.json`
+ * carries the hash of `surfaceSetFields()`, which is what G12's carry-forward
+ * rule compares a mid-run change against: "provably identical" needs something
+ * to hash, and it has to have been written down BEFORE the change.
+ */
+function surfaceRecordRow(opts: PreflightOptions): CheckRow {
+  const evidence = readSurfaceEvidence(opts.v2DataDir);
+  const run = readJson(join(opts.runDir, "run.json")) as Record<string, unknown> | null;
+  const recorded = typeof run?.["surfaceSet"] === "string" ? (run["surfaceSet"] as string) : "";
+  const current = surfaceSetHash();
+  const problems: string[] = [];
+  if (!evidence.present) problems.push(`no v2 store at ${opts.v2DataDir}`);
+  else if (evidence.readErrors.length > 0) problems.push(`the store read failed: ${evidence.readErrors.join(" | ")}`);
+  else if (evidence.recallDecisions === 0) {
+    problems.push(
+      `the store holds no \`${RECALL_DECISION_EVENT}\` rows, so no §6 Recall criterion is recomputable from it (replay INTERFACE-GAPS §7)`,
+    );
+  }
+  if (recorded.length === 0) {
+    problems.push("run.json carries no surfaceSet hash, so G12's \"provably identical\" has nothing to compare against");
+  } else if (recorded !== current) {
+    problems.push(`run.json's surfaceSet hash ${recorded} is not this build's ${current} — the surface set moved (G12)`);
+  }
+  return problems.length === 0
+    ? row(
+        "precondition.9",
+        "pass",
+        `${evidence.recallDecisions} durable \`${RECALL_DECISION_EVENT}\` row(s) · surfaceSet ${current} recorded in run.json`,
+        "s-to-p",
+      )
+    : row("precondition.9", "not-exercised", `${problems.join("; ")}. Gates the S→P flip, not day 1.`, "s-to-p");
 }
 
 // ---------------------------------------------------------------------------
@@ -568,10 +659,32 @@ export function runPreflight(opts: PreflightOptions): PreflightReport {
   };
 }
 
-/** The three enumerated id sets, as precondition 1 copies them into the run dir. */
-export function preflightArtifacts(report: PreflightReport): {
+/**
+ * The three enumerated id sets, as precondition 1 copies them into the run dir
+ * — plus the DROP-DEAD, as a dated field.
+ *
+ * §5 P1 ends "drop-dead 2026-09-08", and a date that lives only in a sentence
+ * is a date nobody compares. It is committed in `bars.json`, checked by the
+ * `bars.committed` row against `--today`, and copied here beside the sets it
+ * belongs to, so the artifact precondition 1 leaves behind carries its own
+ * deadline.
+ */
+export function preflightArtifacts(
+  report: PreflightReport,
+  bars: Bars | null,
+): {
   readonly "preflight.json": PreflightReport;
-  readonly "gate-sets.json": ReturnType<typeof gateSets>;
+  readonly "gate-sets.json": ReturnType<typeof gateSets> & {
+    readonly preconditionDropDead: string | null;
+    readonly committedAt: string | null;
+  };
 } {
-  return { "preflight.json": report, "gate-sets.json": gateSets() };
+  return {
+    "preflight.json": report,
+    "gate-sets.json": {
+      ...gateSets(),
+      preconditionDropDead: bars?.preconditionDropDead ?? null,
+      committedAt: bars?.committedAt ?? null,
+    },
+  };
 }

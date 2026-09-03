@@ -204,6 +204,16 @@ export interface DailyRecord {
     readonly v1: CreatedExited;
     readonly v2: CreatedExited;
   };
+  /**
+   * `remember.span.quarantined`, recomputed read-only from the line count of
+   * every scope's `quarantine.jsonl` (CONTRACT §5 G2's "recomputed read-only
+   * from durable state rather than stored — named as such by the instrument").
+   */
+  readonly quarantine: {
+    readonly present: boolean;
+    readonly files: number;
+    readonly lines: number;
+  };
   readonly crossEncoding: CrossEncodingMeter;
   /** Where the day's v1 log lines were copied (G2's evidence, off v1's clock). */
   readonly v1LogCopy: string | null;
@@ -427,6 +437,12 @@ export interface RunRecord {
   };
   readonly seat: string;
   readonly vectors: string;
+  /**
+   * G12's carry-forward hash: the digest of `surfaceSetFields()` as of the
+   * build that wrote this record. Precondition 9's second half — "provably
+   * identical" needs a hash written down BEFORE the change it prices.
+   */
+  readonly surfaceSet: string;
   readonly updatedAt: string;
 }
 

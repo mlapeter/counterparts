@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { contentAddress } from "../replay/corpus.js";
 
 import { readBars } from "./preflight.js";
+import { surfaceSetHash } from "./surface.js";
 import {
   V1_CREATED_EVENT,
   V1_DETECTOR_TYPES,
@@ -31,6 +32,7 @@ import {
   filesUnder,
   jsonlFiles,
   proseRows,
+  readQuarantineLines,
   readV1Day,
   readV1Lines,
   readV2Day,
@@ -578,11 +580,17 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // v1's `wake.delivered` fires at its RENDER site despite the name — on v1's
   // side the two events are one, so the channel counts the render and says so
   // wherever it is cited (§5 G4's closing note), never sums them into a double.
-  const v1Detectors = {
-    wake: Math.max(v1.wakeRendered, v1.wakeDelivered),
-    recall: v1.surfaceInject,
-    ritual: v1.episodeAsked,
-  };
+  // A DAY WITH NO v1 LOG IS NOT A DAY v1 WAS SILENT. `{0, 0, 0}` off an absent
+  // file reads as positive evidence that the muted side stayed muted, which is
+  // the one thing an unread log cannot show (scar §2.4, §5 G4). v1's 30-day
+  // retention makes this a real case, not a hypothetical.
+  const v1Detectors: ContaminationDetectors = v1.present
+    ? {
+        wake: Math.max(v1.wakeRendered, v1.wakeDelivered),
+        recall: v1.surfaceInject,
+        ritual: v1.episodeAsked,
+      }
+    : { wake: null, recall: null, ritual: null };
   // A READ THAT FAILED IS NOT A DAY THAT WAS QUIET (review blocker 9). When the
   // event read errored, or capped, every count under it is a floor of unknown
   // depth — so the detectors read `null`, exactly as `ContaminationDetectors`
@@ -596,7 +604,11 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
         ritual: v2.byNameForDate["adapter.episode.ask"] ?? 0,
       };
 
-  const v1Contaminated = v1Muted && (v1Detectors.wake + v1Detectors.recall + v1Detectors.ritual) > 0;
+  const v1Signal =
+    v1Detectors.wake === null
+      ? null
+      : v1Detectors.wake + (v1Detectors.recall ?? 0) + (v1Detectors.ritual ?? 0);
+  const v1Contaminated = v1Muted && (v1Signal ?? 0) > 0;
   const v2Signal =
     v2Detectors.wake === null ? null : v2Detectors.wake + (v2Detectors.recall ?? 0) + (v2Detectors.ritual ?? 0);
   const v2Contaminated = v2Muted && !v2Unreadable && (v2Delivered > 0 || (v2Signal ?? 0) > 0);
@@ -759,6 +771,10 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
       v2: v2Detectors,
     },
     tally: { v1: tallyV1, v2: tallyV2 },
+    // `remember.span.quarantined`, recomputed rather than named as absent: the
+    // F8 bound writes each given-up span into its scope's `quarantine.jsonl`,
+    // so the line count is the number. Lines, never a line.
+    quarantine: readQuarantineLines(opts.v2DataDir),
     crossEncoding: meter,
     v1LogCopy: copied.length > 0 ? logCopyPath : null,
   };
@@ -795,6 +811,9 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     },
     seat: opts.seat ?? prior?.seat ?? "",
     vectors: opts.vectors ?? prior?.vectors ?? "",
+    // G12's carry-forward hash, written on every day so a mid-run change has
+    // something from BEFORE it to be compared against (precondition 9).
+    surfaceSet: surfaceSetHash(),
     updatedAt: opts.at ?? new Date().toISOString(),
   };
 

@@ -65,6 +65,7 @@ import {
   transcriptFiles,
 } from "../tools/parallel/readers.js";
 import { runPreflight } from "../tools/parallel/preflight.js";
+import { surfaceSetHash } from "../tools/parallel/surface.js";
 import { readRunRecord } from "../tools/parallel/record.js";
 import { RunDir } from "../tools/parallel/writer.js";
 import type { LiveStores } from "../tools/parallel/writer.js";
@@ -302,7 +303,17 @@ describe("parallelGateOpen — precondition 1, branch by branch", () => {
     const unsigned: Waiver = { ...WAIVER("replay-2026-09-04"), signedBy: "", signedAt: "", reason: "" };
     const v = parallelGateOpen(record({ sample: true }), [unsigned]);
     expect(v.open).toBe(false);
-    expect(v.reasons.join(" ")).toContain("missing signedBy, signedAt or reason");
+    expect(v.reasons.join(" ")).toContain("missing signedBy, a dated signedAt");
+  });
+
+  test("`signedAt: \"yes\"` is not a date — the signature is dated like the bars", () => {
+    // A non-empty check satisfies the letter of "signed" while proving nothing
+    // about when, and precondition 1 is a dated owner decision with a
+    // drop-dead attached (§5 P1, §5 G15's discipline).
+    const undated: Waiver = { ...WAIVER("replay-2026-09-04"), signedAt: "yes" };
+    const v = parallelGateOpen(record({ sample: true }), [undated]);
+    expect(v.open).toBe(false);
+    expect(v.reasons.join(" ")).toContain("a dated signedAt");
   });
 
   test("a waiver for a DIFFERENT precondition does not open precondition 1", () => {
@@ -1633,6 +1644,24 @@ describe("day classes", () => {
     expect(classOf(s).flags).not.toContain("thin");
   });
 
+  // ── review should-fix: an ABSENT v1 log is not a silent v1 ──────────────
+  test("v1's detectors read NULL when the day's log is absent, never {0,0,0}", () => {
+    const s = scene(3);
+    // No v1 log for the date at all — v1 keeps 30 days, and this run may
+    // outlive that. `{0,0,0}` would read as positive evidence the muted side
+    // stayed muted, which is the one thing an unread log cannot show.
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.v1.present).toBe(false);
+    expect(r.contamination.v1).toEqual({ wake: null, recall: null, ritual: null });
+    expect(r.flags).not.toContain("contaminated");
+    expect(r.class).not.toBe("active");
+
+    // With a log present the same channels are real numbers again.
+    v1Muted(s);
+    expect(classOf(s).contamination.v1).toEqual({ wake: 0, recall: 0, ritual: 0 });
+  });
+
   test("v1's two wake events are ONE site — the channel counts the render, never the sum", () => {
     const s = scene(3);
     v1Muted(s, [
@@ -2016,7 +2045,13 @@ function fixture(): Fixture {
     approvedAt: "2026-09-03",
     marginalSpend: "v2 embeddings plus crash-fallback sweeps; the authored dump rides session context",
   });
+  // A REAL `--apply` into THIS run's v2 data dir. A dry-run report carries the
+  // same `source_readonly.identical` — of course it does, it wrote nothing —
+  // so mode and target are what make it evidence (`tools/migrate/types.ts`).
   writeJson(join(runDir, "migration-report.json"), {
+    mode: "apply",
+    source: join(root, "v1"),
+    target: v2Dir,
     source_readonly: { files: 12, identical: true, changed: [] },
   });
   writeJson(join(replayOut, "pass-record.json"), {
@@ -2364,14 +2399,109 @@ describe("the preflight — Phase 0, as a gate", () => {
     expect(report.ready).toBe(false);
   });
 
+  // ── review should-fix: a DRY RUN is not a migration ─────────────────────
+  test("precondition 6 REFUSES a dry-run report, and a report for another target", () => {
+    const f = fixture();
+    const path = join(f.runDir, "migration-report.json");
+    const real = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+
+    // A dry run writes nothing, so its source-manifest proof is vacuous — and
+    // the old check passed on it, certifying a migration that never happened.
+    writeJson(path, { ...real, mode: "dry-run" });
+    let r = rowOf(f, "precondition.6");
+    expect(r?.status).toBe("fail");
+    expect(r?.detail).toContain('not "apply"');
+
+    // An apply into a DIFFERENT data dir is not this run's starting store.
+    writeJson(path, { ...real, target: join(root, "somewhere-else") });
+    r = rowOf(f, "precondition.6");
+    expect(r?.status).toBe("fail");
+    expect(r?.detail).toContain("is not the v2 dataDir this run measures");
+
+    // And the real one passes, by realpath on both sides.
+    writeJson(path, real);
+    expect(rowOf(f, "precondition.6")?.status).toBe("pass");
+  });
+
   test("precondition 6 fails without a migration report carrying the manifest proof", () => {
     const f = fixture();
     rmSync(join(f.runDir, "migration-report.json"));
     const row = rowOf(f, "precondition.6");
     expect(row?.status).toBe("fail");
     expect(row?.detail).toContain("OQ2 RULED migrated");
-    writeJson(join(f.runDir, "migration-report.json"), { source_readonly: { files: 3, identical: false } });
-    expect(rowOf(f, "precondition.6")?.detail).toContain("identical === true");
+    writeJson(join(f.runDir, "migration-report.json"), {
+      mode: "apply",
+      target: f.v2Dir,
+      source_readonly: { files: 3, identical: false },
+    });
+    expect(rowOf(f, "precondition.6")?.detail).toContain("source_readonly.identical is not true");
+  });
+
+  // ── review should-fix: 8 and 9 have INPUTS, so the S→P preflight is
+  //     reachable rather than impossible by construction ────────────────────
+  test("precondition 8 reads a machine-readable ask-channel record, not prose", () => {
+    const f = fixture();
+    let r = rowOf(f, "precondition.8");
+    expect(r?.status).toBe("not-exercised");
+    expect(r?.gates).toBe("s-to-p");
+    expect(r?.detail).toContain("ask-channel.json");
+
+    // A record missing any field is a FAIL, not a pass: the observation has to
+    // say what was seen, when, through which channel, and with what exit code.
+    writeJson(join(f.runDir, "ask-channel.json"), { channel: "stdout", exitCode: 0 });
+    r = rowOf(f, "precondition.8");
+    expect(r?.status).toBe("fail");
+    expect(r?.detail).toContain("a dated observedAt");
+
+    writeJson(join(f.runDir, "ask-channel.json"), {
+      observedAt: "2026-09-05",
+      channel: "stdout",
+      exitCode: 0,
+      session: "throwaway-1",
+    });
+    r = rowOf(f, "precondition.8");
+    expect(r?.status).toBe("pass");
+    expect(r?.detail).toContain("stdout");
+  });
+
+  test("precondition 9 reads recall.decision ROWS and the surfaceSet hash", () => {
+    const f = fixture();
+    // Nothing in the store yet: replay INTERFACE-GAPS §7's gap, unclosed.
+    let r = rowOf(f, "precondition.9");
+    expect(r?.status).toBe("not-exercised");
+    expect(r?.detail).toContain("recall.decision");
+
+    buildStore(f.v2Dir, (store) => {
+      store.appendEvent({ name: "recall.decision", day: 0, payload: { surfaced: 2 } });
+    });
+    // The rows are there, but G12 still has nothing to compare a change against.
+    r = rowOf(f, "precondition.9");
+    expect(r?.status).toBe("not-exercised");
+    expect(r?.detail).toContain("surfaceSet");
+
+    // A daily record writes the hash; then both halves hold.
+    v1Log(f.v1Dir, "2026-09-04", [{ seq: 0, session: "s1", type: "session.start" }]);
+    const artifacts = dailyRecord({
+      runDir: f.runDir,
+      date: "2026-09-04",
+      v1Dir: f.v1Dir,
+      v2DataDir: f.v2Dir,
+      phase: "S",
+      primacy: "v1",
+      v1Ritual: ["What did you learn in this session that is worth keeping?"],
+    });
+    expect(artifacts.run.surfaceSet).toMatch(/^[0-9a-f]{16}$/);
+    RunDir.open(f.runDir, STORES(f)).writeJson("run.json", artifacts.run);
+    r = rowOf(f, "precondition.9");
+    expect(r?.status).toBe("pass");
+    expect(r?.detail).toContain(surfaceSetHash());
+
+    // A hash from another build is a MISMATCH, which is G12 doing its job.
+    RunDir.open(f.runDir, STORES(f)).writeJson("run.json", {
+      ...artifacts.run,
+      surfaceSet: "0000000000000000",
+    });
+    expect(rowOf(f, "precondition.9")?.detail).toContain("the surface set moved");
   });
 
   test("precondition 7 fails without approvedBy/approvedAt", () => {

@@ -312,15 +312,20 @@ export function parallelGateOpen(
           : `sample: true and the precondition-1 waiver names ${named.join(", ")}, not ${record.runId}`,
       );
     } else {
+      // `signedAt` IS DATED, exactly as `committedAt` is (§5 G15's discipline,
+      // applied to the signature). A non-empty string check accepts `"yes"`,
+      // which satisfies the letter of "signed" while proving nothing about
+      // when — and precondition 1's whole point is a dated owner decision with
+      // a drop-dead attached.
       const incomplete = signed.filter(
         (w) =>
           w.signedBy.trim().length === 0 ||
-          w.signedAt.trim().length === 0 ||
+          !/^\d{4}-\d{2}-\d{2}/.test(w.signedAt.trim()) ||
           w.reason.trim().length === 0,
       );
       if (incomplete.length === signed.length) {
         reasons.push(
-          `sample: true and the waiver for ${record.runId} is missing signedBy, signedAt or reason`,
+          `sample: true and the waiver for ${record.runId} is missing signedBy, a dated signedAt (YYYY-MM-DD) or reason`,
         );
       }
     }

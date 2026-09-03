@@ -251,7 +251,7 @@ function main(argv: readonly string[]): number {
       `probe floor ${m.minLineChars} chars · exposure denominator ${m.exposureDenominator ?? "UNREAD"}`,
   );
   out.push(
-    `  ${pad("cross-encoding rule", 18)}${m.ratioNote}${m.ratio === null ? "" : ` — ratio ${m.ratio.toFixed(4)} of ${m.ratioDenominator}`}`,
+    `  ${pad("meter rule", 18)}${m.ratioNote}${m.ratio === null ? "" : ` — ratio ${m.ratio.toFixed(4)} of ${m.ratioDenominator}`}`,
   );
   out.push(`  ${pad("v1 log copy", 18)}${r.v1LogCopy ?? "no detector lines on this day"}`);
   out.push("");
@@ -297,4 +297,25 @@ function main(argv: readonly string[]): number {
   return halts.length === 0 ? 0 : 1;
 }
 
-process.exit(main(process.argv.slice(2)));
+/**
+ * A NAMED REFUSAL IS AN ANSWER, not a crash. `RunDir.open`, `readRunRecord` and
+ * `dailyRecord` all throw rather than record past a problem — an overlapping
+ * run directory, a corrupt run record, uncommitted bars, an unmetered day, a
+ * primacy that disagrees with the assignment file, a store that is not provably
+ * read-only. Each of those is the tool working; the operator should see the
+ * sentence, not a stack trace. Exit 2, distinct from the red-line's 1.
+ */
+function run(argv: readonly string[]): number {
+  try {
+    return main(argv);
+  } catch (err) {
+    const named = err as { name?: unknown; code?: unknown; message?: unknown };
+    if (named?.name === "WriterError" || named?.name === "RecordError" || named?.name === "ReaderError") {
+      process.stderr.write(`REFUSED — ${String(named.message)}\n`);
+      return 2;
+    }
+    throw err;
+  }
+}
+
+process.exit(run(process.argv.slice(2)));
