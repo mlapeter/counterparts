@@ -484,7 +484,8 @@ export function readQuarantineLines(dataDir: string): {
 /**
  * The durable names this reader counts. All exist in `DURABLE_EVENTS`. The four
  * delivery records became durable on 2026-09-03 for exactly this reader's
- * sake: in Phase S they are the contamination detectors on v2's side (§5 G4),
+ * sake: on any day v2 is the muted side they are the contamination detectors
+ * on v2's side (§5 G4),
  * and each carries `date` and `session` in its payload.
  */
 /**
