@@ -893,13 +893,20 @@ export function migratedProse(dataDir: string): string[] {
  * and in this reader's `DURABLE_DETECTORS`, so the count is a fact about the
  * store, not a claim about the code.
  */
-export function readSurfaceEvidence(dataDir: string): {
+export function readSurfaceEvidence(
+  dataDir: string,
+  date?: string,
+): {
   present: boolean;
   recallDecisions: number;
+  /** Durable `adapter.boundary` rows from the `session-end` hook on `date` —
+   *  evidence the SessionEnd hook COMPLETED inside the host's shared budget on a
+   *  day the host recorded no attachment for it (a silent hook leaves none). */
+  sessionEndBoundaries: number;
   readErrors: readonly string[];
 } {
   const path = v2StorePath(dataDir);
-  if (!existsSync(path)) return { present: false, recallDecisions: 0, readErrors: [] };
+  if (!existsSync(path)) return { present: false, recallDecisions: 0, sessionEndBoundaries: 0, readErrors: [] };
   const { db } = openStore(path);
   const ctx = { db, errors: [] as string[] };
   try {
@@ -908,9 +915,21 @@ export function readSurfaceEvidence(dataDir: string): {
       "SELECT COUNT(*) AS n FROM events WHERE name = ?",
       RECALL_DECISION_EVENT,
     );
+    let sessionEndBoundaries = 0;
+    if (date !== undefined) {
+      for (const r of rowsOf<{ payload: string | null }>(ctx, "SELECT payload FROM events WHERE name = ?", "adapter.boundary")) {
+        try {
+          const p = JSON.parse(r.payload ?? "{}") as { hook?: unknown; date?: unknown };
+          if (p.hook === "session-end" && p.date === date) sessionEndBoundaries += 1;
+        } catch {
+          continue;
+        }
+      }
+    }
     return {
       present: true,
       recallDecisions: rows[0]?.n ?? 0,
+      sessionEndBoundaries,
       readErrors: [...ctx.errors],
     };
   } finally {
@@ -981,7 +1000,7 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
     for (const row of rows) {
       if (seen.has(row.id)) continue;
       seen.add(row.id);
-      if (row.type === "episode") {
+      if (row.type === "episode" && row.band !== "identity" && row.protected !== 1) {
         episodes += 1;
         continue;
       }

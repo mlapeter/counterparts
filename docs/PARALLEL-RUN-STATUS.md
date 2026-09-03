@@ -115,6 +115,34 @@ band failure, and far under the 1.0 that would mean a dead wire), `gate.refusalM
 computed. The 11 band failures are the run's to re-earn (§5 G15), not anyone's to sign
 for.*
 
+## Day 0 log — 2026-09-03 (owner present)
+
+- Snapshot of `~/.bansai` taken by the owner (files the migration reads only); import
+  applied from it in 61 s: 14,753 memories created (1,066 archived merge sources), 224
+  episodes, 9 entities born, 470 elements, 430 edges; 26 credential redactions (19 the
+  v1 scar's own key shape); source byte-identical after (14,396 files hashed).
+  Report: `migration-report.json` in the run dir.
+- Config written at `~/.counterparts/claude-code.json` (data dir subdirectory, owner,
+  parallel on, embedder on, identity anchor); loads as non-observer.
+- Embeddings: 13,727 vectors persisted for the live rows (≈90%); 512 texts in four
+  batches failed as units and stay lexically indexed — a named gap, retried later.
+- Preflight rehearsal found two things planning had not: (1) the self-store byte valve
+  read 3 MB tripped on the migrated store — it was weighing all 224 episodes and every
+  migrated self trace; the measure is corrected to the self schema (episodes and migrated
+  rows counted, protected ones still weighed): 35 KB over 23 elements, under the 72 KB
+  trip. (2) **The hook environment carries neither API key** (probe session one, names
+  only): Claude Code's process env is not the login shell's, and bansai only works
+  because it reads a fallback file. Counterparts now takes credentials from a file its
+  own config names (`credentialsFile`), the environment still winning when present.
+- Probe session one (v2 muted): captured in two scopes, boundary rows written, stood
+  down at every delivering hook with reason `override-bansai`; no sweep ran (no key —
+  the worker refused, loudly, as designed). Hooks wired on all five events with the
+  owner's go; backup at `~/.claude/settings.json.bak-2026-09-03-pre-counterparts`.
+- `host.hooks` preflight row: the host records no attachment for a silent hook, so the
+  execution model and the SessionEnd budget cannot be timed from transcripts on a muted
+  day; the row now passes by COMPLETION evidence (a durable session-end boundary row on
+  the day) with the documented parallel model, and says so.
+
 ## Day 0 — the start sequence (owner present; the flip is the LAST step)
 
 1. Close every Claude Code session (v1's hooks mutate `~/.bansai` at every Stop).

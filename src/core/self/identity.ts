@@ -474,7 +474,7 @@ export function schemaBytes(store: Store, day: number, t: SelfTunables): SchemaB
     // measured set equal to the rendered set (PR-2 review should-fix 2: a
     // weighed prompt byte must never be invisible to the byte valve).
     const row = store.row(id);
-    if (row !== undefined && row.type === "episode") {
+    if (row !== undefined && row.type === "episode" && row.band !== "identity" && row.protected !== 1) {
       episodes += 1;
       const e = enumerateOne(store, id, day);
       if (e !== null) episodeBytes += e.bytes;

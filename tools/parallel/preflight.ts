@@ -335,8 +335,25 @@ function canaryRow(opts: PreflightOptions): { row: CheckRow; hookRow: CheckRow }
   // SessionEnd budget the host shares across all hooks MEASURED with both
   // systems' hooks installed", and `sessionEndWorstMs === null` is that
   // measurement missing, not that measurement passing.
+  // MEASURED on this host (2026-09-03): the transcript records a `hook_success`
+  // attachment only for a hook that PRODUCED OUTPUT — a silent hook (v2 muted,
+  // every Stop/SessionEnd) leaves none — so the execution model and the
+  // SessionEnd budget cannot be timed from transcripts on a muted day. The
+  // honest substitute, named as one: the host's documentation says multiple
+  // hooks on one event run in parallel, and a durable `adapter.boundary` row
+  // from the `session-end` hook on this date proves that hook COMPLETED inside
+  // the host's shared budget (a hook the host killed writes no row after the
+  // kill). Evidenced by completion, not timed — the row says so.
+  const evidence = readSurfaceEvidence(opts.v2DataDir, opts.today);
+  const completed = evidence.sessionEndBoundaries;
   const hookRow =
-    h.model === "unknown"
+    h.model === "unknown" && completed > 0
+      ? row(
+          "host.hooks",
+          "pass",
+          `evidenced by COMPLETION, not timed: ${completed} durable session-end boundary row(s) on ${opts.today} (the host records no attachment for a silent hook); execution model documented parallel (code.claude.com/docs/en/hooks) — ${hookDetail}`,
+        )
+      : h.model === "unknown"
       ? row("host.hooks", "not-exercised", `the execution model was not measured — ${hookDetail}`)
       : h.sessionEndOk === null
         ? row(
@@ -371,6 +388,7 @@ export function readBars(runDir: string): Bars | null {
     typeof r["crossEncodingMinLineChars"] !== "number" ||
     r["crossEncodingMinLineChars"] < 1 ||
     typeof r["crossEncodingRatioBar"] !== "number" ||
+    !(r["crossEncodingRatioBar"] > 0 && r["crossEncodingRatioBar"] <= 1) ||
     typeof r["committedAt"] !== "string" ||
     !/^\d{4}-\d{2}-\d{2}/.test(r["committedAt"]) ||
     typeof dropDead !== "string" ||
@@ -400,6 +418,14 @@ function barsRow(opts: PreflightOptions, phase: RunPhase): CheckRow {
     );
   }
   const late = opts.today > bars.preconditionDropDead;
+  // A `--phase P` re-check may only be lenient about the drop-dead on a run
+  // that actually HAD a day 0: without this, an empty run dir plus one flag
+  // would buy its way past §5 P1's date (PR-9 narrow review, NEW-2). The
+  // evidence is run.json's own day list — the day-0 daily writes it.
+  const runJson = readJson(join(opts.runDir, "run.json")) as { days?: unknown } | null;
+  const dayZero =
+    Array.isArray(runJson?.days) &&
+    runJson.days.some((d) => typeof d === "object" && d !== null && (d as { phase?: unknown }).phase === "0");
   const detail =
     `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} (v1→v2, every phase) · ` +
     `probe floor ${bars.crossEncodingMinLineChars} chars · Phase-P v2→v1 ratio bar ${bars.crossEncodingRatioBar} · ` +
@@ -418,7 +444,13 @@ function barsRow(opts: PreflightOptions, phase: RunPhase): CheckRow {
         "fail",
         `the precondition drop-dead ${bars.preconditionDropDead} has passed (today ${opts.today}): §5 P1 / §9 OQ5 say the run does not start and v1 flips as-is — ${detail}`,
       )
-    : row(
+    : !dayZero
+        ? row(
+            "bars.committed",
+            "fail",
+            `the drop-dead ${bars.preconditionDropDead} is behind us (today ${opts.today}) and run.json holds NO day-0 entry — a re-check cannot buy a start it never had (§5 P1) — ${detail}`,
+          )
+        : row(
         "bars.committed",
         "pass",
         `the drop-dead ${bars.preconditionDropDead} is behind us (today ${opts.today}), which bars a run from STARTING and not a started one from continuing (§9 OQ5) — ${detail}`,

@@ -565,6 +565,13 @@ describe("identity ordering and enumeration", () => {
     expect(report.episodeBytes).toBeGreaterThan(3_000);
     expect(report.migrated).toBe(1);
     expect(report.migratedBytes).toBeGreaterThan(3_000);
+    // A PROTECTED episode is an owner act on the self and IS weighed (PR-9 NEW-1):
+    // what `enumerate()` renders as protected must never be invisible to the valve.
+    const pid = s.put({ type: "episode", kind: "self", body: `Protected chapter. ${"p".repeat(2_000)}` });
+    s.updatePhysics(pid, { protected: true });
+    const again = self.schemaBytes(0);
+    expect(again.elements).toBe(3);
+    expect(again.episodes).toBe(1);
   });
 
   test("the self-schema byte counter reports, and trips, with its own cause named", () => {

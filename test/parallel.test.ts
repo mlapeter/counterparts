@@ -1211,6 +1211,26 @@ describe("the schemaBytes reading, reproduced read-only", () => {
     expect(readSchemaBytes(data).empty).toBe(true);
   });
 
+  test("readBars refuses a ratio bar outside (0, 1] — a committed 1.5 would disarm the v2→v1 direction", () => {
+    const runDir = dir("run");
+    writeJson(join(runDir, "bars.json"), { ...BARS(3), crossEncodingRatioBar: 1.5 });
+    expect(readBars(runDir)).toBeNull();
+    writeJson(join(runDir, "bars.json"), { ...BARS(3), crossEncodingRatioBar: 0 });
+    expect(readBars(runDir)).toBeNull();
+  });
+
+  test("a PROTECTED episode is weighed — the exclusion carries the identity/protected guard (PR-9 NEW-1)", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      const id = s.put({ type: "episode", kind: "self", body: `Protected chapter. ${"p".repeat(2_000)}` });
+      s.updatePhysics(id, { protected: true });
+    });
+    const reading = readSchemaBytes(data);
+    expect(reading.elements).toBe(1);
+    expect(reading.episodes).toBe(0);
+    expect(reading.bytes).toBeGreaterThan(2_000);
+  });
+
   test("the reader weighs the SELF SCHEMA only — episodes and migrated self rows are counted, not weighed (mirrors self/identity.ts)", () => {
     const data = dir("v2");
     buildStore(data, (s) => {
@@ -2551,6 +2571,16 @@ describe("the preflight — Phase 0, as a gate", () => {
       expect(atZero.ready).toBe(false);
       expect(atZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
 
+      // Without a day 0 on record, the re-check cannot buy the drop-dead (NEW-2).
+      const noDayZero = preflight(f, { ...late, phase: "P" as const });
+      expect(noDayZero.checks.find((c) => c.id === "bars.committed")?.status).toBe("fail");
+      expect(noDayZero.ready).toBe(false);
+
+      const runJson = JSON.parse(readFileSync(join(f.runDir, "run.json"), "utf8")) as Record<string, unknown>;
+      writeJson(join(f.runDir, "run.json"), {
+        ...runJson,
+        days: [{ date: "2026-09-04", class: "active", phase: "0" }],
+      });
       const running = preflight(f, { ...late, phase: "P" as const });
       const bars = running.checks.find((c) => c.id === "bars.committed");
       expect(bars?.status).toBe("pass");
@@ -2765,6 +2795,23 @@ describe("the preflight — Phase 0, as a gate", () => {
     const row = rowOf(f, "host.hooks");
     expect(row?.status).toBe("not-exercised");
     expect(row?.detail).toContain("SessionEnd budget was never measured");
+  });
+
+  test("host.hooks PASSES by COMPLETION evidence when the host recorded no attachment — a durable session-end boundary row on the day", () => {
+    const f = fixture();
+    buildStore(f.v2Dir, (s) => {
+      s.appendEvent({
+        name: "adapter.boundary",
+        day: 0,
+        payload: { hook: "session-end", kind: "session-end", captured: false, spans: 0, date: "2026-09-04", session: "probe" },
+      });
+    });
+    const row = rowOf(f, "host.hooks", { transcripts: [dir("empty-transcripts")], today: "2026-09-04" });
+    expect(row?.status).toBe("pass");
+    expect(row?.detail).toContain("evidenced by COMPLETION");
+    // A different day's row is not this day's evidence.
+    const other = rowOf(f, "host.hooks", { transcripts: [dir("empty-transcripts")], today: "2026-09-05" });
+    expect(other?.status).toBe("not-exercised");
   });
 
   test("host.hooks is NOT-EXERCISED when the model could not be measured", () => {
