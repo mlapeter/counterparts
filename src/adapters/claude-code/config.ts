@@ -140,6 +140,12 @@ export const TUNABLES = {
    *  leaves every sibling chunk's vectors standing (scar E1). v1 used the same
    *  128. */
   EMBED_BATCH_SIZE: 128,
+  /** Substance a session must add after an authorship ask before the next one
+   *  (conversational turns AND bytes, the episode ritual's own unit): the host's
+   *  Stop fires at EVERY turn, not at session end, and an ask gated on "anything
+   *  uncovered" alone asked every turn (day 0, 2026-09-03). */
+  AUTHORSHIP_REASK_TURNS: 8,
+  AUTHORSHIP_REASK_BYTES: 8_000,
 } as const;
 
 export interface AdapterConfig {

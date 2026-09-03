@@ -2360,3 +2360,32 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
     expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the authorship ask is PACED — the host's Stop is every turn, the ask is not", () => {
+  test("first Stop asks; the next Stop on the same experience does not; enough new spans ask again", () => {
+    const { a } = adapter();
+    const first = a.stop(input());
+    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    // The same session, one more small turn: uncovered > 0, but paced out.
+    const second = a.stop(input({ turns: [...TURNS, { role: "user", text: "And one more short line for the record." }] }));
+    expect(second.authorshipAsk).toBeNull();
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.authorship.ask", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.map((r) => [r["asked"], r["paced"]])).toEqual([[true, false], [false, true]]);
+    // Eight or more new turns AND eight thousand new bytes since the ask: asked again.
+    const more = Array.from({ length: 10 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      text: `Turn ${i}: a genuinely new stretch of conversation, long enough to matter. ${"x".repeat(1_000)}`,
+    }));
+    const third = a.stop(input({ turns: [...TURNS, ...more] }));
+    expect(third.authorshipAsk).toBe(AUTHORSHIP_ASK);
+  });
+
+  test("a different session is paced on its own — the first Stop there asks", () => {
+    const { a } = adapter();
+    a.stop(input());
+    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(AUTHORSHIP_ASK);
+  });
+});

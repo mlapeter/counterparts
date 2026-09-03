@@ -137,6 +137,11 @@ export const EPISODE_ASK_EVENT = "adapter.episode.ask";
  *  primacy row) is still evidenced as having reached a boundary (parallel-run
  *  "what counts as a day"). Counts and cursors; never text. */
 export const BOUNDARY_EVENT = "adapter.boundary";
+/** The authorship ask, durable so its PACING survives the hook process: the
+ *  next Stop reads the last ask's span count out of the store and asks again only
+ *  after enough new experience — day-0 finding (2026-09-03): gated on "anything
+ *  uncovered" alone it asked at every turn. */
+export const AUTHORSHIP_ASK_EVENT = "adapter.authorship.ask";
 export type AdapterDurableEventName =
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -144,7 +149,8 @@ export type AdapterDurableEventName =
   | typeof WAKE_DELIVERED_EVENT
   | typeof RECALL_DELIVERED_EVENT
   | typeof EPISODE_ASK_EVENT
-  | typeof BOUNDARY_EVENT;
+  | typeof BOUNDARY_EVENT
+  | typeof AUTHORSHIP_ASK_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
