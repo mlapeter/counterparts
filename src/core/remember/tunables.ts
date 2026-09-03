@@ -23,6 +23,14 @@ export const TUNABLES = {
    *  (scar E1), not a token budget — the budget belongs to whoever injects the
    *  interpret function. */
   CHUNK_BYTES: 12_000,
+  /** How many recorded failures a span may collect before the sweep stops paying
+   *  for it: at this count it is QUARANTINED (written to `quarantine.jsonl`,
+   *  never restored) instead of retried. The P0 fix traded silent loss for
+   *  indefinite retry — one model call per boundary, forever, on the owner's
+   *  account (replay-review 2026-08-26, "Poison-pill retry is unbounded"). This
+   *  is that bound. Three: enough that a transient outage never quarantines
+   *  anything, small enough that a permanent failure costs three calls. */
+  MAX_SPAN_FAILURES: 3,
   /** CAL. Content-match score floor for `updates:` resolution. Shipped enabled
    *  because failure = refusal = the memory lands unlinked. */
   UPDATES_FLOOR: 0.55,

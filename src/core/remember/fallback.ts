@@ -9,6 +9,10 @@
  * failure isolation (E1), a `stop_reason` guard (E2), restore-on-throw (E6), and an
  * observer that sweeps nothing (E7).
  *
+ * Restore-on-failure is BOUNDED: `SpanBuffer.noteFailures()` counts a span's
+ * failures and quarantines it at `TUNABLES.MAX_SPAN_FAILURES`, so a permanently
+ * failing span cannot bill the owner one model call per boundary forever.
+ *
  * **There is no SDK and no network here.** Interpretation is an INJECTED async
  * function; streaming, retries, token budgets and detachment belong to whoever
  * injects it (INTERFACE-GAPS.md #3). This module owns the choreography only.
@@ -89,6 +93,9 @@ export interface SweepReport {
   chunks: ChunkOutcome[];
   spansSwept: number;
   spansRestored: number;
+  /** Spans that hit the retry bound this run: written to `quarantine.jsonl`,
+   *  never restored, never swept again (TUNABLES.MAX_SPAN_FAILURES). */
+  spansQuarantined: number;
   proposals: number;
   /** False when a failed restore forbade consuming the claim (spec §2 G7). */
   consumed: boolean;
@@ -113,6 +120,7 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
     chunks: [],
     spansSwept: 0,
     spansRestored: 0,
+    spansQuarantined: 0,
     proposals: 0,
     consumed: false,
   };
@@ -197,10 +205,21 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
     } else {
       // Per-chunk failure isolation (scar E1): this chunk's spans go back and are
       // retried at the next boundary; its siblings are unaffected.
-      failed.push(...chunk.spans);
+      //
+      // BOUNDED (replay-review follow-up): the failure is recorded per span, and a
+      // span that has now failed MAX_SPAN_FAILURES times is quarantined instead of
+      // restored. Named limitation: a chunk failure marks EVERY span in the chunk,
+      // so an innocent sibling chunked with a poison pill N times is quarantined
+      // with it. That is the simplest rule that bounds the cost; bisecting a chunk
+      // is machinery in anticipation of a failure not yet seen (Amendment 15).
+      const noted = buffer.noteFailures(opts.scope, chunk.spans, outcome.code ?? outcome.reason);
+      failed.push(...noted.retry);
+      report.spansQuarantined += noted.quarantined.length;
     }
   }
 
+  // Quarantined spans are deliberately NOT in this list: they are not restored,
+  // and their hashes DO belong in the consumed ledger — see `consume()`.
   const restoredSpans = [...failed, ...ineligible];
   const back = buffer.restore(claim, restoredSpans);
   report.spansRestored = back.spans;
@@ -218,6 +237,7 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
     chunks: report.chunks.length,
     swept: report.spansSwept,
     restored: report.spansRestored,
+    quarantined: report.spansQuarantined,
     proposals: report.proposals,
   });
   return { ...report, ran: true, reason: "SWEPT" };
