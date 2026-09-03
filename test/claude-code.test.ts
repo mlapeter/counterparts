@@ -74,7 +74,7 @@ import type {
   LiveEmbedder,
   SpawnPlan,
 } from "../src/adapters/claude-code/index.js";
-import { hostConfig } from "../src/adapters/claude-code/bin/hook.js";
+import { hostConfig, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -2325,5 +2325,38 @@ describe("credentials — the environment first, then the ONE file the config na
     expect(env[API_KEY_ENV]).toBe("sk-ant-inherited-from-the-spawn");
     expect(credentials.skippedPresent).toEqual([API_KEY_ENV]);
     expect(credentials.loaded).toEqual([EMBED_KEY_ENV]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + exit 2 on Stop", () => {
+  const R = (over: Partial<{ injection: string | null; authorshipAsk: string | null; ask: string | null }>) => ({
+    injection: null,
+    authorshipAsk: null,
+    ask: null,
+    ...over,
+  });
+
+  test("session-start and user-prompt-submit deliver on stdout with exit 0 — the wake arrived that way", () => {
+    expect(hostDelivery("session-start", R({ injection: "<counterparts>wake</counterparts>" }), {})).toEqual({
+      stdout: "<counterparts>wake</counterparts>",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(hostDelivery("user-prompt-submit", R({ injection: "recall" }), {}).exitCode).toBe(0);
+  });
+
+  test("a Stop with an ask BLOCKS: the asks go to stderr and the exit code is 2 (stdout reaches nobody on this host)", () => {
+    const d = hostDelivery("stop", R({ authorshipAsk: "Write what you learned.", ask: "Write the episode." }), {});
+    expect(d).toEqual({ stdout: "", stderr: "Write what you learned.\n\nWrite the episode.", exitCode: 2 });
+  });
+
+  test("a Stop with nothing to ask exits 0 and prints nothing", () => {
+    expect(hostDelivery("stop", R({}), {})).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  });
+
+  test("the host's re-fired Stop (`stop_hook_active`) asks NOTHING — the anti-loop v1 carries for the same reason", () => {
+    const d = hostDelivery("stop", R({ authorshipAsk: "Write what you learned." }), { stop_hook_active: true });
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
 });
