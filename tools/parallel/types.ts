@@ -73,8 +73,16 @@ export interface GateVerdict {
 // The daily record
 // ---------------------------------------------------------------------------
 
-/** CONTRACT §5 "What counts as a day". Only `active` counts toward a minimum. */
-export type DayClass = "active" | "thin" | "contaminated" | "mixed" | "silent";
+/**
+ * CONTRACT §5 "What counts as a day". Only `active` counts toward a minimum.
+ *
+ * `unreadable` is the sixth, and it is not one of the CONTRACT's diagnoses — it
+ * is the absence of one. A day whose durable read errored or capped has counts
+ * that are floors of unknown depth, and every other class here is a claim those
+ * counts cannot support. It exists so that such a day can never be `active`
+ * (review blocker 9); it is reported, never folded into a phase minimum.
+ */
+export type DayClass = "active" | "thin" | "contaminated" | "mixed" | "silent" | "unreadable";
 
 /** Which system holds the microphone, as the run record spells it. */
 export type Primacy = "v1" | "v2";
@@ -101,7 +109,8 @@ export interface ContaminationDetectors {
 
 export interface CreatedExited {
   readonly created: number;
-  readonly exited: number;
+  /** NULL when the exit path could not be attributed to this day at all. */
+  readonly exited: number | null;
   readonly byKind: Readonly<Record<string, number>>;
   readonly bySource: Readonly<Record<string, number>>;
   /** False when the tally could not be attributed to this date from the store. */
@@ -122,20 +131,55 @@ export interface CrossEncodingDirection {
   readonly excludedMigrated: number;
   /** Lines scanned on the receiving side. */
   readonly scanned: number;
+  /**
+   * Probe lines dropped for being shorter than the committed floor. `---` and
+   * `## Notes` address identically in every store; offered as probes they hit
+   * everything and mean nothing (review blocker 7a).
+   */
+  readonly probesRejectedShort: number;
+  /** The same floor applied to the receiving corpus. */
+  readonly corpusRejectedShort: number;
+  /**
+   * Lines whose own date could not be read, and which were therefore INCLUDED
+   * rather than dropped: for a red-line, failing toward detection is right, and
+   * the count is here so the number can be read knowing it.
+   */
+  readonly undatedScanned: number;
 }
 
 export interface CrossEncodingMeter {
+  /** Which phase's rule was applied. The rules differ; §9 OQ4 sets both. */
+  readonly phase: RunPhase;
   readonly bar: number;
+  /** The committed probe floor this reading used (`bars.json`). */
+  readonly minLineChars: number;
+  /** Phase P's red-line share of v1's daily mints (`bars.json`, 0.10). */
+  readonly ratioBar: number;
   readonly v1IntoV2: CrossEncodingDirection;
   readonly v2IntoV1: CrossEncodingDirection;
   readonly total: number;
-  /** Above the bar. CONTRACT §5 G7 + G10: a red-line halts the day count. */
+  /**
+   * CONTRACT §5 G7 + G10: a red-line halts the day count. Phase S: ANY hit.
+   * Phase P: only above `ratioBar` of v1's mints that day (§9 OQ4, RULED
+   * 2026-09-03) — v1 keeps v2's injected text by design, so a small count there
+   * is the accepted cost, not a breach.
+   */
   readonly redLine: boolean;
+  /** Phase P, at or below the ratio: a NAMED FINDING, reported, not a halt. */
+  readonly namedFinding: boolean;
+  /** v1 lines carrying a verbatim v2 line ÷ v1's mints that day. Null if unread. */
+  readonly ratio: number | null;
+  /** v1's mints on this day — the ratio's denominator, shown with it always. */
+  readonly ratioDenominator: number | null;
+  /** Which rule was applied and against what. Prose, so the number is legible. */
+  readonly ratioNote: string;
   /**
    * §5 G7's named blind spot, carried beside the number so it can never be read
-   * without it: the exposure denominator this meter does NOT cover.
+   * without it: the exposure denominator this meter does NOT cover. NULL when
+   * the primary's recall volume could not be read at all — a zero there would
+   * claim the blind spot was empty.
    */
-  readonly exposureDenominator: number;
+  readonly exposureDenominator: number | null;
 }
 
 export interface DailyRecord {
@@ -160,6 +204,16 @@ export interface DailyRecord {
     readonly v1: CreatedExited;
     readonly v2: CreatedExited;
   };
+  /**
+   * `remember.span.quarantined`, recomputed read-only from the line count of
+   * every scope's `quarantine.jsonl` (CONTRACT §5 G2's "recomputed read-only
+   * from durable state rather than stored — named as such by the instrument").
+   */
+  readonly quarantine: {
+    readonly present: boolean;
+    readonly files: number;
+    readonly lines: number;
+  };
   readonly crossEncoding: CrossEncodingMeter;
   /** Where the day's v1 log lines were copied (G2's evidence, off v1's clock). */
   readonly v1LogCopy: string | null;
@@ -171,10 +225,16 @@ export interface DailyRecord {
 
 export interface V1SessionOrder {
   readonly session: string;
-  /** Sequence of the first delivery event in this session, or null. */
+  /**
+   * FILE ORDINAL of the first delivery event in this session, or null — never
+   * v1's own `seq`, which restarts in every hook process (review blocker 4).
+   */
   readonly firstDelivery: number | null;
-  /** Sequence of the last `ab.muted` in this session, or null. */
+  /** File ordinal of the last `ab.muted` in this session, or null. */
   readonly lastMuted: number | null;
+  /** The ISO stamps the ordering actually used, so the verdict is auditable. */
+  readonly firstDeliveryAt: string | null;
+  readonly lastMutedAt: string | null;
   /** A delivery followed LATER by a mute: the flip straddled this session. */
   readonly straddled: boolean;
 }
@@ -203,20 +263,38 @@ export interface V1DayCounts {
 export interface V2DayCounts {
   readonly present: boolean;
   readonly path: string;
-  /** sqlite refused a write through the very handle this reader used. */
-  readonly readOnlyProof: boolean;
+  /**
+   * sqlite refused a write through the very handle this reader used. NULL when
+   * no store was opened at all — an unopened store proves nothing, and `true`
+   * there was a fabricated guarantee. It is never `false`: a handle that
+   * accepts a write makes the reader THROW rather than report (readers.ts).
+   */
+  readonly readOnlyProof: boolean | null;
   readonly livedDayNow: number | null;
   readonly lastActiveDate: string | null;
   /** True when the event read hit its row cap: the counts below are a FLOOR,
    *  not a total. A counter that quietly caps is the scar §2.4 failure. */
   readonly truncated: boolean;
   readonly eventRowsRead: number;
+  /**
+   * Reads that FAILED — the SQL and sqlite's message, never a row. A day with
+   * any of these cannot be classified: `record.ts` poisons its detectors to
+   * null and refuses `active` (scar §2.4 — a swallowed error is a zero).
+   */
+  readonly readErrors: readonly string[];
   /** Durable rows whose PAYLOAD carries `date === <date>` (the adapter events). */
   readonly byNameForDate: Readonly<Record<string, number>>;
   readonly primacyByHook: {
     readonly deliver: Readonly<Record<string, number>>;
     readonly standdown: Readonly<Record<string, number>>;
   };
+  /**
+   * The same rows keyed by the HOST session id every adapter record carries in
+   * its payload, then by what happened (`deliver:<hook>`, or the event name).
+   * The `silent` class's right half, and the reason it is a join rather than a
+   * difference of counts.
+   */
+  readonly bySessionForDate: Readonly<Record<string, Readonly<Record<string, number>>>>;
   /** Durable rows counted by the store's LIVED-day column, when one was given. */
   readonly byNameForLivedDay: Readonly<Record<string, number>>;
   readonly livedDayRead: number | null;
@@ -233,8 +311,16 @@ export interface V2DayCounts {
     readonly createdOnDate: number;
     readonly createdByKind: Readonly<Record<string, number>>;
     readonly createdBySource: Readonly<Record<string, number>>;
-    readonly exitedOnDate: number;
+    /**
+     * Exits counted from the durable `memory.pruned` / `memory.merged` rows.
+     * NULL is `not-exercised`: those rows carry only the store's LIVED day, so
+     * without a `--lived-day` there is nothing to attribute them to, and a zero
+     * would read as "nothing left the store" (scar §2.4).
+     */
+    readonly exitedOnDate: number | null;
     readonly exitedByKind: Readonly<Record<string, number>>;
+    /** How the number above was obtained — or why there is none. */
+    readonly exitedNote: string;
     readonly archivedTotal: number;
   };
 }
@@ -243,7 +329,7 @@ export interface V2DayCounts {
 // The transcript canary and the host's hook model
 // ---------------------------------------------------------------------------
 
-/** A foreign marker found in a CONVERSATION block. Address only, never text. */
+/** A foreign marker found in a message block. Address only, never text. */
 export interface CanaryHit {
   readonly file: string;
   readonly entry: number;
@@ -271,8 +357,17 @@ export interface HookModelReport {
   readonly perHook: readonly HookDurations[];
   /** The host's shared SessionEnd budget, in ms. */
   readonly sessionEndBudgetMs: number;
-  /** What SessionEnd actually cost — summed when sequential, max when parallel. */
+  /**
+   * What the WORST SINGLE SESSION's SessionEnd cost — summed across its hooks
+   * when sequential, the longest when parallel. Per session, and SessionEnd
+   * only: `Stop` is a different event with a different budget. NULL when no
+   * SessionEnd record was seen, which is `not-exercised`, never a pass.
+   */
   readonly sessionEndWorstMs: number | null;
+  /** How many sessions carried a SessionEnd record at all. The denominator. */
+  readonly sessionEndSessions: number;
+  /** Which session that worst cost came from — a path, so it can be re-read. */
+  readonly worstSession: string | null;
   readonly sessionEndOk: boolean | null;
 }
 
@@ -280,8 +375,30 @@ export interface CanaryScan {
   readonly files: number;
   readonly entries: number;
   readonly corrupt: number;
-  /** Foreign markers inside user/assistant CONVERSATION blocks. A red-line. */
+  /**
+   * v1's WAKE/RECALL markers (indexes 2–4) inside user/assistant CONVERSATION
+   * blocks. THE red-line: that exclusion is carried by the host's transcript
+   * shape, so one of these here means the host changed (§5 G8, scar §2.18).
+   */
   readonly conversationHits: readonly CanaryHit[];
+  /**
+   * v1's EPISODE-ASK markers (indexes 0–1) in a user-role block, WITH
+   * `classifyBlock` agreeing they are `foreign`. This is the design working —
+   * §5 G8's "the one channel that DOES land as a user-role message ... is the
+   * `foreign` case" — so it is counted, never red-lined.
+   */
+  readonly byDesignHits: readonly CanaryHit[];
+  /**
+   * An episode-ask marker whose text `classifyBlock` did NOT call `foreign`.
+   * Recognizer drift: the exclusion silently stopped applying. Its own red-line.
+   */
+  readonly recognizerDrift: readonly CanaryHit[];
+  /**
+   * Every v1 marker the scan saw anywhere, attachments included. ZERO means the
+   * scan proved nothing — an empty corpus and a clean one are indistinguishable
+   * — so the check reads `not-exercised` rather than passing vacuously.
+   */
+  readonly markersSeen: number;
   /**
    * Foreign markers in host-carried material — `tool_result` blocks and entries
    * with no message role. Reported SEPARATELY because that exclusion is carried
@@ -299,16 +416,33 @@ export interface RunRecord {
   readonly startDate: string;
   readonly phase: RunPhase;
   readonly primacy: Primacy;
-  /** Active days, per phase. Only `active` days are counted (scar E8). */
+  /**
+   * Active days, PER PHASE. Recomputed from `days[].phase` on every write, so a
+   * Phase P count can never inherit Phase S's days (review blocker 5).
+   */
   readonly activeDays: Readonly<Record<string, number>>;
-  /** Every lived day recorded, with its class. */
-  readonly days: readonly { readonly date: string; readonly class: DayClass }[];
+  /**
+   * Every lived day recorded, with its class AND the phase it was lived in —
+   * the field the per-phase counts are computed from. Without it the run record
+   * cannot say which minimum a day counted toward (scar E8).
+   */
+  readonly days: readonly {
+    readonly date: string;
+    readonly class: DayClass;
+    readonly phase: RunPhase;
+  }[];
   readonly configHashes: {
     readonly v2Config: string | null;
     readonly assignment: string | null;
   };
   readonly seat: string;
   readonly vectors: string;
+  /**
+   * G12's carry-forward hash: the digest of `surfaceSetFields()` as of the
+   * build that wrote this record. Precondition 9's second half — "provably
+   * identical" needs a hash written down BEFORE the change it prices.
+   */
+  readonly surfaceSet: string;
   readonly updatedAt: string;
 }
 
@@ -316,5 +450,22 @@ export interface Bars {
   /** K — the active-day conversational-turn floor, committed before Phase S. */
   readonly activeDayTurnFloor: number;
   readonly crossEncodingBar: number;
+  /**
+   * The cross-encoding meter's PROBE FLOOR, in characters. Committed like every
+   * other bar and required like every other bar: without it `---` and `## Notes`
+   * are probes, and the meter manufactures hits out of markdown punctuation.
+   * There is no default — a floor chosen after seeing the data is not a bar.
+   */
+  readonly crossEncodingMinLineChars: number;
+  /**
+   * Phase P's red-line share of v1's daily mints (§9 OQ4, RULED 2026-09-03:
+   * 0.10). Phase S's bar is zero hits and does not use this.
+   */
+  readonly crossEncodingRatioBar: number;
   readonly committedAt: string;
+  /**
+   * Precondition 1's drop-dead, as a DATE the preflight can compare rather than
+   * a sentence in a document (§5 P1: "drop-dead 2026-09-08").
+   */
+  readonly preconditionDropDead: string;
 }

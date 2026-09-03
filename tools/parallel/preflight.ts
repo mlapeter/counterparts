@@ -24,17 +24,29 @@ import { embedSeat, interpretSeat, loadConfig } from "../../src/adapters/claude-
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../../src/adapters/claude-code/config.js";
 import { SELF_TUNABLES } from "../../src/core/self/tunables.js";
 
+import { RECALL_DECISION_EVENT } from "../../src/core/counterpart.js";
+
 import { gateSets, parallelGateOpen, parseGateRecord, parseWaivers } from "./gate.js";
 import {
   overlaps,
   readAssignmentAs,
   readSchemaBytes,
+  readSurfaceEvidence,
   realpathOr,
   scanTranscripts,
   transcriptFiles,
 } from "./readers.js";
+import { surfaceSetHash } from "./surface.js";
 import type { AssignmentReading, HookEnvSpec } from "./readers.js";
-import type { Bars, CheckGate, CheckRow, CheckStatus, PreflightReport, RunPhase } from "./types.js";
+import type {
+  Bars,
+  CanaryHit,
+  CheckGate,
+  CheckRow,
+  CheckStatus,
+  PreflightReport,
+  RunPhase,
+} from "./types.js";
 
 export interface PreflightOptions {
   readonly runDir: string;
@@ -146,6 +158,11 @@ function dataDirsRow(opts: PreflightOptions): CheckRow {
     ["v2 dataDir", opts.v2DataDir],
     ["v1 dir", opts.v1Dir],
     ["engram dir", opts.engramDir],
+    // THE RUN DIRECTORY IS IN THE ROW. It is the one thing this tool writes,
+    // so it is the one directory whose overlap with a live store would turn
+    // the instrument into a writer of its own subject (§5 G1). `RunDir.open`
+    // refuses it structurally; this row is where the operator SEES it.
+    ["run dir", opts.runDir],
   ];
   const resolved = pairs.map(([name, p]) => [name, realpathOr(p)] as const);
   const clashes: string[] = [];
@@ -228,34 +245,68 @@ function replayGateRow(opts: PreflightOptions): CheckRow {
     : row("replay.gate", "fail", `${verdict.reasons.join("; ")} · ${shape}`);
 }
 
-/** §5 G6/G8: zero foreign markers in a conversation block. Anything is a red-line. */
+/**
+ * §5 G6/G8: THE CANARY, GRADED BY MARKER CLASS.
+ *
+ * The first draft red-lined every `FOREIGN_MARKERS` hit in a user-role block,
+ * which condemns the CONTRACT's own designed case: §5 G8 says v1's episode ask
+ * — `Stop hook feedback:` + `[bansai] …` — "is the `foreign` case", the exact
+ * thing the new `TurnSource` exists to refuse. The run would have halted on day
+ * 1 for the mechanism working. So:
+ *
+ *   - episode-ask markers (0–1) in a user-role block, classified `foreign`:
+ *     PASS, counted as `byDesign`. That IS the design.
+ *   - the same markers NOT classified `foreign`: FAIL. Recognizer drift means
+ *     `enters()` stopped refusing them, which is the breach itself.
+ *   - wake/recall markers (2–4) in a conversation block: FAIL. Their exclusion
+ *     is the host's transcript shape; here it means the host changed.
+ *   - no v1 marker seen ANYWHERE: `not-exercised`. A scan over an empty corpus
+ *     and a scan over a clean one look identical, and only one of them is
+ *     evidence (scar §2.4).
+ */
 function canaryRow(opts: PreflightOptions): { row: CheckRow; hookRow: CheckRow } {
   const files = opts.transcripts.flatMap((t) => transcriptFiles(t));
   const scan = scanTranscripts(files);
+  const where = (hits: readonly CanaryHit[]): string =>
+    hits
+      .slice(0, 5)
+      .map((h) => `${h.file}#${h.entry}[${h.role}] marker ${h.marker}`)
+      .join("; ");
+  const seen =
+    `${scan.files} file(s), ${scan.entries} entries · ${scan.markersSeen} v1 marker(s) seen ` +
+    `(${scan.byDesignHits.length} episode-ask by design, ${scan.attachmentHits} host-carried) · ` +
+    `${scan.corrupt} unparseable line(s)`;
+
   const canary =
-    scan.conversationHits.length === 0
+    scan.conversationHits.length > 0
       ? row(
           "canary.transcripts",
-          "pass",
-          `${scan.files} file(s), ${scan.entries} entries, 0 conversation-block hits · ` +
-            `${scan.attachmentHits} host-carried hit(s) (the transcript-shape exclusion, reported separately) · ` +
-            `${scan.corrupt} unparseable line(s)`,
-        )
-      : row(
-          "canary.transcripts",
           "fail",
-          `RED-LINE: ${scan.conversationHits.length} foreign marker(s) inside conversation blocks — ` +
-            scan.conversationHits
-              .slice(0, 5)
-              .map((h) => `${h.file}#${h.entry}[${h.role}] marker ${h.marker}`)
-              .join("; "),
-        );
+          `RED-LINE: ${scan.conversationHits.length} v1 wake/recall marker(s) inside conversation blocks — ${where(scan.conversationHits)} · ${seen}`,
+        )
+      : scan.recognizerDrift.length > 0
+        ? row(
+            "canary.transcripts",
+            "fail",
+            `RED-LINE: ${scan.recognizerDrift.length} episode-ask marker(s) that classifyBlock did NOT call \`foreign\` — the exclusion has stopped applying — ${where(scan.recognizerDrift)} · ${seen}`,
+          )
+        : scan.markersSeen === 0
+          ? row(
+              "canary.transcripts",
+              "not-exercised",
+              `no v1 marker was seen anywhere in the scanned corpus, so nothing was proved: an empty scan and a clean one are indistinguishable. Point --transcripts at days on which v1 actually ran. · ${seen}`,
+            )
+          : row(
+              "canary.transcripts",
+              "pass",
+              `0 wake/recall marker(s) in conversation blocks; the ${scan.byDesignHits.length} episode-ask marker(s) present are classified \`foreign\`, which is §5 G8 working · ${seen}`,
+            );
 
   const h = scan.hooks;
   const budget =
     h.sessionEndWorstMs === null
       ? "no SessionEnd hook record observed"
-      : `SessionEnd ${h.sessionEndWorstMs}ms vs the host's ${h.sessionEndBudgetMs}ms shared budget` +
+      : `worst session's SessionEnd ${h.sessionEndWorstMs}ms over ${h.sessionEndSessions} session(s) vs the host's ${h.sessionEndBudgetMs}ms shared budget` +
         (h.sessionEndOk === true ? " (within)" : " (OVER)");
   const durations = h.perHook
     .map((p) => `${p.hookEvent}/${p.hookName} n=${p.count} min=${p.minMs} med=${p.medianMs} max=${p.maxMs}`)
@@ -263,12 +314,22 @@ function canaryRow(opts: PreflightOptions): { row: CheckRow; hookRow: CheckRow }
   const hookDetail = `model=${h.model} overlaps=${h.overlaps} records=${h.records} · ${budget}${durations.length === 0 ? "" : ` · ${durations}`}`;
   // scar §2.18: MEASURED, never assumed. `unknown` is not a pass — it means no
   // evidence was collected, which is exactly what the check exists to refuse.
+  // Neither is an UNMEASURED SessionEnd budget: the CONTRACT asks for "the
+  // SessionEnd budget the host shares across all hooks MEASURED with both
+  // systems' hooks installed", and `sessionEndWorstMs === null` is that
+  // measurement missing, not that measurement passing.
   const hookRow =
     h.model === "unknown"
       ? row("host.hooks", "not-exercised", `the execution model was not measured — ${hookDetail}`)
-      : h.sessionEndOk === false
-        ? row("host.hooks", "fail", `the shared SessionEnd budget is exceeded — ${hookDetail}`)
-        : row("host.hooks", "pass", hookDetail);
+      : h.sessionEndOk === null
+        ? row(
+            "host.hooks",
+            "not-exercised",
+            `the execution model is ${h.model}, but the shared SessionEnd budget was never measured — the CONTRACT asks for it with BOTH systems' hooks installed — ${hookDetail}`,
+          )
+        : h.sessionEndOk === false
+          ? row("host.hooks", "fail", `the shared SessionEnd budget is exceeded — ${hookDetail}`)
+          : row("host.hooks", "pass", hookDetail);
 
   return { row: canary, hookRow };
 }
@@ -281,18 +342,31 @@ export function readBars(runDir: string): Bars | null {
   // DATED means dated: §5 G15 commits the bars "in the run directory, dated",
   // and `committedAt: "yes"` would satisfy a non-empty check while proving
   // nothing about when the commitment was made.
+  // EVERY BAR IS REQUIRED, and none of them has a default anywhere in this tool.
+  // `crossEncodingMinLineChars` in particular: a probe floor chosen after seeing
+  // the data is not a committed bar, and without one the meter addresses `---`.
+  // `preconditionDropDead` is §5 P1's date, machine-readable rather than prose.
+  const dropDead = r["preconditionDropDead"];
   if (
     typeof r["activeDayTurnFloor"] !== "number" ||
     typeof r["crossEncodingBar"] !== "number" ||
+    typeof r["crossEncodingMinLineChars"] !== "number" ||
+    r["crossEncodingMinLineChars"] < 1 ||
+    typeof r["crossEncodingRatioBar"] !== "number" ||
     typeof r["committedAt"] !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}/.test(r["committedAt"])
+    !/^\d{4}-\d{2}-\d{2}/.test(r["committedAt"]) ||
+    typeof dropDead !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(dropDead)
   ) {
     return null;
   }
   return {
     activeDayTurnFloor: r["activeDayTurnFloor"],
     crossEncodingBar: r["crossEncodingBar"],
+    crossEncodingMinLineChars: r["crossEncodingMinLineChars"],
+    crossEncodingRatioBar: r["crossEncodingRatioBar"],
     committedAt: r["committedAt"],
+    preconditionDropDead: dropDead,
   };
 }
 
@@ -302,14 +376,25 @@ function barsRow(opts: PreflightOptions): CheckRow {
     return row(
       "bars.committed",
       "fail",
-      `bars.json must exist in the run directory with activeDayTurnFloor (K), crossEncodingBar and a dated committedAt: ${join(opts.runDir, "bars.json")}`,
+      "bars.json must exist in the run directory with activeDayTurnFloor (K), " +
+        "crossEncodingBar, crossEncodingMinLineChars (>=1), crossEncodingRatioBar, " +
+        `a dated committedAt and a dated preconditionDropDead: ${join(opts.runDir, "bars.json")}`,
     );
   }
-  return row(
-    "bars.committed",
-    "pass",
-    `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} · committed ${bars.committedAt}`,
-  );
+  const late = opts.today > bars.preconditionDropDead;
+  const detail =
+    `K=${bars.activeDayTurnFloor} turns · crossEncodingBar=${bars.crossEncodingBar} · ` +
+    `probe floor ${bars.crossEncodingMinLineChars} chars · Phase-P ratio bar ${bars.crossEncodingRatioBar} · ` +
+    `committed ${bars.committedAt} · precondition drop-dead ${bars.preconditionDropDead}`;
+  // §5 P1's drop-dead is a DATE the preflight compares, not a sentence someone
+  // remembers: past it, the run does not start and v1 flips as-is (§9 OQ5).
+  return late
+    ? row(
+        "bars.committed",
+        "fail",
+        `the precondition drop-dead ${bars.preconditionDropDead} has passed (today ${opts.today}): §5 P1 / §9 OQ5 say the run does not start and v1 flips as-is — ${detail}`,
+      )
+    : row("bars.committed", "pass", detail);
 }
 
 /** Precondition 5's second reading: `schemaBytes` on the store, read-only. */
@@ -385,30 +470,44 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
     ),
   );
 
-  // 6 — the migrated starting store (OQ2, RULED 2026-09-03). The evidence the
-  // CONTRACT asks for is the migration report, IN the run directory, whose
-  // source-manifest proof holds.
+  // 6 — the migrated starting store (OQ2, RULED 2026-09-03).
+  //
+  // THREE THINGS, not one. A dry-run report carries `source_readonly.identical`
+  // too — of course it does, a dry run writes nothing — so the old check passed
+  // on a report that proved the migration had NOT happened. The CONTRACT wants
+  // "the real `--apply` into a fresh v2 data dir with the source-manifest
+  // proof", which is: mode is `apply`, the target IS the data dir this run
+  // measures (by realpath, not by spelling), and the source is unharmed.
   const reportPath = join(opts.runDir, "migration-report.json");
   const report = readJson(reportPath);
-  const proof =
-    report !== null && typeof report === "object" && !Array.isArray(report)
-      ? ((report as Record<string, unknown>)["source_readonly"] as Record<string, unknown> | undefined)
-      : undefined;
-  const identical = proof?.["identical"] === true;
+  const asObj = (v: unknown): Record<string, unknown> | undefined =>
+    v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  const rep = asObj(report);
+  const proof = asObj(rep?.["source_readonly"]);
+  const mode = rep?.["mode"];
+  const target = typeof rep?.["target"] === "string" ? (rep["target"] as string) : null;
+  const targetReal = target === null ? null : realpathOr(target);
+  const wantReal = realpathOr(opts.v2DataDir);
+  const p6: string[] = [];
+  if (rep === undefined) {
+    p6.push(`no migration report at ${reportPath} (OQ2 RULED migrated: the run needs the real --apply)`);
+  } else {
+    // `tools/migrate/types.ts`: `mode: "dry-run" | "apply"`, `target: string`.
+    if (mode !== "apply") p6.push(`the report's mode is ${JSON.stringify(mode)}, not "apply" — a dry run wrote nothing`);
+    if (target === null) p6.push("the report names no target");
+    else if (targetReal !== wantReal) {
+      p6.push(`the report's target ${targetReal} is not the v2 dataDir this run measures (${wantReal})`);
+    }
+    if (proof?.["identical"] !== true) p6.push("source_readonly.identical is not true");
+  }
   out.push(
-    identical
+    p6.length === 0
       ? row(
           "precondition.6",
           "pass",
-          `migration report present with manifestIdentical: true over ${String(proof?.["files"] ?? "?")} source file(s) — ${reportPath}`,
+          `migration report: mode=apply · target=${targetReal} === the run's v2 dataDir · source_readonly.identical over ${String(proof?.["files"] ?? "?")} file(s) — ${reportPath}`,
         )
-      : row(
-          "precondition.6",
-          "fail",
-          report === null
-            ? `no migration report at ${reportPath} (OQ2 RULED migrated: the run needs the real --apply and its source-manifest proof)`
-            : `the migration report at ${reportPath} does not carry source_readonly.identical === true`,
-        ),
+      : row("precondition.6", "fail", `${p6.join("; ")} — ${reportPath}`),
   );
 
   // 7 — priced and approved, not assumed.
@@ -428,26 +527,99 @@ function preconditionRows(opts: PreflightOptions, schemaBytes: CheckRow): CheckR
         ),
   );
 
-  // 8 and 9 — pre-Phase-P, in the CONTRACT's own wording, so the S→P flip
-  // preflight has something to flip rather than something to invent.
-  out.push(
-    row(
-      "precondition.8",
-      "not-exercised",
-      "The ask channel is proven on this host — before Phase P. A v2 Stop-hook ask observed arriving in the model's context at least once in a throwaway session, with the channel and exit code recorded as an adapter capability. Gates the S→P flip, not day 1.",
-      "s-to-p",
-    ),
-  );
-  out.push(
-    row(
-      "precondition.9",
-      "not-exercised",
-      "The per-turn surfacing decision record is durable — before Phase P. Without it no §6 Recall criterion is recomputable from the store and G12's \"provably identical\" has nothing to hash. Gates the S→P flip, not day 1.",
-      "s-to-p",
-    ),
-  );
+  // 8 and 9 — pre-Phase-P, and NOW WITH INPUTS. Hardcoding them
+  // `not-exercised` made the S→P flip preflight — the one the CONTRACT says
+  // they gate — impossible to pass by construction: `--phase P` could never
+  // reach `ready: true`. Each now has a machine-readable artifact to read.
+  out.push(askChannelRow(opts));
+  out.push(surfaceRecordRow(opts));
 
   return out;
+}
+
+/**
+ * PRECONDITION 8 — the ask channel, proven on this host.
+ *
+ * "A v2 Stop-hook ask is observed arriving in the model's context at least once
+ * in a throwaway session, with the channel and exit code recorded as an adapter
+ * capability." That observation is a HUMAN act — someone runs a throwaway
+ * session and watches — so what the preflight can check is that the observation
+ * was RECORDED, in a shape a machine reads: `ask-channel.json` in the run
+ * directory, carrying what was seen, when, through which channel, and with what
+ * exit code. Prose in a document is exactly what §5's "none waived by prose"
+ * refuses.
+ */
+function askChannelRow(opts: PreflightOptions): CheckRow {
+  const path = join(opts.runDir, "ask-channel.json");
+  const raw = readJson(path) as Record<string, unknown> | null;
+  const missing: string[] = [];
+  const observedAt = typeof raw?.["observedAt"] === "string" ? (raw["observedAt"] as string) : "";
+  const channel = typeof raw?.["channel"] === "string" ? (raw["channel"] as string) : "";
+  const exitCode = raw?.["exitCode"];
+  const session = typeof raw?.["session"] === "string" ? (raw["session"] as string) : "";
+  if (raw === null) {
+    return row(
+      "precondition.8",
+      "not-exercised",
+      `the ask channel has not been proven on this host: run a throwaway session, observe a v2 Stop-hook ask arriving in the model's context, and record {observedAt, channel, exitCode, session} at ${path}. v2 writes its asks to plain stdout and exits 0, a channel no v2 hook has yet demonstrated here (v1 blocks with stderr + exit 2), so Phase P day 1 would otherwise be the authored dump's first fire anywhere. Gates the S→P flip, not day 1.`,
+      "s-to-p",
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2}/.test(observedAt)) missing.push("a dated observedAt");
+  if (channel.trim().length === 0) missing.push("channel");
+  if (typeof exitCode !== "number") missing.push("a numeric exitCode");
+  if (session.trim().length === 0) missing.push("session");
+  return missing.length === 0
+    ? row(
+        "precondition.8",
+        "pass",
+        `the ask arrived on ${channel} with exit code ${String(exitCode)}, observed ${observedAt} in session ${session} — ${path}`,
+        "s-to-p",
+      )
+    : row(
+        "precondition.8",
+        "fail",
+        `${path} is missing ${missing.join(", ")}: the observation must be machine-readable, not prose`,
+        "s-to-p",
+      );
+}
+
+/**
+ * PRECONDITION 9 — the per-turn surfacing decision record is durable.
+ *
+ * Two readings, both off real artifacts. (a) The store actually HOLDS
+ * `recall.decision` rows — replay INTERFACE-GAPS §7 recorded them as not
+ * persisted, and only the rows can say whether that changed. (b) `run.json`
+ * carries the hash of `surfaceSetFields()`, which is what G12's carry-forward
+ * rule compares a mid-run change against: "provably identical" needs something
+ * to hash, and it has to have been written down BEFORE the change.
+ */
+function surfaceRecordRow(opts: PreflightOptions): CheckRow {
+  const evidence = readSurfaceEvidence(opts.v2DataDir);
+  const run = readJson(join(opts.runDir, "run.json")) as Record<string, unknown> | null;
+  const recorded = typeof run?.["surfaceSet"] === "string" ? (run["surfaceSet"] as string) : "";
+  const current = surfaceSetHash();
+  const problems: string[] = [];
+  if (!evidence.present) problems.push(`no v2 store at ${opts.v2DataDir}`);
+  else if (evidence.readErrors.length > 0) problems.push(`the store read failed: ${evidence.readErrors.join(" | ")}`);
+  else if (evidence.recallDecisions === 0) {
+    problems.push(
+      `the store holds no \`${RECALL_DECISION_EVENT}\` rows, so no §6 Recall criterion is recomputable from it (replay INTERFACE-GAPS §7)`,
+    );
+  }
+  if (recorded.length === 0) {
+    problems.push("run.json carries no surfaceSet hash, so G12's \"provably identical\" has nothing to compare against");
+  } else if (recorded !== current) {
+    problems.push(`run.json's surfaceSet hash ${recorded} is not this build's ${current} — the surface set moved (G12)`);
+  }
+  return problems.length === 0
+    ? row(
+        "precondition.9",
+        "pass",
+        `${evidence.recallDecisions} durable \`${RECALL_DECISION_EVENT}\` row(s) · surfaceSet ${current} recorded in run.json`,
+        "s-to-p",
+      )
+    : row("precondition.9", "not-exercised", `${problems.join("; ")}. Gates the S→P flip, not day 1.`, "s-to-p");
 }
 
 // ---------------------------------------------------------------------------
@@ -487,10 +659,32 @@ export function runPreflight(opts: PreflightOptions): PreflightReport {
   };
 }
 
-/** The three enumerated id sets, as precondition 1 copies them into the run dir. */
-export function preflightArtifacts(report: PreflightReport): {
+/**
+ * The three enumerated id sets, as precondition 1 copies them into the run dir
+ * — plus the DROP-DEAD, as a dated field.
+ *
+ * §5 P1 ends "drop-dead 2026-09-08", and a date that lives only in a sentence
+ * is a date nobody compares. It is committed in `bars.json`, checked by the
+ * `bars.committed` row against `--today`, and copied here beside the sets it
+ * belongs to, so the artifact precondition 1 leaves behind carries its own
+ * deadline.
+ */
+export function preflightArtifacts(
+  report: PreflightReport,
+  bars: Bars | null,
+): {
   readonly "preflight.json": PreflightReport;
-  readonly "gate-sets.json": ReturnType<typeof gateSets>;
+  readonly "gate-sets.json": ReturnType<typeof gateSets> & {
+    readonly preconditionDropDead: string | null;
+    readonly committedAt: string | null;
+  };
 } {
-  return { "preflight.json": report, "gate-sets.json": gateSets() };
+  return {
+    "preflight.json": report,
+    "gate-sets.json": {
+      ...gateSets(),
+      preconditionDropDead: bars?.preconditionDropDead ?? null,
+      committedAt: bars?.committedAt ?? null,
+    },
+  };
 }

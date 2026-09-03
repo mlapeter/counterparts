@@ -15,8 +15,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { gateSets } from "../gate.js";
-import { runPreflight } from "../preflight.js";
+import { preflightArtifacts, readBars, runPreflight } from "../preflight.js";
 import type { RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
 
@@ -74,7 +73,8 @@ function parseArgs(argv: readonly string[]): Args {
     const flag = argv[i];
     const value = argv[i + 1];
     if (flag === undefined) break;
-    if (!flag.startsWith("--") || value === undefined) usage();
+    // A value that begins with `--` is a MISSING value, not a path.
+    if (!flag.startsWith("--") || value === undefined || value.startsWith("--")) usage();
     i += 1;
     switch (flag) {
       case "--run-dir":
@@ -149,9 +149,19 @@ function main(argv: readonly string[]): number {
     phase: args.phase,
   });
 
-  const run = RunDir.open(args.runDir);
-  run.writeJson("preflight.json", report);
-  run.writeJson("gate-sets.json", gateSets());
+  // THE RUN DIRECTORY IS CHECKED BEFORE IT IS CREATED. `RunDir.open` refuses a
+  // run dir that overlaps any live store, in either direction, by realpath — so
+  // a mistyped `--run-dir` cannot mkdir the instrument's one write target
+  // inside the subject it observes (CONTRACT §5 G1, scar §2.13).
+  const run = RunDir.open(args.runDir, {
+    v1Dir: args.v1Dir,
+    v2DataDir: args.v2DataDir,
+    engramDir: args.engramDir,
+    abDir: args.abDir,
+  });
+  for (const [rel, value] of Object.entries(preflightArtifacts(report, readBars(args.runDir)))) {
+    run.writeJson(rel, value);
+  }
 
   const out: string[] = [];
   out.push(`COUNTERPARTS PARALLEL-RUN PREFLIGHT — phase ${report.phase}`);
@@ -175,4 +185,18 @@ function main(argv: readonly string[]): number {
   return report.ready ? 0 : 1;
 }
 
-process.exit(main(process.argv.slice(2)));
+/** A named refusal prints its sentence and exits 2, never a stack trace. */
+function run(argv: readonly string[]): number {
+  try {
+    return main(argv);
+  } catch (err) {
+    const named = err as { name?: unknown; message?: unknown };
+    if (named?.name === "WriterError" || named?.name === "RecordError" || named?.name === "ReaderError") {
+      process.stderr.write(`REFUSED — ${String(named.message)}\n`);
+      return 2;
+    }
+    throw err;
+  }
+}
+
+process.exit(run(process.argv.slice(2)));

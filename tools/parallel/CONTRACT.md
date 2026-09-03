@@ -189,10 +189,15 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
   other lived day is recorded with a class and NOT counted toward a phase minimum:
   **thin** (below the floor), **contaminated** (the muted side delivered — G4),
   **mixed** (a session straddled the flip: a delivery event and a later `ab.muted` in
-  the same v1 session), **silent** (v1 muted at session start and no v2
-  `adapter.wake.injected` for that session — the state G4 cannot see by counting extra
-  voices, so it is counted by its absence). Classes are reported side by side with the
-  active count, never folded into it.
+  the same v1 session), **silent** (v1 muted at session start and no v2 delivery record
+  — `adapter.primacy.deliver{session-start}` or any of the four delivery records —
+  naming that same host session id: the state G4 cannot see by counting extra voices,
+  so it is counted by its absence; a stand-down is not speaking), and **unreadable**
+  (added by the build, 2026-09-03: a day whose durable v2 read errored or hit its row
+  cap has counts that are floors of unknown depth, so its contamination detectors read
+  `null` and no other class's claim is supportable — a read that failed is not a day
+  that was quiet, scar §2.4). Classes are reported side by side with the active count,
+  never folded into it.
 
 ### Inputs
 

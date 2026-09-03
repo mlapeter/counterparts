@@ -17,9 +17,15 @@ export type { GateReadableRecord } from "./gate.js";
 
 export {
   DURABLE_DETECTORS,
+  DURABLE_EXIT_EVENTS,
+  EPISODE_ASK_MARKERS,
   HOST_SESSION_END_BUDGET_MS,
+  MEMORY_MERGED_EVENT,
+  MEMORY_PRUNED_EVENT,
   NON_DURABLE_DETECTORS,
+  READ_BUSY_TIMEOUT_MS,
   ReaderError,
+  WAKE_RECALL_MARKERS,
   V1_CREATED_EVENT,
   V1_DETECTOR_TYPES,
   V1_EXITED_EVENT,
@@ -27,15 +33,22 @@ export {
   V1_RITUAL_EVENT,
   V1_TURN_EVENT,
   V1_WAKE_EVENTS,
+  dateOf,
   fileHash,
   filesUnder,
   hookModel,
   jsonlFiles,
+  laterThan,
   migratedProse,
+  openReadOnly,
   overlaps,
+  probeReadOnly,
   proseBody,
+  proseRows,
   readAssignmentAs,
+  readQuarantineLines,
   readSchemaBytes,
+  readSurfaceEvidence,
   readV1Day,
   readV1Lines,
   readV2Day,
@@ -48,17 +61,33 @@ export {
 export type {
   AssignmentReading,
   HookEnvSpec,
+  HookRecord,
+  ProseRow,
+  RawDb,
+  ReadOnlyProbe,
+  ReadOnlyVerdict,
   SchemaBytesReading,
+  StoreOpener,
   V1Line,
   V2DayOptions,
 } from "./readers.js";
 
-export { readBars, runPreflight } from "./preflight.js";
+export { preflightArtifacts, readBars, runPreflight } from "./preflight.js";
 export type { PreflightOptions } from "./preflight.js";
 
-export { addressLines, crossEncoding, dailyRecord, readRunRecord } from "./record.js";
+export {
+  RecordError,
+  addressLines,
+  crossEncoding,
+  dailyRecord,
+  readRunRecord,
+} from "./record.js";
 export type { CrossEncodingInput, DailyArtifacts, DailyOptions } from "./record.js";
 
+export { primacyFromAssignment } from "./assignment.js";
+export { surfaceSetHash } from "./surface.js";
+
 export { RunDir, WriterError } from "./writer.js";
+export type { LiveStores } from "./writer.js";
 
 export type * from "./types.js";
