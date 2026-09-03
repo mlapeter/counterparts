@@ -154,7 +154,7 @@ export function hostDelivery(
 ): { stdout: string; stderr: string; exitCode: 0 | 2 } {
   const asks = [result.authorshipAsk, result.ask].filter((s): s is string => s !== null && s.length > 0);
   if (name !== "stop") {
-    const out = [result.injection, ...asks].filter((s) => s.length > 0).join("\n\n");
+    const out = [result.injection ?? "", ...asks].filter((s) => s.length > 0).join("\n\n");
     return { stdout: out, stderr: "", exitCode: 0 };
   }
   if (payload["stop_hook_active"] === true || asks.length === 0) {
