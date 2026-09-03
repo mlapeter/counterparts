@@ -1211,6 +1211,20 @@ describe("the schemaBytes reading, reproduced read-only", () => {
     expect(readSchemaBytes(data).empty).toBe(true);
   });
 
+  test("the reader weighs the SELF SCHEMA only — episodes and migrated self rows are counted, not weighed (mirrors self/identity.ts)", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      s.put({ type: "memory", kind: "self", body: `A real identity statement. ${"x".repeat(300)}` });
+      s.put({ type: "episode", kind: "self", body: `Chapter. ${"e".repeat(3_000)}`, source: "migrated" });
+      s.put({ type: "memory", kind: "self", body: `Imported self trace. ${"m".repeat(3_000)}`, source: "migrated" });
+    });
+    const reading = readSchemaBytes(data);
+    expect(reading.elements).toBe(1);
+    expect(reading.bytes).toBeLessThan(1_000);
+    expect(reading.episodes).toBe(1);
+    expect(reading.migrated).toBe(1);
+  });
+
   test("a failed memories read is NOT a 0-byte reading — readErrors ride out (delta N5)", () => {
     const data = dir("v2");
     mkdirSync(data, { recursive: true });

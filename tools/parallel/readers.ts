@@ -928,6 +928,11 @@ export interface SchemaBytesReading {
   readonly empty: boolean;
   /** Reads that FAILED. A byte total taken beside one is not a reading. */
   readonly readErrors: readonly string[];
+  /** Episodes (the journal) and migrated self rows: EXCLUDED from the weighing
+   *  and counted, mirroring `self/identity.ts#schemaBytes` (day-0 finding
+   *  2026-09-03: a migrated store read 3 MB tripped before anyone wrote to it). */
+  readonly episodes: number;
+  readonly migrated: number;
 }
 
 /**
@@ -949,13 +954,14 @@ export interface SchemaBytesReading {
 export function readSchemaBytes(dataDir: string): SchemaBytesReading {
   const path = v2StorePath(dataDir);
   if (!existsSync(path)) {
-    return { present: false, bytes: 0, elements: 0, quarantined: 0, empty: true, readErrors: [] };
+    return { present: false, bytes: 0, elements: 0, quarantined: 0, empty: true, readErrors: [], episodes: 0, migrated: 0 };
   }
   const { db } = openStore(path);
   const ctx = { db, errors: [] as string[] };
   try {
     const rows = rowsOf<{
       id: string;
+      type: string;
       band: string;
       kind: string;
       source: string | null;
@@ -963,16 +969,26 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
       prose_path: string;
     }>(
       ctx,
-      `SELECT id, band, kind, source, protected, prose_path FROM memories
+      `SELECT id, type, band, kind, source, protected, prose_path FROM memories
         WHERE archived = 0 AND (band = 'identity' OR kind = 'self')`,
     );
     let bytes = 0;
     let elements = 0;
     let quarantined = 0;
+    let episodes = 0;
+    let migrated = 0;
     const seen = new Set<string>();
     for (const row of rows) {
       if (seen.has(row.id)) continue;
       seen.add(row.id);
+      if (row.type === "episode") {
+        episodes += 1;
+        continue;
+      }
+      if (row.source === "migrated" && row.band !== "identity" && row.protected !== 1) {
+        migrated += 1;
+        continue;
+      }
       if (row.source === "fallback" && row.band !== "identity" && row.protected !== 1) {
         quarantined += 1;
         continue;
@@ -983,7 +999,7 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
       elements += 1;
     }
     const total = rowsOf<{ n: number }>(ctx, "SELECT COUNT(*) AS n FROM memories")[0]?.n ?? 0;
-    return { present: true, bytes, elements, quarantined, empty: total === 0, readErrors: [...ctx.errors] };
+    return { present: true, bytes, elements, quarantined, empty: total === 0, readErrors: [...ctx.errors], episodes, migrated };
   } finally {
     db.close();
   }

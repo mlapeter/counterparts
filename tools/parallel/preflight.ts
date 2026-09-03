@@ -455,7 +455,8 @@ function schemaBytesRow(opts: PreflightOptions): CheckRow {
   }
   const detail =
     `${reading.bytes} B over ${reading.elements} element(s) vs trip ${trip} B ` +
-    `(pressure at ${pressureAt} B) · ${reading.quarantined} fallback-minted self row(s) quarantined by F8`;
+    `(pressure at ${pressureAt} B) · ${reading.quarantined} fallback-minted self row(s) quarantined by F8 · ` +
+    `${reading.episodes} episode(s) and ${reading.migrated} migrated self row(s) counted, not weighed`;
   return reading.bytes >= trip
     ? row("store.schemaBytes", "fail", `the valve is TRIPPED at preflight — ${detail}`)
     : row("store.schemaBytes", "pass", detail);
