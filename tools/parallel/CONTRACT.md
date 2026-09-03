@@ -110,6 +110,9 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
    refuses unless an **owner-signed waiver file** in the run directory names that
    record's id and the reason — the preflight reads the waiver; prose does not. **Owner
    decision, dated in the run record; drop-dead 2026-09-08** (OQ5's arithmetic).
+   **RULED 2026-09-03 (owner): the sample route** — the queued `--days 5..7` sample,
+   its previously-failing channels read on the per-day trend, and the signed waiver
+   file naming that record; the full re-run stays available if the trend is bad.
 2. **The G12 symmetry consumer is live** (BUILD-STATUS gap 2: the ratchet tripwire
    "must be live DURING the parallel run; that is when it earns its keep").
 3. **`scanSecrets` is bounded** (replay review follow-up: a non-ablatable gate with a
@@ -436,12 +439,18 @@ content-by-reference; ids in state, text at render).
    parity (the strategic wins — SQLite-canonical operational state, packaging,
    legibility — ride outside the scorecard). The stricter bar: the paired rating must
    show v2 *preferred*, not tied. One sentence from you makes the verdict mechanical.
+   **RULED 2026-09-03 (owner): parity-plus-strategy.** Seven active days is a small
+   rating sample; a tie on it with the strategic wins outside the scorecard is an
+   honest PROMOTE, and the strict bar would convert noise into REVERT.
 2. **The starting store: migrated from v1, or empty?** PROPOSED: migrated — the run
    then live-verifies the migration (which cutover needs anyway), and v2's recall is
    not starved for the whole run. Costs: gap 5 (confidentiality mapping) graduates to
    hard precondition, and migrated rows must be origin-marked so paired ratings
    compare only same-window mints. Empty is cleaner but measures an amnesiac cutover
-   nobody plans to perform.
+   nobody plans to perform. **RULED 2026-09-03 (owner): migrated.** Precondition 6 is
+   therefore hard; the confidentiality mapping and the import-path secrets gate exist
+   with named tests (`test/migrate.test.ts` G1, G2), and what remains is the real
+   `--apply` into a fresh v2 data dir with the source-manifest proof.
 3. **At PROMOTE, is the parallel store THE production store?** PROPOSED: yes —
    anything else discards the verified weeks and performs a second, unverified
    migration.
