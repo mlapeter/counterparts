@@ -274,6 +274,10 @@ export interface BandTransition {
 }
 
 export const BAND_TRANSITION_EVENT = "band.transition";
+/** The transition row's payload fields, in order — a G12 surface-set component
+ *  (parallel-run CONTRACT §5 G12), pinned by `satisfies` at the append site. */
+export const BAND_TRANSITION_FIELDS = ["kind", "from", "to", "direction", "site"] as const;
+export type BandTransitionField = (typeof BAND_TRANSITION_FIELDS)[number];
 
 /** The per-id, per-day latch: a replayed day re-appends nothing (§5 G3). */
 export function bandTransitionKey(t: BandTransition): string {
@@ -299,7 +303,10 @@ export function recordBandTransition(ctx: PhaseCtx, t: BandTransition): void {
     day: t.day,
     ref: t.id,
     dedupKey: bandTransitionKey(t),
-    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site },
+    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site } satisfies Record<
+      BandTransitionField,
+      unknown
+    >,
   });
 }
 

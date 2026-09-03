@@ -97,7 +97,8 @@ export function addressLines(text: string, minChars = 0): {
 }
 
 interface Corpus {
-  addresses: Set<string>;
+  /** Address → how many receiving-side LINES carry it (the OQ4 numerator counts lines). */
+  addresses: Map<string, number>;
   scanned: number;
   rejectedShort: number;
   /** Lines whose own date could not be read. Included, and SAID (see below). */
@@ -105,7 +106,7 @@ interface Corpus {
 }
 
 const EMPTY_CORPUS = (): Corpus => ({
-  addresses: new Set<string>(),
+  addresses: new Map<string, number>(),
   scanned: 0,
   rejectedShort: 0,
   undated: 0,
@@ -131,7 +132,7 @@ function addressFiles(
       const { addresses, rejectedShort } = addressLines(text, minChars);
       out.rejectedShort += rejectedShort;
       for (const address of addresses) {
-        out.addresses.add(address);
+        out.addresses.set(address, (out.addresses.get(address) ?? 0) + 1);
         out.scanned += 1;
       }
     }
@@ -231,19 +232,31 @@ export interface MeterSide {
 function meterInto(
   probes: { addresses: Set<string>; rejectedShort: number },
   corpus: Corpus,
-  excludedMigrated: number,
+  side: { excludedMigrated: number; readErrors: readonly string[]; missingOnDisk: number },
 ): CrossEncodingDirection {
+  // `hits` counts receiving-side LINES, not probes (delta N2): OQ4's ratio is
+  // "v1 mints carrying a verbatim v2 line over v1's mints that day", and a
+  // probe-count numerator is bounded by the v2 wake's line count, unrelated to
+  // v1's volume — every v1 mint carrying the same ask line would read as 1.
   const hitAddresses: string[] = [];
+  let lineHits = 0;
   for (const probe of probes.addresses) {
-    if (corpus.addresses.has(probe)) hitAddresses.push(probe);
+    const n = corpus.addresses.get(probe);
+    if (n !== undefined && n > 0) {
+      hitAddresses.push(probe);
+      lineHits += n;
+    }
   }
   hitAddresses.sort();
   return {
     probes: probes.addresses.size,
-    hits: hitAddresses.length,
-    measured: probes.addresses.size > 0,
+    hits: lineHits,
+    distinctHits: hitAddresses.length,
+    measured: probes.addresses.size > 0 && side.readErrors.length === 0,
     hitAddresses,
-    excludedMigrated,
+    excludedMigrated: side.excludedMigrated,
+    readErrors: [...side.readErrors],
+    missingOnDisk: side.missingOnDisk,
     scanned: corpus.scanned,
     probesRejectedShort: probes.rejectedShort,
     corpusRejectedShort: corpus.rejectedShort,
@@ -305,14 +318,18 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   const spanFiles = jsonlFiles(join(input.v2DataDir, "spans"));
   const spanCorpus = addressFiles(spanFiles, spanTextsFor(input.date), min);
 
-  const { paths: prosePaths, excludedMigrated } = nonMigratedProse(input.v2DataDir, input.date);
+  const prose = nonMigratedProse(input.v2DataDir, input.date);
+  const { paths: prosePaths, excludedMigrated } = prose;
   const proseCorpus = addressFiles(
     prosePaths,
     (raw) => ({ texts: [proseBodyOf(raw)], undated: 0 }),
     min,
   );
   const v2Corpus: Corpus = {
-    addresses: new Set<string>([...spanCorpus.addresses, ...proseCorpus.addresses]),
+    addresses: [...spanCorpus.addresses, ...proseCorpus.addresses].reduce(
+      (acc, [address, n]) => acc.set(address, (acc.get(address) ?? 0) + n),
+      new Map<string, number>(),
+    ),
     scanned: spanCorpus.scanned + proseCorpus.scanned,
     rejectedShort: spanCorpus.rejectedShort + proseCorpus.rejectedShort,
     undated: spanCorpus.undated + proseCorpus.undated,
@@ -328,8 +345,12 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   ].filter((p) => !hasOtherDate(relative(input.v1Dir, p), input.date));
   const v1Corpus = addressFiles(v1Files, spanTextsFor(input.date), min);
 
-  const v1IntoV2 = meterInto(v1Probes, v2Corpus, excludedMigrated);
-  const v2IntoV1 = meterInto(v2Probes, v1Corpus, 0);
+  const v1IntoV2 = meterInto(v1Probes, v2Corpus, {
+    excludedMigrated,
+    readErrors: prose.readErrors,
+    missingOnDisk: prose.missingOnDisk,
+  });
+  const v2IntoV1 = meterInto(v2Probes, v1Corpus, { excludedMigrated: 0, readErrors: [], missingOnDisk: 0 });
   const total = v1IntoV2.hits + v2IntoV1.hits;
 
   // ── OQ4's two rules, RULED 2026-09-03 ────────────────────────────────────
@@ -350,7 +371,16 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   const denominator = input.v1CreatedThatDay ?? null;
   const ratio =
     denominator === null || denominator === 0 ? null : v2IntoV1.hits / denominator;
-  const redLine = phaseS ? total > input.bar : ratio !== null && ratio > input.ratioBar;
+  // Phase S: the bar is ZERO by rule (§9 OQ4), not by whatever number was
+  // committed — `readBars` refuses a nonzero `crossEncodingBar` too, so the two
+  // cannot disagree (PR-8 delta N1). Phase P with NO denominator: the 10% rule
+  // cannot be evaluated, and an unmeasurable meter with hits on it is a halt,
+  // not a pass (§5 G10; delta N7) — `null` ratio + hits ⇒ red-line.
+  const redLine = phaseS
+    ? total > 0
+    : ratio === null
+      ? v2IntoV1.hits > 0
+      : ratio > input.ratioBar;
   const namedFinding = !phaseS && total > 0 && !redLine;
 
   return {
@@ -368,7 +398,7 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
     ratioNote: phaseS
       ? `Phase ${input.phase}: ZERO hits in either direction is the bar (§9 OQ4, RULED 2026-09-03) — the host's transcript shape carries v1's exclusion, so any hit means the host changed`
       : denominator === null
-        ? "Phase P: the ratio has NO denominator — v1's mints for this day could not be read, so the 10% rule cannot be evaluated and any hit stands as a named finding"
+        ? "Phase P: the ratio has NO denominator — v1's mints for this day could not be read, so the 10% rule cannot be evaluated; any hit is a RED-LINE until the denominator can be read (§5 G10)"
         : `Phase P: ${v2IntoV1.hits} v1 line(s) carrying a verbatim v2 line against ${denominator} v1 mint(s) that day — red-line above ${input.ratioBar}`,
     exposureDenominator: input.exposureDenominator ?? null,
   };
@@ -399,7 +429,7 @@ function hasOtherDate(relPath: string, date: string): boolean {
 function nonMigratedProse(
   dataDir: string,
   date: string,
-): { paths: string[]; excludedMigrated: number } {
+): { paths: string[]; excludedMigrated: number; readErrors: readonly string[]; missingOnDisk: number } {
   // THE DAY'S ROWS, not the whole store. `memories.learned_on` is the created
   // date, so the corpus is the prose v2 minted ON this day — otherwise one
   // legitimate hit re-fires every day for the rest of the run.
@@ -407,7 +437,8 @@ function nonMigratedProse(
   // REALPATH ON BOTH SIDES. The store records one spelling of a path and a
   // directory walk produces another (on macOS anything under `/var`), so the
   // migrated-row exclusion is done on realpaths (scar §2.13).
-  const rows = proseRows(dataDir).rows.filter((r) => r.learnedOn === date);
+  const read = proseRows(dataDir);
+  const rows = read.rows.filter((r) => r.learnedOn === date);
   const onDisk = new Set(
     filesUnder(join(dataDir, "prose"), (n) => n.endsWith(".md")).map((p) => realpathOr(p)),
   );
@@ -416,6 +447,11 @@ function nonMigratedProse(
   return {
     paths: kept.map((r) => r.realpath),
     excludedMigrated: present.length - kept.length,
+    // A locked or drifted store must not read as an empty corpus (delta N3):
+    // the errors ride out and the direction reads UNMEASURED, never a clean 0.
+    readErrors: read.readErrors ?? [],
+    // Rows whose prose file is not on disk: counted, not silently dropped (N10).
+    missingOnDisk: rows.length - present.length,
   };
 }
 
@@ -537,7 +573,8 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // evidence, and a day recorded with the v1→v2 direction never asked is a day
   // whose isolation was never metered at all (§5 G7: metered CONTINUOUSLY).
   const v1Ritual = (opts.v1Ritual ?? []).filter((t) => t.trim().length > 0);
-  const hasV1Probe = v1Ritual.length > 0 || (opts.v1WakeFile ?? "").length > 0;
+  const wakeFile = opts.v1WakeFile ?? "";
+  const hasV1Probe = v1Ritual.length > 0 || (wakeFile.length > 0 && existsSync(wakeFile));
   if (!hasV1Probe) {
     throw new RecordError("NO_V1_CROSS_ENCODING_PROBE", {
       date: opts.date,

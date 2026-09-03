@@ -90,6 +90,19 @@ import type { Kind } from "./types.js";
 
 /** The durable per-chunk gate record (dashboard registry imports this literal). */
 export const GATE_CHUNK_EVENT = "gate.chunk";
+/**
+ * The gate record's field list, in order — one of the three components of the
+ * parallel run's machine-scored surface set (CONTRACT §5 G12: the surfacing
+ * decision's fields PLUS the gate-record and band-transition fields). Pinned by
+ * `satisfies` on the record literal below so the list cannot drift from the row.
+ */
+export const GATE_CHUNK_FIELDS = [
+  "chunkKey", "index", "scope", "session", "day", "proposals", "accepted", "refused",
+  "fullyGated", "effects", "blind", "shown", "shownIds", "shownLexicalOnly",
+  "shownSemanticOnly", "shownBoth", "candidates", "semanticState", "semanticReason",
+  "channels", "fires", "refusals", "refusalsByReason", "novelty", "noveltyReason",
+] as const;
+export type GateChunkField = (typeof GATE_CHUNK_FIELDS)[number];
 
 /** The durable per-turn surfacing record (same registry, same rule). */
 export const RECALL_DECISION_EVENT = "recall.decision";

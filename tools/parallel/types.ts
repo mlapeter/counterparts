@@ -121,10 +121,17 @@ export interface CreatedExited {
 export interface CrossEncodingDirection {
   /** Distinct content addresses offered by the source side. */
   readonly probes: number;
-  /** How many of them were found in the other side's store. */
+  /** Receiving-side LINES carrying a probe — the OQ4 numerator (delta N2). */
   readonly hits: number;
-  /** False when no probe was offered: `0/0` is UNMEASURED, never clean. */
+  /** Distinct probe addresses that hit at least once. */
+  readonly distinctHits: number;
+  /** False when no probe was offered, or the receiving side could not be read:
+   *  `0/0` is UNMEASURED, never clean (delta N3). */
   readonly measured: boolean;
+  /** Receiving-side reads that FAILED. Non-empty ⇒ unmeasured. */
+  readonly readErrors: readonly string[];
+  /** Rows the store lists for the day whose prose file is not on disk (N10). */
+  readonly missingOnDisk: number;
   /** The addresses that hit — ids, never text (scar §2.20). */
   readonly hitAddresses: readonly string[];
   /** Rows excluded by construction because their mint source is `migrated`. */

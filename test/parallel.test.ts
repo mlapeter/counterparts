@@ -65,7 +65,8 @@ import {
   transcriptFiles,
 } from "../tools/parallel/readers.js";
 import { runPreflight } from "../tools/parallel/preflight.js";
-import { surfaceSetHash } from "../tools/parallel/surface.js";
+import { surfaceSetComponents, surfaceSetHash } from "../tools/parallel/surface.js";
+import { surfaceSetFields } from "../src/core/counterpart.js";
 import { readRunRecord } from "../tools/parallel/record.js";
 import { RunDir } from "../tools/parallel/writer.js";
 import type { LiveStores } from "../tools/parallel/writer.js";
@@ -1127,6 +1128,17 @@ describe("the schemaBytes reading, reproduced read-only", () => {
     });
     expect(readSchemaBytes(data).empty).toBe(true);
   });
+
+  test("a failed memories read is NOT a 0-byte reading — readErrors ride out (delta N5)", () => {
+    const data = dir("v2");
+    mkdirSync(data, { recursive: true });
+    const db = new Database(join(data, "operational.sqlite"));
+    db.exec("CREATE TABLE events (seq INTEGER PRIMARY KEY, name TEXT, day INTEGER, ref TEXT, dedup_key TEXT, payload TEXT, at INTEGER)");
+    db.close();
+    const reading = readSchemaBytes(data);
+    expect(reading.present).toBe(true);
+    expect(reading.readErrors.length).toBeGreaterThan(0);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1172,10 +1184,37 @@ describe("the cross-encoding meter", () => {
     expect(meter.redLine).toBe(true);
   });
 
-  test("below the bar it is a finding, above it a RED-LINE", () => {
+  test("PHASE S: the bar is ZERO by rule — a committed bar of 1 still red-lines on one hit (delta N1)", () => {
     const data = v2WithSpan(RITUAL);
-    expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), bar: 1, v1Ritual: [RITUAL] }).redLine).toBe(false);
+    // §9 OQ4 rules Phase S at zero. A committed number cannot loosen it, and
+    // `readBars` refuses a nonzero `crossEncodingBar` so the file agrees.
+    expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), bar: 1, v1Ritual: [RITUAL] }).redLine).toBe(true);
     expect(crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] }).redLine).toBe(true);
+  });
+
+  test("the OQ4 numerator counts receiving-side LINES, not distinct probes (delta N2)", () => {
+    // Three v2 spans carrying the same v1 line: three lines carry it, one
+    // address hit. A probe-count numerator would read 1 however many mints
+    // carried the text — bounded by the wake's line count, not by v1's volume.
+    const data = dir("v2");
+    const spanFile = join(data, "spans", "scopekey", "buffer.jsonl");
+    mkdirSync(dirname(spanFile), { recursive: true });
+    writeFileSync(
+      spanFile,
+      [1, 2, 3].map((i) => JSON.stringify({ at: AT + i, day: 0, text: RITUAL, hash: `h${i}` })).join("\n") + "\n",
+      "utf8",
+    );
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] });
+    expect(meter.v1IntoV2.hits).toBe(3);
+    expect(meter.v1IntoV2.distinctHits).toBe(1);
+  });
+
+  test("a v1 wake path that does not exist is NOT a probe — unmeasured here, refused by the daily (delta N4)", () => {
+    const data = v2WithSpan(RITUAL);
+    const missing = join(dir("v1"), "render", "wake.md");
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1WakeFile: missing });
+    expect(meter.v1IntoV2.probes).toBe(0);
+    expect(meter.v1IntoV2.measured).toBe(false);
   });
 
   test("a MIGRATED row is excluded by construction — the migration is not contamination", () => {
@@ -1383,13 +1422,28 @@ describe("the cross-encoding meter", () => {
     expect(over.ratio).toBeCloseTo(0.2, 5);
     expect(over.ratioNote).toContain("red-line above 0.1");
 
-    // No denominator: the rule cannot be evaluated, and the meter says so
-    // rather than dividing by a zero it invented.
+    // No denominator: the rule cannot be evaluated. An unmeasurable meter with
+    // hits on it is a HALT, not a pass (§5 G10; delta N7) — the day is not
+    // credited on a number nobody could compute.
     const none = meter(null);
     expect(none.ratio).toBeNull();
-    expect(none.redLine).toBe(false);
-    expect(none.namedFinding).toBe(true);
+    expect(none.redLine).toBe(true);
+    expect(none.namedFinding).toBe(false);
     expect(none.ratioNote).toContain("NO denominator");
+  });
+
+  test("a receiving side that cannot be READ is unmeasured, never a clean zero (delta N3)", () => {
+    // A store whose operational.sqlite lacks the memories table: the prose read
+    // fails, and the v1→v2 direction must say so rather than report 0 hits.
+    const data = dir("v2");
+    mkdirSync(data, { recursive: true });
+    const db = new Database(join(data, "operational.sqlite"));
+    db.exec("CREATE TABLE events (seq INTEGER PRIMARY KEY, name TEXT, day INTEGER, ref TEXT, dedup_key TEXT, payload TEXT, at INTEGER)");
+    db.close();
+    const meter = crossEncoding({ ...METER, v2DataDir: data, v1Dir: dir("v1"), v1Ritual: [RITUAL] });
+    expect(meter.v1IntoV2.readErrors.length).toBeGreaterThan(0);
+    expect(meter.v1IntoV2.measured).toBe(false);
+    expect(meter.v1IntoV2.hits).toBe(0);
   });
 
   test("the meter carries addresses, never the line", () => {
@@ -1791,6 +1845,14 @@ describe("day classes", () => {
     // What is still recomputed rather than stored stays named, never a zero.
     expect(r.v2.nonDurable).toContain("sleep.symmetry");
     expect(r.v2.nonDurable).not.toContain("adapter.wake.injected");
+  });
+
+  test("the daily REFUSES a missing v1 wake path as its only probe (delta N4)", () => {
+    const s = scene(3);
+    v1Muted(s);
+    v2Delivering(s);
+    const missing = join(s.v1Dir, "render", "wake.md");
+    expect(() => classOf(s, { v1Ritual: [], v1WakeFile: missing })).toThrow(/NO_V1_CROSS_ENCODING_PROBE/);
   });
 
   test("a day whose only v2 boundary evidence is a durable `adapter.boundary` row still counts as reached", () => {
@@ -2620,6 +2682,12 @@ describe("the preflight — Phase 0, as a gate", () => {
     r = rowOf(f, "precondition.9");
     expect(r?.status).toBe("pass");
     expect(r?.detail).toContain(surfaceSetHash());
+    // G12 names three components; a hash of the surfacing fields alone would
+    // class a gate-record or band-transition change as telemetry-only (N6).
+    expect(surfaceSetComponents().map((c) => c.name)).toEqual(["recall.decision", "gate.chunk", "band.transition"]);
+    for (const c of surfaceSetComponents()) expect(c.fields.length).toBeGreaterThan(0);
+    const recallOnly = createHash("sha256").update(surfaceSetFields().join("\n")).digest("hex").slice(0, 16);
+    expect(surfaceSetHash()).not.toBe(recallOnly);
 
     // A hash from another build is a MISMATCH, which is G12 doing its job.
     RunDir.open(f.runDir, STORES(f)).writeJson("run.json", {

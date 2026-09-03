@@ -22,7 +22,17 @@
  */
 import { createHash } from "node:crypto";
 
-import { surfaceSetFields } from "../../src/core/counterpart.js";
+import { GATE_CHUNK_FIELDS, surfaceSetFields } from "../../src/core/counterpart.js";
+import { BAND_TRANSITION_FIELDS } from "../../src/core/sleep/index.js";
+
+/** The three components, in a fixed order, each named so a mismatch says which moved. */
+export function surfaceSetComponents(): readonly { name: string; fields: readonly string[] }[] {
+  return [
+    { name: "recall.decision", fields: surfaceSetFields() },
+    { name: "gate.chunk", fields: GATE_CHUNK_FIELDS },
+    { name: "band.transition", fields: BAND_TRANSITION_FIELDS },
+  ];
+}
 
 /**
  * A short, stable digest of the surface set's field list.
@@ -32,8 +42,10 @@ import { surfaceSetFields } from "../../src/core/counterpart.js";
  * positional reader sees, and G12 wants "provably identical", not "same set".
  */
 export function surfaceSetHash(): string {
-  return createHash("sha256")
-    .update(surfaceSetFields().join("\n"))
-    .digest("hex")
-    .slice(0, 16);
+  // G12 names THREE components — the surfacing decision's fields PLUS the
+  // gate-record and band-transition fields (PR-8 delta N6: hashing only the
+  // first would class a change to either of the others as telemetry-only).
+  const h = createHash("sha256");
+  for (const c of surfaceSetComponents()) h.update(`${c.name}\n${c.fields.join("\n")}\n\n`);
+  return h.digest("hex").slice(0, 16);
 }

@@ -350,6 +350,7 @@ export function readBars(runDir: string): Bars | null {
   if (
     typeof r["activeDayTurnFloor"] !== "number" ||
     typeof r["crossEncodingBar"] !== "number" ||
+    r["crossEncodingBar"] !== 0 ||
     typeof r["crossEncodingMinLineChars"] !== "number" ||
     r["crossEncodingMinLineChars"] < 1 ||
     typeof r["crossEncodingRatioBar"] !== "number" ||
@@ -407,6 +408,15 @@ function schemaBytesRow(opts: PreflightOptions): CheckRow {
       "store.schemaBytes",
       "not-exercised",
       `no operational.sqlite under ${opts.v2DataDir} — the OQ2 ruling is a MIGRATED starting store, so this is a setup gap, not a clean reading`,
+    );
+  }
+  if (reading.readErrors.length > 0) {
+    // A byte total taken beside a failed SELECT is not a reading (delta N5):
+    // a failed memories read with a successful COUNT would otherwise pass at 0 B.
+    return row(
+      "store.schemaBytes",
+      "fail",
+      `the store could not be read: ${reading.readErrors.join("; ")} — no reading, so precondition 5 is not evidenced`,
     );
   }
   if (reading.empty) {
