@@ -35,6 +35,7 @@
  *   (parallel-run G4: the mute is evidenced, not asserted).
  */
 import {
+  AUTHORSHIP_ASK_EVENT,
   BOUNDARY_EVENT,
   Counterpart,
   EPISODE_ASK_EVENT,
@@ -48,6 +49,7 @@ import type { AdapterDurableEventName } from "../../core/counterpart.js";
 import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
 
 import { capabilities, interpretSeat } from "./config.js";
+import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
 import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -497,19 +499,50 @@ export class ClaudeCodeAdapter {
   private askForAuthorship(input: HookInput): string | null {
     try {
       const report = this.counterpart.spans.coverageReport(input.scope);
-      this.emit("adapter.authorship.ask", {
-        asked: report.uncovered > 0,
+      // PACED: the host's Stop is every turn, so "anything uncovered" would ask
+      // every turn. The last ask's span count is read out of the durable log
+      // (the hook process does not survive between turns), and the next ask
+      // waits for AUTHORSHIP_REASK_SPANS new spans — the episode ritual's own
+      // cadence. The first ask in a session is immediate.
+      const substance = substanceOf(input.turns ?? []);
+      const lastAsked = this.lastAuthorshipAsk(input.sessionId);
+      const due =
+        report.uncovered > 0 &&
+        (lastAsked === null ||
+          (substance.turns >= lastAsked.turns + TUNABLES.AUTHORSHIP_REASK_TURNS &&
+            substance.bytes >= lastAsked.bytes + TUNABLES.AUTHORSHIP_REASK_BYTES));
+      this.record(AUTHORSHIP_ASK_EVENT, input, {
+        asked: due,
+        paced: report.uncovered > 0 && !due,
+        turns: substance.turns,
+        bytes: substance.bytes,
         spans: report.spans,
         covered: report.covered,
         uncovered: report.uncovered,
         unaskableSpans: report.unaskableSpans,
         unaskableBytes: report.unaskableBytes,
       });
-      return report.uncovered > 0 ? AUTHORSHIP_ASK : null;
+      return due ? AUTHORSHIP_ASK : null;
     } catch (err) {
       this.emit("adapter.authorship.ask.failed", { code: codeOf(err) });
       return null;
     }
+  }
+
+  /** The substance at this session's last authorship ask, from the durable log; null if never asked. */
+  private lastAuthorshipAsk(sessionId: string): { turns: number; bytes: number } | null {
+    let last: { turns: number; bytes: number } | null = null;
+    for (const row of this.counterpart.store.eventLog({ name: AUTHORSHIP_ASK_EVENT, limit: 2000 })) {
+      try {
+        const p = JSON.parse(row.payload ?? "{}") as { session?: unknown; asked?: unknown; turns?: unknown; bytes?: unknown };
+        if (p.session === sessionId && p.asked === true && typeof p.turns === "number" && typeof p.bytes === "number") {
+          if (last === null || p.turns >= last.turns) last = { turns: p.turns, bytes: p.bytes };
+        }
+      } catch {
+        continue;
+      }
+    }
+    return last;
   }
 
   /** ONE ask, fail-open: an error in the ritual never costs the collection. */
