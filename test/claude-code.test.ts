@@ -1115,6 +1115,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       reason: "override-bansai",
       system: "v1",
       date: "2026-01-02",
+      session: "s1",
     });
   });
 
@@ -1224,6 +1225,44 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     expect(a.counterpart.store.eventLog({ limit: 100 }).map((r) => r.name)).not.toContain(
       PRIMACY_STANDDOWN_EVENT,
     );
+  });
+
+  test("the DELIVERY is evidenced too: wake, recall, delivery-check and episode-ask rows are durable (G2/G4)", () => {
+    // In Phase S v2 is the muted side, so a v2 delivery event IS the
+    // contamination detector — and a detector that lives only in the hook
+    // process's ring cannot be counted after the process is gone. Every
+    // delivering hook leaves a box-2 row carrying the calendar date and the
+    // session; counts, bytes, reasons and flags only.
+    assign({ override: "engram" });
+    const { a } = adapter(PARALLEL);
+    a.sessionStart(input());
+    a.userPromptSubmit(input({ prompt: "what about storage?", sentinelSeen: "nope" }));
+    a.stop(input());
+    const store = a.counterpart.store;
+    const rows = (name: string): Record<string, unknown>[] =>
+      store
+        .eventLog({ name, limit: 100 })
+        .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    for (const name of ["adapter.wake.injected", "adapter.wake.delivered", "adapter.recall", "adapter.episode.ask"]) {
+      const got = rows(name);
+      expect(got.length).toBe(1);
+      expect(got[0]?.["date"]).toBe("2026-01-02");
+      expect(got[0]?.["session"]).toBe("s1");
+      for (const v of Object.values(got[0] ?? {})) expect(["string", "number", "boolean"].includes(typeof v) || v === null).toBe(true);
+    }
+    expect(typeof rows("adapter.wake.injected")[0]?.["bytes"]).toBe("number");
+    expect(typeof rows("adapter.recall")[0]?.["surfaced"]).toBe("number");
+    // And under a stand-down none of the three delivering rows is added — the
+    // absence is the mute. (Same store as above: count, do not assert empty.)
+    const DELIVERING = ["adapter.wake.injected", "adapter.recall", "adapter.episode.ask"];
+    const before = DELIVERING.map((name) => rows(name).length);
+    assign({ override: "bansai" });
+    const { a: muted } = adapter(PARALLEL);
+    muted.sessionStart(input());
+    muted.userPromptSubmit(input({ prompt: "what about storage?" }));
+    muted.stop(input());
+    expect(DELIVERING.map((name) => muted.counterpart.store.eventLog({ name, limit: 100 }).length)).toEqual(before);
+    for (const name of DELIVERING) expect(muted.events(name)).toEqual([]);
   });
 
   test("the mute is EVIDENCED: the day's stand-downs are countable out of the store (G4)", () => {

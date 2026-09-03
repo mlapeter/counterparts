@@ -117,7 +117,15 @@ describe("dataDir", () => {
     const here = fileURLToPath(new URL(".", import.meta.url));
     const roots = [join(here, "..", "src"), join(here, "..", "tools")];
     const forbidden = [".bansai", ".claude-engram", ".memory-ab"];
-    const allowed = new Set(["src/core/store/paths.ts", "src/adapters/claude-code/primacy.ts"]);
+    // Also allowed: the parallel-run instrument's two CLIs, which carry the real
+    // read-only paths as DEFAULTS — `test/parallel.test.ts` proves nothing in
+    // that tool but its run-dir writer imports a write API.
+    const allowed = new Set([
+      "src/core/store/paths.ts",
+      "src/adapters/claude-code/primacy.ts",
+      "tools/parallel/bin/preflight.ts",
+      "tools/parallel/bin/daily.ts",
+    ]);
     const hits: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {

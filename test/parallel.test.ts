@@ -713,17 +713,33 @@ describe("the v2 store reader", () => {
     expect(readV2Day(data, "2026-09-05").primacyByHook.deliver).toEqual({ "session-start": 1 });
   });
 
-  test("detectors box 2 CANNOT carry are named, never reported as zero", () => {
+  test("detectors box 2 CANNOT carry are named, never reported as zero — and the four delivery records now CAN", () => {
     const data = dir("v2");
     buildStore(data, (s) => {
       s.put({ type: "memory", kind: "fact", body: "A synthetic fixture memory." });
+      // The four delivery records became durable on 2026-09-03 (adapter G4/G2):
+      // each carries the calendar date and the session in its payload.
+      s.appendEvent({
+        name: "adapter.wake.injected",
+        day: 0,
+        payload: { ok: true, reason: "ok", bytes: 1200, budget: 9000, sentinel: true, date: "2026-09-04", session: "s1" },
+      });
+      s.appendEvent({
+        name: "adapter.recall",
+        day: 0,
+        payload: { reason: "ok", surfaced: 2, footnotes: 1, bytes: 800, budget: 9000, observer: false, date: "2026-09-05", session: "s1" },
+      });
     });
     const day = readV2Day(data, "2026-09-04");
-    expect(day.nonDurable).toContain("adapter.wake.injected");
-    expect(day.nonDurable).toContain("adapter.recall");
+    // Recomputed read-only, not rows: named, never a zero.
     expect(day.nonDurable).toContain("self.schema.tripped");
-    // And they are absent from the counted map rather than sitting at 0.
-    expect(day.byNameForDate["adapter.wake.injected"]).toBeUndefined();
+    expect(day.nonDurable).toContain("sleep.symmetry");
+    expect(day.nonDurable).not.toContain("adapter.wake.injected");
+    expect(day.nonDurable).not.toContain("adapter.recall");
+    // Counted by the payload's date, like the primacy pair.
+    expect(day.byNameForDate["adapter.wake.injected"]).toBe(1);
+    expect(day.byNameForDate["adapter.recall"]).toBeUndefined();
+    expect(readV2Day(data, "2026-09-05").byNameForDate["adapter.recall"]).toBe(1);
   });
 
   test("memory rows count by kind and by MINT SOURCE, with the day's creations split out", () => {
@@ -1104,13 +1120,63 @@ describe("day classes", () => {
     expect([...r.flags].sort()).toEqual(["contaminated", "mixed"]);
   });
 
-  test("the v2-side contamination channels read NULL, never zero — they are not durable", () => {
+  test("the v2-side contamination channels are COUNTED out of box 2 — the four delivery records are durable", () => {
     const s = scene(3);
     v1Muted(s);
     v2Delivering(s);
+    buildStore(s.v2Dir, (store) => {
+      store.appendEvent({
+        name: "adapter.wake.injected",
+        day: 0,
+        payload: { ok: true, reason: "ok", bytes: 1200, budget: 9000, sentinel: true, date: DATE, session: "s1" },
+      });
+      store.appendEvent({
+        name: "adapter.recall",
+        day: 0,
+        payload: { reason: "ok", surfaced: 2, footnotes: 0, bytes: 700, budget: 9000, observer: false, date: DATE, session: "s1" },
+      });
+    });
     const r = classOf(s);
-    expect(r.contamination.v2).toEqual({ wake: null, recall: null, ritual: null });
-    expect(r.v2.nonDurable.length).toBeGreaterThan(0);
+    // Phase P, v2 primary: delivery is the job, so these are counts, not contamination.
+    expect(r.contamination.v2).toEqual({ wake: 1, recall: 1, ritual: 0 });
+    expect(r.class).toBe("active");
+    // What is still recomputed rather than stored stays named, never a zero.
+    expect(r.v2.nonDurable).toContain("sleep.symmetry");
+    expect(r.v2.nonDurable).not.toContain("adapter.wake.injected");
+  });
+
+  test("CONTAMINATED in Phase S: a muted v2 that injected a wake is caught by its own durable row", () => {
+    const s = scene(3);
+    // v1 primary and delivering normally; v2 stood down at every hook — except
+    // that one wake bundle went out. The primacy stand-down rows say "muted";
+    // the delivery row says otherwise, and the row wins (scar §2.4: a
+    // stood-down instrument must be distinguishable from a revived one).
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "wake.rendered" },
+      { seq: 2, session: "s1", type: "buffer.append" },
+      { seq: 3, session: "s1", type: "buffer.append" },
+      { seq: 4, session: "s1", type: "buffer.append" },
+      { seq: 5, session: "s1", type: "session.end" },
+    ]);
+    buildStore(s.v2Dir, (store) => {
+      for (const hook of ["session-start", "user-prompt-submit", "stop"]) {
+        store.appendEvent({
+          name: PRIMACY_STANDDOWN_EVENT,
+          day: 0,
+          payload: { hook, reason: "override-bansai", system: "v1", date: DATE, session: "s1" },
+        });
+      }
+      store.appendEvent({
+        name: "adapter.wake.injected",
+        day: 0,
+        payload: { ok: true, reason: "ok", bytes: 900, budget: 9000, sentinel: true, date: DATE, session: "s1" },
+      });
+    });
+    const r = classOf(s, { phase: "S", primacy: "v1" });
+    expect(r.class).toBe("contaminated");
+    expect(r.contamination.v2.wake).toBe(1);
+    expect(r.contamination.v1.wake).toBe(1); // v1 delivering is its job in Phase S
   });
 
   test("the day's v1 DETECTOR lines are copied into the run directory, and nothing else is", () => {

@@ -98,9 +98,13 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
 1. **The replay gate is green for this run's purposes** — read by the preflight from a
    machine-readable pass record through a predicate THIS tool defines,
    `parallelGateOpen(record)`: `readOnlyProof && totalityOk && counts.fail === 0 &&`
-   every `not-exercised` id ∈ `PARALLEL_EXERCISABLE` `&&` every `needs-rater` id ∈
-   `RATER_DEFERRED` — both sets enumerated in `tools/parallel/` and copied into the run
-   directory; an id outside either set shuts the gate. Replay's own `gateOpen()` (which
+   every `not-exercised` id ∈ `PARALLEL_EXERCISABLE` ∪ `NOT_APPLICABLE_TO_RUN` `&&` every
+   `needs-rater` id ∈ `RATER_DEFERRED` — all three sets enumerated in `tools/parallel/`
+   and copied into the run directory; an id outside them shuts the gate. (The third set
+   was forced by the build: 23 registry rows read `not-exercised`, and only 13 name a
+   surface this run can move; the other 10 are v1 mechanisms with no v2 counterpart —
+   `ops.outcomeMix`, `gradient.moveMix`, `runner.duration` and their kin — and are
+   G13's `not-applicable`, named as such rather than laundered into "exercisable".) Replay's own `gateOpen()` (which
    also demands zero `not-exercised` and zero `needs-rater`) is the CUTOVER gate and
    cannot be satisfied by any replay record: its 23 `not-exercised` rows are §6's
    charter and its 2 `needs-rater` rows have no rater outside this run (replay
@@ -222,6 +226,11 @@ divergence logs; the cutover pass record; the dashboard comparison views.
    (replay G6, verbatim), **and every scorecard number is recomputable from the two
    durable stores plus logs after the fact.** The store the run leaves behind is the
    evidence; a metric derivable only from a live event ring is not a metric here.
+   Build note (2026-09-03): v2's delivery records (`adapter.wake.injected`,
+   `adapter.wake.delivered`, `adapter.recall`, `adapter.episode.ask`) and its primacy
+   verdicts are durable rows with the calendar date and session in the payload; the
+   symmetry verdict, the quarantine count and the self-store bytes are recomputed
+   read-only from durable state rather than stored — named as such by the instrument.
 3. **[M] Exactly one system delivers at any time.** Primacy is a single value in one
    shared file outside both data dirs; v1's resolver is its existing `src/ab.ts`,
    unchanged; v2's resolver delivers **only** on `override === "engram"` and **fails

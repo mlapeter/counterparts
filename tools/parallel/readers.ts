@@ -303,10 +303,10 @@ function openReadOnly(path: string): RawDb {
  * file header for why this list exists rather than six zero counters.
  */
 export const NON_DURABLE_DETECTORS: readonly string[] = [
-  "adapter.wake.injected",
-  "adapter.wake.delivered",
-  "adapter.recall",
-  "adapter.episode.ask",
+  // Recomputable read-only rather than durable as a row: the symmetry verdict
+  // is arithmetic over `band.transition`; the quarantine count is the lines of
+  // each scope's `quarantine.jsonl`; the self-store bytes are `schemaBytes` over
+  // the rows. Named here so a day record never reports them as a zero.
   "sleep.symmetry",
   "remember.span.quarantined",
   "self.schema.pressure",
@@ -314,10 +314,19 @@ export const NON_DURABLE_DETECTORS: readonly string[] = [
   "self.schema.quarantined",
 ];
 
-/** The durable names this reader counts. All four exist in `DURABLE_EVENTS`. */
+/**
+ * The durable names this reader counts. All exist in `DURABLE_EVENTS`. The four
+ * delivery records became durable on 2026-09-03 for exactly this reader's
+ * sake: in Phase S they are the contamination detectors on v2's side (§5 G4),
+ * and each carries `date` and `session` in its payload.
+ */
 export const DURABLE_DETECTORS: readonly string[] = [
   PRIMACY_STANDDOWN_EVENT,
   PRIMACY_DELIVER_EVENT,
+  "adapter.wake.injected",
+  "adapter.wake.delivered",
+  "adapter.recall",
+  "adapter.episode.ask",
   "gate.chunk",
   "band.transition",
 ];

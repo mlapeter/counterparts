@@ -132,17 +132,18 @@ a delivered recall in its own words — rides beside it as
 
 ## Two gaps this tool makes visible rather than papers over
 
-**1. Six detectors the CONTRACT names are not durable.** Box 2's `events` table
-takes exactly the eight names in `DURABLE_EVENTS`. `adapter.wake.injected`,
-`adapter.recall`, `adapter.episode.ask`, `sleep.symmetry`,
-`remember.span.quarantined` and `self.schema.*` are **ephemeral ring events**
-that die with the hook process. Counting them out of the store would return 0
-forever, and a fabricated zero reads as evidence of silence — the exact failure
-§5 G4 exists to prevent. So they are returned in `nonDurable`, by name, and the
-day record's v2 contamination channels read `null`, never `0`. §5 G2 ("every
-scorecard number is recomputable from the two durable stores") does not hold for
-those six today; the positive v2 delivery evidence box 2 *does* carry is
-`adapter.primacy.deliver`, by hook.
+**1. Three detectors the CONTRACT names are recomputed, not rows — and four
+that were not durable now are.** Box 2's `events` table takes exactly the names
+in `DURABLE_EVENTS`. On 2026-09-03 the four delivery records
+(`adapter.wake.injected`, `adapter.wake.delivered`, `adapter.recall`,
+`adapter.episode.ask`) joined that list, each carrying `date` and `session` in
+its payload, because in Phase S they ARE the contamination detectors on v2's
+side (§5 G4) and a detector that dies with the hook process cannot be counted
+after the fact (§5 G2). Three remain non-rows by design and are recomputed
+read-only rather than fabricated as zeros: `sleep.symmetry` is arithmetic over
+`band.transition`; `remember.span.quarantined` is the line count of each
+scope's `quarantine.jsonl`; `self.schema.*` is `schemaBytes` over the rows.
+They are returned in `nonDurable`, by name.
 
 **1b. The event read is capped, and says when it capped.** `readV2Day` selects
 with an explicit large limit (the store's own `eventLog` defaults to 500, which

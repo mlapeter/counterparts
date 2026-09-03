@@ -26,10 +26,14 @@ import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import {
+  EPISODE_ASK_EVENT,
   GATE_CHUNK_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
+  RECALL_DELIVERED_EVENT,
+  WAKE_DELIVERED_EVENT,
+  WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 
@@ -76,11 +80,19 @@ export type DurableEventName =
   | typeof RECALL_DECISION_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
-  | typeof PRIMACY_DELIVER_EVENT;
+  | typeof PRIMACY_DELIVER_EVENT
+  | typeof WAKE_INJECTED_EVENT
+  | typeof WAKE_DELIVERED_EVENT
+  | typeof RECALL_DELIVERED_EVENT
+  | typeof EPISODE_ASK_EVENT;
 
 export const DURABLE_EVENTS = {
+  "adapter.episode.ask": "the session-end episode ask was evaluated (asked or not, and why)",
   "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
   "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",
+  "adapter.recall": "a turn's recall was composed for injection (counts and bytes)",
+  "adapter.wake.delivered": "the previous wake's arrival was checked on the next turn",
+  "adapter.wake.injected": "a wake bundle was handed to the host (bytes, never text)",
   "band.promoted": "a memory crossed into the identity band",
   "band.transition": "a memory changed bands (the symmetry counter's food)",
   "gate.chunk": "a swept chunk met the gate battery",

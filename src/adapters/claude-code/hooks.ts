@@ -34,7 +34,16 @@
  *   job is to encode the same days v1 encodes. Both verdicts are durable
  *   (parallel-run G4: the mute is evidenced, not asserted).
  */
-import { Counterpart, PRIMACY_DELIVER_EVENT, PRIMACY_STANDDOWN_EVENT } from "../../core/counterpart.js";
+import {
+  Counterpart,
+  EPISODE_ASK_EVENT,
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  RECALL_DELIVERED_EVENT,
+  WAKE_DELIVERED_EVENT,
+  WAKE_INJECTED_EVENT,
+} from "../../core/counterpart.js";
+import type { AdapterDurableEventName } from "../../core/counterpart.js";
 import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
 
 import { capabilities, interpretSeat } from "./config.js";
@@ -213,7 +222,7 @@ export class ClaudeCodeAdapter {
         // bundle still goes: truncated-and-detectable beats absent.
         this.emit("adapter.injection.overbudget", { bytes: woke.bytes, budget });
       }
-      this.emit("adapter.wake.injected", {
+      this.record(WAKE_INJECTED_EVENT, input, {
         ok: woke.ok,
         reason: woke.reason,
         bytes: woke.bytes,
@@ -249,7 +258,7 @@ export class ClaudeCodeAdapter {
       if (input.sentinelSeen !== undefined) {
         const expected = this.expected.get(input.sessionId) ?? null;
         const delivered = this.counterpart.noteWakeDelivered(input.sentinelSeen, expected);
-        this.emit("adapter.wake.delivered", { delivered, expected: expected !== null });
+        this.record(WAKE_DELIVERED_EVENT, input, { delivered, expected: expected !== null });
       }
       const text = input.prompt ?? "";
       if (text.trim().length === 0) {
@@ -267,7 +276,7 @@ export class ClaudeCodeAdapter {
       );
       const decision = result.decision;
       this.expected.set(input.sessionId, decision.sentinel);
-      this.emit("adapter.recall", {
+      this.record(RECALL_DELIVERED_EVENT, input, {
         reason: decision.reason,
         surfaced: decision.surfaced.length,
         footnotes: decision.footnotes.length,
@@ -398,10 +407,27 @@ export class ClaudeCodeAdapter {
       reason: verdict.reason,
       system: verdict.system,
       date: input.at ?? null,
+      session: input.sessionId,
     };
     this.emit(name, data);
     this.counterpart.noteAdapterEvent(name, data);
     return verdict.deliver;
+  }
+
+  /**
+   * A DELIVERY record: to the ring and to box 2, with the calendar date and the
+   * session riding in the payload for the same reason `deliveryVerdict` puts
+   * them there — the store's `day` column is the lived day, and the parallel
+   * run counts these per calendar day, per session, after the process is gone.
+   */
+  private record(
+    name: AdapterDurableEventName,
+    input: HookInput,
+    data: Record<string, string | number | boolean | null>,
+  ): void {
+    const row = { ...data, date: input.at ?? null, session: input.sessionId };
+    this.emit(name, row);
+    this.counterpart.noteAdapterEvent(name, row);
   }
 
   /**
@@ -469,7 +495,7 @@ export class ClaudeCodeAdapter {
   private askForEpisode(input: HookInput): string | null {
     try {
       const chapter = this.counterpart.episodeAsk(input.sessionId, substanceOf(input.turns ?? []));
-      this.emit("adapter.episode.ask", {
+      this.record(EPISODE_ASK_EVENT, input, {
         asked: chapter.asked,
         chapter: chapter.chapter,
         reason: chapter.verdict.reason,

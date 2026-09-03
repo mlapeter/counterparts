@@ -303,10 +303,12 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const v2StoodDown = Object.values(v2.primacyByHook.standdown).reduce((n, x) => n + x, 0);
 
   // ── G4: contamination, per channel, by named detector ─────────────────────
-  // The muted side is the one that must be silent. `null` on the v2 side is
-  // NOT zero: those detectors are ephemeral (see readers.ts), so the honest
-  // reading is "not durably observable", and the only positive v2 delivery
-  // evidence box 2 carries is `adapter.primacy.deliver`, by hook.
+  // The muted side is the one that must be silent. v2's detectors are the four
+  // delivery records, durable since 2026-09-03 (`adapter.wake.injected`,
+  // `adapter.recall`, `adapter.episode.ask`, each with `date` and `session` in
+  // its payload), counted by name out of box 2; `adapter.primacy.deliver` by
+  // hook is the second, independent witness — either one on a muted day is
+  // contamination.
   const v1Muted = primacy === "v2";
   const v2Muted = primacy === "v1";
 
@@ -319,13 +321,14 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     ritual: v1.episodeAsked,
   };
   const v2Detectors = {
-    wake: deliverHooks["session-start"] ?? 0,
-    recall: deliverHooks["user-prompt-submit"] ?? 0,
-    ritual: deliverHooks["stop"] ?? 0,
+    wake: v2.byNameForDate["adapter.wake.injected"] ?? 0,
+    recall: v2.byNameForDate["adapter.recall"] ?? 0,
+    ritual: v2.byNameForDate["adapter.episode.ask"] ?? 0,
   };
 
   const v1Contaminated = v1Muted && (v1Detectors.wake + v1Detectors.recall + v1Detectors.ritual) > 0;
-  const v2Contaminated = v2Muted && v2Delivered > 0;
+  const v2Contaminated =
+    v2Muted && (v2Delivered > 0 || v2Detectors.wake + v2Detectors.recall + v2Detectors.ritual > 0);
 
   // ── the classes ───────────────────────────────────────────────────────────
   const straddled = v1.sessions.filter((s) => s.straddled);
@@ -430,8 +433,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     },
     contamination: {
       v1: v1Detectors,
-      // The three v2 channels box 2 CANNOT carry read `null`, not `0`.
-      v2: { wake: null, recall: null, ritual: null },
+      v2: v2Detectors,
     },
     tally: { v1: tallyV1, v2: tallyV2 },
     crossEncoding: meter,
