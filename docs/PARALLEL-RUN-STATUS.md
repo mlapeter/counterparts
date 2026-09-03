@@ -8,26 +8,35 @@ there). Numbers here are copied from run-directory artifacts, never typed from m
 ## State — 2026-09-03
 
 **NOT STARTED.** Preconditions closed in code (branch reviewed twice, PR #8); the
-sample replay is done and read below; the owner's P1 waiver is the next artifact. Day 0 needs the owner's hand three
-times (snapshot, hook wiring, and later the Phase P flip) and happens in-session.
+sample replay is done and read below, and it opens the gate on the wiring-alive
+predicate — there is no waiver to wait for. Day 0 needs the owner's hand several times
+(snapshot, hook wiring, the throwaway session, the flip) and happens in-session; the
+flip is day 0's LAST step, and day 1 is v2-primary.
 
 | | |
 |---|---|
-| Phase | 0 (preflight) |
+| Phase | 0 (day 0, pre-flip) — then P, from day 1. There is no Phase S |
 | Run directory | `~/counterparts-parallel-run/<start-date>/` — not yet created |
 | v2 data dir | `~/.counterparts/store` (a subdirectory on purpose — see *Known hazards*) |
 | v2 config | `~/.counterparts/claude-code.json` — drafted, not written |
-| Assignment file | `~/.memory-ab/assignment.json` = `override: "bansai"` (v1 primary; unchanged for Phase S) |
+| Assignment file | `~/.memory-ab/assignment.json` = `override: "bansai"` (v1 primary; flipped to `"engram"` at the end of day 0) |
 | Rail | ~2026-09-22: no green verdict by then ⇒ v1 flips public as-is |
 
-## Rulings (owner, 2026-09-03 — all seven §9 questions plus precondition 1)
+## Rulings (owner, 2026-09-03 — all seven §9 questions, plus two the same evening)
 
-- **P1** the sample route: `--days 7 --embed` sample, trend read per day, an owner-signed
-  waiver file in the run directory names the record. Machine-read, not prose.
+- **P1** the sample route, and **NO WAIVER**: the `--days 7 --embed` sample, trend read
+  per day, judged by the **wiring-alive predicate** — cards shown, blind rate under
+  1.0, refusal mix computed. *"I'm not sure our intent was to require signing things to
+  change them."* Band failures are the run's to re-earn, not anyone's to waive;
+  `waivers.json` no longer exists.
+- **NO SHADOW PHASE**: v2 is primary from day 1. v1 stays installed, muted by the
+  one-line `override: "engram"` flip, and KEEPS ENCODING; the instrument watches both;
+  REVERT is one line back. The **day-1 go/no-go** replaces the shadow days.
 - **OQ1** parity-plus-strategy. **OQ2** migrated starting store. **OQ3** the parallel
-  store is the production store at PROMOTE. **OQ4** accept-and-meter; bar: Phase S zero
-  verbatim hits either direction (red-line), Phase P named finding, red-line above 10%
-  of v1's daily mints. **OQ5** spend approved in principle, actuals logged below.
+  store is the production store at PROMOTE. **OQ4** accept-and-meter; the two ruled
+  numbers now read by DIRECTION: v1→v2 zero verbatim hits in every phase (host shape,
+  red-line), v2→v1 a named finding, red-line above 10% of v1's daily mints.
+  **OQ5** spend approved in principle, actuals logged below.
   **OQ6** v1's 30-day window sets the bands; same-run days beside them. **OQ7** a named
   post-cutover watch list; v1's store readable indefinitely.
 
@@ -37,15 +46,15 @@ Journal: `~/bansai/docs/DECISIONS.md`, entries dated 2026-09-03.
 
 | # | Precondition | Status | Verification |
 |---|---|---|---|
-| 1 | Replay gate green for this run | **pending the sample** | `parallelGateOpen` over `pass-record.json` + `waivers.json`; preflight row `replay.gate` |
+| 1 | Replay gate green — the wiring proven alive | **closed by the sample** | `parallelGateOpen` over `pass-record.json` alone; the three `WIRING_ALIVE` channels; preflight row `replay.gate` |
 | 2 | G12 symmetry consumer live | closed | `test/sleep.test.ts` ("a RATCHET trips…", "never-asked…"), `test/dashboard.test.ts` ("renders by REASON"); daily: `sleep.symmetry` recomputed from `band.transition` |
 | 3 | `scanSecrets` bounded | closed on branch | `SCHEME_TAIL {0,32}` and the `url-path-token` host/path class `{0,512}`; `test/encode.test.ts` "the scan is bounded" (four shapes); measured 744ms → 2ms at 32KB, 179ms → linear on the URL-list shape |
 | 4 | Poison-pill retry bounded | closed on branch | `MAX_SPAN_FAILURES=3` **distinct lived days** (an outage day is one failure), `failures.jsonl`, `quarantine.jsonl`, `remember.span.quarantined`; seven tests in `test/remember.test.ts` |
 | 5 | Self-store valve: relief or evidence | **pending two readings** | the sample's `self.schema.tripped` count; `schemaBytes` on the migrated store (preflight row `store.schemaBytes`) |
 | 6 | Migration: confidentiality + secrets gate | code closed; **apply pending** | `test/migrate.test.ts` G1/G2; dry run 2026-09-03 on the live store: 26 redactions (19 google-api-key), 10 floor refusals named; `--apply` from a quiescent snapshot on day 0 with `source_readonly.identical: true` |
 | 7 | Priced and approved | approved in principle | `pricing.json` in the run dir; actuals below |
-| 8 | Ask channel proven on host | **pre-Phase-P** | a v2 Stop-hook ask observed in a throwaway session; recorded as `ask-channel.json` `{observedAt, channel, exitCode, session}` in the run dir, read by the `--phase P` preflight |
-| 9 | Surfacing decision record durable | closed on branch | `recall.decision` rows; `surfaceSetFields()`; `test/counterpart.test.ts` "the surfacing decision is DURABLE" |
+| 8 | Ask channel proven on host | **day 0, pre-flip** | a v2 Stop-hook ask observed in a throwaway session in which v2 DELIVERS (it never asks while muted); recorded as `ask-channel.json` `{observedAt, channel, exitCode, session}` in the run dir, read by the `--phase 0` preflight |
+| 9 | Surfacing decision record durable | closed on branch; **evidenced on day 0** | `recall.decision` rows (written only on a turn v2 delivered — the throwaway session); `surfaceSetFields()` hash in `run.json` from the day-0 daily; `test/counterpart.test.ts` "the surfacing decision is DURABLE" |
 
 Also landed on the branch: v2's primacy resolver (deliver iff `override === "engram"`,
 fail toward mute) behind `parallel.enabled`; the four delivery records durable with
@@ -92,16 +101,21 @@ reached by the semantic channel alone (fails a band calibrated on one v1 day).
 (2,379 / 158) against v1's 1.85 and the first run's ~6.7. The one-idea prompt teeth
 split memories finer by design, and the sample's days are heavy, but at this yield
 v2's daily mint volume would sit far above v1's on the same days and fail parity band
-§7.3 in Phase S. Carried as the first watch of the run; Phase S measures it on the
-same days, which is the strongest comparability this project has.
+§7.3. Carried as the first watch of the run; v1 keeps encoding while muted, so every
+run day measures it on the same days — the strongest comparability this project has,
+and it survives dropping the shadow phase.
 
 **P5, first reading:** `self.schema.tripped` never fired in 7 days; the F8 quarantine
 fired 7 times (sweep-minted self rows set aside). The second reading is `schemaBytes`
 on the migrated store at preflight.
 
-*Owner waiver for precondition 1: pending — `waivers.json` naming `run_6530ad2ee770`.*
+*Precondition 1 on this record: OPEN. `readOnlyProof` and `totalityOk` hold; the
+wiring reads `preselect.meanSchemasShown` pass (0.54), `preselect.blindRate` 0.60 (a
+band failure, and far under the 1.0 that would mean a dead wire), `gate.refusalMix`
+computed. The 11 band failures are the run's to re-earn (§5 G15), not anyone's to sign
+for.*
 
-## Day 0 — the start sequence (owner present)
+## Day 0 — the start sequence (owner present; the flip is the LAST step)
 
 1. Close every Claude Code session (v1's hooks mutate `~/.bansai` at every Stop).
 2. Snapshot: `rsync -a --exclude index.sqlite* --exclude buffer --exclude buffer-archive
@@ -115,24 +129,58 @@ on the migrated store at preflight.
    `injectionBudgetBytes: 9000`, `embedder.enabled: true`, `parallel.enabled: true`,
    identity anchor).
 5. Write `bars.json` into the run dir — all five fields, dated: `activeDayTurnFloor`,
-   `crossEncodingBar: 0` (Phase S), `crossEncodingRatioBar: 0.10` (Phase P, OQ4),
-   `crossEncodingMinLineChars` (the probe floor), `committedAt`, `preconditionDropDead:
-   2026-09-08` — plus `pricing.json` and `waivers.json` (P1). The instrument refuses to
-   run without them; it never invents a bar.
-6. Preflight: `bun tools/parallel/bin/preflight.ts --run-dir <dir> --v2-config … --replay-out … --transcripts …`
-   must exit 0 with `ready: true`.
-7. Wire v2's hooks into `~/.claude/settings.json` beside v1's (same command for
+   `crossEncodingBar: 0` (v1→v2, every phase), `crossEncodingRatioBar: 0.10` (v2→v1,
+   OQ4), `crossEncodingMinLineChars` (the probe floor), `committedAt`,
+   `preconditionDropDead: 2026-09-08` — plus `pricing.json`. The instrument refuses to
+   run without them; it never invents a bar. (No `waivers.json`: there is no such file.)
+6. Wire v2's hooks into `~/.claude/settings.json` beside v1's (same command for
    SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact; hooks on one event run
    in parallel; SessionEnd shares a 1.5 s budget across all hooks).
-8. First session: confirm v2 captured (spans under the data dir), stood down at every
-   delivering hook (`adapter.primacy.standdown` rows for the date), spawned its worker,
-   and that v1 ran exactly as before. Then `daily.ts --date <today>` → class `thin` is
-   fine on day 0; `contaminated` is not.
+7. A first, ordinary session with v2 still muted: confirm v2 captured (spans under the
+   data dir), stood down at every delivering hook (`adapter.primacy.standdown` rows for
+   the date), spawned its worker, and that v1 ran exactly as before. `contaminated` here
+   is a stop.
+8. `daily.ts --date <today> --phase 0` → writes `run.json` with G12's baseline
+   `surfaceSet` hash (P9's second half); class `thin` is fine on day 0. **Run this
+   BEFORE step 9, and once.** The throwaway session below is v2 speaking on a day whose
+   primacy is v1, which is exactly what the G4 detector calls `contaminated` — a daily
+   re-run after it would class day 0 contaminated and exit 1, on rows from the one
+   session that was *supposed* to speak. Day 0 counts toward no minimum either way.
+9. **The ask-channel throwaway session (P8), with v2 DELIVERING.** v2's Stop ask never
+   fires while it is standing down, and there is no per-session way to ask it to: the
+   adapter reads one fixed config (`~/.counterparts/claude-code.json`), so "a throwaway
+   project with delivery on" is not a thing that exists. Use the run's own mechanism,
+   twice, **with no session open** each time: flip `override` to `"engram"` (tmp+rename),
+   run the throwaway session, flip it back to `"bansai"`. One voice throughout, and if
+   the preflight then refuses, primacy is already back where it was. Watch the ask
+   arrive in the model's context; record `ask-channel.json`
+   `{observedAt, channel, exitCode, session}`. The same session leaves the first
+   `recall.decision` rows, which is P9's first half. **Read the first rendered v2 wake
+   by hand** before any workday runs on it.
+10. Preflight LAST: `bun tools/parallel/bin/preflight.ts --run-dir <dir> --phase 0 --v2-config … --replay-out … --transcripts …`
+   must exit 0 with `ready: true`. Every row binds, 8 and 9 included; nothing is deferred.
+11. **The flip** (no session open): back up `assignment.json` beside itself, dated;
+   write `override: "engram"` via tmp+rename; stamp the wall clock in `run.json`. Day 1
+   is v2-primary.
+
+## Day 1 — the go/no-go (the shadow days' replacement)
+
+Before a second workday runs on v2, all of it named in `run.json`:
+
+- Wake bytes sane, and **a human read the first rendered v2 wake** before a workday ran
+  on it.
+- Recalls non-empty on real turns (`recall.decision` rows with surfaced ids).
+- The ask observed reaching the model (the authored dump actually fired).
+- The mute evidenced: v1's `ab.muted` present at session start and user-prompt-submit,
+  and no v1 delivery events for the day.
+- The cross-encoding meter clean in both directions.
+
+Any failure is REVERT the same day, named — not an extension, not a wait.
 
 ## The daily check (two minutes)
 
 ```
-bun tools/parallel/bin/daily.ts --run-dir <dir> --date <YYYY-MM-DD> --v1-wake ~/.bansai/render/wake.md [--v1-ritual "<the ask's first line>"]
+bun tools/parallel/bin/daily.ts --run-dir <dir> --date <YYYY-MM-DD> --phase P --v1-wake ~/.bansai/render/wake.md [--v1-ritual "<the ask's first line>"]
 ```
 
 The daily refuses to run without a v1 probe (the wake render file is the natural one),
@@ -153,22 +201,23 @@ count). Then the dashboard status view on the v2 store, read-only
 | Mute evidenced (G4) | `days/*.json` → `mute` | fail on a contaminated day |
 | Cross-encoding (G7) | `crossEncoding` vs `bars.json` | red-line above bar |
 | Isolation (G6) | preflight `datadirs.disjoint`, `assignment.*` | re-run on any host upgrade |
-| Encode parity (Phase S) | v2 tally vs v1 tally, same day | band from OQ6's 30-day window |
+| Encode parity (every day) | v2 tally vs v1 tally, same day — v1 encodes while muted | band from OQ6's 30-day window |
 | Symmetry (G12 consumer) | dashboard status | `never-asked` is not health |
 | Self-store bytes (P5) | preflight `store.schemaBytes`, daily | pressure/trip named |
 | Quarantine (P4) | `quarantine.jsonl` line counts | any growth is a named finding |
-| Delivered loop (Phase P only) | `recall.decision`, `adapter.*` rows | `not-applicable` in Phase S |
+| Delivered loop | `recall.decision`, `adapter.*` rows | `not-applicable` on day 0, graded from day 1 |
 
-## Pre-Phase-P checklist (before the flip)
+## Pre-flip checklist (the end of day 0)
 
 - Precondition 8: a v2 Stop-hook ask observed arriving in the model's context in a
-  throwaway project session; record the channel and exit code as a capability.
-- Precondition 9 present (it is, on the branch); `surfaceSetFields()` hash recorded in
-  `run.json` as the G12 baseline.
+  throwaway session run **with `override: "engram"`, flipped back afterwards** (there is
+  no per-session delivery switch); record the channel and exit code as a capability in
+  `ask-channel.json`.
+- Precondition 9: `recall.decision` rows in the store from that session, and the
+  `surfaceSetFields()` hash recorded in `run.json` as the G12 baseline.
 - Bars for the delivered-loop criteria committed in `bars.json`, dated.
 - `not-applicable` list for Phase P enumerated in the run dir (G13).
-- Phase S exit: ≥3 active days, isolation meters clean, encode parity bands holding,
-  zero red-lines.
+- The preflight at `--phase 0` exits 0: every row passes, nothing deferred.
 - The flip: back up `assignment.json` beside itself (dated, matching the existing
   `.bak-2026-07-18`), write `override: "engram"` via tmp+rename **with no session
   open**, stamp the wall clock in `run.json`.

@@ -1228,7 +1228,8 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
   });
 
   test("the DELIVERY is evidenced too: wake, recall, delivery-check and episode-ask rows are durable (G2/G4)", () => {
-    // In Phase S v2 is the muted side, so a v2 delivery event IS the
+    // On any day v2 is the muted side — day 0, or a reverted day — a v2
+    // delivery event IS the
     // contamination detector — and a detector that lives only in the hook
     // process's ring cannot be counted after the process is gone. Every
     // delivering hook leaves a box-2 row carrying the calendar date and the

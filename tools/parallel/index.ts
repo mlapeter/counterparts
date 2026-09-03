@@ -8,12 +8,12 @@ export {
   NOT_APPLICABLE_TO_RUN,
   PARALLEL_EXERCISABLE,
   RATER_DEFERRED,
+  WIRING_ALIVE,
   gateSets,
   parallelGateOpen,
   parseGateRecord,
-  parseWaivers,
 } from "./gate.js";
-export type { GateReadableRecord } from "./gate.js";
+export type { GateEntry, GateReadableRecord, WiringCheck } from "./gate.js";
 
 export {
   DURABLE_DETECTORS,

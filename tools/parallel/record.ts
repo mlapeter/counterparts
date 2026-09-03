@@ -215,8 +215,12 @@ const DELIVERY_RECORDS: readonly string[] = [
   "adapter.episode.ask",
 ];
 
-/** Every phase a day can be stamped with, so the counts below are total. */
-const RUN_PHASES: readonly RunPhase[] = ["0", "S", "P"];
+/**
+ * Every phase a day can be stamped with, so the counts below are total. TWO,
+ * since the owner dropped the shadow phase (RULED 2026-09-03): `0` is day 0,
+ * before the flip, and no minimum counts it; `P` is the run.
+ */
+const RUN_PHASES: readonly RunPhase[] = ["0", "P"];
 
 export interface MeterSide {
   /** The addresses this side INJECTED — the probes. */
@@ -271,6 +275,7 @@ export interface CrossEncodingInput {
   readonly date: string;
   /** Which phase's rule applies (OQ4, RULED 2026-09-03). See below. */
   readonly phase: RunPhase;
+  /** The v1→v2 bar. ZERO by rule in every phase; `readBars` refuses any other. */
   readonly bar: number;
   /** The committed probe floor: `bars.json#crossEncodingMinLineChars`. */
   readonly minLineChars: number;
@@ -353,35 +358,37 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   const v2IntoV1 = meterInto(v2Probes, v1Corpus, { excludedMigrated: 0, readErrors: [], missingOnDisk: 0 });
   const total = v1IntoV2.hits + v2IntoV1.hits;
 
-  // ── OQ4's two rules, RULED 2026-09-03 ────────────────────────────────────
+  // ── OQ4's rules, RULED 2026-09-03, now BY DIRECTION ──────────────────────
   //
-  // Phase S: ZERO verbatim hits in either direction. The host's transcript
-  // shape carries v1's exclusion, so any hit means the host changed — a
-  // red-line on its own, no ratio involved.
+  // With the shadow phase dropped there is one running phase, and the two rules
+  // OQ4 gave to two phases belong to the two DIRECTIONS — which is what they
+  // were always about:
   //
-  // Phase P: any hit is a NAMED FINDING, and a red-line only above 10% of v1's
-  // daily mints carrying a verbatim v2 line. v1 keeps v2's injected text in its
-  // capture buffer BY DESIGN (§4, §9 OQ4: accept-and-meter), so a nonzero count
-  // in Phase P is expected; what is not expected is that share becoming large.
+  //   v1 → v2 (v1's ritual text found in v2's capture): ZERO, in every phase.
+  //     That exclusion is carried by the HOST's transcript shape, not by v2
+  //     (§5 G8), so a hit means the host changed. No ratio can buy it down.
   //
-  // `redLine = total > bar` had no phase branch at all, which made Phase P's
-  // ruled 10% allowance unreachable and Phase S's zero bar a coincidence of
-  // whatever `bar` happened to be committed.
-  const phaseS = input.phase !== "P";
+  //   v2 → v1 (v2's injected text found in v1's buffer): OQ4's accepted cost.
+  //     v1 keeps injected text in its capture buffer BY DESIGN (§4: no v1-side
+  //     code changes), so while v2 is primary a nonzero count is expected —
+  //     a NAMED FINDING at or below `ratioBar` of v1's mints that day, a
+  //     red-line above it.
+  //
+  // Phase 0 is before the flip: v2 delivers nothing, so it can inject nothing,
+  // and BOTH directions are the host-shape zero. `readBars` refuses a nonzero
+  // `crossEncodingBar`, so the committed file cannot loosen the zero (delta N1).
+  const running = input.phase === "P";
   const denominator = input.v1CreatedThatDay ?? null;
   const ratio =
     denominator === null || denominator === 0 ? null : v2IntoV1.hits / denominator;
-  // Phase S: the bar is ZERO by rule (§9 OQ4), not by whatever number was
-  // committed — `readBars` refuses a nonzero `crossEncodingBar` too, so the two
-  // cannot disagree (PR-8 delta N1). Phase P with NO denominator: the 10% rule
-  // cannot be evaluated, and an unmeasurable meter with hits on it is a halt,
-  // not a pass (§5 G10; delta N7) — `null` ratio + hits ⇒ red-line.
-  const redLine = phaseS
-    ? total > 0
-    : ratio === null
-      ? v2IntoV1.hits > 0
-      : ratio > input.ratioBar;
-  const namedFinding = !phaseS && total > 0 && !redLine;
+  // Phase P with NO denominator: the ratio rule cannot be evaluated, and an
+  // unmeasurable meter with hits on it is a halt, not a pass (§5 G10; delta
+  // N7) — `null` ratio + hits ⇒ red-line.
+  const v2IntoV1RedLine = ratio === null ? v2IntoV1.hits > 0 : ratio > input.ratioBar;
+  const redLine = running
+    ? v1IntoV2.hits > 0 || v2IntoV1RedLine
+    : total > 0;
+  const namedFinding = running && total > 0 && !redLine;
 
   return {
     phase: input.phase,
@@ -395,11 +402,12 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
     namedFinding,
     ratio,
     ratioDenominator: denominator,
-    ratioNote: phaseS
-      ? `Phase ${input.phase}: ZERO hits in either direction is the bar (§9 OQ4, RULED 2026-09-03) — the host's transcript shape carries v1's exclusion, so any hit means the host changed`
-      : denominator === null
-        ? "Phase P: the ratio has NO denominator — v1's mints for this day could not be read, so the 10% rule cannot be evaluated; any hit is a RED-LINE until the denominator can be read (§5 G10)"
-        : `Phase P: ${v2IntoV1.hits} v1 line(s) carrying a verbatim v2 line against ${denominator} v1 mint(s) that day — red-line above ${input.ratioBar}`,
+    ratioNote: !running
+      ? `Phase 0 (before the flip, v2 delivering nothing): ZERO hits in either direction is the bar (§9 OQ4, RULED 2026-09-03) — the host's transcript shape carries v1's exclusion, so any hit means the host changed`
+      : `Phase P, BY DIRECTION: v1→v2 ${v1IntoV2.hits} hit(s), where the bar is ZERO in every phase (host shape, §5 G8); ` +
+        (denominator === null
+          ? `v2→v1 ${v2IntoV1.hits} hit(s) with NO denominator — v1's mints for this day could not be read, so the ratio rule cannot be evaluated and any hit is a RED-LINE until it can (§5 G10)`
+          : `v2→v1 ${v2IntoV1.hits} v1 line(s) carrying a verbatim v2 line against ${denominator} v1 mint(s) that day — red-line above ${input.ratioBar} (OQ4: v1 keeps v2's text by design)`),
     exposureDenominator: input.exposureDenominator ?? null,
   };
 }
@@ -551,20 +559,24 @@ export function readRunRecord(runDir: string): RunRecord | null {
 
 export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const prior = readRunRecord(opts.runDir);
-  const phase = opts.phase ?? prior?.phase ?? "S";
+  // A FRESH RUN IS AT PHASE 0, not at the running phase: day 0 exists before
+  // the flip (the migration, the throwaway session, the first daily that writes
+  // G12's baseline hash), and its primacy is still v1's. `--phase P` on day 1
+  // is what starts the run, and every later day inherits it from `run.json`.
+  const phase = opts.phase ?? prior?.phase ?? "0";
   const primacy: Primacy = opts.primacy ?? prior?.primacy ?? (phase === "P" ? "v2" : "v1");
 
   // BARS ARE REQUIRED, never defaulted. `DEFAULT_BARS` fabricated
   // `activeDayTurnFloor: 0`, under which EVERY lived day clears the floor and
   // the active-day count — the run's central number — is meaningless. §5 G15
-  // commits the bars in the run directory, dated, before Phase S day 1; the
+  // commits the bars in the run directory, dated, at day 0 before the flip; the
   // instrument's job is to refuse to run without them, not to invent them.
   const bars = opts.bars ?? readBars(opts.runDir);
   if (bars === null) {
     throw new RecordError("BARS_NOT_COMMITTED", {
       runDir: opts.runDir,
       remedy:
-        "write bars.json with activeDayTurnFloor, crossEncodingBar, crossEncodingMinLineChars, crossEncodingRatioBar, committedAt and preconditionDropDead before the first day (§5 G7, G15)",
+        "write bars.json with activeDayTurnFloor, crossEncodingBar, crossEncodingMinLineChars, crossEncodingRatioBar, committedAt and preconditionDropDead before day 0 (§5 G7, G15)",
     });
   }
 
@@ -829,10 +841,11 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   //
   // EVERY DAY CARRIES ITS OWN PHASE, and the per-phase counts are recomputed
   // from that field on every write. The old line counted EVERY active day in
-  // the run into whichever phase happened to be running — so the first Phase P
-  // day inherited Phase S's whole tally and `activeDays.P` cleared its 7-day
-  // minimum on day one (review blocker 5). A phase minimum counted from the
-  // wrong phase's days is the run's central number being wrong.
+  // the run into whichever phase happened to be running, so a day lived before
+  // the flip could clear a minimum it was never part of (review blocker 5). A
+  // phase minimum counted from the wrong phase's days is the run's central
+  // number being wrong — and with one running phase left, `activeDays.P` IS
+  // that number: ≥7, a minimum before a verdict rather than a cap.
   const days = [
     ...(prior?.days ?? []).filter((d) => d.date !== opts.date),
     { date: opts.date, class: dayClass, phase },
