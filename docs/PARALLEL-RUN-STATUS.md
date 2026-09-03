@@ -7,8 +7,8 @@ there). Numbers here are copied from run-directory artifacts, never typed from m
 
 ## State — 2026-09-03
 
-**NOT STARTED.** Preconditions closing; the sample replay is running; the
-preconditions branch is under adversarial review. Day 0 needs the owner's hand three
+**NOT STARTED.** Preconditions closed in code (branch reviewed twice, PR #8); the
+sample replay is done and read below; the owner's P1 waiver is the next artifact. Day 0 needs the owner's hand three
 times (snapshot, hook wiring, and later the Phase P flip) and happens in-session.
 
 | | |
@@ -58,10 +58,48 @@ Fired 2026-09-03 17:05 UTC: `run-replay --days 7 --embed --fire`, Opus seat, Voy
 live, corpus days 2026-07-27..08-04 (292 span files, 52 sessions, ~4.3 MB), code at
 `065fcb5`. Output: `~/counterparts-replay-runs/sample-7d-2026-09-03/`.
 
-Per-day trend (filled from `report.txt` when the run ends): blind rate · schemas shown ·
-refusal mix · novelty non-null · birth grounding · `self.schema.tripped`.
+Finished 2026-09-03 19:01 UTC, exit 0. Record `run_6530ad2ee770`, harness `replay/2`,
+`sample: true`, `readOnlyProof: true`, `totalityOk: true`; counts 15 pass / 11 fail /
+2 needs-rater / 23 not-exercised / 5 watch. 166 chunks, 2,379 mints, lived day 7.
+Cost: no usage logging in the runner; from token volume (≈1.2M input from spans plus
+prompt overhead, ≈0.3M output) about **$16–20** on Opus 5 pricing, under the $25–40
+estimate. The console bill is the actual.
 
-*Result: pending.*
+**The per-day trend — the wiring proof (early days blind by construction):**
+
+| corpus day | chunks gated | blind | mean cards shown |
+|---|---|---|---|
+| 07-27 (d0) | 3 | 3 (100%) | 0.00 |
+| 07-29 | 7 | 7 (100%) | 0.00 |
+| 07-30 | 25 | 20 (80%) | 0.20 |
+| 07-31 | 11 | 9 (82%) | 0.18 |
+| 08-01 | 27 | 22 (81%) | 0.22 |
+| 08-03 | 17 | 2 (12%) | 1.12 |
+| 08-04 | 63 | 29 (46%) | 0.79 |
+
+Read honestly: the cards channel is alive and climbing (schemas shown 0 → 1.12 → 0.79;
+aggregate 0.54 passes its band), the blind rate falls from 100% to 12% by day 6 and
+sits at 46% on the heaviest day — **still-stabilizing**, not in v1's 10–35% band
+(aggregate 60% fails, as a 7-day window starting empty must). Novelty is non-null on 61
+of 153 chunks (40%; null only on blind chunks) against zero in the first run. Refusal
+mix passes. Salience: 62% of mints lifted (first run 98%), and the reteller's cap bit
+on 76% of lifts — the mint-source doctrine working. Schema-birth grounding barely
+moved: 12 births / 390 attempts (96.9% refused, 97% of them `name-not-in-source`; first
+run 98.9%) — a named watch, not a wiring failure. Channel mix: 82% of shown cards
+reached by the semantic channel alone (fails a band calibrated on one v1 day).
+
+**One finding that is not a wiring question: mint yield.** 15.06 mints per chunk
+(2,379 / 158) against v1's 1.85 and the first run's ~6.7. The one-idea prompt teeth
+split memories finer by design, and the sample's days are heavy, but at this yield
+v2's daily mint volume would sit far above v1's on the same days and fail parity band
+§7.3 in Phase S. Carried as the first watch of the run; Phase S measures it on the
+same days, which is the strongest comparability this project has.
+
+**P5, first reading:** `self.schema.tripped` never fired in 7 days; the F8 quarantine
+fired 7 times (sweep-minted self rows set aside). The second reading is `schemaBytes`
+on the migrated store at preflight.
+
+*Owner waiver for precondition 1: pending — `waivers.json` naming `run_6530ad2ee770`.*
 
 ## Day 0 — the start sequence (owner present)
 
@@ -147,7 +185,7 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 
 | Item | Estimate | Actual |
 |---|---|---|
-| Sample replay (7 days, Opus + Voyage) | $25–40 | *pending* |
+| Sample replay (7 days, Opus + Voyage) | $25–40 | ≈$16–20 by token volume (1.2M+ in / 0.3M out); bill is the actual |
 | Run, API side (embeddings + crash-fallback sweeps) | dollars/day | *per day, from run.json* |
 | Authored dump | owner's subscription context, not an API line | — |
 
