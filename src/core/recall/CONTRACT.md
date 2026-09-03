@@ -132,6 +132,13 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
 13. **[A]** Framing and phrasing are preferences, recorded as open probe questions.
 14. **[M]** The per-turn surfacing decision record is content-by-reference and exists from day
     one — it is the richest replay comparison surface (§17.3).
+15. **[M]** That record is **durable**: the composition root appends one `recall.decision` row
+    per non-aborted turn to the store's event log, and exports the record's ordered field list
+    (`surfaceSetFields()`) as the surface set's schema — so a run's surfacing numbers are
+    recomputable from the store it leaves behind rather than from a live event ring, and a
+    human rating can be carried across a change only when that set provably matches (parallel
+    CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer; an
+    abort writes nothing at all, which is guarantee 2 unchanged.
 
 ## 6. Scars honored
 

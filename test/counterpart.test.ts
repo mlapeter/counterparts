@@ -17,7 +17,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart } from "../src/core/counterpart.js";
+import { Counterpart, surfaceSetFields } from "../src/core/counterpart.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP } from "../src/core/self/index.js";
 import { Store } from "../src/core/store/index.js";
@@ -468,6 +468,146 @@ describe("the root binds the seams a caller would otherwise have to remember", (
     await c.sessionEnd({ date: "2026-08-27", budgetBytes: BUDGET_BYTES });
     expect(c.associate.pendingDeltas()).toEqual([]);
     expect(c.associate.linked(a, b)).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The per-turn surfacing decision, PERSISTED — §17.3's richest comparison
+// surface, taken out of the in-process ring (replay INTERFACE-GAPS §7)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the surfacing decision is DURABLE — one row per turn, content-by-reference", () => {
+  /** Planted in the memory body. A log containing it is a log carrying content. */
+  const BODY_MARKER = "ZQDECISIONBODYMARKER";
+  /** Planted in the turn text. A cue token is a word the user typed (§5 G14). */
+  const CUE_MARKER = "zqdecisioncuemarker";
+
+  const CUE_TURN = "the rotary compost tumbler jammed again";
+
+  /** A store with a life in it, plus one memory the turn below actually reaches. */
+  function surfaceable(c: Counterpart): string {
+    seed(c);
+    return c.store.put({
+      type: "memory",
+      kind: "skill",
+      title: "Compost tumbler",
+      body: `The rotary compost tumbler jammed after the winter freeze. ${BODY_MARKER}`,
+      salience: { novelty: null, relevance: 0.8, emotional: 0.5, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+  }
+
+  function rows(
+    c: Counterpart,
+  ): { day: number; ref: string | null; payload: Record<string, unknown> }[] {
+    return c.store
+      .eventLog({ name: "recall.decision", limit: 100 })
+      .map((row) => ({
+        day: row.day,
+        ref: row.ref,
+        payload: JSON.parse(row.payload ?? "{}") as Record<string, unknown>,
+      }));
+  }
+
+  test("two turns leave two rows, and each row's key set IS the exported surface set", () => {
+    const c = brain();
+    surfaceable(c);
+    c.recallForTurn({ sessionId: "s1", text: CUE_TURN }, { at: "2026-01-02" });
+    // A QUIET turn is a decision too: recording only the loud ones would grade
+    // surfacing by the turns that surfaced.
+    c.recallForTurn(
+      { sessionId: "s1", text: "what time does the tram to the airport leave" },
+      { at: "2026-01-02" },
+    );
+
+    const log = rows(c);
+    expect(log.length).toBe(2);
+    for (const row of log) {
+      // The field NAMES are the schema `tools/parallel` hashes (§5 G12): a record
+      // that grew or lost a field is a different surface set and must say so.
+      expect(Object.keys(row.payload)).toEqual([...surfaceSetFields()]);
+      expect(row.ref).toBe("s1");
+      expect(row.payload["session"]).toBe("s1");
+      expect(row.payload["date"]).toBe("2026-01-02");
+      expect(row.payload["observer"]).toBe(false);
+      expect(row.payload["aborted"]).toBe(false);
+      expect(typeof row.payload["reason"]).toBe("string");
+    }
+    expect(log[0]?.payload["turn"]).toBe(1);
+    expect(log[1]?.payload["turn"]).toBe(2);
+  });
+
+  test("the ids and the salience numbers in the row are the decision's own", () => {
+    const c = brain();
+    const id = surfaceable(c);
+    const out = c.recallForTurn({ sessionId: "s1", text: CUE_TURN });
+    const reached = [...out.decision.surfaced, ...out.decision.footnotes];
+    expect(reached).toContain(id);
+
+    const payload = rows(c)[0]?.payload ?? {};
+    const surfaced = payload["surfaced"] as { id: string; sal: number | null }[];
+    const footnotes = payload["footnotes"] as { id: string; sal: number | null }[];
+    expect(surfaced.map((r) => r.id)).toEqual(out.decision.surfaced);
+    expect(footnotes.map((r) => r.id)).toEqual(out.decision.footnotes);
+    expect(payload["surfacedCount"]).toBe(out.decision.surfaced.length);
+    expect(payload["footnoteCount"]).toBe(out.decision.footnotes.length);
+    expect(payload["bytes"]).toBe(out.decision.bytes);
+    expect(payload["budgetBytes"]).toBe(out.decision.budgetBytes);
+    expect(payload["reason"]).toBe(out.decision.reason);
+    expect(payload["affectFlag"]).toBe(out.decision.affectFlag);
+    expect(payload["affectReason"]).toBe(out.decision.affectReason);
+    // Whether a sentinel was RENDERED — never the sentinel's own text.
+    expect(payload["sentinelRendered"]).toBe(out.decision.sentinel !== null);
+    expect(payload["elapsedMs"]).toBe(out.decision.elapsedMs);
+    // The salience is the gate's own number, copied, not re-derived here.
+    const row = [...surfaced, ...footnotes].find((r) => r.id === id);
+    expect(row?.sal).toBe(out.decision.verdicts.find((v) => v.id === id)?.sal ?? null);
+  });
+
+  test("NO memory body and NO cue text reaches the durable log, anywhere", () => {
+    const c = brain();
+    surfaceable(c);
+    const out = c.recallForTurn({ sessionId: "s1", text: `${CUE_MARKER} ${CUE_TURN}` });
+    // Not vacuous: something was actually reached, and a row was actually written.
+    expect([...out.decision.surfaced, ...out.decision.footnotes].length).toBeGreaterThan(0);
+    expect(rows(c).length).toBe(1);
+
+    const whole = JSON.stringify(c.store.eventLog({ limit: 1000 }));
+    expect(whole).not.toContain(BODY_MARKER);
+    expect(whole).not.toContain(CUE_MARKER);
+  });
+
+  test("under observer NO row is written, and the stand-down is counted", () => {
+    const writable = brain();
+    surfaceable(writable);
+    // One ordinary turn first, so "the count did not move" is a count that had
+    // somewhere to move FROM.
+    writable.recallForTurn({ sessionId: "s1", text: CUE_TURN });
+    writable.close();
+
+    const probe = brain({ observer: true });
+    const before = probe.store.eventLog({ name: "recall.decision", limit: 100 }).length;
+    expect(before).toBe(1);
+    const out = probe.recallForTurn({ sessionId: "s2", text: CUE_TURN });
+    // An instrument still SEES — it just leaves no trace at the store seam.
+    expect(out.decision.observer).toBe(true);
+    expect(probe.store.eventLog({ name: "recall.decision", limit: 100 }).length).toBe(before);
+
+    const evt = probe.events("counterpart.recall.decision").at(-1);
+    expect(evt?.data?.["durable"]).toBe(false);
+    expect(evt?.data?.["standdown"]).toBe("observer");
+  });
+
+  test("a latency abort writes NOTHING — not a row, not an event (recall §5 G2)", () => {
+    // A clock that jumps a whole minute between reads: the build loses its race.
+    let t = 0;
+    const c = brain({ now: () => (t += 60_000) });
+    surfaceable(c);
+    const out = c.recallForTurn({ sessionId: "s1", text: CUE_TURN });
+    expect(out.decision.aborted).toBe(true);
+    expect(out.decision.reason).toBe("latency-abort");
+    // Nothing injected, nothing buffered, nothing LOGGED — durably or otherwise.
+    expect(rows(c)).toEqual([]);
+    expect(c.events("counterpart.recall.decision")).toEqual([]);
   });
 });
 
