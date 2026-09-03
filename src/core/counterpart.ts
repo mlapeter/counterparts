@@ -699,14 +699,22 @@ export class Counterpart {
    */
   private recordDecision(d: RecallDecision, date: string | null): void {
     if (d.aborted) return;
-    const durable = !this.observer;
+    let durable = !this.observer;
     if (durable) {
-      this.store.appendEvent({
-        name: RECALL_DECISION_EVENT,
-        day: d.day,
-        ref: d.sessionId,
-        payload: recallDecisionRecord(d, { date }),
-      });
+      // Guarded like `noteAdapterEvent`: a lock lost to the detached worker
+      // must cost the ROW, never the turn's injection — a throw here would be
+      // swallowed by the adapter's guard and take the recall down with it.
+      try {
+        this.store.appendEvent({
+          name: RECALL_DECISION_EVENT,
+          day: d.day,
+          ref: d.sessionId,
+          payload: recallDecisionRecord(d, { date }),
+        });
+      } catch (err) {
+        durable = false;
+        this.emit("counterpart.recall.decision.failed", d.sessionId, { code: errCode(err) });
+      }
     }
     this.emit("counterpart.recall.decision", d.sessionId, {
       turn: d.turn,

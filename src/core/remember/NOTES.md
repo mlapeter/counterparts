@@ -134,7 +134,7 @@ duplicate. This is not a canonical-prose deletion — nothing in this module can
 touch box 1, and the constitution's "nothing bulk-wipes silently" is honored by the
 event (`remember.claim.consumed`, with counts).
 
-## 13. The retry bound: three failures, then quarantine
+## 13. The retry bound: three failing lived days, then quarantine
 
 The 2026-08-26 replay's P0 fix (a restored span's hash must stay OUT of
 `consumed.jsonl`) traded silent loss for **indefinite retry**: a permanently-failing
@@ -142,11 +142,13 @@ span was restored and re-swept at every boundary forever, one model call each ti
 on the owner's account. The review accepted the trade direction and queued the
 bound; this is it, and it is parallel-run precondition §5.4.
 
-- **The bound**: `TUNABLES.MAX_SPAN_FAILURES = 3` — enough that a transient outage
-  never quarantines anything, small enough that a permanent failure costs three
-  calls instead of one per boundary for the life of the store.
+- **The bound**: `TUNABLES.MAX_SPAN_FAILURES = 3` — three DISTINCT LIVED DAYS, not
+  three attempts (PR-8 review: an attempt count would have quarantined a whole chunk
+  after three Stop hooks inside one API outage). The ledger records every attempt;
+  the count is the number of days on which the span failed, so an outage day is one
+  failure and a poison pill is set aside on its third day.
 - **The ledger**: `<scope>/failures.jsonl`, beside `consumed.jsonl`, one
-  `{hash, at, code}` line per (span, failure). **Never span text.** The hash is the
+  `{hash, at, day, code}` line per (span, failure). **Never span text.** The hash is the
   buffer's own span hash, which already lives in `consumed.jsonl`. Bounded by the
   same `trimLedger()` as the consumed ledger: a trim can drop old failures and so
   reset a count, which spends a few more calls and never loses a span.

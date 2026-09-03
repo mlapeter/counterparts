@@ -187,6 +187,9 @@ export interface CoverageMark {
 export interface FailureRecord {
   hash: string;
   at: number;
+  /** The LIVED day of the failure (scar E8). The bound counts distinct days, not
+   *  attempts: three Stop hooks inside one API outage are one day's failure. */
+  day: number;
   /** The chunk's failure code, or its `ChunkReason` when it carried none. */
   code: string;
 }
@@ -646,13 +649,22 @@ export class SpanBuffer {
 
   /** Failures recorded per span hash. History, not state: a span that later
    *  succeeds keeps its lines and is consumed normally. */
+  /**
+   * Failures per span hash, counted as DISTINCT LIVED DAYS (PR-8 review): a
+   * poison pill fails every day it is tried; an outage fails every attempt of
+   * one day. Only the first shape should ever reach the bound. A line with no
+   * day (none exist in production; the field arrived with the cadence rule)
+   * counts as its own day, the conservative direction for an old ledger.
+   */
   failureCounts(scope: string): Map<string, number> {
-    const counts = new Map<string, number>();
+    const days = new Map<string, Set<number>>();
     for (const line of this.readLines<FailureRecord>(this.path(scope, "failures.jsonl"))) {
       if (typeof line.hash !== "string") continue;
-      counts.set(line.hash, (counts.get(line.hash) ?? 0) + 1);
+      const set = days.get(line.hash) ?? new Set<number>();
+      set.add(typeof line.day === "number" ? line.day : -1 - set.size);
+      days.set(line.hash, set);
     }
-    return counts;
+    return new Map([...days.entries()].map(([hash, set]) => [hash, set.size]));
   }
 
   /** Spans the sweep gave up on, in full. Nothing is ever dropped: this file is
@@ -680,11 +692,19 @@ export class SpanBuffer {
   noteFailures(scope: string, spans: readonly Span[], code: string): FailureOutcome {
     if (spans.length === 0) return { retry: [], quarantined: [] };
     const counts = this.failureCounts(scope);
+    const day = this.dayFn();
+    // Today's failures, per hash — a second failure on the SAME lived day does
+    // not move the count (the outage rule), so the pre-read set decides.
+    const failedToday = new Set(
+      this.readLines<FailureRecord>(this.path(scope, "failures.jsonl"))
+        .filter((l) => typeof l.hash === "string" && l.day === day)
+        .map((l) => l.hash),
+    );
     const at = this.nowFn();
     const retry: Span[] = [];
     const quarantined: Span[] = [];
     for (const span of spans) {
-      const n = (counts.get(span.hash) ?? 0) + 1;
+      const n = (counts.get(span.hash) ?? 0) + (failedToday.has(span.hash) ? 0 : 1);
       counts.set(span.hash, n);
       if (n >= this.maxSpanFailures) quarantined.push(span);
       else retry.push(span);
@@ -693,7 +713,7 @@ export class SpanBuffer {
     const out = this.mutate("failure", () => {
       this.ensureScope(scope);
       const file = this.path(scope, "failures.jsonl");
-      const lines = spans.map((s) => JSON.stringify({ hash: s.hash, at, code } satisfies FailureRecord));
+      const lines = spans.map((s) => JSON.stringify({ hash: s.hash, at, day, code } satisfies FailureRecord));
       appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
       // Bounded exactly like the consumed ledger, and for the same reason: this is
       // bookkeeping, not canonical memory. A trim can drop old failures and so

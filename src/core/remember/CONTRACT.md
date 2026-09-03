@@ -109,8 +109,8 @@ used?"); telemetry by reference.
 4. **[M] Restore-on-throw**: an outage means the arc is *retried*, not lost. The consumer
    commits its output or restores its input; a test kills it mid-arc and asserts the input
    is still claimable (scar E6). "Returned nothing" and "failed" are distinguishable in the
-   log (scar §2.4). **Retry is BOUNDED**: the sweep records each span's failures, and at
-   `MAX_SPAN_FAILURES` the span is *quarantined* — written out in full, counted, and never
+   log (scar §2.4). **Retry is BOUNDED**: the sweep records each span's failures by lived day, and on
+   the `MAX_SPAN_FAILURES`-th distinct day the span is *quarantined* — written out in full, counted, and never
    swept again — so a permanently-failing span cannot bill one model call per boundary
    forever. Retried, then set aside; never silently dropped (NOTES §13).
 5. **[M] The engine claims coverage, never the author** — the author cannot see the buffer.

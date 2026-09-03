@@ -245,13 +245,13 @@ describe("guarantee 1 — the secrets gate is NOT ABLATABLE", () => {
     // 2ms. The bar here is generous on purpose — it catches a regression to
     // quadratic, not a slow CI box — and the three shapes are the three
     // characters the scheme class can consume across a boundary.
-    for (const unit of ["a-", "ab.", "a+"]) {
+    for (const unit of ["a-", "ab.", "a+", "https://a.example.com/x,"]) {
       const text = unit.repeat(Math.ceil((64 * 1024) / unit.length));
       const t0 = performance.now();
       const scan = scanSecrets(text);
       const ms = performance.now() - t0;
       expect(scan.fired).toBe(false);
-      expect(ms).toBeLessThan(250);
+      expect(ms).toBeLessThan(250); // the URL-list shape read 179ms at 64KB before the second bound
     }
     // And the bound changes nothing a real URL needs: a 32-character scheme is
     // longer than any registered one, and both URL families still fire.

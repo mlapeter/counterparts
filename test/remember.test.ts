@@ -995,8 +995,9 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     };
   }
 
-  test("the poison pill is BOUNDED: at MAX_SPAN_FAILURES the span is QUARANTINED, not restored again", async () => {
-    const b = buf();
+  test("the poison pill is BOUNDED: at MAX_SPAN_FAILURES distinct lived days the span is QUARANTINED, not restored again", async () => {
+    let day = 3;
+    const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("permanently doomed"))] });
     b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
     const doomed = b.spans(SCOPE)[0];
@@ -1006,6 +1007,7 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     const reports = [];
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES; i++) {
       reports.push(await sweep(b, { scope: SCOPE, interpret: failing }));
+      day += 1; // a poison pill fails on every day it is tried
     }
     // Every boundary up to the bound paid for one call; the last one quarantined.
     expect(counter.calls).toBe(TUNABLES.MAX_SPAN_FAILURES);
@@ -1037,8 +1039,29 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     expect(b.quarantined(SCOPE).length).toBe(1);
   });
 
+  test("an OUTAGE is not a poison pill: any number of failures on ONE lived day never quarantines", async () => {
+    // Three Stop hooks inside one API outage would have quarantined the whole
+    // chunk under an attempt count (PR-8 review). The bound counts distinct
+    // lived days, so the same day's retries are one failure.
+    const b = buf({ day: () => 3 });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("caught in an outage"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    const counter = { calls: 0 };
+    const failing = poison(counter);
+    for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES + 2; i++) {
+      const r = await sweep(b, { scope: SCOPE, interpret: failing });
+      expect({ restored: r.spansRestored, quarantined: r.spansQuarantined }).toEqual({ restored: 1, quarantined: 0 });
+    }
+    expect(counter.calls).toBe(TUNABLES.MAX_SPAN_FAILURES + 2);
+    expect(b.spans(SCOPE).length).toBe(1);
+    expect(b.quarantined(SCOPE)).toEqual([]);
+    // The ledger still records every attempt — history, not the count.
+    expect(b.failureCounts(SCOPE).get(b.spans(SCOPE)[0]?.hash ?? "")).toBe(1);
+  });
+
   test("BELOW the bound the span is restored and retried, and the ledger counts the failures", async () => {
-    const b = buf();
+    let day = 3;
+    const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed for now"))] });
     b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
     const doomed = b.spans(SCOPE)[0];
@@ -1046,6 +1069,7 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
 
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
       const report = await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+      day += 1;
       expect({ restored: report.spansRestored, quarantined: report.spansQuarantined }).toEqual({
         restored: 1,
         quarantined: 0,
@@ -1062,7 +1086,7 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     const lines = raw.trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(lines.length).toBe(TUNABLES.MAX_SPAN_FAILURES - 1);
     expect(lines.map((l) => Object.keys(l).sort())).toEqual(
-      lines.map(() => ["at", "code", "hash"]),
+      lines.map(() => ["at", "code", "day", "hash"]),
     );
     expect(lines[0]?.["hash"]).toBe(doomed?.hash ?? "missing");
     expect(lines[0]?.["code"]).toBe("NO_JSON_IN_RESPONSE");
@@ -1104,13 +1128,15 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   });
 
   test("the ledger is HISTORY, not state: a previously-failed span still converts normally", async () => {
-    const b = buf();
+    let day = 3;
+    const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed then fine"))] });
     b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
       await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+      day += 1;
     }
 
     const applied: unknown[] = [];
@@ -1159,13 +1185,15 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   });
 
   test("the quarantine event carries counts and a code — never text, never a content hash", async () => {
-    const b = buf();
+    let day = 3;
+    const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("secret-looking doom"))] });
     b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES; i++) {
       await sweep(b, { scope: SCOPE, interpret: poison(counter) });
+      day += 1;
     }
 
     const fired = b.events("remember.span.quarantined")[0];
