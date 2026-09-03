@@ -53,6 +53,10 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   [v1] §2 G9.
 - **Conversational text only** — tool output, file contents, images, and injected context
   never enter capture, and this is a **declared blind spot**. [v1] §2 G10.
+- **Foreign material never enters** — text ANOTHER memory system's hooks put into the
+  host's context is `foreign`, and `enters()` refuses it outright (unlike `injected`,
+  which is kept and merely unpaced). Added for the parallel run beside v1: without it,
+  each system encodes the other's briefing as a memory of having thought it.
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].
 

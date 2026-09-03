@@ -37,6 +37,7 @@ import {
   TUNABLES,
   WRITE_SITES,
   chunkSpans,
+  enters,
   intake,
   keyFor,
   markCovered,
@@ -242,6 +243,32 @@ describe("capture (G1, G2, G3)", () => {
       excluded: 3,
       text: "what I actually said\n\nhost-injected context",
     });
+  });
+
+  test("FOREIGN material — another memory system's injection — never enters (parallel-run G8)", () => {
+    // The failure this forbids: while v2 runs beside v1, v1's own wake bundle
+    // lands in the same transcript. It is user-role and it reads like prose, so
+    // without this rule v2 would encode v1's briefing as a memory of having
+    // thought it — two memory systems feeding each other.
+    const b = buf();
+    const r = b.capture({
+      session: "s1",
+      scope: SCOPE,
+      turns: [
+        { role: "user", text: "[bansai] recall: three memories bear on this turn", source: "foreign" },
+        { role: "user", text: "what I actually said", source: "conversation" },
+        { role: "user", text: "host-injected context", source: "injected" },
+      ],
+    });
+    expect({ excluded: r.excluded, text: r.spans[0]?.text }).toEqual({
+      excluded: 1,
+      text: "what I actually said\n\nhost-injected context",
+    });
+    // `injected` is kept and merely unpaced; `foreign` is refused outright.
+    expect(enters({ role: "user", text: "x", source: "foreign" })).toBe(false);
+    expect(enters({ role: "user", text: "x", source: "injected" })).toBe(true);
+    expect(enters({ role: "user", text: "x", source: "conversation" })).toBe(true);
+    expect(enters({ role: "user", text: "x" })).toBe(true);
   });
 
   test("a boundary with nothing conversational still advances (ALL_EXCLUDED)", () => {

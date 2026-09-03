@@ -42,9 +42,15 @@ credential — belongs here, discovered at runtime, never assumed by the core.
 
 ## 4. Drops / simplifies
 
-- **The A/B day-alternating wake mute is gone.** It was an artifact of running two memory
-  systems side by side; it is not a memory property (§1) and the pairing does not exist in
-  v2. Settled by the harvest.
+- **The A/B day-alternating wake mute is gone** — the *day-alternation*, that is. Computing
+  a parity off an anchor date is not a memory property (§1) and no schedule decides who
+  speaks here. What survives is smaller and temporary: for the **parallel run** beside v1,
+  a **primacy resolver** (`primacy.ts`) behind the `parallel.enabled` config flag. It reads
+  v1's own assignment file and lets the delivering hooks speak only when that file names the
+  slot v2 occupies; it **fails toward mute** where v1 fails toward inject, so the joint
+  failure state is v1-only rather than two voices or none. Absent flag ⇒ v2 delivers, which
+  is the ordinary build. The flag, the resolver, and the two durable events are **retired at
+  PROMOTE** — they are scaffolding for a comparison, not a feature.
 - **The 9,000-byte wake budget is not a constant here or anywhere.** The adapter
   **discovers or asserts** its host's injection ceiling and reports it as a capability;
   the core composes to whatever it is told (scar §2.18). v1's number was 90% of one host's
@@ -92,6 +98,12 @@ telemetry.
    (the v1 hypothesis that was never verified — carried as a test to write).
 9. **[A] Hook names, wiring, and settings-file merge mechanics are host trivia** and may
    change with the host without touching a core contract.
+10. **[M] Foreign injection never enters capture.** Text another memory system's hooks put
+    into this host's transcript is tagged `foreign`, and `enters()` refuses it — unlike
+    `injected`, which is kept and only excluded from pacing. The recognizers are ONE
+    exported constant (`FOREIGN_MARKERS`), so the preflight canary and the reader cannot
+    disagree about what foreign looks like. Without this, a parallel run makes each system
+    encode the other's briefing as a memory of having thought it.
 
 ## 6. Scars honored
 

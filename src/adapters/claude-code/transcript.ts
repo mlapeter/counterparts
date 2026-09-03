@@ -14,6 +14,18 @@
  *   tagged `injected` rather than discarded: `enters()` keeps it, `substanceOf`
  *   does not count it.
  *
+ * And one the parallel run adds:
+ *
+ *   **G8 — foreign injection never enters.** While v2 runs beside v1, v1's own
+ *   hooks put text into this same transcript: a wake bundle, a recall block, a
+ *   Stop-hook ask. It arrives user-role and reads like conversation, and if it
+ *   entered capture v2 would encode v1's briefing as a memory of having thought
+ *   it — a feedback loop between two memory systems, which is worse than either
+ *   system's ordinary failure. So it is tagged `foreign` and `enters()` refuses
+ *   it outright. The recognizers are ONE constant, `FOREIGN_MARKERS`, so the
+ *   parallel-run preflight's transcript canary scans for exactly what the
+ *   reader excludes rather than for its own copy of the list.
+ *
  * Nothing here throws. A transcript we cannot read yields no turns, which costs
  * a boundary's capture; a transcript that throws would cost the session.
  */
@@ -23,6 +35,39 @@ import type { Turn, TurnSource } from "../../core/remember/index.js";
 
 /** The marker the host wraps around context it injected itself. */
 const INJECTED = /<(system-reminder|command-name|command-message|local-command-stdout)\b/i;
+
+/**
+ * Every shape v1 (bansai) puts into this host's transcript. ONE list, exported,
+ * because the preflight canary and this reader must not be able to disagree
+ * about what foreign material looks like.
+ *
+ * The first entry is the host's blocking-Stop-hook wrapper, which arrives as
+ * `Stop hook feedback:` followed by the hook's own line (the host may bullet
+ * it). A `Stop hook feedback:` block that does NOT carry a foreign marker is
+ * left exactly as it is classified today — v2's own future asks can arrive
+ * through the same wrapper, and excluding the wrapper itself would blind this
+ * reader to its own voice.
+ */
+export const FOREIGN_MARKERS: readonly RegExp[] = [
+  /^Stop hook feedback:\s*(?:[-*]\s*)?\[bansai\]/,
+  /^\[bansai\] /,
+  /<bansai-memory>/,
+  /^The following is your standing self-model \(bansai\)/,
+  /^bansai: your persistent memory is initializing/,
+];
+
+/**
+ * The whole classification rule for one text block, as one pure function.
+ * Foreign first: a v1 wake bundle wrapped in a host reminder is foreign, not
+ * injected, and the order is what decides that.
+ */
+export function classifyBlock(text: string): TurnSource {
+  const probe = text.trimStart();
+  for (const marker of FOREIGN_MARKERS) {
+    if (marker.test(probe)) return "foreign";
+  }
+  return INJECTED.test(text) ? "injected" : "conversation";
+}
 
 export interface TranscriptRead {
   readonly turns: Turn[];
@@ -74,7 +119,7 @@ export function parseTranscript(raw: string): TranscriptRead {
 /** One transcript entry's content, flattened into typed pieces. */
 function blocksOf(content: unknown): { text: string; source: TurnSource }[] {
   if (typeof content === "string") {
-    return [{ text: content, source: INJECTED.test(content) ? "injected" : "conversation" }];
+    return [{ text: content, source: classifyBlock(content) }];
   }
   if (!Array.isArray(content)) return [];
   const out: { text: string; source: TurnSource }[] = [];
@@ -84,7 +129,7 @@ function blocksOf(content: unknown): { text: string; source: TurnSource }[] {
     const type = b["type"];
     if (type === "text" && typeof b["text"] === "string") {
       const text = b["text"];
-      out.push({ text, source: INJECTED.test(text) ? "injected" : "conversation" });
+      out.push({ text, source: classifyBlock(text) });
       continue;
     }
     // Everything below is the DECLARED blind spot, tagged rather than dropped
