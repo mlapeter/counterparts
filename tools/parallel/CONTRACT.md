@@ -453,24 +453,34 @@ content-by-reference; ids in state, text at render).
    `--apply` into a fresh v2 data dir with the source-manifest proof.
 3. **At PROMOTE, is the parallel store THE production store?** PROPOSED: yes —
    anything else discards the verified weeks and performs a second, unverified
-   migration.
+   migration. **RULED 2026-09-03 (owner): yes.**
 4. **Cross-encoding disposition: accept-and-meter, or patch v1?** PROPOSED:
    accept-and-meter (§5 G7). v1 keeps injected text in its capture buffer *by design*
    (`hooks/boundary.ts`); a v1-side stripper is a capture behavior change to the
    reference instance mid-bake-in — the reference stops being a reference. You set the
-   meter's red-line bar.
+   meter's red-line bar. **RULED 2026-09-03 (owner): accept-and-meter.** The bar, in
+   two numbers: Phase S, ZERO verbatim hits in either direction (the host's transcript
+   shape carries v1's exclusion, so any hit means the host changed — red-line); Phase P,
+   any hit is a named finding, and a red-line only above **10% of v1's daily mints**
+   carrying a verbatim v2 line.
 5. **Phase minimums, spend, and the rail arithmetic.** 3+7 active days plus preflight
    fits before ~09-22 only if the §5 preconditions close by roughly 09-08. Priced and
    approved, not assumed — including the authored dump's session-context cost, which
    lands on your account, not an API line item. If the replay-record decision
    (precondition 1) and preconditions 4–5 do not land inside that window, the run does
    not start and v1 flips as-is — the outcome §7 already contemplates, and better than a
-   run whose clock restarts on its first red-line.
+   run whose clock restarts on its first red-line. **RULED 2026-09-03 (owner): approved
+   in principle** — the API side (v2's embeddings plus crash-fallback sweeps) is dollars,
+   the actual to be logged against the sample run's measured cost; the authored dump's
+   cost lands on the owner's subscription context and is named as such.
 6. **Which v1 window anchors the parity bands?** PROPOSED: v1's standing 30-day
    baselines set the band; the same-run shadow days are shown beside them as the
    paired anecdote. Same-days alone is too small an n to be a band; the standing
-   window alone ignores the best-matched data the run produces.
+   window alone ignores the best-matched data the run produces. **RULED 2026-09-03
+   (owner): the 30-day window sets the band; same-run days shown beside it.**
 7. **Which watches outlive PROMOTE?** Blind rate and self-share need weeks the run
    does not have; the salience-lift divergence and birth-rate watches are young.
    PROPOSED: a named post-cutover watch list with the same four-value discipline, and
    v1's store kept readable indefinitely — it is the owner's history, not a fixture.
+   **RULED 2026-09-03 (owner): as proposed** — the list is written into the run
+   directory at PROMOTE, and v1's store stays readable.
