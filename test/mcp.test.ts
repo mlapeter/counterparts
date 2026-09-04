@@ -38,6 +38,7 @@ import {
   RECALL_EXCERPT_CHARS,
   RECALL_MAX_IDS,
   RECALL_RESULT_CHARS,
+  SERVER_VERSION,
   TOOLS,
   TOOL_NAMES,
   encodeMessage,
@@ -173,6 +174,16 @@ describe("the wire", () => {
     expect((result["capabilities"] as Record<string, unknown>)["tools"]).toBeDefined();
     expect((result["serverInfo"] as Record<string, string>)["name"]).toBe("counterparts");
     expect(s.ready()).toBe(true);
+  });
+
+  test("the version in the handshake is the PACKAGE's version, not a literal that drifted", () => {
+    // The one number a client can see about this server. `npm version` moves
+    // package.json and nothing else, so this test is what keeps the handshake
+    // honest across a release.
+    const pkg = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    expect(SERVER_VERSION).toBe(pkg.version);
   });
 
   test("an unknown protocol version is answered with ours, never with a hard failure", async () => {

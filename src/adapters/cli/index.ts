@@ -29,5 +29,20 @@ export {
 } from "./export.js";
 export type { ExportMode, ExportOptions, ExportReport } from "./export.js";
 
+export {
+  BIN,
+  CONFIG_FILE,
+  CREDENTIALS_FILE,
+  HOST_EVENTS,
+  MCP_SERVER_NAME,
+  configObject,
+  credentialsTemplate,
+  installLayout,
+  mcpCommand,
+  settingsBlock,
+  writeOnce,
+} from "./install.js";
+export type { ConfigInput, FileResult, InstallLayout, WroteWhat } from "./install.js";
+
 export { assertSafeTarget, snapshot, snapshotName, vacuumInto } from "./snapshot.js";
 export type { CopiedEntry, CopyMethod, SnapshotReport } from "./snapshot.js";

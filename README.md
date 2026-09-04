@@ -7,10 +7,22 @@ transcription, forgetting on purpose, and a governed, persistent self. The core 
 host-agnostic; hosts plug in as adapters (Claude Code first); ships as a simple npm
 package.
 
-**Status: pre-build.** The constitution is ratified (`CONSTITUTION.md`), the design
-inputs are harvested from the previous generation (`docs/harvest/`), and the module
-skeleton is laid out (`docs/module-map.md` + `src/**/CONTRACT.md`). Implementation
-starts after the owner's skeleton review.
+**Status: built, and running in a parallel run.** The constitution is ratified
+(`CONSTITUTION.md`), the modules are implemented against their contracts
+(`docs/module-map.md` + `src/**/CONTRACT.md`), and since 2026-09-03 Counterparts has
+been the owner's primary memory under Claude Code, beside the previous generation.
+The living record of what is true right now is `docs/PARALLEL-RUN-STATUS.md`;
+`docs/ELI5.md` is the map in plain words.
+
+## Install
+
+**[`docs/QUICKSTART.md`](docs/QUICKSTART.md) is the one canonical install path** —
+prerequisites, the four executables, the configuration, the Claude Code hooks and MCP
+registration, what happens with no API keys, and what is verified versus assumed. Ten
+minutes, no key required.
+
+`tools/install-loop/run.sh` runs every command on that page, verbatim, in a throwaway
+HOME with no repo on its PATH, and fails if the page and the machine drift apart.
 
 ## Lineage
 
@@ -28,10 +40,15 @@ Counterparts is the third generation of one continuous project:
 
 ## License
 
-Deliberately undecided until packaging (owner decision 2026-08-25); `UNLICENSED` while
-the repo is private.
+MIT (owner decision, 2026-09-03). See `LICENSE`.
 
 ## Note on Node
 
-The core targets built-in `node:sqlite` (and Bun's `bun:sqlite`); verify the exact Node
-version floor at packaging time.
+**The runtime is bun.** Counterparts ships as TypeScript sources and runs them
+directly — there is no build step and no `dist/`. Everything that has been verified was
+verified under bun (1.3.10 at the time of writing).
+
+Node is **untested**: the core targets built-in `node:sqlite`, which needs Node 22.5+
+behind a flag and 23.4+ by default, and no Node with either has run this package. A Node
+target would need a build step that does not exist yet. `package.json#engines` therefore
+names bun and does not claim Node.

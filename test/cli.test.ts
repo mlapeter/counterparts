@@ -38,8 +38,14 @@ import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
+  CONFIG_FILE,
+  CREDENTIALS_FILE,
   EXIT,
+  HOST_EVENTS,
   OWNER_OPS,
+  installLayout,
+  openCounterpart,
+  settingsBlock,
   assertSafeTarget,
   decryptBundle,
   run,
@@ -148,6 +154,33 @@ describe("status", () => {
     expect(existsSync(empty)).toBe(false);
   });
 
+  test("counts the journal APART from live memories, never as one of them", async () => {
+    // The bug this pins: `store.list()` returns every row and episodes are
+    // rows, so a census that counts what is left after archived/superseded
+    // counts the journal as memories — with a `self` kind and an `episodic`
+    // band no episode earned. Two of three census surfaces (the dashboard,
+    // the MCP `status` tool) already separated it; the owner's own console
+    // did not.
+    const brain = openCounterpart(dir);
+    open.push(brain);
+    brain.store.put({ type: "memory", kind: "fact", body: "One ordinary memory." });
+    const written = brain.appendEpisode(
+      "s1",
+      "The day the console learned to tell a journal from a memory.",
+    );
+    expect(written.appended).toBe(true);
+    brain.close();
+
+    const c = consoleWith();
+    expect(await run(["status", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("Live memories: 1");
+    expect(printed).toContain("Journal: 1 episode");
+    // And the kind/band breakdowns are over memories only.
+    expect(printed).toContain("fact 1");
+    expect(printed).toContain("self 0");
+  });
+
   test("counts, the removal record, the permanent list, and the layout — and writes nothing", async () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "person", title: "Ada", body: "Ada reads the logs first." });
@@ -187,6 +220,10 @@ describe("init", () => {
 
     expect(code).toBe(EXIT.ok);
     expect(existsSync(paths.operational(fresh))).toBe(true);
+    // Both shapes, because both are real installs: the packaged executables
+    // and the entry scripts a `git clone` runs under bun.
+    expect(printed).toContain("counterparts-hook");
+    expect(printed).toContain("counterparts-mcp");
     expect(printed).toContain("bin/hook.ts");
     expect(printed).toContain("bin/serve.ts");
     expect(printed).toContain("injectionBudgetBytes");
@@ -1001,6 +1038,178 @@ describe("the destruction path is importable from this directory only", () => {
       walk(base);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// ── install ─────────────────────────────────────────────────────────────────
+
+/**
+ * `counterparts install` — the cold start.
+ *
+ * Every assertion below is about the ONE split that command exists to make:
+ * the store, the config and the credential file are ours and get written; the
+ * host's `settings.json` and MCP registration are printed and never touched.
+ * The hermetic rule stands — every path here is a temp dir, and the layout
+ * helper is exercised against an injected home rather than the real one.
+ */
+describe("install", () => {
+  test("writes the store, the config BESIDE it, and a 0600 credentials file", async () => {
+    const store = join(outside, "cold", "store");
+    const c = consoleWith();
+    const code = await run(["install", "--dir", store, "--budget", "9000", "--name", "Ada"], {
+      io: c.io,
+      env: {},
+    });
+    const printed = text(c.out);
+
+    expect(code).toBe(EXIT.ok);
+    expect(existsSync(paths.operational(store))).toBe(true);
+
+    // BESIDE, never inside: an unclassified file in the data dir is a store
+    // that will not open (§5 G11), which is the whole reason for this layout.
+    const config = join(outside, "cold", CONFIG_FILE);
+    expect(existsSync(config)).toBe(true);
+    expect(existsSync(join(store, CONFIG_FILE))).toBe(false);
+    const parsed = JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
+    expect(parsed["dataDir"]).toBe(store);
+    expect(parsed["credentialsFile"]).toBe(join(outside, "cold", CREDENTIALS_FILE));
+    expect(parsed["injectionBudgetBytes"]).toBe(9000);
+    expect(parsed["owner"]).toBe(true);
+    expect(parsed["identity"]).toEqual({ name: "Ada" });
+    // The egress knob is a DECISION, never a side effect of installing.
+    expect(parsed["embedder"]).toBeUndefined();
+    // Nor is the parallel-run knob: that one is the run's, not a stranger's.
+    expect(parsed["parallel"]).toBeUndefined();
+
+    const creds = join(outside, "cold", CREDENTIALS_FILE);
+    expect(existsSync(creds)).toBe(true);
+    expect((statSync(creds).mode & 0o777).toString(8)).toBe("600");
+    // Names, never values: the template mentions the two variables and holds none.
+    expect(readFileSync(creds, "utf8")).toContain("ANTHROPIC_API_KEY");
+    expect(readFileSync(creds, "utf8")).toContain("VOYAGE_API_KEY");
+
+    // The host's two steps are PRINTED, with the installed executables named.
+    expect(printed).toContain("counterparts-hook");
+    expect(printed).toContain("claude mcp add counterparts");
+    expect(printed).toContain(`COUNTERPARTS_DATA_DIR=${store}`);
+    for (const event of HOST_EVENTS) expect(printed).toContain(event);
+    expect(printed).toContain("printed, not applied");
+  });
+
+  test("--embedder is the only way the egress knob is written", async () => {
+    const store = join(outside, "egress", "store");
+    await run(["install", "--dir", store, "--budget", "9000", "--embedder"], {
+      io: consoleWith().io,
+      env: {},
+    });
+    const parsed = JSON.parse(
+      readFileSync(join(outside, "egress", CONFIG_FILE), "utf8"),
+    ) as Record<string, unknown>;
+    expect(parsed["embedder"]).toEqual({ enabled: true });
+  });
+
+  test("invents no injection ceiling, and says so (scar §2.18)", async () => {
+    const store = join(outside, "noceiling", "store");
+    const c = consoleWith();
+    expect(await run(["install", "--dir", store], { io: c.io, env: {} })).toBe(EXIT.ok);
+    const parsed = JSON.parse(
+      readFileSync(join(outside, "noceiling", CONFIG_FILE), "utf8"),
+    ) as Record<string, unknown>;
+    expect(parsed["injectionBudgetBytes"]).toBeUndefined();
+    expect(text(c.out)).toContain("invents none");
+  });
+
+  test("refuses a --budget that is not a positive whole number, before anything is created", async () => {
+    const store = join(outside, "badbudget", "store");
+    const c = consoleWith();
+    expect(await run(["install", "--dir", store, "--budget", "lots"], { io: c.io, env: {} })).toBe(
+      EXIT.refused,
+    );
+    expect(text(c.err)).toContain("--budget");
+    expect(existsSync(store)).toBe(false);
+  });
+
+  test("is idempotent: a second install keeps both files, and --force replaces them", async () => {
+    const store = join(outside, "twice-install", "store");
+    const config = join(outside, "twice-install", CONFIG_FILE);
+    await run(["install", "--dir", store, "--budget", "9000"], { io: consoleWith().io, env: {} });
+    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234 }));
+
+    const second = consoleWith();
+    expect(
+      await run(["install", "--dir", store, "--budget", "9000"], { io: second.io, env: {} }),
+    ).toBe(EXIT.ok);
+    expect(text(second.out)).toContain("kept");
+    // The file pointing at somebody's live memory is never silently rewritten.
+    expect(
+      (JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>)["injectionBudgetBytes"],
+    ).toBe(1234);
+
+    const third = consoleWith();
+    expect(
+      await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+        io: third.io,
+        env: {},
+      }),
+    ).toBe(EXIT.ok);
+    expect(
+      (JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>)["injectionBudgetBytes"],
+    ).toBe(9000);
+  });
+
+  test("refuses a forbidden data dir before a single file is written", async () => {
+    const forbidden = join(homedir(), ".bansai", "cli-install-must-not-exist", "store");
+    const c = consoleWith();
+    expect(await run(["install", "--dir", forbidden], { io: c.io, env: {} })).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("DATA_DIR_FORBIDDEN");
+    expect(existsSync(forbidden)).toBe(false);
+  });
+
+  test("is an owner operation: an observer console refuses it", async () => {
+    expect(OWNER_OPS).toContain("install");
+    const c = consoleWith();
+    expect(
+      await run(["install", "--dir", join(outside, "obs", "store"), "--observer"], {
+        io: c.io,
+        env: {},
+      }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(join(outside, "obs"))).toBe(false);
+  });
+
+  test("the default layout puts the store UNDER the config dir, never at it", () => {
+    // The store's own default data dir is `~/.counterparts` — the directory
+    // this command writes two unclassifiable files into. `install` must not
+    // inherit it, or the store it creates is one that cannot be opened.
+    const home = join(outside, "home");
+    const layout = installLayout(undefined, {}, home);
+    expect(layout.base).toBe(join(home, ".counterparts"));
+    expect(layout.store).toBe(join(home, ".counterparts", "store"));
+    expect(layout.config).toBe(join(home, ".counterparts", CONFIG_FILE));
+    expect(layout.credentials).toBe(join(home, ".counterparts", CREDENTIALS_FILE));
+
+    // A named store — flag or environment — puts the config at its parent.
+    const named = installLayout(join(outside, "elsewhere", "s"), {}, home);
+    expect(named.store).toBe(join(outside, "elsewhere", "s"));
+    expect(named.config).toBe(join(outside, "elsewhere", CONFIG_FILE));
+    const fromEnv = installLayout(
+      undefined,
+      { COUNTERPARTS_DATA_DIR: join(outside, "e", "s") },
+      home,
+    );
+    expect(fromEnv.store).toBe(join(outside, "e", "s"));
+  });
+
+  test("the printed settings block is one command on all five events, and is only printed", () => {
+    const block = JSON.parse(settingsBlock()) as {
+      hooks: Record<string, { hooks: { type: string; command: string }[] }[]>;
+    };
+    expect(Object.keys(block.hooks).sort()).toEqual([...HOST_EVENTS].sort());
+    for (const event of HOST_EVENTS) {
+      expect(block.hooks[event]?.[0]?.hooks?.[0]?.command).toBe("counterparts-hook");
+    }
+    // The host's own settings file is never named as a thing we open.
+    expect(settingsBlock()).not.toContain("settings.json");
   });
 });
 

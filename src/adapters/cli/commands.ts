@@ -34,6 +34,10 @@ import { Counterpart } from "../../core/counterpart.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 import { TUNABLES } from "../../core/physics/index.js";
 import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
+// The ONE predicate for "this row is the journal, not a memory" — the same one
+// the sleep phases and the dashboard's census use. A second copy of that test
+// living here is how the console drifted away from them in the first place.
+import { isJournal } from "../../core/sleep/index.js";
 import {
   LAYOUT,
   Store,
@@ -42,11 +46,21 @@ import {
 } from "../../core/store/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import { exportStore } from "./export.js";
+import {
+  BIN,
+  configObject,
+  credentialsTemplate,
+  installLayout,
+  mcpCommand,
+  settingsBlock,
+  writeOnce,
+} from "./install.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
   "status",
+  "install",
   "init",
   "export",
   "backup",
@@ -59,6 +73,7 @@ export type Command = (typeof COMMANDS)[number];
 
 /** Commands that change durable state. Under observer, every one of them refuses. */
 export const OWNER_OPS: readonly Command[] = [
+  "install",
   "init",
   "export",
   "backup",
@@ -94,6 +109,10 @@ export function usage(): string {
     "counterparts — the owner's console for a Counterparts memory store.",
     "",
     "  status              What is held, what left, what was removed. Read-only.",
+    "  install             Cold start: create the store, write claude-code.json and a",
+    "                      0600 credentials.env BESIDE it, and PRINT the host's hooks",
+    "                      block and MCP line. Never edits the host. --budget <bytes>",
+    "                      --name <owner> --embedder --force.",
     "  init                Create a fresh data dir and PRINT the hook install steps.",
     "  export --out <dir>  Portable copy. --passphrase <secret> or --plaintext.",
     "  backup --out <dir>  Snapshot: prose + canonical DB via VACUUM INTO. Cache excluded.",
@@ -132,6 +151,9 @@ export function parse(argv: readonly string[]): Parsed {
       passphrase: { type: "string" },
       plaintext: { type: "boolean" },
       confirm: { type: "boolean" },
+      name: { type: "string" },
+      embedder: { type: "boolean" },
+      force: { type: "boolean" },
       apply: { type: "boolean" },
       budget: { type: "string" },
       observer: { type: "boolean" },
@@ -173,6 +195,19 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       `refused: '${command}' is an owner operation and this console is in observer stance. An instrument reads; it does not change the store.`,
     );
     return EXIT.refused;
+  }
+
+  // `install` resolves its OWN layout and must not go through `resolveDir`:
+  // the store's default data dir is `~/.counterparts`, which is exactly the
+  // directory this command writes two unclassifiable files into (`install.ts`
+  // rule 1). Its default store is the `store/` beneath that instead.
+  if (command === "install") {
+    try {
+      return installCommand(parsed, io, env);
+    } catch (err) {
+      io.err(`install failed: ${String((err as Error).message ?? err)}`);
+      return EXIT.failed;
+    }
   }
 
   let dir: string;
@@ -270,6 +305,7 @@ function statusCommand(dir: string, io: Io): number {
     const byBand: Record<string, number> = {};
     const permanent: { id: string; title: string; why: string }[] = [];
     let live = 0;
+    let journal = 0;
     let archived = 0;
     let superseded = 0;
 
@@ -282,6 +318,18 @@ function statusCommand(dir: string, io: Io): number {
       }
       if (row.superseded_by !== null) {
         superseded += 1;
+        continue;
+      }
+      // THE JOURNAL IS NOT A MEMORY. `store.list()` returns every row, and
+      // episodes are rows — so a census that walks it and counts what is left
+      // reports the journal as memories, with a `self` kind and an `episodic`
+      // band it never earned. `sleep/types.ts#isJournal` is the one predicate
+      // for this; PR #27 threaded it through five sleep phases and the
+      // dashboard's census and missed the console. Counted on its own line
+      // rather than dropped, because a number that vanished would be the same
+      // bug facing the other way (§2.4: what is skipped is said out loud).
+      if (isJournal(row)) {
+        journal += 1;
         continue;
       }
       live += 1;
@@ -308,6 +356,7 @@ function statusCommand(dir: string, io: Io): number {
     io.out(`Live memories: ${live}   archived: ${archived}   superseded: ${superseded}`);
     io.out(`  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}`);
     io.out(`  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}`);
+    io.out(`Journal: ${journal} ${journal === 1 ? "episode" : "episodes"}, counted apart — the journal does not decay.`);
     io.out("");
 
     const removals = store.removalRecord().filter((r) => r.stage === "complete");
@@ -329,6 +378,96 @@ function statusCommand(dir: string, io: Io): number {
   } finally {
     store.close();
   }
+}
+
+// ── install ─────────────────────────────────────────────────────────────────
+
+/**
+ * The cold start. It writes the three things that are OURS — the store, the
+ * adapter's configuration beside it, an empty credential file at 0600 — and
+ * PRINTS the two that belong to the host.
+ *
+ * The refusal direction matters more than the happy path: an existing
+ * configuration is KEPT and reported, never merged and never silently
+ * rewritten, because the file it would rewrite is the one pointing at somebody's
+ * live memory. `--force` is the only way past that, and it says so.
+ */
+function installCommand(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+): number {
+  const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
+  const layout = installLayout(dirFlag, env);
+
+  let budgetBytes: number | undefined;
+  const budgetFlag = parsed.flags["budget"];
+  if (typeof budgetFlag === "string" && budgetFlag.length > 0) {
+    const n = Number(budgetFlag);
+    if (!Number.isInteger(n) || n <= 0) {
+      io.err(`refused: --budget takes a positive whole number of bytes, not '${budgetFlag}'.`);
+      return EXIT.refused;
+    }
+    budgetBytes = n;
+  }
+  const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
+  const force = parsed.flags["force"] === true;
+  const embedder = parsed.flags["embedder"] === true;
+
+  // The store first, and through `Store` itself, so the forbidden-root guard
+  // runs before a single directory is created (scar §2.13).
+  const existed = storeExists(layout.store);
+  let store: Store;
+  try {
+    store = Store.open({ dir: layout.store });
+  } catch (err) {
+    io.err(`refused: ${String((err as Error).message ?? err)}`);
+    return EXIT.refused;
+  }
+  const resolved = store.dir;
+  store.close();
+
+  const body = configObject({
+    layout,
+    ...(budgetBytes === undefined ? {} : { budgetBytes }),
+    ...(name === undefined ? {} : { name }),
+    embedder,
+  });
+  const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
+  const creds = writeOnce(layout.credentials, credentialsTemplate(), { force, mode: 0o600 });
+
+  io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
+  io.out(`  ${config.what} ${config.path}`);
+  io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
+  if (config.what === "kept" || creds.what === "kept") {
+    io.out("  (an existing file is never rewritten — pass --force to replace it)");
+  }
+  if (creds.mode !== undefined && creds.mode !== "600") {
+    io.out(`  WARNING: ${creds.path} is mode ${creds.mode}; group or other can read your keys.`);
+  }
+  if (budgetBytes === undefined) {
+    io.out("");
+    io.out('  NO "injectionBudgetBytes" was written: nobody told us this host\'s ceiling');
+    io.out("  and this package invents none (scar §2.18). Re-run with --budget <bytes>,");
+    io.out(`  or add the key to ${config.path}.`);
+  }
+
+  io.out("");
+  io.out("Two steps left, and they are the HOST'S files, so they are printed, not applied.");
+  io.out("Nothing below has been written and no host configuration was read.");
+  io.out("");
+  io.out("  1. Merge this into ~/.claude/settings.json (one executable, five events):");
+  io.out("");
+  for (const line of settingsBlock().split("\n")) io.out(`     ${line}`);
+  io.out("");
+  io.out("  2. Register the MCP server, so note, recall and session_end exist:");
+  io.out("");
+  io.out(`     ${mcpCommand(resolved)}`);
+  io.out("");
+  io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
+  io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
+  io.out("  every open session or the old server keeps serving.");
+  return EXIT.ok;
 }
 
 // ── init ────────────────────────────────────────────────────────────────────
@@ -362,9 +501,11 @@ function initCommand(dir: string, io: Io): number {
   io.out("");
   io.out("  1. Point the host at the hook entry script for every session-ending event:");
   io.out("       SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact");
-  io.out("       command: bun run <repo>/src/adapters/claude-code/bin/hook.ts");
+  io.out(`       installed:  ${BIN.hook}`);
+  io.out("       from a clone: bun run <repo>/src/adapters/claude-code/bin/hook.ts");
   io.out("  2. Register the MCP server so the Stop ask has a way back:");
-  io.out("       command: bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id>");
+  io.out(`       installed:  ${BIN.mcp}`);
+  io.out("       from a clone: bun run <repo>/src/adapters/mcp/bin/serve.ts");
   io.out("  3. Write the adapter's configuration BESIDE the store, never inside it — the");
   io.out("     layout check refuses an unclassified file in the data dir (§5 G11):");
   io.out(`       ${join(resolved, "..", "claude-code.json")}`);
@@ -372,6 +513,9 @@ function initCommand(dir: string, io: Io): number {
   io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
   io.out("refuses to render rather than compose to a number nobody chose (scar §2.18).");
+  io.out("");
+  io.out(`'${BIN.cli} install' does step 3 for you, adds a 0600 credentials file beside`);
+  io.out("it, and prints 1 and 2 filled in and ready to paste.");
   return EXIT.ok;
 }
 

@@ -1,0 +1,205 @@
+/**
+ * `counterparts install` — the cold-start command.
+ *
+ * It exists because a stranger's first five minutes were, until this file, five
+ * hand-written files: the store, the adapter's configuration, the credential
+ * file at 0600, a hooks block in the host's settings, and an MCP registration.
+ * Four of those are OURS and one is the HOST'S, and the split is the whole
+ * design of this command:
+ *
+ *   - **Ours, so we write them**: the data directory, `claude-code.json` BESIDE
+ *     it, and an empty `credentials.env` at 0600. Nothing here is a host file
+ *     and nothing here belongs to another program.
+ *   - **The host's, so we only PRINT them**: the `settings.json` hooks block and
+ *     the `claude mcp add` line. An installer that edits somebody's editor
+ *     configuration without being asked is the same class of surprise as a
+ *     memory layer that writes without being asked. `install` never opens
+ *     `~/.claude/settings.json` — not to read it, not to back it up, not at all.
+ *
+ * Three rules the code below mechanizes:
+ *
+ *   1. **The config sits BESIDE the store, never inside it.** `store/paths.ts`
+ *      classifies every top-level entry of the data dir and `assertLayout()`
+ *      refuses an unclassified one (§5 G11), so `claude-code.json` inside the
+ *      data dir is a store that will not open. Hence the default layout:
+ *      `~/.counterparts/` holds the config and the credentials, and the store
+ *      is `~/.counterparts/store`.
+ *   2. **Nothing existing is overwritten without `--force`.** A second
+ *      `install` on a live machine reports what it found and changes nothing —
+ *      the same idempotence `init` already has, extended to the two files.
+ *   3. **No ceiling is invented** (scar §2.18). `injectionBudgetBytes` is
+ *      written only when `--budget` says what it is; without it the config is
+ *      written without the key and the printed steps say so out loud.
+ */
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+
+// The two credential NAMES, taken from the adapter that defines them rather
+// than retyped here — a template that named a third variable, or misspelled one
+// of these, would be a file the loader silently ignores and counts. The same
+// direction `mcp/bin/serve.ts` already takes for the same reason.
+import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
+import { DEFAULT_DATA_DIR_NAME } from "../../core/store/index.js";
+
+/** The five host events one executable serves (`claude-code/bin/hook.ts`). */
+export const HOST_EVENTS = [
+  "SessionStart",
+  "UserPromptSubmit",
+  "Stop",
+  "SessionEnd",
+  "PreCompact",
+] as const;
+
+/** The installed executables, by the names `package.json#bin` gives them. */
+export const BIN = {
+  cli: "counterparts",
+  hook: "counterparts-hook",
+  mcp: "counterparts-mcp",
+  dashboard: "counterparts-dashboard",
+} as const;
+
+/** The name the MCP server is registered under, and the one `status` reports. */
+export const MCP_SERVER_NAME = "counterparts";
+
+export const CONFIG_FILE = "claude-code.json";
+export const CREDENTIALS_FILE = "credentials.env";
+
+export interface InstallLayout {
+  /** The directory holding the config, the credentials, and the store. */
+  readonly base: string;
+  /** The data dir itself — a SUBDIRECTORY of `base`, never `base` (rule 1). */
+  readonly store: string;
+  readonly config: string;
+  readonly credentials: string;
+}
+
+/**
+ * Where an install lands, from the flags and the environment — resolved, never
+ * guessed halfway.
+ *
+ * `--dir` and `COUNTERPARTS_DATA_DIR` name the STORE, so the base is its
+ * parent; with neither, the base is `~/.counterparts` and the store is the
+ * `store/` under it. That default is deliberately NOT `dataDir()`'s: the store's
+ * own default resolves to `~/.counterparts` itself, which is the directory this
+ * command puts two unclassifiable files into (rule 1, and the open bug this
+ * layout works around).
+ */
+export function installLayout(
+  dirFlag: string | undefined,
+  env: Record<string, string | undefined>,
+  home = homedir(),
+): InstallLayout {
+  const named =
+    dirFlag !== undefined && dirFlag.length > 0
+      ? dirFlag
+      : (env["COUNTERPARTS_DATA_DIR"] ?? "").trim().length > 0
+        ? (env["COUNTERPARTS_DATA_DIR"] as string)
+        : undefined;
+  const store =
+    named === undefined ? join(home, DEFAULT_DATA_DIR_NAME, "store") : resolve(named);
+  const base = named === undefined ? join(home, DEFAULT_DATA_DIR_NAME) : dirname(store);
+  return {
+    base,
+    store,
+    config: join(base, CONFIG_FILE),
+    credentials: join(base, CREDENTIALS_FILE),
+  };
+}
+
+export interface ConfigInput {
+  readonly layout: InstallLayout;
+  readonly budgetBytes?: number;
+  readonly name?: string;
+  readonly embedder?: boolean;
+}
+
+/**
+ * The adapter configuration this install writes. Absolute paths only: the file
+ * is read by three processes the owner never launches by hand (the hook, the
+ * worker, the MCP server), and `~` is a shell's idea, not a path.
+ */
+export function configObject(input: ConfigInput): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    dataDir: input.layout.store,
+    credentialsFile: input.layout.credentials,
+    owner: true,
+  };
+  // Scar §2.18: written only when a number was SUPPLIED. There is no default
+  // for a host's ceiling anywhere in this package and this is not the place
+  // there starts being one.
+  if (input.budgetBytes !== undefined) out["injectionBudgetBytes"] = input.budgetBytes;
+  if (input.name !== undefined && input.name.length > 0) out["identity"] = { name: input.name };
+  // The egress knob. Absent means absent: no client is built and no socket
+  // opens, whatever a key in the environment says.
+  if (input.embedder === true) out["embedder"] = { enabled: true };
+  return out;
+}
+
+/** The template written into a fresh `credentials.env`. Names, never values. */
+export function credentialsTemplate(): string {
+  return [
+    "# Counterparts reads exactly two names from this file, and only to fill a",
+    "# gap: a value already exported in the environment always wins.",
+    "#",
+    `# ${API_KEY_ENV}=...   the crash-recovery sweep's one model call.`,
+    `#                          Without it the sweep refuses NO_CREDENTIAL and`,
+    "#                          a crashed session's spans stay uninterpreted.",
+    `# ${EMBED_KEY_ENV}=...      embeddings. Without it (or without`,
+    '#                          "embedder": { "enabled": true } in',
+    "#                          claude-code.json) recall is lexical-only.",
+    "#",
+    "# Anything else in this file is ignored and counted. Keep it 0600.",
+    "",
+  ].join("\n");
+}
+
+/** The hooks block to paste into `~/.claude/settings.json`. Printed, never written. */
+export function settingsBlock(hookCommand = BIN.hook): string {
+  const hooks: Record<string, unknown> = {};
+  for (const event of HOST_EVENTS) {
+    hooks[event] = [{ hooks: [{ type: "command", command: hookCommand }] }];
+  }
+  return JSON.stringify({ hooks }, null, 2);
+}
+
+/** The MCP registration line. Printed, never run — it edits the host's config. */
+export function mcpCommand(store: string, bin = BIN.mcp): string {
+  return `claude mcp add ${MCP_SERVER_NAME} -s user -e COUNTERPARTS_DATA_DIR=${store} -- ${bin}`;
+}
+
+export type WroteWhat = "created" | "kept" | "replaced";
+
+export interface FileResult {
+  readonly path: string;
+  readonly what: WroteWhat;
+  /** Octal mode after the call, for the credential file's 0600 report. */
+  readonly mode?: string;
+}
+
+/** Write `text` at `path` unless it is already there and `--force` was not given. */
+export function writeOnce(
+  path: string,
+  text: string,
+  opts: { force: boolean; mode?: number },
+): FileResult {
+  const present = existsSync(path);
+  if (present && !opts.force) {
+    return { path, what: "kept", ...modeOf(path) };
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text, opts.mode === undefined ? {} : { mode: opts.mode });
+  // `writeFileSync`'s mode is a CREATION mode and the umask applies; an
+  // existing file keeps the mode it had. Both cases are fixed here, so "0600"
+  // is a fact about the file rather than about the call that made it.
+  if (opts.mode !== undefined) chmodSync(path, opts.mode);
+  return { path, what: present ? "replaced" : "created", ...modeOf(path) };
+}
+
+function modeOf(path: string): { mode?: string } {
+  try {
+    return { mode: (statSync(path).mode & 0o777).toString(8).padStart(3, "0") };
+  } catch {
+    return {};
+  }
+}
