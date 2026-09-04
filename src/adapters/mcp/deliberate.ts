@@ -255,6 +255,16 @@ const EMPTY = {
   ambiguous: [] as readonly string[],
 };
 
+/** Live memories, the same count every answering path reports. Never throws:
+ *  a refusal must not become a crash because the census failed. */
+function liveCount(counterpart: Counterpart): number {
+  try {
+    return counterpart.store.list({ archived: false }).length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * The dispatcher. EXACTLY ONE argument: two is a caller who does not know which
  * question they are asking, and answering the more convenient one is how the
@@ -273,12 +283,16 @@ export function deliberateRecall(
   // list — "give me those in full" — and mixing it with a question is the same
   // caller confusion `both-arguments` already refuses.
   if ([hasHandle, hasQuestion, hasIds].filter(Boolean).length > 1) {
-    return { path: "none", reason: "both-arguments", ...EMPTY };
+    return { path: "none", reason: "both-arguments", ...EMPTY, storeSize: liveCount(counterpart) };
   }
   if (hasHandle) return expandHandle(counterpart, (input.handle as string).trim(), opts);
   if (hasIds) return expandIds(counterpart, askedIds, opts);
   if (hasQuestion) return answerQuestion(counterpart, (input.question as string).trim(), opts);
-  return { path: "none", reason: "no-argument", ...EMPTY };
+  // The REAL store size, even on a refusal. A caller who misspelled the argument
+  // name got `storeSize: 0` here until 2026-09-04, which reads as "your store is
+  // empty" — the wrong problem, stated confidently, at exactly the moment the
+  // caller is already unsure what they did wrong (cold-stranger review, §6.9).
+  return { path: "none", reason: "no-argument", ...EMPTY, storeSize: liveCount(counterpart) };
 }
 
 /**

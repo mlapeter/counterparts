@@ -68,7 +68,15 @@ import { TOOL_NAMES, toolDefinitions, toolSpec } from "./tools.js";
 import type { ToolName } from "./tools.js";
 
 export const SERVER_NAME = "counterparts";
-export const SERVER_VERSION = "0.0.0";
+/**
+ * What `initialize` tells the client it is talking to. It is the PACKAGE's
+ * version, and `test/mcp.test.ts` reads `package.json` and asserts the two are
+ * the same string — a literal here that drifted would make the one number a
+ * client can see about this server a lie, and the handshake is exactly where a
+ * host decides whether to trust what follows. Read from a constant rather than
+ * from disk so the server opens no file to answer its first message.
+ */
+export const SERVER_VERSION = "0.1.0";
 
 /** Telemetry: ids, counts, reasons, flags. NEVER body text (store §5 G10). */
 export interface McpEvent {
