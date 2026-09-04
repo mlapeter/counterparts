@@ -323,6 +323,14 @@ export function renderReport(report: BenchReport): string {
   out.push(
     `**totals** — turns ${t.turns} · delivered ${t.delivered} (loud ${t.surfaced}, footnotes ${t.footnotes}) · **hub hits ${t.hubHits}** (on ${t.turnsWithHub}/${t.turns} turns) · **should-surface hits ${t.wanted}**, missed ${t.missed}, absent-from-store ${t.absent} · rendered ${t.rendered} · all-gated ${t.allGated} · capped docs ${t.capped} · max ${Math.round(t.maxElapsedMs)} ms`,
   );
+  out.push("");
+  out.push(
+    t.recurring.length === 0
+      ? `**recurrence** — no id was delivered on ${MIN_RECURRENCE} or more of the ${t.turns} turns.`
+      : `**recurrence** — ${t.recurring.length} id(s) on >= ${MIN_RECURRENCE} turns, ` +
+        `${t.recurringDeliveries} of ${t.delivered} deliveries: ` +
+        t.recurring.map((r) => `\`${r.id}\` ${r.turns}x (loud ${r.loud})`).join(", "),
+  );
   if (report.toolRows.length > 0) {
     out.push("");
     out.push("| tool query | reason | considered | returned | body chars | hub hits | wanted | missed | absent |");

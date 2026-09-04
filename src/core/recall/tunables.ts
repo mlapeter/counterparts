@@ -150,27 +150,33 @@ export const TUNABLES: RecallTunables = {
   // sessions, judged 0-of-9 relevant by the instance that lived them, and 12 of
   // 19 turns then read "all-gated" because those nine were spent.
   //
-  // `tools/recall-bench` swept b ∈ {0, 0.5, 0.75, 1.0} x cap ∈ {inf, 3, 2} over
-  // the 13 prompts of that conversation. What the grid says, in order:
+  // `tools/recall-bench` swept one-sided x b ∈ {0, 0.5, 0.75, 1.0} x
+  // cap ∈ {inf, 3, 2} — 23 cells — over the 13 prompts of that conversation.
+  // What the grid says, in order:
   //   - b = 0 (no normalization) is the bug: 31 of 32 delivered items were hubs,
   //     on 13 of 13 turns.
   //   - THE CAP ALONE MAKES IT WORSE. At b = 0, cap = 3 took hub hits from 31 to
   //     52 — capping the hubs' sums compresses the turn's variance, which lowers
   //     the relative bar and admits MORE of them. The ceiling is the second half
   //     of this rule and is not a substitute for the first.
-  //   - every b >= 0.5 takes hub hits to zero, at every cap. So b is chosen on
-  //     what it COSTS: at b = 1.0 the deliberate path loses a labeled positive
-  //     (`mem_8fb634c2783e`, the School-of-Life passage), and at cap = 2 it
-  //     loses the other one (`mem_0d42a06a737977c9`). b = 0.75 with cap = 3 keeps
-  //     all three labeled positives the lexical channel can reach — and cap = 3
-  //     is what RECOVERS one of them that b = 0.75 with no cap had lost.
-  // 0.75 is also BM25's own default, which is the reason to prefer it over the
-  // equally hub-free 0.5 it ties with: more headroom against the next hub.
+  //   - every b >= 0.5 takes hub hits to zero, at every cap and either sidedness.
+  //     So b is chosen on what it COSTS, and the labeled positives decide:
+  //     b = 1.0 loses `mem_8fb634c2783e` (the School-of-Life passage) from the
+  //     deliberate answer; cap = 2 loses `mem_0d42a06a737977c9` from it.
+  //   - ONE cell in the grid delivers an AMBIENT labeled positive —
+  //     one-sided, b = 0.5, cap = 3, which footnotes `mem_e64f1a8b2d77` (the
+  //     owner's correction about anchoring on the first-stated goal) on turn 4.
+  //     Nothing else in 23 cells does, and "0 of 9 delivered footnotes were
+  //     relevant" is the finding this change exists to move. It also carries the
+  //     fewest recurring ids of the hub-free cells (7 ids / 33 of 79 deliveries,
+  //     against 9 / 38 for two-sided b = 0.75) and keeps both deliberate
+  //     positives. So: 0.5, clamped, cap 3 — not BM25's textbook 0.75, which is
+  //     what the grid was expected to pick and did not.
   // The bench measures the LEXICAL channel only (no embeddings on authored
-  // memories yet, no turn vector from the hook), so it is a floor, not a
+  // memories, and the bench passes no turn vector), so it is a floor, not a
   // forecast. CAL.
   CUE_TF_SATURATION: 1.0,
-  CUE_LENGTH_NORM: 0.75,
+  CUE_LENGTH_NORM: 0.5,
   CUE_LENGTH_ONE_SIDED: true,
   CUE_DOC_CAP: 3.0,
 

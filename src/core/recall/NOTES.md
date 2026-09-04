@@ -94,7 +94,7 @@ exactly what telemetry may not carry. Revisit if the retention review disagrees.
 un-inhibition) holds by construction: suppressed candidates are dropped, and slots fill
 from the ranked remainder. An empty slot stays quiet — nothing lowers a bar to fill one.
 
-## 8. Every tunable is CAL, inherited, not measured — except four, now
+## 8. Every tunable is CAL, inherited, not measured — except five, now
 
 `tunables.ts` carries v1's live calibration as starting points, marked CAL. That is a
 record of what real use moved in v1's activation space, not a measurement of v2's — and
@@ -102,9 +102,11 @@ v2's cue weights are a different scale entirely (smoothed idf, not v1's normaliz
 similarities). Nothing here is calibrated until it is measured against v2's own corpus
 (scar §2.8).
 
-Four now are. `BUDGET_MS` was re-measured on day 0 of the parallel run, and
-`CUE_LENGTH_NORM` / `CUE_TF_SATURATION` / `CUE_DOC_CAP` on 2026-09-04 against a copy of
-the live store with `tools/recall-bench` — see the tunable's own comment for the grid.
+Five now are. `BUDGET_MS` was re-measured on day 0 of the parallel run, and
+`CUE_LENGTH_NORM` / `CUE_TF_SATURATION` / `CUE_LENGTH_ONE_SIDED` / `CUE_DOC_CAP` on
+2026-09-04 against a copy of the live store with `tools/recall-bench` — see the tunable's
+own comment for the 23-cell grid, including the cell it picked (`b = 0.5`, clamped) over
+the textbook BM25 default it was expected to pick.
 
 ## 10. Length normalization lives in the INDEX, not in the scorer
 
@@ -119,11 +121,14 @@ number.
 
 Two consequences to keep in mind when reading the code:
 
-- **The scale moved for short documents.** At `b = 0.75` a document of average length
-  scores exactly what it scored before, a long one scores less, and a SHORT one scores up
-  to ~1.6× more. The absolute floors (`FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`) are v1
-  inheritances measured against the old scale, so they now admit somewhat more. That is
-  CONTRACT §7 OQ5, deliberately unaddressed here.
+- **The length factor is CLAMPED at 1**, so the scale only ever moves DOWN. BM25's factor
+  is centered on the mean, which would have raised a short document up to ~1.6× its old
+  score — fine for ranking, not fine for the absolute floors (`FLOOR_GLOBAL`,
+  `FLOOR_STRONG_BY_KIND`), which are v1 inheritances measured on the old scale. The clamp
+  was added to TEST whether those floors explained the loud-tier jump. They do not: clamping
+  moves the loud count by one. The clamp ships anyway, because it is the conservative
+  arithmetic and because at `b = 0.5` it is the only cell in the grid that recovers an
+  ambient labeled positive. The loud tier is CONTRACT §7 OQ5, and the bar is the suspect.
 - **The candidate union got an order of magnitude wider**, because the hubs are no longer
   occupying every cue's fetch. `activate` therefore ranks from box 2 and reads prose only
   for the survivors — an equivalence, not a heuristic, and the reason the change is

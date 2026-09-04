@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Store } from "../src/core/store/index.js";
+import { DEFAULT_LENGTH_NORM, Store } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import { USE_TIER_WEIGHT } from "../src/core/physics/index.js";
@@ -34,6 +34,7 @@ import {
   informativeness,
   render,
   stripBoilerplate,
+  TUNABLES,
   withTunables,
 } from "../src/core/recall/index.js";
 import type { Candidate, CandidateVerdict, Verdict } from "../src/core/recall/index.js";
@@ -835,6 +836,40 @@ describe("cue length normalization", () => {
   const PADDING =
     "Assorted unrelated filler about tooling, calendars, invoices, plumbing, " +
     "commuting, gardening, printers, receipts, upholstery and stationery. ";
+
+  test("the store's default normalization IS the recall tunables' CAL values", () => {
+    // Two homes, one number. `cache.ts` needs a default because `search()` has
+    // callers that are not recall; `tunables.ts` is where the calibration claim
+    // and its measurement live (scar §2.8). They may not drift apart silently.
+    expect(DEFAULT_LENGTH_NORM).toEqual({
+      k1: TUNABLES.CUE_TF_SATURATION,
+      b: TUNABLES.CUE_LENGTH_NORM,
+      oneSided: TUNABLES.CUE_LENGTH_ONE_SIDED,
+    });
+  });
+
+  test("one-sided: a short document is never scored ABOVE what it scored before", () => {
+    // The conservative half of the rule. The gate's absolute floors
+    // (`FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`) are v1 inheritances measured on
+    // the old scale; BM25's mean-centered factor would raise short documents
+    // through them, which is a calibration change nobody asked for.
+    const s = store();
+    seed(s);
+    put(s, { body: "Zygomorphic." });
+    put(s, { body: `Zygomorphic orchids. ${PADDING.repeat(8)}` });
+    const flat = s.search("zygomorphic", 10, { k1: 1, b: 0 });
+    const oneSided = s.search("zygomorphic", 10, { k1: 1, b: 0.5, oneSided: true });
+    const twoSided = s.search("zygomorphic", 10, { k1: 1, b: 0.5 });
+    const of = (hits: readonly { id: string; score: number }[], id: string): number =>
+      hits.find((h) => h.id === id)?.score ?? 0;
+    let sawShorterBoost = false;
+    for (const h of flat) {
+      expect(of(oneSided, h.id)).toBeLessThanOrEqual(h.score + 1e-12);
+      if (of(twoSided, h.id) > h.score + 1e-9) sawShorterBoost = true;
+    }
+    // …and the clamp is not vacuous: two-sided really does raise a short one.
+    expect(sawShorterBoost).toBe(true);
+  });
 
   test("the same cue, once each: a long document does not out-score a short one", () => {
     const s = store();

@@ -110,16 +110,26 @@ export interface LengthNorm {
    * inherited numbers calibrated against the old scale. Clamping keeps every
    * score at or below its previous value, so a floor still means what it meant.
    *
-   * Measured before shipping (`tools/recall-bench`, 13 real prompts, 2026-09-04):
-   * one-sided keeps hub hits at 0 and takes the loud tier from 26 back to 8
-   * against a "before" of 4, where symmetric BM25 left it at 26. So the loud
-   * inflation was the moved scale meeting old floors, not the gate finding new
-   * signal — and this is the answer to that question rather than a preference.
+   * Measured before shipping (`tools/recall-bench`, 13 real prompts, 2026-09-04),
+   * and the measurement REFUSED the hypothesis it was built to confirm: clamping
+   * does NOT bring the loud tier down (24 one-sided vs 23 two-sided at b=0.75,
+   * against 4 before). So the loud-tier inflation is the RELATIVE BAR meeting a
+   * distribution that no longer has nine outliers setting its variance — not the
+   * scale meeting old floors. That question is now answered, and it is answered
+   * against the clamp. Recorded because a flag kept for a reason that turned out
+   * to be false is how a codebase accumulates folklore.
+   *
+   * The clamp ships anyway, for the two reasons that survived: at `b = 0.5` it
+   * is the only configuration in the grid that recovers an AMBIENT labeled
+   * positive (`mem_e64f1a8b2d77`, the owner's correction about anchoring on the
+   * first-stated goal, as a turn-4 footnote), and it is the conservative
+   * arithmetic — no score exceeds what it was before normalization, so an
+   * inherited absolute floor still means what it meant.
    */
   readonly oneSided?: boolean;
 }
 
-export const DEFAULT_LENGTH_NORM: LengthNorm = { k1: 1, b: 0.75, oneSided: true };
+export const DEFAULT_LENGTH_NORM: LengthNorm = { k1: 1, b: 0.5, oneSided: true };
 
 /**
  * Mean document length, memoized per open database.

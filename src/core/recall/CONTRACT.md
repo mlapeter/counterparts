@@ -39,11 +39,14 @@ reply actually used reconsolidates, where in humans every retrieval does.
   none. Mechanized as BM25 length normalization in the token index — applied *before* the
   index's own `ORDER BY … LIMIT`, so the candidate SET is chosen length-fairly and not only
   re-ranked — plus a per-document ceiling at a multiple of that document's own strongest
-  cue. **This is a v2 addition, not a v1 port**: v1's cue channel matched curated entity
-  aliases, where length could not accumulate, and it capped a node's total alias
-  contribution absolutely (`entityCueCap`) for the same reason the ceiling exists here.
-  MEASURED 2026-09-04 — see `tunables.ts` (`CUE_LENGTH_NORM`, `CUE_TF_SATURATION`,
-  `CUE_DOC_CAP`) and `tools/recall-bench` for the sweep behind the values.
+  cue. The length factor is CLAMPED at 1 — a long document is penalized, a short one is
+  never rewarded — so no score exceeds what it was before normalization and the inherited
+  absolute floors keep their meaning. **This is a v2 addition, not a v1 port**: v1's cue
+  channel matched curated entity aliases, where length could not accumulate, and it capped a
+  node's total alias contribution absolutely (`entityCueCap`) for the same reason the ceiling
+  exists here. MEASURED 2026-09-04 — see `tunables.ts` (`CUE_LENGTH_NORM`,
+  `CUE_TF_SATURATION`, `CUE_LENGTH_ONE_SIDED`, `CUE_DOC_CAP`) and `tools/recall-bench` for
+  the 23-cell sweep behind the values.
 - **Ambiguous handles fire at reduced weight and train nothing** — and the training half must
   actually be enforced, not just documented (scar §2.6: v1 documented this in three places,
   enforced it in one, and a repo-wide grep found zero consumers). [v1 §9 G5]
@@ -103,10 +106,10 @@ reply actually used reconsolidates, where in humans every retrieval does.
 - **v1's ~40 recall knobs are not ported as a set.** Each ships with a recorded calibration
   against a real corpus and a fixture-bounded window, or ships disabled (scar §2.8). v1's
   values in behavioral-spec §9 are the best surviving record of what lived use moved — the
-  starting point, not the default. **Three knobs are no longer inherited**:
-  `CUE_LENGTH_NORM`, `CUE_TF_SATURATION` and `CUE_DOC_CAP` were measured on v2's own corpus
-  (`tools/recall-bench`, 2026-09-04) rather than carried over, and `BUDGET_MS` was
-  re-measured on day 0 of the parallel run. That is what "re-earned against v2's own corpus"
+  starting point, not the default. **Four knobs are no longer inherited**:
+  `CUE_LENGTH_NORM`, `CUE_TF_SATURATION`, `CUE_LENGTH_ONE_SIDED` and `CUE_DOC_CAP` were
+  measured on v2's own corpus (`tools/recall-bench`, 2026-09-04) rather than carried over,
+  and `BUDGET_MS` was re-measured on day 0 of the parallel run. That is what "re-earned against v2's own corpus"
   looks like when it actually happens.
 - **The learned-edge type coupling is made deliberate.** In v1, learned co-activation edges
   were written as the same type the activation pass *boosts*, so learning silently rode a
@@ -207,11 +210,14 @@ decision record carries ids, never bodies).
 5. **Is the relative bar calibrated for a distribution that is no longer dominated by
    outliers?** Length normalization removed the nine hubs that were setting `sd` on every
    turn, and the bench measured the consequence: over the same 13 prompts, delivered items
-   went 32 → 83 and the LOUD tier went 4 → 26 — "came clearly to mind" on every turn, where
-   §3 says *rarely*. Two readings are live and only the live run can choose: either the gate
-   is finally seeing a distribution with real signal in it (an on-point memory now stands
-   out where nothing could stand out from a wall of hubs), or `SNR_GLOBAL` / `SNR_STRONG` /
-   the absolute `FLOOR_STRONG_*` values are calibrated against the OLD scale — short
-   documents score up to ~1.6× their previous value under normalization, so an absolute
-   floor admits more than it used to. Deliberately not retuned in the same change that moved
-   the scale: two calibrations at once measure neither.
+   went 32 → 79 and the LOUD tier went 4 → 24 — "came clearly to mind" on every turn, where
+   §3 says *rarely*. **The obvious alternative explanation was tested and refused**: if the
+   cause were an absolute floor meeting a scale that moved, clamping the length factor at 1
+   would have fixed it, and clamping changes the loud count by one (24 vs 23 at `b = 0.75`).
+   So the driver is the relative bar itself — `SNR_GLOBAL` and `SNR_STRONG` are v1
+   inheritances chosen against a distribution whose variance was set by outliers this change
+   removes. Turn 3 of the bench is the clean case: "where would you like to take the
+   conversation from here?" carries almost no cue, and it delivers the maximum the caps
+   allow. Not retuned in the same change that moved the distribution — two calibrations at
+   once measure neither — and the deliberate ask, which does not use the ambient bar, is
+   unaffected either way.
