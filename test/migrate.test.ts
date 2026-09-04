@@ -95,8 +95,8 @@ const SELF_INDEX_VERBATIM = "The pull toward finishing is stronger than the pull
 const SELF_INDEX_ORDINARY = "He reads code the way other people read maps, corner first.";
 const SELF_STATUS = "The bake-in review is done and the fix queue is what comes next.";
 const SELF_THREAD = "Whether the replay run should be priced before it is approved.";
-const KATIE_BELIEF = "She hears the shape of an argument before she hears its conclusion.";
-const KATIE_STATUS = "She is between contracts and reading more than she is writing.";
+const ONDINE_BELIEF = "She sketches the whole bridge before she will discuss a single span.";
+const ONDINE_STATUS = "She is restoring a wooden sailboat and talks about varnish more than code.";
 const CRAFT_BELIEF = "Write the contract before the code, then let the code argue with it.";
 
 function writeFixture(dir: string): void {
@@ -264,25 +264,25 @@ function writeFixture(dir: string): void {
     ].join("\n")),
   );
   put(
-    "schemas/person-katie.md",
-    frontmatter({ id: "sch_katie", kind: "person", name: "Katie", aliases: [] }, [
+    "schemas/person-ondine.md",
+    frontmatter({ id: "sch_ondine", kind: "person", name: "Ondine", aliases: [] }, [
       "## Stable core",
       "",
       "_(none)_",
       "",
       "## Current state",
       "",
-      item(`[as of 2026-08-01] ${KATIE_STATUS}`, {
+      item(`[as of 2026-08-01] ${ONDINE_STATUS}`, {
         id: "el_kstate",
-        statement: KATIE_STATUS,
+        statement: ONDINE_STATUS,
         timestamp: "2026-08-01",
       }),
       "",
       "## Beliefs",
       "",
-      item(KATIE_BELIEF, {
+      item(ONDINE_BELIEF, {
         id: "el_kbelief",
-        statement: KATIE_BELIEF,
+        statement: ONDINE_BELIEF,
         provenance: ["s-001"],
         confidence: "high",
         status: "active",
@@ -723,9 +723,9 @@ describe("tools/migrate", () => {
       migrate({ source, target, apply: true });
       const cp = open(target);
       try {
-        const katie = cp.schemas.entities().find((e) => e.name === "Katie");
-        const state = cp.schemas.currentState(katie?.id ?? "");
-        expect(state.map((s) => s.statement)).toEqual([KATIE_STATUS]);
+        const ondine = cp.schemas.entities().find((e) => e.name === "Ondine");
+        const state = cp.schemas.currentState(ondine?.id ?? "");
+        expect(state.map((s) => s.statement)).toEqual([ONDINE_STATUS]);
         expect(state[0]?.statedOn).toBe("2026-08-01");
       } finally {
         cp.close();
