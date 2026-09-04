@@ -235,6 +235,16 @@ describe("init", () => {
     expect(printed).toContain("bin/hook.ts");
     expect(printed).toContain("bin/serve.ts");
     expect(printed).toContain("injectionBudgetBytes");
+    // The claims audit's F6, in the CLI's own text: the hook takes no FLAG, and
+    // it does fall back to the environment for the store. "No flag and no
+    // environment override" was printed here for a while and is not true
+    // (`hook.ts:84`, `dataDir: loaded.dataDir ?? dataDir()`).
+    expect(printed).toContain("taking no flag");
+    expect(printed).toContain("COUNTERPARTS_DATA_DIR");
+    expect(printed).not.toContain("no environment override");
+    // And the exit rule, with its one exception, wherever the exit rule is said.
+    expect(printed).not.toContain("every hook exits 0");
+    expect(printed).toContain("exits 2 on purpose");
     // Printed, not written: no host configuration file was created.
     expect(existsSync(join(fresh, "claude-code.json"))).toBe(false);
   });

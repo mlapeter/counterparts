@@ -45,5 +45,6 @@ launch prep from 2026-09-04. The living records are `docs/PARALLEL-RUN-STATUS.md
 the run is proving, day by day) and `docs/LAUNCH-STATUS.md` (what is verified, what is
 still open, and who owns it) — read those for current state, not this file. Module map:
 `docs/module-map.md`. Each `src/**/CONTRACT.md` states what the module keeps (with
-lineage), what it drops, and its guarantees; `NOTES.md` and `INTERFACE-GAPS.md` beside it
-record what the build learned and what it still owes.
+lineage), what it drops, and its guarantees; `NOTES.md` beside it records what the build
+learned, and `INTERFACE-GAPS.md` — in most modules; `physics/` and `store/` owe nothing
+yet — what it still owes.

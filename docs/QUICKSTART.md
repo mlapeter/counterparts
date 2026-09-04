@@ -228,7 +228,10 @@ looks from the outside like a memory that simply never happens.
 
 If you already have hooks on those events, add this one beside them — hooks on
 one event run in parallel. The hook reads `~/.counterparts/claude-code.json` for
-everything else, so it takes no arguments and no environment.
+everything else, so the hooks block passes it no arguments and sets no environment
+variable. (The hook still reads its own process environment: the two API keys come
+from there first, §6, and the store falls back to `COUNTERPARTS_DATA_DIR` if that
+file names none.)
 
 **The MCP server.** Run the line `counterparts install` printed; its shape is:
 
@@ -313,7 +316,7 @@ from the install loop, on a store with no key and no embedder:
 
 ```json
 { "path": "question", "reason": "answered", "semantic": "embedder-off",
-  "considered": 1, "storeSize": 2, "returned": 1, ... }
+  "considered": 2, "consideredCap": 24, "storeSize": 4, "returned": 2, ... }
 ```
 
 The values, and exactly what each one means
@@ -504,6 +507,12 @@ repo on its PATH and checks, every time:
   question, comes back. It is its own step because a bug at store size one is
   invisible to every check that seeds two rows — which is how one survived to a
   stranger's first minute on 2026-09-04;
+- a `session_end` through a second `counterparts-mcp` process **binds lazily** to
+  the session the hook registered, and mints the memory — the deliberate write
+  path a real session uses, without a real session;
+- `rebrief` names the file its injection ceiling came from, falls back to the
+  hooks' config for a store that has none beside it, and refuses — listing every
+  path it tried — when nothing supplies one;
 - `rebrief` renders a bundle and the next `SessionStart` injects it;
 - the dashboard opens the same store.
 
@@ -512,13 +521,20 @@ real session can settle them: that Claude Code reads the hooks block from
 `settings.json` and runs `counterparts-hook` on all five events; that the wake
 text actually reaches the model's context; that the Stop ask arrives (it is
 delivered on stderr with exit 2, the one channel measured to work on this host);
-that `claude mcp add` registers a server the client then launches; and that
-`session_end` binds to a live session through the registry. **The first four** are
-verified on the owner's machine by the parallel run
+and that `claude mcp add` registers a server the client then launches. **All four**
+are verified on the owner's machine by the parallel run
 ([`docs/PARALLEL-RUN-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/PARALLEL-RUN-STATUS.md),
-in the repository), not by this loop. The fifth is not: the lazy bind is exercised
-by `test/mcp.test.ts` and by the loop's registry step, but a live `session_end`
-binding through the registry is the run's next watch, not yet a record.
+in the repository), not by this loop.
+
+The fifth host behaviour — `session_end` binding to a live session **through the
+registry**, since the server is never told a session id — the loop now does
+exercise, end to end: the hook writes `sessions/<id>.json`, a separate
+`counterparts-mcp` process is given only the data dir and the scope, and its
+`session_end` binds to that record and mints the memory (loop step 23; the
+refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
+step fails on). What is still unverified is the same thing as above: that this
+happens inside a real Claude Code session, where the id comes from the host
+rather than from a script.
 
 ---
 

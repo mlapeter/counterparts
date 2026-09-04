@@ -57,8 +57,22 @@ export function parseArgv(argv: readonly string[]): Parsed {
   }
 
   const first = positional[0];
-  const view: ViewName | "help" =
-    first === undefined ? "status" : isViewName(first) ? first : "help";
+  // ASKING FOR HELP MUST NOT OPEN A STORE. `--help` is a flag, so it left no
+  // positional behind, and "no positional" meant `status` — which opened the
+  // DEFAULT data dir, i.e. the owner's live memory, and rendered it. A claims
+  // audit hit exactly that on 2026-09-04 while trying to read the usage. Help is
+  // checked before anything else here, and `run()` returns it before it opens
+  // anything (§5 G9: reads are pure, and this one reads nothing at all).
+  const wantsHelp =
+    flags.get("help") === "true" || flags.get("h") === "true" || first === "help" ||
+    argv.includes("-h") || argv.includes("--help");
+  const view: ViewName | "help" = wantsHelp
+    ? "help"
+    : first === undefined
+      ? "status"
+      : isViewName(first)
+        ? first
+        : "help";
 
   const args: ViewArgs = {};
   const id = flags.get("id");
@@ -170,6 +184,14 @@ export async function serve(argv: readonly string[]): Promise<number> {
       [
         `counterparts dashboard — ${running.url}`,
         `reading ${running.dir}`,
+        // Named when it was not asked for. `--dir` is optional and the default
+        // is somebody's real memory, so a `serve` typed without one should not
+        // look the same as a `serve` aimed on purpose (constitution 16: the
+        // system shows its workings). It is a read-only view either way; this
+        // line is so a stray start is visible rather than merely harmless.
+        ...(dir === undefined
+          ? [`(no --dir given, so this is the DEFAULT store — ${DATA_DIR_ENV} or ~/.counterparts/store)`]
+          : []),
         "observer mode: it strengthens nothing, deposits nothing, and writes no file of its own.",
         "ctrl-c to stop.",
         "",
@@ -284,6 +306,12 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 
 if (isEntryPoint(process.argv[1], import.meta.url)) {
   const argv = process.argv.slice(2);
+  // Help first, and before `serve` too: `serve --help` would otherwise bind a
+  // socket against the default store.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(`${helpText()}\n`);
+    process.exit(0);
+  }
   if ((argv[0] ?? "") === "serve") {
     // The one subcommand that does not return a string: it binds a socket and
     // stays. `run()` is left exactly as it was, so every existing test holds.

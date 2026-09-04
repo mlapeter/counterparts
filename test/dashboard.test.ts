@@ -37,6 +37,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -1151,6 +1152,33 @@ describe("the adapter's surface", () => {
     expect(stripAnsi(out)).toContain("storage split");
     expect(helpText()).toContain("observer mode");
     for (const view of VIEWS) expect(helpText()).toContain(view);
+  });
+
+  test("asking for help opens NO store — not even the default one", () => {
+    // The incident this pins, from a claims audit on 2026-09-04: `--help` is a
+    // flag, so it left no positional behind, and "no positional" meant `status`
+    // — which opened the DEFAULT data dir, the owner's live memory, and rendered
+    // a census of it to somebody who had typed `--help`. An instrument that
+    // reads a store to answer "how do I use you" is the wart `status`'s own
+    // observer stance exists to prevent, one level up.
+    for (const argv of [["--help"], ["-h"], ["help"], ["--help", "--dir", "/nope"], ["serve", "--help"]]) {
+      expect(parseArgv(argv).view).toBe("help");
+    }
+
+    // And `run()` returns the help text having touched nothing. The proof is a
+    // byte-identical scratch directory: no store minted, no file created, no
+    // mtime moved.
+    const untouched = join(tmpdir(), `counterparts-help-${String(process.pid)}`);
+    mkdirSync(untouched, { recursive: true });
+    const before = readdirSync(untouched);
+    for (const argv of [["--help"], ["-h"], ["help"]]) {
+      const out = run([...argv, "--dir", untouched]);
+      expect(out).toBe(helpText());
+      expect(out).toContain("observer mode");
+    }
+    expect(readdirSync(untouched)).toEqual(before);
+    expect(existsSync(join(untouched, "operational.sqlite"))).toBe(false);
+    rmSync(untouched, { recursive: true, force: true });
   });
 
   test("a store refusal reaches the owner as ONE SENTENCE, never a stack trace", async () => {

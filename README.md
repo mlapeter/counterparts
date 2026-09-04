@@ -203,8 +203,10 @@ documentation on a machine with no copy of this repository.
    `~/.counterparts/claude-code.json` regardless, so a scratch store on a configured
    machine uses that machine's keys. `counterparts rebrief` will fall back to the same
    file for the injection ceiling if there is none beside the store; it prints which file
-   it read. The hooks are stricter still: they read only that one file, for the store as
-   well, with no flag and no environment override.
+   it read. The hooks are stricter still: they take no flag and read `dataDir` out of that
+   one file, which `install` always writes; only when it names no store do they fall back
+   to `COUNTERPARTS_DATA_DIR`. (The two API keys are the other way round everywhere: the
+   environment answers first and the credentials file only fills the gaps.)
 2. **The vector cache stores embeddings as JSON text.** On the author's migrated store
    that is 177.5 MB for about 13,900 vectors, and a nearest-neighbour scan of 0.6–1.0 s.
    Irrelevant to a fresh store; a named debt.
