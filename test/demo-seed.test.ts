@@ -373,7 +373,7 @@ describe("two runs build the same store", () => {
 
     expect(contentDigest(a)).toBe(contentDigest(b));
     expect({ ...rb, dir: a }).toEqual({ ...ra, dir: a });
-  });
+  }, 30_000); // two full 30-day seeds; 8.2 s was measured under suite load, against a 5 s default
 });
 
 /** The text between two headings, so an assertion names its own panel. */
