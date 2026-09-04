@@ -161,8 +161,8 @@ memory under Claude Code, running beside its predecessor so the two can be compa
 and the launch scoreboard — including the bugs found this week — is
 [`docs/LAUNCH-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/LAUNCH-STATUS.md).
 
-**The test suite, measured 2026-09-04 on commit `d4e28d5` under bun 1.3.10:** `bun test` →
-**1,501 pass, 1 skip, 0 fail**, 19,719 assertions across 25 files, 16.7 s. The one skipped
+**The test suite, measured 2026-09-04 on commit `003d97a` under bun 1.3.10:** `bun test` →
+**1,506 pass, 1 skip, 0 fail**, 19,754 assertions across 25 files, 14.5 s. The one skipped
 test is the known bug in the next section, left in the suite so it cannot quietly stop
 being fixed. Every test builds and removes its own temporary data directory; none touches
 a real store.
