@@ -425,6 +425,37 @@ counterparts-dashboard status --dir "$HOME/.counterparts/store"
 The same store, rendered. `browse`, `stories` and the other views take `--id`,
 `--limit`, `--band`, `--kind`.
 
+### Remove a memory, and read what removal does not reach
+
+```
+counterparts remove mem_b77c9e0e9808 --dir "$HOME/.counterparts/store"
+```
+
+**A dry run by default.** It prints the plan — every surface it would chase, with
+counts; the ids (never the text) of other memories whose words overlap; and one
+line for the surface it cannot chase — then says `Dry run. Nothing has changed.`
+Add `--confirm` to do it, and the command asks you to type the id back before
+anything moves. There is no `--force`: removal is the one owner operation with a
+human in the loop.
+
+Read the `NOT chased` line before you confirm. On a memory that was taken as a
+note it says this — one line in the terminal, wrapped here:
+
+```
+  NOT chased — spans/<scope>/jots.jsonl — the raw capture buffer still holds this
+  memory's words; a later backup copies them; export does not. Chasing it is a
+  core change, not yet written.
+```
+
+That is rough edge 6 in §10 below, stated by the command itself. A note is captured
+verbatim into the span buffer before it is minted, and `remove` reaches the
+prose, the database, the links and the cache but not that file. The report says
+so, the count lands in the durable removal record, and the id goes dark on the
+deny-list so nothing can quietly resurrect it. On a memory that never rode the
+buffer the same line reads `spans: not applicable`, which is stated rather than
+omitted — a surface that goes silent when it is empty is how the residue stayed
+invisible in the first place.
+
 ### Prove the hook works without opening Claude Code
 
 ```
@@ -551,7 +582,23 @@ binding through the registry is the run's next watch, not yet a record.
 5. **`parallel: { enabled: true }`** appears in the owner's live config. It is the
    parallel-run knob and makes Counterparts stand down unless another file says
    it may speak. Do not copy it.
-6. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
+6. **Removal does not reach the span buffer.** A note is captured verbatim into
+   `spans/<scope>/jots.jsonl` before it is minted, and `remove` chases the prose,
+   the database, the links and the cache — not that file. So a removed note's
+   words survive there; a backup taken afterwards copies them, and `export` does
+   not. The command says so itself (§7): the plan and the completion report name
+   the file as unchased, and the count lands in the removal record. Chasing it is
+   a core change and is not written. **Reproduce it in three lines** — the marker
+   text is only there so `grep` has something to find:
+
+   ```
+   counterparts note "ZQPROBE the culvert gate key is under the third fence post." --dir "$HOME/.counterparts/store"
+   counterparts remove <the mem_… it printed> --confirm --dir "$HOME/.counterparts/store"
+   grep -rl ZQPROBE "$HOME/.counterparts/store"
+   ```
+
+   The prose file is gone; `spans/<scope>/jots.jsonl` still answers.
+7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
    `INTERFACE-GAPS.md`** — 40 files, 0.44 MB, in a 2.2 MB package (measured
    2026-09-04 on `npm pack --dry-run` plus the tarball's own listing; the
    TypeScript sources are the bulk of the rest). Deliberate: those files are what
