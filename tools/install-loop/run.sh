@@ -124,6 +124,9 @@ echo
 
 PASS=0
 FAIL=0
+# Failures the loop EXPECTS: a known, filed bug whose step is kept executable so
+# it starts passing the day the fix lands. Counted apart, never hidden.
+EXPECTED_FAIL=0
 STEP=0
 CURRENT=""
 STEP_T0=0
@@ -186,9 +189,9 @@ PACK_OUT=$(cd "$REPO" && PATH="$REAL_PATH" "$NPM_BIN" pack --pack-destination "$
 TARBALL=$(printf '%s\n' "$PACK_OUT" | tail -1)
 if [ -f "$WORK/$TARBALL" ]; then ok; else no "npm pack produced no tarball" "$PACK_OUT"; fi
 
-step "the tarball ships sources and licence, and no tests or tools"
+step "the tarball ships sources and licence, and no tests or internal tools"
 LISTING=$(tar -tzf "$WORK/$TARBALL" 2>&1)
-STOWAWAYS=$(printf '%s\n' "$LISTING" | grep -E '^package/(test|tools|docs/harvest|\.claude)/' || true)
+STOWAWAYS=$(printf '%s\n' "$LISTING" | grep -E '^package/(test|docs/harvest|\.claude|tools/(parallel|migrate|replay|demo|audit|recall-bench))/' || true)
 if printf '%s\n' "$LISTING" | grep -q '^package/LICENSE$' &&
    printf '%s\n' "$LISTING" | grep -q '^package/src/adapters/cli/bin/counterparts.ts$' &&
    printf '%s\n' "$LISTING" | grep -q '^package/docs/QUICKSTART.md$' &&
@@ -198,11 +201,33 @@ else
   no "tarball contents are wrong (stowaways: ${STOWAWAYS:-none})" "$LISTING"
 fi
 
+step "every relative file the shipped docs link to is IN the tarball"
+# A README that points at five files the package does not contain is a package
+# whose own evidence is unauditable by its reader (cold-stranger review, §6.6).
+mkdir -p "$WORK/unpacked"
+tar -xzf "$WORK/$TARBALL" -C "$WORK/unpacked"
+DEAD=""
+for doc in README.md docs/QUICKSTART.md; do
+  # Links to an ABSOLUTE url are deliberate pointers at the repository and are
+  # struck out first, label and all — otherwise the backticked path inside the
+  # label reads as a broken relative reference.
+  BODY=$(sed -E 's/\[[^]]*\]\(https?:[^)]*\)//g' "$REPO/$doc")
+  # What is left: markdown links to a repo path, and backticked repo paths.
+  for ref in $(printf '%s\n' "$BODY" |
+      grep -oE '\]\((docs|tools|src)/[A-Za-z0-9._/-]+\)|`(docs|tools|src)/[A-Za-z0-9._/-]+\.(md|sh|ts)`' |
+      sed -E 's/^\]\(//; s/\)$//; s/^`//; s/`$//'); do
+    [ -e "$WORK/unpacked/package/$ref" ] || DEAD="$DEAD $doc->$ref"
+  done
+done
+if [ -z "$DEAD" ]; then ok; else no "shipped docs link to files not in the package:$DEAD"; fi
+
 step "bun installs the tarball globally into the clean HOME"
 mkdir -p "$WORK/pkg"
-cp "$WORK/$TARBALL" "$WORK/pkg/counterparts.tgz"
+# The REAL filename npm produced, not a convenient rename: the docs tell the
+# reader to install `counterparts-*.tgz`, and so does this.
+cp "$WORK/$TARBALL" "$WORK/pkg/$TARBALL"
 cd "$WORK/pkg" || exit 1
-CMD='bun add -g "$PWD/counterparts.tgz"'
+CMD='bun add -g "$PWD"/counterparts-*.tgz'
 if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
@@ -221,9 +246,21 @@ for b in counterparts counterparts-hook counterparts-mcp counterparts-dashboard;
 done
 if [ -z "$MISSING" ]; then ok; else no "not installed, or resolved elsewhere:$MISSING"; fi
 
-step "the installed CLI runs and prints its own usage"
-OUT=$(counterparts --help 2>&1)
-if printf '%s' "$OUT" | grep -q "the owner's console"; then ok; else no "no usage from the installed binary" "$OUT"; fi
+step "the installed CLI prints its usage and EXITS 0 on --help"
+CMD='counterparts --help'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$(eval "$CMD" 2>&1)
+  CODE=$?
+  # The second command a stranger runs. Exit 1 here kills any `set -e` wrapper
+  # and reads as a failure on the help text.
+  if [ "$CODE" = "0" ] && printf '%s' "$OUT" | grep -q "the owner's console"; then
+    ok
+  else
+    no "expected the usage and exit 0, got exit $CODE" "$OUT"
+  fi
+fi
 
 # ── 2. the install command ──────────────────────────────────────────────────
 
@@ -301,7 +338,54 @@ else
   if printf '%s' "$OUT" | grep -q "Live memories:" && [ "$BEFORE" = "$AFTER" ]; then ok; else no "status failed or was not a pure read" "$OUT"; fi
 fi
 
-# ── 3. the SessionStart hook ────────────────────────────────────────────────
+# ── 3. the product, from the console ────────────────────────────────────────
+
+# THE STRANGER'S REAL FIRST ACT, and the one the loop was blind to until round 2:
+# a store with exactly one memory in it, asked for that memory. It fails today —
+# `considered: 0` at store size one — and it is reported as an EXPECTED FAILURE
+# rather than skipped, because a step nobody runs is a bug nobody fixes.
+FIRSTSTORE="$WORK/first-memory-store"
+step "EXPECTED-FAIL until fix/recall-first-memory: recall the ONLY memory in a store"
+counterparts init --dir "$FIRSTSTORE" >/dev/null 2>&1
+OUT=$(counterparts note "The espresso machine in the kitchen is a Rancilio Silvia." --dir "$FIRSTSTORE" 2>&1)
+if ! printf '%s' "$OUT" | grep -q "Remembered mem_"; then
+  no "the note itself failed" "$OUT"
+else
+  OUT=$(counterparts recall "what espresso machine is in the kitchen?" --dir "$FIRSTSTORE" 2>&1)
+  if printf '%s' "$OUT" | grep -q "Rancilio Silvia"; then
+    ok
+  else
+    EXPECTED_FAIL=$((EXPECTED_FAIL + 1))
+    no "KNOWN, expected until fix/recall-first-memory lands — see QUICKSTART §7 and §10.1" "$OUT"
+  fi
+fi
+
+step "console note then recall round-trips (QUICKSTART §7)"
+NOTE_CMD='counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."'
+RECALL_CMD='counterparts recall "what espresso machine is in the kitchen?"'
+if ! doc_check "$NOTE_CMD" || ! doc_check "$RECALL_CMD"; then
+  no "not in QUICKSTART verbatim: $NOTE_CMD / $RECALL_CMD"
+elif ! doc_check 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'; then
+  no "the export that makes those two commands work is not in QUICKSTART verbatim"
+else
+  # The doc's own line, evaluated: `$HOME` is the clean room's.
+  eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
+  OUT=$(eval "$NOTE_CMD" 2>&1)
+  # The second write is the workaround §7 tells the reader about, and it is here
+  # for the same reason: without it, the step above is the whole story.
+  counterparts note "An unrelated second memory about the fire escape." >/dev/null 2>&1
+  RECALL_OUT=$(eval "$RECALL_CMD" 2>&1)
+  unset COUNTERPARTS_DATA_DIR
+  if printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
+     printf '%s' "$RECALL_OUT" | grep -q "semantic embedder-off"; then
+    ok
+  else
+    no "the console round trip did not return the note" "note: $OUT
+recall: $RECALL_OUT"
+  fi
+fi
+
+# ── 4. the SessionStart hook ────────────────────────────────────────────────
 
 step "SessionStart returns the honest bootstrap line on a store that never woke"
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook.err")
@@ -316,7 +400,7 @@ fi
 step "the hook registered the session under <dataDir>/sessions/"
 if [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "no session record at $STORE/sessions/$SESSION.json"; fi
 
-# ── 4. the MCP round trip ───────────────────────────────────────────────────
+# ── 5. the MCP round trip ───────────────────────────────────────────────────
 
 CANARY="The install loop canary: the espresso machine in the kitchen is a Rancilio Silvia."
 
@@ -376,7 +460,7 @@ else
   no "expected at least one live memory and a Journal line, read '${LIVE:-nothing}'" "$OUT"
 fi
 
-# ── 5. the wake carries something ───────────────────────────────────────────
+# ── 6. the wake carries something ───────────────────────────────────────────
 
 step "counterparts rebrief renders a wake bundle from the store"
 CMD='counterparts rebrief --dir "$HOME/.counterparts/store"'
@@ -411,7 +495,7 @@ step "the package's own exports map resolves as a library import"
 # imports is a claim, not a fact.
 mkdir -p "$WORK/lib"
 cd "$WORK/lib" || exit 1
-LIB_OUT=$("$BUN_BIN" add "$WORK/pkg/counterparts.tgz" 2>&1 &&
+LIB_OUT=$("$BUN_BIN" add "$WORK/pkg/$TARBALL" 2>&1 &&
   "$BUN_BIN" -e 'import("counterparts").then((m) => console.log("Counterpart:" + typeof m.Counterpart))' 2>&1)
 if printf '%s' "$LIB_OUT" | grep -q "Counterpart:function"; then ok; else no "importing the package did not yield Counterpart" "$LIB_OUT"; fi
 cd "$WORK/pkg" || exit 1
@@ -435,6 +519,13 @@ if [ -z "$STRAY" ] && [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "
 
 T1=$(date +%s)
 echo
-echo "steps: $((PASS + FAIL))   PASS $PASS   FAIL $FAIL   total $((T1 - T0))s"
+echo "steps: $((PASS + FAIL))   PASS $PASS   FAIL $FAIL (of which EXPECTED $EXPECTED_FAIL)   total $((T1 - T0))s"
+if [ "$EXPECTED_FAIL" -gt 0 ]; then
+  echo "the expected failure is the storeSize==1 recall bug; it goes green when"
+  echo "fix/recall-first-memory lands, and this step is how you will know."
+fi
 echo "clean room left at $WORK (rm -rf it when you are done)"
+# An EXPECTED failure still exits non-zero. A loop that returned success while a
+# named bug was live would be the "verify says everything is fine" failure the
+# cold-stranger review already caught once.
 [ "$FAIL" -eq 0 ] || exit 1

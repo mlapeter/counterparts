@@ -43,6 +43,9 @@
   "files": [
     "src/",
     "docs/QUICKSTART.md",
+    "docs/ELI5.md",
+    "docs/module-map.md",
+    "tools/install-loop/",
     "CONSTITUTION.md",
     "README.md",
     "LICENSE"
