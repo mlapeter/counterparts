@@ -602,6 +602,14 @@ async function removeCommand(
  * (`updatePhysics`), the `claimedDefault` flag onto canonical prose (`revise`,
  * which keeps the prior version — constitution 7), and a `salience.defaulted`
  * row in the event log so the daily can count this run.
+ *
+ * `revise` re-hashes the whole serialized document, so every backfilled row's
+ * `content_hash` moves when the flag lands. That is inert by design and not an
+ * oversight: `content_hash` addresses the document (id and frontmatter
+ * included), which makes it a CHANGE detector, and `sleep/dedup.ts` deliberately
+ * hashes the BODY instead — its header says so in as many words. The
+ * content-idempotency ledger in `remember/` hashes normalized content and never
+ * reads this column at all.
  */
 function backfillClaimsCommand(dir: string, io: Io, apply: boolean): number {
   if (!storeExists(dir)) {

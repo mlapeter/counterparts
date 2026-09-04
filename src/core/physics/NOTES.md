@@ -123,7 +123,12 @@ decided twice.)*
      is "how often does an author's claim out-rank the computed dimensions"; a
      defaulted floor folded into it would read every silent note as a claim and
      destroy the number the ceiling decision needs. `SeamClamp` gained
-     `defaulted` and `defaultEvent` (`salience.defaulted`) for that reason.
+     `defaulted` and `defaultEvent` (`salience.defaulted`) for that reason, and
+     the separation is load-bearing rather than tidy: `tools/replay/baselines.ts`
+     computes three watch metrics off `salience.lifted` and `mint.proposal`'s
+     `lifted` flag (lift rate, mean lift size, capped share). A default entering
+     either would move all three silently, against F5's own +0.150 / 97.9%
+     baselines. Defaults stay out of both by construction.
    - **An explicit claim, however low, is never overridden** — the branch is on
      `claimed === null` and nothing else. An explicit `0` is testimony.
    The FALLBACK channel is untouched: its ceiling and its interpreter-supplied
