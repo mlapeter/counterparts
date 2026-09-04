@@ -64,7 +64,7 @@ const CLASSES: readonly Klass[] = [
   {
     name: "short-session-id",
     re: /\bsession[ _-]?(?:id)?[ :=]+["'`]?([0-9a-f]{8})\b/gi,
-    why: "The 8-hex short session id form (`c781252f`-style).",
+    why: "The 8-hex short session id form (`0a1b2c3d`-style).",
   },
   {
     name: "run-id",

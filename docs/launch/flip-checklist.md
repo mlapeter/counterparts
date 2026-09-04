@@ -2,9 +2,9 @@
 
 *The ruled path, 2026-09-04: **this repository is flipped public as it stands.** Its git
 history stays; the owner is content for first names and business names to exist in the
-history, and for the commit author identity (`mlapeter@gmail.com`, 183 commits) to be
-public — that is a decision on record, not an open question. What was cleaned is
-therefore the **working tree**, and that work is done: see the rewrites on
+history, and for the author identity on all 183 commits — his real name and personal
+email — to be public with it. That is a decision on record, not an open question. What
+was cleaned is therefore the **working tree**, and that work is done: see the rewrites on
 `launch/w3-depersonalize` and, until it is deleted at step 3, `docs/launch/repo-public-audit.md`
 for what each one was and why.*
 
@@ -78,8 +78,8 @@ credentials.env
 
 **6. Read the 30 PR bodies.** They become public with the repo and no file scan covers
 them. The audit pattern-scanned them; it did not read them. Two are already known to
-need an edit, and the first is the only `/Users/mlapeter` that would be visible anywhere
-on the public repo:
+need an edit, and the first is the only absolute home path that would be visible
+anywhere on the public repo:
 
 ```sh
 gh pr list --repo mlapeter/counterparts --state all --limit 40 --json number,title,body > /tmp/pr-bodies.json
