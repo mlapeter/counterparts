@@ -187,6 +187,14 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     reappear. **The RANKING travels with the cue, not the vector**: `Store.nearestTo`
     over a live-sized index measured 590-1040 ms, so carrying a vector would have moved
     the network call off the hot path and left the scan on it.
+    **It runs on EVERY boundary, outside the sweep gate and regardless of its verdict**,
+    and `stop()`/`sessionEnd()` spawn the worker unconditionally. The crash gate (open
+    question 3, answered) decides whether a *SWEEP* selects anything — its ordinary
+    answer is "nothing crashed", recorded as a durable `sweep.gate` row — and
+    the cue expires after one turn, so a step that fired only when the gate opened would
+    leave the semantic channel dark on every ordinary turn. The two are separately
+    ordered on purpose: the cue reads the LIVE span buffer and must precede the sweep's
+    claim, which would move those spans out of it.
 16. **[M] The worker gives vectors to memories that have none, at a bounded rate.** Up
     to `BACKFILL_LIMIT` (64) per run, first-person material first — what the experiencer
     authored and its own episodes, then everything else oldest-first — with

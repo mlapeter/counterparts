@@ -42,10 +42,16 @@ export type Emit = (name: string, data: Record<string, string | number | boolean
 /**
  * How much of the just-finished turn becomes the next turn's cue.
  *
- * **The owner's prompt in full (to a cap), a SHORT tail of the reply.** The
+ * **The conversation side in full (to a cap), a SHORT tail of the reply.** The
  * prompt is what the next turn continues from — topic continuity is the thing
- * being cued — and it is the owner's own words, which is the subject rule the
- * affect flag already follows. The reply is included because a turn is an
+ * being cued. Precisely: the conversation-side SPAN, which `SpanBuffer.capture`
+ * builds by joining every non-assistant turn of the window `enters()` kept. That
+ * is mostly the owner's own words, and since 2026-09-04 it may also carry a peer
+ * session's message — rewritten in place to name its speaker, and therefore
+ * legible in the cue rather than mistakable for the owner (CONTRACT G12). It
+ * cannot carry this system's own asks: those are `ritual` and enter nothing
+ * (G11), which is what keeps the cue from being an embedding of our own
+ * boilerplate. The reply is included because a turn is an
  * exchange and the material actually discussed often appears only there; it is
  * bounded hard because an assistant turn can be twenty times the prompt and a
  * long one would drown the prompt in the embedding, which is the semantic
