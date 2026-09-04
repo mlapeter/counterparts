@@ -125,7 +125,7 @@ that is absent from `EVENT_TYPES` (zero schema drift).
 | `op.rejected` | 40 | **Earned its keep.** Real rejections across 5 op kinds: `currentState.update` (15), `belief.supersede` (10), `thread.resolve` (8), `thread.add` (6), `ledger.open` (1). The guardrail is actively blocking bad writes, not a dead check. |
 | `system.error` | 7 | **Earned its keep, narrowly.** 6 of 7 are `interpret.chunk` failures, 1 is `boundary.hebbian` — small blast radius, and scar #1 (chunked batches, per-chunk isolation) is presumably why these didn't cascade. Low count either means the pipeline is solid or that failure surfaces are still hard to trigger; can't distinguish from logs alone. |
 | `observer.skip` | 9 | **Earned its keep.** 5 `boundary.encode` + 4 `stop.episodeAsk` skips — contract 7 (observer mode deposits nothing) firing on real observer sessions, not just passing a test. |
-| `prospective.suppressed` | 18 | **Earned its keep, but note the shape.** All 18 fired on a single day (2026-08-25) with reason `prior-session-high-affect` — one prospective-memory episode, or a burst from one session, suppressing repeatedly. Real behavior, but n=18 is really "fired in anger once," not 18 independent proofs. |
+| `prospective.suppressed` | 18 | **Earned its keep, but note the shape.** All 18 fired on a single day with reason `prior-session-high-affect` — one prospective-memory episode, or a burst from one session, suppressing repeatedly. Real behavior, but n=18 is really "fired in anger once," not 18 independent proofs. |
 
 ## 3. Caveats (read before trusting any count above)
 

@@ -914,7 +914,7 @@ match rule is deliberately conservative: a short contiguous run of distinctive w
 one rare long word. A generic single word fires neither. It never downgrades an
 already-credited item, and it is a no-op under observer.
 
-**Design note worth porting:** a named episode handle ("the porch conversation") is
+**Design note worth porting:** a named episode handle (say, "the lighthouse conversation") is
 **an alias, not a lookup key** — it enters through the ordinary rarity-weighted name
 channel with no special machinery. Elegant, and worth stating explicitly so v2 does not
 build a second resolution path for it.

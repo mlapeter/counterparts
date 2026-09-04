@@ -362,9 +362,9 @@ export function renderReport(report: BenchReport): string {
   return out.join("\n");
 }
 
-/** Turn 3 is the quiet-turn probe: "thanks, as before interesting to chat with
- *  you. where would you like to take the conversation from here?" carries almost
- *  no cue, so anything loud there is the bar admitting noise. */
+/** Turn 3 is the quiet-turn probe: a short courteous hand-back that names no
+ *  topic — a thank-you plus an open "where would you like to go next?". It
+ *  carries almost no cue, so anything loud there is the bar admitting noise. */
 function turnThreeLoud(report: BenchReport): number {
   const row = report.rows.find((r) => r.label === "turn 3");
   return row === undefined ? -1 : row.delivered.filter((d) => d.tier === "surfaced").length;

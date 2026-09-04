@@ -80,7 +80,7 @@ detached worker that cannot do its job says so.**
 
 *Incident (widening, 2026-07).* Sessions launched outside a key-exporting shell
 starved the detached runner **for two days** for this project scope; the boundary's
-child env now falls back to `~/.bansai-env` (commit 30d1dac, "Runner API-key fallback
+child env now falls back to a credentials file outside the store (commit 30d1dac, "Runner API-key fallback
 for desktop-launched hooks"). The backlog — 29 spans — drained only once someone
 noticed. The original scar covers *slow*; it did not cover *silently unable to start*.
 
@@ -130,8 +130,8 @@ found it.**
 
 *Incident (widened 2026-08-05, DECISIONS).* Contract 7 originally said only
 "evaluation strengthens nothing," and the code honored exactly that — so the
-2026-08-04 probe still **wrote an episode into the live store**
-(`~/.bansai/episodes/2026-08-04-5410d07e.md`) and still buffered its turns for
+2026-08-04 probe still **wrote an episode into the live store** (one file under
+`episodes/`, named for its date and a short id) and still buffered its turns for
 interpretation, because the Stop hook and encode path never consulted the predicate.
 The instrument changed nothing but left content behind, and that content is exactly
 what a later eval can surface — a probe reading traces about being probed. Residual
