@@ -45,6 +45,10 @@ export interface Scanned {
   readonly doc: ProseDoc;
   readonly strength: number;
   readonly unresolved: boolean;
+  /** Who minted it (`mint.ts`'s channels, plus `"migrated"`). NULL on a pre-v4
+   *  row whose provenance was never recorded. Carried here because the render
+   *  dates a MIGRATED element differently — its encode date is an upper bound. */
+  readonly source: string | null;
 }
 
 /**
@@ -75,6 +79,7 @@ export function scanActive(store: Store, day: number): Scanned[] {
       doc,
       strength: strength(physics, day),
       unresolved: doc.meta["unresolved"] === true,
+      source: row.source,
     });
   }
   return out;
