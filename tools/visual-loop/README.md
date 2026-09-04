@@ -20,11 +20,16 @@ again:
   emulator hides this by *widening the layout viewport* when content refuses to
   shrink, so `scrollLeft` stays 0 and the failure is invisible; a 390 request
   that reports `innerWidth: 448` has already failed, and the run says so.
+- **Tap targets**, on the phone pass only. Something a thumb has to hit is at
+  least **44px** tall; the nav links measured **29.2px** and the `brain` link
+  **18.4px** before this existed. A mouse needs no such thing, so the check runs
+  at 390 and nowhere else.
 
-And it causes **one real event** on the rich store, from an open page, because
-two of this dashboard's claims cannot be checked any other way: that particles
-ride only on real events, and that the flow diagram's counters are live rather
-than fetched once at boot.
+And it causes **two real deposits** on the rich store, from an open page,
+because three of this dashboard's claims cannot be checked any other way: that
+particles ride only on real events, that the flow diagram's counters are live
+rather than fetched once at boot, and that a deposit which writes *no durable
+event at all* — which is what `counterparts note` is — still moves them.
 
 ## Once, per machine
 
@@ -39,6 +44,8 @@ than fetched once at boot.
 ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots
 ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --keep    # leave the seeded stores
 ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --headed  # watch it work
+~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --name fernbrook-demo
+                                                    # name the store in the header chip
 ```
 
 Omit `--out` and it writes into a fresh temp directory and prints the path.
@@ -66,6 +73,8 @@ whole reason this tool exists is to produce images that get published.
 | `rich-memory-modal-*.png` | one memory, opened |
 | `rich-flow-node-*.png` | the flow page with a node selected |
 | `rich-flow-live-event-*.png` | shot with a comet in flight, after a real deposit |
+| `rich-flow-note-*.png` | the same, after a note — which writes no durable event, and used to move nothing |
+| `rich-<page>-1440x900-fold.png` | the first screen at the size the README publishes |
 | `log.json` | every shot, every console message, page error and 4xx, and every contrast and viewport measurement |
 
 Pages are `overview`, `memories`, `mind`, `flow`, `health` and `brain`. The
@@ -75,24 +84,33 @@ The run prints the **worst** contrast reading per selector across every page and
 viewport — the number to quote, rather than the best one — and the layout
 viewport width every 390 request actually got.
 
-## The live event
+## The live events
 
 After the rich store's screenshots, the loop opens the flow page, reads the
-`sleep` node's state line, and then deposits one memory through the **real
-door** of its own temp store — `submitSessionEnd` + `sessionEnd`, the same calls
+`sleep` node's state line, and deposits one memory through the **real door** of
+its own temp store — `submitSessionEnd` + `sessionEnd`, the same calls
 `tools/demo/seed.ts` makes, with no embedder and no interpreter, so it spends
-nothing and reaches no network. It then waits for `window.particleCount()` to go
-above zero, screenshots the comet mid-flight, and reads the node's state line
-back. A run where the number did not move, or where no particle was ever in
-flight, is a failed run.
+nothing and reaches no network. It waits for `window.particleCount()` to go
+above zero, screenshots the comet mid-flight, and reads the node's state back.
+
+Then it does it again the other way, with `captureJot` + `submitJot` — the
+console's own two calls, in the console's own order. That path writes **no
+durable event**, so a page polling the event log sees nothing, and before this
+check existed the open page kept reporting the old count forever while the
+server already answered the new one. It asserts that `remember` and `store`
+both moved, and that a comet flew.
+
+A run where a number did not move, or where no particle was ever in flight, is a
+failed run.
 
 ## What counts as a failure
 
 Any console `error` or `warning`, any uncaught page error, any request that
 fails, any response from the dashboard's own origin with a status of 400 or
 worse, any text under 4.5:1, any page whose content scrolls sideways or whose
-layout viewport widened past the request, and a live event that changed no
-counter or drew no particle.
+layout viewport widened past the request, anything under 44px that a thumb has
+to hit at 390, and a deposit — of either kind — that changed no counter or drew
+no particle.
 
 **One named exemption**, and it belongs to the harness rather than to the page:
 taking a screenshot of a live WebGL canvas makes the headless GPU read pixels

@@ -66,7 +66,9 @@ h2:first-child{margin-top:0}
 .lede{color:var(--dim);font-size:12.5px;margin:0 0 16px;max-width:96ch;line-height:1.75}
 .lede b{color:var(--ink);font-weight:400}
 
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:6px}
+/* 124, not 132: the tenth tile (beliefs and entities) has to sit on the first
+   row at 1440 rather than orphan itself under nine others. */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,1fr));gap:10px;margin-bottom:6px}
 .tile{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;
   transition:border-color .3s,box-shadow .3s}
 .tile:hover,.card:hover{border-color:var(--glow);box-shadow:var(--hovershadow)}
@@ -87,6 +89,29 @@ h2:first-child{margin-top:0}
    body must never scroll horizontally; this is the line that makes the
    per-panel scrollers do their job instead. */
 .cols>*,.cols-wide>*{min-width:0}
+/* THE PHONE HEADER. Measured at 390 before this existed: 150px of chrome in
+   three rows, `nav a` 29.2px tall and `.hright a` the same, against the 44px
+   minimum for something a thumb has to hit. The fix is not to shrink the header
+   further — it is to stop the nav wrapping. Brand and chips take one row; the
+   six sections become a single horizontal strip that scrolls on its own, with
+   real 44px hits, which is both smaller overall and actually usable. */
+@media(max-width:720px){
+  header{gap:8px 12px;margin-bottom:10px}
+  h1{font-size:16px;letter-spacing:4px;order:1}
+  .hright{order:2;margin-left:auto;gap:8px}
+  nav{order:3;flex:1 0 100%;flex-wrap:nowrap;overflow-x:auto;gap:0;
+    border-top:1px solid var(--glow);padding-top:2px;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  nav a{min-height:44px;display:inline-flex;align-items:center;padding:0 14px;
+    font-size:13px;white-space:nowrap}
+  .hright a{min-height:44px;display:inline-flex;align-items:center}
+  .badge{font-size:10px;padding:4px 9px}
+  .badge.dirpath{max-width:150px}
+  /* The chips have to fit ONE line, or the header grows a row back. The
+     observer badge is the long one, and `observer` alone is the whole claim —
+     the sentence is still in its `title`. */
+  .badge .wide{display:none}
+}
 @media(max-width:1080px){.cols,.cols-wide{grid-template-columns:1fr}}
 
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;
@@ -259,7 +284,7 @@ td.dimtd{color:var(--dim)}
     <h1>counterparts</h1>
     <nav id="nav"></nav>
     <div class="hright">
-      <span class="badge ok" title="it strengthens nothing, deposits nothing, and writes no file of its own">read-only · observer</span>
+      <span class="badge ok" title="it strengthens nothing, deposits nothing, and writes no file of its own"><span class="wide">read-only · </span>observer</span>
       <span class="badge dirpath" id="dir" title="the data directory this window is reading">…</span>
       <a href="/brain" title="the same machinery, mapped to a rough anatomy">brain</a>
       <span class="badge" id="clock" title="the store's own clock — lived days, the unit everything else here is measured in">…</span>
@@ -447,6 +472,20 @@ function said(text, confidential) {
   if (confidential) return '<span class="withheld">' + esc(text) + "</span>";
   return esc(text);
 }
+/**
+ * A ROW'S LIVED DAYS, which is the metadata that actually varies.
+ *
+ * The identity list used to end every row with `learned 2026-09-04`, the same
+ * date fifteen times, because that is the day the store was built — beside
+ * `strength 1.00` fifteen times, which is what being in the identity band
+ * means. Two of three visible fields said nothing. The lived days are the ones
+ * the physics ran on: born spreads across the month, and last-used is what
+ * "still load-bearing" looks like as a number. The calendar date is in the
+ * memory's own card, where there is room to say what it means.
+ */
+function livedSpan(el) {
+  return "<span>born day " + el.bornDay + "</span><span>last used day " + el.lastUsedDay + "</span>";
+}
 function emptyBox(msg, extra) {
   return '<div class="empty"><b>' + esc(msg) + "</b>" + (extra ? " " + esc(extra) : "") + "</div>";
 }
@@ -551,15 +590,14 @@ async function renderOverview() {
     : d.identity.map((el) =>
         '<div class="r click" onclick="openMemory(\'' + el.id + '\')">' + said(el.text, el.confidential) +
         '<div class="meta"><span class="k">' + esc(el.kind) + "</span><span>strength " + n2(el.strength) +
-        "</span><span>born day " + el.bornDay + "</span><span>learned " + esc(el.learnedOn) + "</span></div></div>"
+        "</span>" + livedSpan(el) + "</div></div>"
       ).join("");
 
   $("ov-protected").innerHTML = d.guardedAbsent
     ? absenceLine(d.guardedAbsent, "nothing is permanent ink")
     : d.guarded.map((el) =>
         '<div class="r click" onclick="openMemory(\'' + el.id + '\')">' + said(el.text, el.confidential) +
-        '<div class="meta"><span class="k">' + esc(el.kind) + "</span><span>born day " + el.bornDay +
-        "</span><span>learned " + esc(el.learnedOn) + "</span></div></div>"
+        '<div class="meta"><span class="k">' + esc(el.kind) + "</span>" + livedSpan(el) + "</div></div>"
       ).join("");
 
   $("ov-contested").innerHTML = d.contestedAbsent
@@ -572,8 +610,7 @@ async function renderOverview() {
         '<div class="r click" onclick="openMemory(\'' + c.id + '\')"><span style="color:var(--cyan)">' +
         esc(c.title) + "</span>" +
         '<div style="color:var(--dim);margin-top:4px">' + esc(c.opening) + "</div>" +
-        '<div class="meta"><span>lived day ' + c.day + "</span><span>" + esc(c.learnedOn) +
-        "</span><span>" + c.bytes + " bytes</span></div></div>"
+        '<div class="meta"><span>lived day ' + c.day + "</span><span>" + c.bytes + " bytes</span></div></div>"
       ).join("");
 }
 
@@ -782,7 +819,7 @@ async function renderMind() {
     '<div class="r click" onclick="openMemory(\'' + el.id + '\')">' + said(el.text, el.confidential) +
     '<div class="meta"><span class="k">' + esc(el.kind) + "</span><span>" + esc(el.band) +
     "</span><span>strength " + n2(el.strength) + "</span><span>" + el.bytes + " bytes</span>" +
-    "<span>learned " + esc(el.learnedOn) + "</span></div></div>";
+    livedSpan(el) + "</div></div>";
 
   $("mind-identity").innerHTML = d.identityAbsent
     ? absenceLine(d.identityAbsent, "nothing has become constitutive")
@@ -1158,11 +1195,16 @@ async function selectNode(key) {
     '<div class="lab">what it has been doing</div>' +
     (d.noEventOfItsOwn
       ? "<p style='color:var(--dim)'>" + esc(d.noEventOfItsOwn) + "</p>"
+      : d.unloggedPath
+        ? "<p style='color:var(--dim)'>" + esc(d.unloggedPath) + "</p>" +
+          (d.recent.length === 0 ? "" : d.recent.map(nodeEvent).join(""))
       : d.recent.length === 0
         ? "<p style='color:var(--dim)'>" + esc(d.recentAbsent || "(never run)") + " — nothing of this node's has reached the log.</p>"
-        : d.recent.map((ev) =>
-            "<p class='tone-" + ev.tone + "' style='font-size:11px'>" +
-            "<span style='color:var(--faint)'>day " + ev.day + " · </span>" + esc(ev.text) + "</p>").join(""));
+        : d.recent.map(nodeEvent).join(""));
+}
+function nodeEvent(ev) {
+  return "<p class='tone-" + ev.tone + "' style='font-size:11px'>" +
+    "<span style='color:var(--faint)'>day " + ev.day + " · </span>" + esc(ev.text) + "</p>";
 }
 
 window.selectNode = selectNode;
@@ -1289,7 +1331,9 @@ async function openMemory(id) {
         (s.claimed === null ? "" : " · claimed floor " + n2(s.claimed)) + "</span>") +
       kv("lived", "born day " + d.bornDay + " · used " + d.uses + "× over " + d.reinforcedDays +
         " separate days · last used day " + d.lastUsedDay) +
-      kv("learned on", esc(d.learnedOn) + (d.happenedOn ? " · happened " + esc(d.happenedOn) : "")) +
+      kv("recorded", esc(d.learnedOn) + (d.happenedOn ? " · happened " + esc(d.happenedOn) : "") +
+        "<span style='color:var(--faint)'> — the calendar day this entered the store; " +
+        "on a migrated or seeded store, the day of the import</span>") +
       kv("standing", (d.consolidated ? "consolidated" : "not yet consolidated") + " · " +
         (d.promoted ? "promoted into identity" : "not promoted") + " · " +
         (d.protected ? "<span style='color:var(--amber)'>PROTECTED — no revision path reaches it</span>" : "revisable")) +
@@ -1368,6 +1412,9 @@ window.openEvent = openEvent;
 // the pulse: particles ride only on events that are actually new
 // ═══════════════════════════════════════════════════════════════════════════
 let lastSeq = 0;
+/** The cheap shape of the store, so a poll can notice a deposit that left no
+ *  trace in the event log. Null until the first `/api/meta` answers. */
+let fingerprint = null;
 const particles = [];
 const flashes = {};
 let animating = false;
@@ -1381,6 +1428,7 @@ function animate() {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.t += 0.014;
+    if (p.t < 0) continue;
     // The tail has to finish arriving after the head does.
     if (p.t > 1 + TRAIL * 0.022) particles.splice(i, 1);
   }
@@ -1394,14 +1442,20 @@ function ignite(events) {
     flashes[e.node] = 1;
     // Ride an edge that ENDS at this node when the diagram has one — a signal
     // arriving is the thing being drawn. Otherwise ride one leaving it, and
-    // otherwise orbit the box.
-    const edge =
-      (FLOW && FLOW.edges.find((x) => x.to === e.node)) ||
-      (FLOW && FLOW.edges.find((x) => x.from === e.node));
+    // otherwise orbit the box. A caller that KNOWS the path names it in `via`,
+    // because "the first edge ending here" is not always the right one: the
+    // first edge into ENCODE is the dotted crash-sweep fallback, so a deposit
+    // through the authored door would otherwise be drawn arriving from a crash.
+    const edge = e.via
+      ? null
+      : (FLOW && FLOW.edges.find((x) => x.to === e.node)) ||
+        (FLOW && FLOW.edges.find((x) => x.from === e.node));
     particles.push({
       node: e.node,
-      key: edge ? edge.from + ">" + edge.to : "",
-      t: 0,
+      key: e.via || (edge ? edge.from + ">" + edge.to : ""),
+      // A negative start staggers a signal that crosses several nodes, so three
+      // particles read as one thing moving rather than three things blinking.
+      t: -(e.delay || 0),
       spin: Math.random() * 6.28,
       col: e.tone === "amber" ? COL.amber : e.tone === "notable" ? COL.cyan : COL.teal,
     });
@@ -1412,13 +1466,28 @@ function ignite(events) {
 async function poll() {
   let d;
   try { d = await api("/api/activity?limit=40&sinceSeq=" + lastSeq); } catch (e) { return; }
+  // THE SECOND QUESTION, AND THE ONE THAT WAS MISSING.
+  //
+  // "Has anything happened" was asked of the event log alone, and the event log
+  // is not the whole truth: `counterparts note` deposits a memory and writes no
+  // durable event at all, so `lastSeq` never moved, the refetch never fired,
+  // and a page left open on the flow tab said `143 came through` forever while
+  // the server already answered 144. That is the flagship command putting a
+  // wrong number on screen. `/api/meta` carries a row count for exactly this —
+  // one cheap request beside the one we were already making.
+  let meta = null;
+  try { meta = await api("/api/meta"); } catch (e) { /* the next tick retries */ }
+  const deposited = meta !== null && fingerprint !== null &&
+    (meta.rows !== fingerprint.rows || meta.day !== fingerprint.day);
+  if (meta !== null) fingerprint = { rows: meta.rows, day: meta.day };
+
   if (d.lastSeq > lastSeq) {
     lastSeq = d.lastSeq;
     // A new event means the store moved, so everything the diagram counts moved
     // with it: left open, the flow page silently reported yesterday's numbers
     // beside today's feed. Refresh the node state — and the lived day, which is
     // the one number in the header that is allowed to change.
-    refreshCounters();
+    refreshCounters(meta);
     const fresh = d.events.slice().reverse();
     ignite(fresh);
     for (const el of [$("ov-feed"), $("flow-feed")]) {
@@ -1441,15 +1510,35 @@ async function poll() {
     const seen = $("seen");
     seen.hidden = false;
     seen.textContent = "last event " + new Date().toTimeString().slice(0, 8);
+  } else if (deposited) {
+    // A deposit with no event of its own. There is nothing to put in the feed —
+    // the feed IS the durable log, and inventing a row there would be a lie
+    // about what was recorded — but the counters moved and the diagram can say
+    // so, along the path a deposit actually takes: the authored door, the gate,
+    // the store. Named edges, because the first edge into ENCODE is the crash
+    // fallback and a note did not crash.
+    refreshCounters(meta);
+    ignite([
+      { node: "remember", via: "session>remember", tone: "calm", delay: 0 },
+      { node: "encode", via: "remember>encode", tone: "calm", delay: 0.34 },
+      { node: "store", via: "encode>store", tone: "calm", delay: 0.68 },
+    ]);
+    // A different word, because it IS a different thing: something was stored,
+    // and nothing was recorded about the storing.
+    const seen = $("seen");
+    seen.hidden = false;
+    seen.textContent = "last deposit " + new Date().toTimeString().slice(0, 8);
   }
 }
 
 /** What a new event changes, re-read. Only the counters — the pages themselves
- *  are not rebuilt under the reader's cursor. */
-async function refreshCounters() {
+ *  are not rebuilt under the reader's cursor. The poll has already asked for
+ *  `/api/meta`, so it hands it over rather than making the request twice. */
+async function refreshCounters(meta) {
   try {
-    const meta = await api("/api/meta");
-    $("clock").textContent = "day " + meta.day;
+    const m = meta ?? (await api("/api/meta"));
+    $("clock").textContent = "day " + m.day;
+    fingerprint = { rows: m.rows, day: m.day };
   } catch (e) { /* the next poll retries */ }
   if (!loaded.flow) return;
   try {
@@ -1481,9 +1570,9 @@ addEventListener("resize", () => {
     // store — the full path is one hover away for the moment it matters.
     const name = meta.dir.replace(/\/+$/, "").split("/").pop() || meta.dir;
     $("dir").textContent = name;
-    $("dir").title = `reading ${meta.dir}`;
     $("dir").title = "reading " + meta.dir;
     $("clock").textContent = "day " + meta.day;
+    fingerprint = { rows: meta.rows, day: meta.day };
   } catch (e) { fail("The header", e); }
   showTab(location.hash.slice(1) || "overview", false);
   // Every tab is built once, up front: a screenshot of any of them should never

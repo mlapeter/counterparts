@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { FRAMING, LANE_ORDER } from "../src/core/self/index.js";
+import { isJournal } from "../src/core/sleep/index.js";
 import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { EVENT_NODE, FLOW_EDGES, FLOW_NODES, NODE_KEYS, nodeOf } from "../src/adapters/dashboard/web/flow.js";
@@ -715,6 +716,109 @@ describe("the shapes the page draws with", () => {
     // A path that is NOT inside the store is left alone rather than mangled.
     expect(relativeToStore("/tmp/store", "/elsewhere/x.md")).toBe("/elsewhere/x.md");
     expect(relativeToStore("/tmp/store", "")).toBe("—");
+  });
+
+  test("`/api/meta` carries a row count, so a poll can see a deposit that wrote no event", () => {
+    const d = open(richDir);
+    try {
+      const meta = get(d.src, "/api/meta").json;
+      // The bug this exists for: `counterparts note` deposits a memory and
+      // writes no durable event, so an open page polling the event log alone
+      // reported the old count forever while the server answered the new one.
+      expect(typeof meta["rows"]).toBe("number");
+      expect(meta["rows"] as number).toBeGreaterThan(0);
+      expect(meta["empty"]).toBe(false);
+    } finally {
+      d.close();
+    }
+  });
+
+  test("an empty store's row count is zero and its emptiness agrees with it", () => {
+    const d = open(emptyDir);
+    try {
+      const meta = get(d.src, "/api/meta").json;
+      expect(meta["rows"]).toBe(0);
+      expect(meta["empty"]).toBe(true);
+    } finally {
+      d.close();
+    }
+  });
+
+  test("ENCODE does not say `(never run)` beside a store holding memories", () => {
+    const d = open(richDir);
+    try {
+      const nodes = get(d.src, "/api/flow").json["nodes"] as { key: string; state: string }[];
+      const encode = nodes.find((n) => n.key === "encode");
+      const store = nodes.find((n) => n.key === "store");
+      expect(store?.state).toMatch(/\d+ memories held/);
+      // Both absence words are FALSE here: the battery ran on every one of
+      // those memories, and only the crash-sweep path records that it did.
+      expect(encode?.state).not.toBe(NEVER);
+      expect(encode?.state).not.toBe(NONE);
+      expect(String(encode?.state)).toMatch(/passed · no gate record yet|recorded/);
+      // And a reader who clicks gets the whole reason, not a one-liner.
+      const detail = get(d.src, "/api/node?key=encode").json;
+      expect(String(detail["unloggedPath"]).length).toBeGreaterThan(80);
+      expect(String(detail["unloggedPath"])).toContain("crash-sweep");
+    } finally {
+      d.close();
+    }
+  });
+
+  test("`memories held` counts memories — beliefs and entities are counted apart", () => {
+    const d = open(richDir);
+    try {
+      // The definition, read off the store itself rather than off either
+      // surface: live, not archived, not the journal, not a schema row. The
+      // console prints this number after `Memories:`; the overview printed the
+      // whole population instead — 145 against 121 on the same store, at the
+      // same moment, which is the kind of disagreement that makes a reader
+      // stop trusting both.
+      let memories = 0;
+      let beliefs = 0;
+      for (const id of d.src.store.list({ archived: false })) {
+        const row = d.src.store.row(id);
+        if (row === undefined || isJournal(row)) continue;
+        if (row.type === "schema") beliefs += 1;
+        else memories += 1;
+      }
+      expect(beliefs).toBeGreaterThan(0);
+
+      const tiles = get(d.src, "/api/overview").json["tiles"] as { label: string; value: string }[];
+      const tile = (label: string): string => tiles.find((t) => t.label === label)?.value ?? "";
+      expect(tile("memories held")).toBe(String(memories));
+      expect(tile("beliefs and entities")).toBe(String(beliefs));
+
+      // And every other surface that says the word agrees with the tile.
+      expect(get(d.src, "/api/pulse").json["memories"]).toBe(memories);
+      const nodes = get(d.src, "/api/flow").json["nodes"] as { key: string; state: string }[];
+      expect(nodes.find((n) => n.key === "store")?.state).toBe(`${memories} memories held`);
+      expect(nodes.find((n) => n.key === "remember")?.state).toBe(`${memories} came through`);
+      expect(String(get(d.src, "/api/overview").json["opening"])).toContain(`${memories} memories`);
+    } finally {
+      d.close();
+    }
+  });
+
+  test("identity rows carry lived days, not the day the store was built", () => {
+    const d = open(richDir);
+    try {
+      const rows = get(d.src, "/api/overview").json["identity"] as
+        { bornDay: number; lastUsedDay: number }[];
+      expect(rows.length).toBeGreaterThan(1);
+      // The measurement behind this: every row said `learned 2026-09-04`,
+      // because that is the day the store was built, beside `strength 1.00`,
+      // which is what being in this band means. Two of three fields constant.
+      expect(rows.some((r) => r.lastUsedDay !== rows[0]?.lastUsedDay)).toBe(true);
+      for (const r of rows) expect(r.lastUsedDay).toBeGreaterThanOrEqual(r.bornDay);
+      // The calendar date is gone from the row and still in the card.
+      expect(Object.keys(rows[0] ?? {})).not.toContain("learnedOn");
+      const first = (get(d.src, "/api/memories").json["points"] as { id: string }[])[0];
+      const detail = get(d.src, `/api/memory?id=${first?.id ?? ""}`).json;
+      expect(String(detail["learnedOn"])).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    } finally {
+      d.close();
+    }
   });
 
   test("the modal is handed BOTH forms: the short one to show, the full one to copy", () => {
