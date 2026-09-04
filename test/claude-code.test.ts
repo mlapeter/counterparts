@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  BOUNDARY_EVENT,
   Counterpart,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
@@ -47,6 +48,7 @@ import {
   abDir,
   assignmentHealth,
   assignmentPath,
+  attributePeers,
   capabilities,
   classifyBlock,
   createEmbedder,
@@ -1384,18 +1386,176 @@ describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", (
     expect(enters({ role: "user", text, source: "injected" })).toBe(true);
   });
 
-  test("a Stop-hook wrapper WITHOUT a foreign marker is not foreign — v2's own asks arrive that way", () => {
+  test("a Stop-hook wrapper WITHOUT a foreign marker is `ritual`, not foreign — and enters nothing", () => {
     const ours = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+    // Not foreign: another memory system did not write this, WE did. The
+    // distinction is what keeps the canary's FOREIGN_MARKERS honest.
     expect(classifyBlock(ours)).not.toBe("foreign");
-    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(true);
+    expect(classifyBlock(ours)).toBe("ritual");
+    // But it does not enter either: v2's own ask is not something that happened
+    // to v2, and the ask's durable record is `adapter.authorship.ask`.
+    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(false);
     // A bansai marker that is not at the start of the block is not a wrapper
     // match either — only the containment marker crosses a block boundary.
     expect(classifyBlock("we should ask whether [bansai] still runs here")).toBe("conversation");
+    // And the phrase MENTIONED mid-sentence is conversation about the mechanism.
+    expect(classifyBlock("the host returns a Stop hook feedback: block here")).toBe("conversation");
   });
 
   test("ordinary conversation is untouched by the new rule", () => {
     expect(classifyBlock("We settled the storage split today.")).toBe("conversation");
     expect(classifyBlock("")).toBe("conversation");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Peer speakers and the system's own ritual text — the two host shapes that
+// arrive user-role and are not the owner speaking (measured 2026-09-04)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the transcript reader attributes PEER messages and refuses its own RITUAL text", () => {
+  /** The host's wrapper, with the attribute set the v2.1.260 bundle carries. */
+  const wrapped = (
+    body: string,
+    attrs = 'from="uds:/tmp/cc-socks/30478.sock" from-name="mlapeter-41" from-mode="prompting"',
+  ) => `<cross-session-message ${attrs}>\n${body}\n</cross-session-message>`;
+
+  const OWNER = "We settled the storage split today: prose on disk, one small database.";
+  const PEER = "v2 challenge effect has no live consumer; session c781252f sweep census attached.";
+  const RITUAL = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+  const ASSISTANT = "Recorded — the cache being rebuildable is what keeps the backup honest.";
+
+  /** The five host shapes as real JSONL lines, in the order a session sees them. */
+  const FIXTURE = [
+    JSON.stringify({ message: { role: "user", content: OWNER } }),
+    JSON.stringify({ message: { role: "user", content: wrapped(PEER) } }),
+    JSON.stringify({
+      message: {
+        role: "user",
+        content: `Have a look at this and tell me if it holds:\n${wrapped(PEER)}`,
+      },
+    }),
+    JSON.stringify({ message: { role: "user", content: RITUAL } }),
+    JSON.stringify({ message: { role: "assistant", content: [{ type: "text", text: ASSISTANT }] } }),
+  ].join("\n");
+
+  const LABEL = "[message from another Claude session, mlapeter-41]:";
+
+  test("five host shapes, five turns, and the speaker of each is on the record", () => {
+    const read = parseTranscript(FIXTURE);
+    // ONE BLOCK STAYS ONE TURN. The per-session cursor indexes into this list,
+    // so a reader that split a mixed block into two turns would re-slice a live
+    // session's uncaptured tail on the day it shipped.
+    expect(read.turns.length).toBe(5);
+    expect(read.turns.map((t) => t.source)).toEqual([
+      "conversation", // the owner, plainly
+      "injected", // nothing but a peer message: kept, but nobody HERE spoke
+      "conversation", // mixed: the owner did speak in this turn
+      "ritual", // v2's own ask, handed back by the host
+      "conversation", // the assistant
+    ]);
+    // The peer's words survive verbatim — they are real experience — but they
+    // arrive wearing the speaker's name, never the owner's.
+    expect(read.turns[1]?.text).toBe(`${LABEL} ${PEER}`);
+    expect(read.turns[2]?.text).toBe(`Have a look at this and tell me if it holds:\n${LABEL} ${PEER}`);
+    // The owner's own turn and the assistant's are untouched by any of this.
+    expect(read.turns[0]?.text).toBe(OWNER);
+    expect(read.turns[4]?.text).toBe(ASSISTANT);
+  });
+
+  test("the peer's words reach the span; the ritual text does not, and its exclusion is COUNTED", () => {
+    const read = parseTranscript(FIXTURE);
+    const { a } = adapter();
+    const result = a.stop(input({ turns: read.turns }));
+    expect(result.ok).toBe(true);
+
+    const texts = a.counterpart.spans.spans("proj").map((s) => s.text);
+    const conversation = texts.find((t) => t.includes(OWNER)) ?? "";
+    // Kept: the peer's finding is in the buffer, and both times behind the label.
+    expect(conversation).toContain(`${LABEL} ${PEER}`);
+    // Refused: v2's ask never becomes a memory of v2 having thought it.
+    for (const text of texts) {
+      expect(text).not.toContain("Stop hook feedback:");
+      expect(text).not.toContain("what did you LEARN here");
+    }
+
+    // SILENCE IS NOT HEALTH: the refusal is a number in the boundary record,
+    // not an absence. One turn excluded — the ritual one.
+    const boundary = a.events(BOUNDARY_EVENT).at(-1);
+    expect(boundary?.data["excluded"]).toBe(1);
+  });
+
+  test("a peer message never PACES a ritual, and a mixed turn paces on the owner's half", () => {
+    const read = parseTranscript(FIXTURE);
+    // `substanceOf` counts `conversation` only: the pure peer turn and the
+    // ritual turn are both out, the mixed turn is in (the owner did speak).
+    expect(substanceOf(read.turns).turns).toBe(3);
+    expect(substanceOf([read.turns[1]!]).turns).toBe(0);
+    expect(substanceOf([read.turns[3]!]).turns).toBe(0);
+  });
+
+  test("attribution falls back through the host's attribute set, and never to the owner", () => {
+    const named = (attrs: string) =>
+      attributePeers(`<cross-session-message ${attrs}>hi</cross-session-message>`).text;
+    expect(named('from-name="mlapeter-41" from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, mlapeter-41]: hi",
+    );
+    // No display name: the session id. An unattributed peer message is still
+    // not the owner, so there is always a label.
+    expect(named('from="uds:/tmp/cc-socks/1.sock" from-session="c781252f"')).toBe(
+      "[message from another Claude session, c781252f]: hi",
+    );
+    // `from` is NOT a fallback: it is a machine-local socket path, and it must
+    // not land in prose that outlives the socket. "unnamed" instead.
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, unnamed]: hi",
+    );
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).not.toContain("cc-socks");
+    expect(named("")).toBe("[message from another Claude session, unnamed]: hi");
+    expect(named("from-name=''")).toBe("[message from another Claude session, unnamed]: hi");
+    // Two peers in one block are two labels, in order.
+    const two = attributePeers(
+      `<cross-session-message from-name="a">one</cross-session-message>\n<cross-session-message from-name="b">two</cross-session-message>`,
+    );
+    expect(two.peers).toBe(2);
+    expect(two.ownerText).toBe(false);
+    expect(two.text).toBe(
+      "[message from another Claude session, a]: one\n[message from another Claude session, b]: two",
+    );
+  });
+
+  test("a TRUNCATED wrapper is left alone rather than swallowing the rest of the block", () => {
+    // No closing tag: nothing is rewritten. The block still does not read as the
+    // owner speaking, because the `cross-session-` catch-all tags it `injected`.
+    const torn = '<cross-session-message from-name="mlapeter-41">half a mess';
+    expect(attributePeers(torn).peers).toBe(0);
+    expect(classifyBlock(torn)).toBe("injected");
+  });
+
+  test("the idle notice is plain text, not a wrapper — and is still not the owner", () => {
+    // Evidenced in the v2.1.260 bundle as a plain line, so it gets no rewrite;
+    // `injected` is the honest reading: host bookkeeping about a peer.
+    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" is idle now')).toBe("injected");
+    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" has exited')).toBe("injected");
+    // Any other wrapper the host adds under the same prefix reads the same way,
+    // rather than being guessed at.
+    expect(
+      classifyBlock("<cross-session-whatever-comes-next>x</cross-session-whatever-comes-next>"),
+    ).toBe("injected");
+  });
+
+  test("an ASSISTANT turn is never peer-rewritten — the host delivers peers user-role only", () => {
+    const raw = JSON.stringify({
+      message: { role: "assistant", content: [{ type: "text", text: `quoting ${wrapped("x")}` }] },
+    });
+    const read = parseTranscript(raw);
+    expect(read.turns[0]?.text).toContain("<cross-session-message");
+    expect(read.turns[0]?.source).toBe("injected");
+  });
+
+  test("v1's Stop-hook ask stays FOREIGN, not ritual — the canary's list still decides first", () => {
+    const theirs = "Stop hook feedback:\n- [bansai] Before this session closes, what did you learn?";
+    expect(classifyBlock(theirs)).toBe("foreign");
+    expect(enters({ role: "user", text: theirs, source: classifyBlock(theirs) })).toBe(false);
   });
 });
 

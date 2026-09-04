@@ -285,6 +285,29 @@ describe("capture (G1, G2, G3)", () => {
     expect(enters({ role: "user", text: "x", source: "injected" })).toBe(true);
     expect(enters({ role: "user", text: "x", source: "conversation" })).toBe(true);
     expect(enters({ role: "user", text: "x" })).toBe(true);
+    // And `ritual` — THIS system's own ask, read back off a host that returns
+    // hook output into the context — is refused for the mirror-image reason:
+    // encoding it would make the ask's wording a memory of having thought it.
+    expect(enters({ role: "user", text: "x", source: "ritual" })).toBe(false);
+  });
+
+  test("ritual text is refused and COUNTED — the ask does not become its own memory", () => {
+    const b = buf();
+    const r = b.capture({
+      session: "s1",
+      scope: SCOPE,
+      turns: [
+        { role: "user", text: "Stop hook feedback:\n- what did you LEARN here?", source: "ritual" },
+        { role: "user", text: "what I actually said", source: "conversation" },
+      ],
+    });
+    // The exclusion is a NUMBER, not an absence: a boundary that captured
+    // nothing because everything was ritual must be distinguishable from a
+    // boundary where nothing happened.
+    expect({ excluded: r.excluded, text: r.spans[0]?.text }).toEqual({
+      excluded: 1,
+      text: "what I actually said",
+    });
   });
 
   test("a boundary with nothing conversational still advances (ALL_EXCLUDED)", () => {

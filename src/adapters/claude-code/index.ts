@@ -88,8 +88,14 @@ export {
 } from "./vectors.js";
 export type { BackfillReport, LagReport } from "./vectors.js";
 
-export { FOREIGN_MARKERS, classifyBlock, parseTranscript, readTranscript } from "./transcript.js";
-export type { TranscriptRead } from "./transcript.js";
+export {
+  FOREIGN_MARKERS,
+  attributePeers,
+  classifyBlock,
+  parseTranscript,
+  readTranscript,
+} from "./transcript.js";
+export type { PeerAttribution, TranscriptRead } from "./transcript.js";
 
 export { AB_DIR_ENV, V2_OVERRIDE, abDir, assignmentHealth, assignmentPath, primacy, readAssignment } from "./primacy.js";
 export type { Assignment, AssignmentHealth, AssignmentState, Primacy, PrimacyReason } from "./primacy.js";
