@@ -45,7 +45,7 @@ present, because embedding means sending memory text to a third party, which sho
 decision rather than something a stray environment variable switches on.
 
 **Counterparts is not on npm yet.** The name is reserved and nothing has been pushed to
-it. Until it is, you build the package yourself, which is one command:
+it. Until it is, you build the package yourself:
 
 ```
 git clone https://github.com/mlapeter/counterparts.git
@@ -136,7 +136,8 @@ generated from a list of stated privileges, each naming the file that enforces i
 write. `install`, `init`, `note`, `export` (encrypted under a passphrase, or explicitly
 `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run unless you
 pass `--confirm`, and it asks a human before it acts), `verify`, `backfill-claims`,
-`rebrief`. Any of them will stand down into read-only with `--observer`.
+`rebrief`. `--observer` makes the console stand down: everything is read-only and the
+commands that would write refuse instead.
 
 **The dashboard** — `counterparts-dashboard <view>`, five views today, in your terminal:
 `status` (the brain at a glance), `browse` (memories by strength), `stories` (per contested
@@ -234,9 +235,8 @@ used in earnest before the next was written.
   earned mechanisms, its test spine and twenty more of those failure cases. It keeps
   running until Counterparts has finished proving itself beside it.
 
-The rule across all three generations, and one of the constitution's own lines: **port the
-lessons, not the code.** A learning travels forward as a test that has to pass, never as
-copy-paste.
+The rule across all three generations is one of the constitution's own: **"port the scars,
+not the code."** A lesson travels forward as a test that has to pass, never as copy-paste.
 
 ---
 
