@@ -23,6 +23,7 @@ import type { MemoryPhysics } from "../src/core/types.js";
 import { USE_TIER_WEIGHT } from "../src/core/physics/index.js";
 import {
   FRAMING,
+  MIN_RARITY_STORE,
   Recall,
   TRIM_ORDER,
   byteLength,
@@ -254,6 +255,42 @@ describe("cues — boilerplate, rarity, and the two subject rules", () => {
     expect(informativeness(0, 20)).toBe(0);
   });
 
+  test("the FIRST memory is cueable: rarity is undefined at N=1, not zero", () => {
+    // The whole-store rule above degenerates on a one-memory store, where every
+    // token is in every memory by arithmetic rather than by being ubiquitous.
+    // Read literally it made the first memory anyone writes permanently
+    // uncueable — `log((1 + 1) / (2 * 1))` is `log(1)`, exactly zero, and
+    // `buildCues` drops a zero-weight cue.
+    expect(informativeness(1, 1)).toBeGreaterThan(0);
+    // And an ABSENT token is still worth nothing at N=1: the fix restores the
+    // weight of a match, it does not invent one.
+    expect(informativeness(0, 1)).toBe(0);
+    // A store of one is read as the smallest store where "spans everything"
+    // means anything — and `MIN_RARITY_STORE` is that size, named rather than
+    // a literal 2 sitting in an expression.
+    expect(informativeness(1, 1)).toBe(informativeness(1, MIN_RARITY_STORE));
+    expect(informativeness(1, 1)).toBeLessThanOrEqual(informativeness(1, 2));
+  });
+
+  test("nothing changes at N >= 2 — the fix cannot move a bench of 14,000", () => {
+    // This is the regression proof for `docs/PARALLEL-RUN-STATUS.md` #28, in
+    // code: the shipped function is compared against the pre-fix expression at
+    // every scale that has ever been measured. Bit-identical, not "within
+    // rounding".
+    const before = (df: number, n: number): number =>
+      df <= 0 || n <= 0 ? 0 : Math.max(0, Math.log((n + df) / (2 * df)));
+    for (const n of [2, 3, 5, 17, 100, 312, 14_000, 15_421]) {
+      for (const df of [1, 2, 3, 24, Math.floor(n / 2), n - 1, n]) {
+        if (df < 1 || df > n) continue;
+        expect(informativeness(df, n)).toBe(before(df, n));
+      }
+    }
+    // …including the degenerate inputs the quiet-turn record leans on
+    // (`recall/index.ts` denominates a no-candidate turn in `floorUnit(0)`).
+    expect(informativeness(1, 0)).toBe(0);
+    expect(informativeness(0, 0)).toBe(0);
+  });
+
   test("the affect FLAG is subject-inclusive; the retrieval CUE is first-person only", () => {
     const third = detectAffect("she was completely overwhelmed by the move");
     expect(third.stated).toBe(true);
@@ -285,6 +322,110 @@ describe("the surfacing pipeline", () => {
     expect(out.decision.candidates).toBe(0);
     expect(out.decision.storeSize).toBe(0);
     expect(out.decision.sentinel).toBeNull();
+  });
+
+  test("a store of ONE answers: the first memory is not invisible until a second arrives", () => {
+    const s = store();
+    const id = put(s, {
+      kind: "skill",
+      title: "Sourdough starter",
+      body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+    });
+    const r = new Recall({ store: s, owner: true });
+    const out = r.recall({ sessionId: "s1", text: "what happened to my sourdough starter" });
+
+    // Name the reason, not just the absence: before the fix this was
+    // `no-candidates` with `candidates: 0` — the cue extractor never produced a
+    // cue, so the index was never probed at all.
+    expect(out.decision.candidates).toBeGreaterThan(0);
+    expect(out.decision.storeSize).toBe(1);
+    expect(delivered(out.decision)).toContain(id);
+    // …and an unrelated turn is still quiet on the same one-memory store.
+    const quiet = new Recall({ store: s, owner: true }).recall({
+      sessionId: "s2",
+      text: "qqqq wwww eeee rrrr",
+    });
+    expect(quiet.decision.reason).toBe("no-candidates");
+  });
+
+  test("on a store of one nothing goes LOUD — the rarity channel cannot discriminate", () => {
+    // The cost of making the first memory cueable, and its bound. At N=1 every
+    // token the memory holds is maximally rare (df = 1 = MIN_RARITY_STORE's
+    // reading of the store), so a turn sharing only `the`/`that`/`and`/`not`
+    // scores like a turn that is about it: MEASURED 2026-09-04, an ordinary
+    // three-sentence note against five unrelated function-word turns reached
+    // activation 1.82-2.24 against a loud floor of 4.5 x 0.4055 = 1.8246 and
+    // went `surfaced` on all five. Cold start is STRICTER, not looser, so the
+    // tier is capped at this size rather than the floor retuned.
+    const s = store();
+    const id = put(s, {
+      body:
+        "The parallel run started on the third and the first day of it was mostly about the hooks: " +
+        "the Stop hook was not firing and that meant the notes that were written did not land. " +
+        "The fix was small and the rest of the day was spent watching that it held.",
+    });
+    const turns = [
+      "what is the plan for today and the rest of it",
+      "that is not what I meant, and it is fine",
+      "can you check the thing that was not done",
+      "the meeting and the review are not on the calendar",
+      "I think that the answer is not obvious",
+    ];
+    let turn = 0;
+    for (const text of turns) {
+      const out = new Recall({ store: s, owner: true }).recall({
+        sessionId: `s${(turn += 1)}`,
+        text,
+      });
+      const v = out.decision.verdicts.find((x) => x.id === id);
+      // Warm, not loud — and the record NAMES why, rather than leaving a
+      // reader to infer it from a number that did not fire.
+      expect(v?.verdict).toBe("footnoted");
+      expect(v?.loudBlockedBy).toBe("cold-start-undiscriminating");
+      expect(out.decision.surfaced).toEqual([]);
+    }
+
+    // …and the cap is inert the moment a second memory exists: at N=2 the
+    // ordinary floors are back in force and it is they that hold the tier.
+    put(s, { body: "Bought hiking boots that finally fit properly and are not too stiff." });
+    const after = new Recall({ store: s, owner: true }).recall({
+      sessionId: "sN2",
+      text: turns[0] as string,
+    });
+    expect(after.decision.verdicts.find((x) => x.id === id)?.loudBlockedBy).not.toBe(
+      "cold-start-undiscriminating",
+    );
+  });
+
+  test("N=2 and N=3: an unrelated arrival is what USED to make the first one findable", () => {
+    // A REGRESSION GUARD, not a demonstration: these two sizes pass on pre-fix
+    // code too — the bug was N=1 only, and that asymmetry is what named it.
+    // They are here so a later change to the smoothing cannot buy N=1 back by
+    // spending N=2 or N=3.
+    // The bug's tell was that ANY second memory fixed it. Both directions are
+    // asserted at each size: the older memory still answers its own question,
+    // and a question that matches only the newest returns only the newest.
+    const s = store();
+    const first = put(s, {
+      body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+    });
+    const second = put(s, { body: "Bought hiking boots that finally fit properly." });
+    // A session PER ASK, deliberately: gate state is persisted (NOTES §6), so
+    // asking twice in one session would measure session dedup rather than
+    // rarity, and a dedup-suppressed memory looks exactly like an uncued one
+    // from the outside.
+    let turn = 0;
+    const ask = (text: string): string[] =>
+      delivered(
+        new Recall({ store: s, owner: true }).recall({ sessionId: `s${(turn += 1)}`, text }).decision,
+      );
+
+    expect(ask("what happened to my sourdough starter")).toContain(first);
+    expect(ask("are the new hiking boots comfortable")).toContain(second);
+
+    const third = put(s, { body: "The library closes early on Sundays now." });
+    expect(ask("what happened to my sourdough starter")).toContain(first);
+    expect(ask("when does the library close")).toContain(third);
   });
 
   test("a cued memory surfaces, and the decision record says how", () => {

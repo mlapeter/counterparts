@@ -160,3 +160,91 @@ is what makes the abort side-effect-free.
 One residual: an aborted build may already have caused the STORE to emit its own read
 telemetry. Recall emits nothing and writes nothing. The guarantee is about recall's side
 effects, and the store's read events are read events.
+
+## 12. Rarity is undefined on a store of ONE — 2026-09-04
+
+**Symptom.** A fresh store, no identity core, one authored memory through the MCP `note`
+door. `recall` with a question that plainly matched it answered
+`reason: "nothing-came", considered: 0, storeSize: 1`. Writing ANY unrelated second
+memory made the same question find the first one. At `storeSize` 1 the `handle` and `ids`
+paths returned the memory (`reason: "expanded"`), so the writer, the cache and the ranking
+were all fine: the question path's candidate SET was empty at n=1. Reproduced on four
+independent fresh stores by a cold-stranger reviewer, and again here at both doors.
+
+**Cause.** `cues.ts#informativeness` — `Math.log((storeSize + df) / (2 * df))`. On a store
+of one, the only memory holds every token, so `df = 1 = storeSize` and the expression is
+`log(2 / 2)` = `log(1)` = **exactly zero, for every token in the turn**. `buildCues` drops
+a zero-weight cue (`if (idf <= 0) continue`), so the cue list came back empty, the token
+index was never probed, and the gate never saw a candidate to refuse. Not a floor, not
+BM25 length normalization (`avgDocLen` on one document gives a length factor of exactly 1,
+which is what it should give), not a `LIMIT` — the smoothing's own zero.
+
+The zero is the RIGHT answer to the question the formula asks. It is the wrong question at
+n=1: rarity is a claim about alternatives, and a token that spans a one-memory store is not
+ubiquitous, it is merely present. §9 G4's "informativeness weighting replaces stop-lists"
+needs at least two documents before "spans the whole store" distinguishes anything.
+
+**Fix.** `MIN_RARITY_STORE = 2`, and the store size is read as
+`Math.max(storeSize, MIN_RARITY_STORE)`. Definitional rather than tunable — it names the
+domain of the rule, not a dial — so it sits beside the function and not in `tunables.ts`.
+No floor was retuned; the root cause was never a floor.
+
+**And the tier is capped at that size** (`gate.ts`, verdict
+`cold-start-undiscriminating`). Making the first memory cueable has a cost, and it is
+larger than it first looks: at N=1 EVERY token the memory holds is maximally rare, and
+`COLD_START_MIN_STORE` is 15, so N=1 is always the cold-start regime with
+`strongFloor = 4.5 x 0.4055 = 1.8246`. MEASURED 2026-09-04 with the fix in and before the
+cap: one ordinary three-sentence note against five unrelated turns sharing nothing but
+`the` / `that` / `and` / `not` went **`surfaced` — the LOUD tier — on all five**, at
+activation 1.82, 1.88, 1.99, 2.19 and 2.24. (The reviewer who found it measured the same
+shape on a different note: loud on three of five at 2.78 / 2.87 / 2.87, footnoted on the
+other two.) Session dedup bounds it to once per session, and N=2 cures it on its own — the
+same five turns at N=2 footnote at 0.36-0.62, one of them not a candidate at all — but
+"bounded and self-curing" is not the same as "right", and the doctrine at
+`gate.ts#background` is that cold start is STRICTER, not looser. So below
+`MIN_RARITY_STORE` the loud tier is closed: arrival makes a memory warm, and at a size
+where there is no relevance to measure, nothing makes it loud. The floors are untouched;
+`cold-start-undiscriminating` is a loud-tier BLOCK, so it reaches a reader as
+`loudBlockedBy` on an admitted candidate and adds no field to the decision record (G12
+class IDENTICAL, `800a9a9421cd969f`). Inert at N >= 2 by construction.
+
+**At scale.** `df >= 1` always, so `storeSize >= 2` is the only regime that can be affected
+and it is untouched by construction: the fix changes nothing but `storeSize === 1`. The
+weight of one maximally-rare cue, before and after — N=1: **0 -> 0.4055**; N=2: 0.4055
+(unchanged); N=3: 0.6931; N=100: 3.9220; N=14,000 (the live store): 8.8537 — every one of
+them bit-identical, which a test asserts against the pre-fix expression rather than
+claiming. `storeSize: 0` still returns 0, which the quiet-turn record depends on
+(`index.ts` denominates a no-candidate turn in `floorUnit(0)`). So the #25/#28 bench on the
+14,000-memory store cannot move: loud 3/13 turns, 2.8 delivered per turn, hubs 0 stand
+untouched. That bench needs a copy of the owner's live store and cannot be run from here —
+**bench re-run: NEEDS-OWNER**.
+
+What does change at `storeSize` 1, and it is the intended change: the ambient path can now
+footnote the lone memory when the turn shares a cue with it (`floorUnit(1)` goes 0 ->
+0.4055, so the cold-start floor there goes 0 -> 0.1622 and stops being vacuous), and a turn
+sharing no token still goes quiet — an absent token has `df = 0` and is still worth
+nothing. The stop-list guarantee is genuinely OFF at that size, which is what the tier cap
+above is for.
+
+**Left alone, deliberately.** The same arithmetic makes a token with `df === storeSize`
+score zero at n=2 and n=3 as well: two memories that share the question's only content word
+are both invisible to it. That is NOT rare in the default flow, and the first draft of this
+note said it was — the rationale "the second memory usually shares nothing" is false.
+MEASURED: `chapter` writes an `epi_` row that `list({archived: false})` counts and
+`doc_tokens` indexes, so a session that journals and then notes the same subject reaches
+N=2 with `df = 2` on every shared content word, and the question comes back
+`nothing-came, considered: 0` WITH this fix in (`ids = [epi_…, mem_…]`,
+`storeSize: 2`, `df(sourdough) = 2`).
+
+The choice stands anyway, for a different reason: the generalizations that would soften it
+— `max(storeSize, df + 1)`, or a `log((N + 1) / (df + 0.5))`-style smoothing — give every
+whole-store token a small non-zero weight at EVERY scale, trading the stop-list guarantee
+on a 14,000-memory store for a small-store miss. That is a bad trade to make blind, and
+this branch is a one-line fix under adversarial review, not the place to re-derive the
+smoothing. Two findings are FILED for the owner rather than folded in here: (a) recall
+counts, indexes and delivers journal (`epi_`) rows at all, which is what makes the n=2
+collision the default rather than the exception; (b) `df` counts indexed rows in
+`doc_tokens` while `storeSize` counts live rows in `memories`, so `df > storeSize` is
+reachable (an archived sibling, a superseded head) and re-zeroes a rare token — revise the
+first memory on a fresh store and it goes dark again. Both want a decision about what the
+denominator IS, which is a bigger question than this bug.

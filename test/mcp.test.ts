@@ -820,6 +820,59 @@ describe("recall — deliberate retrieval", () => {
     expect(tierOf("below-bar", false, true)).toBe("quiet");
   });
 
+  test("the FIRST note is recallable by question, on a store of one", async () => {
+    // The cold-stranger path, exactly: a fresh store with no identity core, one
+    // memory through the `note` door, one question that plainly matches it.
+    // Before the fix this answered `nothing-came` with `considered: 0` and
+    // `storeSize: 1` — and writing ANY unrelated second memory fixed it, which
+    // is what named the bug.
+    const s = server();
+    const note = payload(
+      await s.call("note", {
+        text: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+      }),
+    );
+    const id = note["id"] as string;
+    expect(note["stored"]).toBe(true);
+
+    const result = payload(await s.call("recall", { question: "what happened to my sourdough starter" }));
+    expect(result["reason"]).toBe("answered");
+    expect(result["storeSize"]).toBe(1);
+    expect(result["considered"] as number).toBeGreaterThan(0);
+    expect((result["memories"] as { id: string }[]).map((m) => m.id)).toContain(id);
+
+    // The `handle` path already worked at N=1 — the question path is what did
+    // not — so assert they now agree rather than only that one of them answers.
+    const byHandle = payload(await s.call("recall", { handle: id }));
+    expect(byHandle["reason"]).toBe("expanded");
+  });
+
+  test("N=2 and N=3 at the note door: the first note keeps answering as the store grows", async () => {
+    // A REGRESSION GUARD, not a demonstration: both sizes pass on pre-fix code
+    // too. The bug was N=1 only, and this is here so a later change to the
+    // smoothing cannot buy N=1 back by spending N=2 or N=3.
+    const s = server();
+    const first = payload(
+      await s.call("note", { text: "The sourdough starter died after two weeks of neglect." }),
+    )["id"] as string;
+    const second = payload(
+      await s.call("note", { text: "Bought hiking boots that finally fit properly." }),
+    )["id"] as string;
+    const ask = async (question: string): Promise<string[]> =>
+      ((payload(await s.call("recall", { question }))["memories"] ?? []) as { id: string }[]).map(
+        (m) => m.id,
+      );
+
+    expect(await ask("what happened to my sourdough starter")).toContain(first);
+    expect(await ask("are the new hiking boots comfortable")).toContain(second);
+
+    const third = payload(await s.call("note", { text: "The library closes early on Sundays now." }))[
+      "id"
+    ] as string;
+    expect(await ask("what happened to my sourdough starter")).toContain(first);
+    expect(await ask("when does the library close")).toContain(third);
+  });
+
   test("a question nothing answers comes back empty rather than reaching for something", async () => {
     const s = server();
     seed(s.counterpart);

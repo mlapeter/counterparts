@@ -39,9 +39,16 @@ export type Tier = "vivid" | "quiet" | "dim";
 /**
  * Verdicts the deeper look ADMITS, at the `dim` tier. Every one of them is a
  * SOFT gate in the ambient path: a bar this turn's background happened to set,
- * a per-kind loud-tier floor, a tier cap, a session-dedup, or the rule that a
- * remembered date may make a memory quiet but never loud. Deliberate effort is
- * exactly the license to look under those.
+ * a per-kind loud-tier floor, a tier cap, a session-dedup, the rule that a
+ * remembered date may make a memory quiet but never loud, or the rule that a
+ * store too small for rarity to discriminate may not go loud. Deliberate effort
+ * is exactly the license to look under those.
+ *
+ * The last three are loud-tier BLOCKS: they reach the caller as
+ * `loudBlockedBy` on an admitted candidate rather than as a final verdict, so
+ * listing them changes no behavior today. They are listed because this is a
+ * named table and a named table is total — a loud block that later becomes a
+ * final verdict must not be silently dropped by `tierOf`.
  */
 export const DELIBERATE_TIERS: readonly Verdict[] = [
   "below-bar",
@@ -49,6 +56,7 @@ export const DELIBERATE_TIERS: readonly Verdict[] = [
   "capped",
   "dedup-suppressed",
   "cue-only-temporal",
+  "cold-start-undiscriminating",
 ];
 
 /**
