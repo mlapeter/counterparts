@@ -131,6 +131,22 @@ telemetry says which happened — `adapter.authorship.ask` records `uncovered`
 every time, so the day the channel lands, the backlog it inherits is already a
 measured number.
 
+**CLOSED 2026-09-04, and what closing it cost.** The MCP adapter exists, so the
+channel exists — but the first run measured it shut anyway: this host registers
+MCP servers from a STATIC configuration (command, args, env), so the server never
+receives `--session`, and `session_end` refused every dump with
+`no-bound-session`. Zero episodes were written; the model fell back to `note` 34
+times in one session.
+
+The fix is a note the hooks leave where the tool can read it —
+`adapters/sessions.ts`, `<dataDir>/sessions/<id>.json`, written at SessionStart,
+refreshed at Stop, closed at SessionEnd — plus an ask that now NAMES the session
+id, because on this host the id can only reach the server through the model. What
+the hooks owe the seam is exactly three things and they are all here: the record,
+its scope (the hook's own cwd, set once so a later hook cannot move it), and the
+id in the ask's text. Everything about what the server then does with a claim is
+`mcp/CONTRACT.md` §5 G10 and its residual-risk note.
+
 ## 6. `sleep/`'s `SleepStore` and `Store` agree structurally, undocumented
 
 `runCycle({ store })` accepts the real `Store` directly (this build passes it

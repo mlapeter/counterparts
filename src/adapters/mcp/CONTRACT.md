@@ -46,8 +46,10 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 
 ## 5. Contract
 
-**Inputs** — MCP tool calls: `note(text[, salience])`, `recall(handle | question)`,
-`status()`; the session's observer role.
+**Inputs** — MCP tool calls: `note(text[, salience, kind, title, updates])`,
+`recall(handle | question)`, `status()`, `session_end(session, memories[])`; the
+session's observer role; the launch's session, scope and data dir when the host can
+supply them.
 **Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
 census (status); telemetry by reference.
 
@@ -73,6 +75,49 @@ census (status); telemetry by reference.
 8. **[A] Wire-protocol framing is host trivia** and may change without touching a core
    contract.
 9. **[M] The core imports nothing from this directory.**
+10. **[M] A session is bound ONCE, and a lazy bind is corroborated by host state the
+    model cannot write.** A server launched with `--session` is bound to it and consults
+    nothing else — that path is unchanged and preferred. A server launched without one
+    binds to the FIRST `session` argument that (a) names an id `adapters/sessions.ts`'s
+    registry holds, (b) is live there — not ended, last boundary inside
+    `SESSION_TTL_MS` — and (c) carries the same scope as this server. The bind lasts the
+    process's lifetime; a second, different id is refused. A claim with no id, an
+    unknown id, a dead id or a foreign scope is refused with WHICH of the four it was,
+    because a model that cannot tell "unknown id" from "wrong project" cannot act on
+    either.
+11. **[M] The scope defaults to the working directory, never silently to the store.**
+    `process.cwd()` is the project on this host (measured with `lsof`, 2026-09-04); the
+    store's dir survives only as the answer when there is no working directory at all,
+    and which default won is stated in a startup event (`mcp.scope`).
+12. **[M] `updates` is a FIELD on `note` and on a `session_end` entry**, resolved through
+    the same `remember/updates.ts` path every deposit uses, with the RESOLVED id written
+    to `doc.meta["updates"]` by `mint.ts`. An unresolvable declaration lands unlinked; it
+    is never a refusal.
+
+### The residual risk of the lazy bind, named
+
+**Two live sessions in the same directory are told apart only by the id the ask names.**
+Scope narrows a claim to one project; it cannot narrow it to one session, because both
+sessions' records carry the same scope and both are live. That is why the id is REQUIRED
+rather than inferred: there is no "the obvious live session here" to fall back on, and a
+server that guessed would let session B's model write into session A's day — the exact
+privilege guarantee 10 exists to withhold. What the mechanism buys is that the id cannot
+be *invented*: it must already be in host state the hooks wrote, live, and in this
+project. The model can only name a session it was told about, and on this host it is
+told about exactly one — its own, in its own authorship ask.
+
+Two smaller residuals, recorded rather than fixed:
+
+- **A session started from a linked checkout.** If SessionStart fires from a linked
+  working copy while the MCP server's cwd is the parent project, the two scopes differ
+  and the bind is refused. The registry never rewrites a scope after the first write, so
+  the failure is stable and legible (`scope-mismatch`) rather than intermittent — but it
+  is a real refusal, and the fix (a scope both surfaces agree on) is not this adapter's
+  to make alone.
+- **The data dir has to agree.** The registry lives under it, and the two sides resolve
+  it independently — the hooks from `claude-code.json`, the server from `--dir` /
+  `COUNTERPARTS_DATA_DIR` / the default. A host that sets one and not the other gets
+  `session-unknown` on every claim, which is at least a refusal that names itself.
 
 ## 6. Scars honored
 
@@ -92,3 +137,13 @@ this scar's direct descendant) · **§2.7** (the note traverses the one write ch
    down-moves) — the numbers that made v1's pathologies visible — not a store census.
 3. **Should `recall` expose the confidence label as a tier name or a number?** v1 labeled
    the fallback tier and left the rest implicit.
+4. **Is four hours the right TTL?** CAL. Every Stop refreshes the clock and the ask is
+   delivered AT a Stop, so the window only ever bounds the gap between an ask and its
+   answer: four hours is far past any plausible think-time and comfortably inside a day,
+   so last night's session cannot be claimed into today's memory. The number to watch is
+   `session-not-live` refusals — more than a rare one means the window is wrong.
+5. **Should `note` take a session claim too?** Today it deposits under the bound session
+   when there is one and under the literal `"mcp"` when there is not. Letting it BIND
+   would give an in-the-moment jot the power to claim a day, which is more privilege
+   than the tool needs; leaving it means an unbound server's notes still carry no
+   session. Neither is obviously right yet.

@@ -80,7 +80,7 @@ The census is small and the counters ride inside it as `symmetry`. If the census
 half turns out to be noise in real use, deleting it is a two-line change and the
 counters stay. Recorded so the choice is visible rather than assumed settled.
 
-## 6. Deliberate recall has no session of its own
+## 6. Deliberate recall has no session of its own — NARROWED, not closed
 
 `build()` needs a `sessionId` and uses it to load per-session gate state (for
 dedup). A server launched without a session uses the literal `"mcp"`, which means
@@ -88,6 +88,20 @@ two unbound servers share one gate-state row. It affects the `dedup-suppressed`
 verdict only — and deliberate recall admits that verdict anyway — so the blast
 radius is nil today. It would stop being nil the moment anything else keys off
 that row.
+
+**What the lazy bind changed (2026-09-04).** `this.session` is now a getter over
+launch state *plus* the bind, so the moment a `session_end` claim is corroborated
+against `adapters/sessions.ts`'s registry, `recall` and `note` on that server stop
+using `"mcp"` and use the real session id. On this host that happens at the first
+end-of-session dump — so the shared row is now the state of a server *before* its
+first dump, rather than for its whole life.
+
+**What is still open, and it is the same gap.** A server that never receives a
+dump never binds, so its recalls still share `"mcp"`. Nothing keys off that row
+but dedup, so the blast radius is unchanged; the honest fix is also unchanged —
+`recall` has no session of its own and is borrowing one, and a per-call gate-state
+key (or an explicitly session-free deliberate mode) is what would end the
+borrowing rather than narrowing it.
 
 ## 7. `openServer` has no embedder socket — a memory noted through the tool gets no vector
 
@@ -117,3 +131,27 @@ cache with an embedder wired. The recall gate's semantic channel cannot see it.
 Filed rather than built: a socket wired to nothing that ever fills it is the
 "starved front door" shape this repo keeps finding, and the choice between (1)
 and (2) is the owner's, not this build's.
+
+## 8. The session id has to travel through the MODEL, and that is the host's shape
+
+**What exists.** `session_end` is bound to one session, and `bin/serve.ts` accepts
+`--session` / `COUNTERPARTS_SESSION` so a host can say which at launch.
+
+**What is missing.** This host cannot. Claude Code registers MCP servers from a
+static configuration — command, args, env — with no per-session substitution, and
+`lsof` on four running servers (2026-09-04) shows the only per-session fact the
+process carries is its working directory, which identifies the PROJECT and not the
+session. So the id can only reach the server through the one channel that is
+per-session by construction: the model, carrying what the hook's ask told it.
+
+**Why that is a real seam and not a hole.** The model supplies the id; it does not
+supply the AUTHORITY. `adapters/sessions.ts`'s registry is written only by hooks,
+under the data dir, and a claim is honored only if the registry already holds that
+id, live, in this server's scope. The model can therefore name a session it was
+told about and nothing else — and on this host it is told about exactly one.
+
+**The honest fix, if the host ever offers one.** A per-session environment
+variable, or an MCP launch the host parameterizes per session, would restore the
+`--session` path and make the registry unnecessary for binding. The registry would
+still earn its place as the liveness fact (`session-not-live`), which no launch
+argument can carry.
