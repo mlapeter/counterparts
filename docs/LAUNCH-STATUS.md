@@ -500,3 +500,109 @@ and exit 1.
 
 *Appended by later workstreams. Do not rewrite an earlier section's numbers; add a dated
 entry instead.*
+
+## 2026-09-04, round 1 — Wave 1 landed, first gauntlet run
+
+*Appended by the launch session's coordinator after the inventory (§A–§I above). PRs are open
+unless marked merged; merges wait on the owner's approval in conversation (the auto-mode
+classifier blocks `gh pr merge` from the session).*
+
+### Owner rulings (2026-09-04, in conversation)
+
+- Dashboard: build a local **web** view following bansai's dashboard (pages overview / flow /
+  memories / mind / health + the three.js brain) and its design decisions; the **glow** (tron)
+  theme; terminal views stay. W2 started on `launch/w2-dashboard-web`.
+- Runtime: **bun**. Node stays "untested" in every doc.
+- Site: owner owns counterparts.ai (Namecheap), deploys on Vercel; **start fresh** (not the
+  bansai-site skeleton), tron styling, content modeled on the best of engram.fyi and
+  hippo-memory.com; styling may change later.
+- Data-dir default: ruling requested — proposed fix is `dataDir()` → `~/.counterparts/store`
+  (one line in `src/core/store/paths.ts` + the replaced `test/store.test.ts` assertion; trial-applied
+  by W1: tsc clean, exactly one test changes). Live host unaffected (config and MCP env are explicit).
+
+### Branches / PRs
+
+| PR | Branch | What | Suite |
+|---|---|---|---|
+| #31 (merged) | `launch/inventory` | this file's §A–§I | 1443 / 0 |
+| #32 | `launch/w1-install` | packaging (MIT, `bin` ×4, `exports`, `files`), `LICENSE`, `counterparts install`, `docs/QUICKSTART.md`, `tools/install-loop/run.sh` (23/23 PASS, 2 s), CLI `status` journal fix, MCP version string | 1455 / 0 |
+| #33 | `launch/dashboard-fixes` | `browse`/`stories` skip the journal; every `StoreError` is one sentence | 1448 / 0 |
+| #34 | `launch/w3-audit` | `docs/launch/repo-public-audit.md`, `tools/audit/` | docs |
+| #35 | `launch/demo-seed` | `tools/demo/seed.ts` — a 30-lived-day synthetic store (130 memories, 2 contested beliefs, 16 chapters) for every public screenshot; `--empty` mode | 1472 / 0 |
+| — | `fix/recall-first-memory` | CORE: the first memory in a fresh store is never returned by the `question` path (in progress) | — |
+| — | `launch/test-home-guard` | bun test preload redirects `HOME` to a temp dir for the whole suite (in progress) | — |
+| — | `launch/w2-dashboard-web` | the web dashboard (in progress) | — |
+
+### Scores — round 1
+
+| Critic | Score | Verdict |
+|---|---|---|
+| Cold-stranger (install + README), on `launch/w1-install` @ `fd1a7ee` | **4 / 10** | install to a working store 1 m 37 s; first successful note → recall 3 m 54 s and only via hand-written JSON-RPC after a second write. Report: session scratchpad `critic-cold-stranger-round1.md`. |
+| Design-director | — | not yet run (W2 in progress) |
+| Claims auditor | — | not yet run |
+
+Cold-stranger ranked findings: (1) CRITICAL — at store size 1 the `question` recall path returns
+`nothing-came, considered: 0` while `handle`/`ids` return the memory; a second unrelated write
+makes the first recallable (core; `fix/recall-first-memory`). (2) CRITICAL — `install --dir`
+writes the config beside the custom dir, but `hook.ts:39` / `runner.ts:56` read only
+`~/.counterparts/claude-code.json`, so the hooks silently never find it (W1 round 2: config always
+at the fixed path, `--dir` moves only the store). (3) MAJOR — §2's install command names
+`counterparts.tgz`; `npm pack` produces `counterparts-0.1.0.tgz`, and the resulting ENOENT is the
+one §10.4 attributes to relative paths (W1 round 2). (4) §7 "Check it" gives no way to store or
+recall a memory from the shell (W1 round 2: `counterparts note` / `recall`). Also: the packaged
+README links five files not in the package; the documented install tree shows `sessions/`,
+which appears only after a hook fires; bun warns that its global bin dir is not on PATH.
+
+### New findings since §I (all reproduced; none from impression)
+
+- **I7 (core)** `learnedOn` and event `at` are wall-clock (`ProposalDraft` has no date; `store.put`
+  defaults `today()`; `Store.open` takes no `now`), so a seeded or replayed store carries the run
+  day on every element — every demo wake element reads "learned 2026-09-04". Kin of the migration
+  finding (12,334 rows carrying the import day). NEEDS-OWNER: thread the injected clock through.
+- **I8 (core)** A revised belief's successor is byte-identical to its challenger, and sleep's
+  content-hash dedup merges it the same evening: `declared-revision-never-merged` names the
+  predecessor, the successor has a fresh id, and `mem_` sorts before `sch_` in the tie-break. The
+  `stories` view therefore ends "REVISED, becoming … [archived: merged]". Fires on both the belief
+  and the current-state arms. NEEDS-OWNER.
+- **I9 (dashboard)** `recall.decision`'s durable `ref` is a session id; `activity` resolves every
+  ref as a memory id and renders `[no longer at this address] <session>`. W2 resolves refs by type.
+- **I10 (cli)** `counterparts status` reads the stored `band` column, written only on a
+  transition; the dashboard computes bands live. On the demo store: CLI episodic 144 / semantic 0
+  / identity 15 vs dashboard 54 / 74 / 15. Adapter fix, queued for W1 round 3.
+- **I11 (core, minor)** `Schemas` indexes at open and the identity core is minted after, so
+  `addBelief` on the core in the same open returns `entity-unknown`.
+- **I12 (design, not a bug)** identity promotion is kind-agnostic, so repeated high-claim facts
+  reach the identity band and the wake's "Who I am" lane opens with them.
+
+### Repo-public audit (PR #34) — headline
+
+183 commits, 71 refs incl. 30 `refs/pull/N/head`, 1024 blobs / 28.5 MB, 0 skipped: **zero true
+secrets**. De-personalization: 450 pattern hits / 77 files (mostly benign) plus 12 read-through
+findings that matter. **History recommendation: publish from a fresh orphan root** — live-store
+schema filenames sit in `docs/harvest/replay-baselines.md:276` at the root commit `3d8f2f8`, and
+PR heads cannot be deleted by a user, so no squash or filter removes them once public.
+NEEDS-OWNER. The fixture first name in `test/migrate.test.ts:98-99` is replaced regardless (W3 pt 2).
+
+### Incident — disclosed
+
+The demo-seeder agent's first (uncommitted) test called `Store.open` on a path under the real
+`~/.counterparts` inside a `.not.toThrow()`, four runs before it caught itself. Likely result: an
+empty store skeleton at `~/.counterparts/x/`, beside (not inside) the live `store/`. Owner asked
+to check and delete. Mechanized answer: `launch/test-home-guard` (a preload that redirects `HOME`
+for the whole suite). Root fact: `.counterparts` is not in `FORBIDDEN_ROOT_NAMES`.
+
+### NEEDS-OWNER (additions to §G)
+
+| # | Item |
+|---|---|
+| G7 | Approve merges: #32, #33, #34, #35 (adapters, docs, tools only). |
+| G8 | Rule on the data-dir default (proposal above). |
+| G9 | History: fresh orphan root vs flip this repo (audit §1). |
+| G10 | Removal residue (§I2): honest `unchasable: spans` line now (adapter) vs a chase (core). |
+| G11 | `fix/recall-first-memory` — core fix, review + approve when the PR opens. |
+| G12 | I7 / I8 core findings — rule whether they are launch blockers (I8 spoils the flagship `stories` screenshot). |
+| G13 | Check `~/.counterparts/x/` and delete if present. |
+
+### Spend
+
+$0.00 this session so far (no interpreter or embedder call by any agent; the critic ran with no keys).
