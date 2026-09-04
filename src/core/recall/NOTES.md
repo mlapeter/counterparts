@@ -123,12 +123,14 @@ Two consequences to keep in mind when reading the code:
 
 - **The length factor is CLAMPED at 1**, so the scale only ever moves DOWN. BM25's factor
   is centered on the mean, which would have raised a short document up to ~1.6× its old
-  score — fine for ranking, not fine for the absolute floors (`FLOOR_GLOBAL`,
-  `FLOOR_STRONG_BY_KIND`), which are v1 inheritances measured on the old scale. The clamp
-  was added to TEST whether those floors explained the loud-tier jump. They do not: clamping
-  moves the loud count by one. The clamp ships anyway, because it is the conservative
-  arithmetic and because at `b = 0.5` it is the only cell in the grid that recovers an
-  ambient labeled positive. The loud tier is CONTRACT §7 OQ5, and the bar is the suspect.
+  score — fine for ranking, not fine for the absolute floors (`FLOOR_GLOBAL_UNITS`,
+  `FLOOR_STRONG_DEFAULT_UNITS`), which a candidate has to clear in a fixed number of cue
+  units. The clamp was added to TEST whether those floors explained the loud-tier jump. They
+  did not: clamping moves the loud count by one, and the floors turned out not to be firing
+  at all (CONTRACT §7 OQ5, answered 2026-09-04 — document frequency was being read off the
+  length of a bounded top-K, so rarity stopped being measured as the store grew). The clamp
+  ships anyway, because it is the conservative arithmetic and because at `b = 0.5` it is the
+  only cell in the grid that recovers an ambient labeled positive.
 - **The candidate union got an order of magnitude wider**, because the hubs are no longer
   occupying every cue's fetch. `activate` therefore ranks from box 2 and reads prose only
   for the survivors — an equivalence, not a heuristic, and the reason the change is

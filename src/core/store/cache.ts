@@ -106,9 +106,9 @@ export interface LengthNorm {
    * BM25's factor is centered on the mean, so at `b = 0.75` a very short
    * document scores up to ~1.6× what it scored with no normalization at all.
    * That is fine for ranking — ranking is relative — and it is not fine for the
-   * gate's ABSOLUTE floors (`FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`), which are
-   * inherited numbers calibrated against the old scale. Clamping keeps every
-   * score at or below its previous value, so a floor still means what it meant.
+   * gate's ABSOLUTE floors (`FLOOR_GLOBAL_UNITS`, `FLOOR_STRONG_DEFAULT_UNITS`),
+   * which a candidate clears in a fixed number of cue units. Clamping keeps
+   * every score at or below its previous value, so a floor means what it meant.
    *
    * Measured before shipping (`tools/recall-bench`, 13 real prompts, 2026-09-04),
    * and the measurement REFUSED the hypothesis it was built to confirm: clamping
@@ -134,7 +134,7 @@ export const DEFAULT_LENGTH_NORM: LengthNorm = { k1: 1, b: 0.5, oneSided: true }
 /**
  * Mean document length, memoized per open database.
  *
- * A recall pass issues up to `MAX_CUES × 3` index probes, and re-deriving
+ * A recall pass issues up to `MAX_CUES` index probes, and re-deriving
  * `AVG(len)` over 15k rows inside each of them is real time against a 1200 ms
  * budget. Staleness is harmless by construction: this is a SMOOTHING CONSTANT,
  * not truth — it moves by a fraction of a token when a memory is written, and
@@ -321,6 +321,43 @@ export function searchIndex(db: Db, cue: string, limit = 10, norm: LengthNorm = 
     limit,
   );
   return rows.map((r) => ({ id: r.memory_id, score: r.score }));
+}
+
+/**
+ * Document frequency — in how many indexed documents does each token appear?
+ *
+ * This exists because the caller that needs df was counting the wrong thing.
+ * `recall/activate.ts` took `df = searchIndex(tok, PER_CUE_FETCH).length`, which
+ * is `min(trueDf, PER_CUE_FETCH)` — so on a store with more than
+ * `PER_CUE_FETCH` documents holding a token, EVERY common word measured as
+ * "appears in 24 documents" and drew a rarity weight near the maximum.
+ * MEASURED 2026-09-04 on a 15,421-document index: `the` and `conversation`
+ * scored `informativeness = 5.7` against a ceiling of 8.95, where their true
+ * frequencies (df 350–10k) put them at 0–3. On a seventeen-memory fixture the
+ * truncation cannot happen at all, so the bug was invisible to every hermetic
+ * test and grew with the store.
+ *
+ * `doc_tokens` is keyed `(memory_id, token)`, so `COUNT(*)` per token IS the
+ * document count — no `DISTINCT` needed, and the `doc_tokens_token` index
+ * covers it. One grouped query for the whole turn: measured 8–36 ms cold and
+ * 2–4 ms warm for 72 tokens on that same index.
+ */
+export function docFrequency(db: Db, tokens: readonly string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const unique = [...new Set(tokens)];
+  if (unique.length === 0) return out;
+  // Bound the statement's variable count; SQLite's default limit is 999.
+  const CHUNK = 400;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const slice = unique.slice(i, i + CHUNK);
+    const placeholders = slice.map(() => "?").join(",");
+    const rows = db.all<{ token: string; n: number }>(
+      `SELECT token, COUNT(*) AS n FROM doc_tokens WHERE token IN (${placeholders}) GROUP BY token`,
+      ...slice,
+    );
+    for (const r of rows) out.set(r.token, r.n);
+  }
+  return out;
 }
 
 export function nearest(db: Db, vec: readonly number[], limit = 10): Hit[] {

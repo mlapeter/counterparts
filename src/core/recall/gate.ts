@@ -29,6 +29,7 @@
  */
 import { tokenize } from "../store/index.js";
 import type { Candidate } from "./activate.js";
+import { informativeness } from "./cues.js";
 import type { GateState } from "./session.js";
 import { strongFloor } from "./tunables.js";
 import type { RecallTunables } from "./tunables.js";
@@ -135,9 +136,46 @@ export function similarity(a: Candidate, b: Candidate): number {
 }
 
 /**
+ * **The unit the absolute floors are denominated in: ONE MAXIMALLY-RARE CUE.**
+ *
+ * `informativeness(1, storeSize)` is the weight a cue matching exactly one
+ * memory carries — the largest rarity weight the model can produce, and the
+ * model's own natural unit. A floor of `2.0` therefore means the same sentence
+ * at every scale: *a candidate needs two maximally-rare cues' worth of evidence
+ * before it may be admitted.*
+ *
+ * Why a unit at all (scar §2.8, CONTRACT §7 OQ5). v1's activation was a
+ * normalized cosine in 0-1 and its floors were absolute numbers in that space.
+ * v2's is a SUM of `idf × length-normalized evidence`, so the same numeral means
+ * "everything passes" on a 15,000-memory store (where `informativeness(1, N)` is
+ * 8.9) and "nothing passes" on a seventeen-memory one (where it is 2.2). The
+ * floors were consequently decorative — MEASURED 2026-09-04: scaling them ×1 to
+ * ×15 changed not one delivered item on `tools/recall-bench` — and the loud tier
+ * fired on 13 of 13 real turns because only the RELATIVE bar was gating it, and
+ * a relative bar cannot keep a low-evidence turn quiet (a thin turn's top
+ * candidate stands FURTHER above its own thin background, not nearer).
+ *
+ * This is ACT-R's retrieval threshold τ, restored to the model's own units: below
+ * τ a chunk is not retrieved however distinctive it looks against its neighbours.
+ * The relative bar (contract §2's named deviation) is unchanged and still does
+ * the discriminating; the floor only says how weak is too weak to be worth
+ * anyone's attention.
+ *
+ * The one thing that made this possible is not in this file: rarity had to be
+ * MEASURED before it could be a unit. `activate.ts` was reading document
+ * frequency off the length of a bounded top-K, so on a large store every common
+ * word looked rare and every turn's activation was inflated by roughly the same
+ * amount its rare words were (`store/cache.ts#docFrequency`).
+ */
+export function floorUnit(storeSize: number): number {
+  return informativeness(1, storeSize);
+}
+
+/**
  * The background statistic stays GLOBAL across kinds — v1 measured per-kind
- * backgrounds to rescue nothing — while the loud-tier FLOOR is per-kind, because
- * kinds live on different activation scales (§9 G12).
+ * backgrounds to rescue nothing — and so, as of 2026-09-04, is the loud-tier
+ * FLOOR: see `tunables.ts#FLOOR_STRONG_BY_KIND_UNITS` for the measurement that
+ * retired v1's per-kind shape without retiring the mechanism (§9 G12).
  *
  * Two degeneracies force the absolute regime, and naming them is the point:
  * a store too small for the variance estimate to mean anything (cold start —
@@ -154,27 +192,30 @@ export function background(
   const mean = n === 0 ? 0 : activations.reduce((a, b) => a + b, 0) / n;
   const varSum = activations.reduce((acc, x) => acc + (x - mean) * (x - mean), 0);
   const sd = n === 0 ? 0 : Math.sqrt(varSum / n);
+  const unit = floorUnit(storeSize);
 
   if (storeSize < t.COLD_START_MIN_STORE) {
+    const cold = t.COLD_START_FLOOR_UNITS * unit;
     return {
       regime: "absolute-cold-start",
       n,
       mean,
       sd,
-      bar: t.COLD_START_FLOOR,
-      strongBar: t.COLD_START_FLOOR,
-      floor: t.COLD_START_FLOOR,
+      bar: cold,
+      strongBar: cold,
+      floor: cold,
     };
   }
+  const floor = t.FLOOR_GLOBAL_UNITS * unit;
   if (n < t.MIN_BACKGROUND_SAMPLE || sd === 0) {
     return {
       regime: "absolute-thin-background",
       n,
       mean,
       sd,
-      bar: t.FLOOR_GLOBAL,
-      strongBar: t.FLOOR_GLOBAL,
-      floor: t.FLOOR_GLOBAL,
+      bar: floor,
+      strongBar: floor,
+      floor,
     };
   }
   return {
@@ -184,7 +225,7 @@ export function background(
     sd,
     bar: mean + t.SNR_GLOBAL * sd,
     strongBar: mean + t.SNR_STRONG * sd,
-    floor: t.FLOOR_GLOBAL,
+    floor,
   };
 }
 
@@ -226,6 +267,8 @@ export function looBar(
 export function gate(input: GateInput, t: RecallTunables): GateResult {
   const acts = input.candidates.filter((c) => c.cue + c.semantic > 0).map((c) => c.activation);
   const bg = background(acts, input.storeSize, t);
+  /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`). */
+  const loudUnit = floorUnit(input.storeSize);
   const sum = acts.reduce((a, b) => a + b, 0);
   const sumSq = acts.reduce((a, b) => a + b * b, 0);
   const n = acts.length;
@@ -313,7 +356,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     } else if (c.cueFraction < t.MIN_CUE_FRACTION) {
       loud = false;
       loudBlock.set(c.id, "cue-fraction");
-    } else if (c.activation < strongFloor(t, c.kind)) {
+    } else if (c.activation < strongFloor(t, c.kind, loudUnit)) {
       loud = false;
       loudBlock.set(c.id, "below-strong-floor");
     } else if (c.activation < bars.loud) {

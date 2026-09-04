@@ -88,16 +88,16 @@ export interface BenchConfig {
    *  shipped CAL value. */
   readonly snrGlobal?: number;
   readonly snrStrong?: number;
-  /** Multiplier on every per-kind loud-tier floor (and the default). The floors
-   *  keep their RELATIVE shape — kinds live on different activation scales
-   *  (§9 G12) — and only the level moves. */
-  readonly floorStrongScale?: number;
+  /** The loud-tier floor, in CUE UNITS — multiples of one maximally-rare cue,
+   *  `informativeness(1, storeSize)` (`recall/gate.ts#floorUnit`). One number,
+   *  not a per-kind shape: see the note at the override site. */
+  readonly floorStrongUnits?: number;
   /** The hard cap on the footnote lane. A cap, not a bar: it changes how many
    *  of the ranked survivors are shown, never which ones rank. */
   readonly maxFootnotes?: number;
-  /** Hard gate (b): the ABSOLUTE floor, checked before any salience adjustment.
-   *  Like the loud floors it carries v1's normalized scale. */
-  readonly floorGlobal?: number;
+  /** Hard gate (b): the absolute floor, checked before any salience adjustment,
+   *  in the same cue units as `floorStrongUnits`. */
+  readonly floorGlobalUnits?: number;
 }
 
 /** One id and how many of the turns delivered it. The hub metric that does not

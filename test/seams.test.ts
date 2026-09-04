@@ -54,17 +54,19 @@ import { Recall, TUNABLES as RECALL_TUNABLES, freshGateState, gate, withTunables
  * disjointness, the ceilings, the training refusal — not its calibration.
  *
  * The shipped absolute floors are denominated in `informativeness(1, storeSize)`
- * (`gate.ts#floorUnit`) and calibrated against a 15,421-memory store reached by
- * ~24 cues per turn, where activation runs 13-48. A fixture candidate at 1.0 is
- * two orders of magnitude below that and would be refused by hard gate (b)
- * before any of these rules were reached — so the floors are restated here in
- * the fixtures' own scale. Multiplying every fixture by 30 instead would have
- * made the shipped LEVEL a hidden input to tests that are not about the level.
+ * (`gate.ts#floorUnit`) and calibrated against a real store, where a turn's best
+ * candidate lands at 0.9-5.2 of those units. These fixtures declare
+ * `storeSize: 100`, whose unit is 3.92, so the shipped loud floor would be 15.7
+ * in activation and a hand-built candidate at 1.0 would be refused by hard gate
+ * (b) before any of the rules under test were reached — so the floors are
+ * restated here in the fixtures' own scale. Multiplying every fixture by 16
+ * instead would have made the shipped LEVEL a hidden input to tests that are
+ * not about the level.
  */
 const FIXTURE_TUNABLES = withTunables({
-  FLOOR_GLOBAL: 0.05,
-  FLOOR_STRONG_BY_KIND: { self: 0.15, person: 0.15, entity: 0.15, place: 0.2, skill: 0.25, fact: 0.25 },
-  FLOOR_STRONG_DEFAULT: 0.12,
+  FLOOR_GLOBAL_UNITS: 0.0128,
+  FLOOR_STRONG_BY_KIND_UNITS: {},
+  FLOOR_STRONG_DEFAULT_UNITS: 0.031,
 });
 import type { Candidate as RecallCandidate } from "../src/core/recall/index.js";
 import { composeTurn, recallTurn } from "../src/core/retrieval.js";

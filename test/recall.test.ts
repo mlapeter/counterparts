@@ -107,6 +107,22 @@ function verdictOf(verdicts: readonly CandidateVerdict[], id: string): Verdict |
   return verdicts.find((v) => v.id === id)?.verdict ?? "not-a-candidate";
 }
 
+/**
+ * Everything the turn actually put in front of the reader, in either tier.
+ *
+ * Several tests below are about ARRIVAL — the pipeline is not dead, the archive
+ * is honoured, dedup fires the second time, length normalization changed WHICH
+ * memory wins — and not about which tier the survivor arrived in. They asserted
+ * `.surfaced`, which was indistinguishable from "it came back" for as long as
+ * the loud tier fired on every turn with a candidate. It no longer does
+ * (`tunables.ts#FLOOR_STRONG_DEFAULT_UNITS`), so the two claims have to be told
+ * apart: arrival is asserted here, and the tests that are about the loud TIER
+ * say so, in their own block at the end of this file.
+ */
+function delivered(d: { surfaced: readonly string[]; footnotes: readonly string[] }): string[] {
+  return [...d.surfaced, ...d.footnotes];
+}
+
 // ── unit fixtures for the gate, which is pure ──────────────────────────────
 
 function phys(over: Partial<MemoryPhysics> = {}): MemoryPhysics {
@@ -177,6 +193,26 @@ function cand(spec: CandSpec): Candidate {
   };
 }
 
+/**
+ * FIXTURE SCALE. These gate fixtures hand-build candidates with activations near
+ * 1 against a nominal `storeSize: 100`, because they test the gate's LOGIC —
+ * the hard gates' order, tier disjointness, the caps — not its calibration.
+ *
+ * The shipped absolute floors are in CUE UNITS (`gate.ts#floorUnit`), and at
+ * `storeSize: 100` one unit is 3.92 in activation — so the shipped loud floor
+ * would be 17.6 and every candidate below would be refused by hard gate (b)
+ * before the rule under test was reached. The floors are therefore restated
+ * here in the fixtures' own scale, exactly as `seams.test.ts` does. Multiplying
+ * every fixture by 18 instead would have made the shipped LEVEL a hidden input
+ * to tests that are not about the level; the tests that ARE about the level use
+ * a real store and live in "the loud tier is rare, in miniature" below.
+ */
+const FIXTURE_FLOORS = {
+  FLOOR_GLOBAL_UNITS: 0.5 / 3.92,
+  FLOOR_STRONG_BY_KIND_UNITS: {},
+  FLOOR_STRONG_DEFAULT_UNITS: 1.2 / 3.92,
+};
+
 function gateOn(candidates: Candidate[], over: Partial<Parameters<typeof gate>[0]> = {}) {
   return gate(
     {
@@ -188,7 +224,7 @@ function gateOn(candidates: Candidate[], over: Partial<Parameters<typeof gate>[0
       turn: 1,
       ...over,
     },
-    new Recall({ store: store() }).tunables,
+    withTunables(FIXTURE_FLOORS),
   );
 }
 
@@ -257,11 +293,19 @@ describe("the surfacing pipeline", () => {
     const id = put(s, {
       kind: "skill",
       title: "Sourdough starter",
-      body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+      body: "The sourdough starter died after two weeks of neglect; a sourdough starter needs daily feeding.",
       salience: { relevance: 0.6, emotional: 0.2, predictive: 0.4 },
     });
     const r = new Recall({ store: s, owner: true });
-    const out = r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
+    // The turn LEANS ON its cue, and that is why this one goes loud: the
+    // loud-tier floor is 4.5 cue units, this turn reaches 4.83, and the same
+    // memory under a single passing mention reaches 3.49 and footnotes. See
+    // "the loud tier is rare, in miniature" at the end of this file for the
+    // pair asserted side by side.
+    const out = r.recall({
+      sessionId: "s1",
+      text: "my sourdough starter died, my sourdough starter, that poor sourdough starter",
+    });
 
     expect(out.decision.reason).toBe("rendered");
     expect(verdictOf(out.decision.verdicts, id)).toBe("surfaced");
@@ -269,7 +313,7 @@ describe("the surfacing pipeline", () => {
     // One cued candidate is not a distribution: the gate says so out loud rather
     // than comparing a candidate against a background made of itself.
     expect(out.decision.background.regime).toBe("absolute-thin-background");
-    expect(out.decision.background.n).toBe(1);
+    expect(out.decision.background.n).toBeLessThan(TUNABLES.MIN_BACKGROUND_SAMPLE);
   });
 
   test("with a real background the bar is RELATIVE, and leave-one-out, per candidate", () => {
@@ -332,7 +376,7 @@ describe("the hard gates salience cannot override", () => {
     expect(out.decision.surfaced).not.toContain(sacred);
     expect(out.decision.footnotes).not.toContain(sacred);
     // ...while the merely-relevant one arrives, so this is not a dead pipeline.
-    expect(out.decision.surfaced).toContain(cued);
+    expect(delivered(out.decision)).toContain(cued);
   });
 
   test("(a) an arrival-only candidate is dark even at maximum salience", () => {
@@ -384,7 +428,8 @@ describe("the hard gates salience cannot override", () => {
 
     const owner = new Recall({ store: s, owner: true });
     const b = owner.recall({ sessionId: "s2", text: "the compensation renegotiation with Marisol" });
-    expect(verdictOf(b.decision.verdicts, id)).toBe("surfaced");
+    expect(verdictOf(b.decision.verdicts, id)).not.toBe("confidential-withheld");
+    expect(delivered(b.decision)).toContain(id);
   });
 
   test("tiers are disjoint and capped, and the overflow says so", () => {
@@ -426,7 +471,7 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     // Assert the POSITIVE first: a vacuously quiet turn would make the dedup
     // assertion below meaningless.
     expect(first.decision.reason).toBe("rendered");
-    expect(first.decision.surfaced).toContain(id);
+    expect(delivered(first.decision)).toContain(id);
     expect(first.decision.turn).toBe(1);
     s1.close();
 
@@ -721,7 +766,7 @@ describe("observer mode — surfaces, strengthens nothing, deposits nothing", ()
 
     expect(r.observer).toBe(true);
     expect(out.decision.reason).toBe("rendered");
-    expect(out.decision.surfaced).toContain(id);
+    expect(delivered(out.decision)).toContain(id);
     // An observer is a NON-OWNER for confidentiality, whatever it was told.
     expect(out.decision.owner).toBe(false);
   });
@@ -820,7 +865,7 @@ describe("structural guarantees", () => {
     seed(s);
     const id = put(s, { kind: "skill", body: "The sourdough starter died after two weeks." });
     const r = new Recall({ store: s, owner: true });
-    expect(r.recall({ sessionId: "a", text: "my sourdough starter died" }).decision.surfaced).toContain(id);
+    expect(delivered(r.recall({ sessionId: "a", text: "my sourdough starter died" }).decision)).toContain(id);
 
     s.archive(id, "test");
     const after = new Recall({ store: s, owner: true }).recall({
@@ -859,9 +904,9 @@ describe("cue length normalization", () => {
 
   test("one-sided: a short document is never scored ABOVE what it scored before", () => {
     // The conservative half of the rule. The gate's absolute floors
-    // (`FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`) are v1 inheritances measured on
-    // the old scale; BM25's mean-centered factor would raise short documents
-    // through them, which is a calibration change nobody asked for.
+    // (`FLOOR_GLOBAL_UNITS`, `FLOOR_STRONG_DEFAULT_UNITS`) are cue-unit bars a
+    // candidate has to clear; BM25's mean-centered factor would raise short
+    // documents through them, which is a calibration change nobody asked for.
     const s = store();
     seed(s);
     put(s, { body: "Zygomorphic." });
@@ -987,12 +1032,12 @@ describe("cue length normalization", () => {
 
     // Before: the hub wins on sheer repetition inside a 600-token body.
     expect(act(before.decision, hub)).toBeGreaterThan(act(before.decision, onPoint));
-    expect(before.decision.surfaced).toContain(hub);
+    expect(delivered(before.decision)).toContain(hub);
     // After: the short memory that is actually about the turn wins, and the hub
     // does not merely lose the top slot — it stops being delivered at all.
     expect(act(after.decision, onPoint)).toBeGreaterThan(act(after.decision, hub));
-    expect(after.decision.surfaced).toContain(onPoint);
-    expect([...after.decision.surfaced, ...after.decision.footnotes]).not.toContain(hub);
+    expect(delivered(after.decision)).toContain(onPoint);
+    expect(delivered(after.decision)).not.toContain(hub);
   });
 });
 
@@ -1086,5 +1131,226 @@ describe("supplied semantic hits bypass the vector scan entirely", () => {
       r.build({ sessionId: "s2", text: "The reservoir loop before breakfast.", budgetMs: 60_000 })
         .decision.reason,
     ).not.toBe("latency-abort");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The loud tier is RARE, in miniature — and the floors mean the same thing at
+// every store size
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * MEASURED on a copy of the live store (14,431 memories, 13 real prompts,
+ * 2026-09-04): the loud tier fired on 13 of 13 turns, one item each, including
+ * a turn that said *"thanks, as before interesting to chat with you. where
+ * would you like to take the conversation from here?"* — where CONTRACT §3 says
+ * loud is for RARELY. The relative bar could not fix it, and the reason is
+ * worth keeping next to the fix: a thin turn's best candidate stands FURTHER
+ * above its own thin background (3.5 sd) than a busy turn's does (2.6), so
+ * raising the SNR silences the busy turn first.
+ *
+ * What fixed it is an absolute floor in the model's own unit — one
+ * maximally-rare cue, `gate.ts#floorUnit` — and the point of the unit is that
+ * one number does the same work on a seventeen-memory store as on a
+ * fifteen-thousand-memory one. Both halves are asserted here: the SCALE-FREENESS
+ * (the same multiples of the unit get the same verdicts at N=17 and N=15,000)
+ * and the BEHAVIOUR (a cue-poor turn says nothing loud; a turn that leans on a
+ * distinctive cue says exactly one thing; a small store still delivers).
+ */
+describe("the loud tier is rare, in miniature", () => {
+  /** The shipped floors, against a store size the caller names. */
+  function shippedGate(candidates: Candidate[], storeSize: number) {
+    return gate(
+      {
+        candidates,
+        state: freshGateState("unit"),
+        storeSize,
+        owner: true,
+        affectStated: false,
+        turn: 1,
+      },
+      TUNABLES,
+    );
+  }
+
+  test("the floors are scale-free: the same multiples of the unit, the same verdicts", () => {
+    // Two stores three orders of magnitude apart, candidates built at the SAME
+    // multiples of each store's own cue unit. Before this change these two
+    // columns disagreed completely — v2's floors were v1's numbers on v1's
+    // scale, so at N=17 nothing could pass them and at N=15,000 nothing could
+    // fail them (measured: scaling them x1 to x15 changed not one delivered
+    // item on the bench).
+    for (const storeSize of [17, 15_000]) {
+      const unit = informativeness(1, storeSize);
+      // Eight ordinary candidates make a real background, so the RELATIVE bar
+      // is doing its own job and the two verdicts below are the FLOOR's.
+      const g = shippedGate(
+        [
+          cand({ id: "mem_loud", cue: 5.0 * unit }),
+          cand({ id: "mem_quiet", cue: 3.5 * unit }),
+          cand({ id: "mem_graze", cue: 0.05 * unit }),
+          ...Array.from({ length: 8 }, (_, i) => cand({ id: `mem_bg${i}`, cue: 0.5 * unit })),
+        ],
+        storeSize,
+      );
+      expect(verdictOf(g.verdicts, "mem_loud")).toBe("surfaced");
+      expect(verdictOf(g.verdicts, "mem_quiet")).toBe("footnoted");
+      expect(g.verdicts.find((v) => v.id === "mem_quiet")?.loudBlockedBy).toBe(
+        "below-strong-floor",
+      );
+      // Hard gate (b) is no longer decorative: a graze is refused outright, and
+      // the record names the rule that refused it.
+      expect(verdictOf(g.verdicts, "mem_graze")).toBe("below-floor");
+    }
+  });
+
+  test("a cue-poor turn surfaces NOTHING loud — the quiet-turn probe, in miniature", () => {
+    const s = store();
+    seed(s);
+    put(s, {
+      kind: "skill",
+      body: "The sourdough starter died after two weeks of neglect; a sourdough starter needs daily feeding.",
+    });
+    const r = new Recall({ store: s, owner: true });
+    // The shape of the live turn 3: ordinary words the store has seen
+    // everywhere, and no distinctive vocabulary of its own.
+    const out = r.recall({
+      sessionId: "s1",
+      text: "thanks, as before, interesting to chat — where would you like to take this from here?",
+    });
+    expect(out.decision.surfaced).toEqual([]);
+    expect(out.injection).not.toContain(FRAMING.surfacedHeader);
+  });
+
+  test("a cue-rich turn with one strong candidate surfaces AT MOST one", () => {
+    const s = store();
+    seed(s);
+    const strong = put(s, {
+      kind: "skill",
+      title: "Sourdough starter",
+      body: "The sourdough starter died after two weeks of neglect; a sourdough starter needs daily feeding.",
+    });
+    // A second memory the turn grazes rather than cues — it shares "died" and
+    // "neglect" and nothing distinctive.
+    put(s, { body: "The tomato seedlings died after a week of neglect in the cold frame." });
+    const r = new Recall({ store: s, owner: true });
+    const out = r.recall({
+      sessionId: "s1",
+      text: "my sourdough starter died, my sourdough starter, that poor sourdough starter",
+    });
+    expect(out.decision.surfaced).toEqual([strong]);
+    expect(out.decision.surfaced.length).toBeLessThanOrEqual(TUNABLES.MAX_SURFACED);
+  });
+
+  test("a single passing mention footnotes; leaning on the same cue goes loud", () => {
+    const body =
+      "The sourdough starter died after two weeks of neglect; a sourdough starter needs daily feeding.";
+    const build = (where: string, text: string) => {
+      const s = store({ dir: join(dir, where) });
+      for (const filler of FILLER) s.put({ type: "memory", kind: "fact", body: filler });
+      const id = s.put({ type: "memory", kind: "skill", title: "Sourdough starter", body });
+      return { id, out: new Recall({ store: s, owner: true }).recall({ sessionId: where, text }) };
+    };
+
+    const glancing = build("glancing", "my sourdough starter died again");
+    expect(verdictOf(glancing.out.decision.verdicts, glancing.id)).toBe("footnoted");
+    expect(
+      glancing.out.decision.verdicts.find((v) => v.id === glancing.id)?.loudBlockedBy,
+    ).toBe("below-strong-floor");
+
+    // The SAME memory in the SAME store shape, under a turn that LEANS ON the
+    // cue instead of mentioning it: 3.49 cue units becomes 4.83, over a floor
+    // of 4.5. That margin is the calibration, and this pair is its tripwire.
+    const leaned = build(
+      "leaned",
+      "my sourdough starter died, my sourdough starter, that poor sourdough starter",
+    );
+    expect(verdictOf(leaned.out.decision.verdicts, leaned.id)).toBe("surfaced");
+  });
+
+  test("a small store still delivers — the floors are a bar, not a blindfold", () => {
+    const s = store();
+    seed(s);
+    const id = put(s, {
+      kind: "skill",
+      body: "The zygomorphic orchid bloomed after the second frost.",
+    });
+    const out = new Recall({ store: s, owner: true }).recall({
+      sessionId: "s1",
+      text: "why did the zygomorphic orchid bloom",
+    });
+    expect(out.decision.reason).toBe("rendered");
+    expect(delivered(out.decision)).toContain(id);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rarity is COUNTED, not read off a bounded top-K
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * The measurement error that made the floors uncalibratable in the first place.
+ * `activate.ts` took `df = store.search(tok, PER_CUE_FETCH).length`, and a
+ * bounded top-K's length is `min(trueDf, K)` — so once a store held more than
+ * `PER_CUE_FETCH` documents carrying a word, every common word measured as
+ * equally rare. MEASURED on a 15,421-document index: `conversation` (df 574)
+ * and `chat` (df 444) both drew `informativeness` 5.70 against a ceiling of
+ * 8.95, where their true frequencies put them at 2.6 and 2.9.
+ *
+ * §3 G4's "informativeness weighting replaces stop-lists" was therefore true on
+ * a fixture — where `trueDf` cannot reach `K` — and progressively false as the
+ * store grew. That is why it was invisible to every hermetic test, and why the
+ * test below builds a store big enough for the truncation to bite.
+ */
+describe("document frequency is counted (§9 G4 at scale)", () => {
+  test("a word in more than PER_CUE_FETCH memories is not as rare as a word in one", () => {
+    const s = store();
+    const common = TUNABLES.PER_CUE_FETCH + 6;
+    for (let i = 0; i < common; i++) {
+      put(s, { body: `Ubiquitous appears here, note number ${i}, with padding words.` });
+    }
+    put(s, { body: "Zygomorphic appears in exactly one memory and nowhere else." });
+
+    const n = s.list({ archived: false }).length;
+    expect(s.docFrequency(["ubiquitous", "zygomorphic"]).get("ubiquitous")).toBe(common);
+    expect(s.docFrequency(["ubiquitous", "zygomorphic"]).get("zygomorphic")).toBe(1);
+    // The old reading, spelled out so the difference is visible rather than
+    // argued: the top-K's LENGTH, which saturates at the limit.
+    expect(s.search("ubiquitous", TUNABLES.PER_CUE_FETCH).length).toBe(TUNABLES.PER_CUE_FETCH);
+
+    const rare = informativeness(1, n);
+    const everywhere = informativeness(common, n);
+    const truncated = informativeness(TUNABLES.PER_CUE_FETCH, n);
+    expect(everywhere).toBeLessThan(rare / 2);
+    // …and the truncated reading put the ubiquitous word nearer the rare one
+    // than it belongs, which is the bug in one line.
+    expect(truncated).toBeGreaterThan(everywhere);
+  });
+
+  test("the index is probed only for the tokens that became cues", () => {
+    // Rarity first, postings second: nothing downstream reads a non-cue's
+    // postings, so probing for all of them was work with no consumer. On the
+    // live store this took a warm turn from 116-178 ms to 29-39 ms, which is
+    // what paid for the df count.
+    const s = store();
+    seed(s);
+    put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    let probes = 0;
+    const search = s.search.bind(s);
+    (s as unknown as { search: Store["search"] }).search = (cue, limit, norm) => {
+      probes += 1;
+      return search(cue, limit, norm);
+    };
+    const out = activate(
+      s,
+      {
+        text: "why did the zygomorphic orchid bloom after the second frost this year",
+        day: 0,
+        selfFelt: false,
+        maxCandidates: TUNABLES.MAX_CANDIDATES,
+        storeSize: s.list({ archived: false }).length,
+      },
+      TUNABLES,
+    );
+    expect(probes).toBe(out.cues.length);
+    expect(probes).toBeLessThanOrEqual(TUNABLES.MAX_CUES);
   });
 });

@@ -28,6 +28,18 @@ bun tools/recall-bench/bin/bench.ts \
   --sweep --out /tmp/bench-out
 ```
 
+```sh
+# 4. or the GATE grid: the absolute floors, in cue units
+bun tools/recall-bench/bin/bench.ts \
+  --store-dir /tmp/store-copy --input /tmp/recall-bench-input.json \
+  --gate-sweep --out /tmp/bench-gate
+```
+
+`--gate-sweep` moves `FLOOR_GLOBAL_UNITS` x `FLOOR_STRONG_DEFAULT_UNITS`, both denominated
+in `informativeness(1, storeSize)` — one maximally-rare cue (`recall/gate.ts#floorUnit`).
+A cell therefore means the same thing on a seventeen-memory store as on a fifteen-thousand
+one, which is the property the loud tier's calibration rests on.
+
 `--b 0 --k1 1 --cap inf` reproduces the pre-2026-09-04 scorer exactly (`2·tf/(tf+1)` is
 BM25 at `b = 0, k1 = 1`), which is how a "before" column is produced without checking out
 an old revision.

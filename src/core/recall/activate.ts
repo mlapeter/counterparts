@@ -41,7 +41,7 @@ import type { Kind, MemoryPhysics } from "../types.js";
 import { sal, strength } from "../physics/index.js";
 import type { Hit, ProseDoc, Store } from "../store/index.js";
 import { rowToPhysics, tokenize } from "../store/index.js";
-import { buildCues } from "./cues.js";
+import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables } from "./tunables.js";
 
@@ -162,7 +162,37 @@ export function activate(
     searchTokens.push(tok);
   }
 
-  const df = new Map<string, number>();
+  // ── rarity FIRST, postings second ───────────────────────────────────────
+  //
+  // The order is the fix. This pass used to probe the index for every search
+  // token and take `df = hits.length` — but `hits` is a top-`PER_CUE_FETCH`,
+  // and a bounded top-K's length is `min(trueDf, K)`, never a document
+  // frequency. On a 15,421-document index that made every word occurring in 24
+  // or more memories measure as equally rare: `the` and `conversation` drew
+  // `informativeness` 5.7 against a ceiling of 8.95 where their true
+  // frequencies put them at 0-3. §9 G4's "informativeness weighting replaces
+  // stop-lists" was therefore true on a fixture (where `trueDf` cannot reach K)
+  // and false on the live store — the rule silently switched off as the store
+  // grew. `store.docFrequency` counts instead of measuring a limit.
+  //
+  // Asking for rarity first also means the index is probed only for the tokens
+  // that BECAME cues (at most `MAX_CUES`), rather than for every candidate
+  // token (up to `MAX_CUES * 3`). Nothing downstream reads a non-cue's
+  // postings, so that is an equivalence and strictly less work — it pays for
+  // the df query several times over.
+  const df = store.docFrequency(searchTokens);
+
+  const cues = buildCues(
+    {
+      text: input.text,
+      carried: input.carried ?? [],
+      ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
+      storeSize,
+      df,
+    },
+    t,
+  );
+
   /**
    * token -> (memoryId -> the token's LENGTH-NORMALIZED evidence in that
    * document). The store applies the normalization before its own
@@ -176,24 +206,12 @@ export function activate(
     b: t.CUE_LENGTH_NORM,
     oneSided: t.CUE_LENGTH_ONE_SIDED,
   };
-  for (const tok of searchTokens) {
-    const hits = store.search(tok, t.PER_CUE_FETCH, norm);
-    df.set(tok, hits.length);
+  for (const cue of cues) {
+    if (postings.has(cue.token)) continue;
     const byDoc = new Map<string, number>();
-    for (const h of hits) byDoc.set(h.id, h.score);
-    postings.set(tok, byDoc);
+    for (const h of store.search(cue.token, t.PER_CUE_FETCH, norm)) byDoc.set(h.id, h.score);
+    postings.set(cue.token, byDoc);
   }
-
-  const cues = buildCues(
-    {
-      text: input.text,
-      carried: input.carried ?? [],
-      ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
-      storeSize,
-      df,
-    },
-    t,
-  );
 
   const cueScore = new Map<string, number>();
   const matchCount = new Map<string, number>();
@@ -242,11 +260,23 @@ export function activate(
   // A temporal cue can CREATE a candidate (that is what a cue is) and is counted
   // as cue by `cueFraction` below. Its ceiling is applied when the candidate is
   // assembled, not here — this stage scores, it does not decide tiers.
+  //
+  // The weight arrives in CUE UNITS and is converted here, for the same reason
+  // the gate's floors are: `prospective.CUE_STRENGTH` is 0.5 on v1's normalized
+  // scale, and v2's cue channel is a sum of idf x evidence whose size grows with
+  // the store. Left absolute, a temporal cue would be worth 0.23 of a
+  // maximally-rare word on a seventeen-memory store and 0.056 of one on a
+  // fifteen-thousand-memory store — the calendar going quiet as the owner
+  // remembers more, which is the exact shape of scar §2.8 in the other
+  // direction. Converted, `CUE_STRENGTH` finally means what its comment says:
+  // *one more cue, like the user typing "Portland"* — half of one, at full ramp.
   const temporalScore = new Map<string, number>();
+  const cueUnit = informativeness(1, storeSize);
   for (const t0 of input.temporal ?? []) {
     if (!(t0.weight > 0)) continue;
-    temporalScore.set(t0.id, (temporalScore.get(t0.id) ?? 0) + t0.weight);
-    cueScore.set(t0.id, (cueScore.get(t0.id) ?? 0) + t0.weight);
+    const w = t0.weight * cueUnit;
+    temporalScore.set(t0.id, (temporalScore.get(t0.id) ?? 0) + w);
+    cueScore.set(t0.id, (cueScore.get(t0.id) ?? 0) + w);
   }
 
   // ── the embedding channel: an INPUT, never a fetched one ────────────────

@@ -20,7 +20,11 @@ export interface RecallTunables {
   MIN_CUE_LENGTH: number;
   /** Cap on distinct cue tokens taken from one turn — a latency bound. CAL. */
   MAX_CUES: number;
-  /** Docs fetched per cue token. Doubles as the df ceiling for rarity weighting. CAL. */
+  /** Docs fetched per cue token. A postings bound and NOTHING else: it used to
+   *  double as the df ceiling for rarity weighting, which meant rarity stopped
+   *  being measured once a store held more than this many documents carrying a
+   *  word. `Store.docFrequency` counts now (MEASURED 2026-09-04, see
+   *  `store/cache.ts#docFrequency`). CAL. */
   PER_CUE_FETCH: number;
   /** Ambiguous-handle weight: a name pointing at two memories retrieves neither
    *  well, and trains nothing at all. [v1: 0.5] CAL. */
@@ -66,15 +70,21 @@ export interface RecallTunables {
   SNR_GLOBAL: number;
   /** Relative loud tier: bar = mean + SNR_STRONG x sd. [v1: 2.5] CAL. */
   SNR_STRONG: number;
-  /** Hard gate (b): the absolute floor, checked BEFORE any salience adjustment. [v1: 0.2] CAL. */
-  FLOOR_GLOBAL: number;
-  /** Per-kind floors for the loud tier — kinds live on different activation
-   *  scales, and a global strong floor silently excluded whole kinds (v1
-   *  measured: person peaked near 0.79 where craft material floored at 1.0).
-   *  The BACKGROUND statistic stays global. [v1 §9 G12] CAL. */
-  FLOOR_STRONG_BY_KIND: Record<string, number>;
-  /** Fallback strong floor for a kind with no override. [v1: 0.5] CAL. */
-  FLOOR_STRONG_DEFAULT: number;
+  /** Hard gate (b): the absolute floor, checked BEFORE any salience adjustment.
+   *  **In cue units** — multiples of `informativeness(1, storeSize)`, the weight
+   *  of one maximally-rare cue (`gate.ts#floorUnit`). The `_UNITS` suffix is not
+   *  decoration: this knob was `FLOOR_GLOBAL`, an absolute number on v1's 0-1
+   *  cosine scale, and renaming it is how every stale reading of the old scale
+   *  becomes a compile error rather than a silent miscalibration. CAL. */
+  FLOOR_GLOBAL_UNITS: number;
+  /** Per-kind OVERRIDES of the loud-tier floor, in the same cue units. The
+   *  mechanism of §9 G12 — kinds may live on different activation scales — is
+   *  kept; v1's numbers for it are not, because v2's own corpus refuses them
+   *  (see the measurement at the value below). An empty map means no kind has
+   *  earned an override yet. The BACKGROUND statistic stays global. CAL. */
+  FLOOR_STRONG_BY_KIND_UNITS: Record<string, number>;
+  /** The loud-tier floor for a kind with no override — today, every kind. CAL. */
+  FLOOR_STRONG_DEFAULT_UNITS: number;
   /** Hard gate (c): fraction of a candidate's activation that must come from
    *  cues before it may go loud. Recency alone can never carry a memory there,
    *  however sacred. [v1: 0.5] CAL. */
@@ -92,8 +102,10 @@ export interface RecallTunables {
   // ── cold start: stricter, not looser (small stores over-surface) ──────────
   /** Below this many live memories the variance estimate is meaningless. [v1: 15] CAL. */
   COLD_START_MIN_STORE: number;
-  /** Cold-start absolute floor, replacing the relative bar entirely. [v1: 0.7] CAL. */
-  COLD_START_FLOOR: number;
+  /** Cold-start absolute floor, replacing the relative bar entirely. In the same
+   *  cue units as the other two floors — a store this small is exactly where an
+   *  absolute number on the wrong scale does the most damage. CAL. */
+  COLD_START_FLOOR_UNITS: number;
   /** Cold-start candidate cap. [v1: 3] CAL. */
   COLD_START_MAX_CANDIDATES: number;
   /** Fewer cued candidates than this and the background distribution is a
@@ -194,59 +206,86 @@ export const TUNABLES: RecallTunables = {
   // and the absolute floors below are not. `tools/recall-bench --gate-sweep`.
   SNR_GLOBAL: 1.6,
   SNR_STRONG: 2.5,
-  // ── UNCHANGED, AND THE REASON IS A FINDING. ────────────────────────────
+
+  // ── THE FLOORS, RE-EARNED. In cue units: multiples of one maximally-rare
+  // cue, `informativeness(1, storeSize)` (`gate.ts#floorUnit`).
   //
-  // MEASURED 2026-09-04: on the live store, activation runs **13 to 48** per
-  // turn (mean 13.0 on the quietest of the 13 prompts, 27.0 on the busiest).
-  // These floors are v1's, and v1's activation was a normalized cosine in 0-1.
-  // So hard gate (b) and the per-kind loud floors are two orders of magnitude
-  // below anything they could refuse: **they have never fired in v2.** Scaling
-  // them by x1 to x15 changes not one delivered item on the bench.
+  // MEASURED 2026-09-04 on a copy of the live store (14,431 live memories,
+  // unit = 8.88), over the same 13 real prompts as `CUE_LENGTH_NORM` above.
+  // With document frequency finally COUNTED rather than read off the length of
+  // a bounded top-K (`store/cache.ts#docFrequency`), each turn's best candidate
+  // lands at, in units:
   //
-  // That matters because the loud tier now fires on a turn that said nothing
-  // ("where would you like to take the conversation from here?"), and the
-  // RELATIVE bar cannot fix it: that turn's top candidate stands 3.5 sd above
-  // its own thin background where a busy turn's stands 2.6, so raising
-  // `SNR_STRONG` silences the busy turn first. Swept and confirmed — turn-3
-  // loud stayed at 2 for every value of `SNR_STRONG` tried. Only an ABSOLUTE
-  // floor can keep a low-evidence turn quiet, which is what one is for.
+  //   turn  3 → 0.88   ("thanks, as before interesting to chat with you. where
+  //                      would you like to take the conversation from here?")
+  //   turn  2 → 1.86 · 13 → 2.13 · 4 → 3.13 · 6 → 3.19 · 10 → 3.19
+  //   turn 12 → 3.28 ·  9 → 3.55 ·  1 → 3.88 · 11 → 4.20
+  //   turn  8 → 4.68 ·  5 → 4.70 ·  7 → 5.17
   //
-  // Why they are not simply raised here: a floor calibrated to this store
-  // (FLOOR_GLOBAL 25, loud floors x57) blinds a small one — v2's activation is
-  // a SUM over matched cues, and the live store reaches ~24 cues per turn where
-  // a 17-memory test store reaches 2 or 3. Denominating the floors in
-  // `informativeness(1, storeSize)` — one maximally-rare cue, the model's own
-  // unit — fixes the idf half of that and was prototyped and swept here; it is
-  // not enough on its own, because the CUE-COUNT half remains. That is the
-  // named next measurement, with the data in the PR, and it is deliberately not
-  // guessed at inside a change that already moved the scoring.
-  FLOOR_GLOBAL: 0.2,
-  FLOOR_STRONG_BY_KIND: {
-    self: 0.6,
-    person: 0.6,
-    entity: 0.6,
-    place: 0.8,
-    skill: 1.0,
-    fact: 1.0,
-  },
-  FLOOR_STRONG_DEFAULT: 0.5,
+  // The near-contentless turn is now FOUR TIMES below the busiest, on a scale
+  // that says the same thing at N=17 and N=15,000 — which is what the relative
+  // bar could never give (it ranked turn 3 FIRST, at 3.5 sd over its own thin
+  // background). And the scale-freeness is checked at the other end rather than
+  // asserted: a hermetic 17-memory fixture whose turn cleanly cues one memory
+  // lands at 3.00 units, INSIDE the live store's 0.88-5.17 band, where before
+  // this change the same fixture sat two orders of magnitude below the floors.
+  //
+  // `FLOOR_GLOBAL_UNITS` — hard gate (b), admission. A FIFTH of one
+  // maximally-rare cue: below that a candidate was grazed, not cued. Swept at
+  // 0 / 0.5 / 1.0 against the 13 prompts; 0 and 0.5 are identical (37
+  // deliveries, 2.8 per turn) and 1.0 costs six deliveries for nothing the
+  // targets asked for, so anywhere in [0, 0.5] is free on this corpus and the
+  // value is chosen at the OTHER end — by the weakest signal a channel is
+  // allowed to offer at full strength. That is a temporal arrival
+  // (`prospective.CUE_STRENGTH` 0.5 units) and an ambiguous handle
+  // (`AMBIGUOUS_WEIGHT` 0.5 of a cue that is itself rarely maximal): measured
+  // at 0.41 units for a two-way "Robin" on an eight-memory store. 0.2 sits
+  // under both with room. Zero is not an option — a floor of zero is the dead
+  // knob this change exists to retire.
+  //
+  // `FLOOR_STRONG_DEFAULT_UNITS` — the loud tier. Sorted, the thirteen best
+  // candidates leave their widest upper gap between 4.20 and 4.68, and 4.5 sits
+  // in it: loud on 3 of 13 turns (23%, against a target of "at most about one
+  // in four"), turn 3 silent, all four labeled positives kept. 4.0 gives 4 of 13
+  // and 3.5 gives 6 of 13 — the same knee read one notch looser; 5.0 gives 1 of
+  // 13, which is a different claim than "rarely". CAL.
+  FLOOR_GLOBAL_UNITS: 0.2,
+  // EMPTY, AND THE EMPTINESS IS THE MEASUREMENT. v1 shipped a per-kind shape
+  // (self/person/entity 0.6, place 0.8, skill/fact 1.0) because in v1 the kinds
+  // sat on different activation scales — person peaked near 0.79 where craft
+  // material floored at 1.0. On v2's corpus they do not: over 312 candidate
+  // rows from the 13 prompts, p50 runs 1.21-1.45 and p90 1.93-2.79 across
+  // `fact`, `person`, `self`, `skill` and `entity` — one distribution, not five.
+  // v2's activation is cue-driven and kind-agnostic, so there is nothing for a
+  // shape to correct. Scar §2.8 says a knob ships measured or disabled: the
+  // MECHANISM of §9 G12 stays (a kind that earns an override gets one), and
+  // v1's unearned numbers do not ride along inside it.
+  FLOOR_STRONG_BY_KIND_UNITS: {},
+  FLOOR_STRONG_DEFAULT_UNITS: 4.5,
   MIN_CUE_FRACTION: 0.5,
   SAL_BAR_WEIGHT: 0.5,
   SAL_SORT_WEIGHT: 0.5,
   MAX_CANDIDATES: 24,
 
   COLD_START_MIN_STORE: 15,
-  COLD_START_FLOOR: 0.7,
+  // 0.7 on v1's cosine scale -> 0.4 CUE UNITS: TWICE `FLOOR_GLOBAL_UNITS`, so
+  // "cold start is stricter, not looser" is arithmetic rather than a comment.
+  // The old number could not be carried across because the two scales do not
+  // meet — on an eight-memory store one cue unit is 1.50, so v1's 0.7 was 0.47
+  // units there and 0.08 units on the live store: the same numeral meaning two
+  // different bars, which is the whole finding. CAL.
+  COLD_START_FLOOR_UNITS: 0.4,
   COLD_START_MAX_CANDIDATES: 3,
   MIN_BACKGROUND_SAMPLE: 3,
 
   NEAR_DUPLICATE: 0.85,
   // 2 -> 1 (CAL, 2026-09-04). §3 says the loud tier is for RARELY, and after
-  // length normalization it fired on 13 of 13 real turns. The bar cannot fix
-  // that yet (see FLOOR_GLOBAL above), but a hard cap can, it is scale-free,
-  // and it halves what the owner reads uninvited: 24 loud items over the 13
-  // prompts became 13, one per turn at most. The turn COUNT is still the open
-  // problem and it is CONTRACT §7 OQ5.
+  // length normalization it fired on 13 of 13 real turns. A cap could not fix
+  // the TURN count — only a floor can, and the floor above now does (3 of 13) —
+  // but the cap is what bounds a single turn, it is scale-free, and it halves
+  // what the owner reads uninvited. Left at 1: with the loud floor in place the
+  // cap binds on no turn of the 13, so raising it back to 2 would be trading a
+  // measured bound for an unmeasured one.
   MAX_SURFACED: 1,
   MAX_FOOTNOTES: 6,
 
@@ -273,7 +312,13 @@ export function withTunables(overrides: Partial<RecallTunables> = {}): RecallTun
   return { ...TUNABLES, ...overrides };
 }
 
-/** Per-kind loud-tier floor, with the declared fallback (§9 G12). */
-export function strongFloor(t: RecallTunables, kind: string): number {
-  return t.FLOOR_STRONG_BY_KIND[kind] ?? t.FLOOR_STRONG_DEFAULT;
+/**
+ * The loud-tier floor for one kind, in ACTIVATION, from the per-kind override
+ * table and the declared fallback (§9 G12). `unit` is `gate.ts#floorUnit` — the
+ * weight of one maximally-rare cue on this store — because the table is in cue
+ * units and a floor has to be a number in the same space as an activation before
+ * it can refuse one.
+ */
+export function strongFloor(t: RecallTunables, kind: string, unit: number): number {
+  return (t.FLOOR_STRONG_BY_KIND_UNITS[kind] ?? t.FLOOR_STRONG_DEFAULT_UNITS) * unit;
 }
