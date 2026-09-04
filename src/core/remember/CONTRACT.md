@@ -73,8 +73,8 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
 
   1. it holds **uncovered spans** — something nobody authored;
   2. it has recorded **no `session-end` boundary**, ever;
-  3. it has had **no boundary activity for `CRASH_STALE_MS`** (60 minutes, CAL — see
-     `tunables.ts` for the measurement owed and the asymmetric cost that sets it). A
+  3. it has had **no boundary activity for `CRASH_STALE_MS`** (12 hours, CAL — see
+     `tunables.ts` for the measurement that set it and the falsifier still owed). A
      session that recorded *no* boundary at all is therefore not crashed either: nothing
      of it has ended, and its author may still get the pen.
 
@@ -104,7 +104,9 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
     (constitution 15).
   - **An idle-but-alive session past the window is indistinguishable from a crash** and
     will be swept. If its author later writes, that stretch has twins after all — which
-    is the measurement `CRASH_STALE_MS` owes: count sessions swept-then-authored.
+    is the measurement `CRASH_STALE_MS` owes: count sessions swept-then-authored. The
+    live store already produced one 4h07m idle-then-resume gap, which is why the window
+    is 12 hours and not the hour first proposed.
 
   And the recovery is **delayed, never lost**: a crashed session's spans wait for the
   first worker run past the window, which needs a boundary in *some* session to spawn
@@ -229,6 +231,10 @@ declarable field carries an admission test and a named negative example — v1's
    once the window passes, even though the author did get the pen elsewhere. PR-1 found
    11 real session ids under more than one scope, so this is not hypothetical; whether it
    ever coincides with a session END in another scope is unmeasured.
-7. **Is 60 minutes the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. The
-   falsifying measurement is named in `tunables.ts`: sessions swept under this rule that
-   later received an authored deposit.
+7. **Is 12 hours the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. It was
+   raised from a guessed 60 minutes after the live store falsified that number — session
+   `c781252f` sat idle 4h07m with its author still holding the pen, then resumed and
+   authored 20 more notes. The falsifier is unchanged and still owed: sessions swept under
+   this rule that later received an authored deposit. The other direction now has a cost
+   too — a genuinely crashed session waits up to half a day for its fallback, which is
+   only a delay but is a longer one than before.

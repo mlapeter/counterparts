@@ -26,25 +26,28 @@ export const TUNABLES = {
    *  that one ages a CLAIM FILE against a worker's watchdog, this one ages a
    *  SESSION against its author. `validateWatchdog()` is untouched by it.
    *
-   *  Shipped enabled at 60 minutes, and the honest question is what being wrong
-   *  costs in each direction. TOO SHORT re-creates the bug this gate exists to
-   *  kill: a live session that pauses — the owner at lunch, a long build, a
-   *  human thinking — is read as crashed, and the sweep paraphrases turns whose
-   *  author is still holding the pen (measured 2026-09-04: 13 chunks, 61
-   *  sweep-minted memories beside 34 authored notes in one evening, twins that
-   *  TAU_DUP 0.95 can never merge). TOO LONG costs only DELAY: a genuinely
-   *  crashed session's spans wait in the buffer for the next worker run past
-   *  the window — nothing is lost, because nothing is dropped. An asymmetric
-   *  cost gets the generous number, and 60 minutes is a judgement, not a
-   *  finding: long enough that an ordinary pause in a live session is not read
-   *  as a death, short enough that a real crash is recovered the same day.
+   *  TOO SHORT re-creates the bug this gate exists to kill: a live session that
+   *  pauses is read as crashed, and the sweep paraphrases turns whose author is
+   *  still holding the pen (measured 2026-09-04: 13 chunks, 61 sweep-minted
+   *  memories beside 34 authored notes in one evening, twins that TAU_DUP 0.95
+   *  can never merge). TOO LONG costs only DELAY: a genuinely crashed session's
+   *  spans wait in the buffer for the next worker run past the window — nothing
+   *  is lost, because nothing is dropped.
    *
-   *  NOT MEASURED, and both halves are owed (scar §2.8): (a) the distribution
-   *  of inter-turn gaps inside live sessions — the number this window has to
-   *  clear — and (b) sessions swept under this rule that LATER received an
-   *  authored deposit, which is the falsifier. A nonzero (b) is the window
-   *  being too short. */
-  CRASH_STALE_MS: 60 * 60_000,
+   *  CALIBRATED, not guessed (scar §2.8). This started at 60 minutes on the
+   *  cost asymmetry alone, and the live store falsified that on the owner's
+   *  actual pattern: conversation session `c781252f` went silent from 22:21 to
+   *  02:28 UTC — **four hours and seven minutes** — with the author still
+   *  holding the pen, then resumed and authored 20 more notes. A 60-minute
+   *  window would have swept that gap as a crash and produced twins for exactly
+   *  the idle-then-resume shape this owner has. **12 hours** clears that
+   *  measured gap with room, and still recovers a real crash the same day the
+   *  next worker runs.
+   *
+   *  The FALSIFIER stays the same and stays owed: sessions swept under this rule
+   *  that LATER received an authored deposit. A nonzero count is the window
+   *  being too short again. */
+  CRASH_STALE_MS: 12 * 60 * 60_000,
   /** Target bytes per fallback chunk. Chunking is per-chunk failure isolation
    *  (scar E1), not a token budget — the budget belongs to whoever injects the
    *  interpret function. */
