@@ -26,6 +26,9 @@ about what has been verified and what has not.*
 ![flow](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-flow.png)
 *Flow (the same synthetic store).*
 
+![brain](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-brain.png)
+*Brain view — the same machinery mapped to a rough anatomy; regions flash on real events (same synthetic store).*
+
 ---
 
 ## Install
