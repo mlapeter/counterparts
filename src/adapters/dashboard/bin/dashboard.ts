@@ -107,9 +107,100 @@ export function helpText(): string {
     "  --dir <path>     read a different data dir",
     "  --colour / --no-colour, --width <n>",
     "",
+    "The web view:",
+    "  serve [--dir <path>] [--port <n>]   the local dashboard, on 127.0.0.1 only",
+    `                                      (default port ${SERVE_DEFAULT_PORT}, or ${SERVE_PORT_ENV})`,
+    "",
     "It reads in observer mode and writes nothing, ever.",
   ];
   return lines.join("\n");
+}
+
+/** Kept in sync with `web/server.ts` by the test, not by an import: the help
+ *  text must render without loading a page server the terminal never needs. */
+const SERVE_DEFAULT_PORT = 4747;
+const SERVE_PORT_ENV = "COUNTERPARTS_DASHBOARD_PORT";
+
+export interface ServeArgs {
+  readonly serve: boolean;
+  readonly dir: string | undefined;
+  readonly port: number | undefined;
+}
+
+/** `serve` is parsed separately from the five views because it is not one: it
+ *  returns nothing to print, and `run()` is a pure string function the suite
+ *  leans on heavily. Keeping them apart keeps that true. */
+export function parseServe(argv: readonly string[]): ServeArgs {
+  const parsed = parseArgv(argv);
+  const serve = (argv[0] ?? "") === "serve";
+  const portFlag = flagValue(argv, "port");
+  const port = portFlag !== undefined && Number.isInteger(Number(portFlag)) ? Number(portFlag) : undefined;
+  return {
+    serve,
+    dir: parsed.dir,
+    ...(port === undefined ? { port: undefined } : { port }),
+  };
+}
+
+function flagValue(argv: readonly string[], name: string): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i] ?? "";
+    if (token === `--${name}`) return argv[i + 1];
+    if (token.startsWith(`--${name}=`)) return token.slice(name.length + 3);
+  }
+  return undefined;
+}
+
+/**
+ * Start the web view. The refusal path is the important half: an owner who
+ * points this at a directory with no store gets ONE SENTENCE — the same one the
+ * terminal views give — and the resolved data dir is PRINTED on every start, so
+ * "which store am I looking at" is never a guess.
+ */
+export async function serve(argv: readonly string[]): Promise<number> {
+  const args = parseServe(argv);
+  const dir = args.dir === undefined ? undefined : resolve(args.dir);
+  const { startDashboard } = await import("../web/server.js");
+  try {
+    const running = await startDashboard({
+      ...(dir === undefined ? {} : { dir }),
+      ...(args.port === undefined ? {} : { port: args.port }),
+    });
+    process.stdout.write(
+      [
+        `counterparts dashboard — ${running.url}`,
+        `reading ${running.dir}`,
+        "observer mode: it strengthens nothing, deposits nothing, and writes no file of its own.",
+        "ctrl-c to stop.",
+        "",
+      ].join("\n"),
+    );
+    return 0;
+  } catch (err) {
+    const where = dir ?? targetDirOf(args);
+    if (isStoreError(err)) {
+      process.stderr.write(`${describeStoreError(err, where)}\n`);
+      return 1;
+    }
+    const code = (err as { code?: string }).code;
+    if (code === "EADDRINUSE") {
+      process.stderr.write(
+        `Port ${args.port ?? SERVE_DEFAULT_PORT} is already in use. Pass --port <n> or set ${SERVE_PORT_ENV}.\n`,
+      );
+      return 1;
+    }
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}
+
+function targetDirOf(args: ServeArgs): string {
+  if (args.dir !== undefined) return resolve(args.dir);
+  try {
+    return dataDir();
+  } catch {
+    return `the default data dir (${DATA_DIR_ENV} or ~/.counterparts)`;
+  }
 }
 
 /**
@@ -192,6 +283,14 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 }
 
 if (isEntryPoint(process.argv[1], import.meta.url)) {
-  process.stdout.write(`${run(process.argv.slice(2))}\n`);
-  process.exit(0);
+  const argv = process.argv.slice(2);
+  if ((argv[0] ?? "") === "serve") {
+    // The one subcommand that does not return a string: it binds a socket and
+    // stays. `run()` is left exactly as it was, so every existing test holds.
+    const code = await serve(argv);
+    if (code !== 0) process.exit(code);
+  } else {
+    process.stdout.write(`${run(argv)}\n`);
+    process.exit(0);
+  }
 }

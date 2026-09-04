@@ -302,6 +302,21 @@ interface AdapterSource {
   readonly imports: string[];
 }
 
+/**
+ * THE ONE FILE WITH A FILESYSTEM AND A SOCKET, named here rather than waved
+ * through by a wildcard.
+ *
+ * `web/server.ts` serves two static HTML pages that ship beside it, so it needs
+ * `node:fs` — and it binds a loopback port, so it needs `node:http`. Neither
+ * weakens what the directory-wide ban actually mechanizes ("no memory body text
+ * is persisted into any dashboard state file: there IS no state file"), because
+ * the exception is read-only: the write-call scan below still applies to this
+ * file unchanged, and a second assertion pins the `node:fs` import to
+ * `readFileSync` alone. A future `writeFileSync` in the server fails here.
+ */
+const SERVER_FILE = "web/server.ts";
+const SERVER_EXTRA_IMPORTS = ["node:fs", "node:http"];
+
 function adapterSources(): AdapterSource[] {
   const out: AdapterSource[] = [];
   const walk = (at: string): void => {
@@ -438,8 +453,10 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
       }
       // No filesystem module, at all. This is also the mechanization of "no
       // memory body text is persisted into any dashboard state file": there IS
-      // no state file, because nothing in this directory can open one.
+      // no state file, because nothing in this directory can open one. The web
+      // server is the single named exception, and it is read-only (below).
       for (const module of imports) {
+        if (path === SERVER_FILE && module === "node:fs") continue;
         if (FS_MODULES.includes(module)) offences.push(`${path}: imports ${module}`);
       }
       for (const fn of FS_CALLS) {
@@ -455,14 +472,36 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
 
   test("the adapter imports only the core, the standard library it needs, and itself", () => {
     const outside = new Set<string>();
-    for (const { imports } of adapterSources()) {
+    const serverOnly = new Set<string>();
+    for (const { path, imports } of adapterSources()) {
       for (const module of imports) {
         if (module.startsWith(".")) continue;
+        if (path === SERVER_FILE && SERVER_EXTRA_IMPORTS.includes(module)) {
+          serverOnly.add(module);
+          continue;
+        }
         outside.add(module);
       }
     }
-    // Zero runtime dependencies, and no filesystem (CONTRACT §4/§5).
+    // Zero runtime dependencies, and — everywhere but the one named file — no
+    // filesystem and no socket (CONTRACT §4/§5).
     expect([...outside].sort()).toEqual(["node:path", "node:url"]);
+    // The exception is exactly two modules, in exactly one file.
+    expect([...serverOnly].sort()).toEqual(["node:fs", "node:http"]);
+  });
+
+  test("the web server's ONE filesystem import binds readFileSync and nothing else", () => {
+    const server = adapterSources().find((s) => s.path === SERVER_FILE);
+    expect(server).toBeDefined();
+    const source = readFileSync(join(ADAPTER_DIR, SERVER_FILE), "utf8");
+    // Every `node:fs` import statement in the file, whatever its shape.
+    const statements = [...source.matchAll(/^import\s+([^;]*?)\s+from\s+["']node:fs["'];?$/gm)].map(
+      (m) => (m[1] ?? "").trim(),
+    );
+    expect(statements).toEqual(["{ readFileSync }"]);
+    // And no dynamic escape hatch back to the rest of the module.
+    expect(/require\s*\(\s*["']node:fs["']/.test(source)).toBe(false);
+    expect(/import\s*\(\s*["']node:fs["']/.test(source)).toBe(false);
   });
 
   test("the adapter holds no state of its own — it creates no file anywhere", async () => {
