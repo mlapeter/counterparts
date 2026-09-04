@@ -155,11 +155,25 @@ So the share is a PRE-CUT, in `render()`, before the loop:
    the opposite of what it was set for. When the other lanes are all present and the budget
    is still not spent, the held-back identity elements return in rank order while they fit.
 
-Rule 4's "only when nothing was trimmed" is also what keeps the composed result
-MONOTONE — a smaller budget still yields a subset, never a reshuffle (§1 G4, and the sweep
-test that walks 24,000 → 400 in 400-byte steps). Refilling into slack left behind by a
-trimmed lane would let a *larger* budget produce a *different* set, which is precisely the
-iteration luck the guarantee forbids.
+**What rule 4 buys, and what it does not — stated because the repo's culture is to name
+the failure.** Rule 4 closes ONE source of cross-budget reshuffle: refilling identity into
+slack a trimmed lane left behind, which would let a larger budget produce a set that is not
+a superset. It does not make the share monotone in general, and no rule here can. A share
+taken by WHOLE elements has a second source: when the budget grows by δ and the widened
+share admits an identity element of size e > δ, the room left for the other lanes shrinks
+by e − δ. Measured on this build with 1.1 KB identity elements and 8 × ~570 B craft:
+
+    budget 8,800 → identity 3, craft 8
+    budget 9,200 → identity 4, craft 7   ← one craft element the SMALLER budget kept
+
+That is inherent to a whole-element share, not a bug in the implementation: the alternative
+is truncating a belief mid-sentence, which §1 forbids for better reasons. The guarantee that
+survives, and the one that matters at a real host, is **determinism at a fixed budget** —
+the ceiling does not change between two sessions, and for any given ceiling the same store
+composes the same bundle. The sweep test (24,000 → 400 in 400-byte steps) still asserts the
+subset property and still passes, but only because its fixture's identity elements (~215 B)
+are smaller than its step; it is a real check of the trim order, not a proof about the
+share, and a fixture with 1.1 KB elements would fail it. Do not read it as one.
 
 The share is CAL, not structural. 0.5 was chosen against v1's measured wakes (20 elements,
 four lanes, the same 9,000-byte ceiling), not derived; `tools/replay` re-earns it. What is

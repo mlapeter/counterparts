@@ -120,7 +120,11 @@ recompression proposals and their archive; render and delivery telemetry.
    compete, and it exists because identity trims LAST: measured 2026-09-03/04, a migrated
    store's ~1.1 KB identity elements filled all 9,000 bytes of every session's wake with 8
    identity statements and four empty lanes, while v1's wake the same day carried 20
-   elements across four lanes.
+   elements across four lanes. *Named limit: a share taken by whole elements is
+   deterministic at a fixed budget — the host's case — but does not preserve the
+   smaller-budget-is-a-subset property across budgets when one element is larger than the
+   difference between them (NOTES §9, with the measurement). Truncating a belief to keep
+   that property is the worse trade.*
 3. **[M]** Header and sentinel each state true counts and bytes. Because both state a number
    that composing them changes, composition iterates to a fixed point. A delivery-side event
    exists, not only a render-side one. **The delivered bundle carries a preface composed at
