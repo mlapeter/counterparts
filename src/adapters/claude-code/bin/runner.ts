@@ -11,12 +11,22 @@
  *
  * What it runs, in order (the composition root owns the order, not this file):
  *   0a. the LAGGED SEMANTIC CUE for the session that just spoke — before
- *       anything else, because it reads the live span buffer and step 1's claim
- *       moves those spans out of it (`vectors.ts`);
- *   0b. one bounded EMBEDDING BACKFILL, so the store's blind memories gain
- *       vectors at a guaranteed rate rather than only when a deposit happens to
- *       pay for one — first, so a long sweep cannot starve it;
- *   1. the crash-fallback sweep, over EVERY scope holding experience (§2 G9);
+ *       anything else, because it reads the live span buffer and the sweep's
+ *       claim moves those spans out of it (`vectors.ts`). It runs on EVERY
+ *       boundary, outside the sweep gate and regardless of its verdict: the cue
+ *       expires after one turn, so a step that fired only when a session had
+ *       crashed would leave the semantic channel dark on every ordinary turn;
+ *   0b. one bounded EMBEDDING BACKFILL, on the same terms and for the same
+ *       reason — the store's blind memories gain vectors at a guaranteed rate
+ *       rather than only when a deposit happens to pay for one, and running it
+ *       first means a long sweep cannot starve it;
+ *   1. the crash-fallback sweep, over EVERY scope holding experience (§2 G9) —
+ *      which SELECTS NOTHING unless a session actually crashed (uncovered spans,
+ *      no `session-end` boundary, silent for `CRASH_STALE_MS`). This worker is
+ *      spawned at every boundary for the flush and the cycle below; the sweep is
+ *      a fallback and its ordinary answer is "nothing crashed", recorded as the
+ *      durable `sweep.gate` row so the silence is evidenced (owner ruling
+ *      2026-09-04, `remember/fallback.ts`);
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing.
  *

@@ -24,6 +24,7 @@ import {
   Counterpart,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
+  SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { indexTextOf } from "../src/core/store/index.js";
 import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
@@ -155,6 +156,35 @@ function fakeSpawner(): { calls: SpawnPlan[]; spawner: (p: SpawnPlan) => { pid: 
       return { pid: 4242 };
     },
   };
+}
+
+/**
+ * THE CRASH, simulated the only way this host can produce one: the session hit a
+ * boundary and nobody ever came back. The worker's sweep reads a transcript only
+ * for a session with uncovered spans, no `session-end` boundary, and silence past
+ * `CRASH_STALE_MS` (`remember/spans.ts#crashedSessions`), so a test that wants the
+ * sweep to fire has to age the durable boundary record rather than delete a gate.
+ */
+function goQuiet(ms: number = REMEMBER.CRASH_STALE_MS + 60_000): void {
+  const root = join(dir, "spans");
+  for (const key of readdirSync(root, { withFileTypes: true })) {
+    if (!key.isDirectory()) continue;
+    const file = join(root, key.name, "boundaries.jsonl");
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const aged = raw
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((line) => {
+        const record = JSON.parse(line) as { at: number };
+        return JSON.stringify({ ...record, at: record.at - ms });
+      });
+    writeFileSync(file, `${aged.join("\n")}\n`, "utf8");
+  }
 }
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
@@ -896,11 +926,76 @@ describe("interpret-client — streaming, stop_reason guarded, credential from e
 // The detached worker, end to end, with a faked model
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the runner — sweep then sleep, with the interpreter faked", () => {
+  test("every session-ending path CAPTURES, and the worker's sweep reads none of it until a session crashes", async () => {
+    // The ruling, end to end (2026-09-04): boundaries still capture at Stop,
+    // SessionEnd and pre-compaction — that capture is the compaction-amnesia
+    // backstop — and the worker still spawns for the flush and the cycle. What
+    // changed is that its SWEEP selects nothing unless a session crashed.
+    const { a, calls } = adapter();
+    const turnsFor = (tag: string): HookInput["turns"] => [
+      { role: "user", text: `A ${tag} conversation about how the backup set stays small enough to be honest about.` },
+      { role: "assistant", text: `Noted, in the ${tag} session: the cache is rebuildable, so nothing backs it up.` },
+    ];
+    for (const hook of SESSION_ENDING) {
+      const result = a.hook(hook as HookName, input({ sessionId: `s-${hook}`, turns: turnsFor(hook) }));
+      expect({ hook, ok: result.ok, appended: result.spansAppended > 0 }).toEqual({ hook, ok: true, appended: true });
+    }
+    // Stop and SessionEnd spawn the worker; that is unchanged and load-bearing.
+    expect(calls.length).toBe(2);
+    a.counterpart.close();
+    open.length = 0;
+
+    // The worker runs, and the interpreter is a tripwire: any model call fails
+    // this test. Nothing has crashed — every session's last boundary is seconds old.
+    const quiet = await runOnce({
+      config: config(),
+      today: "2026-01-02",
+      date: "2026-01-02",
+      fetch: async () => {
+        throw new Error("the sweep made a model call with nothing crashed");
+      },
+    });
+    expect({ ran: quiet.ran, swept: quiet.swept, minted: quiet.minted }).toEqual({
+      ran: true,
+      swept: 0,
+      minted: 0,
+    });
+
+    // Now the two sessions that never reached `session-end` go quiet. THOSE are
+    // crashed; the one that ended normally is not, and is not read.
+    goQuiet();
+    const swept = await runOnce({
+      config: config(),
+      today: "2026-01-03",
+      date: "2026-01-03",
+      fetch: async () =>
+        okResponse(
+          streamed('[{"content":"The cache is rebuildable from canonical files, which is why it never enters the backup set.","kind":"fact"}]'),
+        ),
+    });
+    expect(swept.swept).toBeGreaterThan(0);
+
+    // The gate's own durable row, both readings, so the daily can tell a quiet
+    // sweep from a broken one.
+    const after = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(after.counterpart);
+    const rows = after.counterpart.store
+      .eventLog({ name: SWEEP_GATE_EVENT, limit: 10 })
+      .map((row) => JSON.parse(row.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(2);
+    expect({ ran: rows[0]?.["ran"], skipped: rows[0]?.["skippedNotCrashed"] }).toEqual({ ran: 0, skipped: 1 });
+    expect(rows[1]?.["ran"]).toBe(1);
+    // Self-attributing: the row carries the calendar date the run belonged to,
+    // so a reader does not have to infer it from the lived-day column.
+    expect([rows[0]?.["date"], rows[1]?.["date"]]).toEqual(["2026-01-02", "2026-01-03"]);
+  });
+
   test("a run sweeps the captured spans, mints, and publishes a briefing the next wake reads", async () => {
     const { a } = adapter();
     a.stop(input());
     a.counterpart.close();
     open.length = 0;
+    goQuiet();
 
     const events: string[] = [];
     const report = await runOnce({
@@ -2085,6 +2180,7 @@ describe("novelty stops being null — the authored door measures prediction err
     a.stop(input());
     a.counterpart.close();
     open.length = 0;
+    goQuiet();
 
     const embedded: string[][] = [];
     const report = await runOnce({

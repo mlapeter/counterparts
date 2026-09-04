@@ -331,7 +331,10 @@ a malformed date, and a date before the run began.
 
 **1. Two detectors the CONTRACT names are recomputed, not rows — and the
 delivery records that were not durable now are.** Box 2's `events` table takes
-exactly the **thirteen** names in `DURABLE_EVENTS`. On 2026-09-03 the four
+exactly the names in `DURABLE_EVENTS` — **sixteen** as of 2026-09-04, when the
+crash gate's `sweep.gate` row joined them: after the sweep became a fallback in
+fact, its ordinary day is silence, and a silent sweep and a dead worker have to
+be different rows (constitution 16). On 2026-09-03 the four
 delivery records (`adapter.wake.injected`, `adapter.wake.delivered`,
 `adapter.recall`, `adapter.episode.ask`) joined that list, each carrying `date`
 and `session` in its payload, because on any day v2 is the muted side — day 0,
