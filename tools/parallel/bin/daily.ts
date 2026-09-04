@@ -14,9 +14,9 @@ import { dirname, join } from "node:path";
 // THE LEAF MODULE, not the barrel. `adapters/claude-code/index.js` re-exports
 // `Counterpart` and `Store`, so importing the ask through it pulled both
 // systems-under-test into the instrument's process — the independent-scorer
-// rule's whole point ([v1] §17.2, replay G5). `hooks.js` is where the constant
+// rule's whole point ([v1] §17.2, replay G5). `hooks.js` is where the ask
 // lives; nothing else comes with it.
-import { AUTHORSHIP_ASK } from "../../../src/adapters/claude-code/hooks.js";
+import { authorshipAsk } from "../../../src/adapters/claude-code/hooks.js";
 import { primacyReading } from "../assignment.js";
 import { dailyRecord } from "../record.js";
 import type { Primacy, RunPhase } from "../types.js";
@@ -57,7 +57,7 @@ function usage(): never {
       "  --v1-wake <file>      v1's rendered wake for the day (cross-encoding probe).",
       "  --v2-wake <file>      v2's rendered wake for the day (the other direction).",
       "  --v1-ritual <file>    v1's ritual ask text, one probe per line. v2's own asks",
-      "                        are taken from the adapter's AUTHORSHIP_ASK constant.",
+      "                        are taken from the adapter's own authorshipAsk().",
       "  --phase <0|P>         overrides run.json. P from day 1.",
       "  --primacy <v1|v2>     overrides run.json.",
       "  --seat <id>           the acting seat, pinned into run.json.",
@@ -215,11 +215,14 @@ function main(argv: readonly string[]): number {
     v1WakeFile: args.v1Wake,
     v2WakeFile: args.v2Wake,
     ...(args.v1Ritual === null ? {} : { v1Ritual: [readTextOr(args.v1Ritual)] }),
-    // v2's asks are CONSTANTS in the adapter, so the meter's v2->v1 direction
+    // v2's asks are RENDERED by the adapter, so the meter's v2->v1 direction
     // takes them from there rather than from a second copy — the same
     // one-recognizer-list rule `FOREIGN_MARKERS` follows. Without probes this
     // direction would print 0/0, which reads clean when it means unmeasured.
-    v2Ritual: [AUTHORSHIP_ASK],
+    // The probe unit is a LINE, and the authorship ask now carries the session
+    // id on one of its lines (`hooks.ts#authorshipAsk`): that one line is
+    // session-specific and will not match, the other five are the recognizer.
+    v2Ritual: [authorshipAsk("<session>")],
   });
 
   for (const [rel, value] of Object.entries(artifacts.json)) run.writeJson(rel, value);

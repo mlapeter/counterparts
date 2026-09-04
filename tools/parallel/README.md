@@ -277,9 +277,11 @@ side's store. Five things govern it:
   v2 delivers nothing, so both directions carry the zero bar.
 - **v1's probe is required.** Without `--v1-wake` or `--v1-ritual` the v1→v2
   direction reads a silent zero, so the daily REFUSES rather than recording an
-  unmetered day. v2's own probes come from the adapter's `AUTHORSHIP_ASK`
-  constant, imported from the leaf module (`hooks.ts`) so the instrument does not
-  pull `Counterpart` and `Store` into its own process.
+  unmetered day. v2's own probes come from the adapter's own `authorshipAsk()`,
+  imported from the leaf module (`hooks.ts`) so the instrument does not pull
+  `Counterpart` and `Store` into its own process. The probe unit is a LINE, and
+  one line of that ask now carries the session id — that line is rendered with a
+  placeholder and simply never matches; the other five are the recognizer.
 - **Migrated rows are excluded by construction** — v1's text in v2's store is the
   migration, not contamination — joined on **realpaths**, because the store
   records one spelling of a path and a directory walk produces another.

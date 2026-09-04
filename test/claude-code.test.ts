@@ -20,17 +20,20 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  BOUNDARY_EVENT,
   Counterpart,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
 } from "../src/core/counterpart.js";
 import { indexTextOf } from "../src/core/store/index.js";
+import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
+import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
 import { BOOTSTRAP } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
   API_KEY_ENV,
-  AUTHORSHIP_ASK,
+  authorshipAsk,
   CREDENTIAL_FILE_EVENT,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
@@ -47,6 +50,7 @@ import {
   abDir,
   assignmentHealth,
   assignmentPath,
+  attributePeers,
   capabilities,
   classifyBlock,
   createEmbedder,
@@ -543,7 +547,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
   test("stop raises the AUTHORSHIP ask while the experiencer still has the pen", async () => {
     const { a } = adapter();
     const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
     const measured = a.events("adapter.authorship.ask")[0]?.data;
     expect(measured?.uncovered).toBeGreaterThan(0);
     // The unaskable tail is MEASURED at the same moment, not assumed (§2 G12).
@@ -1201,7 +1205,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       );
       const parallelStop = a.stop(input());
       expect(pick(parallelStop)).toEqual(pick(plain.stop(input())));
-      expect(parallelStop.authorshipAsk).toBe(AUTHORSHIP_ASK);
+      expect(parallelStop.authorshipAsk).toBe(authorshipAsk("s1"));
 
       // The only difference: three deliver records, one per delivering hook.
       expect(a.events(PRIMACY_DELIVER_EVENT).map((e) => e.data?.hook)).toEqual([
@@ -1225,7 +1229,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     const stopped = a.stop(input());
     expect(a.events(PRIMACY_STANDDOWN_EVENT)).toEqual([]);
     expect(a.events(PRIMACY_DELIVER_EVENT)).toEqual([]);
-    expect(stopped.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(stopped.authorshipAsk).toBe(authorshipAsk("s1"));
     expect(a.counterpart.store.eventLog({ limit: 100 }).map((r) => r.name)).not.toContain(
       PRIMACY_STANDDOWN_EVENT,
     );
@@ -1377,18 +1381,179 @@ describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", (
     expect(enters({ role: "user", text, source: "injected" })).toBe(true);
   });
 
-  test("a Stop-hook wrapper WITHOUT a foreign marker is not foreign — v2's own asks arrive that way", () => {
-    const ours = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+  test("a Stop-hook wrapper WITHOUT a foreign marker is `ritual`, not foreign — and enters nothing", () => {
+    // The ask now carries the session id (`authorshipAsk`), which changes the
+    // TEXT and not the classification: `ritual` is decided by the host's
+    // wrapper, so the rule holds whatever the ask happens to say this turn.
+    const ours = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
+    // Not foreign: another memory system did not write this, WE did. The
+    // distinction is what keeps the canary's FOREIGN_MARKERS honest.
     expect(classifyBlock(ours)).not.toBe("foreign");
-    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(true);
+    expect(classifyBlock(ours)).toBe("ritual");
+    // But it does not enter either: v2's own ask is not something that happened
+    // to v2, and the ask's durable record is `adapter.authorship.ask`.
+    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(false);
     // A bansai marker that is not at the start of the block is not a wrapper
     // match either — only the containment marker crosses a block boundary.
     expect(classifyBlock("we should ask whether [bansai] still runs here")).toBe("conversation");
+    // And the phrase MENTIONED mid-sentence is conversation about the mechanism.
+    expect(classifyBlock("the host returns a Stop hook feedback: block here")).toBe("conversation");
   });
 
   test("ordinary conversation is untouched by the new rule", () => {
     expect(classifyBlock("We settled the storage split today.")).toBe("conversation");
     expect(classifyBlock("")).toBe("conversation");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Peer speakers and the system's own ritual text — the two host shapes that
+// arrive user-role and are not the owner speaking (measured 2026-09-04)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the transcript reader attributes PEER messages and refuses its own RITUAL text", () => {
+  /** The host's wrapper, with the attribute set the v2.1.260 bundle carries. */
+  const wrapped = (
+    body: string,
+    attrs = 'from="uds:/tmp/cc-socks/30478.sock" from-name="mlapeter-41" from-mode="prompting"',
+  ) => `<cross-session-message ${attrs}>\n${body}\n</cross-session-message>`;
+
+  const OWNER = "We settled the storage split today: prose on disk, one small database.";
+  const PEER = "v2 challenge effect has no live consumer; session c781252f sweep census attached.";
+  const RITUAL = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
+  const ASSISTANT = "Recorded — the cache being rebuildable is what keeps the backup honest.";
+
+  /** The five host shapes as real JSONL lines, in the order a session sees them. */
+  const FIXTURE = [
+    JSON.stringify({ message: { role: "user", content: OWNER } }),
+    JSON.stringify({ message: { role: "user", content: wrapped(PEER) } }),
+    JSON.stringify({
+      message: {
+        role: "user",
+        content: `Have a look at this and tell me if it holds:\n${wrapped(PEER)}`,
+      },
+    }),
+    JSON.stringify({ message: { role: "user", content: RITUAL } }),
+    JSON.stringify({ message: { role: "assistant", content: [{ type: "text", text: ASSISTANT }] } }),
+  ].join("\n");
+
+  const LABEL = "[message from another Claude session, mlapeter-41]:";
+
+  test("five host shapes, five turns, and the speaker of each is on the record", () => {
+    const read = parseTranscript(FIXTURE);
+    // ONE BLOCK STAYS ONE TURN. The per-session cursor indexes into this list,
+    // so a reader that split a mixed block into two turns would re-slice a live
+    // session's uncaptured tail on the day it shipped.
+    expect(read.turns.length).toBe(5);
+    expect(read.turns.map((t) => t.source)).toEqual([
+      "conversation", // the owner, plainly
+      "injected", // nothing but a peer message: kept, but nobody HERE spoke
+      "conversation", // mixed: the owner did speak in this turn
+      "ritual", // v2's own ask, handed back by the host
+      "conversation", // the assistant
+    ]);
+    // The peer's words survive verbatim — they are real experience — but they
+    // arrive wearing the speaker's name, never the owner's.
+    expect(read.turns[1]?.text).toBe(`${LABEL} ${PEER}`);
+    expect(read.turns[2]?.text).toBe(`Have a look at this and tell me if it holds:\n${LABEL} ${PEER}`);
+    // The owner's own turn and the assistant's are untouched by any of this.
+    expect(read.turns[0]?.text).toBe(OWNER);
+    expect(read.turns[4]?.text).toBe(ASSISTANT);
+  });
+
+  test("the peer's words reach the span; the ritual text does not, and its exclusion is COUNTED", () => {
+    const read = parseTranscript(FIXTURE);
+    const { a } = adapter();
+    const result = a.stop(input({ turns: read.turns }));
+    expect(result.ok).toBe(true);
+
+    const texts = a.counterpart.spans.spans("proj").map((s) => s.text);
+    const conversation = texts.find((t) => t.includes(OWNER)) ?? "";
+    // Kept: the peer's finding is in the buffer, and both times behind the label.
+    expect(conversation).toContain(`${LABEL} ${PEER}`);
+    // Refused: v2's ask never becomes a memory of v2 having thought it.
+    for (const text of texts) {
+      expect(text).not.toContain("Stop hook feedback:");
+      expect(text).not.toContain("what did you LEARN here");
+    }
+
+    // SILENCE IS NOT HEALTH: the refusal is a number in the boundary record,
+    // not an absence. One turn excluded — the ritual one.
+    const boundary = a.events(BOUNDARY_EVENT).at(-1);
+    expect(boundary?.data["excluded"]).toBe(1);
+  });
+
+  test("a peer message never PACES a ritual, and a mixed turn paces on the owner's half", () => {
+    const read = parseTranscript(FIXTURE);
+    // `substanceOf` counts `conversation` only: the pure peer turn and the
+    // ritual turn are both out, the mixed turn is in (the owner did speak).
+    expect(substanceOf(read.turns).turns).toBe(3);
+    expect(substanceOf([read.turns[1]!]).turns).toBe(0);
+    expect(substanceOf([read.turns[3]!]).turns).toBe(0);
+  });
+
+  test("attribution falls back through the host's attribute set, and never to the owner", () => {
+    const named = (attrs: string) =>
+      attributePeers(`<cross-session-message ${attrs}>hi</cross-session-message>`).text;
+    expect(named('from-name="mlapeter-41" from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, mlapeter-41]: hi",
+    );
+    // No display name: the session id. An unattributed peer message is still
+    // not the owner, so there is always a label.
+    expect(named('from="uds:/tmp/cc-socks/1.sock" from-session="c781252f"')).toBe(
+      "[message from another Claude session, c781252f]: hi",
+    );
+    // `from` is NOT a fallback: it is a machine-local socket path, and it must
+    // not land in prose that outlives the socket. "unnamed" instead.
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, unnamed]: hi",
+    );
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).not.toContain("cc-socks");
+    expect(named("")).toBe("[message from another Claude session, unnamed]: hi");
+    expect(named("from-name=''")).toBe("[message from another Claude session, unnamed]: hi");
+    // Two peers in one block are two labels, in order.
+    const two = attributePeers(
+      `<cross-session-message from-name="a">one</cross-session-message>\n<cross-session-message from-name="b">two</cross-session-message>`,
+    );
+    expect(two.peers).toBe(2);
+    expect(two.ownerText).toBe(false);
+    expect(two.text).toBe(
+      "[message from another Claude session, a]: one\n[message from another Claude session, b]: two",
+    );
+  });
+
+  test("a TRUNCATED wrapper is left alone rather than swallowing the rest of the block", () => {
+    // No closing tag: nothing is rewritten. The block still does not read as the
+    // owner speaking, because the `cross-session-` catch-all tags it `injected`.
+    const torn = '<cross-session-message from-name="mlapeter-41">half a mess';
+    expect(attributePeers(torn).peers).toBe(0);
+    expect(classifyBlock(torn)).toBe("injected");
+  });
+
+  test("the idle notice is plain text, not a wrapper — and is still not the owner", () => {
+    // Evidenced in the v2.1.260 bundle as a plain line, so it gets no rewrite;
+    // `injected` is the honest reading: host bookkeeping about a peer.
+    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" is idle now')).toBe("injected");
+    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" has exited')).toBe("injected");
+    // Any other wrapper the host adds under the same prefix reads the same way,
+    // rather than being guessed at.
+    expect(
+      classifyBlock("<cross-session-whatever-comes-next>x</cross-session-whatever-comes-next>"),
+    ).toBe("injected");
+  });
+
+  test("an ASSISTANT turn is never peer-rewritten — the host delivers peers user-role only", () => {
+    const raw = JSON.stringify({
+      message: { role: "assistant", content: [{ type: "text", text: `quoting ${wrapped("x")}` }] },
+    });
+    const read = parseTranscript(raw);
+    expect(read.turns[0]?.text).toContain("<cross-session-message");
+    expect(read.turns[0]?.source).toBe("injected");
+  });
+
+  test("v1's Stop-hook ask stays FOREIGN, not ritual — the canary's list still decides first", () => {
+    const theirs = "Stop hook feedback:\n- [bansai] Before this session closes, what did you learn?";
+    expect(classifyBlock(theirs)).toBe("foreign");
+    expect(enters({ role: "user", text: theirs, source: classifyBlock(theirs) })).toBe(false);
   });
 });
 
@@ -2366,7 +2531,7 @@ describe("the authorship ask is PACED — the host's Stop is every turn, the ask
   test("first Stop asks; the next Stop on the same experience does not; enough new spans ask again", () => {
     const { a } = adapter();
     const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
     // The same session, one more small turn: uncovered > 0, but paced out.
     const second = a.stop(input({ turns: [...TURNS, { role: "user", text: "And one more short line for the record." }] }));
     expect(second.authorshipAsk).toBeNull();
@@ -2380,12 +2545,131 @@ describe("the authorship ask is PACED — the host's Stop is every turn, the ask
       text: `Turn ${i}: a genuinely new stretch of conversation, long enough to matter. ${"x".repeat(1_000)}`,
     }));
     const third = a.stop(input({ turns: [...TURNS, ...more] }));
-    expect(third.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(third.authorshipAsk).toBe(authorshipAsk("s1"));
   });
 
   test("a different session is paced on its own — the first Stop there asks", () => {
     const { a } = adapter();
     a.stop(input());
-    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(authorshipAsk("s2"));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE LIVE-SESSION REGISTRY, written here because the hooks are the only thing
+ * on this host that knows the session id.
+ *
+ * The MCP server this host launches is registered from a static configuration —
+ * command, args, env — so it never learns which session it is serving, and for
+ * the whole first run every dump was refused `no-bound-session`. These files are
+ * the note that closes that gap; `test/sessions.test.ts` tests the module, and
+ * what is tested HERE is that the hooks actually write it, at the right moments,
+ * with the right scope.
+ */
+describe("the hooks record the live session for the tools to bind against", () => {
+  const readRecord = (sessionId: string): SessionRecord | null => readSession(dir, sessionId);
+
+  test("session-start records the session with the hook's own cwd as its scope", () => {
+    const { a } = adapter();
+    a.sessionStart(input());
+    const rec = readRecord("s1");
+    expect(rec?.sessionId).toBe("s1");
+    expect(rec?.scope).toBe(canonicalScope("proj"));
+    expect(rec?.endedAt).toBeNull();
+    expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
+    expect(a.events("adapter.session.registry")[0]?.data).toEqual({ phase: "start", ok: true });
+  });
+
+  test("stop refreshes the clock BEFORE the ask that names the session goes out", () => {
+    const { a } = adapter();
+    const stopped = a.stop(input());
+    const rec = readRecord("s1");
+    // Created by Stop alone: a session already running when this shipped never
+    // saw a SessionStart, and must still be bindable.
+    expect(rec).not.toBeNull();
+    expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
+    // The ask names the id the registry just made live.
+    expect(stopped.authorshipAsk).toContain("s1");
+  });
+
+  test("a stop from a WORKTREE does not move the project out from under the server", () => {
+    const { a } = adapter();
+    a.sessionStart(input({ scope: "proj" }));
+    a.stop(input({ scope: "proj/.worktrees/wt" }));
+    expect(readRecord("s1")?.scope).toBe(canonicalScope("proj"));
+  });
+
+  test("session-end closes the session: no later dump may claim it", () => {
+    const { a } = adapter();
+    a.sessionStart(input());
+    a.sessionEnd(input());
+    const rec = readRecord("s1") as SessionRecord;
+    expect(rec.endedAt).not.toBeNull();
+    expect(isLive(rec, Date.now())).toBe(false);
+    expect(a.events("adapter.session.registry").map((e) => e.data?.["phase"])).toEqual([
+      "start",
+      "end",
+    ]);
+  });
+
+  test("an observer records nothing — an instrument has no session to write under", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Counterpart.open({ dir, owner: true }).close();
+    const { a } = adapter({ observer: true });
+    a.sessionStart(input());
+    a.stop(input());
+    a.sessionEnd(input());
+    expect(readRecord("s1")).toBeNull();
+    expect(a.events("adapter.session.registry")).toEqual([]);
+  });
+
+  test("a registry that cannot be written never costs the boundary (§5 G2)", () => {
+    const { a } = adapter();
+    // The registry path is a FILE: every write below fails at the filesystem.
+    writeFileSync(join(dir, "sessions"), "not a directory", "utf8");
+    try {
+      const stopped = a.stop(input());
+      expect(stopped.ok).toBe(true);
+      expect(stopped.spansAppended).toBeGreaterThan(0);
+      expect(a.events("adapter.session.registry")[0]?.data).toEqual({
+        phase: "boundary",
+        ok: false,
+      });
+    } finally {
+      rmSync(join(dir, "sessions"), { force: true });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the authorship ask names the session and the tool that takes it", () => {
+  test("the id is IN the ask — it is what the server binds itself with", () => {
+    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text).toContain("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text).toContain("session_end");
+  });
+
+  test("`updates` is named as a FIELD, never as prose to write", () => {
+    // Four notes on the live host arrived as "updates: mem_x. …" in their own
+    // body text, unlinked, because the old ask said "say `updates: <id>`".
+    const text = authorshipAsk("s1");
+    expect(text).toContain("FIELD");
+    expect(text).not.toContain("say `updates:");
+  });
+
+  test("it stays short — a model reads this at every Stop that is due one", () => {
+    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text.split("\n").length).toBeLessThanOrEqual(8);
+    expect(text.length).toBeLessThan(600);
+  });
+
+  test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {
+    const d = hostDelivery(
+      "stop",
+      { injection: "", authorshipAsk: authorshipAsk("s1"), ask: null },
+      { stop_hook_active: true },
+    );
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
 });

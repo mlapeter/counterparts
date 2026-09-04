@@ -57,6 +57,13 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   host's context is `foreign`, and `enters()` refuses it outright (unlike `injected`,
   which is kept and merely unpaced). Added for the parallel run beside v1: without it,
   each system encodes the other's briefing as a memory of having thought it.
+- **This system's OWN ritual text never enters either** — an ask this system emitted, read
+  back off a host that returns hook output into the model's context, is `ritual`, and
+  `enters()` refuses it. Foreign's mirror image: the failure there is encoding someone
+  else's words as ours, the failure here is encoding our own words as something that
+  happened to us. Both refusals are COUNTED in `CaptureResult.excluded`, so a boundary
+  that captured nothing because everything was excluded is distinguishable from a boundary
+  where nothing happened.
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].
 
