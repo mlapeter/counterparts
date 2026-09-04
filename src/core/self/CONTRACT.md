@@ -69,7 +69,7 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   never durably encoding a credential. [v1 §13 G8]
 - **Add-first regrowth within a bounded window that CLOSES** — a deliberate deviation from
   human reconsolidation, which reopens on every retrieval. [v1 §13 G11–G12]
-- **Named handles are aliases, not a second lookup path** — "the porch conversation" enters
+- **Named handles are aliases, not a second lookup path** — "the lighthouse conversation" enters
   through the ordinary rarity-weighted name channel. [v1 §9.2]
 - **Lived salience is the only legitimate identity input.** [v1 §14.2, earned 2026-08-24]
 - **Freeze, but keep counting** — the frozen arm runs the identical walk with identical

@@ -1597,7 +1597,7 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
   /** The host's wrapper, with the attribute set the v2.1.260 bundle carries. */
   const wrapped = (
     body: string,
-    attrs = 'from="uds:/tmp/cc-socks/30478.sock" from-name="mlapeter-41" from-mode="prompting"',
+    attrs = 'from="uds:/tmp/cc-socks/30478.sock" from-name="peer-41" from-mode="prompting"',
   ) => `<cross-session-message ${attrs}>\n${body}\n</cross-session-message>`;
 
   const OWNER = "We settled the storage split today: prose on disk, one small database.";
@@ -1619,7 +1619,7 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
     JSON.stringify({ message: { role: "assistant", content: [{ type: "text", text: ASSISTANT }] } }),
   ].join("\n");
 
-  const LABEL = "[message from another Claude session, mlapeter-41]:";
+  const LABEL = "[message from another Claude session, peer-41]:";
 
   test("five host shapes, five turns, and the speaker of each is on the record", () => {
     const read = parseTranscript(FIXTURE);
@@ -1677,8 +1677,8 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
   test("attribution falls back through the host's attribute set, and never to the owner", () => {
     const named = (attrs: string) =>
       attributePeers(`<cross-session-message ${attrs}>hi</cross-session-message>`).text;
-    expect(named('from-name="mlapeter-41" from="uds:/tmp/cc-socks/1.sock"')).toBe(
-      "[message from another Claude session, mlapeter-41]: hi",
+    expect(named('from-name="peer-41" from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, peer-41]: hi",
     );
     // No display name: the session id. An unattributed peer message is still
     // not the owner, so there is always a label.
@@ -1707,7 +1707,7 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
   test("a TRUNCATED wrapper is left alone rather than swallowing the rest of the block", () => {
     // No closing tag: nothing is rewritten. The block still does not read as the
     // owner speaking, because the `cross-session-` catch-all tags it `injected`.
-    const torn = '<cross-session-message from-name="mlapeter-41">half a mess';
+    const torn = '<cross-session-message from-name="peer-41">half a mess';
     expect(attributePeers(torn).peers).toBe(0);
     expect(classifyBlock(torn)).toBe("injected");
   });
@@ -1715,8 +1715,8 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
   test("the idle notice is plain text, not a wrapper — and is still not the owner", () => {
     // Evidenced in the v2.1.260 bundle as a plain line, so it gets no rewrite;
     // `injected` is the honest reading: host bookkeeping about a peer.
-    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" is idle now')).toBe("injected");
-    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" has exited')).toBe("injected");
+    expect(classifyBlock('[Cross-session idle notice] "peer-41" is idle now')).toBe("injected");
+    expect(classifyBlock('[Cross-session idle notice] "peer-41" has exited')).toBe("injected");
     // Any other wrapper the host adds under the same prefix reads the same way,
     // rather than being guessed at.
     expect(

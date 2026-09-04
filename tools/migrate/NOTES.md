@@ -61,8 +61,8 @@ row and the run would add a duplicate. It is also `.trim()`ed, because
   0.80 changes nothing at all. At `>= 0.85` sit exactly 19 traces (18 self, 1
   person, 0.15% of the store) — v1 mints gradient from salience at birth, so
   this cluster is "marked at the top tier when written" plus a few reinforced
-  above it, and by title they are the genuine identity core (the porch
-  conversation, the bansai-origin insight, the constitution stretch). The next
+  above it, and by title they are the genuine identity core — a named formative
+  conversation, an origin insight, a first-principles argument. The next
   cluster down (0.776–0.795, 22 traces) is session-chapter narrative that
   belongs in semantic, which is where the cut leaves it. Standing default:
   keep 0.85. Disabling (>1) would demote the real core at the first decay

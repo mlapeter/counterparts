@@ -46,9 +46,10 @@ appearing here.*
 
 1. **API-keys-in-tests scar REINSTATED.** The scar agent excluded "tests passed while
    making real API calls" as undocumented — correct for the repo, but the incident is
-   recorded in the assistant's craft memory ("Bun silently auto-loaded real API keys
-   into keyless failure drills — assert the failure *reason*, not the outcome"). Source:
-   the store, not the docs; it also exposes a repo-documentation gap the store covered.
+   on record outside it: the runtime silently loaded real API keys into drills that were
+   supposed to run keyless, so the drills passed for the wrong reason. The lesson is to
+   assert the failure *reason*, not the outcome. That the repo's own docs never recorded
+   it is itself the finding — a documentation gap, caught from outside.
 2. **"Zero contradicts ever" is dated 08-18** — the pre-preselection-fix disease. The
    08-24 ledger crossing is the post-fix counter-evidence. No conflict: the earned
    lesson is *count both directions* (a one-way ratchet looks healthy), and the counter

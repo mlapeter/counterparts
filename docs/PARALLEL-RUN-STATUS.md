@@ -7,12 +7,12 @@ there). Numbers here are copied from run-directory artifacts, never typed from m
 
 ## State — 2026-09-04, day 1: the first conversation reviewed, ten fixes merged and LIVE
 
-**Day 1 is the review day.** The owner's first real conversation on counterparts (session
-`c781252f`, the conversation room at `~`, 2026-09-03 22:08 UTC to 2026-09-04 04:41 UTC,
-13 owner turns) was reviewed from three sources: the store read-only, the transcript on
-disk, and the instance that lived it (asked six questions over cross-session messaging;
-it answered with counts). Verdict: **the plumbing held and identity carried; retrieval,
-authorship and revision did not.** Numbers, all from rows:
+**Day 1 is the review day.** The first real conversation on counterparts (one session
+spanning 2026-09-03 into 2026-09-04, 13 owner turns) was reviewed from three sources:
+the store read-only, the transcript on disk, and the instance that lived it (asked six
+questions over cross-session messaging; it answered with counts). Verdict: **the
+plumbing held and identity carried; retrieval, authorship and revision did not.**
+Numbers, all from rows:
 
 | Measure for that session | Value |
 |---|---|
