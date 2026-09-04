@@ -160,3 +160,57 @@ is what makes the abort side-effect-free.
 One residual: an aborted build may already have caused the STORE to emit its own read
 telemetry. Recall emits nothing and writes nothing. The guarantee is about recall's side
 effects, and the store's read events are read events.
+
+## 12. Rarity is undefined on a store of ONE — 2026-09-04
+
+**Symptom.** A fresh store, no identity core, one authored memory through the MCP `note`
+door. `recall` with a question that plainly matched it answered
+`reason: "nothing-came", considered: 0, storeSize: 1`. Writing ANY unrelated second
+memory made the same question find the first one. At `storeSize` 1 the `handle` and `ids`
+paths returned the memory (`reason: "expanded"`), so the writer, the cache and the ranking
+were all fine: the question path's candidate SET was empty at n=1. Reproduced on four
+independent fresh stores by a cold-stranger reviewer, and again here at both doors.
+
+**Cause.** `cues.ts#informativeness` — `Math.log((storeSize + df) / (2 * df))`. On a store
+of one, the only memory holds every token, so `df = 1 = storeSize` and the expression is
+`log(2 / 2)` = `log(1)` = **exactly zero, for every token in the turn**. `buildCues` drops
+a zero-weight cue (`if (idf <= 0) continue`), so the cue list came back empty, the token
+index was never probed, and the gate never saw a candidate to refuse. Not a floor, not
+BM25 length normalization (`avgDocLen` on one document gives a length factor of exactly 1,
+which is what it should give), not a `LIMIT` — the smoothing's own zero.
+
+The zero is the RIGHT answer to the question the formula asks. It is the wrong question at
+n=1: rarity is a claim about alternatives, and a token that spans a one-memory store is not
+ubiquitous, it is merely present. §9 G4's "informativeness weighting replaces stop-lists"
+needs at least two documents before "spans the whole store" distinguishes anything.
+
+**Fix.** `MIN_RARITY_STORE = 2`, and the store size is read as
+`Math.max(storeSize, MIN_RARITY_STORE)`. Definitional rather than tunable — it names the
+domain of the rule, not a dial — so it sits beside the function and not in `tunables.ts`.
+No floor was retuned; the root cause was never a floor.
+
+**At scale.** `df >= 1` always, so `storeSize >= 2` is the only regime that can be affected
+and it is untouched by construction: the fix changes nothing but `storeSize === 1`. The
+weight of one maximally-rare cue, before and after — N=1: **0 → 0.4055**; N=2: 0.4055
+(unchanged); N=3: 0.6931; N=100: 3.9220; N=14,000 (the live store): 8.8537 — every one of
+them bit-identical, which a test asserts against the pre-fix expression rather than
+claiming. `storeSize: 0` still returns 0, which the quiet-turn record depends on
+(`index.ts` denominates a no-candidate turn in `floorUnit(0)`). So the #25/#28 bench on the
+14,000-memory store cannot move: loud 3/13 turns, 2.8 delivered per turn, hubs 0 stand
+untouched. That bench needs a copy of the owner's live store and cannot be run from here —
+**bench re-run: NEEDS-OWNER**.
+
+The one behavior that does change, and it is the intended one: at `storeSize` 1 the AMBIENT
+path can now footnote the lone memory when the turn shares a cue with it (`floorUnit(1)`
+goes 0 → 0.4055, so the cold-start floor there goes 0 → 0.1622 and stops being vacuous). A
+turn sharing no token still goes quiet — an absent token has `df = 0` and is still worth
+nothing.
+
+**Left alone, deliberately.** The same arithmetic makes a token with `df === storeSize`
+score zero at n=2 and n=3 as well: two memories that share the question's only content word
+are both invisible to it. That is the design rule doing exactly what it says, in a regime
+where it is nearly always right (the second memory usually shares nothing), and the
+generalizations that would soften it — `max(storeSize, df + 1)`, or a `log((N + 1) /
+(df + 0.5))`-style smoothing — give every whole-store token a small non-zero weight at
+EVERY scale, which trades a rare small-store miss for the stop-list guarantee on the live
+store. Recorded here so the next session argues with a choice.

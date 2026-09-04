@@ -88,13 +88,37 @@ export function stripBoilerplate(text: string): { text: string; stripped: string
 }
 
 /**
+ * The smallest store on which "this token spans the whole store" says anything.
+ *
+ * Rarity is a statement about ALTERNATIVES — a token is uninformative because
+ * the memories it does not distinguish exist. With one memory there are no
+ * alternatives, so "in every memory" and "in the only memory there is" are the
+ * same sentence, and reading the first one is a category error rather than a
+ * measurement. Below this size the store is read as one of exactly this size:
+ * the smallest store where the zero means what §9 G4 says it means.
+ *
+ * Definitional, not tunable — it is the domain of the rule, not a dial — so it
+ * lives here beside the function and not in `tunables.ts`.
+ */
+export const MIN_RARITY_STORE = 2;
+
+/**
  * Informativeness (inverse document frequency), smoothed so it is defined for a
- * two-document store and EXACTLY ZERO for a token that spans the whole store.
+ * two-document store and EXACTLY ZERO for a token that spans the whole store
+ * (for `storeSize >= MIN_RARITY_STORE` — see the constant for the one-memory
+ * degeneracy and why it is not an exception to the rule but its domain).
  * That zero is the point: it is what replaces the stop list.
+ *
+ * MEASURED 2026-09-04, the bug that named the constant: on a store of ONE the
+ * literal reading returns `log((1 + 1) / (2 * 1))` = `log(1)` = exactly zero for
+ * every token, `buildCues` drops every zero-weight cue, and the index is never
+ * probed — so the first memory anyone writes was uncueable until a second,
+ * unrelated one arrived. `recall` answered `nothing-came, considered: 0,
+ * storeSize: 1` while the `handle` and `ids` paths returned the same memory.
  */
 export function informativeness(df: number, storeSize: number): number {
   if (df <= 0 || storeSize <= 0) return 0;
-  return Math.max(0, Math.log((storeSize + df) / (2 * df)));
+  return Math.max(0, Math.log((Math.max(storeSize, MIN_RARITY_STORE) + df) / (2 * df)));
 }
 
 /** Saturating term frequency: a word repeated ten times is not ten cues. */
