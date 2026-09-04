@@ -102,11 +102,11 @@ describe("dataDir", () => {
     expect(dataDir()).toBe(dir);
   });
 
-  test("falls back to ~/.counterparts when the variable is absent or blank", () => {
+  test("falls back to ~/.counterparts/store when the variable is absent or blank — the base dir is the host adapters', and an unclassified file in the data dir is a store that will not open (§5 G11)", () => {
     delete process.env[DATA_DIR_ENV];
-    expect(dataDir()).toBe(join(homedir(), ".counterparts"));
+    expect(dataDir()).toBe(join(homedir(), ".counterparts", "store"));
     process.env[DATA_DIR_ENV] = "   ";
-    expect(dataDir()).toBe(join(homedir(), ".counterparts"));
+    expect(dataDir()).toBe(join(homedir(), ".counterparts", "store"));
     process.env[DATA_DIR_ENV] = dir;
   });
 
