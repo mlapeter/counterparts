@@ -21,6 +21,7 @@
  * Grouping is by resolved head: a chain challenged at two generations is ONE
  * story about one belief, not two stories about two ids.
  */
+import { isJournal } from "../../core/sleep/index.js";
 import { PLAIN } from "./ansi.js";
 import type { Style } from "./ansi.js";
 import { NONE, heading, indent, num, plural, stack, subheading, table } from "./layout.js";
@@ -54,7 +55,12 @@ export function contestedBeliefs(src: DashboardSource): string[][] {
   }
   for (const id of store.list()) {
     const row = store.row(id);
-    if (row !== undefined && row.pressure > 0) candidates.add(id);
+    // `list()` returns the whole `memories` table, episodes included. An episode
+    // is a journal entry, not a belief: nothing argues with the account of a day,
+    // and a pressure column it somehow carried would open a story with no
+    // challenge log behind it. Skipped the way `status.ts` skips it.
+    if (row === undefined || isJournal(row)) continue;
+    if (row.pressure > 0) candidates.add(id);
   }
 
   // Group by the live head. The chain each candidate walks is what decides which
