@@ -80,7 +80,7 @@ import type {
 import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
 import { Schemas } from "./schemas/index.js";
-import { PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
+import { LANE_ORDER, PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
 import type {
   ChapterAppend,
   ChapterAsk,
@@ -348,6 +348,21 @@ export interface SessionEndReport {
   readonly budgetBytes: number | null;
   /** The episode reconciler's pass: what the boundary ingested (§5 G12). */
   readonly episodes: EpisodeReconcileReport;
+}
+
+/** What one out-of-band wake re-render produced. Counts and bytes, never text. */
+export interface RebriefReport {
+  readonly rendered: boolean;
+  readonly reason: "rendered" | "no-budget";
+  readonly published: boolean;
+  readonly day: number;
+  /** The ceiling used, and the composed budget after the preface reserve. */
+  readonly budgetBytes: number | null;
+  readonly composeBudget: number | null;
+  readonly bytes: number;
+  readonly elements: number;
+  /** Per-lane counts, as the render's own telemetry recorded them. */
+  readonly counts: Record<string, number>;
 }
 
 export interface EpisodeReconcileReport {
@@ -1113,6 +1128,85 @@ export class Counterpart {
       episodesIngested: episodes.ingested + episodes.regrown,
     });
     return { sweeps, edges, cycle, budgetBytes, episodes };
+  }
+
+  /**
+   * RE-RENDER THE WAKE NOW — the owner's lever, and nothing else.
+   *
+   * The briefing is re-rendered once per lived day, at the boundary, so a change
+   * to the lane rules merged mid-day is invisible until tomorrow and an owner
+   * who wants their wake regenerated has to wait for one (measured 2026-09-04,
+   * the day the identity share shipped). This is the same render the sleep step
+   * runs — `briefing.selfRenderer`, SEAMS G, one renderer and not a second — and
+   * it reserves the delivery preface's room exactly as `sessionEnd` does,
+   * because a rebrief that spent the whole ceiling would blow it by its own
+   * first line at the next wake.
+   *
+   * What it deliberately does NOT do: advance the clock, advance any sleep
+   * marker, or run any other sleep phase. Decay, consolidation, dedup and prune
+   * are the boundary's work and stay the boundary's; this republishes the
+   * bundle over the store as it is. A marker moved here would silently cost the
+   * next boundary its own re-render (scar E8: a marker is a completion record).
+   */
+  rebrief(input: { budgetBytes?: number; at?: string } = {}): RebriefReport {
+    const budgetBytes = input.budgetBytes ?? this.reportedBudget;
+    if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
+    const day = this.store.livedDay();
+    if (budgetBytes === null) {
+      // The §2.18 refusal, here as everywhere: an invented ceiling publishes a
+      // briefing the host silently truncates.
+      this.emit("counterpart.rebrief.refused", undefined, { reason: "no-budget", day });
+      return {
+        rendered: false,
+        reason: "no-budget",
+        published: false,
+        day,
+        budgetBytes: null,
+        composeBudget: null,
+        bytes: 0,
+        elements: 0,
+        counts: {},
+      };
+    }
+    const composeBudget = Math.max(budgetBytes - PREFACE_RESERVE_BYTES, 0);
+    const render = selfRenderer(this.self, {
+      prospective: this.prospective,
+      ...(input.at === undefined ? {} : { at: input.at }),
+      onEvent: (name, data) => this.emit(name, undefined, data),
+    });
+    const out = render({
+      store: this.store,
+      day,
+      observer: this.observer,
+      budgetBytes: composeBudget,
+    }) ?? { bytes: 0, elements: 0 };
+    // The lane counts as the RENDER recorded them — the one place they exist,
+    // rather than a second count taken here that could disagree with the event.
+    const last = this.self.events("self.briefing.rendered").pop();
+    const counts: Record<string, number> = {};
+    for (const lane of LANE_ORDER) {
+      const n = last?.data?.[lane];
+      counts[lane] = typeof n === "number" ? n : 0;
+    }
+    this.emit("counterpart.rebrief", undefined, {
+      day,
+      budgetBytes,
+      composeBudget,
+      bytes: out.bytes ?? 0,
+      elements: out.elements ?? 0,
+      observer: this.observer,
+    });
+    return {
+      rendered: true,
+      reason: "rendered",
+      published: !this.observer,
+      day,
+      budgetBytes,
+      composeBudget,
+      bytes: out.bytes ?? 0,
+      elements: out.elements ?? 0,
+      counts,
+    };
   }
 
   /**

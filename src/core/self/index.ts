@@ -72,7 +72,13 @@ import {
   readSentinel,
   render,
 } from "./briefing.js";
-import type { BriefingRequest, BriefingResult, Resolve, SentinelReading } from "./briefing.js";
+import type {
+  BriefingRequest,
+  BriefingResult,
+  Resolve,
+  Resolved,
+  SentinelReading,
+} from "./briefing.js";
 import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
 import {
@@ -1042,8 +1048,14 @@ export class Self {
     };
   }
 
-  /** Id → statement, at render time only. A missing doc renders as its own id. */
-  private resolveStatement(id: string, docs: Map<string, ProseDoc>): { statement: string } {
+  /**
+   * Id → statement AND its dates, at render time only. A missing doc renders as
+   * its own id, undated: there is nothing left to date it by, and inventing
+   * today's date for a memory whose prose has gone is the exact lie the dates
+   * exist to prevent. The dates come from the SAME read as the text, so an
+   * element's age can never be one boundary older than its words.
+   */
+  private resolveStatement(id: string, docs: Map<string, ProseDoc>): Resolved {
     let doc = docs.get(id);
     if (doc === undefined) {
       try {
@@ -1054,7 +1066,15 @@ export class Self {
     }
     const paragraph = doc.body.split(/\n\s*\n/).find((p) => p.trim().length > 0) ?? doc.body;
     const statement = flatten(paragraph);
-    return { statement: statement.length > 0 ? statement : id };
+    const out: { statement: string; learnedOn?: string; happenedOn?: string } = {
+      statement: statement.length > 0 ? statement : id,
+    };
+    // Blank is how a chased row reads (`owner-op-seam`), and blank is not a date.
+    if (doc.learnedOn.trim() !== "") out.learnedOn = doc.learnedOn;
+    if (doc.happenedOn !== undefined && doc.happenedOn.trim() !== "") {
+      out.happenedOn = doc.happenedOn;
+    }
+    return out;
   }
 
   /**
@@ -1135,6 +1155,7 @@ export type {
   Lanes,
   Ranked,
   Resolve,
+  Resolved,
   SchemaBytesReport,
   SentinelReading,
   Substance,
