@@ -93,6 +93,10 @@ export function toHookInput(payload: Record<string, unknown>): HookInput {
     sessionId: typeof payload["session_id"] === "string" ? payload["session_id"] : "",
     scope,
     turns: transcript.turns,
+    // The host's re-fire of a blocked Stop, carried INTO the adapter and not
+    // only handled at delivery: the pass that says nothing must also advance
+    // nothing (`hooks.ts#askAtStop`).
+    ...(payload["stop_hook_active"] === true ? { reFired: true } : {}),
     ...(typeof payload["prompt"] === "string" ? { prompt: payload["prompt"] } : {}),
     at: new Date().toISOString().slice(0, 10),
   };
@@ -149,18 +153,20 @@ async function main(): Promise<void> {
  */
 export function hostDelivery(
   name: HookName,
-  result: { injection: string | null; authorshipAsk: string | null; ask: string | null },
+  result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
 ): { stdout: string; stderr: string; exitCode: 0 | 2 } {
-  const asks = [result.authorshipAsk, result.ask].filter((s): s is string => s !== null && s.length > 0);
+  const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
-    const out = [result.injection ?? "", ...asks].filter((s) => s.length > 0).join("\n\n");
+    const out = [result.injection ?? "", ask ?? ""].filter((s) => s.length > 0).join("\n\n");
     return { stdout: out, stderr: "", exitCode: 0 };
   }
-  if (payload["stop_hook_active"] === true || asks.length === 0) {
+  // The re-fire is refused twice on purpose: the adapter asks nothing on it, and
+  // this channel would not carry it even if something did.
+  if (payload["stop_hook_active"] === true || ask === null) {
     return { stdout: "", stderr: "", exitCode: 0 };
   }
-  return { stdout: "", stderr: asks.join("\n\n"), exitCode: 2 };
+  return { stdout: "", stderr: ask, exitCode: 2 };
 }
 
 /** True only when this file is the process entry point — so a test may import

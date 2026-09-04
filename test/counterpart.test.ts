@@ -357,6 +357,48 @@ describe("the root binds the seams a caller would otherwise have to remember", (
     expect(out.gate).toBe(null);
   });
 
+  test("THE BOUNDARY INGESTS THE JOURNAL — the scheduled reconciler §5 G12 asks for", async () => {
+    // Measured 2026-09-04: `ingestEpisode` had no caller outside its own tests,
+    // so an episode was a file that never became a memory. "Every derived
+    // surface owes a scheduled reconciler — a script the owner runs
+    // occasionally is not one", and every identity surface owes an answer to
+    // *which door reaches this?* This is the door: the boundary.
+    const c = brain();
+    c.episodeAsk("s1", { turns: 12, bytes: 9_000 });
+    const written = c.appendEpisode("s1", "The day I found the door that was never built.");
+    expect(written.appended).toBe(true);
+
+    const report = await c.sessionEnd({ date: "2026-01-02" });
+    expect(report.episodes.considered).toBe(1);
+    expect(report.episodes.ingested).toBe(1);
+    const minted = c.store
+      .list({ type: "memory", archived: false })
+      .map((id) => c.store.readProse(id))
+      .filter((d) => d.meta["episodeId"] === written.episodeId);
+    expect(minted.length).toBe(1);
+    // Ordinary self-kind memory, not an "episode" kind (§13 G6).
+    expect(c.store.physicsOf(c.store.list({ type: "memory", archived: false })[0] ?? "").kind).toBe("self");
+
+    // The SECOND boundary ingests nothing new, and does not scan for it either:
+    // the skip is a state read plus a hash.
+    const again = await c.sessionEnd({ date: "2026-01-03" });
+    expect(again.episodes.ingested).toBe(0);
+    expect(again.episodes.skipped).toBe(1);
+
+    // A chapter appended AFTER the first ingest regrows it, add-first, at the
+    // next boundary — the open journal is why the window exists at all.
+    c.episodeAsk("s1", { turns: 40, bytes: 40_000 });
+    c.appendEpisode("s1", "And the evening, which is the half that mattered.");
+    const grown = await c.sessionEnd({ date: "2026-01-04" });
+    expect(grown.episodes.regrown).toBe(1);
+    const live = c.store
+      .list({ type: "memory", archived: false })
+      .map((id) => c.store.readProse(id))
+      .filter((d) => d.meta["episodeId"] === written.episodeId);
+    expect(live.length).toBe(1);
+    expect(live[0]?.body).toContain("the half that mattered");
+  });
+
   test("a credential in an episode body is REDACTED, and the redacted text is what lands", () => {
     const c = brain();
     c.episodeAsk("s1", { turns: 12, bytes: 9_000 });

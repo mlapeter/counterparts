@@ -80,6 +80,7 @@ import {
   appendChapter,
   askDue,
   askText,
+  dayKey,
   findIngested,
   freshEpisodeState,
   ingestKey,
@@ -261,6 +262,8 @@ export class Self {
   private readonly ring: SelfEvent[] = [];
   /** Observer-only state that may never be deposited (observer-mode G3/G6). */
   private readonly volatileState = new Map<string, EpisodeState>();
+  /** The day counter's observer arm: counted, never written (freeze doctrine). */
+  private readonly volatileDayAsks = new Map<number, number>();
   private readonly volatileCounts = new Map<string, number>();
 
   constructor(opts: SelfOptions) {
@@ -642,10 +645,25 @@ export class Self {
     return loadEpisodeState(this.store, sessionId, d).state;
   }
 
+  /**
+   * Asks committed on this LIVED DAY, across every session it held. A read.
+   *
+   * The cap lives on the day rather than the session because the host opens a
+   * session per invocation (2026-09-04): six sessions under a per-session cap
+   * of six is thirty-six asks in a day v1 calibrated at about three.
+   */
+  dayAsks(day?: number): number {
+    const d = day ?? this.store.livedDay();
+    if (this.observer) return this.volatileDayAsks.get(d) ?? 0;
+    return Number(this.store.getMeta(dayKey(d)) ?? "0");
+  }
+
   /** Pure: is a chapter due? No state advances, nothing is written. */
   askDue(sessionId: string, substance: Substance, day?: number): AskVerdict {
-    return askDue(this.episodeState(sessionId, day), substance, this.tunables, {
+    const d = day ?? this.store.livedDay();
+    return askDue(this.episodeState(sessionId, d), substance, this.tunables, {
       observer: this.observer,
+      dayAsks: this.dayAsks(d),
     });
   }
 
@@ -657,7 +675,10 @@ export class Self {
   openChapter(sessionId: string, substance: Substance, day?: number): ChapterAsk {
     const d = day ?? this.store.livedDay();
     const state = this.episodeState(sessionId, d);
-    const verdict = askDue(state, substance, this.tunables, { observer: this.observer });
+    const verdict = askDue(state, substance, this.tunables, {
+      observer: this.observer,
+      dayAsks: this.dayAsks(d),
+    });
     if (!verdict.due) {
       this.emit("self.episode.ask.skipped", sessionId, {
         reason: verdict.reason,
@@ -667,19 +688,24 @@ export class Self {
       });
       return { asked: false, verdict, ask: null, chapter: verdict.chapter };
     }
+    // The ask count advances; the CHAPTER count does not. What the model wrote
+    // is the only thing that may claim to be a chapter (2026-09-04: the hook's
+    // count ran to 7 while the episode held none).
     const advanced: EpisodeState = {
       ...state,
-      chapters: verdict.chapter,
+      asks: state.asks + 1,
       askedAtTurns: substance.turns,
       askedAtBytes: substance.bytes,
       lastDay: d,
     };
     this.persistState(advanced, "openChapter");
+    this.bumpDayAsks(d);
     this.emit("self.episode.ask", sessionId, {
       chapter: verdict.chapter,
       reason: verdict.reason,
       turns: substance.turns,
       bytes: substance.bytes,
+      dayAsks: this.dayAsks(d),
     });
     return { asked: true, verdict, ask: askText(verdict.chapter), chapter: verdict.chapter };
   }
@@ -724,7 +750,15 @@ export class Self {
     if (opts.happenedOn !== undefined) append.happenedOn = opts.happenedOn;
     const written = appendChapter(this.store, state, gatedText, append);
     this.persistState(
-      { ...state, episodeId: written.episodeId, chapters: Math.max(state.chapters, written.chapter), lastDay: d },
+      {
+        ...state,
+        episodeId: written.episodeId,
+        chapters: Math.max(state.chapters, written.chapter),
+        // This append ANSWERS the open ask: the next one continues this chapter
+        // rather than opening another (§13 G2's headline case).
+        appendedAtAsk: state.asks,
+        lastDay: d,
+      },
       "appendChapter",
     );
     this.emit("self.episode.chapter", written.episodeId, {
@@ -902,6 +936,64 @@ export class Self {
   }
 
   /**
+   * THE DOOR THAT REACHES INGESTION (contract §3: "every identity surface owes
+   * an answer to *which door reaches this?*", §5 G12: every derived surface owes
+   * a SCHEDULED reconciler, asserted to run at a boundary).
+   *
+   * Measured 2026-09-04: `ingestEpisode` had no caller outside this module and
+   * its own tests. An episode that nobody ingests is a file, not a memory — the
+   * "context and source, in that order" half of §13 G6 was unreachable in
+   * production for the whole run. This is that scheduled pass: every live
+   * episode whose CURRENT text has not been ingested is ingested here, at the
+   * boundary, before the cycle that decays and re-renders around it.
+   *
+   * Cheap by construction: the skip is a state read plus a hash, so an episode
+   * already ingested at its current text costs no scan of the memory table.
+   */
+  reconcileEpisodes(day?: number): {
+    considered: number;
+    ingested: number;
+    regrown: number;
+    skipped: number;
+  } {
+    const d = day ?? this.store.livedDay();
+    let considered = 0;
+    let ingested = 0;
+    let regrown = 0;
+    let skipped = 0;
+    for (const id of this.store.list({ type: "episode", archived: false })) {
+      let doc: ProseDoc;
+      try {
+        doc = this.store.readProse(id);
+      } catch {
+        continue;
+      }
+      const sessionId = doc.meta["sessionId"];
+      // The identity-safe join again: an episode with no session is skipped
+      // outright rather than pooled into anyone's day (§13 G7).
+      if (typeof sessionId !== "string" || sessionId.trim().length === 0) continue;
+      considered += 1;
+      const state = this.episodeState(sessionId, d);
+      if (state.ingestedKey === ingestKey(id, doc.body)) {
+        skipped += 1;
+        continue;
+      }
+      const out = this.ingestEpisode({ sessionId, day: d });
+      if (out.reason === "ingested") ingested += 1;
+      else if (out.reason === "regrown") regrown += 1;
+      else skipped += 1;
+    }
+    this.emit("self.episode.reconciled", undefined, {
+      considered,
+      ingested,
+      regrown,
+      skipped,
+      day: d,
+    });
+    return { considered, ingested, regrown, skipped };
+  }
+
+  /**
    * The orphanable tail: substance accumulated after the last ask, which no ask
    * can cover because only a blocked stop hands the model a pen and nobody knows
    * which stop is last. It is bounded by the re-ask thresholds and LOGGED, so the
@@ -979,6 +1071,22 @@ export class Self {
     }
     const next = Number(this.store.getMeta(key) ?? "0") + 1;
     this.store.setMeta(key, String(next));
+    return next;
+  }
+
+  /**
+   * The day's ask counter. It moves with the ask, not with the chapter, because
+   * what the cap is protecting is the OWNER'S ATTENTION: an ask the model
+   * declined still cost the blocked moment it was delivered in.
+   */
+  private bumpDayAsks(day: number): number {
+    if (this.observer) {
+      const next = (this.volatileDayAsks.get(day) ?? 0) + 1;
+      this.volatileDayAsks.set(day, next);
+      return next;
+    }
+    const next = Number(this.store.getMeta(dayKey(day)) ?? "0") + 1;
+    this.store.setMeta(dayKey(day), String(next));
     return next;
   }
 

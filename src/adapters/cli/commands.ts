@@ -353,7 +353,7 @@ function initCommand(dir: string, io: Io): number {
   io.out("  1. Point the host at the hook entry script for every session-ending event:");
   io.out("       SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact");
   io.out("       command: bun run <repo>/src/adapters/claude-code/bin/hook.ts");
-  io.out("  2. Register the MCP server so the authorship ask has a way back:");
+  io.out("  2. Register the MCP server so the Stop ask has a way back:");
   io.out("       command: bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id>");
   io.out("  3. Write the adapter's configuration:");
   io.out(`       ${join(resolved, "claude-code.json")}`);

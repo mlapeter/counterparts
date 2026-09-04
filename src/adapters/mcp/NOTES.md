@@ -15,7 +15,7 @@ is a small thing to write and a large thing to depend on.
 
 The contract says three verbs. `session_end` is the fourth because
 `claude-code/INTERFACE-GAPS.md` §7 filed a live gap: the boundary raises an
-authorship ask into the model's context, and a hook cannot receive the answer.
+Stop ask into the model's context, and a hook cannot receive the answer.
 In this host, the return channel is a tool. Without it, `Counterpart.submitSessionEnd`
 — the primary path by which memory is supposed to form — is reachable only by a
 caller holding the object, and the crash fallback silently carries the whole

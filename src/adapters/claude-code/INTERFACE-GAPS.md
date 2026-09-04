@@ -109,27 +109,28 @@ door. The fallback door reaches `encode/` through `gateSweepChunk`, which needs 
 (`DEFAULT_KIND`). Two spellings of one rule. The fix queued item 9 already
 names — move the default behind the gate verdict — closes both.
 
-## 7. The authorship ask has no RETURN CHANNEL in this host's hooks
+## 7. The Stop ask has no RETURN CHANNEL in this host's hooks
 
-**What exists.** `stop()` raises `authorshipAsk(sessionId)` whenever the scope holds spans
-no proposal has covered, measured (not assumed) from
-`SpanBuffer.coverageReport`. The entry script prints it into the model's context.
+**What exists.** `stop()` raises `stopAsk(sessionId, chapter)` when `self/`'s pacer says a
+chapter is due; the coverage read from `SpanBuffer.coverageReport` rides along as a
+measurement of the unaskable tail rather than as a second condition. The entry script
+prints it into the model's context.
 `Counterpart.submitSessionEnd` is the entrance that turns a written dump into a
 memory, and it is fully wired and tested.
 
 **The gap.** A hook can only put text INTO the context; it cannot receive the
 model's answer. So the ask goes out and the deposit has nowhere to come back
 through — in this host, that channel is a TOOL, which is `mcp/CONTRACT.md`'s
-job (note, recall, status). Until the MCP adapter exists, the authored front door
-is reachable only by a caller holding the `Counterpart` directly, and the crash
-fallback carries the load the dump was meant to carry.
+job. Until the MCP adapter exists, the authored front door is reachable only by a
+caller holding the `Counterpart` directly, and the crash fallback carries the
+load the dump was meant to carry.
 
 **Why the ask ships anyway.** Every session-ending path must raise an ask (spec
 §2 G5/G11's mechanized half), and an ask that exists before its return channel is
 the right order: the alternative is a channel nobody is ever invited to use. The
-telemetry says which happened — `adapter.authorship.ask` records `uncovered`
-every time, so the day the channel lands, the backlog it inherits is already a
-measured number.
+telemetry says which happened — `adapter.ask` records `uncovered` every time, so
+the day the channel lands, the backlog it inherits is already a measured
+number.
 
 **CLOSED 2026-09-04, and what closing it cost.** The MCP adapter exists, so the
 channel exists — but the first run measured it shut anyway: this host registers
@@ -146,6 +147,18 @@ the hooks owe the seam is exactly three things and they are all here: the record
 its scope (the hook's own cwd, set once so a later hook cannot move it), and the
 id in the ask's text. Everything about what the server then does with a claim is
 `mcp/CONTRACT.md` §5 G10 and its residual-risk note.
+
+**THE SECOND HALF, closed 2026-09-04: the CHAPTER had no channel either.** The ask
+said "add chapter N to this session's episode" from the day the ritual shipped, and
+`Counterpart.appendEpisode` was wired, gated and tested — with no adapter calling it.
+So the invitation named a door that did not exist: measured on the live host, zero
+episode files, every `self.episode` meta row carrying a null `episodeId`, and eleven
+chapters written as `note`s titled "chapter N" because a note was the only thing that
+would take prose. `mcp`'s `chapter` tool is that door, binding through the same
+`requireBoundSession` rules as `session_end`, and the number it returns is the store's,
+never the ask's. The ask that names it is now ONE text on ONE pacer: the authorship half
+and the chapter half fired at different Stops and drew about a dozen asks in a 13-turn
+evening, which is exactly what spec §13 G3 forbids.
 
 ## 6. `sleep/`'s `SleepStore` and `Store` agree structurally, undocumented
 

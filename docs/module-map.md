@@ -31,7 +31,7 @@ input — does `encode` shrink to gates-and-tagging inside `remember`'s pipeline
 | adapter | job |
 |---|---|
 | `claude-code/` | Hooks: wake injection at session start, end-of-session remember, crash detection. The launch adapter. |
-| `mcp/` | Deliberate tools: note, recall, status. |
+| `mcp/` | Deliberate tools: note, recall, status — plus the Stop ask's two return channels, `session_end` (memories) and `chapter` (the episode's own journal, **added 2026-09-04**, because the ask named a door no adapter had built). |
 | `cli/` | `counterparts` command: status, install, owner operations (delete, export, backup). |
 | `dashboard/` | The owner's window (constitution line 16): brain-view, revision stories, band/protected lists. Observer-mode by construction; minimal version ships DURING the parallel run. **Added 2026-08-25 (owner elevation).** |
 | `sessions.ts` | Not an adapter — a leaf both may import: the live-session registry a host's hooks write (`<dataDir>/sessions/`) and its tools read, so a tool launched without a session can bind to one that is real, live and in its project. Adapters stay leaves; this is the sibling they share instead of importing each other. **Added 2026-09-04**, because this host's MCP servers are launched from a static config and cannot be told which session they serve. |
