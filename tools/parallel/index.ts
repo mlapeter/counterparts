@@ -78,13 +78,18 @@ export type { PreflightOptions } from "./preflight.js";
 export {
   RecordError,
   addressLines,
+  countActiveDays,
   crossEncoding,
   dailyRecord,
   readRunRecord,
 } from "./record.js";
 export type { CrossEncodingInput, DailyArtifacts, DailyOptions } from "./record.js";
 
-export { primacyFromAssignment } from "./assignment.js";
+export { RESTARTS_LOG, RestartError, restartArtifacts } from "./restart.js";
+export type { RestartArtifacts, RestartOptions } from "./restart.js";
+
+export { primacyFromAssignment, primacyReading } from "./assignment.js";
+export type { PrimacyReading } from "./assignment.js";
 export { surfaceSetHash } from "./surface.js";
 
 export { RunDir, WriterError } from "./writer.js";
