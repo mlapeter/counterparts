@@ -23,7 +23,9 @@ reply actually used reconsolidates, where in humans every retrieval does.
 - **No generative model call on the hot path.** [v1 §9 G1] Precise v2 form, per the harvest's
   own correction: the ambient path may consult an **embedding** model, never a generative
   one, and must degrade to lexical-only rather than fail (Appendix A #12 — v1's "no second
-  LLM call" was true of generation and silent about embeddings).
+  LLM call" was true of generation and silent about embeddings). **And it consults that
+  embedding without calling anything**: the ambient turn's semantic input is COMPUTED ONE
+  TURN EARLIER, off this path entirely (open question 2, answered — see §5 G17).
 - **Hard latency budget, silent abort, zero side effects on loss** — the pass *builds* its
   decision and a separate step *records* it; on timeout nothing is injected, buffered,
   logged, or spent. *A slow subconscious is worse than a quiet one.* [v1 §9 G2]
@@ -154,6 +156,24 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     human rating can be carried across a change only when that set provably matches (parallel
     CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer; an
     abort writes nothing at all, which is guarantee 2 unchanged.
+16. **[M]** The semantic channel has a **stated source on every turn**, from a closed
+    vocabulary (`none`, `lagged`, `in-line`, `stale`, `unreadable`, and the worker's four
+    named failures). Measured 2026-09-04: both live paths built their turn without a
+    vector, so `semanticUsed: false` was written on every real turn and said nothing about
+    why — "did not fire" and "was never asked" are different records (scar §2.4). The
+    source is NOT in the durable surface set (`RECALL_DECISION_FIELDS`), because moving
+    that set mid-parallel-run invalidates every carried human rating (parallel §5 G12); it
+    rides the adapter's own `adapter.recall` row, which is durable.
+17. **[M]** The lagged semantic cue is **per-session gate state with a one-turn lifetime**,
+    on the same `gate_session` table and swept by the same `pruneGateSessions()`. It stamps
+    the session's SERVED turn count when written and is usable only while that number is
+    still the served count — i.e. on the very next turn, exactly the `carriedCues` rule.
+    What it carries is the **top-M `{id, score}` ranking**, not the vector: `Store.nearestTo`
+    measured 590-1040 ms over 13,862 stored vectors, so the scan is as unaffordable on the
+    hot path as the round trip was. A recorded race: a worker slow enough to be overtaken
+    by the next turn stamps the newer turn number, so a cue can be labelled one turn later
+    than the text it was computed from. Cheap to detect (the hits are a turn stale), not
+    worth a lock.
 
 ## 6. Scars honored
 
@@ -170,8 +190,16 @@ decision record carries ids, never bodies).
    proposal; the alternative the spec offers is honest deletion of the four rules that depend
    on it. Either is defensible; v1's state — specified, implemented, tested, unreachable — is
    the worst of the three.
-2. **Does the ambient path embed at all on a cold cache?** v1's did, inside its own latency
-   race, which is how "no second LLM call" quietly became untrue.
+2. ~~**Does the ambient path embed at all on a cold cache?**~~ **ANSWERED 2026-09-04
+   (owner ruling): no — and it does not rank one either.** v1's did, inside its own
+   latency race (`~/bansai/hooks/surface.ts:82-88`, "a cold cache calls Voyage and the
+   latency race covers it"), which is how "no second LLM call" quietly became untrue
+   there. v2 cannot even do that much: `recall.build` is a synchronous pass with budget
+   checkpoints rather than a race, so an overrun aborts the turn instead of degrading the
+   channel, and every hook is a fresh process already spending 700-1000 ms cold against
+   1200 ms. The cue is computed by the detached worker after a turn and used on the next
+   one (§5 G17). The deliberate ask is the exception and embeds in line, under its own
+   budget (`mcp/deliberate.ts`, `DELIBERATE_BUDGET_MS`).
 3. **Does `associate/` fold in here** (traversal), with its arithmetic going to `physics/`?
    The module map's standing check-in question; owned by `associate/`.
 4. **Is the "quietly available / ignorable" framing actually ignorable to a model?** v1

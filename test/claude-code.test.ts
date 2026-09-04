@@ -64,6 +64,13 @@ import {
   openEmbedder,
   parseTranscript,
   permissionWarning,
+  SCOPE_ENV,
+  SESSION_ENV,
+  backfillVectors,
+  lagText,
+  laggedSemantic,
+  LAG_PROMPT_BYTES,
+  LAG_REPLY_BYTES,
   planSpawn,
   primacy,
   readAssignment,
@@ -2813,5 +2820,489 @@ describe("the authorship ask names the session and the tool that takes it", () =
       { stop_hook_active: true },
     );
     expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The semantic channel, wired: a LAGGED cue, and the backfill that feeds it
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE MEASURED FAILURE (2026-09-04, live store): `RecallTurn.vector` existed
+ * from `recall/`'s first commit and NEITHER live path set it — the hook built
+ * its turn without one, the MCP tool built its own — so 13,862 embeddings were
+ * consulted by nothing live, and 40 authored notes, 224 episodes and 288
+ * migrated memories had no vector at all.
+ *
+ * The ruling: do not embed on the hot path. Compute the cue after a turn, in the
+ * worker, and use it on the NEXT one. And rank it there too — `nearestTo` over a
+ * live-sized index measured 590-1040 ms, which the 1200 ms budget cannot pay.
+ *
+ * These tests hold both halves to it, and hold the prompt path to opening no
+ * socket at all.
+ */
+describe("the lagged semantic cue — computed after a turn, used on the next", () => {
+  /**
+   * A deterministic embedder over THREE topics. Not `vectorFor`: this block
+   * needs to assert WHICH memory the semantic channel reached, and a hash-shaped
+   * vector makes "the otter memory came back" an accident rather than a claim.
+   */
+  function topicEmbedder(): LiveEmbedder & { warmed: string[]; asked: string[] } {
+    const warmed: string[] = [];
+    const asked: string[] = [];
+    const cache = new Map<string, number[]>();
+    const vec = (t: string): number[] => {
+      const l = t.toLowerCase();
+      if (l.includes("otter")) return [1, 0, 0];
+      if (l.includes("kite")) return [0, 1, 0];
+      return [0, 0, 1];
+    };
+    return {
+      warmed,
+      asked,
+      model: "test-embed-1",
+      embed: (t: string) => cache.get(t) ?? null,
+      vector: async (t: string) => {
+        asked.push(t);
+        const v = vec(t);
+        cache.set(t, v);
+        return v;
+      },
+      warm: async (texts: readonly string[]) => {
+        for (const t of texts) {
+          warmed.push(t);
+          cache.set(t, vec(t));
+        }
+        return texts.length;
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+    };
+  }
+
+  /** An embedder that is switched on and answers NOTHING — a live client whose
+   *  every call refused, which is what a bad key looks like from up here. */
+  function deadEmbedder(): LiveEmbedder {
+    return {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0 }),
+    };
+  }
+
+  function brain(embedder: LiveEmbedder | null): Counterpart {
+    const c = Counterpart.open({
+      dir,
+      owner: true,
+      budgetBytes: BUDGET_BYTES,
+      ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
+    });
+    open.push(c);
+    return c;
+  }
+
+  /** Enough memories that the gate leaves the cold-start regime. */
+  function seed(c: Counterpart): { otter: string; kite: string } {
+    const otter = c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "The otter survey",
+      body: "The otter survey on the river counted eleven holts this spring.",
+    });
+    const kite = c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "The kite festival",
+      body: "The kite festival moved to the headland because of the wind.",
+    });
+    for (let i = 0; i < 18; i += 1) {
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `Filler memory number ${i}: an unremarkable fact about ordinary things.`,
+      });
+    }
+    return { otter, kite };
+  }
+
+  test("the worker leaves the cue; the NEXT turn uses it, and says where it came from", async () => {
+    const emb = topicEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    // Every memory gets its vector the guaranteed way: the backfill, not a
+    // deposit that happened to pay for one.
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+
+    // Turn 1 — the semantic channel is dark, and the record says so BY NAME
+    // rather than with the bare `semanticUsed: false` that told nobody anything.
+    const first = c.recallForTurn({ sessionId: "s-lag", text: "What did we settle about the river?" });
+    expect(first.decision.semanticUsed).toBe(false);
+    expect(first.decision.semanticSource).toBe("none");
+    expect(first.decision.turn).toBe(1);
+
+    // The turn is captured, then the worker runs — exactly the live order.
+    c.captureSpans({
+      session: "s-lag",
+      scope: "proj",
+      turns: [
+        { role: "user", text: "How many holts did the otter survey find?" },
+        { role: "assistant", text: "Eleven, on the river stretch." },
+      ],
+    });
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-lag",
+      scope: "proj",
+      embedder: emb,
+      hasCredential: true,
+    });
+    expect(lag.reason).toBe("ok");
+    expect(lag.stored).toBe(true);
+    expect(lag.hits).toBeGreaterThan(0);
+
+    // Turn 2 — a prompt with NO lexical overlap with the otter memory. Lexically
+    // it reaches nothing; the lagged cue is the only way in.
+    const second = c.recallForTurn({ sessionId: "s-lag", text: "And the count, remind me?" });
+    expect(second.decision.semanticUsed).toBe(true);
+    expect(second.decision.semanticSource).toBe("lagged");
+    expect(second.decision.semanticFromTurn).toBe(1);
+    expect(second.decision.verdicts.map((v) => v.id)).toContain(otter);
+  });
+
+  test("it expires after exactly ONE turn — the carried-cue rule, same reason", async () => {
+    const emb = topicEmbedder();
+    const c = brain(emb);
+    seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+
+    c.recallForTurn({ sessionId: "s-exp", text: "A first turn about the otter survey." });
+    c.captureSpans({
+      session: "s-exp",
+      scope: "proj",
+      turns: [
+        { role: "user", text: "How many holts did the otter survey find?" },
+        { role: "assistant", text: "Eleven." },
+      ],
+    });
+    await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-exp",
+      scope: "proj",
+      embedder: emb,
+      hasCredential: true,
+    });
+
+    // Turn 2 spends it.
+    expect(c.recallForTurn({ sessionId: "s-exp", text: "And the count?" }).decision.semanticSource).toBe(
+      "lagged",
+    );
+    // Turn 3 — no worker ran in between, so the cue is a turn too old. STALE, by
+    // name, never silently reused: a cue from two turns ago is a cue for a
+    // conversation that has moved.
+    const third = c.recallForTurn({ sessionId: "s-exp", text: "One more question." });
+    expect(third.decision.semanticSource).toBe("stale");
+    expect(third.decision.semanticUsed).toBe(false);
+    expect(third.decision.semanticFromTurn).toBe(1);
+  });
+
+  test("no credential ⇒ nothing is stored to use, and the next turn NAMES it", async () => {
+    const c = brain(topicEmbedder());
+    seed(c);
+    c.captureSpans({
+      session: "s-nokey",
+      scope: "proj",
+      turns: [{ role: "user", text: "Anything about the otter survey?" }],
+    });
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-nokey",
+      scope: "proj",
+      embedder: topicEmbedder(),
+      hasCredential: false,
+    });
+    expect(lag.reason).toBe("no-credentials");
+    expect(lag.hits).toBe(0);
+
+    const turn = c.recallForTurn({ sessionId: "s-nokey", text: "The count, again?" });
+    expect(turn.decision.semanticUsed).toBe(false);
+    // The whole point: a NAMED state, not a silence indistinguishable from a
+    // session nobody has spoken in (scar §2.4).
+    expect(turn.decision.semanticSource).toBe("no-credentials");
+  });
+
+  test("an embedder that answers nothing is `embed-failed`, and an absent one `embedder-off`", async () => {
+    const c = brain(null);
+    seed(c);
+    c.captureSpans({
+      session: "s-dead",
+      scope: "proj",
+      turns: [{ role: "user", text: "Anything about the kite festival?" }],
+    });
+    expect(
+      (await laggedSemantic({ counterpart: c, sessionId: "s-dead", scope: "proj", embedder: null, hasCredential: true }))
+        .reason,
+    ).toBe("embedder-off");
+    expect(
+      (
+        await laggedSemantic({
+          counterpart: c,
+          sessionId: "s-dead",
+          scope: "proj",
+          embedder: deadEmbedder(),
+          hasCredential: true,
+        })
+      ).reason,
+    ).toBe("embed-failed");
+    expect(c.recallForTurn({ sessionId: "s-dead", text: "Well?" }).decision.semanticSource).toBe(
+      "embed-failed",
+    );
+  });
+
+  test("a session with nothing captured is `no-text`, not a vector of the empty string", async () => {
+    const c = brain(topicEmbedder());
+    const emb = topicEmbedder();
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-silent",
+      scope: "proj",
+      embedder: emb,
+      hasCredential: true,
+    });
+    expect(lag.reason).toBe("no-text");
+    expect(emb.asked).toEqual([]);
+  });
+
+  test("the cue is BOUNDED and STRIPPED — the prompt leads, the reply is clipped (§9 G3)", () => {
+    const c = brain(topicEmbedder());
+    c.captureSpans({
+      session: "s-clip",
+      scope: "proj",
+      turns: [
+        {
+          role: "user",
+          text: `<system-reminder>host boilerplate</system-reminder>The otter question. ${"p".repeat(4_000)}`,
+        },
+        { role: "assistant", text: `The answer. ${"r".repeat(4_000)}` },
+      ],
+    });
+    const text = lagText(c, "s-clip", "proj");
+    expect(text).not.toContain("system-reminder");
+    expect(text.length).toBeLessThanOrEqual(LAG_PROMPT_BYTES + LAG_REPLY_BYTES + 2);
+    // The prompt LEADS: a cue that kept only the reply is a cue for the answer,
+    // not for what the conversation is about.
+    expect(text.startsWith("The otter question.")).toBe(true);
+  });
+
+  test("under OBSERVER nothing is written — the instrument leaves the world as it found it", async () => {
+    Counterpart.open({ dir }).close();
+    const c = Counterpart.open({ dir, observer: true });
+    open.push(c);
+    c.captureSpans({ session: "s-obs", scope: "proj", turns: [{ role: "user", text: "Otter?" }] });
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-obs",
+      scope: "proj",
+      embedder: topicEmbedder(),
+      hasCredential: true,
+    });
+    expect(lag.stored).toBe(false);
+    expect(c.store.gateRecords("s-obs")).toEqual([]);
+  });
+});
+
+describe("the embedding backfill — the guaranteed path to a vector", () => {
+  function counting(): LiveEmbedder & { warmed: string[] } {
+    const warmed: string[] = [];
+    const cache = new Map<string, number[]>();
+    return {
+      warmed,
+      model: "test-embed-1",
+      embed: (t: string) => cache.get(t) ?? null,
+      vector: async (t: string) => {
+        cache.set(t, vectorFor(t));
+        return vectorFor(t);
+      },
+      warm: async (texts: readonly string[]) => {
+        for (const t of texts) {
+          warmed.push(t);
+          cache.set(t, vectorFor(t));
+        }
+        return texts.length;
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+    };
+  }
+
+  function brain(embedder: LiveEmbedder | null): Counterpart {
+    const c = Counterpart.open({
+      dir,
+      owner: true,
+      ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
+    });
+    open.push(c);
+    return c;
+  }
+
+  test("first-person material first, oldest inside each group, capped at the limit", async () => {
+    const emb = counting();
+    const c = brain(emb);
+    // Ordinary swept material, born first — so a pure oldest-first order would
+    // take these and leave the authored notes blind for runs.
+    const swept = [0, 1, 2].map((i) =>
+      c.store.put({ type: "memory", kind: "fact", body: `A swept observation ${i}.`, source: "fallback" }),
+    );
+    const authored = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Something I chose to write down myself.",
+      source: "authored",
+    });
+    const episode = c.store.put({ type: "episode", kind: "self", body: "A chapter of my own." });
+
+    const report = await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true, limit: 2 });
+    expect(report.reason).toBe("ran");
+    expect(report.attempted).toBe(2);
+    expect(report.embedded).toBe(2);
+    expect(report.failed).toBe(0);
+    // THE ORDER IS THE CLAIM: the authored note and the episode, not the three
+    // older swept ones.
+    const got = new Set(
+      c.store.nearestTo(vectorFor(indexTextOf("", "x")), 100).map((h) => h.id),
+    );
+    expect(got.has(authored)).toBe(true);
+    expect(got.has(episode)).toBe(true);
+    for (const id of swept) expect(got.has(id)).toBe(false);
+    // And the remainder is reported, so a coverage watch has a number that falls.
+    expect(report.remaining).toBe(3);
+
+    const rest = await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    expect(rest.embedded).toBe(3);
+    expect(rest.remaining).toBe(0);
+    expect((await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true })).reason).toBe(
+      "nothing-missing",
+    );
+  });
+
+  test("the counts are DURABLE — a coverage watch reads them out of the store tomorrow", async () => {
+    const emb = counting();
+    const c = brain(emb);
+    c.store.put({ type: "memory", kind: "fact", body: "One memory with no vector yet." });
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    const rows = c.store
+      .eventLog({ name: "adapter.embed.backfill", limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.["embedded"]).toBe(1);
+    expect(rows[0]?.["remaining"]).toBe(0);
+    expect(rows[0]?.["failed"]).toBe(0);
+  });
+
+  test("a warm that filled the WRONG key reports zero, never a success over an empty table", async () => {
+    // The seam that can silently break: `warm()` caches by whatever string it
+    // was handed, and `embedOne` looks up `indexTextOf(title, body)`. This
+    // embedder warms under a mangled key — every lookup misses.
+    const cache = new Map<string, number[]>();
+    const wrong: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: (t: string) => cache.get(t) ?? null,
+      vector: async () => null,
+      warm: async (texts: readonly string[]) => {
+        for (const t of texts) cache.set(`mangled:${t}`, vectorFor(t));
+        return texts.length;
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+    };
+    const c = brain(wrong);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory whose vector will be cached wrong." });
+    const report = await backfillVectors({ counterpart: c, embedder: wrong, hasCredential: true });
+    expect(report.attempted).toBe(1);
+    expect(report.embedded).toBe(0);
+    expect(report.failed).toBe(1);
+    expect(report.remaining).toBe(1);
+  });
+
+  test("it writes the VECTOR row and leaves `doc_tokens` untouched", async () => {
+    // The reason this is a test and not a comment: `indexDoc` would have been
+    // the obvious reuse, and it DELETEs and re-inserts every token row. The text
+    // has not changed, so that is 64 rewrites per Stop on the 263 MB index whose
+    // page-cache warming is exactly why `recall/`'s BUDGET_MS went 250 -> 1200.
+    // A backfill that made the cold recall slower would be self-defeating.
+    const emb = counting();
+    const c = brain(emb);
+    const id = c.store.put({ type: "memory", kind: "fact", body: "A memory with tokens already indexed." });
+    expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
+
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    // The lexical index still answers, and the vector row now exists.
+    expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
+    expect(c.store.nearestTo(vectorFor(indexTextOf("", "x")), 5).map((h) => h.id)).toContain(id);
+
+    // Greps for the CONSUMER, not the comment (scar §2.6's own method): the one
+    // write path the backfill uses must not be the token-rewriting one.
+    const src = readFileSync(fileURLToPath(new URL("../src/core/store/index.ts", import.meta.url)), "utf8");
+    const body = src.slice(src.indexOf("  embedOne(id: string)"));
+    const method = body.slice(0, body.indexOf("\n  }\n"));
+    expect(method).toContain("setEmbedding(");
+    expect(method).not.toContain("indexDoc(");
+  });
+
+  test("off, and refused, are two records — never one zero (scar §2.4)", async () => {
+    const c = brain(null);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory nobody will embed today." });
+    expect((await backfillVectors({ counterpart: c, embedder: null, hasCredential: true })).reason).toBe(
+      "embedder-off",
+    );
+    expect(
+      (await backfillVectors({ counterpart: c, embedder: counting(), hasCredential: false })).reason,
+    ).toBe("no-credentials");
+  });
+});
+
+describe("the prompt path opens NO socket — the ruling, mechanized", () => {
+  test("user-prompt-submit makes no network call, by either route", () => {
+    const realFetch = globalThis.fetch;
+    const calls: string[] = [];
+    (globalThis as { fetch: unknown }).fetch = (url: unknown): never => {
+      calls.push(String(url));
+      throw new Error("the prompt path opened a socket");
+    };
+    try {
+      const { calls: spawns, spawner } = fakeSpawner();
+      const a = openAdapter(config({ embedder: { enabled: true } }), {
+        command: "/bin/true",
+        args: ["runner"],
+        spawner,
+        // The OTHER route: the adapter's own injected fetch. A hook that reached
+        // it would fail here rather than pass quietly.
+        embedFetch: () => {
+          throw new Error("the prompt path opened a socket");
+        },
+      });
+      open.push(a.counterpart);
+      const out = a.userPromptSubmit(input({ prompt: "Anything about the storage split?" }));
+      expect(out.ok).toBe(true);
+      expect(calls).toEqual([]);
+      expect(spawns.length).toBe(0);
+    } finally {
+      (globalThis as { fetch: unknown }).fetch = realFetch;
+    }
+  });
+
+  test("Stop pins the session and scope onto the worker, so the cue has an owner", () => {
+    const { a, calls } = adapter();
+    a.stop(input());
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.env[SESSION_ENV]).toBe("s1");
+    expect(calls[0]?.env[SCOPE_ENV]).toBe("proj");
+  });
+
+  test("the recall row records WHERE the semantic input came from", () => {
+    const { a } = adapter();
+    a.userPromptSubmit(input({ prompt: "Anything about the storage split?" }));
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.recall", limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.["semantic"]).toBe("none");
   });
 });

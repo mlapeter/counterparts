@@ -43,6 +43,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import type { Counterpart, DepositResult } from "../../core/counterpart.js";
+import type { SemanticSource } from "../../core/recall/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import { SESSION_TTL_MS, isLive, readSession, sameScope } from "../sessions.js";
 import {
@@ -93,6 +94,19 @@ export interface McpServerOptions {
   /** Is this the owner's own session? Withholding is the safe direction. */
   owner?: boolean;
   /**
+   * The embedder, for ONE purpose: embedding a deliberate question in line.
+   *
+   * The ruling of 2026-09-04 splits the two paths — the ambient hot path may not
+   * embed (it has a 1200 ms budget and a person mid-sentence), the deliberate
+   * ask may (someone typed a question and is waiting). This is that half.
+   *
+   * The server never sees a credential: the ENTRY POINT loads the file the
+   * package's own config names and hands over an opened embedder or null
+   * (`bin/serve.ts`), exactly as `bin/hook.ts` does for the hook adapter. Null
+   * degrades the ask to lexical-only and the result SAYS so.
+   */
+  embedder?: QuestionEmbedder | null;
+  /**
    * Where the hooks' live-session registry lives. Defaults to the store's own
    * data dir — the one path both adapters resolve independently and agree on.
    */
@@ -101,6 +115,12 @@ export interface McpServerOptions {
   sessionTtlMs?: number;
   onEvent?: (e: McpEvent) => void;
   now?: () => number;
+}
+
+/** The narrow face of `claude-code/embed-client.ts`'s `LiveEmbedder` this
+ *  adapter needs — structural, so `mcp/` imports no other adapter. */
+export interface QuestionEmbedder {
+  vector(text: string): Promise<number[] | null>;
 }
 
 /** MCP's tool-result shape. A refusal is a RESULT, never a JSON-RPC error. */
@@ -149,6 +169,7 @@ export class McpServer {
   /** One predicate, one definition: the store's (observer-mode G7). */
   readonly observer: boolean;
 
+  private readonly embedder: QuestionEmbedder | null;
   private readonly registryDir: string;
   private readonly sessionTtlMs: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
@@ -171,6 +192,8 @@ export class McpServer {
     // An observer is a non-owner regardless of what the host claimed
     // (observer-mode G7): an instrument reading somebody's store is not them.
     this.owner = opts.owner === true && !this.observer;
+    // An instrument opens no sockets, whatever the host handed it (scar E7).
+    this.embedder = this.observer ? null : opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
     // LAST in the constructor — `emit` needs `nowFn`. A scope nobody chose is
@@ -266,7 +289,7 @@ export class McpServer {
       case "note":
         return this.noteTool(args);
       case "recall":
-        return this.recallTool(args);
+        return await this.recallTool(args);
       case "status":
         return this.statusTool();
       case "session_end":
@@ -322,7 +345,7 @@ export class McpServer {
   }
 
   /** `recall` — the deeper look. Writes nothing; see `deliberate.ts`. */
-  private recallTool(args: Record<string, unknown>): ToolResult {
+  private async recallTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
     const handle = args["handle"];
     const question = args["question"];
@@ -337,6 +360,12 @@ export class McpServer {
       return this.refuse("recall", "ids-not-a-string-array", {});
     }
     const askedIds = ((ids as string[] | undefined) ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
+    // IN LINE, and only for a question: the handle and `ids` paths are exact
+    // addresses and embedding them would buy nothing but a round trip. A refusal
+    // is a NAME, not a narrower answer — `deliberateRecall` degrades to lexical
+    // and says which.
+    const asked = typeof question === "string" && question.trim().length > 0;
+    const embedded = asked ? await this.embedQuestion(question) : { vector: null, semantic: "none" as SemanticSource };
     const result = deliberateRecall(
       this.counterpart,
       {
@@ -344,12 +373,18 @@ export class McpServer {
         ...(typeof question === "string" ? { question } : {}),
         ...(askedIds.length > 0 ? { ids: askedIds } : {}),
       },
-      { sessionId: this.session ?? "mcp", owner: this.owner },
+      {
+        sessionId: this.session ?? "mcp",
+        owner: this.owner,
+        vector: embedded.vector,
+        semantic: embedded.semantic,
+      },
     );
     const payload = this.recallPayload(result);
     this.emit("mcp.recall", undefined, {
       path: result.path,
       reason: result.reason,
+      semantic: result.semantic,
       returned: result.memories.length,
       considered: result.considered,
       storeSize: result.storeSize,
@@ -370,6 +405,25 @@ export class McpServer {
   }
 
   /**
+   * One embedding call, and every way it can decline, by name. The credential
+   * itself never appears here — `openEmbedder` was handed one at the entry point
+   * and this file only ever sees vectors or null.
+   */
+  private async embedQuestion(
+    question: string,
+  ): Promise<{ vector: number[] | null; semantic: SemanticSource }> {
+    if (this.embedder === null) return { vector: null, semantic: "embedder-off" };
+    try {
+      const vector = await this.embedder.vector(question);
+      return vector === null || vector.length === 0
+        ? { vector: null, semantic: "embed-failed" }
+        : { vector, semantic: "in-line" };
+    } catch {
+      return { vector: null, semantic: "embed-failed" };
+    }
+  }
+
+  /**
    * The payload, BOUNDED. A list answers "which memories" and ships excerpts;
    * an address (`handle`, or `ids`) answers "what did it say" and ships as much
    * body as the total budget allows. See `deliberate.ts`'s size constants for
@@ -384,6 +438,9 @@ export class McpServer {
     return {
       path: result.path,
       reason: result.reason,
+      /** Said out loud, never inferred from a thinner answer: when the semantic
+       *  channel could not run, the asker is told which channel answered. */
+      semantic: result.semantic,
       /** The two numbers §9.1 G3 exists for: a count here is never a top-K. */
       considered: result.considered,
       /** `considered` is `MAX_CANDIDATES`, and saying so is the difference
