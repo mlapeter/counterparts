@@ -131,6 +131,13 @@ describe("dataDir", () => {
       "tools/parallel/bin/preflight.ts",
       "tools/parallel/bin/daily.ts",
       "tools/parallel/bin/restart.ts",
+      // Same ground as the three above: the demo seeder names the live-store
+      // roots in `REFUSED_ROOT_NAMES` precisely to REFUSE them, because
+      // `store/paths.ts` does not refuse `~/.counterparts` and a seeder with no
+      // guard of its own could be pointed at the owner's memory. It imports the
+      // core's list rather than retyping it; `.memory-ab` is the one name it
+      // adds, and `test/demo-seed.test.ts` proves every entry is refused.
+      "tools/demo/seed.ts",
     ]);
     const hits: string[] = [];
     const walk = (dir: string): void => {
