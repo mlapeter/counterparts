@@ -377,10 +377,12 @@ counterparts note "Postgres in dev listens on port 5433, not 5432."
 counterparts recall "which port does postgres use in dev?"
 ```
 
-`note` prints `Remembered mem_… — minted.` `recall` prints a header line, the
-memories it found, and what the tier on each one means:
+`note` prints the store it wrote to, then `Remembered mem_… — minted.` `recall`
+prints the same `Store:` line first, then a header line, the memories it found,
+and what the tier on each one means:
 
 ```
+Store: /Users/<you>/.counterparts/store
 question · answered · semantic embedder-off · considered 1 of 2 live · returned 1
 
   mem_3856a5e8f2fa  [quiet] fact
