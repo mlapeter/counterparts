@@ -348,7 +348,7 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
     {
       label: "beliefs and entities",
       value: String(beliefs),
-      note: "what the schemas are made of — held like memories, counted apart",
+      note: "held like memories, counted apart",
       accent: "teal",
       absent: beliefs === 0,
     },

@@ -152,6 +152,63 @@ left open reported yesterday.
   already carries in its third column and merge the two tables; that is a
   restructuring, not a patch, and it is filed rather than half-done.
 
+## The web view, third pass — 2026-09-04, and the number that disagreed with itself
+
+Two of the four findings this round were the same shape as last round's: a
+presentation complaint with a bug underneath it.
+
+**A note left the page reporting a number the server no longer agreed with.**
+`counterparts note` deposits a memory and writes **no durable event**. The flow
+page polled the event log to know whether anything had happened — which is the
+wrong question, because the log is not the whole truth — so the sequence never
+moved, the refetch never fired, and a page left open said `143 came through`
+indefinitely while `/api/flow` already answered 144. Straight after the
+console's flagship "remember this". `/api/meta` now carries a row count, the
+poll compares it, and a deposit that left no trace in the log still refreshes
+the counters and lights the path it actually took: session → remember → encode →
+store, on **named** edges, because the first edge into ENCODE is the dotted
+crash fallback and a note did not crash. No feed row is invented — the feed IS
+the durable log, and a row there would be a claim that something was recorded.
+The chip says `last deposit`, not `last event`, for the same reason.
+
+**The overview counted beliefs as memories.** `census()` keeps every live row
+that is not the journal, and that includes schema rows — entities, and the
+beliefs about them. So the headline tile read 145 while `counterparts status`
+said 121 memories beside 24 beliefs and entities, on the same store, in the same
+second. Two of this product's own surfaces disagreeing about its most basic
+number is worse than either number being wrong. The census still keeps both
+populations, because the bands, the kinds and the constellation are true of a
+belief exactly as they are of a memory — but each row now says which it is, and
+every surface that uses the word counts only memories. Beliefs and entities got
+a tile of their own beside the first; hiding them would have been the other half
+of the same mistake. The test reads the definition off the store rather than off
+either surface, so the console and the dashboard are held to one rule instead of
+to each other.
+
+**The date that never changed.** Fifteen identity rows of `learned 2026-09-04`
+under fifteen rows of `strength 1.00` — two of three visible fields constant, in
+the README's first image. It had been filed as a limitation of the demo store.
+It was not: `learnedOn` is the day a row ENTERED the store, which for anything
+built or migrated in one run is the same morning, while the lived days spread
+across the whole month and were already in the store. Rows carry `born day N ·
+last used day M` now; the calendar date moved to the memory's card, labelled
+`recorded`, saying what it means on a migrated store.
+
+**Tap targets.** 29.2px nav links and an 18px `brain` link on a phone, against
+44. Below 720px the nav stops wrapping and becomes one scrolling strip with real
+44px hits, and the header lost a row (150px → 132.6px). Literally one row is not
+available at 390 with six sections and four chips; three tidy rows — identity,
+state, navigation — is the honest floor.
+
+The loop measures tap heights the way it measures contrast, shoots a fold-height
+frame at the size the README publishes, takes `--name` so the store in every
+screenshot has a name a person would give it (`fernbrook-demo`, not
+`counterparts-vl-rich-zjReXw` — the round-2 basename fix was only ever as good
+as the directory's name), and, after the durable deposit it already caused,
+types a note and asserts the counters moved on screen. That last check fails on
+the build before this one, which is the only kind of regression test worth
+having for a bug that only exists while somebody is looking.
+
 ## OQ2 — which views ship during the parallel run?
 
 The contract asked what the minimum is "beyond status + revision stories". Answer:
@@ -189,6 +246,18 @@ Scar §2.4 is about exactly this distinction, and v1's "zero births" ambiguity i
 the case study: a count of zero that could equally mean *refused* or *never
 proposed* is not evidence about anything. The cycle-phase table uses `(never run)`;
 the count tables use `(none yet)`.
+
+**And a third, for one node, added 2026-09-04.** ENCODE on the flow diagram
+rendered `(never run)` beside STORE's `143 memories held` — a flat contradiction
+to anyone who did not click it, and both words were false. The gate battery HAS
+run, on all 143; it writes a durable record on one of its two paths. The
+crash-sweep path records what it gated, because nobody was watching it happen.
+The authored path is gated in line, in front of the person who asked, and writes
+no `gate.chunk` row at all. So the node says `143 passed · no gate record yet`
+and `UNLOGGED_PATH` (in `web/flow.ts`) carries the whole sentence for the panel
+behind it, including where that would change — replay §2a. The rule the third
+word obeys is the same as the first two: never borrow an absence word that means
+something else, and never render an absence that is not one.
 
 ## What the totality rule is anchored to
 

@@ -19,7 +19,7 @@
  * Usage:
  *
  *   ~/.bun/bin/bunx playwright install chromium      # once, per machine
- *   ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots
+ *   ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --name fernbrook-demo
  *   ... --keep            leave the seeded stores in place and print their paths
  *   ... --headed          watch it work
  *

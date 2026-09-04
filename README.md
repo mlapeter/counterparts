@@ -24,7 +24,7 @@ about what has been verified and what has not.*
 *Overview (a synthetic demo store — no real memory appears in any screenshot here).*
 
 ![flow](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-flow.png)
-*Flow — the architecture, alive; the page opens on one mechanism (sleep, here) with its brain analogy and where that analogy deliberately breaks (the same synthetic store).*
+*Flow — the architecture, alive. A memory just typed at the console is arriving through the authored door, and only a real event ever moves anything here; the panel holds one mechanism (sleep, here), its brain analogy, and where that analogy deliberately breaks (the same synthetic store).*
 
 ![brain](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-brain.png)
 *Brain view — the same machinery mapped to a rough anatomy; regions flash on real events (same synthetic store).*

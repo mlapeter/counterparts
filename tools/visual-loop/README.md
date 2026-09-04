@@ -39,6 +39,8 @@ than fetched once at boot.
 ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots
 ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --keep    # leave the seeded stores
 ~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --headed  # watch it work
+~/.bun/bin/bun tools/visual-loop/shots.ts --out /tmp/shots --name fernbrook-demo
+                                                    # name the store in the header chip
 ```
 
 Omit `--out` and it writes into a fresh temp directory and prints the path.

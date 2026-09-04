@@ -66,7 +66,9 @@ h2:first-child{margin-top:0}
 .lede{color:var(--dim);font-size:12.5px;margin:0 0 16px;max-width:96ch;line-height:1.75}
 .lede b{color:var(--ink);font-weight:400}
 
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:6px}
+/* 124, not 132: the tenth tile (beliefs and entities) has to sit on the first
+   row at 1440 rather than orphan itself under nine others. */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,1fr));gap:10px;margin-bottom:6px}
 .tile{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;
   transition:border-color .3s,box-shadow .3s}
 .tile:hover,.card:hover{border-color:var(--glow);box-shadow:var(--hovershadow)}
