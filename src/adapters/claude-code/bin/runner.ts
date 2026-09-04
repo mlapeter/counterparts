@@ -10,7 +10,13 @@
  * hold spans a second run would also claim (scars E4/E5, SEAMS queued item 10).
  *
  * What it runs, in order (the composition root owns the order, not this file):
- *   1. the crash-fallback sweep, over EVERY scope holding experience (§2 G9);
+ *   1. the crash-fallback sweep, over EVERY scope holding experience (§2 G9) —
+ *      which SELECTS NOTHING unless a session actually crashed (uncovered spans,
+ *      no `session-end` boundary, silent for `CRASH_STALE_MS`). This worker is
+ *      spawned at every boundary for the flush and the cycle below; the sweep is
+ *      a fallback and its ordinary answer is "nothing crashed", recorded as the
+ *      durable `sweep.gate` row so the silence is evidenced (owner ruling
+ *      2026-09-04, `remember/fallback.ts`);
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing.
  *

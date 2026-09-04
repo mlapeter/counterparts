@@ -19,6 +19,35 @@ export const TUNABLES = {
   /** Hashes retained in the consumed ledger (dedup layer 2's tail). Bounded on
    *  purpose: it is telemetry-grade bookkeeping, not canonical memory. */
   CONSUMED_LEDGER_MAX: 2000,
+  /** CAL. How long a session must go SILENT — no boundary of any kind — before
+   *  the fallback may call it crashed and read its transcript. It is the third
+   *  clause of the crash definition (uncovered spans ∧ no `session-end`
+   *  boundary ∧ this window), and it has nothing to do with `STALE_CLAIM_MS`:
+   *  that one ages a CLAIM FILE against a worker's watchdog, this one ages a
+   *  SESSION against its author. `validateWatchdog()` is untouched by it.
+   *
+   *  TOO SHORT re-creates the bug this gate exists to kill: a live session that
+   *  pauses is read as crashed, and the sweep paraphrases turns whose author is
+   *  still holding the pen (measured 2026-09-04: 13 chunks, 61 sweep-minted
+   *  memories beside 34 authored notes in one evening, twins that TAU_DUP 0.95
+   *  can never merge). TOO LONG costs only DELAY: a genuinely crashed session's
+   *  spans wait in the buffer for the next worker run past the window — nothing
+   *  is lost, because nothing is dropped.
+   *
+   *  CALIBRATED, not guessed (scar §2.8). This started at 60 minutes on the
+   *  cost asymmetry alone, and the live store falsified that on the owner's
+   *  actual pattern: conversation session `c781252f` went silent from 22:21 to
+   *  02:28 UTC — **four hours and seven minutes** — with the author still
+   *  holding the pen, then resumed and authored 20 more notes. A 60-minute
+   *  window would have swept that gap as a crash and produced twins for exactly
+   *  the idle-then-resume shape this owner has. **12 hours** clears that
+   *  measured gap with room, and still recovers a real crash the same day the
+   *  next worker runs.
+   *
+   *  The FALSIFIER stays the same and stays owed: sessions swept under this rule
+   *  that LATER received an authored deposit. A nonzero count is the window
+   *  being too short again. */
+  CRASH_STALE_MS: 12 * 60 * 60_000,
   /** Target bytes per fallback chunk. Chunking is per-chunk failure isolation
    *  (scar E1), not a token budget — the budget belongs to whoever injects the
    *  interpret function. */

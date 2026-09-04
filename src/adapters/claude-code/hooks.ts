@@ -398,6 +398,14 @@ export class ClaudeCodeAdapter {
       // only the fallback for the day nobody got to (contract §4). The ask goes
       // out after the spans are durable, so a crash between the two costs a
       // dump, never a day.
+      //
+      // The worker below still spawns at EVERY boundary — it carries the
+      // Hebbian flush and the sleep cycle, which are not optional — but since
+      // 2026-09-04 its sweep step selects nothing unless a session is CRASHED
+      // (`remember/fallback.ts`: uncovered spans, no `session-end` boundary,
+      // silent past `CRASH_STALE_MS`). Before that gate this line was a comment
+      // the code did not keep: one evening's Stops billed 13 chunks and minted
+      // 61 memories beside 34 the model had authored itself.
       const authorshipAsk = deliver ? this.askForAuthorship(input) : null;
       const ask = deliver ? this.askForEpisode(input) : null;
       const spawn = this.spawnWorker();

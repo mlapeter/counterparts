@@ -19,7 +19,13 @@ import { Store, WRITE_METHODS } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility } from "../src/core/physics/index.js";
 import { MEMORY_SOURCES } from "../src/core/types.js";
 import type { MemoryPhysics } from "../src/core/types.js";
-import { SpanBuffer, WRITE_SITES, submitProposal, sweep } from "../src/core/remember/index.js";
+import {
+  SpanBuffer,
+  TUNABLES as REMEMBER_TUNABLES,
+  WRITE_SITES,
+  submitProposal,
+  sweep,
+} from "../src/core/remember/index.js";
 import type { InterpretFn, Proposal, Span, SweepChunk } from "../src/core/remember/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { applyRevision } from "../src/core/revision.js";
@@ -1858,8 +1864,17 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
     }
   });
 
+  /**
+   * THE TEST CLOCK, an offset on the real one. The sweep is a crash fallback in
+   * fact since 2026-09-04: it reads a transcript only for a session that holds
+   * uncovered spans, recorded no `session-end` boundary, and has gone silent past
+   * `CRASH_STALE_MS`. A fixture that wants a swept chunk therefore has to let its
+   * session GO QUIET — the honest crash, rather than a window set to zero.
+   */
+  let offsetMs = 0;
+
   function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, ...opts });
+    const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
     brains.push(c);
     return c;
   }
@@ -1888,11 +1903,14 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
     return async (_chunk: SweepChunk) => ({ proposals, stopReason: "end_turn" });
   }
 
-  /** One boundary and one swept chunk, on the store's current lived day. */
+  /** One boundary and one swept chunk, on the store's current lived day. The
+   *  session stops and never comes back, which is what the crash gate reads as a
+   *  crash — the only state in which a sweep may spend a model call. */
   async function sweptChunk(c: Counterpart, proposals: readonly unknown[]): Promise<void> {
     const session = `s${c.store.livedDay()}`;
     c.captureSpans({ session, scope: "proj", turns: turns(session) });
     c.boundary({ session, scope: "proj", kind: "stop" });
+    offsetMs += REMEMBER_TUNABLES.CRASH_STALE_MS + 60_000;
     await c.sweepFallback({ interpret: interpreter(proposals) });
   }
 

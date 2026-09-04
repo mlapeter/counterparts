@@ -2,8 +2,15 @@
  * The crash fallback — transcript interpretation, demoted from primary path to the
  * thing that runs only when the experiencer never got the pen (contract §4).
  *
- * It runs for spans that are unclaimed and past a session-ending boundary: a crash,
- * a compaction that ate the session, a host with no end-of-session hook. A fallback
+ * WHAT "CRASHED" MEANS, mechanically (owner ruling 2026-09-04, adapter CONTRACT
+ * open question 3; the predicate itself is `SpanBuffer.crashedSessions`): a
+ * session holds uncovered spans, has recorded NO `session-end` boundary, and has
+ * had no boundary activity for `TUNABLES.CRASH_STALE_MS`. Nothing else is swept
+ * — not an ordinary Stop, not a session that ended normally with trailing turns,
+ * not a compaction on its own. A host with no end-of-session event has every
+ * session swept once it goes quiet, which is the intended degradation.
+ *
+ * It runs for spans that are unclaimed and left behind by such a session. A fallback
  * that runs after a crash is exactly the path that must not lose the day, so the
  * machinery shrank with its role but did not disappear — chunking with per-chunk
  * failure isolation (E1), a `stop_reason` guard (E2), restore-on-throw (E6), and an
@@ -78,7 +85,7 @@ export interface ChunkOutcome {
 
 export type SweepReason =
   | "OBSERVER"
-  | "NO_ENDED_SESSION"
+  | "NO_CRASHED_SESSION"
   | "NOTHING_TO_SWEEP"
   | "NOTHING_UNCLAIMED"
   | "BELOW_MIN_CLAIM"
@@ -108,6 +115,10 @@ export interface SweepOptions {
   chunkBytes?: number;
   minBytes?: number;
   staleClaimMs?: number;
+  /** How long a session must be silent before it counts as crashed
+   *  (`TUNABLES.CRASH_STALE_MS`). Overridden by the REPLAY harness alone, where
+   *  "every session in this corpus died months ago" is literally true. */
+  crashStaleMs?: number;
   okStopReasons?: readonly string[];
 }
 
@@ -130,13 +141,35 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
     return report;
   }
 
-  const ended = buffer.endedSessions(opts.scope);
-  if (ended.size === 0) {
-    // Nobody has finished a session here: the author may still get the pen. This is
-    // a different record from "swept and found nothing".
-    buffer.emit("remember.sweep.skipped", undefined, { scope: opts.scope, reason: "NO_ENDED_SESSION" });
-    return { ...report, reason: "NO_ENDED_SESSION" };
+  // THE GATE (owner ruling 2026-09-04): the sweep is a FALLBACK, never the
+  // primary mechanism, and it spends the owner's API budget every time it fires.
+  // It may read a transcript only for a session that CRASHED — uncovered spans,
+  // no `session-end` boundary ever, and silence past `CRASH_STALE_MS`. A session
+  // that ended normally is never swept even when trailing spans are uncovered:
+  // the experiencer had the pen, and what it did not write is forgotten by
+  // design (constitution 3).
+  //
+  // Answered BEFORE the claim, so a scope with nothing crashed costs no rename
+  // and — the point — records "nothing crashed" rather than "claimed and found
+  // nothing already authored". The daily has to tell a quiet sweep from a broken
+  // one (constitution 16).
+  const staleOpt = opts.crashStaleMs === undefined ? {} : { staleMs: opts.crashStaleMs };
+  const pending = buffer.crashedPending(opts.scope, staleOpt);
+  if (pending.spans === 0) {
+    // TWO DIFFERENT FACTS, kept apart (scar §2.4). "Nothing crashed" is the
+    // healthy quiet day the ruling produces; "a crashed session left nothing
+    // behind" is the buffer already being empty — the same reason `claim()`
+    // reports when it finds no lines.
+    const reason: SweepReason = pending.sessions.size === 0 ? "NO_CRASHED_SESSION" : "NOTHING_TO_SWEEP";
+    buffer.emit("remember.sweep.skipped", undefined, {
+      scope: opts.scope,
+      reason,
+      crashedSessions: pending.sessions.size,
+      uncovered: pending.uncovered,
+    });
+    return { ...report, reason };
   }
+  const crashed = pending.sessions;
 
   const claimed = buffer.claim(opts.scope, {
     ...(opts.minBytes !== undefined ? { minBytes: opts.minBytes } : {}),
@@ -159,14 +192,15 @@ export async function sweep(buffer: SpanBuffer, opts: SweepOptions): Promise<Swe
   const withheld = buffer.withheldHashes(opts.scope);
   const covered = buffer.coveredHashes(opts.scope);
 
-  // Three piles. Ineligible spans belong to sessions still running and go straight
-  // back; withheld spans are a proposal's own words and are dropped from the sweep
-  // outright (re-encoding them is guaranteed duplication).
+  // Three piles. Ineligible spans belong to sessions that are still running, or
+  // that ended normally, or that have not yet gone quiet past the window — all of
+  // them go straight back; withheld spans are a proposal's own words and are
+  // dropped from the sweep outright (re-encoding them is guaranteed duplication).
   const eligible: Span[] = [];
   const ineligible: Span[] = [];
   for (const span of claim.spans) {
     if (withheld.has(span.hash)) continue;
-    if (ended.has(span.session)) eligible.push(span);
+    if (crashed.has(span.session)) eligible.push(span);
     else ineligible.push(span);
   }
 
