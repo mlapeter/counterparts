@@ -132,6 +132,15 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
   for (const id of store.list()) {
     const row = store.row(id);
     if (row === undefined || row.archived === 1 || denied.has(id)) continue;
+    // NOT THE JOURNAL. An episode is not a memory — "episode is not a memory
+    // kind" (§13 G6) — and the memory ingested from one carries the episode's
+    // own prose, so the two share a content hash BY CONSTRUCTION. Found
+    // 2026-09-04, the first time anything actually ingested an episode: dedup
+    // merged the fresh memory into the journal at the very boundary that
+    // minted it, leaving the episode with no live memory and its idempotency
+    // key pointing at an archived row. A journal is not a duplicate of the
+    // memory made from it, in either direction.
+    if (row.type === "episode") continue;
     live.add(id);
   }
   const liveIds = [...live];

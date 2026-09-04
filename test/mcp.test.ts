@@ -250,6 +250,144 @@ describe("the wire", () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE CHAPTER DOOR. The ask has said "add chapter N to this session's episode"
+ * since the ritual shipped; until 2026-09-04 nothing on this host could accept
+ * one. `Counterpart.appendEpisode` existed with no adapter calling it, so the
+ * model wrote its chapters as notes titled "chapter N" and the store held zero
+ * episodes for the whole run. These tests are the door, and the number on it.
+ */
+describe("the chapter tool — the episode's return channel", () => {
+  function live(sessionId: string, scope: string, phase: "start" | "boundary" | "end" = "start"): void {
+    expect(recordSession(dir, { sessionId, scope, phase })).not.toBeNull();
+  }
+
+  test("a bound chapter is APPENDED, and the number comes from the store", async () => {
+    const s = server();
+    const first = payload(
+      await s.call("chapter", {
+        session: SESSION,
+        text: "We found the door that was never built, and the finding felt like relief rather than embarrassment.",
+      }),
+    );
+    expect(first["stored"]).toBe(true);
+    expect(first["chapter"]).toBe(1);
+    expect(first["created"]).toBe(true);
+    const episodeId = first["episodeId"] as string;
+    expect(s.counterpart.store.readProse(episodeId).body).toContain("## chapter 1");
+
+    // A second call with no ask in between CONTINUES chapter 1 — appending in
+    // the moment is the doctrine's headline case, not an edge (§13 G2).
+    const again = payload(
+      await s.call("chapter", { session: SESSION, text: "And eighty seconds later, the thing that mattered." }),
+    );
+    expect(again["chapter"]).toBe(1);
+    expect(again["episodeId"]).toBe(episodeId);
+    const body = s.counterpart.store.readProse(episodeId).body;
+    expect(body.split("## chapter 1").length - 1).toBe(1);
+    expect(body).toContain("eighty seconds later");
+
+    // A new ask opens chapter 2, and the ask's number matches what comes back.
+    const ask = s.counterpart.episodeAsk(SESSION, { turns: 40, bytes: 40_000 });
+    expect(ask.asked).toBe(true);
+    expect(ask.chapter).toBe(2);
+    const second = payload(await s.call("chapter", { session: SESSION, text: "The evening, which was different." }));
+    expect(second["chapter"]).toBe(2);
+  });
+
+  test("it binds through the SAME registry rules as session_end, and says which refusal it was", async () => {
+    live("sess_chapter", "/proj/alpha");
+    const bound = server({ session: undefined, scope: "/proj/alpha" });
+    const ok = payload(await bound.call("chapter", { session: "sess_chapter", text: "The first-person account." }));
+    expect(ok["stored"]).toBe(true);
+    expect(bound.session).toBe("sess_chapter");
+
+    // Unknown id: refused, and the refusal names THIS tool, not `session_end`.
+    const unknown = server({ session: undefined, scope: "/proj/alpha" });
+    const refused = payload(await unknown.call("chapter", { session: "sess_invented", text: "Anything at all." }));
+    expect(refused["reason"]).toBe("session-unknown");
+    expect(refused["tool"]).toBe("chapter");
+    // Nothing was written for the id nobody recorded: the ONE episode in this
+    // store is the bound session's, from the call above.
+    const episodes = unknown.counterpart.store.list({ type: "episode" });
+    expect(episodes.length).toBe(1);
+    expect(unknown.counterpart.store.readProse(episodes[0] ?? "").meta["sessionId"]).toBe("sess_chapter");
+
+    // Ended: its memories belong to the sweep now, and so does its journal.
+    live("sess_done", "/proj/alpha");
+    live("sess_done", "/proj/alpha", "end");
+    const ended = server({ session: undefined, scope: "/proj/alpha" });
+    expect(payload(await ended.call("chapter", { session: "sess_done", text: "A late chapter." }))["reason"]).toBe(
+      "session-not-live",
+    );
+  });
+
+  test("an empty chapter is refused with a reason, and the gate refusal surfaces one too", async () => {
+    const s = server();
+    const empty = payload(await s.call("chapter", { session: SESSION, text: "   " }));
+    expect(empty["stored"]).toBe(false);
+    expect(empty["reason"]).toBe("text-required");
+
+    // The journal is a gated entrance: a chapter that is nothing but a
+    // credential is refused, with the gate that refused it named (scar §2.7).
+    const credential = payload(
+      await s.call("chapter", { session: SESSION, text: "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }),
+    );
+    expect(credential["stored"]).toBe(false);
+    expect(typeof credential["reason"]).toBe("string");
+    // Either the gate refused it outright or it was redacted before landing —
+    // what must never happen is the credential reaching canonical prose.
+    for (const id of s.counterpart.store.list({ type: "episode" })) {
+      expect(s.counterpart.store.readProse(id).body).not.toContain("sk-ant-api03-AAAA");
+    }
+  });
+
+  test("A FULL DAY: the ask, the chapter, the episode file, and ONE ingestion at the boundary", async () => {
+    const s = server();
+    // 1. The ask is due and names chapter 1.
+    const ask = s.counterpart.episodeAsk(SESSION, { turns: 9, bytes: 6_000 });
+    expect(ask.asked).toBe(true);
+    expect(ask.chapter).toBe(1);
+
+    // 2. The model answers it through the door.
+    const written = payload(
+      await s.call("chapter", {
+        session: SESSION,
+        text: "I learned that I stall when the spec is ambiguous, and that saying so early is cheaper than guessing.",
+      }),
+    );
+    expect(written["stored"]).toBe(true);
+    const episodeId = written["episodeId"] as string;
+
+    // 3. The episode EXISTS as a file — the thing that did not exist at all for
+    //    the whole first run of this system.
+    expect(s.counterpart.store.list({ type: "episode" })).toEqual([episodeId]);
+
+    // 4. The boundary ingests it, ONCE, as an ordinary self-kind memory.
+    const report = await s.counterpart.sessionEnd({ date: "2026-09-05" });
+    expect(report.episodes.ingested).toBe(1);
+    const minted = s.counterpart.store
+      .list({ type: "memory", archived: false })
+      .map((id) => s.counterpart.store.readProse(id))
+      .filter((d) => d.meta["episodeId"] === episodeId);
+    expect(minted.length).toBe(1);
+    expect(minted[0]?.body).toContain("ambiguous");
+
+    // 5. A second boundary with nothing new ingests nothing: idempotent by
+    //    identity, so the reconciler is safe to run at every boundary forever.
+    const again = await s.counterpart.sessionEnd({ date: "2026-09-06" });
+    expect(again.episodes.ingested).toBe(0);
+    expect(again.episodes.skipped).toBe(1);
+    expect(
+      s.counterpart.store
+        .list({ type: "memory", archived: false })
+        .map((id) => s.counterpart.store.readProse(id))
+        .filter((d) => d.meta["episodeId"] === episodeId).length,
+    ).toBe(1);
+  });
+});
+
 // ── the description audit (CONTRACT §5 G2/G3) ───────────────────────────────
 
 describe("the tool-description audit", () => {
@@ -849,6 +987,7 @@ describe("observer stands down over the wire", () => {
       ["recall", { question: "anything at all" }],
       ["status", {}],
       ["session_end", { session: SESSION, memories: [{ content: "Nor this." }] }],
+      ["chapter", { session: SESSION, text: "Nor an instrument's own first-person reflection." }],
     ];
     for (const [name, args] of calls) {
       const result = await s.call(name, args);

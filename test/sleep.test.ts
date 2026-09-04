@@ -1263,3 +1263,31 @@ describe("the ratchet tripwire renders a verdict every cycle (guarantee 12)", ()
     expect(events.filter((e) => e.name === "sleep.symmetry.unreadable").length).toBe(1);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("dedup leaves the journal alone", () => {
+  test("an episode and the memory ingested from it are not duplicates of each other", () => {
+    // Found 2026-09-04, the first time anything actually ingested an episode.
+    // The memory carries the episode's own prose, so the two share a content
+    // hash BY CONSTRUCTION — and dedup merged the fresh memory into the journal
+    // at the same boundary that minted it. The episode was then left with no
+    // live memory, and its idempotency key pointed at an archived row, so no
+    // later boundary would mint another. "Episode is not a memory kind."
+    const s = Store.open({ dir });
+    open.push(s);
+    const body = "## chapter 1 — lived day 0\n\nI learned that I stall when the spec is ambiguous.\n";
+    const episodeId = s.put({ type: "episode", kind: "self", body, source: "episode" });
+    const memoryId = s.put({ type: "memory", kind: "self", body, source: "episode" });
+    const out = runDedup(ctx(wrap(s), 0));
+    expect(out.merged.length).toBe(0);
+    expect(s.row(memoryId)?.archived).toBe(0);
+    expect(s.row(episodeId)?.archived).toBe(0);
+    // Two ordinary memories with the same body still merge: the rule is about
+    // the JOURNAL, not a hole in dedup.
+    const twin = s.put({ type: "memory", kind: "self", body, source: "authored" });
+    const again = runDedup(ctx(wrap(s), 0));
+    expect(again.merged.length).toBe(1);
+    expect([s.row(memoryId)?.archived, s.row(twin)?.archived]).toContain(1);
+    expect(s.row(episodeId)?.archived).toBe(0);
+  });
+});
