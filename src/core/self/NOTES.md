@@ -130,3 +130,65 @@ answer to record: a near-zero frozen count in v2 is **not** evidence the doctrin
 wrong, it is evidence the channel it guards barely runs. The number that would overturn
 it is a non-trivial frozen count on the fallback path, which is exactly what the counter
 by (kind, arm) makes visible. Do not read the rate without reading the denominator.
+
+## 9. The identity share is applied BEFORE the trim order, and gives the leftover back
+
+Measured on the live host 2026-09-03/04: every session's wake was 8 identity elements at
+~1.1 KB each filling all 9,000 bytes — craft 0, threads 0, hints 0, horizon 0 — while v1's
+wake the same day carried 20 elements across four lanes. The mechanism was not a bug in the
+trim order; it was the trim order working as declared. Identity trims LAST, so by the time
+the loop could bound identity, every other lane is already gone. A rule that only fires
+during trimming can never rebalance the lane that trims last.
+
+So the share is a PRE-CUT, in `render()`, before the loop:
+
+1. **No other lane has content ⇒ no cut at all.** A store that is nothing but identity is
+   not competing with itself, and half a budget of white space is not a smaller wake, it is
+   a worse one.
+2. Otherwise identity keeps the longest prefix whose rendered lines fit
+   `IDENTITY_SHARE × budget`, **by whole elements** — beliefs are shown verbatim or not at
+   all — with the first element always surviving the cut. The budget may still take that
+   one later, in `TRIM_ORDER` position, which is where that decision belongs.
+3. `TRIM_ORDER` then runs exactly as before over the remainder.
+4. **The leftover comes back**, but only when NOTHING had to be trimmed. A lane that lost an
+   element wanted the room, and handing it to identity instead would make the share decide
+   the opposite of what it was set for. When the other lanes are all present and the budget
+   is still not spent, the held-back identity elements return in rank order while they fit.
+
+Rule 4's "only when nothing was trimmed" is also what keeps the composed result
+MONOTONE — a smaller budget still yields a subset, never a reshuffle (§1 G4, and the sweep
+test that walks 24,000 → 400 in 400-byte steps). Refilling into slack left behind by a
+trimmed lane would let a *larger* budget produce a *different* set, which is precisely the
+iteration luck the guarantee forbids.
+
+The share is CAL, not structural. 0.5 was chosen against v1's measured wakes (20 elements,
+four lanes, the same 9,000-byte ceiling), not derived; `tools/replay` re-earns it. What is
+structural is that identity's ceiling exists at all when other lanes have content.
+
+## 10. The delivery preface is composed at WAKE, and the renderer reserves its room
+
+The bundle is composed at a boundary and served unchanged to every session until the next
+one. On 2026-09-03 the memory system under the live host was switched from v1 to
+Counterparts mid-day; the stored wake still carried a v1-era finding as a current fact,
+nothing in the body said which system was speaking or how old the render was, and the model
+repeated it as current until the owner corrected it. The only line naming the new system was
+the HTML comment, and comments are furniture.
+
+`prefaceLine()` is that missing sentence — system, lived day, today's date, live memory
+count, and "composed at the last boundary" — and three decisions in it are deliberate:
+
+- **Composed at wake, never at sleep.** Three of its four facts (the date, the store's
+  current size, and the fact that the body is a day old) are false the moment they are
+  baked into the body. `Self.wake(delivery?)` takes the delivery object as the *request* for
+  a preface: a reader that is not delivering (the dashboard, replay, a test) gets the
+  published bundle byte for byte, which is what the round-trip guarantee is for.
+- **Both byte counts are re-solved for the delivered text.** Adding a line and leaving the
+  header and sentinel describing something smaller would hand every reader a sentinel that
+  fails the check it exists to pass (§1 G2). `applyPreface` runs the same fixed point
+  `compose()` does, and REFUSES on any bundle that is not a whole render — rewriting the
+  byte count of a damaged bundle would erase the damage.
+- **The renderer reserves the room, in exactly one place.** `PREFACE_RESERVE_BYTES` is
+  subtracted from the host's reported ceiling in `core/counterpart.ts` before the boundary
+  renders, because that root is the only place that knows both numbers. One constant bounds
+  both the reserve and the preface itself, with a test at the widest plausible day, date and
+  store size — two numbers would be v1's lane-cap smell, drifting apart in the dark.

@@ -107,13 +107,30 @@ recompression proposals and their archive; render and delivery telemetry.
 **Guarantees** — **[M]** mechanized · **[A]** advisory:
 
 1. **[M]** The briefing is pre-rendered by the previous boundary and is that boundary's last
-   content write. Wake performs no computation, no model call, no network access.
+   content write. Wake performs no ranking, no prose read, no model call, no network access.
+   *A wake that is a DELIVERY also composes its preface (G3), which costs two meta reads and
+   one `COUNT(*)` — the store's size is a delivery-time fact a bundle rendered yesterday
+   cannot state. Nothing else, and a non-delivering read still pays one meta row.*
 2. **[M]** The budget governs the composed total, not each lane; the trim order is explicit
    and tested; the budget test runs **at production scale** — fixtures cannot reveal an
-   overflow (scar §2.3).
+   overflow (scar §2.3). **The identity lane has a SHARE of that total** (`IDENTITY_SHARE`):
+   while the other lanes have content, identity takes at most that fraction, by whole
+   elements; when they cannot fill the remainder, identity takes the leftover back. It is
+   not a lane budget — the total still governs — it is how the total is SPLIT when lanes
+   compete, and it exists because identity trims LAST: measured 2026-09-03/04, a migrated
+   store's ~1.1 KB identity elements filled all 9,000 bytes of every session's wake with 8
+   identity statements and four empty lanes, while v1's wake the same day carried 20
+   elements across four lanes.
 3. **[M]** Header and sentinel each state true counts and bytes. Because both state a number
    that composing them changes, composition iterates to a fixed point. A delivery-side event
-   exists, not only a render-side one.
+   exists, not only a render-side one. **The delivered bundle carries a preface composed at
+   WAKE and never stored** — which system, which lived day, today's date, how many live
+   memories — because a bundle composed at a boundary is served unchanged to every session
+   until the next one and cannot say any of that about the day it is read (2026-09-03: the
+   memory system changed mid-day, the body went on speaking as the old one, and only the
+   HTML comment named the new). Both stated byte counts are re-solved for the DELIVERED
+   text, the renderer reserves the preface's room from the host's ceiling, and a damaged
+   bundle is delivered exactly as found — never rewritten.
 4. **[M]** Status does not accumulate on the self. A memory whose truth expires with a date
    is not an identity element, discriminated at encode time by one question: *would this
    still be a true memory worth holding after the date passes?* A standing counter reports
@@ -145,6 +162,24 @@ recompression proposals and their archive; render and delivery telemetry.
 13. **[A]** The episode ask's wording is a preference and a probe. That an ask exists at
     every session-ending path, and that its orphanable tail is bounded and logged, is
     mechanized.
+
+**The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
+of them a budget. The composed budget is the caller's and lives nowhere in this module.
+
+| Knob | Value | What it bounds |
+| --- | --- | --- |
+| `IDENTITY_MAX` | 24 | Identity elements *considered*. The budget and the share are the real bounds; this only stops a pathological store from composing a megabyte to throw it away. |
+| `IDENTITY_SHARE` | 0.5 | The largest fraction of the composed budget identity may take **while other lanes have content to spend the rest on** (G2). By whole elements; released back to identity when nothing else can use the room. |
+| `CRAFT_MAX` | 8 | Craft (skill-kind) elements considered. |
+| `THREADS_MAX` | 12 | Open threads considered. Dark on a migrated store — INTERFACE-GAPS §8, and no cap can fix a missing source. |
+| `HINTS_MAX` | 8 | Warm-shelf hints considered. |
+| `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
+| `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
+| `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
+
+`PREFACE_RESERVE_BYTES` (128) is **not** tunable: it is the room the renderer subtracts from
+the host's ceiling because delivery will add exactly that line, and one test bounds the
+preface at its widest plausible day, date and store size against the same constant.
 
 ## 6. Scars honored
 

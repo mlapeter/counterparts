@@ -293,6 +293,36 @@ export type WriteMethod = (typeof WRITE_METHODS)[number];
 const MAX_CHAIN = 32;
 const EVENT_RING = 500;
 
+/** What `list()` and `countMemories()` both select on — one filter, one WHERE. */
+export interface MemoryFilter {
+  type?: ProseType;
+  kind?: Kind;
+  band?: Band;
+  archived?: boolean;
+}
+
+function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | number)[] } {
+  const where: string[] = [];
+  const args: (string | number)[] = [];
+  if (filter.type) {
+    where.push("type = ?");
+    args.push(filter.type);
+  }
+  if (filter.kind) {
+    where.push("kind = ?");
+    args.push(filter.kind);
+  }
+  if (filter.band) {
+    where.push("band = ?");
+    args.push(filter.band);
+  }
+  if (filter.archived !== undefined) {
+    where.push("archived = ?");
+    args.push(filter.archived ? 1 : 0);
+  }
+  return { clause: where.length ? `WHERE ${where.join(" AND ")}` : "", args };
+}
+
 export class Store {
   readonly dir: string;
   readonly observer: boolean;
@@ -1073,27 +1103,22 @@ export class Store {
     throw new StoreError("ID_CHAIN_TOO_DEEP", { id, max: MAX_CHAIN });
   }
 
-  list(filter: { type?: ProseType; kind?: Kind; band?: Band; archived?: boolean } = {}): string[] {
-    const where: string[] = [];
-    const args: (string | number)[] = [];
-    if (filter.type) {
-      where.push("type = ?");
-      args.push(filter.type);
-    }
-    if (filter.kind) {
-      where.push("kind = ?");
-      args.push(filter.kind);
-    }
-    if (filter.band) {
-      where.push("band = ?");
-      args.push(filter.band);
-    }
-    if (filter.archived !== undefined) {
-      where.push("archived = ?");
-      args.push(filter.archived ? 1 : 0);
-    }
-    const sql = `SELECT id FROM memories ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id`;
+  list(filter: MemoryFilter = {}): string[] {
+    const { clause, args } = memoryWhere(filter);
+    const sql = `SELECT id FROM memories ${clause} ORDER BY id`;
     return this.ops.all<{ id: string }>(sql, ...args).map((r) => r.id);
+  }
+
+  /**
+   * How many rows `list()` would return, counted in SQL rather than materialized.
+   * The same filter, the same WHERE, one number — for the callers that want the
+   * SIZE of the store (the wake's delivery preface states it) and would otherwise
+   * build an array of every id to take its length.
+   */
+  countMemories(filter: MemoryFilter = {}): number {
+    const { clause, args } = memoryWhere(filter);
+    const sql = `SELECT COUNT(*) AS n FROM memories ${clause}`;
+    return this.ops.get<{ n: number }>(sql, ...args)?.n ?? 0;
   }
 
   versions(id: string): VersionRow[] {
