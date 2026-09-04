@@ -155,6 +155,22 @@ async function seed(target = dir): Promise<Seeded> {
     );
   }
 
+  // A genuine duplicate: an ordinary memory that says exactly what a filler
+  // memory already says, so the cycle's dedup has real work to do and the feed
+  // holds a real `memory.merged` row. Its id sorts LAST in the group, so the
+  // tie-break always archives THIS row and never the filler the other views
+  // assert on. Until 2026-09-04 this fixture's only dedup event was the bug —
+  // dedup archiving the revision's successor — and the filter test below read
+  // that as coverage.
+  c.store.put({
+    id: "mem_ffffffffffff",
+    type: "memory",
+    kind: "fact",
+    body: FILLER[0] as string,
+    salience: { novelty: null, relevance: 0.6, emotional: 0.5, predictive: 0.5 },
+    physics: { birthDay: 0, lastUsedDay: 0 },
+  });
+
   const deposit = await c.submitSessionEnd(
     {
       content:

@@ -120,6 +120,15 @@ and their records; the next session's briefing, written last; a per-cycle summar
    (scar §2.20) — and a failed record append means nothing moves.
 9. **[M]** A memory that declares `updates:` is never merged into its target (`physics/`
    §5.7) — otherwise a refutation reinforces the belief it refutes.
+   **9b. [M] A revision's SUCCESSOR is never merged with the challenger it was minted
+   from**, in either direction (`physics/` §5.7 G8b; `dedup.ts#revisionSuccessorPair`
+   reads `source: "accommodation"` + `origin_ref` off the row). The successor carries the
+   challenger's own words, so the two share a content hash BY CONSTRUCTION and G9 cannot
+   reach the pair — its declaration names the PREDECESSOR. *Found 2026-09-04 on the first
+   store that ever crossed the pressure bar: the successor lost the tie-break (`mem_`
+   before `sch_`), was archived `merged` on the revision's own evening, and the revised
+   belief stopped rendering as a belief — constitution 7. The same shape as G15's journal
+   finding: a phase written when identical bodies could only mean a duplicate.*
 10. **[M]** Observer sessions spawn no cycle at all — a cycle advances the clock, decays the
     store, and rewrites the briefing: *the instrument mutating what it measures* (scar E7).
 11. **[M]** A worker that cannot run — missing credential, unmet dependency, repeated

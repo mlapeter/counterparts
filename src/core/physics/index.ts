@@ -901,6 +901,7 @@ export function successorSeed(
 
 export type DedupReason =
   | "declared-revision-never-merged"
+  | "revision-successor-never-merged"
   | "identical-content-hash"
   | "cosine-at-or-above-tau"
   | "below-tau"
@@ -911,6 +912,13 @@ export interface DedupInput {
   originalId: string;
   /** The candidate's `updates:` declaration, if it made one. */
   declaredUpdates: string | null;
+  /**
+   * True when the two rows stand in a DIRECT revision-successor relation: one of
+   * them was minted by revising, carrying the other's words as the new
+   * statement. Lineage is a store fact, so the caller reads it and supplies it
+   * here — the same division of labour as `sameContentHash`.
+   */
+  revisionSuccessorPair?: boolean;
   /** Content hashes, supplied by the caller. */
   sameContentHash?: boolean;
   /** cos( v(new), v(orig) ), supplied by the caller. Null when no vector exists. */
@@ -932,10 +940,21 @@ export interface DedupVerdict {
  * (guarantee 8): otherwise a topically-close refutation merges into the belief
  * it refutes and REINFORCES it — scar §2.10's one-way ratchet, rebuilt by
  * accident. The declaration is checked FIRST, before hash and before cosine.
+ *
+ * The declaration's other half, and the same refusal (guarantee 8b): **a
+ * revision's SUCCESSOR and the challenger it was made from are never merged
+ * into each other, in either direction**. A revision mints the successor with
+ * the challenger's own words — that is what winning an argument means here
+ * (§5.6) — so the two bodies are identical BY CONSTRUCTION and every dedup pass
+ * after the crossing finds them. Checked before hash and cosine, because the
+ * hash is precisely what is guaranteed to match.
  */
 export function dedupVerdict(input: DedupInput): DedupVerdict {
   if (input.declaredUpdates !== null && input.declaredUpdates === input.originalId) {
     return { verdict: "leave-alone", reason: "declared-revision-never-merged", effect: null };
+  }
+  if (input.revisionSuccessorPair === true) {
+    return { verdict: "leave-alone", reason: "revision-successor-never-merged", effect: null };
   }
   if (input.sameContentHash === true) {
     return { verdict: "merge", reason: "identical-content-hash", effect: { usesDelta: 1 } };

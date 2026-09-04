@@ -202,3 +202,57 @@ being over budget.* That detector lives in `self/`, which owns the render and it
 lanes. `sleep/` reports its OWN budgets the same way — `skippedForBudget` counts
 candidates never reached, not items dropped from an output — so the same honesty
 applies on this side of the seam.
+
+## 12. Dedup ate a revision's successor — 2026-09-04
+
+**Symptom.** The demo seeder built the first store that ever crossed the pressure
+bar, and the `stories` view rendered the crossing as a disappearance:
+
+    it now says  "The migration Teodoro Whitlock merged cannot be rev…" [sch_…, archived: merged]
+    day 29  …  REVISED, becoming "…" [sch_…, archived: merged]
+
+The revised belief was superseded correctly and then, the same evening, archived
+out of existence as a belief: `schemas.beliefs(entity)` empty, the successor gone
+from every slice. Constitution 7 — "revisions keep their history; nothing
+bulk-wipes silently" — broken by a phase doing exactly what it was told.
+
+**Cause.** `schemas/index.ts#supersedeElement` mints the successor with
+`input.statement ?? store.readProse(challengerId).body`. That is the design: the
+statement that won the argument IS the new belief (§5.6), so successor and
+challenger are byte-identical BY CONSTRUCTION. `contentHashCandidates` groups on
+the body, the tie-break sorts by birth day and then by id — both born the same
+lived day, and `mem_` sorts before `sch_` — so the successor is always the
+candidate and the challenger always the original. `dedupVerdict`'s existing
+refusal, `declared-revision-never-merged`, compares the CANDIDATE's `updates:`
+declaration against the original's id; the successor declares nothing, and the
+challenger's declaration names the PREDECESSOR, which is archived and out of the
+live set. Nothing in the pass could see what the pair was. Both arms of the
+dispatch fire it: the belief path and the current-state replacement, plus
+`revision.ts`'s identity arm, which supersedes the same way.
+
+**Fix.** A second named refusal rather than a change to what a successor says —
+the contract wants the challenger's statement verbatim, so the body is not
+negotiable. `physics.dedupVerdict` gains `revisionSuccessorPair` and the verdict
+`revision-successor-never-merged`, checked before hash and before cosine (the
+hash is exactly what is guaranteed to match). `dedup.ts#revisionSuccessorPair`
+supplies the fact from two columns — `source: "accommodation"`, written at
+exactly the two supersede sites, and `origin_ref`, the challenger — and asks it
+BOTH WAYS, because which row the tie-break calls the original is an accident of
+ids. The guard is narrow by construction: two ordinary memories with one body
+still merge, and a test says so.
+
+Same shape as §15's journal finding a day earlier, and worth naming as a class:
+**phases that walk "every row" were written when two identical bodies could only
+mean a duplicate.** Three constructions now make identical bodies on purpose — an
+episode and the memory ingested from it, a revision's successor and its
+challenger — and each needed the pass to be told what it was looking at.
+
+**What changes on a live store.** Only stores where a dedup pass runs while a
+revision's successor and its challenger are both live — in practice any cycle
+after a crossing, not merely the same evening, since the pair stays live and
+identical until something merges it. Nothing is repaired retroactively: a
+successor already archived `merged` stays archived (its prose and id survive, and
+its merge record names the original). The owner's live store had 1 revision
+declaration with 0 effect as of parallel-run day 1 — no crossing, no successor,
+so there is nothing there for this to change yet. Stores that never revise are
+untouched; genuine duplicates merge exactly as before.

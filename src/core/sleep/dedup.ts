@@ -17,6 +17,14 @@
  * cycle (scar E1). Ambiguous near-duplicates are left alone (§5.7, owner
  * decision): accepted rent, paid for zero substrate confabulation.
  *
+ * The same refusal has a second half, found 2026-09-04 on the first store that
+ * ever crossed the pressure bar: **a revision's successor and the challenger it
+ * was minted from are never merged into each other, in either direction**
+ * (`revisionSuccessorPair` below). The declaration guard cannot reach it —
+ * that declaration names the PREDECESSOR — and the two bodies are identical by
+ * construction, so the merge fired on the revision's own evening and the
+ * revised belief stopped being a belief.
+ *
  * **A merge is `uses(original) += 1` and the duplicate ARCHIVES.** Both halves
  * are load-bearing. Without the credit the merge is a deletion; without the
  * exit the same pair is found again tomorrow and credited again — a uses ratchet
@@ -28,7 +36,7 @@ import { dedupVerdict } from "../physics/index.js";
 import type { DedupReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { hashText } from "../store/prose.js";
-import { MERGE_ARCHIVE_REASON, MERGE_RECORD_PREFIX } from "./tunables.js";
+import { ACCOMMODATION_SOURCE, MERGE_ARCHIVE_REASON, MERGE_RECORD_PREFIX } from "./tunables.js";
 import type { MergeRecord, PhaseCtx, PhaseOutcome, SleepStore } from "./types.js";
 import { countSkip, emptyOutcome, isJournal } from "./types.js";
 
@@ -118,6 +126,35 @@ export function declaredUpdates(store: SleepStore, id: string): string | null {
   }
 }
 
+/**
+ * The declaration's OTHER half, read off the row instead of the prose.
+ *
+ * A revision mints its successor with the challenger's own words — the winning
+ * statement IS the new belief (`schemas/` §5.6) — so the successor and the
+ * challenger share a body BY CONSTRUCTION, exactly the way an ingested memory
+ * shares one with its episode. `declaredUpdates` cannot see it: that
+ * declaration names the PREDECESSOR, and the successor has a fresh id. Left
+ * alone, the tie-break (birth day, then id — and `mem_` sorts before `sch_`)
+ * archived the successor into the challenger on the revision's own evening, and
+ * the revised belief stopped being a belief. Found 2026-09-04, the first store
+ * that ever crossed the pressure bar.
+ *
+ * Two columns say it, and no prose read is needed: `source` is
+ * `"accommodation"` — written at exactly two sites, both of them supersedes
+ * under pressure (`schemas/index.ts`, `revision.ts`'s identity arm) — and
+ * `origin_ref` is the challenger the successor was made from. The relation is
+ * checked BOTH WAYS, because which row the tie-break calls the original is an
+ * accident of ids.
+ */
+export function revisionSuccessorPair(store: SleepStore, a: string, b: string): boolean {
+  const successorOf = (id: string): string | null => {
+    const row = store.row(id);
+    if (row === undefined || row.source !== ACCOMMODATION_SOURCE) return null;
+    return row.origin_ref;
+  };
+  return successorOf(a) === b || successorOf(b) === a;
+}
+
 export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupResult {
   const out = emptyOutcome();
   out.skipped["already-archived"] = 0;
@@ -178,6 +215,7 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
     const verdict = dedupVerdict({
       originalId: pair.originalId,
       declaredUpdates: declaredUpdates(store, pair.candidateId),
+      revisionSuccessorPair: revisionSuccessorPair(store, pair.candidateId, pair.originalId),
       ...(pair.sameContentHash !== undefined ? { sameContentHash: pair.sameContentHash } : {}),
       ...(pair.cosine !== undefined ? { cosine: pair.cosine } : {}),
     });

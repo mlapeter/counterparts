@@ -8,6 +8,7 @@
  * behavior reachable in a test, which is the honest reason to state a number.
  */
 
+import type { MemorySource } from "../types.js";
 import type { Phase } from "./types.js";
 
 export const TUNABLES = {
@@ -58,6 +59,14 @@ export const MERGE_RECORD_PREFIX = "sleep.merged.";
 export const PRUNE_ARCHIVE_REASON = "pruned";
 /** The archive reason a merged duplicate carries. */
 export const MERGE_ARCHIVE_REASON = "merged";
+
+/**
+ * The channel a revision's successor is minted on (`types.ts#MEMORY_SOURCES`),
+ * named here because `dedup.ts` reads it to recognize one. Typed against the
+ * vocabulary so a rename in `types.ts` breaks the build rather than silently
+ * turning the refusal off.
+ */
+export const ACCOMMODATION_SOURCE: MemorySource = "accommodation";
 
 export type WatchdogReason =
   | "OK"
