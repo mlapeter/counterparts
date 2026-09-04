@@ -89,6 +89,11 @@ to run. It never edits your Claude Code configuration for you. Apply both, resta
 Code, and you are running. QUICKSTART §4 has them, and the reasons every path in them must
 be absolute.
 
+`install` owns `~/.counterparts/` and is the cold start — run it once. For a second store,
+a scratch store, or a store you will only reach from the console, use
+`counterparts init --dir <path> --name "Your Name"`: just a store, anywhere, with no host
+config and no credentials file. QUICKSTART §3 has the difference.
+
 You can also use it with no host at all. `$HOME/.counterparts/store` is the default data
 dir, so this works with nothing set; the `export` is there for anyone whose store lives
 elsewhere or who would rather be explicit than rely on a default.

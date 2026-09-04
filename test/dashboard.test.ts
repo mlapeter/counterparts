@@ -1048,6 +1048,25 @@ describe("identity — the band and the protected set, side by side", () => {
     expect(after).toContain("Identity-band rows I could not read just now");
   });
 
+  test("it says whether the identity core exists, and names it when it does", async () => {
+    // The gap this closes (cold-stranger review, 2026-09-04): this view rendered
+    // identically for a store whose identity core had been seeded and one whose
+    // had not — both show an empty band on day 0 — so a stranger who ran `init`
+    // without `--name` had no way to learn that the thing the memory is ABOUT
+    // did not exist.
+    await seed();
+    const unseeded = stripAnsi(dash().identity());
+    expect(unseeded).toContain("No identity core yet");
+    expect(unseeded).toContain("--name");
+
+    const writable = Counterpart.open({ dir, owner: true, identity: { name: "Ada Lovelace" } });
+    writable.close();
+
+    const seededView = stripAnsi(dash().identity());
+    expect(seededView).toContain("Identity core: seeded as Ada Lovelace");
+    expect(seededView).not.toContain("No identity core yet");
+  });
+
   test("an identity-band row that will not read is named, not silently dropped", async () => {
     const s = await seed();
     // Force the one recoverable half of the gap above: put a row in the identity

@@ -145,6 +145,7 @@ export function usage(): string {
     "  init                Just a store: create a data dir and PRINT the install steps.",
     "                      No host config, no credentials file, nothing under",
     "                      ~/.counterparts/. For a second store or a scratch one.",
+    '                      --name "<owner>" seeds the identity core, as install does.',
     "  note <text>         Remember this, deliberately. The same two doors the MCP",
     "                      tool uses. --kind --title --salience.",
     "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
@@ -179,6 +180,116 @@ interface Parsed {
   command: string | undefined;
   positional: string[];
   flags: Record<string, string | boolean | undefined>;
+}
+
+/**
+ * WHICH FLAGS EACH COMMAND TAKES, and the reason this table exists at all.
+ *
+ * `parseArgs` runs with `strict: false` — it has to, because a strict parse
+ * THROWS and this console does not hand an owner a stack trace. The cost, until
+ * 2026-09-04, was that an undeclared flag was silently swallowed: a
+ * cold-stranger review typed `counterparts note "…" --dirr <store2>`, got
+ * `Remembered mem_… — minted.`, and found store2 still empty — the note had gone
+ * to the DEFAULT store, which on a real machine is the owner's live memory, and
+ * `--dirr` never appeared in the output. A typo in the one flag that says WHICH
+ * STORE is the sharpest edge this console has, and it was the one thing the
+ * parser would not mention.
+ *
+ * So: every flag is declared per command, and anything else is refused BEFORE a
+ * store is opened. Two rules, both mechanized in `unknownFlag` below:
+ *
+ *   1. **A flag nobody declared is an error**, with the nearest declared flag
+ *      named if there is a near one. Silence is what made the write invisible.
+ *   2. **A flag that wants a value and got none is an error.** `strict: false`
+ *      turns `--dir` at the end of a line into the BOOLEAN `true`, which every
+ *      reader here treats as "absent" — the same silence one step along.
+ */
+export const COMMON_FLAGS: readonly string[] = ["dir", "observer", "help"];
+
+export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
+  status: [],
+  install: ["budget", "name", "embedder", "force"],
+  // `init` takes `--name` for the same reason `install` does: §3 routes second
+  // and scratch stores here, and a store with no identity core is a store the
+  // wake has nothing to say about.
+  init: ["name"],
+  note: ["kind", "title", "salience"],
+  recall: ["id", "json"],
+  export: ["out", "passphrase", "plaintext"],
+  backup: ["out"],
+  remove: ["confirm", "reason"],
+  verify: ["rebuild", "drop-vectors"],
+  "backfill-claims": ["apply"],
+  rebrief: ["budget"],
+};
+
+/** Flags whose value is a string; anything else here is a boolean switch. */
+const VALUED_FLAGS: readonly string[] = [
+  "dir",
+  "out",
+  "reason",
+  "passphrase",
+  "name",
+  "kind",
+  "title",
+  "salience",
+  "id",
+  "budget",
+];
+
+/** Levenshtein, small and local. Only ever used to say "did you mean". */
+function editDistance(a: string, b: string): number {
+  const rows: number[][] = [Array.from({ length: b.length + 1 }, (_, j) => j)];
+  for (let i = 1; i <= a.length; i += 1) {
+    const row: number[] = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row.push(Math.min((row[j - 1] ?? 0) + 1, (rows[i - 1]?.[j] ?? 0) + 1, (rows[i - 1]?.[j - 1] ?? 0) + cost));
+    }
+    rows.push(row);
+  }
+  return rows[a.length]?.[b.length] ?? Math.max(a.length, b.length);
+}
+
+/**
+ * The refusal sentence for `argv` under `command`, or null when every flag is
+ * one this command declares and every valued flag was given a value.
+ *
+ * Pure over its arguments and exported, so the test can walk every command
+ * without a store, a console or a process.
+ */
+export function unknownFlag(command: Command, argv: readonly string[]): string | null {
+  const allowed = [...COMMON_FLAGS, ...(COMMAND_FLAGS[command] ?? [])];
+  for (const token of argv) {
+    if (!token.startsWith("--") || token === "--") continue;
+    const [rawName, inline] = token.slice(2).split("=", 2);
+    const name = rawName ?? "";
+    if (name.length === 0) continue;
+    if (!allowed.includes(name)) {
+      // Nearest declared flag, but only when it is actually near: a suggestion
+      // pulled from across the alphabet is worse than no suggestion.
+      const near = allowed
+        .map((f) => ({ f, d: editDistance(name, f) }))
+        .filter((x) => x.d <= Math.max(2, Math.floor(x.f.length / 3)))
+        .sort((a, b) => a.d - b.d)[0];
+      return (
+        `unknown flag --${name}` +
+        (near === undefined ? "" : `; did you mean --${near.f}?`) +
+        `\n  '${command}' takes: ${allowed.map((f) => `--${f}`).join(" ")}` +
+        "\n  Nothing was opened and nothing was written."
+      );
+    }
+    if (VALUED_FLAGS.includes(name) && inline === undefined) {
+      const next = argv[argv.indexOf(token) + 1];
+      if (next === undefined || next.startsWith("--")) {
+        return (
+          `--${name} needs a value, and none followed it.` +
+          "\n  Nothing was opened and nothing was written."
+        );
+      }
+    }
+  }
+  return null;
 }
 
 export function parse(argv: readonly string[]): Parsed {
@@ -245,6 +356,15 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   }
   const command = parsed.command as Command;
 
+  // FIRST, before the stance, before the data dir, before any store: a flag
+  // this command does not take is a command line that does not mean what it
+  // says, and the store it would have written to is the one nobody named.
+  const badFlag = unknownFlag(command, argv);
+  if (badFlag !== null) {
+    for (const line of `refused: ${badFlag}`.split("\n")) io.err(line);
+    return EXIT.refused;
+  }
+
   const observer =
     parsed.flags["observer"] === true ||
     env["COUNTERPARTS_OBSERVER"] === "1" ||
@@ -290,7 +410,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "status":
         return statusCommand(dir, io);
       case "init":
-        return initCommand(dir, io, opts.home);
+        return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
         return await noteCommand(dir, io, parsed);
       case "recall":
@@ -573,7 +693,7 @@ function installCommand(
  * aimed at v1's live store fails before anything exists (scar §2.13). This
  * function only has to not catch it.
  */
-function initCommand(dir: string, io: Io, home = homedir()): number {
+function initCommand(dir: string, io: Io, home = homedir(), name?: string): number {
   const existed = storeExists(dir);
   let store: Store;
   try {
@@ -585,7 +705,29 @@ function initCommand(dir: string, io: Io, home = homedir()): number {
   const resolved = store.dir;
   store.close();
 
+  // `--name` seeds the identity core, through `Counterpart.open`'s own option —
+  // the same door `install` reaches by writing `identity` into the config. §3
+  // routes second and scratch stores here and then says the core has no default
+  // anywhere, so an `init` that could not seed one left the documented path
+  // unable to produce the thing the documentation says matters. Idempotent:
+  // `ensureIdentityCore` is an ENSURE.
+  let seeded = false;
+  if (name !== undefined && name.length > 0) {
+    const brain = openCounterpart(resolved, false, { name });
+    try {
+      seeded = true;
+    } finally {
+      brain.close();
+    }
+  }
+
   io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
+  io.out(
+    seeded
+      ? `  identity core seeded for ${name ?? ""} — the thing this memory is about.`
+      : "  no identity core: pass --name \"<your name>\" to seed one. Nothing else gives a",
+  );
+  if (!seeded) io.out("  store one, and the wake has nothing to be about without it.");
   io.out("");
   io.out("To install the hooks (not done for you — these edit your host's settings):");
   io.out("");
@@ -666,6 +808,11 @@ async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number>
 
   const counterpart = openCounterpart(dir);
   try {
+    // THE STORE, FIRST, the way `status` names it. A write whose destination is
+    // invisible is the shape the 2026-09-04 review found: a mistyped `--dir`
+    // resolved to the default store, the note landed there, and the only line
+    // printed was that something had been remembered.
+    io.out(`Store: ${counterpart.store.dir}`);
     const session = "console";
     const scope = process.cwd();
     // Step 1 of 2, and the ORDER is the rule (see the docblock above).
@@ -714,6 +861,8 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
 
   const counterpart = openCounterpart(dir);
   try {
+    // Same rule as `note` and `status`: say which store answered.
+    if (parsed.flags["json"] !== true) io.out(`Store: ${counterpart.store.dir}`);
     const result = deliberateRecall(
       counterpart,
       idFlag.length > 0 ? { handle: idFlag } : { question },
@@ -1468,6 +1617,14 @@ export function hostCeiling(
 
 /** Exported for the caller-universality test: the console composes a brain the
  *  same way every other adapter does, and never re-wires the modules. */
-export function openCounterpart(dir: string, observer = false): Counterpart {
-  return Counterpart.open({ dir, observer });
+export function openCounterpart(
+  dir: string,
+  observer = false,
+  identity?: { readonly name: string },
+): Counterpart {
+  // `identity` goes through the SAME door the host adapter uses —
+  // `Counterpart.open`'s own option, which calls `self.ensureIdentityCore`. The
+  // console does not get a second way to mint an identity core; it gets the
+  // one way, with a name from a flag instead of from `claude-code.json`.
+  return Counterpart.open({ dir, observer, ...(identity === undefined ? {} : { identity }) });
 }

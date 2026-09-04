@@ -358,6 +358,36 @@ else
   fi
 fi
 
+step "a mistyped --dir is REFUSED, and the note does not land somewhere else"
+# The critical finding of 2026-09-04, as a step. `note "…" --dirr <store2>` used
+# to print `Remembered mem_… — minted.` while store2 stayed empty and the DEFAULT
+# store took the words — which on a real machine is the owner's live memory. The
+# assertion is in three parts: the command refuses, it names the flag, and NO
+# store anywhere grew a memory.
+BEFORE_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Live memories: \([0-9]*\).*/\1/p' | head -1)
+OUT=$(counterparts note "This must not land anywhere." --dirr "$FIRSTSTORE" 2>&1)
+CODE=$?
+AFTER_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Live memories: \([0-9]*\).*/\1/p' | head -1)
+if [ "$CODE" = "2" ] &&
+   printf '%s' "$OUT" | grep -q "unknown flag --dirr" &&
+   printf '%s' "$OUT" | grep -q "did you mean --dir?" &&
+   [ "$BEFORE_DEFAULT" = "$AFTER_DEFAULT" ]; then
+  ok
+else
+  no "a mistyped --dir was not refused, or something was written (exit $CODE, live $BEFORE_DEFAULT -> $AFTER_DEFAULT)" "$OUT"
+fi
+
+step "note and recall NAME the store they wrote to or read from"
+OUT=$(counterparts note "A memory that says where it went." --dir "$FIRSTSTORE" 2>&1)
+OUT2=$(counterparts recall "where did it go?" --dir "$FIRSTSTORE" 2>&1)
+if printf '%s\n' "$OUT" | head -1 | grep -q "^Store: $FIRSTSTORE$" &&
+   printf '%s\n' "$OUT2" | head -1 | grep -q "^Store: $FIRSTSTORE$"; then
+  ok
+else
+  no "the destination was not the first line" "note: $OUT
+recall: $OUT2"
+fi
+
 step "the §7 demo DISCRIMINATES: two notes, one question, the right memory"
 # The one-row case (step 14) proves the store answers. It cannot prove RECALL,
 # because a store with one row returns that row to any question at all — the
