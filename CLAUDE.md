@@ -38,6 +38,10 @@ tests, module CONTRACTs, and `docs/harvest/`.
 
 ## Status
 
-Pre-build skeleton. Module map: `docs/module-map.md`. Each `src/**/CONTRACT.md` states
-what the module keeps (with lineage), what it drops, and its guarantees — contracts
-first, implementation only after the owner's skeleton check-in.
+Built. Feature-complete 2026-08-25; in a parallel run against v1 since 2026-09-03;
+launch prep from 2026-09-04. The living records are `docs/PARALLEL-RUN-STATUS.md` (what
+the run is proving, day by day) and `docs/LAUNCH-STATUS.md` (what is verified, what is
+still open, and who owns it) — read those for current state, not this file. Module map:
+`docs/module-map.md`. Each `src/**/CONTRACT.md` states what the module keeps (with
+lineage), what it drops, and its guarantees; `NOTES.md` and `INTERFACE-GAPS.md` beside it
+record what the build learned and what it still owes.

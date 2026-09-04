@@ -3,8 +3,9 @@
 *The skeleton's spine. One brain function per self-contained module (constitution line
 10); each module's `CONTRACT.md` states purpose, brain analog, what it keeps (with
 lineage: v0 / engram / v1 / the store's design memory), what it drops or simplifies,
-its guarantees, and the scars it honors. Contracts are spec; no implementation exists
-until after the owner's skeleton check-in.*
+its guarantees, and the scars it honors. Contracts are spec, and they were written
+first; the skeleton they describe has since been built, so read each contract beside the
+code and the `NOTES.md` / `INTERFACE-GAPS.md` next to it.*
 
 ## Core (`src/core/`) — knows no host
 
