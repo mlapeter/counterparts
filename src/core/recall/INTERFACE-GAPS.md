@@ -62,6 +62,23 @@ keeps them near zero anyway); and cue extraction costs one query per token.
 **Real fix:** `Store.documentFrequency(tokens: string[]): Map<string, number>` — a single
 `GROUP BY token` over `doc_tokens`, which the schema already supports.
 
+**Closed in part, 2026-09-04:** the *document-length* half of this gap is gone. `doc_lens`
+joined box 3 (cache schema v3) and `Store.search(cue, limit, norm)` takes the normalization
+constants, so the cue channel no longer has to pretend every document is the same size. The
+`df` half above is unchanged.
+
+## 3a. `doc_tokens` outlives the memory — removed rows still count in `df` and `avgLen`
+
+**Owner:** `store/` (box 3).
+**Have:** removal takes an id dark in box 2 and `activate` filters it with `deniedIds()`,
+but nothing deletes its rows from `doc_tokens`. Only `rebuildCache()` clears them.
+**Consequence, small and worth stating:** a removed memory still contributes to the `df`
+probe (so its tokens read as very slightly less rare than they are) and to `AVG(len)` (so
+the normalization constant is computed over a corpus that includes the dead). Neither leaks
+content — the ids never become candidates — and both are noise at the store's current size.
+**Real fix:** delete the row's `doc_tokens` and `doc_lens` entries at the `dark` stage,
+where the deny-list entry is already written.
+
 ## 4. The observer predicate lives in `store/`
 
 Not a defect, and recorded so nobody "fixes" it: `Recall.observer` reads
@@ -113,3 +130,29 @@ permanently dark semantic channel, and the only sign is `semanticSource` staying
 `nearestTo` cheap enough that the hot path could rank a vector itself, and the lag would
 become a choice rather than a constraint. Not built: constitution line 15, and one
 measured failure is not yet a case for an index.
+
+## 7. Box 3 is 278 MB and 65% of it is JSON punctuation — NAMED, not fixed here
+
+**Owner:** `store/` (box 3).
+**Measured 2026-09-04**, on the live cache (`dbstat`, 15,421 indexed documents):
+
+| table                        | bytes | note |
+|---|---|---|
+| `embeddings`                 | 177.5 MB | 13,868 vectors × 1024 dims, stored as **TEXT JSON** |
+| `doc_tokens` + its 2 indexes |  99.1 MB | 1,070,086 rows |
+| everything else              |   1.6 MB | |
+
+A 1024-dim float32 vector is 4,096 bytes. As `JSON.stringify(number[])` the same vector
+averages **12,690 bytes** — a 3.1× multiplier, and `nearest()` then pays `JSON.parse` on
+every row of a full-table scan for every semantic query. Stored as a `BLOB` the embeddings
+table would be roughly 57 MB and the scan would be a `Float32Array` view rather than a
+parse.
+
+**Why it is not fixed in the change that measured it:** it is a box-3 storage-format change
+with a migration of its own, it sits under the semantic channel gap 6 has just closed, and
+the measured problem there was ranking, not size. Gap 6's 590-1040 ms `nearestTo` and this
+table are the same fact seen twice: the scan is slow BECAUSE every row is parsed from JSON. Named so it is a decision somebody makes rather
+than a number that quietly gets worse. Related and cheap: the same 278 MB is what makes the
+FIRST recall in a fresh hook process cost ~800 ms of page-cache warming (`BUDGET_MS`'s day-0
+recalibration).
+

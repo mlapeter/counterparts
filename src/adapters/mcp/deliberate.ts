@@ -68,6 +68,103 @@ export const HARD_GATES: readonly Verdict[] = ["dark-uncued", "below-floor", "cu
 /** Adapter-owned, not a memory property: how many dim items are worth reading. */
 export const DELIBERATE_DIM_CAP = 5;
 
+// ── the result's size, which is a capability of the HOST, not a preference ──
+//
+// MEASURED 2026-09-04: three `recall` calls in one session returned 7, 8 and 12
+// memories as FULL BODIES — 73,000 to 122,000 characters — and every one of the
+// three overflowed the host's tool-result ceiling. An answer the host truncates
+// is not a smaller answer, it is no answer, and the model that asked cannot tell
+// the difference between "nothing came" and "too much came".
+//
+// This is scar §2.18's rule (the injection ceiling is a host capability) applied
+// to the OTHER direction of the same wire. The ambient path has had a byte
+// budget since day one (`BUDGET_BYTES`); the deliberate path had none.
+//
+// The numbers: a LIST answers "which memories", so 300 characters is enough to
+// recognize one and decide whether to ask for it; the id path answers "what did
+// it say", so it gets an order of magnitude more each; and the total is bounded
+// below the smallest tool-result ceiling this package has met.
+
+/** Characters of body per memory in a LIST answer (the question path). */
+export const RECALL_EXCERPT_CHARS = 300;
+/** Characters of body per memory when the caller asked for it BY ID. */
+export const RECALL_BODY_CHARS = 4000;
+/** Total characters of memory content in one result, across every memory. */
+export const RECALL_RESULT_CHARS = 12_000;
+/** How many ids one `ids` call may expand. Effort, not enumeration. */
+export const RECALL_MAX_IDS = 3;
+
+/** One memory as it goes on the wire: an excerpt, plus what was left off. */
+export interface BoundedMemory {
+  readonly id: string;
+  readonly tier: Tier;
+  readonly kind: string;
+  readonly title: string | null;
+  /** The body, cut to the applicable budget. */
+  readonly excerpt: string;
+  /** The full body's length, so "there is more" is a number, not a guess. */
+  readonly bodyChars: number;
+  /** True when `excerpt` is shorter than the body. */
+  readonly truncated: boolean;
+  readonly admittedUnder?: Verdict;
+}
+
+export interface BoundedResult {
+  readonly memories: readonly BoundedMemory[];
+  /** Any body was cut. */
+  readonly truncated: boolean;
+  /** Memories dropped whole because the TOTAL budget ran out. Ranked order is
+   *  preserved, so what is dropped is always the least activated. */
+  readonly droppedForBudget: number;
+  readonly chars: number;
+}
+
+function cut(body: string, limit: number): string {
+  if (body.length <= limit) return body;
+  // Cut at a word boundary when one is near, so an excerpt ends as text rather
+  // than mid-token. The ellipsis is part of the budget, not extra.
+  const hard = body.slice(0, Math.max(0, limit - 1));
+  const space = hard.lastIndexOf(" ");
+  return `${space > limit * 0.6 ? hard.slice(0, space) : hard}…`;
+}
+
+/**
+ * Bound a ranked list of memories to the wire budget. Ranked order is preserved
+ * and truncation is stated: an answer that quietly drops its tail is the same
+ * failure as an answer the host truncates, moved one layer inward.
+ */
+export function boundMemories(
+  memories: readonly Recalled[],
+  perMemoryChars: number,
+  totalChars: number = RECALL_RESULT_CHARS,
+): BoundedResult {
+  const out: BoundedMemory[] = [];
+  let chars = 0;
+  let truncated = false;
+  let dropped = 0;
+  for (const m of memories) {
+    const remaining = totalChars - chars;
+    if (remaining <= 0) {
+      dropped += 1;
+      continue;
+    }
+    const excerpt = cut(m.body, Math.min(perMemoryChars, remaining));
+    if (excerpt.length < m.body.length) truncated = true;
+    chars += excerpt.length;
+    out.push({
+      id: m.id,
+      tier: m.tier,
+      kind: m.kind,
+      title: m.title,
+      excerpt,
+      bodyChars: m.body.length,
+      truncated: excerpt.length < m.body.length,
+      ...(m.admittedUnder === undefined ? {} : { admittedUnder: m.admittedUnder }),
+    });
+  }
+  return { memories: out, truncated, droppedForBudget: dropped, chars };
+}
+
 /**
  * The latency budget for the DEEPER LOOK, in ms — deliberately generous, and
  * deliberately not the ambient one.
@@ -102,7 +199,8 @@ export type DeliberateReason =
   | "handle-confidential-withheld"
   | "nothing-came"
   | "no-argument"
-  | "both-arguments";
+  | "both-arguments"
+  | "ids-too-many";
 
 export interface DeliberateResult {
   readonly path: "handle" | "question" | "none";
@@ -119,11 +217,18 @@ export interface DeliberateResult {
   readonly storeSize: number;
   /** Ids a handle matched when the handle was ambiguous. Ids only, no bodies. */
   readonly ambiguous: readonly string[];
+  /** The `ids` path only: what happened to each id asked for, in the order
+   *  asked. A multi-id lookup is still a DIRECT lookup, so each id's refusal is
+   *  stated by name rather than folded into one total (§9.1 G5). */
+  readonly perId?: readonly { id: string; reason: DeliberateReason }[];
 }
 
 export interface DeliberateInput {
   readonly handle?: string;
   readonly question?: string;
+  /** Full bodies for memories the caller already has the ids of — the follow-up
+   *  to a list, and the reason the list can afford to be excerpts. */
+  readonly ids?: readonly string[];
 }
 
 export interface DeliberateOptions {
@@ -162,10 +267,16 @@ export function deliberateRecall(
 ): DeliberateResult {
   const hasHandle = typeof input.handle === "string" && input.handle.trim().length > 0;
   const hasQuestion = typeof input.question === "string" && input.question.trim().length > 0;
-  if (hasHandle && hasQuestion) {
+  const askedIds = (input.ids ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
+  const hasIds = askedIds.length > 0;
+  // THREE paths now, still exactly one per call. `ids` is the follow-up to a
+  // list — "give me those in full" — and mixing it with a question is the same
+  // caller confusion `both-arguments` already refuses.
+  if ([hasHandle, hasQuestion, hasIds].filter(Boolean).length > 1) {
     return { path: "none", reason: "both-arguments", ...EMPTY };
   }
   if (hasHandle) return expandHandle(counterpart, (input.handle as string).trim(), opts);
+  if (hasIds) return expandIds(counterpart, askedIds, opts);
   if (hasQuestion) return answerQuestion(counterpart, (input.question as string).trim(), opts);
   return { path: "none", reason: "no-argument", ...EMPTY };
 }
@@ -257,6 +368,57 @@ export function expandHandle(
         activation: 1,
       },
     ],
+  };
+}
+
+/**
+ * THE ID PATH — "those three, in full", after a list.
+ *
+ * It is `expandHandle` in a loop and deliberately nothing more: each id crosses
+ * the same exact-address resolution and the same confidentiality boundary, so
+ * withholding is still STATED per id (§9.1 G5) and no id fuzzes into a search.
+ * Writing a second resolver here to save a loop is how the expansion path
+ * quietly becomes the search path.
+ *
+ * The count is capped because effort is not enumeration: a caller who wants
+ * twenty bodies is asking for the store, and `status` is the tool for that.
+ */
+export function expandIds(
+  counterpart: Counterpart,
+  ids: readonly string[],
+  opts: DeliberateOptions,
+): DeliberateResult {
+  const unique = [...new Set(ids)];
+  const storeSize = counterpart.store.list({ archived: false }).length;
+  // Same as `expandHandle`: an exact address consults no channel, so `none`
+  // here means "not asked", never "asked and empty".
+  const base = { path: "handle" as const, semantic: "none" as SemanticSource, storeSize };
+  if (unique.length > RECALL_MAX_IDS) {
+    return {
+      ...base,
+      reason: "ids-too-many",
+      memories: [],
+      considered: unique.length,
+      ambiguous: [],
+      perId: unique.map((id) => ({ id, reason: "ids-too-many" as const })),
+    };
+  }
+  const memories: Recalled[] = [];
+  const ambiguous: string[] = [];
+  const perId: { id: string; reason: DeliberateReason }[] = [];
+  for (const id of unique) {
+    const one = expandHandle(counterpart, id, opts);
+    perId.push({ id, reason: one.reason });
+    memories.push(...one.memories);
+    ambiguous.push(...one.ambiguous);
+  }
+  return {
+    ...base,
+    reason: memories.length > 0 ? "expanded" : (perId[0]?.reason ?? "handle-unknown"),
+    memories,
+    considered: unique.length,
+    ambiguous,
+    perId,
   };
 }
 

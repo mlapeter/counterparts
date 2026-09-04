@@ -29,6 +29,27 @@ export interface RecallTunables {
    *  [v1: 1 turn, decay 0.5] CAL. */
   CARRY_DECAY: number;
 
+  // ── the document side of §9 G4: length normalization + a per-doc ceiling ──
+  /** tf saturation for a cue's evidence in ONE document (BM25 k1). At `k1 = 1`
+   *  and `CUE_LENGTH_NORM = 0` this is exactly the previous `2·tf/(tf+1)`, which
+   *  is why it is 1: the change ships length normalization and nothing else. CAL. */
+  CUE_TF_SATURATION: number;
+  /** How much of a cue's evidence is normalized by document length (BM25 b).
+   *  0 = none (the measured bug); 1 = fully proportional to length. CAL. */
+  CUE_LENGTH_NORM: number;
+  /** Clamp the length factor at 1: penalize a long document, never REWARD a
+   *  short one. BM25's factor is centered on the mean, which raises short
+   *  documents above their old scores — harmless for ranking, not harmless for
+   *  the ABSOLUTE floors below, which are v1 inheritances calibrated against the
+   *  old scale. See `store/cache.ts#LengthNorm.oneSided` for the measurement. CAL. */
+  CUE_LENGTH_ONE_SIDED: boolean;
+  /** Per-document ceiling on the cue channel, as a multiple of that document's
+   *  single strongest cue. Corroboration is real evidence; sheer coverage is
+   *  not. v1 capped the same quantity absolutely (`entityCueCap`); this is the
+   *  scale-free form, because v2's cue weights are smoothed idf rather than v1's
+   *  normalized similarities and an absolute number would not transfer. CAL. */
+  CUE_DOC_CAP: number;
+
   // ── channels ─────────────────────────────────────────────────────────────
   /** Weight on the embedding channel's contribution. CAL. */
   SEMANTIC_WEIGHT: number;
@@ -123,13 +144,82 @@ export const TUNABLES: RecallTunables = {
   AMBIGUOUS_WEIGHT: 0.5,
   CARRY_DECAY: 0.5,
 
+  // MEASURED 2026-09-04 on a copy of the live store (15,421 indexed documents,
+  // mean 106 indexed tokens, max 3,184 — a 30x spread). Ambient recall returned
+  // the same nine memories of 9–20 KB for every topic across two unrelated
+  // sessions, judged 0-of-9 relevant by the instance that lived them, and 12 of
+  // 19 turns then read "all-gated" because those nine were spent.
+  //
+  // `tools/recall-bench` swept one-sided x b ∈ {0, 0.5, 0.75, 1.0} x
+  // cap ∈ {inf, 3, 2} — 23 cells — over the 13 prompts of that conversation.
+  // What the grid says, in order:
+  //   - b = 0 (no normalization) is the bug: 31 of 32 delivered items were hubs,
+  //     on 13 of 13 turns.
+  //   - THE CAP ALONE MAKES IT WORSE. At b = 0, cap = 3 took hub hits from 31 to
+  //     52 — capping the hubs' sums compresses the turn's variance, which lowers
+  //     the relative bar and admits MORE of them. The ceiling is the second half
+  //     of this rule and is not a substitute for the first.
+  //   - every b >= 0.5 takes hub hits to zero, at every cap and either sidedness.
+  //     So b is chosen on what it COSTS, and the labeled positives decide:
+  //     b = 1.0 loses `mem_8fb634c2783e` (the School-of-Life passage) from the
+  //     deliberate answer; cap = 2 loses `mem_0d42a06a737977c9` from it.
+  //   - ONE cell in the grid delivers an AMBIENT labeled positive —
+  //     one-sided, b = 0.5, cap = 3, which footnotes `mem_e64f1a8b2d77` (the
+  //     owner's correction about anchoring on the first-stated goal) on turn 4.
+  //     Nothing else in 23 cells does, and "0 of 9 delivered footnotes were
+  //     relevant" is the finding this change exists to move. It also carries the
+  //     fewest recurring ids of the hub-free cells (7 ids / 33 of 79 deliveries,
+  //     against 9 / 38 for two-sided b = 0.75) and keeps both deliberate
+  //     positives. So: 0.5, clamped, cap 3 — not BM25's textbook 0.75, which is
+  //     what the grid was expected to pick and did not.
+  // The bench measures the LEXICAL channel only (no embeddings on authored
+  // memories, and the bench passes no turn vector), so it is a floor, not a
+  // forecast. CAL.
+  CUE_TF_SATURATION: 1.0,
+  CUE_LENGTH_NORM: 0.5,
+  CUE_LENGTH_ONE_SIDED: true,
+  CUE_DOC_CAP: 3.0,
+
   SEMANTIC_WEIGHT: 1.0,
   SEMANTIC_SEED_FLOOR: 0.45,
   SEMANTIC_TOP_M: 8,
   ARRIVAL_WEIGHT: 0.15,
 
-  SNR_GLOBAL: 1.2,
+  // 1.2 -> 1.6 (CAL, 2026-09-04). Once length normalization stopped nine hubs
+  // from setting every turn's variance, the relative bar admitted far more:
+  // over the 13-prompt bench, delivered items went from 2.5 to 6.1 per turn.
+  // 1.6 takes that to 4.8 without losing any of the four labeled positives; at
+  // 2.0 the ambient positive goes. Scale-free by construction — it is a count
+  // of standard deviations — which is why it is the volume knob that shipped
+  // and the absolute floors below are not. `tools/recall-bench --gate-sweep`.
+  SNR_GLOBAL: 1.6,
   SNR_STRONG: 2.5,
+  // ── UNCHANGED, AND THE REASON IS A FINDING. ────────────────────────────
+  //
+  // MEASURED 2026-09-04: on the live store, activation runs **13 to 48** per
+  // turn (mean 13.0 on the quietest of the 13 prompts, 27.0 on the busiest).
+  // These floors are v1's, and v1's activation was a normalized cosine in 0-1.
+  // So hard gate (b) and the per-kind loud floors are two orders of magnitude
+  // below anything they could refuse: **they have never fired in v2.** Scaling
+  // them by x1 to x15 changes not one delivered item on the bench.
+  //
+  // That matters because the loud tier now fires on a turn that said nothing
+  // ("where would you like to take the conversation from here?"), and the
+  // RELATIVE bar cannot fix it: that turn's top candidate stands 3.5 sd above
+  // its own thin background where a busy turn's stands 2.6, so raising
+  // `SNR_STRONG` silences the busy turn first. Swept and confirmed — turn-3
+  // loud stayed at 2 for every value of `SNR_STRONG` tried. Only an ABSOLUTE
+  // floor can keep a low-evidence turn quiet, which is what one is for.
+  //
+  // Why they are not simply raised here: a floor calibrated to this store
+  // (FLOOR_GLOBAL 25, loud floors x57) blinds a small one — v2's activation is
+  // a SUM over matched cues, and the live store reaches ~24 cues per turn where
+  // a 17-memory test store reaches 2 or 3. Denominating the floors in
+  // `informativeness(1, storeSize)` — one maximally-rare cue, the model's own
+  // unit — fixes the idf half of that and was prototyped and swept here; it is
+  // not enough on its own, because the CUE-COUNT half remains. That is the
+  // named next measurement, with the data in the PR, and it is deliberately not
+  // guessed at inside a change that already moved the scoring.
   FLOOR_GLOBAL: 0.2,
   FLOOR_STRONG_BY_KIND: {
     self: 0.6,
@@ -151,7 +241,13 @@ export const TUNABLES: RecallTunables = {
   MIN_BACKGROUND_SAMPLE: 3,
 
   NEAR_DUPLICATE: 0.85,
-  MAX_SURFACED: 2,
+  // 2 -> 1 (CAL, 2026-09-04). §3 says the loud tier is for RARELY, and after
+  // length normalization it fired on 13 of 13 real turns. The bar cannot fix
+  // that yet (see FLOOR_GLOBAL above), but a hard cap can, it is scale-free,
+  // and it halves what the owner reads uninvited: 24 loud items over the 13
+  // prompts became 13, one per turn at most. The turn COUNT is still the open
+  // problem and it is CONTRACT §7 OQ5.
+  MAX_SURFACED: 1,
   MAX_FOOTNOTES: 6,
 
   AFFECT_MIN_EMOTION: 0.7,

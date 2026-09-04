@@ -54,8 +54,17 @@ import {
   stageProse,
 } from "./prose.js";
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
-import { indexDoc, nearest, nearestVectors, openCache, resetCache, searchIndex, setEmbedding } from "./cache.js";
-import type { Hit } from "./cache.js";
+import {
+  DEFAULT_LENGTH_NORM,
+  indexDoc,
+  nearest,
+  nearestVectors,
+  openCache,
+  resetCache,
+  searchIndex,
+  setEmbedding,
+} from "./cache.js";
+import type { Hit, LengthNorm } from "./cache.js";
 
 export * from "./errors.js";
 export * from "../observer.js";
@@ -72,9 +81,9 @@ export type {
   RemovalRow,
   TombstoneRow,
 } from "./operational.js";
-export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION } from "./operational.js";
-export { tokenize, cosine, CACHE_SCHEMA_VERSION } from "./cache.js";
-export type { Hit } from "./cache.js";
+export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, rowToPhysics } from "./operational.js";
+export { tokenize, cosine, CACHE_SCHEMA_VERSION, DEFAULT_LENGTH_NORM, backfillLengths, avgDocLen } from "./cache.js";
+export type { Hit, LengthNorm } from "./cache.js";
 // The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
 // does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
 // directory the caller-universality test allows (§16 G1–G2).
@@ -1304,8 +1313,13 @@ export class Store {
       .map((r) => r.memory_id);
   }
 
-  search(cue: string, limit = 10): Hit[] {
-    return searchIndex(this.cache, cue, limit);
+  /**
+   * The token channel's read. `norm` is the document-length normalization
+   * (`cache.ts#LengthNorm`); recall passes its own CAL values, and the two
+   * callers that are not recall take the default.
+   */
+  search(cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM): Hit[] {
+    return searchIndex(this.cache, cue, limit, norm);
   }
 
   nearestTo(vec: readonly number[], limit = 10): Hit[] {

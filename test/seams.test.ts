@@ -46,7 +46,26 @@ import {
 import { SCALAR_REF, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import { Associate } from "../src/core/associate/index.js";
 import { Prospective } from "../src/core/prospective/index.js";
-import { Recall, TUNABLES as RECALL_TUNABLES, freshGateState, gate } from "../src/core/recall/index.js";
+import { Recall, TUNABLES as RECALL_TUNABLES, freshGateState, gate, withTunables } from "../src/core/recall/index.js";
+
+/**
+ * FIXTURE SCALE. These gate fixtures hand-build candidates with activations near
+ * 1 against a nominal `storeSize`, because they test the gate's LOGIC — tier
+ * disjointness, the ceilings, the training refusal — not its calibration.
+ *
+ * The shipped absolute floors are denominated in `informativeness(1, storeSize)`
+ * (`gate.ts#floorUnit`) and calibrated against a 15,421-memory store reached by
+ * ~24 cues per turn, where activation runs 13-48. A fixture candidate at 1.0 is
+ * two orders of magnitude below that and would be refused by hard gate (b)
+ * before any of these rules were reached — so the floors are restated here in
+ * the fixtures' own scale. Multiplying every fixture by 30 instead would have
+ * made the shipped LEVEL a hidden input to tests that are not about the level.
+ */
+const FIXTURE_TUNABLES = withTunables({
+  FLOOR_GLOBAL: 0.05,
+  FLOOR_STRONG_BY_KIND: { self: 0.15, person: 0.15, entity: 0.15, place: 0.2, skill: 0.25, fact: 0.25 },
+  FLOOR_STRONG_DEFAULT: 0.12,
+});
 import type { Candidate as RecallCandidate } from "../src/core/recall/index.js";
 import { composeTurn, recallTurn } from "../src/core/retrieval.js";
 import { Schemas } from "../src/core/schemas/index.js";
@@ -354,6 +373,8 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
     const hoisted = (await import("../src/core/observer.js")).isObserver;
     expect(storeModule.isObserver).toBe(hoisted);
   });
+
+
 
   test("stand-down totality spans BOTH consumers: every site in WRITE_METHODS ∪ WRITE_SITES emits", async () => {
     // Half one: the store seam.
@@ -855,7 +876,7 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
         affectStated: false,
         turn: 1,
       },
-      RECALL_TUNABLES,
+      FIXTURE_TUNABLES,
     );
     const uncapped = gate(
       {
@@ -866,7 +887,7 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
         affectStated: false,
         turn: 1,
       },
-      RECALL_TUNABLES,
+      FIXTURE_TUNABLES,
     );
     expect(uncapped.surfaced.map((c) => c.id)).toEqual(["mem_uncapped"]);
     expect(capped.surfaced).toEqual([]);
@@ -1387,7 +1408,7 @@ describe("SEAMS L — hops raise a candidate the conversation reached, and mint 
         affectStated: false,
         turn: 1,
       },
-      RECALL_TUNABLES,
+      FIXTURE_TUNABLES,
     );
     const v = g.verdicts.find((x) => x.id === "mem_plain");
     expect(v?.cueFraction).toBeCloseTo(0.7 / 0.75, 10);

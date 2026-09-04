@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 import {
+  CACHE_SCHEMA_VERSION,
   DATA_DIR_ENV,
   DEFAULT_RETENTION_DAYS,
   LAYOUT,
@@ -31,6 +32,7 @@ import {
   serializeProse,
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
+import { openDb } from "../src/core/store/db.js";
 
 const STORE_SRC = fileURLToPath(new URL("../src/core/store/", import.meta.url));
 
@@ -692,6 +694,55 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
       proseBefore,
     );
     expect(ids.map((id) => s.physicsOf(id))).toEqual(physicsBefore);
+  });
+
+  test("the v2→v3 migration derives document lengths from the index and KEEPS the embeddings", () => {
+    // The scar this pins: box 3's embeddings cost a network call each (13,868 of
+    // them on the live store), and `resetCache` drops them. A schema addition
+    // that reaches for `rebuildCache()` in a process with no embedder configured
+    // would silently zero the vector channel. Lengths are a pure function of
+    // `doc_tokens`, so the migration is one aggregate and touches nothing else.
+    const s = store({ embed: fakeEmbed });
+    s.putMany([
+      mem("Cold brew every morning, never iced coffee"),
+      mem("The dashboard renders ids at render time"),
+      mem("Prospective memory holds debts and loses deadlines"),
+    ]);
+    s.close();
+    open.length = 0;
+
+    // Age the cache back to v2 by hand: drop the table and restamp the version.
+    const aged = openDb(paths.cache(dir));
+    aged.exec("DROP TABLE doc_lens");
+    aged.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '2')");
+    const embeddingsBefore = aged.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings")?.n;
+    const docsInIndex = aged.get<{ n: number }>(
+      "SELECT COUNT(DISTINCT memory_id) AS n FROM doc_tokens",
+    )?.n;
+    aged.close();
+    expect(embeddingsBefore).toBe(3);
+
+    // Reopening is the migration — with NO embedder, which is the dangerous case.
+    const migrated = store();
+    const cache = openDb(paths.cache(dir));
+    expect(cache.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'")?.value).toBe(
+      String(CACHE_SCHEMA_VERSION),
+    );
+    expect(cache.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_lens")?.n).toBe(docsInIndex);
+    // The vectors survived a schema change made by a process that could not
+    // have recomputed them.
+    expect(cache.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings")?.n).toBe(3);
+    // The lengths are the index's own numbers, not a re-read of prose.
+    const byAggregate = cache.all<{ memory_id: string; len: number }>(
+      "SELECT memory_id, SUM(tf) AS len FROM doc_tokens GROUP BY memory_id ORDER BY memory_id",
+    );
+    const stored = cache.all<{ memory_id: string; len: number }>(
+      "SELECT memory_id, len FROM doc_lens ORDER BY memory_id",
+    );
+    expect(stored).toEqual(byAggregate);
+    cache.close();
+    // And the migrated cache answers cues — normalization has lengths to use.
+    expect(migrated.search("coffee").length).toBe(1);
   });
 
   test("what rebuild cannot recompute is declared, counted, and logged (§5 G8)", () => {

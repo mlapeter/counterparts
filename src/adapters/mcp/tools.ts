@@ -31,6 +31,7 @@
  *   - **No tool that writes an entity, a belief, or a revision.** Entities are
  *     born by mention; revision is `updates:` plus arithmetic.
  */
+import { RECALL_MAX_IDS } from "./deliberate.js";
 
 export type ToolName = "note" | "recall" | "status" | "session_end" | "chapter";
 
@@ -198,12 +199,13 @@ const NOTE: ToolSpec = {
 const RECALL: ToolSpec = {
   name: "recall",
   summary:
-    "Deliberate retrieval: a deeper, more effortful look than the ambient reminding you already get. One argument, two paths — a handle expands that memory exactly, a question runs a search.",
+    "Deliberate retrieval: a deeper, more effortful look than the ambient reminding you already get. One argument, three paths — a handle expands that memory exactly, a question runs a search and answers with excerpts, and ids returns a few of those in full.",
   admission:
-    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the full body of a memory you were only shown a footnote of.",
+    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the full body of a memory you were only shown a footnote or an excerpt of.",
   negativeExamples: [
     "Do NOT call it to check whether a memory exists before writing one — a duplicate is refused at the write, so the check costs a round trip and buys nothing.",
     "Do NOT call it with a handle you are guessing at: an unresolvable handle is answered as not-found, never as a fuzzy search over the store.",
+    "Do NOT pass a question and ids together, or ids you have not seen in a result: ids is the follow-up to a list, not a second way to search.",
   ],
   privileges: [
     {
@@ -228,8 +230,18 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "The number of candidates considered is reported separately from the number returned, so a count here is never an undercount of the store.",
-      mechanizedBy: "src/adapters/mcp/deliberate.ts#deliberateRecall (considered/storeSize)",
+        "The number of candidates considered is reported separately from the number returned, so a count here is never an undercount of the store — and the cap that produced it is reported next to it.",
+      mechanizedBy: "src/adapters/mcp/deliberate.ts#deliberateRecall (considered/storeSize) + src/adapters/mcp/server.ts#recallPayload (consideredCap)",
+    },
+    {
+      claim:
+        "A search answers with excerpts and a bounded total, never with every body at full length: an answer the host truncates is not a smaller answer, it is no answer. When something was cut or dropped, the result says so.",
+      mechanizedBy: "src/adapters/mcp/deliberate.ts#boundMemories (RECALL_EXCERPT_CHARS/RECALL_RESULT_CHARS)",
+    },
+    {
+      claim:
+        "Pass ids to get a few of those memories in full. It takes at most three, each resolved as an exact address with the same confidentiality boundary, and the total stays bounded.",
+      mechanizedBy: "src/adapters/mcp/deliberate.ts#expandIds (RECALL_MAX_IDS, expandHandle per id)",
     },
     {
       claim:
@@ -250,7 +262,16 @@ const RECALL: ToolSpec = {
       },
       question: {
         type: "string",
-        description: "What you are trying to remember, in words. Runs the deeper retrieval.",
+        description:
+          "What you are trying to remember, in words. Runs the deeper retrieval and answers with excerpts.",
+      },
+      ids: {
+        type: "array",
+        items: { type: "string" },
+        // The cap is one number, imported. A literal here and a constant in
+        // `deliberate.ts` is the drift the registry audit exists to prevent.
+        maxItems: RECALL_MAX_IDS,
+        description: `Memory ids from an earlier result, to return in full. At most ${RECALL_MAX_IDS}. Not combinable with handle or question.`,
       },
     },
     required: [],
