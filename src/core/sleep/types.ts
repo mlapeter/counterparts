@@ -384,6 +384,30 @@ export function emptyOutcome(): PhaseOutcome {
 }
 
 /** Counts a named skip reason. Reasons are enumerated, never summed into one. */
+/**
+ * THE JOURNAL IS NOT SUBJECT TO FORGETTING, and this is the one predicate that
+ * says so — read by every phase rather than re-spelled in four.
+ *
+ * An episode is the owner's first-person account and the SOURCE of memories:
+ * "context and source, in that order, ingested ONCE as an ordinary memory"
+ * (`self/episodes.ts`). Forgetting applies to what was minted FROM an episode,
+ * never to the episode itself — the memory decays, consolidates, is merged and
+ * is eventually pruned like anything else, and the account it came from stays
+ * readable in the owner's own directory (constitution 6: the owner owns the
+ * data, in prose readable in any editor; 7: memory changes like human memory,
+ * which is a claim about MEMORIES).
+ *
+ * Measured 2026-09-04 on the live store: all 224 migrated episodes sit in the
+ * episodic band with zero on every salience dimension, so the prune pass would
+ * have archived the entire journal at the floor — and an archived episode stops
+ * reconciling, so the memories it had not yet minted would never exist. The
+ * same shape as the dedup finding a day earlier: phases that walk "every row"
+ * were written when every row was a memory.
+ */
+export function isJournal(row: MemoryRow): boolean {
+  return row.type === "episode";
+}
+
 export function countSkip(out: PhaseOutcome, reason: string, n = 1): void {
   out.skipped[reason] = (out.skipped[reason] ?? 0) + n;
 }

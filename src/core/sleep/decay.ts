@@ -53,13 +53,15 @@ import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
-import { countSkip, emptyOutcome, recordBandTransition } from "./types.js";
+import { countSkip, emptyOutcome, isJournal, recordBandTransition } from "./types.js";
 import type { StrengthCache, StrengthRow } from "./strength-cache.js";
 
 /** Skip categories, enumerated so a zero is distinguishable from an absence. */
 export const DECAY_SKIPS = [
   "archived",
   "removed",
+  /** The journal, which is a source and not a memory (`types.ts#isJournal`). */
+  "journal",
   "identity-band",
   "reinforced-today",
   "at-floor",
@@ -108,6 +110,12 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     }
     if (row.archived === 1) {
       countSkip(out, "archived");
+      continue;
+    }
+    // The journal is a source, not a memory: it is not examined, so it cannot
+    // move a band or write a strength row (`types.ts#isJournal`).
+    if (isJournal(row)) {
+      countSkip(out, "journal");
       continue;
     }
     out.examined += 1;

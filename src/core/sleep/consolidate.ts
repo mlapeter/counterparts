@@ -35,11 +35,14 @@ import type { PromotionReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PROMOTION_RECORD_PREFIX } from "./tunables.js";
 import type { PhaseCtx, PhaseOutcome, PromotionRecord } from "./types.js";
-import { countSkip, emptyOutcome } from "./types.js";
+import { countSkip, emptyOutcome, isJournal } from "./types.js";
 
 export const CONSOLIDATION_SKIPS = [
+  // The three housekeeping entries. The rest of this list IS physics' reason
+  // vocabulary, so a reason cannot drift between the two.
   "archived",
   "removed",
+  "journal",
   "already-consolidated",
   "born-today",
   "below-semantic-floor",
@@ -85,6 +88,12 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     }
     if (row.archived === 1) {
       countSkip(out, "archived");
+      continue;
+    }
+    // A source is not consolidated and cannot cross into the identity band; the
+    // MEMORY made from it can, and that is the path (`types.ts#isJournal`).
+    if (isJournal(row)) {
+      countSkip(out, "journal");
       continue;
     }
     out.examined += 1;
