@@ -63,7 +63,17 @@ interface Tally {
   contested: number;
   /** Beliefs that have EVER taken a credited challenge — a different question. */
   everContested: number;
+  /** Memories AND schemas together — the population the kind and band tables
+   *  are over. Kept because those tables walk both, and split below because a
+   *  belief is not a memory and the wake preface counts only memories. */
   live: number;
+  /** `type: "memory"` rows. THE number the wake preface states
+   *  (`self/briefing.ts#prefaceLine`), so the number this view must lead with:
+   *  one demo store reported 143 here and 121 there on 2026-09-05, and both
+   *  were right about different populations. */
+  memories: number;
+  /** `type: "schema"` rows — the entities and beliefs. */
+  schemas: number;
   archived: number;
   /** Journal entries — episodes. NOT counted in `live`: an episode is the
    *  SOURCE a memory was made from, not a memory, and it is outside every
@@ -84,6 +94,8 @@ function tally(src: DashboardSource, day: number): Tally {
     contested: 0,
     everContested: contestedBeliefs(src).length,
     live: 0,
+    memories: 0,
+    schemas: 0,
     archived: 0,
     journal: 0,
   };
@@ -103,6 +115,8 @@ function tally(src: DashboardSource, day: number): Tally {
       continue;
     }
     out.live += 1;
+    if (row.type === "schema") out.schemas += 1;
+    else out.memories += 1;
     out.byKind.set(row.kind, (out.byKind.get(row.kind) ?? 0) + 1);
     if (row.promoted_identity === 1) out.promoted += 1;
     if (row.protected === 1) out.guarded += 1;
@@ -141,7 +155,15 @@ export function renderStatus(src: DashboardSource, opts: StatusOptions = {}): st
     ". " +
     (t.live + t.archived + t.journal === 0
       ? "I am holding nothing yet."
-      : `I am holding ${plural(t.live, "memory", "memories")}` +
+      : `I am holding ${plural(t.memories, "memory", "memories")}` +
+        // The schemas are named rather than folded in. They ARE live rows, and
+        // the kind and band tables below count them — but a belief about Ada is
+        // not a memory of a day, and the briefing the model wakes on says only
+        // the memories. A view that added them and said "memories" is a view
+        // that disagrees with the wake for a reader who checks.
+        (t.schemas === 0
+          ? ""
+          : `, plus ${plural(t.schemas, "belief or entity", "beliefs and entities")}`) +
         (t.archived === 0 ? "" : `, and ${t.archived} more sit archived`) +
         // Said out loud because it is EXCLUDED from the count before it: the
         // journal is the source, and it is not subject to forgetting.
