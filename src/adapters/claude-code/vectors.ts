@@ -29,7 +29,7 @@
  * watchdog's `AbortSignal`, and neither may fail the run: an embedder that
  * cannot embed costs a cue, never a day.
  */
-import { EMBED_BACKFILL_EVENT } from "../../core/counterpart.js";
+import { EMBED_BACKFILL_EVENT, SEMANTIC_LAG_EVENT } from "../../core/counterpart.js";
 import type { Counterpart } from "../../core/counterpart.js";
 import { stripBoilerplate } from "../../core/recall/index.js";
 import type { SemanticReason } from "../../core/recall/index.js";
@@ -102,6 +102,19 @@ export async function laggedSemantic(input: {
       model: input.embedder?.model ?? null,
     });
     emit("vectors.lag", { reason: out.reason, hits: out.hits, stored: out.stored, bytes });
+    // Durable through `noteAdapterEvent`, the ONE seam an adapter may write the
+    // event log through — so tomorrow's coverage watch can count the turns whose
+    // cue never got computed, and why, after this process is gone.
+    if (!counterpart.observer) {
+      counterpart.noteAdapterEvent(SEMANTIC_LAG_EVENT, {
+        session: sessionId,
+        reason: out.reason,
+        hits: out.hits,
+        stored: out.stored,
+        turn: out.turn,
+        bytes,
+      });
+    }
     return { reason: out.reason, stored: out.stored, hits: out.hits, bytes };
   };
 
@@ -186,8 +199,8 @@ export interface BackfillReport {
  *
  * The two-step is the seam that makes it work and the one that can silently
  * break: `warm()` fills the live embedder's cache keyed by
- * `indexTextOf(title, body)`, and `Store.reindexOne` looks it up by exactly that
- * string. `reindexOne` reports `vector: false` on a miss, so a backfill that
+ * `indexTextOf(title, body)`, and `Store.embedOne` looks it up by exactly that
+ * string. `embedOne` reports `vector: false` on a miss, so a backfill that
  * warmed the wrong text reports zero embedded — never a success count over an
  * empty `embeddings` table, which is the shape of the run this whole PR exists
  * to stop repeating.
@@ -237,7 +250,7 @@ export async function backfillVectors(input: {
     } catch {
       continue; // a row whose prose has gone is not a failure worth a retry
     }
-    // THE SAME STRING `reindexOne` will ask for. Composing it any other way
+    // THE SAME STRING `embedOne` will ask for. Composing it any other way
     // caches under a key the store never looks up, and the backfill becomes a
     // paid-for no-op that reports success.
     texts.push(indexTextOf(doc.title, doc.body));
@@ -249,14 +262,14 @@ export async function backfillVectors(input: {
     await input.embedder.warm(texts);
   } catch {
     // One batched call; a refusal leaves the cache as it was and every
-    // `reindexOne` below reports `vector: false`. Counted, not thrown.
+    // `embedOne` below reports `vector: false`. Counted, not thrown.
   }
 
   let embedded = 0;
   let failed = 0;
   for (const id of wanted) {
     try {
-      const out = store.reindexOne(id);
+      const out = store.embedOne(id);
       if (out.vector) embedded += 1;
       else failed += 1;
     } catch {

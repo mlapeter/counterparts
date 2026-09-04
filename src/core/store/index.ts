@@ -54,7 +54,7 @@ import {
   stageProse,
 } from "./prose.js";
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
-import { indexDoc, nearest, nearestVectors, openCache, resetCache, searchIndex } from "./cache.js";
+import { indexDoc, nearest, nearestVectors, openCache, resetCache, searchIndex, setEmbedding } from "./cache.js";
 import type { Hit } from "./cache.js";
 
 export * from "./errors.js";
@@ -286,7 +286,7 @@ export const WRITE_METHODS = [
   "pruneSupersededVersions",
   "appendRemovalRecord",
   "rebuildCache",
-  "reindexOne",
+  "embedOne",
 ] as const;
 
 export type WriteMethod = (typeof WRITE_METHODS)[number];
@@ -1008,8 +1008,8 @@ export class Store {
   }
 
   /**
-   * Re-index ONE document into box 3 — the same work `put` does, aimed at a
-   * memory that already exists.
+   * Give ONE existing memory its vector — **the vector row only**, never the
+   * token rows.
    *
    * `rebuildCache()` was the only public way to put a vector in box 3, and it
    * resets the whole cache: a store whose embedder arrived after its memories
@@ -1018,28 +1018,34 @@ export class Store {
    * incrementally, so the semantic channel stayed blind to exactly the
    * first-person material it most wanted.
    *
+   * **Why not `indexDoc`, which would have been the obvious reuse:** it deletes
+   * and re-inserts every `doc_tokens` row for the document. The text has not
+   * changed — only the vector is missing — so that is pure churn on the 263 MB
+   * token index whose page-cache warming is what pushed `recall/`'s BUDGET_MS
+   * from 250 to 1200. A backfill of 64 memories per Stop would have made the
+   * cold recall it exists to serve slower.
+   *
    * It reads the SYNC embedder, like every other indexing site, so the caller's
    * job is to have warmed the live half first with `indexTextOf(title, body)` —
    * the same string `indexOne` looks a vector up by. A miss is not an error and
-   * not a lie: the doc is re-indexed lexically and `vector` comes back false, so
-   * a backfill that warmed the wrong text reports zero rather than success.
+   * not a lie: nothing is written and `vector` comes back false, so a backfill
+   * that warmed the wrong text reports zero rather than success.
    */
-  reindexOne(id: string): { indexed: boolean; vector: boolean } {
-    this.assertWritable("reindexOne");
-    if (this.isDenied(id)) return { indexed: false, vector: false };
+  embedOne(id: string): { found: boolean; vector: boolean } {
+    this.assertWritable("embedOne");
+    if (this.isDenied(id)) return { found: false, vector: false };
     const row = this.row(id);
-    if (row === undefined) return { indexed: false, vector: false };
+    if (row === undefined) return { found: false, vector: false };
     let doc: ProseDoc;
     try {
       doc = this.readProse(id);
     } catch {
-      return { indexed: false, vector: false };
+      return { found: false, vector: false };
     }
-    const text = indexText(doc);
-    const vec = this.embed ? this.embed(text) : null;
-    if (vec !== null) indexDoc(this.cache, id, text, vec);
-    else indexDoc(this.cache, id, text);
-    return { indexed: true, vector: vec !== null };
+    const vec = this.embed ? this.embed(indexText(doc)) : null;
+    if (vec === null) return { found: true, vector: false };
+    setEmbedding(this.cache, id, vec);
+    return { found: true, vector: true };
   }
 
   /**

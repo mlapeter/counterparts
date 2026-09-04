@@ -756,7 +756,7 @@ export class Counterpart {
     reason: SemanticReason;
     vector?: readonly number[] | null;
     model?: string | null;
-  }): { stored: boolean; hits: number; reason: SemanticReason } {
+  }): { stored: boolean; hits: number; reason: SemanticReason; turn: number | null } {
     const vec = input.vector ?? null;
     const reason: SemanticReason =
       input.reason === "ok" && (vec === null || vec.length === 0) ? "embed-failed" : input.reason;
@@ -767,7 +767,7 @@ export class Counterpart {
     if (this.observer) {
       // An instrument leaves the world as it found it, and says so (G6).
       this.emit(SEMANTIC_LAG_EVENT, input.sessionId, { reason, hits: hits.length, stored: false });
-      return { stored: false, hits: hits.length, reason };
+      return { stored: false, hits: hits.length, reason, turn: null };
     }
     // The turn this cue is FOR: the session's served count right now, which the
     // next turn's `loadSessionSemantic` compares against to expire it after one.
@@ -785,16 +785,10 @@ export class Counterpart {
     } catch {
       // A lock lost to a concurrent hook costs the CUE, never the run.
       this.emit(SEMANTIC_LAG_EVENT, input.sessionId, { reason, hits: hits.length, stored: false });
-      return { stored: false, hits: hits.length, reason };
+      return { stored: false, hits: hits.length, reason, turn: served };
     }
-    this.noteAdapterEvent(SEMANTIC_LAG_EVENT, {
-      session: input.sessionId,
-      reason,
-      hits: hits.length,
-      turn: served,
-      dim: vec?.length ?? 0,
-    });
-    return { stored: true, hits: hits.length, reason };
+    this.emit(SEMANTIC_LAG_EVENT, input.sessionId, { reason, hits: hits.length, stored: true });
+    return { stored: true, hits: hits.length, reason, turn: served };
   }
 
   /**

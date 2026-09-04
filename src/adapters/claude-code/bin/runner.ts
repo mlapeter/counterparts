@@ -131,11 +131,18 @@ export async function runOnce(input: {
     // 0a. BEFORE THE SWEEP. The cue is read out of the LIVE span buffer and the
     // sweep's claim moves those spans out of it — run this after `sessionEnd`
     // and the session that just spoke has nothing left to be cued from.
-    if (input.session !== undefined && input.session.length > 0) {
+    // BOTH or neither: a data dir is not a scope, and guessing one would look
+    // in the wrong span stream and report `no-text` for a session that spoke.
+    if (
+      input.session !== undefined &&
+      input.session.length > 0 &&
+      input.scope !== undefined &&
+      input.scope.length > 0
+    ) {
       lag = await laggedSemantic({
         counterpart,
         sessionId: input.session,
-        scope: input.scope ?? config.dataDir,
+        scope: input.scope,
         embedder,
         hasCredential,
         onEvent: emit,

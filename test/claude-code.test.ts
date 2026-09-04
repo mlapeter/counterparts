@@ -2773,7 +2773,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
 
   test("a warm that filled the WRONG key reports zero, never a success over an empty table", async () => {
     // The seam that can silently break: `warm()` caches by whatever string it
-    // was handed, and `reindexOne` looks up `indexTextOf(title, body)`. This
+    // was handed, and `embedOne` looks up `indexTextOf(title, body)`. This
     // embedder warms under a mangled key — every lookup misses.
     const cache = new Map<string, number[]>();
     const wrong: LiveEmbedder = {
@@ -2793,6 +2793,31 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     expect(report.embedded).toBe(0);
     expect(report.failed).toBe(1);
     expect(report.remaining).toBe(1);
+  });
+
+  test("it writes the VECTOR row and leaves `doc_tokens` untouched", async () => {
+    // The reason this is a test and not a comment: `indexDoc` would have been
+    // the obvious reuse, and it DELETEs and re-inserts every token row. The text
+    // has not changed, so that is 64 rewrites per Stop on the 263 MB index whose
+    // page-cache warming is exactly why `recall/`'s BUDGET_MS went 250 -> 1200.
+    // A backfill that made the cold recall slower would be self-defeating.
+    const emb = counting();
+    const c = brain(emb);
+    const id = c.store.put({ type: "memory", kind: "fact", body: "A memory with tokens already indexed." });
+    expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
+
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    // The lexical index still answers, and the vector row now exists.
+    expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
+    expect(c.store.nearestTo(vectorFor(indexTextOf("", "x")), 5).map((h) => h.id)).toContain(id);
+
+    // Greps for the CONSUMER, not the comment (scar §2.6's own method): the one
+    // write path the backfill uses must not be the token-rewriting one.
+    const src = readFileSync(fileURLToPath(new URL("../src/core/store/index.ts", import.meta.url)), "utf8");
+    const body = src.slice(src.indexOf("  embedOne(id: string)"));
+    const method = body.slice(0, body.indexOf("\n  }\n"));
+    expect(method).toContain("setEmbedding(");
+    expect(method).not.toContain("indexDoc(");
   });
 
   test("off, and refused, are two records — never one zero (scar §2.4)", async () => {
