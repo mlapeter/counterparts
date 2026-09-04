@@ -109,6 +109,8 @@ export PATH="$BUN_INSTALL/bin:$(dirname "$BUN_BIN"):/usr/bin:/bin:/usr/sbin:/sbi
 
 STORE="$HOME/.counterparts/store"
 BASE="$HOME/.counterparts"
+SESSION="install-loop-$$"
+mkdir -p "$HOME/project"
 
 echo "clean room"
 echo "  HOME         $HOME"
@@ -167,6 +169,12 @@ no() { # no <why> [output]
 # failed step whatever it would have done.
 doc_check() {
   grep -qF -- "$1" "$QUICKSTART"
+}
+
+# A realistic hook payload: the four fields `bin/hook.ts#toHookInput` reads.
+payload() { # payload <event> [session id]
+  printf '{"hook_event_name":"%s","session_id":"%s","cwd":"%s","transcript_path":"%s"}' \
+    "$1" "${2:-$SESSION}" "$HOME/project" "$HOME/project/transcript.jsonl"
 }
 
 T0=$(date +%s)
@@ -256,11 +264,30 @@ if [ "$MODE" = "600" ]; then ok; else no "credentials.env is mode ${MODE:-unknow
 
 step "install PRINTED the host's two steps and wrote no host file"
 if printf '%s' "$INSTALL_OUT" | grep -q 'claude mcp add counterparts' &&
-   printf '%s' "$INSTALL_OUT" | grep -q 'counterparts-hook' &&
+   printf '%s' "$INSTALL_OUT" | grep -q 'bin/hook.ts' &&
    [ ! -e "$HOME/.claude/settings.json" ] && [ ! -e "$HOME/.claude.json" ]; then
   ok
 else
   no "either the blocks were not printed, or a host file was written" "$INSTALL_OUT"
+fi
+
+step "the printed hook command runs on a PATH with no bun on it"
+# The failure this catches is the one the rest of the loop is blind to: the loop
+# deliberately puts bun on PATH, and a real host does not. The printed command is
+# lifted out of install's own output and run with a system-only PATH — if it
+# names a bare `counterparts-hook`, this is "command not found" and no memory.
+HOOK_CMD=$(printf '%s\n' "$INSTALL_OUT" | sed -n 's/.*"command": "\(.*\)".*/\1/p' | head -1 | sed 's/\\"/"/g')
+if [ -z "$HOOK_CMD" ]; then
+  no "no hook command found in install's output" "$INSTALL_OUT"
+else
+  OUT=$(payload SessionStart "bunless-$$" | env -i HOME="$HOME" PATH="/usr/bin:/bin" sh -c "$HOOK_CMD" 2>"$WORK/bunless.err")
+  CODE=$?
+  if [ "$CODE" = "0" ] && printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+    ok
+  else
+    no "the printed hook command failed without bun on PATH (exit $CODE): $HOOK_CMD" "$OUT
+$(cat "$WORK/bunless.err")"
+  fi
 fi
 
 step "counterparts status runs read-only against the fresh store"
@@ -275,13 +302,6 @@ else
 fi
 
 # ── 3. the SessionStart hook ────────────────────────────────────────────────
-
-mkdir -p "$HOME/project"
-SESSION="install-loop-$$"
-payload() { # payload <event>
-  printf '{"hook_event_name":"%s","session_id":"%s","cwd":"%s","transcript_path":"%s"}' \
-    "$1" "$SESSION" "$HOME/project" "$HOME/project/transcript.jsonl"
-}
 
 step "SessionStart returns the honest bootstrap line on a store that never woke"
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook.err")
@@ -385,6 +405,16 @@ else
   OUT=$(eval "$CMD" 2>&1)
   if printf '%s' "$OUT" | grep -q "What I am, right now"; then ok; else no "the dashboard did not render its status view" "$OUT"; fi
 fi
+
+step "the package's own exports map resolves as a library import"
+# package.json declares `main` and `exports`. A declared entry point nobody
+# imports is a claim, not a fact.
+mkdir -p "$WORK/lib"
+cd "$WORK/lib" || exit 1
+LIB_OUT=$("$BUN_BIN" add "$WORK/pkg/counterparts.tgz" 2>&1 &&
+  "$BUN_BIN" -e 'import("counterparts").then((m) => console.log("Counterpart:" + typeof m.Counterpart))' 2>&1)
+if printf '%s' "$LIB_OUT" | grep -q "Counterpart:function"; then ok; else no "importing the package did not yield Counterpart" "$LIB_OUT"; fi
+cd "$WORK/pkg" || exit 1
 
 step "everything the run wrote is inside the clean room"
 # Deliberately phrased as "what did we write", not "did we touch the real home":

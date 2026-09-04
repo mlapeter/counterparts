@@ -41,10 +41,14 @@ import {
   CONFIG_FILE,
   CREDENTIALS_FILE,
   EXIT,
+  HOOK_SCRIPT,
   HOST_EVENTS,
+  MCP_SCRIPT,
   OWNER_OPS,
   installLayout,
+  mcpCommand,
   openCounterpart,
+  runCommand,
   settingsBlock,
   assertSafeTarget,
   decryptBundle,
@@ -1088,12 +1092,33 @@ describe("install", () => {
     expect(readFileSync(creds, "utf8")).toContain("ANTHROPIC_API_KEY");
     expect(readFileSync(creds, "utf8")).toContain("VOYAGE_API_KEY");
 
-    // The host's two steps are PRINTED, with the installed executables named.
-    expect(printed).toContain("counterparts-hook");
+    // The host's two steps are PRINTED, and they name absolute paths.
     expect(printed).toContain("claude mcp add counterparts");
-    expect(printed).toContain(`COUNTERPARTS_DATA_DIR=${store}`);
+    expect(printed).toContain(`COUNTERPARTS_DATA_DIR="${store}"`);
+    expect(printed).toContain(HOOK_SCRIPT);
+    expect(printed).toContain(MCP_SCRIPT);
     for (const event of HOST_EVENTS) expect(printed).toContain(event);
     expect(printed).toContain("printed, not applied");
+  });
+
+  test("the printed host commands survive a PATH with no bun on it", () => {
+    // The failure this pins is invisible: a host whose PATH lacks `~/.bun/bin`
+    // runs `counterparts-hook` (shebang `#!/usr/bin/env bun`) and gets "command
+    // not found" on every event — no memory, no error the owner ever sees. The
+    // host's process environment is not the login shell's; `credentials.ts`
+    // measured exactly that on day 0 for the API keys.
+    for (const cmd of [settingsBlock(), mcpCommand("/tmp/store")]) {
+      // No bare executable NAME may appear as something to run: every runnable
+      // token in these blocks is an absolute path.
+      expect(cmd).not.toMatch(/"command": "counterparts-hook"/);
+      expect(cmd).not.toMatch(/--\s+counterparts-mcp\s*$/);
+    }
+    expect(existsSync(HOOK_SCRIPT)).toBe(true);
+    expect(existsSync(MCP_SCRIPT)).toBe(true);
+    // `run` against the real runtime this process is using, absolute both sides.
+    expect(runCommand(HOOK_SCRIPT)).toBe(`"${process.execPath}" run "${HOOK_SCRIPT}"`);
+    // A path with a space stays one argument.
+    expect(runCommand("/a b/c.ts", "/x y/bun")).toBe('"/x y/bun" run "/a b/c.ts"');
   });
 
   test("--embedder is the only way the egress knob is written", async () => {
@@ -1206,7 +1231,7 @@ describe("install", () => {
     };
     expect(Object.keys(block.hooks).sort()).toEqual([...HOST_EVENTS].sort());
     for (const event of HOST_EVENTS) {
-      expect(block.hooks[event]?.[0]?.hooks?.[0]?.command).toBe("counterparts-hook");
+      expect(block.hooks[event]?.[0]?.hooks?.[0]?.command).toBe(runCommand(HOOK_SCRIPT));
     }
     // The host's own settings file is never named as a thing we open.
     expect(settingsBlock()).not.toContain("settings.json");

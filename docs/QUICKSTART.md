@@ -4,7 +4,9 @@ This is the one canonical install path. `tools/install-loop/run.sh` runs every
 command on this page, verbatim, in a throwaway HOME, and fails if a command here
 and a command there stop matching — so the page and the machine cannot drift.
 
-Ten minutes, no API key required.
+No API key required. The scripted version of this page — install, configure,
+hook, note, recall — runs end to end in about two seconds; the part that takes
+you time is §4, pasting two blocks into Claude Code's own configuration.
 
 ---
 
@@ -58,8 +60,10 @@ Those four paths are stable; the live host has pointed at them since 2026-09-03.
 counterparts install --budget 9000 --name "Your Name"
 ```
 
-Replace `Your Name` with yours — it is the name your memory's identity is about,
-and there is no default. This command writes three things that are **yours**:
+Replace `Your Name` with yours. It seeds the identity core — the thing the memory
+is *about* — and there is no default for it anywhere. It does not produce visible
+output on day 0: a fresh store has lived no boundary, so the identity lane has
+nothing to say yet. This command writes three things that are **yours**:
 
 ```
 ~/.counterparts/
@@ -110,34 +114,46 @@ injected unbounded, and an `adapter.budget.unreported` event says so.
 
 `counterparts install` printed both of these, filled in. They are yours to apply.
 
-**The hooks.** Merge into `~/.claude/settings.json` — one executable, five events:
+**The hooks.** Merge into `~/.claude/settings.json` — one script, five events.
+`counterparts install` prints this with your own absolute paths filled in; the
+shape is:
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "counterparts-hook" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "counterparts-hook" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "counterparts-hook" }] }],
-    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "counterparts-hook" }] }],
-    "PreCompact": [{ "hooks": [{ "type": "command", "command": "counterparts-hook" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command",
+      "command": "\"/abs/path/to/bun\" run \"/abs/path/to/counterparts/src/adapters/claude-code/bin/hook.ts\"" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "<the same string>" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "<the same string>" }] }],
+    "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "<the same string>" }] }],
+    "PreCompact":       [{ "hooks": [{ "type": "command", "command": "<the same string>" }] }]
   }
 }
 ```
+
+**Both paths are absolute, and that is not cosmetic.** `counterparts-hook` is a
+shim whose first line is `#!/usr/bin/env bun`, so it only runs if bun is on the
+PATH of whatever launched it — and a host's process environment is not your login
+shell's. This package measured exactly that on day 0 of its parallel run: both
+API keys were exported in `~/.zshrc` and neither reached a single hook process.
+A `PATH` without `~/.bun/bin` turns every hook into "command not found", which
+looks from the outside like a memory that simply never happens.
 
 If you already have hooks on those events, add this one beside them — hooks on
 one event run in parallel. The hook reads `~/.counterparts/claude-code.json` for
 everything else, so it takes no arguments and no environment.
 
-**The MCP server.** Run this once:
+**The MCP server.** Run the line `counterparts install` printed; its shape is:
 
 ```
-claude mcp add counterparts -s user -e COUNTERPARTS_DATA_DIR=$HOME/.counterparts/store -- counterparts-mcp
+claude mcp add counterparts -s user -e COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store" -- "/abs/path/to/bun" run "/abs/path/to/counterparts/src/adapters/mcp/bin/serve.ts"
 ```
 
 `COUNTERPARTS_DATA_DIR` in that line is **not optional**. Claude Code launches MCP
 servers from a static configuration with no per-session substitution, so the
 server gets no session id and no working directory it can trust; the data dir is
-how it finds the same store the hooks are writing. Use an absolute path.
+how it finds the same store the hooks are writing. Use an absolute path — for the
+same PATH reason as above.
 
 Then **restart Claude Code**. Hooks are read at session start; MCP servers are
 launched at session start.
@@ -189,13 +205,14 @@ stderr, never refused.
 | `ANTHROPIC_API_KEY` | the crash-recovery sweep's one model call | the sweep refuses `NO_CREDENTIAL`; a crashed session's captured spans stay uninterpreted. Nothing else changes — this is *not* the ordinary write path. |
 | `VOYAGE_API_KEY` | embeddings | recall runs on the lexical channel alone (see below) |
 
-**No embed key is a supported mode, and the code says so, by name.** The semantic
-channel is "isolated, and its absence degrades to lexical-only rather than
-failing" (`src/core/recall/cues.ts`); the encoder's preselect records
+**No embed key is a supported mode, and the code says so, by name.** An embedding
+is an input the caller supplies, and "its absence degrades to lexical-only rather
+than failing" — the same sentence, verbatim, in `src/core/recall/cues.ts:26` and
+`src/core/recall/index.ts:27`. The encoder's preselect records
 `channelRecord("skipped", "no-chunk-vector")` rather than dropping silently
-(`src/core/encode/preselect.ts`); novelty comes back
+(`src/core/encode/preselect.ts:126`); novelty comes back
 `{ novelty: null, reason: "no-chunk-vector", blind: true }`
-(`src/core/encode/salience.ts`). You get recall — cue-based and temporal — and a
+(`src/core/encode/salience.ts:60`). You get recall — cue-based and temporal — and a
 countable record of what you are not getting.
 
 It also says so on the wire. This is the real `recall` result from the install

@@ -456,9 +456,14 @@ function installCommand(
   io.out("Two steps left, and they are the HOST'S files, so they are printed, not applied.");
   io.out("Nothing below has been written and no host configuration was read.");
   io.out("");
-  io.out("  1. Merge this into ~/.claude/settings.json (one executable, five events):");
+  io.out("  1. Merge this into ~/.claude/settings.json (one script, five events):");
   io.out("");
   for (const line of settingsBlock().split("\n")) io.out(`     ${line}`);
+  io.out("");
+  io.out("     The runtime and the script are ABSOLUTE on purpose. A host's process");
+  io.out("     environment is not your login shell's — measured on this package's own");
+  io.out(`     credentials, day 0 — so '${BIN.hook}' on a PATH that lacks bun is a`);
+  io.out("     hook that never runs and says nothing.");
   io.out("");
   io.out("  2. Register the MCP server, so note, recall and session_end exist:");
   io.out("");

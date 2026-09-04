@@ -33,13 +33,17 @@ export {
   BIN,
   CONFIG_FILE,
   CREDENTIALS_FILE,
+  HOOK_SCRIPT,
   HOST_EVENTS,
+  MCP_SCRIPT,
   MCP_SERVER_NAME,
   configObject,
   credentialsTemplate,
   installLayout,
   mcpCommand,
+  runCommand,
   settingsBlock,
+  shellQuote,
   writeOnce,
 } from "./install.js";
 export type { ConfigInput, FileResult, InstallLayout, WroteWhat } from "./install.js";

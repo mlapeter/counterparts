@@ -34,6 +34,7 @@
 import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // The two credential NAMES, taken from the adapter that defines them rather
 // than retyped here — a template that named a third variable, or misspelled one
@@ -61,6 +62,38 @@ export const BIN = {
 
 /** The name the MCP server is registered under, and the one `status` reports. */
 export const MCP_SERVER_NAME = "counterparts";
+
+/**
+ * THE TWO ENTRY SCRIPTS, ABSOLUTE, resolved from THIS file's location — never
+ * from a working directory and never from a name on a PATH.
+ *
+ * This is scar §2.18 again, in its sharpest form. `credentials.ts` measured, on
+ * day 0 of the parallel run, that this host's hook processes carry neither of
+ * the owner's exported API keys: **the host's process environment is not the
+ * login shell's**. The same sentence is true of `PATH`. `counterparts-hook` is
+ * a shim whose shebang is `#!/usr/bin/env bun`, so a host that launches hooks
+ * without `~/.bun/bin` on PATH gets "command not found" on every event — a
+ * memory that is simply never there, with nothing on screen to say why.
+ *
+ * So the printed commands name the RUNTIME and the SCRIPT by absolute path,
+ * which is what the live host has run since 2026-09-03 and what `hook.ts`
+ * already does for its own worker (`command: process.execPath, args: ["run",
+ * RUNNER_PATH]`). The short names stay on PATH for a human at a terminal; they
+ * are not what goes into a host's configuration.
+ */
+export const HOOK_SCRIPT = fileURLToPath(new URL("../claude-code/bin/hook.ts", import.meta.url));
+export const MCP_SCRIPT = fileURLToPath(new URL("../mcp/bin/serve.ts", import.meta.url));
+
+/** Double-quote a path so a shell keeps it whole. Paths with `"` are refused
+ *  by being escaped rather than silently mangled. */
+export function shellQuote(path: string): string {
+  return `"${path.replace(/(["\\$`])/g, "\\$1")}"`;
+}
+
+/** `<runtime> run <script>` — the shape both printed host commands take. */
+export function runCommand(script: string, exe: string = process.execPath): string {
+  return `${shellQuote(exe)} run ${shellQuote(script)}`;
+}
 
 export const CONFIG_FILE = "claude-code.json";
 export const CREDENTIALS_FILE = "credentials.env";
@@ -155,7 +188,7 @@ export function credentialsTemplate(): string {
 }
 
 /** The hooks block to paste into `~/.claude/settings.json`. Printed, never written. */
-export function settingsBlock(hookCommand = BIN.hook): string {
+export function settingsBlock(hookCommand = runCommand(HOOK_SCRIPT)): string {
   const hooks: Record<string, unknown> = {};
   for (const event of HOST_EVENTS) {
     hooks[event] = [{ hooks: [{ type: "command", command: hookCommand }] }];
@@ -164,8 +197,8 @@ export function settingsBlock(hookCommand = BIN.hook): string {
 }
 
 /** The MCP registration line. Printed, never run — it edits the host's config. */
-export function mcpCommand(store: string, bin = BIN.mcp): string {
-  return `claude mcp add ${MCP_SERVER_NAME} -s user -e COUNTERPARTS_DATA_DIR=${store} -- ${bin}`;
+export function mcpCommand(store: string, serve = runCommand(MCP_SCRIPT)): string {
+  return `claude mcp add ${MCP_SERVER_NAME} -s user -e COUNTERPARTS_DATA_DIR=${shellQuote(store)} -- ${serve}`;
 }
 
 export type WroteWhat = "created" | "kept" | "replaced";
