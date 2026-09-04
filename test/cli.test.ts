@@ -1238,14 +1238,10 @@ describe("note and recall", () => {
       }),
     ).toBe(EXIT.ok);
     expect(text(w.out)).toContain("Remembered mem_");
-    // A SECOND, unrelated memory — and it is here under protest. At store size
-    // one the question path returns `considered: 0` and finds nothing; write
-    // any second row and the first becomes retrievable by the same query. That
-    // is the cold-stranger review's finding 1, reproduced on four stores, and it
-    // is the first thing every new user does. The fix is `fix/recall-first-memory`;
-    // the executable proof lives in `tools/install-loop/run.sh`, which carries
-    // the one-memory case as a step that is EXPECTED TO FAIL until it lands.
-    // When it does, delete this line and the test still passes.
+    // A SECOND, unrelated memory, so this test asks its question of a store
+    // holding more than the answer. The one-memory case is its own test above,
+    // deliberately, because a bug at n=1 is invisible to every test that seeds
+    // two rows — which is how PR #38's bug survived to a stranger's first minute.
     await run(["note", "An unrelated second memory about the fire escape.", "--dir", dir], {
       io: consoleWith().io,
     });
@@ -1258,15 +1254,16 @@ describe("note and recall", () => {
     expect(printed).toContain("semantic embedder-off");
   });
 
-  // SKIPPED, not deleted, and written out in full so it can be switched on by
-  // removing one word. It fails today: at store size one the question path
-  // scores no candidates at all (`considered: 0`) and returns `nothing-came`,
-  // while the same memory is retrievable by id — so the write and the index are
-  // sound and the search path is blind at n=1. Reproduced on four independent
-  // fresh stores by the cold-stranger review, 2026-09-04. Fix in flight:
-  // `fix/recall-first-memory`. `tools/install-loop/run.sh` carries the same case
-  // as a step that reports EXPECTED-FAIL rather than passing quietly.
-  test.skip("recalls the FIRST memory in a fresh store (fix/recall-first-memory)", async () => {
+  // THE FIRST THING EVERY NEW USER DOES, and for a while the one thing that did
+  // not work: at store size one the question path scored no candidates at all
+  // (`considered: 0`) and answered `nothing-came`, while the same memory came
+  // back fine by id — the write and the index were sound and only the search
+  // path was blind at n=1. Reproduced on four independent fresh stores by the
+  // cold-stranger review of 2026-09-04 and fixed the same day (PR #38: rarity
+  // was exactly zero when the store held one memory). This test was written
+  // then and skipped; it is live now, and it stays live, because a bug at n=1
+  // is invisible to every test that seeds two rows.
+  test("recalls the FIRST memory in a fresh store", async () => {
     store().close();
     await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
       io: consoleWith().io,

@@ -124,9 +124,6 @@ echo
 
 PASS=0
 FAIL=0
-# Failures the loop EXPECTS: a known, filed bug whose step is kept executable so
-# it starts passing the day the fix lands. Counted apart, never hidden.
-EXPECTED_FAIL=0
 STEP=0
 CURRENT=""
 STEP_T0=0
@@ -341,11 +338,13 @@ fi
 # ── 3. the product, from the console ────────────────────────────────────────
 
 # THE STRANGER'S REAL FIRST ACT, and the one the loop was blind to until round 2:
-# a store with exactly one memory in it, asked for that memory. It fails today —
-# `considered: 0` at store size one — and it is reported as an EXPECTED FAILURE
-# rather than skipped, because a step nobody runs is a bug nobody fixes.
+# a store with exactly one memory in it, asked for that memory. It failed for a
+# day — `considered: 0` at store size one, because rarity was exactly zero when
+# every memory in the store held the term — and it is a permanent step now, not
+# a regression test filed away, because a bug at n=1 is invisible to every check
+# that seeds two rows.
 FIRSTSTORE="$WORK/first-memory-store"
-step "EXPECTED-FAIL until fix/recall-first-memory: recall the ONLY memory in a store"
+step "the ONLY memory in a fresh store is recallable by question"
 counterparts init --dir "$FIRSTSTORE" >/dev/null 2>&1
 OUT=$(counterparts note "The espresso machine in the kitchen is a Rancilio Silvia." --dir "$FIRSTSTORE" 2>&1)
 if ! printf '%s' "$OUT" | grep -q "Remembered mem_"; then
@@ -355,8 +354,7 @@ else
   if printf '%s' "$OUT" | grep -q "Rancilio Silvia"; then
     ok
   else
-    EXPECTED_FAIL=$((EXPECTED_FAIL + 1))
-    no "KNOWN, expected until fix/recall-first-memory lands — see QUICKSTART §7 and §10.1" "$OUT"
+    no "the store's only memory did not come back (storeSize==1 regression)" "$OUT"
   fi
 fi
 
@@ -371,9 +369,6 @@ else
   # The doc's own line, evaluated: `$HOME` is the clean room's.
   eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
   OUT=$(eval "$NOTE_CMD" 2>&1)
-  # The second write is the workaround §7 tells the reader about, and it is here
-  # for the same reason: without it, the step above is the whole story.
-  counterparts note "An unrelated second memory about the fire escape." >/dev/null 2>&1
   RECALL_OUT=$(eval "$RECALL_CMD" 2>&1)
   unset COUNTERPARTS_DATA_DIR
   if printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
@@ -519,13 +514,9 @@ if [ -z "$STRAY" ] && [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "
 
 T1=$(date +%s)
 echo
-echo "steps: $((PASS + FAIL))   PASS $PASS   FAIL $FAIL (of which EXPECTED $EXPECTED_FAIL)   total $((T1 - T0))s"
-if [ "$EXPECTED_FAIL" -gt 0 ]; then
-  echo "the expected failure is the storeSize==1 recall bug; it goes green when"
-  echo "fix/recall-first-memory lands, and this step is how you will know."
-fi
+echo "steps: $((PASS + FAIL))   PASS $PASS   FAIL $FAIL   total $((T1 - T0))s"
 echo "clean room left at $WORK (rm -rf it when you are done)"
-# An EXPECTED failure still exits non-zero. A loop that returned success while a
-# named bug was live would be the "verify says everything is fine" failure the
-# cold-stranger review already caught once.
+# Any failure exits non-zero. There is no category of failure this loop tolerates:
+# a loop that returned success beside a live bug would be the "verify says
+# everything is fine" failure the cold-stranger review already caught once.
 [ "$FAIL" -eq 0 ] || exit 1
