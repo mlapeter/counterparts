@@ -36,7 +36,7 @@ import { detectAffect, stripBoilerplate } from "./cues.js";
 import { gate } from "./gate.js";
 import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { loadGateState, saveGateState } from "./session.js";
-import type { GateState } from "./session.js";
+import type { GateState, SemanticSource } from "./session.js";
 import { render } from "./render.js";
 import type { RenderResult, Resolve } from "./render.js";
 import { withTunables } from "./tunables.js";
@@ -81,6 +81,19 @@ export interface Turn {
   text: string;
   /** The turn's embedding, supplied by the caller. NEVER fetched here. */
   vector?: readonly number[];
+  /**
+   * The semantic channel ALREADY RANKED — the lagged cue the detached worker
+   * resolved after the previous turn (`session.ts`). It exists because ranking
+   * is the expensive half: `Store.nearestTo` over a live-sized vector index
+   * measured 590-1040 ms, which no 1200 ms budget survives. Supplied hits
+   * replace the scan; an empty array means "nothing was near" and degrades.
+   */
+  semanticHits?: readonly { id: string; score: number }[];
+  /** Where the semantic input came from, for the decision record. Defaults to
+   *  `in-line` when a vector is supplied and `none` when nothing is. */
+  semanticSource?: SemanticSource;
+  /** The turn a lagged cue was computed from. Provenance, not a knob. */
+  semanticFromTurn?: number;
   /** handle -> memory ids; >= 2 ids makes the handle ambiguous (INTERFACE-GAPS #2). */
   aliases?: ReadonlyMap<string, readonly string[]>;
   /** Temporal cues — `prospective.arrivals()`, mapped to `{id, weight}` at the
@@ -100,6 +113,15 @@ export interface Turn {
   /** Per-turn override of the session's owner stance. */
   owner?: boolean;
   budgetBytes?: number;
+  /**
+   * Per-turn override of the LATENCY budget. It exists for one caller: the
+   * deliberate ask, which is "a deeper effort with different thresholds, on
+   * purpose" (§9.1) and has no host turn waiting on it. The ambient budget is a
+   * promise to a person mid-sentence; a question someone typed and is waiting
+   * for is a different promise, and the semantic channel it may pay for costs
+   * 590-1040 ms of vector scan on a live-sized index all by itself.
+   */
+  budgetMs?: number;
 }
 
 export type DecisionReason =
@@ -133,6 +155,21 @@ export interface RecallDecision {
   readonly carriedCueCount: number;
   readonly semanticUsed: boolean;
   readonly semanticDegraded: boolean;
+  /**
+   * WHERE the semantic channel's input came from, by name — including every way
+   * it was dark. The measured failure this closes: both live paths built their
+   * turn without a vector, so `semanticUsed: false` was written on every real
+   * turn and said nothing about why (scar §2.4 — "did not fire" and "was never
+   * asked" are different records).
+   *
+   * NOT in `RECALL_DECISION_FIELDS`: the durable surface set is hashed to decide
+   * whether a human rating carries across a code change (parallel §5 G12), and
+   * moving it mid-run would invalidate every carried verdict. This rides the
+   * adapter's own `adapter.recall` row instead, like `semanticUsed` before it.
+   */
+  readonly semanticSource: SemanticSource;
+  /** For a lagged cue: the turn it was computed from. Null otherwise. */
+  readonly semanticFromTurn: number | null;
   readonly candidates: number;
   readonly verdicts: CandidateVerdict[];
   readonly surfaced: string[];
@@ -215,12 +252,22 @@ export class Recall {
     const day = turn.day ?? this.store.livedDay();
     const owner = (turn.owner ?? this.defaultOwner) && !this.observer;
     const budgetBytes = turn.budgetBytes ?? this.budgetBytes;
+    const budgetMs = turn.budgetMs ?? this.budgetMs;
 
     const loaded = this.observer
       ? { state: this.volatileState(turn.sessionId), status: "loaded" as const }
       : loadGateState(this.store, turn.sessionId, this.tunables.MAX_SESSION_RECORDS);
     const state = loaded.state;
     const turnNo = state.turn + 1;
+
+    // The semantic channel's input, judged ONCE: a vector this caller embedded,
+    // or a ranking somebody else already did. Both are "the channel had input";
+    // the SOURCE says which, and when there was none, why not.
+    const semanticOffered =
+      (turn.vector !== undefined && turn.vector.length > 0) || turn.semanticHits !== undefined;
+    const semanticSource: SemanticSource =
+      turn.semanticSource ?? (semanticOffered ? "in-line" : "none");
+    const semanticFromTurn = turn.semanticFromTurn ?? null;
 
     const { text, stripped } = stripBoilerplate(turn.text);
     const affect = detectAffect(text);
@@ -255,8 +302,10 @@ export class Recall {
         cueCount: 0,
         ambiguousCueCount: 0,
         carriedCueCount: carriedIn.length,
-        semanticUsed: turn.vector !== undefined && turn.vector.length > 0,
+        semanticUsed: semanticOffered,
         semanticDegraded: false,
+        semanticSource,
+        semanticFromTurn,
         candidates: 0,
         verdicts: [],
         surfaced: [],
@@ -292,6 +341,7 @@ export class Recall {
       {
         text,
         vector: turn.vector,
+        hits: turn.semanticHits,
         carried: carriedIn,
         aliases: turn.aliases,
         temporal: turn.temporal,
@@ -304,7 +354,7 @@ export class Recall {
       this.tunables,
     );
 
-    if (this.now() - started > this.budgetMs) return quiet("latency-abort");
+    if (this.now() - started > budgetMs) return quiet("latency-abort");
 
     const carry = act.cues
       .filter((c) => !c.carried)
@@ -334,7 +384,7 @@ export class Recall {
       this.tunables,
     );
 
-    if (this.now() - started > this.budgetMs) return quiet("latency-abort");
+    if (this.now() - started > budgetMs) return quiet("latency-abort");
 
     const docs = new Map<string, ProseDoc>();
     for (const c of act.candidates) docs.set(c.id, c.doc);
@@ -376,8 +426,10 @@ export class Recall {
       cueCount: cueStats.cueCount,
       ambiguousCueCount: cueStats.ambiguousCueCount,
       carriedCueCount: cueStats.carriedCueCount,
-      semanticUsed: turn.vector !== undefined && turn.vector.length > 0,
+      semanticUsed: semanticOffered,
       semanticDegraded: act.semanticDegraded,
+      semanticSource,
+      semanticFromTurn,
       candidates: act.candidates.length,
       verdicts: gated.verdicts,
       surfaced: rendered.surfaced,

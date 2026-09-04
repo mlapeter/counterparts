@@ -10,6 +10,12 @@
  * hold spans a second run would also claim (scars E4/E5, SEAMS queued item 10).
  *
  * What it runs, in order (the composition root owns the order, not this file):
+ *   0a. the LAGGED SEMANTIC CUE for the session that just spoke — before
+ *       anything else, because it reads the live span buffer and step 1's claim
+ *       moves those spans out of it (`vectors.ts`);
+ *   0b. one bounded EMBEDDING BACKFILL, so the store's blind memories gain
+ *       vectors at a guaranteed rate rather than only when a deposit happens to
+ *       pay for one — first, so a long sweep cannot starve it;
  *   1. the crash-fallback sweep, over EVERY scope holding experience (§2 G9);
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing.
@@ -29,9 +35,13 @@ import type { AdapterConfig } from "../config.js";
 import { loadCredentials, permissionWarning } from "../credentials.js";
 import type { CredentialLoad } from "../credentials.js";
 import { openEmbedder } from "../index.js";
+import type { LiveEmbedder } from "../embed-client.js";
 import { interpretClient } from "../interpret-client.js";
 import type { FetchLike } from "../interpret-client.js";
-import { DATA_DIR_ENV, WATCHDOG_ENV } from "../spawn.js";
+import { EMBED_KEY_ENV } from "../config.js";
+import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
+import { backfillVectors, laggedSemantic } from "../vectors.js";
+import type { BackfillReport, LagReport } from "../vectors.js";
 
 export const CONFIG_PATH = join(homedir(), ".counterparts", "claude-code.json");
 
@@ -41,6 +51,10 @@ export interface RunReport {
   readonly swept: number;
   readonly minted: number;
   readonly code: string | null;
+  /** The next turn's semantic cue, and the vectors this run bought. Null when
+   *  the run refused before reaching them. */
+  readonly lag: LagReport | null;
+  readonly backfill: BackfillReport | null;
 }
 
 /**
@@ -54,19 +68,28 @@ export async function runOnce(input: {
   today?: string;
   date?: string;
   signal?: AbortSignal;
+  /** The session this run follows, and its scope — pinned onto the child by the
+   *  spawner (`SESSION_ENV` / `SCOPE_ENV`). Absent ⇒ no lagged cue is computed
+   *  and none is claimed: a run nobody bound to a session has nobody to cue. */
+  session?: string;
+  scope?: string;
+  /** Injected so the whole vector path is provable without a socket. */
+  embedder?: LiveEmbedder | null;
+  /** Defaults to `process.env`: read for PRESENCE of the embed key, never value. */
+  env?: NodeJS.ProcessEnv;
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }): Promise<RunReport> {
   const { config } = input;
   const emit = input.onEvent ?? ((): void => {});
   if (config.dataDir === undefined || config.dataDir.trim().length === 0) {
     emit("runner.refused", { reason: "no-data-dir" });
-    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null };
+    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null };
   }
   if (config.observer === true) {
     // A cycle advances the clock, decays the store and rewrites the briefing:
     // the instrument mutating what it measures (§15 G3).
     emit("runner.refused", { reason: "observer" });
-    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null };
+    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null };
   }
 
   // The embedder, when the owner switched it on. This is the composition root
@@ -74,14 +97,17 @@ export async function runOnce(input: {
   // `openAdapter` would be an embedder the memories never meet. Its `fetch` is
   // the same injected one the interpreter uses, so the whole worker stays
   // provable without a socket.
-  const embedder = openEmbedder(config, {
-    // ONE injected `fetch` for the whole worker; the two clients call different
-    // endpoints, and a fake that answers both is how a test proves that.
-    ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-    ...(input.today === undefined ? {} : { today: input.today }),
-    ...(input.signal === undefined ? {} : { signal: input.signal }),
-    onEvent: emit,
-  });
+  const embedder =
+    input.embedder !== undefined
+      ? input.embedder
+      : openEmbedder(config, {
+          // ONE injected `fetch` for the whole worker; the two clients call
+          // different endpoints, and a fake that answers both proves it.
+          ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+          ...(input.today === undefined ? {} : { today: input.today }),
+          ...(input.signal === undefined ? {} : { signal: input.signal }),
+          onEvent: emit,
+        });
 
   const counterpart = Counterpart.open({
     dir: config.dataDir,
@@ -92,6 +118,37 @@ export async function runOnce(input: {
     ...(config.owner === undefined ? {} : { owner: config.owner }),
     onEvent: (e) => emit(e.name, { ...(e.data ?? {}) }),
   });
+  // The embed credential, by PRESENCE only — the value is never read here and
+  // never logged. `embedClient` makes the same check before it opens a socket;
+  // asking here is what lets the two vector steps record `no-credentials` as a
+  // NAME instead of as a failed call nobody can tell from an empty store.
+  const env = input.env ?? process.env;
+  const hasCredential = (env[EMBED_KEY_ENV] ?? "").trim().length > 0;
+
+  let lag: LagReport | null = null;
+  let backfill: BackfillReport | null = null;
+  try {
+    // 0a. BEFORE THE SWEEP. The cue is read out of the LIVE span buffer and the
+    // sweep's claim moves those spans out of it — run this after `sessionEnd`
+    // and the session that just spoke has nothing left to be cued from.
+    if (input.session !== undefined && input.session.length > 0) {
+      lag = await laggedSemantic({
+        counterpart,
+        sessionId: input.session,
+        scope: input.scope ?? config.dataDir,
+        embedder,
+        hasCredential,
+        onEvent: emit,
+      });
+    }
+    // 0b. One bounded batch, before the variable-length sweep, so a long sweep
+    // (or the watchdog that ends one) cannot starve the store's blind memories.
+    backfill = await backfillVectors({ counterpart, embedder, hasCredential, onEvent: emit });
+  } catch (err) {
+    // Neither step may cost the run. A cue is a nicety; the sweep is the day.
+    emit("vectors.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+  }
+
   try {
     const interpret = interpretClient({
       config,
@@ -115,14 +172,14 @@ export async function runOnce(input: {
       minted,
       edges: report.edges.reason,
     });
-    return { ran: true, reason: "ran", swept, minted, code: null };
+    return { ran: true, reason: "ran", swept, minted, code: null, lag, backfill };
   } catch (err) {
     const code =
       err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
         ? (err as { code: string }).code
         : "UNKNOWN";
     emit("runner.failed", { code });
-    return { ran: false, reason: "failed", swept: 0, minted: 0, code };
+    return { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill };
   } finally {
     counterpart.close();
   }
@@ -139,6 +196,19 @@ export function watchdogMs(env: Record<string, string | undefined> = process.env
 /** The data dir this process was PINNED to. Never resolved from anywhere else. */
 export function pinnedDataDir(env: Record<string, string | undefined> = process.env): string | null {
   const raw = env[DATA_DIR_ENV];
+  return raw !== undefined && raw.trim().length > 0 ? raw : null;
+}
+
+/** The session (and its scope) this process was told to follow. Read from the
+ *  pinned environment for the same reason the data dir is: the spawner wrote
+ *  them last, so nothing a caller exported can redirect the cue. */
+export function pinnedSession(env: Record<string, string | undefined> = process.env): string | null {
+  const raw = env[SESSION_ENV];
+  return raw !== undefined && raw.trim().length > 0 ? raw : null;
+}
+
+export function pinnedScope(env: Record<string, string | undefined> = process.env): string | null {
+  const raw = env[SCOPE_ENV];
   return raw !== undefined && raw.trim().length > 0 ? raw : null;
 }
 
@@ -201,7 +271,12 @@ async function main(): Promise<void> {
         }, timeout);
   timer?.unref?.();
   try {
-    await runOnce({ config, signal: controller.signal });
+    await runOnce({
+      config,
+      signal: controller.signal,
+      ...(pinnedSession() === null ? {} : { session: pinnedSession() as string }),
+      ...(pinnedScope() === null ? {} : { scope: pinnedScope() as string }),
+    });
   } finally {
     if (timer !== null) clearTimeout(timer);
   }
