@@ -176,9 +176,12 @@ memory under Claude Code, running beside its predecessor so the two can be compa
 and the launch scoreboard — including the bugs found this week — is
 [`docs/LAUNCH-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/LAUNCH-STATUS.md).
 
-**The test suite, measured 2026-09-04 on commit `33c5c10` under bun 1.3.10:** `bun test` →
-**1,514 pass, 0 fail, nothing skipped**, 19,848 assertions across 25 files, 14.6 s. Every
-test builds and removes its own temporary data directory; none touches a real store.
+**The test suite, measured 2026-09-04 on commit `cbed76b` under bun 1.3.10:** `bun test` →
+**1,557 pass, 0 fail, nothing skipped**, 20,605 assertions across 26 files, about 20 s.
+No test touches a real store, and that is mechanized rather than promised:
+`test/preload.ts` runs before every test file, redirects `homedir()` to a fresh temporary
+directory for the whole run, clears `COUNTERPARTS_DATA_DIR`, and removes the directory on
+exit — so for the length of a test run there is no real home to reach.
 
 **Verified inside real Claude Code sessions**, on the author's machine: the hooks fire on
 all five events, the MCP server registers and its tools are used daily, the briefing
