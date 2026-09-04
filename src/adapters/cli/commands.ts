@@ -39,11 +39,17 @@ import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
 // the sleep phases and the dashboard's census use. A second copy of that test
 // living here is how the console drifted away from them in the first place.
 import { isJournal } from "../../core/sleep/index.js";
+// The deep import into box 3's own driver — the same one `snapshot.ts` and
+// `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
+// number of vectors box 3 holds, and `Store` exposes no read for it.
+import { openDb } from "../../core/store/db.js";
+import type { Db } from "../../core/store/db.js";
 import {
   LAYOUT,
   Store,
   dataDir,
   isWithin,
+  paths,
   storeExists,
 } from "../../core/store/index.js";
 import type { Band, Kind } from "../../core/types.js";
@@ -144,7 +150,10 @@ export function usage(): string {
     "  export --out <dir>  Portable copy. --passphrase <secret> or --plaintext.",
     "  backup --out <dir>  Snapshot: prose + canonical DB via VACUUM INTO. Cache excluded.",
     "  remove <id>         The loud removal. Dry run unless --confirm.",
-    "  verify              Rebuild the cache from canonical state and report.",
+    "  verify              Census of the cache against canonical state. Read-only.",
+    "                      --rebuild drops and rebuilds the cache instead; it refuses",
+    "                      while the cache holds embeddings this console has no",
+    "                      embedder to recompute, unless --drop-vectors is passed.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
@@ -187,6 +196,11 @@ export function parse(argv: readonly string[]): Parsed {
       id: { type: "string" },
       json: { type: "boolean" },
       apply: { type: "boolean" },
+      // `verify`'s two: the rebuild is opt-in, and dropping vectors this console
+      // cannot recompute is opt-in on top of that. Declared rather than left to
+      // `strict: false`, which does not make an undeclared boolean reliable.
+      rebuild: { type: "boolean" },
+      "drop-vectors": { type: "boolean" },
       budget: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
@@ -276,7 +290,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "recall":
         return recallCommand(dir, io, parsed);
       case "verify":
-        return verifyCommand(dir, io);
+        return verifyCommand(dir, io, parsed.flags);
       case "backup":
         return await backupCommand(dir, io, parsed.flags["out"], now);
       case "export":
@@ -725,21 +739,200 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
 // ── verify ──────────────────────────────────────────────────────────────────
 
 /**
+ * What box 3 holds right now, read WITHOUT going through `Store` — because
+ * `Store` has no read API for it. `unembeddedCount()` is the coverage
+ * denominator (live rows with no vector), not a count of the vectors held, and
+ * the census needs the latter before it may drop anything.
+ *
+ * The direct open is the same deep import `snapshot.ts` and `export.ts` already
+ * make (INTERFACE-GAPS §5): the CLI genuinely needs the database here, not the
+ * store's abstraction of it. It is gated on the file EXISTING, because `openDb`
+ * creates what it opens and a census that minted box 3 by looking at it would be
+ * the instrument-mints-its-subject wart all over again (§7, closed 2026-08-26).
+ */
+interface CacheCensus {
+  readonly path: string;
+  /** False when box 3 has never been built here. Nothing was opened, nothing created. */
+  readonly present: boolean;
+  /** Null when the file is there and its tables are not — a half-built cache. */
+  readonly counts: {
+    readonly embeddings: number;
+    readonly indexRows: number;
+    readonly lengths: number;
+    readonly ranking: number;
+    /** The distinct ids the token index holds, for the set diff below. */
+    readonly indexed: readonly string[];
+  } | null;
+  readonly why: string | null;
+}
+
+function censusCache(dir: string): CacheCensus {
+  const path = paths.cache(dir);
+  if (!existsSync(path)) return { path, present: false, counts: null, why: "never built" };
+  let db: Db | undefined;
+  try {
+    db = openDb(path);
+    const handle = db;
+    const n = (sql: string): number => handle.get<{ n: number }>(sql)?.n ?? 0;
+    return {
+      path,
+      present: true,
+      why: null,
+      counts: {
+        embeddings: n("SELECT COUNT(*) AS n FROM embeddings"),
+        indexRows: n("SELECT COUNT(*) AS n FROM doc_tokens"),
+        lengths: n("SELECT COUNT(*) AS n FROM doc_lens"),
+        ranking: n("SELECT COUNT(*) AS n FROM ranking"),
+        indexed: handle
+          .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
+          .map((r) => r.memory_id),
+      },
+    };
+  } catch (err) {
+    return { path, present: true, counts: null, why: String((err as Error).message ?? err) };
+  } finally {
+    db?.close();
+  }
+}
+
+/**
+ * `verify` — the census by default, the rebuild only when asked, and never the
+ * rebuild by accident.
+ *
+ * **The sharp edge this exists to blunt.** `rebuildCache()` begins with
+ * `resetCache`, which DROPS `embeddings` along with the rest of box 3, and this
+ * console has no embedder to put them back: on the store this was found against,
+ * a bare `counterparts verify` would have deleted ~13,700 vectors that each cost
+ * a paid network call to recompute. `store/cache.ts` says the same thing in its
+ * own voice about `backfillLengths`. Until PR #37 a bare `verify` was saved only
+ * by ACCIDENT — it failed the layout check before it reached the store — and an
+ * accident is not a guard.
+ *
+ * So the destructive half now needs `--rebuild`, and even then it refuses while
+ * box 3 holds vectors nothing here can recompute, unless `--drop-vectors` says
+ * out loud that losing them is the intent. Refuse-unless-flag is the
+ * ADAPTER-level answer; preserving the vectors across a rebuild would take a
+ * core change (`rebuildCache({ keepVectors })`), and that is filed in NOTES
+ * rather than smuggled in here.
+ */
+function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+  return flags["rebuild"] === true
+    ? verifyRebuild(dir, io, flags["drop-vectors"] === true)
+    : verifyCensus(dir, io);
+}
+
+/**
+ * Read-only. Opens the store in OBSERVER stance and box 3 on its own connection,
+ * one after the other rather than both at once, and writes nothing canonical.
+ * (Constructing a `Store` still rewrites box 3's schema-version row when it is
+ * out of date — dashboard INTERFACE-GAPS §1 — which is box 3's business.)
+ */
+function verifyCensus(dir: string, io: Io): number {
+  const store = Store.open({ dir, observer: true });
+  let canonical: string[];
+  let denied: string[];
+  let unembedded: number;
+  try {
+    canonical = store.list();
+    denied = store.deniedIds();
+    unembedded = store.unembeddedCount();
+  } finally {
+    store.close();
+  }
+
+  const cache = censusCache(dir);
+  io.out(`Store: ${dir}`);
+  io.out(`Canonical rows: ${canonical.length}   removed (deny-list): ${denied.length}`);
+
+  // The unreadable half of this is narrow by construction: `Store.open` builds
+  // box 3 on the way in, so a cache this process cannot read usually fails the
+  // open above and is reported there. It is still handled, because between that
+  // close and this read is a window another process can change.
+  if (cache.counts === null) {
+    io.out(
+      cache.present
+        ? `Cache: ${cache.path} — unreadable (${cache.why ?? "no reason given"}).`
+        : `Cache: absent — box 3 has never been built here.`,
+    );
+    if (canonical.length === 0) {
+      io.out("Nothing canonical to index, so nothing is missing.");
+      return EXIT.ok;
+    }
+    io.err(
+      cache.present
+        ? `${canonical.length} canonical rows and a cache that would not open — retry (another process may hold it); if it is truly gone, 'counterparts verify --rebuild' builds box 3 again.`
+        : `${canonical.length} canonical rows have no index — run 'counterparts verify --rebuild' to build box 3.`,
+    );
+    return EXIT.failed;
+  }
+
+  // A SET DIFF, not arithmetic: `indexed + denied === canonical` can agree by
+  // coincidence while holding the wrong ids, and it cannot say WHICH way it is
+  // wrong. Both directions are named, because an orphaned index row and an
+  // unindexed memory are different problems.
+  const indexed = new Set(cache.counts.indexed);
+  const known = new Set(canonical);
+  const deniedSet = new Set(denied);
+  const missing = canonical.filter((id) => !indexed.has(id) && !deniedSet.has(id));
+  const orphans = cache.counts.indexed.filter((id) => !known.has(id));
+
+  io.out(`Cache: ${cache.path}`);
+  io.out(
+    `  indexed documents: ${indexed.size}   index rows: ${cache.counts.indexRows}   ` +
+      `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
+  );
+  io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
+  if (missing.length === 0 && orphans.length === 0) {
+    io.out("The cache covers every canonical row and holds nothing else.");
+    return EXIT.ok;
+  }
+  io.err(
+    `Cache incomplete: ${missing.length} canonical rows are not indexed, ${orphans.length} indexed ids are not canonical rows — ` +
+      `'counterparts verify --rebuild' rebuilds box 3.`,
+  );
+  return EXIT.failed;
+}
+
+/**
  * Rebuild box 3 from canonical state and report. The database is a cache: if
  * this ever loses something canonical, the claim was false and the report is
  * where it shows. What cannot be recomputed is DECLARED, with an owner and a
  * repair, rather than silently missing (§5 G8).
+ *
+ * The vector count is taken BEFORE a writable store is opened, so the refusal
+ * path never constructs one.
  */
-function verifyCommand(dir: string, io: Io): number {
-  if (!storeExists(dir)) {
-    io.err(`no store at ${dir}`);
-    return EXIT.failed;
+function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
+  const cache = censusCache(dir);
+  // FAIL CLOSED. A count that could not be taken is not a count of zero: box 3
+  // is the file the Stop-hook worker writes vectors into, so "database is
+  // locked" after the busy timeout is an ordinary outcome here — and a guard
+  // whose failure mode is "could not count the vectors, so dropped them" is not
+  // a guard. An ABSENT cache is different and stays fine: there is nothing to lose.
+  if (cache.present && cache.counts === null && !dropVectors) {
+    io.err(
+      `Refusing: box 3 exists but could not be read (${cache.why ?? "no reason given"}), so this console cannot tell how many embeddings --rebuild would drop — retry, or pass --drop-vectors to proceed anyway.`,
+    );
+    return EXIT.refused;
+  }
+  const held = cache.counts?.embeddings ?? 0;
+  const vectors = `${held} ${held === 1 ? "embedding" : "embeddings"}`;
+  if (held > 0 && !dropVectors) {
+    io.err(
+      `Refusing: --rebuild drops box 3 and this console has no embedder, so the ${vectors} it holds would be gone and each one costs a paid network call to recompute — pass --drop-vectors if losing them is what you mean.`,
+    );
+    return EXIT.refused;
   }
   const store = Store.open({ dir });
   try {
     const canonical = store.list().length;
     const report = store.rebuildCache();
     io.out(`Canonical rows: ${canonical}`);
+    if (held > 0) io.out(`Dropped on your say-so (--drop-vectors): ${vectors}.`);
     io.out(`Re-indexed: ${report.indexed}`);
     io.out(`Skipped as removed (deny-list): ${report.skippedDenied}`);
     io.out(`Not recomputed: ${report.unrecomputed}`);

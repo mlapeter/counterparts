@@ -171,3 +171,16 @@ with the exact version floor CLAUDE.md flags.
   the transaction; concurrent *processes* writing prose is untested.
 - **Backups** (§16 G18) are not this module's job; `backupSet()` reports the
   classification so the backup tool cannot silently omit a directory the way v1 did.
+
+## 2026-09-04 — the default data dir is `~/.counterparts/store`, not `~/.counterparts`
+
+The launch inventory reproduced what the parallel-run preflight had worked around: the
+host adapter writes `claude-code.json` (and the credentials file) into `~/.counterparts`,
+and the store classifies every top-level entry of its data dir and refuses an
+unclassified one at open (§5 G11). So the old default, `~/.counterparts` itself, was a
+store that could not open on any installed host. The owner ruled (2026-09-04): the base
+dir belongs to the adapters, the store sits one level below it, and the default says so.
+One line in `dataDir()`, one replaced assertion. The live host is unaffected: its config
+names `dataDir` explicitly and the MCP registration sets `COUNTERPARTS_DATA_DIR`, so no
+live code path consulted the default. `FORBIDDEN_ROOT_NAMES` is unchanged; the
+recall-bench and parallel tools still refuse the whole base dir by name.

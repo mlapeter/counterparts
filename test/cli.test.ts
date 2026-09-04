@@ -34,6 +34,9 @@ import {
   readSentinel,
 } from "../src/core/self/index.js";
 import { PHASES, markerKey } from "../src/core/sleep/index.js";
+// Box 3 directly, for the two things `verify`'s guard is about: seeding a
+// vector the way the backfill seeds one, and counting what is still there.
+import { openCache, setEmbedding } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -617,7 +620,7 @@ describe("remove — the loud removal", () => {
     await run(["remove", id, "--confirm"], { io: consoleWith([id]).io, env: { [ENV]: dir } });
 
     const c = consoleWith();
-    expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Skipped as removed (deny-list): 1");
     expect(printed).toContain("Re-indexed: 1");
@@ -648,17 +651,154 @@ describe("remove — the loud removal", () => {
 // ── verify ──────────────────────────────────────────────────────────────────
 
 describe("verify", () => {
-  test("rebuilds box 3 from canonical state and accounts for every row", async () => {
+  /** A vector in box 3, put there the way the backfill puts one there. */
+  function seedVector(id: string): void {
+    const db = openCache(paths.cache(dir));
+    try {
+      setEmbedding(db, id, [0.1, 0.2, 0.3]);
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * EVERY file under the data dir, cache included — the dashboard suite's
+   * protocol (`test/dashboard.test.ts`'s `snapshot`), not `fingerprint`, which
+   * skips box 3 and would let a census that rewrote `doc_tokens` through.
+   */
+  function everyByte(root: string): string {
+    const parts: string[] = [];
+    const walk = (at: string): void => {
+      for (const name of readdirSync(at).sort()) {
+        const full = join(at, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else parts.push(`${full}:${readFileSync(full).toString("base64")}`);
+      }
+    };
+    walk(root);
+    return parts.join("|");
+  }
+
+  /** What box 3 holds, read the way the census reads it. */
+  function embeddings(): number {
+    if (!existsSync(paths.cache(dir))) return 0;
+    const db = openDb(paths.cache(dir));
+    try {
+      return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings")?.n ?? 0;
+    } finally {
+      db.close();
+    }
+  }
+
+  test("the bare command is a CENSUS: it counts box 3 and drops nothing", async () => {
+    // The sharp edge: `rebuildCache()` starts with `resetCache`, which drops
+    // `embeddings`, and this console has no embedder — so a bare `verify` used
+    // to cost one paid network call per vector to undo. On the live store that
+    // was ~13,700 of them.
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "The memory whose vector must survive a look." });
+    s.put({ type: "memory", kind: "fact", body: "A second memory, with no vector of its own." });
+    s.close();
+    seedVector(kept);
+
+    const before = fingerprint(dir);
+    const everyByteBefore = everyByte(dir);
+    const c = consoleWith();
+    expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("Canonical rows: 2");
+    expect(printed).toContain("embeddings: 1");
+    expect(printed).toContain("live memories with no vector: 1");
+    expect(printed).toContain("The cache covers every canonical row");
+    // Nothing canonical moved, and — the whole point — the vector is still there.
+    expect(fingerprint(dir)).toBe(before);
+    expect(embeddings()).toBe(1);
+    // And not a byte anywhere in the directory, box 3 included: `openCache` is
+    // version-idempotent now, so the census may claim the strong form the
+    // dashboard suite could only claim across renders (its INTERFACE-GAPS §1).
+    expect(everyByte(dir)).toBe(everyByteBefore);
+  });
+
+  test("--rebuild REFUSES while box 3 holds vectors nothing here can recompute", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory whose vector cost a network call." });
+    s.close();
+    seedVector(kept);
+
+    const before = fingerprint(dir);
+    const c = consoleWith();
+    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("the 1 embedding it holds would be gone");
+    expect(text(c.err)).toContain("paid network call");
+    expect(text(c.err)).toContain("--drop-vectors");
+    // A refusal that had already opened a writable store would be no refusal.
+    expect(fingerprint(dir)).toBe(before);
+    expect(embeddings()).toBe(1);
+  });
+
+  test("--rebuild --drop-vectors proceeds, and says how many it dropped", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory whose vector the owner chose to lose." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(await run(["verify", "--rebuild", "--drop-vectors"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    const printed = text(c.out);
+    expect(printed).toContain("Dropped on your say-so (--drop-vectors): 1 embedding.");
+    expect(printed).toContain("Re-indexed: 1");
+    expect(embeddings()).toBe(0);
+  });
+
+  test("--rebuild rebuilds box 3 from canonical state and accounts for every row", async () => {
     const s = store();
     for (let i = 0; i < 5; i++) s.put({ type: "memory", kind: "fact", body: `Canonical memory ${i} of five.` });
     s.close();
     rmSync(paths.cacheDir(dir), { recursive: true, force: true });
 
+    // No vectors to lose, so no flag is needed: the guard is about cost, not ceremony.
     const c = consoleWith();
-    expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Re-indexed: 5");
     // What cannot be recomputed is DECLARED, with an owner and a repair (§5 G8).
     expect(text(c.out)).toContain("declared: embeddings");
+  });
+
+  test("--rebuild refuses when the vector count CANNOT be taken — the guard fails closed", async () => {
+    // The realistic version of this is contention: box 3 is the file the Stop
+    // worker writes vectors into, so a locked read is ordinary. An unreadable
+    // file reproduces the same branch without a second process. A guard that
+    // read zero from a failure would drop what it could not count.
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "A memory whose index went unreadable." });
+    s.close();
+    writeFileSync(paths.cache(dir), "not a database");
+
+    const c = consoleWith();
+    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("could not be read");
+    expect(readFileSync(paths.cache(dir)).toString()).toBe("not a database");
+
+    // The census over the same store cannot even open it — `Store.open` builds
+    // box 3 on the way in — and that is a reported failure, not a stack trace
+    // and not a repair.
+    const look = consoleWith();
+    expect(await run(["verify"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
+    expect(text(look.err)).toContain("verify failed:");
+    expect(readFileSync(paths.cache(dir)).toString()).toBe("not a database");
+  });
+
+  test("the census says so when box 3 is missing, rather than rebuilding it", async () => {
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "A memory whose index was deleted underneath it." });
+    s.close();
+    rmSync(paths.cacheDir(dir), { recursive: true, force: true });
+
+    const c = consoleWith();
+    expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
+    expect(text(c.err)).toContain("verify --rebuild");
   });
 });
 

@@ -10,7 +10,7 @@
  *   ... browse --id mem_abc123
  *   ... stories --limit 3
  *
- * The data dir comes from `COUNTERPARTS_DATA_DIR` or `~/.counterparts` by the
+ * The data dir comes from `COUNTERPARTS_DATA_DIR` or `~/.counterparts/store` by the
  * store's own resolution, at call time; `--dir` overrides it for one run, and
  * `store/paths.ts` structurally refuses a path inside v1's live store.
  */
@@ -152,7 +152,7 @@ function targetDir(parsed: Parsed): string {
   try {
     return dataDir();
   } catch {
-    return `the default data dir (${DATA_DIR_ENV} or ~/.counterparts)`;
+    return `the default data dir (${DATA_DIR_ENV} or ~/.counterparts/store)`;
   }
 }
 
