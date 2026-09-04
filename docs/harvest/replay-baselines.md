@@ -273,7 +273,7 @@ what's needed to count/size it. Paths and counts only.*
 | **Raw span archive** | `~/.bansai/buffer-archive/` | 782 files across 26 day-dirs | 9.3 MB | 2026-07-27 → 2026-08-25 (matches the log window exactly) |
 | **Traces (interpreted memories)** | `~/.bansai/traces/` | 13,653 `.md` files across 36 scope dirs (`global` + 35 `project-*`) | 55 MB | not date-partitioned in the filesystem; ~13.5K matches the replay contract's stated corpus size (§17.1) |
 | **Episodes** | `~/.bansai/episodes/` | 192 `.md` files | 1.4 MB | 2026-07-16 → 2026-08-25 (older than the log window — episode files themselves aren't log-bounded) |
-| **Schemas** | `~/.bansai/schemas/` | 8 files (`self.md`, `craft.md`, `person-mike.md`, `person-katie.md`, `entity-bansai.md`, `entity-mspw.md`, `entity-marketing-agents.md`, `entity-the100.md`) | — | live |
+| **Schemas** | `~/.bansai/schemas/` | 8 files (`self.md`, `craft.md`, two `person-*.md`, four `entity-*.md`) | — | live |
 | **Live (unclaimed) buffer** | `~/.bansai/buffer/` | 262 files | 1.0 MB | current |
 | **Archive (overwrite/tombstone target)** | `~/.bansai/archive/` | 89,008 files (`traces/` + `schemas/` subtrees) | — | includes `.meta.json` provenance sidecars per the no-silent-destruction design |
 | **Backups** | `~/.bansai/backups/` | 16 daily snapshot dirs | 2.6 GB | 2026-08-10 → 2026-08-25 (bounded retention, older snapshots already pruned) |
