@@ -98,6 +98,37 @@ decided twice.)*
    are a closed union, so an unhandled case is a type error rather than a string
    nobody greps for.
 
+16. **An UNCLAIMED memory takes its channel's default floor, and a default is
+   never a lift.** (2026-09-04, measured on the live parallel-run store.) All 48
+   authored memories carried `relevance = emotional = predictive = 0` and most
+   carried no claim, so `sal(m) = max(0, null ?? 0) = 0`: the lived channel's own
+   deposits were the weakest things in the store, first to decay, and — since
+   `challengeForce = strength × sal` — every revision they declared pushed with
+   ZERO force. That inverts the authorship doctrine it was supposed to serve.
+   `clampSalienceAtSeam()` therefore takes a fourth argument, `defaultClaim`,
+   applied only when `claimed === null`; `mint.ts` passes
+   `TUNABLES.AUTHORED_DEFAULT_CLAIM` on the `authored` channel and `null` on every
+   other, engine-set off the channel exactly as `SWEEP_CLAIM_CEILING` is. Three
+   properties are deliberate:
+   - **0.25, and the number is arithmetic.** `0.25 + CONS_BONUS = 0.45 <
+     THETA_SEM = 0.5`, and `max(ω_sal) = 1.0`, so a defaulted memory cannot reach
+     the semantic band on the default alone even after consolidation — it needs
+     3 credited days of use (`rep = 0.36`) or an actual claim. That is the
+     structural form of the F5 scar (a self-claimed 0.8 parked ~75% of the store
+     above `THETA_SEM`). It also sits below 0.34, the measured mean of the claims
+     authors did make, so silence says strictly less than speaking, and below
+     `SWEEP_CLAIM_CEILING = 0.6`, so the floor is not a promotion over the
+     retelling channel.
+   - **A default is recorded as `defaulted`, never as `lifted`.** The lift metric
+     is "how often does an author's claim out-rank the computed dimensions"; a
+     defaulted floor folded into it would read every silent note as a claim and
+     destroy the number the ceiling decision needs. `SeamClamp` gained
+     `defaulted` and `defaultEvent` (`salience.defaulted`) for that reason.
+   - **An explicit claim, however low, is never overridden** — the branch is on
+     `claimed === null` and nothing else. An explicit `0` is testimony.
+   The FALLBACK channel is untouched: its ceiling and its interpreter-supplied
+   dimensions are exactly what they were. CAL, and a working default.
+
 ## Observations for the owner (arithmetic vs prose)
 
 - **§5.6's "a slow kind cannot cross from rest in fewer than ~3 lived days" is

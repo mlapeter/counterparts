@@ -57,6 +57,34 @@ export const TUNABLES = {
    * WORKING DEFAULT — to be revisited against the re-run's watch metrics.
    */
   SWEEP_CLAIM_CEILING: 0.6,
+  /**
+   * CAL. The claimed floor an AUTHORED memory gets when its author claimed
+   * nothing — the authorship doctrine's other half, measured 2026-09-04 on the
+   * live parallel-run store: all 48 authored memories carried
+   * relevance/emotional/predictive = 0, so an unclaimed note's `sal(m)` was
+   * ZERO. It was the weakest thing in the store, first to decay, and (now that
+   * `challengeForce = strength x sal`) any revision it declared pushed with no
+   * force at all — the exact inversion of "the experiencer's testimony is
+   * trusted". Silence is the common case: the asks never say to set salience.
+   *
+   * WHY THIS NUMBER, and it is arithmetic rather than taste:
+   *   - `AUTHORED_DEFAULT_CLAIM + CONS_BONUS = 0.45 < THETA_SEM = 0.5`, and the
+   *     largest `wSal` is 1.0, so a defaulted memory CANNOT reach the semantic
+   *     band on the default alone — not even after consolidation. It gets there
+   *     only by being used (rep 0.3 needs 3 credited days) or by an author
+   *     actually claiming something. That is the structural form of v1's scar:
+   *     a mode-0.8 self-claim parked ~75% of the store above THETA_SEM.
+   *   - 0.25 < 0.34, the measured mean of the claims authors DID make, so
+   *     staying silent says strictly less than speaking.
+   *   - 0.25 < SWEEP_CLAIM_CEILING = 0.6: the default is a floor under the
+   *     lived channel, not a promotion of it over the retelling channel.
+   *   - It buys survival rather than rank: at kind `fact` (S = 60 lived days)
+   *     strength falls below PHI_PRUNE = 0.02 after ~152 lived days instead of
+   *     being prunable from birth.
+   * ENGINE-SET off the mint CHANNEL, exactly like `SWEEP_CLAIM_CEILING`; an
+   * explicit claim, however low, is never overridden. WORKING DEFAULT.
+   */
+  AUTHORED_DEFAULT_CLAIM: 0.25,
 
   // --- §5.4 decay ---
   /** Stability base, lived days. Reproduces v0's -0.015/day over ~a month. */
@@ -252,17 +280,39 @@ export interface SalienceLiftEvent {
   readonly capped: boolean;
 }
 
+/**
+ * The claim the author never made. Kept SEPARATE from `salience.lifted` on
+ * purpose: the lift metric is "how often does an author's claim out-rank the
+ * computed dimensions", and folding a defaulted floor into it would read every
+ * silent note as a claim and destroy the number the ceiling decision needs.
+ */
+export interface SalienceDefaultEvent {
+  readonly event: "salience.defaulted";
+  /** The mean of the stored dimensions — 0 for the case this exists for. */
+  readonly computed: number;
+  /** The floor applied, i.e. `TUNABLES.AUTHORED_DEFAULT_CLAIM`. */
+  readonly floor: number;
+  /** What `sal(m)` will honor with the default in place. */
+  readonly applied: number;
+}
+
 export interface SeamClamp {
   /** The salience to store: dimensions untouched, claim recorded as the floor. */
   salience: Salience;
+  /** True only when an AUTHOR's own claim out-ranked the computed dimensions.
+   *  A defaulted floor is never a lift — see `SalienceDefaultEvent`. */
   lifted: boolean;
   blind: boolean;
   /** True when the author's raw claim was cut to the ceiling. */
   capped: boolean;
+  /** True when the author claimed nothing and the channel's default floor was
+   *  applied in its place. Recorded on the row as `meta.claimedDefault`. */
+  defaulted: boolean;
   /** The raw claim when it was capped, else null — the minting seam preserves
    *  it in prose meta so the un-capped testimony is never silently lost. */
   rawClaim: number | null;
   event: SalienceLiftEvent | null;
+  defaultEvent: SalienceDefaultEvent | null;
 }
 
 /**
@@ -278,23 +328,35 @@ export interface SeamClamp {
  * the cut recorded on the event and the raw claim handed back for prose meta.
  * The cap runs here and nowhere else, exactly like the floor ("clamped here,
  * once" stays literally true).
+ *
+ * `defaultClaim` is the same idea in the other direction and the same kind of
+ * engine-set number: when the author claimed NOTHING, the channel's default
+ * floor stands in (`TUNABLES.AUTHORED_DEFAULT_CLAIM` for the lived channel,
+ * `null` — nothing at all — for every other). Silence is not testimony, so a
+ * default is recorded as `defaulted`, never as a lift; and an explicit claim,
+ * however low, is never overridden, because the branch is on `claimed === null`
+ * and nothing else.
  */
 export function clampSalienceAtSeam(
   dims: Salience,
   claimedSal: number | null,
   ceiling = 1,
+  defaultClaim: number | null = null,
 ): SeamClamp {
   const raw = claimedSal === null ? null : clamp01(claimedSal);
   const capped = raw !== null && raw > ceiling;
-  const claimed = raw === null ? null : Math.min(raw, ceiling);
+  const defaulted = raw === null && defaultClaim !== null;
+  const claimed =
+    raw === null ? (defaultClaim === null ? null : clamp01(defaultClaim)) : Math.min(raw, ceiling);
   const salience: Salience = { ...dims, claimed };
   const computed = computedSal(salience);
-  const lifted = claimed !== null && claimed > computed;
+  const lifted = !defaulted && claimed !== null && claimed > computed;
   return {
     salience,
     lifted,
     blind: isBlindEncoding(salience),
     capped,
+    defaulted,
     rawClaim: capped ? raw : null,
     event:
       lifted || capped
@@ -307,6 +369,14 @@ export function clampSalienceAtSeam(
             capped,
           }
         : null,
+    defaultEvent: defaulted
+      ? {
+          event: "salience.defaulted",
+          computed,
+          floor: claimed as number,
+          applied: sal(salience),
+        }
+      : null,
   };
 }
 

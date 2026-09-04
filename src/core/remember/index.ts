@@ -42,6 +42,7 @@ export type {
 
 export {
   ALREADY_AUTHORED_MARK,
+  AUTHOR_DIMENSIONS,
   DRAFT_FIELDS,
   NO_GATE,
   intake,

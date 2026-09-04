@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { TUNABLES } from "../src/core/physics/index.js";
 import { Store } from "../src/core/store/index.js";
 import {
   DELIBERATE_TIERS,
@@ -323,6 +324,108 @@ describe("the tool-description audit", () => {
     // a floor on the row, which is what keeps `sal(m)` reproducible from state.
     expect(physics.salience.claimed).toBe(0.9);
     expect(body["salienceLifted"]).toBe(true);
+  });
+
+  test("the mechanism behind the default-floor claim fires: an unclaimed note is ordinary, not zero", async () => {
+    const s = server();
+    const result = await s.call("note", {
+      text: "The invoice import silently skips rows whose currency column is empty.",
+    });
+    const body = payload(result);
+    expect(body["stored"]).toBe(true);
+    const id = body["id"] as string;
+    const physics = s.counterpart.store.physicsOf(id);
+    expect(physics.salience.claimed).toBe(TUNABLES.AUTHORED_DEFAULT_CLAIM);
+    // Durable, and countable tomorrow: the flag is on canonical prose.
+    expect(s.counterpart.store.readProse(id).meta["claimedDefault"]).toBe(true);
+    // Ordinary, not important: an unclaimed note is still episodic, and the
+    // engine's floor is not reported back as a lift the model made.
+    expect(s.counterpart.store.row(id)?.band).toBe("episodic");
+    expect(body["salienceLifted"]).toBeUndefined();
+  });
+
+  test("an explicit LOW claim survives the default: testimony is never overwritten", async () => {
+    const s = server();
+    const body = payload(
+      await s.call("note", {
+        text: "A minor formatting preference, marked as barely worth holding onto.",
+        salience: 0.05,
+      }),
+    );
+    const id = body["id"] as string;
+    expect(s.counterpart.store.physicsOf(id).salience.claimed).toBe(0.05);
+    expect(s.counterpart.store.readProse(id).meta["claimedDefault"]).toBeUndefined();
+  });
+
+  test("the mechanism behind the dimensions claim fires: the author's three reach the row", async () => {
+    const s = server();
+    const body = payload(
+      await s.call("note", {
+        text: "The retry loop doubles the delay each time, which is why the last attempt takes a minute.",
+        relevance: 0.8,
+        emotional: 0.2,
+        predictive: 0.6,
+      }),
+    );
+    expect(body["stored"]).toBe(true);
+    const row = s.counterpart.store.row(body["id"] as string);
+    expect({ rel: row?.relevance, emo: row?.emotional, pred: row?.predictive }).toEqual({
+      rel: 0.8,
+      emo: 0.2,
+      pred: 0.6,
+    });
+    // Novelty is not the author's to claim, whatever it sends.
+    const sneaky = payload(
+      await s.call("note", {
+        text: "A second unrelated thing about the retry loop's jitter window.",
+        novelty: 0.99,
+      }),
+    );
+    expect(s.counterpart.store.row(sneaky["id"] as string)?.novelty).toBeNull();
+  });
+
+  test("an out-of-range dimension is REFUSED by name, not clamped and not silently dropped", async () => {
+    const s = server();
+    const body = payload(
+      await s.call("note", { text: "A perfectly ordinary thing to remember.", relevance: 7 }),
+    );
+    expect({ stored: body["stored"], reason: body["reason"] }).toEqual({
+      stored: false,
+      reason: "dimension-out-of-range",
+    });
+  });
+
+  test("session_end entries carry their own dimensions, and a bad one fails only itself", async () => {
+    const s = server();
+    const body = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [
+          {
+            content: "The nightly export runs before the backup, which is why a failed export leaves a stale copy.",
+            relevance: 0.7,
+            emotional: 0.1,
+            predictive: 0.9,
+          },
+          { content: "A sibling entry whose relevance is nonsense.", relevance: 4 },
+          { content: "A third entry that claims nothing at all and should still land." },
+        ],
+      }),
+    );
+    const outcomes = body["outcomes"] as Record<string, unknown>[];
+    expect(outcomes[0]?.["stored"]).toBe(true);
+    expect(outcomes[1]?.["stored"]).toBe(false);
+    expect(outcomes[2]?.["stored"]).toBe(true);
+    const first = s.counterpart.store.row(outcomes[0]?.["id"] as string);
+    expect({ rel: first?.relevance, emo: first?.emotional, pred: first?.predictive }).toEqual({
+      rel: 0.7,
+      emo: 0.1,
+      pred: 0.9,
+    });
+    // The unclaimed sibling got the floor rather than a zero.
+    expect(s.counterpart.store.row(outcomes[2]?.["id"] as string)?.claimed).toBe(
+      TUNABLES.AUTHORED_DEFAULT_CLAIM,
+    );
   });
 
   test("the mechanism behind the credential claim actually fires: redacted, and a bare credential is refused", async () => {

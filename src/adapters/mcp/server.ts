@@ -31,6 +31,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import type { Counterpart, DepositResult } from "../../core/counterpart.js";
+import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import { deliberateRecall } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
@@ -208,6 +209,12 @@ export class McpServer {
     if (salience !== undefined && (typeof salience !== "number" || !Number.isFinite(salience))) {
       return this.refuse("note", "salience-not-a-number", {});
     }
+    const dims = readDimensions(args);
+    if (dims === null) {
+      return this.refuse("note", "dimension-out-of-range", {
+        detail: "relevance, emotional and predictive are each a number from 0 to 1.",
+      });
+    }
     const session = this.session ?? "mcp";
 
     const captured = this.counterpart.captureJot({ session, scope: this.scope, text });
@@ -217,6 +224,7 @@ export class McpServer {
     if (typeof args["kind"] === "string") draft["kind"] = args["kind"];
     if (typeof args["title"] === "string") draft["title"] = args["title"];
     if (salience !== undefined) draft["claimed"] = salience;
+    if (Object.keys(dims).length > 0) draft["salience"] = dims;
 
     const deposit = await this.counterpart.submitJot(draft, {
       session,
@@ -419,6 +427,11 @@ export class McpServer {
       if (typeof rec["title"] === "string") draft["title"] = rec["title"];
       if (typeof rec["updates"] === "string") draft["updates"] = rec["updates"];
       if (rec["salience"] !== undefined) draft["claimed"] = rec["salience"];
+      // A bad dimension does NOT fail the batch and is not silently dropped:
+      // the dimensions ride into the draft and `remember/intake` refuses that
+      // one entry as malformed, which is this tool's per-entry isolation rule.
+      const entryDims = readDimensions(rec) ?? pickDimensions(rec);
+      if (Object.keys(entryDims).length > 0) draft["salience"] = entryDims;
       entries.push(draft);
     }
 
@@ -557,4 +570,35 @@ export class McpServer {
   ready(): boolean {
     return this.initialized;
   }
+}
+
+/**
+ * The three dimensions an author may claim, off the wire. `null` means "one of
+ * them was present and unusable" — a refusal, not a silent drop, because a
+ * dimension that quietly vanishes is worse than one that was never offered:
+ * both leave a 0 in the row and only one of them tells anybody.
+ *
+ * `novelty` is deliberately not readable here. It is prediction error, computed
+ * at encoding against the store's own context; an author claiming it is exactly
+ * the door PR-3 closed in `remember/proposals.ts`.
+ */
+function readDimensions(rec: Record<string, unknown>): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  for (const dim of AUTHOR_DIMENSIONS) {
+    const v = rec[dim];
+    if (v === undefined) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) return null;
+    out[dim] = v;
+  }
+  return out;
+}
+
+/** The unvalidated read, used only where the refusal must be per-entry: the
+ *  values ride to `remember/intake`, which refuses that entry by name. */
+function pickDimensions(rec: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const dim of AUTHOR_DIMENSIONS) {
+    if (rec[dim] !== undefined) out[dim] = rec[dim];
+  }
+  return out;
 }
