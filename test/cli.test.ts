@@ -763,7 +763,9 @@ describe("remove — the span buffer is named, never implied", () => {
     // §16 G15 still holds: the report names a file, never a word of its contents.
     expect(planned).not.toContain("culvert gate key");
 
-    // The REAL removal says the same thing, and the durable record counts it.
+    // The REAL removal says the same thing, and the completion LINE counts it.
+    // Printed, not stored: the durable `removal_record` is four stage rows with
+    // no count, which is why the assertion below is on the console's output.
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
@@ -1756,6 +1758,11 @@ describe("install", () => {
     // the thing the reader would otherwise assume followed it.
     expect(printed).toContain("--dir moved the STORE only");
     expect(printed).toContain(config);
+    // And it says so without F6's phrase: the hook DOES fall back to
+    // COUNTERPARTS_DATA_DIR when the config names no store, so "no environment
+    // override" is wrong here for the same reason it was wrong in `init`.
+    expect(printed).not.toContain("no environment override");
+    expect(printed).toContain("the one path the hooks read for their configuration");
 
     // The host's two steps are PRINTED, and they name absolute paths.
     expect(printed).toContain("claude mcp add counterparts");

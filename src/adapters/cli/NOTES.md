@@ -96,7 +96,11 @@ What shipped, adapter-side:
   present in ALL THREE states. `not applicable` is printed too: a surface that
   goes quiet when it is empty is what made the residue invisible.
 - **`unchasable` carries it**, so `ownerRemoval` seeds `unchased` from it and the
-  durable `cli.removal.complete` record counts it. The dry run prints it ABOVE
+  `cli.removal.complete` EVENT counts it — an event the console binds to `io.out`,
+  so the count is a printed line and nothing else. The durable `removal_record`
+  is `(seq, memory_id, stage, at, actor, reason)`: four stage rows, no count.
+  Said here because three documents inherited the opposite claim from this
+  paragraph (claims audit, round 3). The dry run prints it ABOVE
   `Dry run. Nothing has changed.` — a disclosure under the closing line is one
   the reader has already stopped reading (cold-stranger round 3, C3).
 - **Evidence first, provenance second.** `spanResidue()` searches the scope's

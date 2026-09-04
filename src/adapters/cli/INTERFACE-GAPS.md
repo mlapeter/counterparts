@@ -179,8 +179,16 @@ A note is CAPTURED before it is minted: `captureJot` appends the verbatim text t
 `spans/<keyFor(scope)>/jots.jsonl`, and `submitJot` mints from it. Nothing prunes
 that file, so a removed note's words stay on disk — and `backup` copies them
 (measured; `export` does not, §C1). `removal.ts` now reports the surface in all
-three states, and the count reaches the durable `cli.removal.complete` record.
+three states, and `ownerRemoval` counts it into the `cli.removal.complete` EVENT
+— which the console binds to `io.out`, so the count is printed and never stored.
+The durable `removal_record` holds the removal's four stages and no count.
 Reporting is all it can do.
+
+**A second, smaller ask, filed with it.** If the unchased count should be
+durable, the write is `store.appendEvent` on the completion payload, plus a
+`cli.removal.*` name in `dashboard/registries.ts` so `activity` can render it.
+Not taken tonight: the destruction path is the last place to add a write on a
+launch eve, and the printed line is honest as long as the documents say printed.
 
 **What is missing.** `SpanBuffer` exposes `claim`/`consume`/`restore` — the
 lifecycle of a buffer being drained forward — and nothing that removes ONE span
