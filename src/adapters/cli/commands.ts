@@ -27,6 +27,7 @@
  * is testable against a temp dir with a faked console.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -34,20 +35,49 @@ import { Counterpart } from "../../core/counterpart.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 import { TUNABLES } from "../../core/physics/index.js";
 import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
+// The ONE predicate for "this row is the journal, not a memory" — the same one
+// the sleep phases and the dashboard's census use. A second copy of that test
+// living here is how the console drifted away from them in the first place.
+import { isJournal } from "../../core/sleep/index.js";
+// The deep import into box 3's own driver — the same one `snapshot.ts` and
+// `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
+// number of vectors box 3 holds, and `Store` exposes no read for it.
+import { openDb } from "../../core/store/db.js";
+import type { Db } from "../../core/store/db.js";
 import {
   LAYOUT,
   Store,
   dataDir,
+  isWithin,
+  paths,
   storeExists,
 } from "../../core/store/index.js";
 import type { Band, Kind } from "../../core/types.js";
+// The MCP adapter's deliberate-recall dispatcher, imported rather than
+// re-implemented: a console with its own question path would be a second set of
+// rules about what recall means. `mcp/deliberate.ts` imports nothing from here,
+// so the direction stays one-way.
+import { deliberateRecall } from "../mcp/deliberate.js";
 import { exportStore } from "./export.js";
+import {
+  BIN,
+  configObject,
+  credentialsTemplate,
+  installLayout,
+  layoutRefusal,
+  mcpCommand,
+  settingsBlock,
+  writeOnce,
+} from "./install.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
   "status",
+  "install",
   "init",
+  "note",
+  "recall",
   "export",
   "backup",
   "remove",
@@ -59,7 +89,11 @@ export type Command = (typeof COMMANDS)[number];
 
 /** Commands that change durable state. Under observer, every one of them refuses. */
 export const OWNER_OPS: readonly Command[] = [
+  "install",
   "init",
+  // `note` deposits. `recall` is a pure read and stays off this list, exactly
+  // like `status`: an instrument may look at a memory and may not add to one.
+  "note",
   "export",
   "backup",
   "remove",
@@ -87,6 +121,15 @@ export interface RunOptions {
   io: Io;
   env?: Record<string, string | undefined>;
   now?: () => number;
+  /**
+   * The home directory `install` writes its configuration under. Real runs never
+   * pass it; the TESTS always do, because `install` writes to
+   * `~/.counterparts/claude-code.json` by design — that is the one path the
+   * hooks read — and a test that used the real one would write the owner's live
+   * configuration. The hermetic rule (CLAUDE.md) has no exceptions, so the seam
+   * is here rather than in a mocked `os` module.
+   */
+  home?: string;
 }
 
 export function usage(): string {
@@ -94,11 +137,23 @@ export function usage(): string {
     "counterparts — the owner's console for a Counterparts memory store.",
     "",
     "  status              What is held, what left, what was removed. Read-only.",
+    "  install             Cold start: create the store, write claude-code.json and a",
+    "                      0600 credentials.env under ~/.counterparts/ (the one path",
+    "                      the hooks read), and PRINT the host's hooks block and MCP",
+    "                      line. Never edits the host. --dir moves the STORE only.",
+    "                      --budget <bytes> --name <owner> --embedder --force.",
     "  init                Create a fresh data dir and PRINT the hook install steps.",
+    "  note <text>         Remember this, deliberately. The same two doors the MCP",
+    "                      tool uses. --kind --title --salience.",
+    "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
+    "                      memory in full instead. --json for the tool's own payload.",
     "  export --out <dir>  Portable copy. --passphrase <secret> or --plaintext.",
     "  backup --out <dir>  Snapshot: prose + canonical DB via VACUUM INTO. Cache excluded.",
     "  remove <id>         The loud removal. Dry run unless --confirm.",
-    "  verify              Rebuild the cache from canonical state and report.",
+    "  verify              Census of the cache against canonical state. Read-only.",
+    "                      --rebuild drops and rebuilds the cache instead; it refuses",
+    "                      while the cache holds embeddings this console has no",
+    "                      embedder to recompute, unless --drop-vectors is passed.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
@@ -132,7 +187,20 @@ export function parse(argv: readonly string[]): Parsed {
       passphrase: { type: "string" },
       plaintext: { type: "boolean" },
       confirm: { type: "boolean" },
+      name: { type: "string" },
+      embedder: { type: "boolean" },
+      force: { type: "boolean" },
+      kind: { type: "string" },
+      title: { type: "string" },
+      salience: { type: "string" },
+      id: { type: "string" },
+      json: { type: "boolean" },
       apply: { type: "boolean" },
+      // `verify`'s two: the rebuild is opt-in, and dropping vectors this console
+      // cannot recompute is opt-in on top of that. Declared rather than left to
+      // `strict: false`, which does not make an undeclared boolean reliable.
+      rebuild: { type: "boolean" },
+      "drop-vectors": { type: "boolean" },
       budget: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
@@ -151,9 +219,18 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   const now = opts.now ?? ((): number => Date.now());
   const parsed = parse(argv);
 
-  if (parsed.command === undefined || parsed.flags["help"] === true) {
+  // `--help` is an ANSWERED question, whatever else is on the line: exit 0.
+  // Bare `counterparts` is an invocation that named nothing, and stays a usage
+  // error. The two used to share the failing code, so the second command a
+  // stranger runs set `$?` to 1 and any `set -e` script died on the help text
+  // (cold-stranger review, §6.10).
+  if (parsed.flags["help"] === true) {
     io.out(usage());
-    return parsed.command === undefined ? EXIT.usage : EXIT.ok;
+    return EXIT.ok;
+  }
+  if (parsed.command === undefined) {
+    io.out(usage());
+    return EXIT.usage;
   }
   if (!(COMMANDS as readonly string[]).includes(parsed.command)) {
     io.err(`unknown command: ${parsed.command}`);
@@ -173,6 +250,19 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       `refused: '${command}' is an owner operation and this console is in observer stance. An instrument reads; it does not change the store.`,
     );
     return EXIT.refused;
+  }
+
+  // `install` resolves its OWN layout and must not go through `resolveDir`:
+  // the store's default data dir is `~/.counterparts`, which is exactly the
+  // directory this command writes two unclassifiable files into (`install.ts`
+  // rule 1). Its default store is the `store/` beneath that instead.
+  if (command === "install") {
+    try {
+      return installCommand(parsed, io, env, opts.home);
+    } catch (err) {
+      io.err(`install failed: ${String((err as Error).message ?? err)}`);
+      return EXIT.failed;
+    }
   }
 
   let dir: string;
@@ -195,8 +285,12 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return statusCommand(dir, io);
       case "init":
         return initCommand(dir, io);
+      case "note":
+        return await noteCommand(dir, io, parsed);
+      case "recall":
+        return recallCommand(dir, io, parsed);
       case "verify":
-        return verifyCommand(dir, io);
+        return verifyCommand(dir, io, parsed.flags);
       case "backup":
         return await backupCommand(dir, io, parsed.flags["out"], now);
       case "export":
@@ -206,7 +300,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
       case "rebrief":
-        return rebriefCommand(dir, io, parsed.flags["budget"], now);
+        return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home);
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -270,6 +364,7 @@ function statusCommand(dir: string, io: Io): number {
     const byBand: Record<string, number> = {};
     const permanent: { id: string; title: string; why: string }[] = [];
     let live = 0;
+    let journal = 0;
     let archived = 0;
     let superseded = 0;
 
@@ -282,6 +377,18 @@ function statusCommand(dir: string, io: Io): number {
       }
       if (row.superseded_by !== null) {
         superseded += 1;
+        continue;
+      }
+      // THE JOURNAL IS NOT A MEMORY. `store.list()` returns every row, and
+      // episodes are rows — so a census that walks it and counts what is left
+      // reports the journal as memories, with a `self` kind and an `episodic`
+      // band it never earned. `sleep/types.ts#isJournal` is the one predicate
+      // for this; PR #27 threaded it through five sleep phases and the
+      // dashboard's census and missed the console. Counted on its own line
+      // rather than dropped, because a number that vanished would be the same
+      // bug facing the other way (§2.4: what is skipped is said out loud).
+      if (isJournal(row)) {
+        journal += 1;
         continue;
       }
       live += 1;
@@ -308,6 +415,7 @@ function statusCommand(dir: string, io: Io): number {
     io.out(`Live memories: ${live}   archived: ${archived}   superseded: ${superseded}`);
     io.out(`  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}`);
     io.out(`  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}`);
+    io.out(`Journal: ${journal} ${journal === 1 ? "episode" : "episodes"}, counted apart — the journal does not decay.`);
     io.out("");
 
     const removals = store.removalRecord().filter((r) => r.stage === "complete");
@@ -329,6 +437,119 @@ function statusCommand(dir: string, io: Io): number {
   } finally {
     store.close();
   }
+}
+
+// ── install ─────────────────────────────────────────────────────────────────
+
+/**
+ * The cold start. It writes the three things that are OURS — the store, the
+ * adapter's configuration beside it, an empty credential file at 0600 — and
+ * PRINTS the two that belong to the host.
+ *
+ * The refusal direction matters more than the happy path: an existing
+ * configuration is KEPT and reported, never merged and never silently
+ * rewritten, because the file it would rewrite is the one pointing at somebody's
+ * live memory. `--force` is the only way past that, and it says so.
+ */
+function installCommand(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  home?: string,
+): number {
+  const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
+  const layout = home === undefined ? installLayout(dirFlag, env) : installLayout(dirFlag, env, home);
+  // Before a single directory: a store that would hold its own configuration is
+  // a store that never opens again.
+  const refusal = layoutRefusal(layout);
+  if (refusal !== null) {
+    io.err(refusal);
+    return EXIT.refused;
+  }
+
+  let budgetBytes: number | undefined;
+  const budgetFlag = parsed.flags["budget"];
+  if (typeof budgetFlag === "string" && budgetFlag.length > 0) {
+    const n = Number(budgetFlag);
+    if (!Number.isInteger(n) || n <= 0) {
+      io.err(`refused: --budget takes a positive whole number of bytes, not '${budgetFlag}'.`);
+      return EXIT.refused;
+    }
+    budgetBytes = n;
+  }
+  const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
+  const force = parsed.flags["force"] === true;
+  const embedder = parsed.flags["embedder"] === true;
+
+  // The store first, and through `Store` itself, so the forbidden-root guard
+  // runs before a single directory is created (scar §2.13).
+  const existed = storeExists(layout.store);
+  let store: Store;
+  try {
+    store = Store.open({ dir: layout.store });
+  } catch (err) {
+    io.err(`refused: ${String((err as Error).message ?? err)}`);
+    return EXIT.refused;
+  }
+  const resolved = store.dir;
+  store.close();
+
+  const body = configObject({
+    layout,
+    ...(budgetBytes === undefined ? {} : { budgetBytes }),
+    ...(name === undefined ? {} : { name }),
+    embedder,
+  });
+  const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
+  const creds = writeOnce(layout.credentials, credentialsTemplate(), { force, mode: 0o600 });
+
+  io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
+  io.out(`  ${config.what} ${config.path}`);
+  io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
+  if (!isWithin(layout.base, resolved)) {
+    // --dir moved the STORE. It cannot move the configuration: the hooks read
+    // one hardcoded path and nothing else, and every hook exits 0, so a config
+    // they cannot find is a silence nobody debugs. Said out loud rather than
+    // left for the reader to discover from an ambient half that never fires.
+    io.out("");
+    io.out(`  --dir moved the STORE only. The configuration stays at ${config.path}:`);
+    io.out("  that is the one path the hooks read, hardcoded, with no flag and no");
+    io.out(`  environment override. It points at your store with "dataDir": "${resolved}".`);
+  }
+  if (config.what === "kept" || creds.what === "kept") {
+    io.out("  (an existing file is never rewritten — pass --force to replace it)");
+  }
+  if (creds.mode !== undefined && creds.mode !== "600") {
+    io.out(`  WARNING: ${creds.path} is mode ${creds.mode}; group or other can read your keys.`);
+  }
+  if (budgetBytes === undefined) {
+    io.out("");
+    io.out('  NO "injectionBudgetBytes" was written: nobody told us this host\'s ceiling');
+    io.out("  and this package invents none (scar §2.18). Re-run with --budget <bytes>,");
+    io.out(`  or add the key to ${config.path}.`);
+  }
+
+  io.out("");
+  io.out("Two steps left, and they are the HOST'S files, so they are printed, not applied.");
+  io.out("Nothing below has been written and no host configuration was read.");
+  io.out("");
+  io.out("  1. Merge this into ~/.claude/settings.json (one script, five events):");
+  io.out("");
+  for (const line of settingsBlock().split("\n")) io.out(`     ${line}`);
+  io.out("");
+  io.out("     The runtime and the script are ABSOLUTE on purpose. A host's process");
+  io.out("     environment is not your login shell's — measured on this package's own");
+  io.out(`     credentials, day 0 — so '${BIN.hook}' on a PATH that lacks bun is a`);
+  io.out("     hook that never runs and says nothing.");
+  io.out("");
+  io.out("  2. Register the MCP server, so note, recall and session_end exist:");
+  io.out("");
+  io.out(`     ${mcpCommand(resolved)}`);
+  io.out("");
+  io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
+  io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
+  io.out("  every open session or the old server keeps serving.");
+  return EXIT.ok;
 }
 
 // ── init ────────────────────────────────────────────────────────────────────
@@ -362,9 +583,11 @@ function initCommand(dir: string, io: Io): number {
   io.out("");
   io.out("  1. Point the host at the hook entry script for every session-ending event:");
   io.out("       SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact");
-  io.out("       command: bun run <repo>/src/adapters/claude-code/bin/hook.ts");
+  io.out(`       installed:  ${BIN.hook}`);
+  io.out("       from a clone: bun run <repo>/src/adapters/claude-code/bin/hook.ts");
   io.out("  2. Register the MCP server so the Stop ask has a way back:");
-  io.out("       command: bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id>");
+  io.out(`       installed:  ${BIN.mcp}`);
+  io.out("       from a clone: bun run <repo>/src/adapters/mcp/bin/serve.ts");
   io.out("  3. Write the adapter's configuration BESIDE the store, never inside it — the");
   io.out("     layout check refuses an unclassified file in the data dir (§5 G11):");
   io.out(`       ${join(resolved, "..", "claude-code.json")}`);
@@ -372,27 +595,344 @@ function initCommand(dir: string, io: Io): number {
   io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
   io.out("refuses to render rather than compose to a number nobody chose (scar §2.18).");
+  io.out("");
+  io.out(`'${BIN.cli} install' does step 3 for you, adds a 0600 credentials file beside`);
+  io.out("it, and prints 1 and 2 filled in and ready to paste.");
   return EXIT.ok;
 }
 
+// ── note / recall ───────────────────────────────────────────────────────────
+
+/**
+ * `note` and `recall` on the console — the same two acts the MCP tools offer,
+ * reachable without a host.
+ *
+ * **They go through exactly the MCP server's doors, and that is the point.** A
+ * second way to write a memory would be a second set of rules about what a
+ * memory is: `noteTool` captures the words into the span buffer FIRST and then
+ * deposits a draft that CLAIMS that span by hash, because without the claim the
+ * end-of-session sweep finds the jot's own text sitting in the buffer and mints
+ * it again — a "remember this" channel that costs two memories. `recall` calls
+ * `deliberateRecall`, the same dispatcher, so the console cannot drift into a
+ * softer question path than the model gets.
+ *
+ * What is NOT shared is the embedder: the console builds none and opens no
+ * socket, so a question here is answered on the lexical channel and says so.
+ *
+ * Why these exist at all: the cold-stranger review of 2026-09-04 reached the end
+ * of the install page having verified that a store existed and was empty, with
+ * no way to test the one thing the product is for. They hand-wrote JSON-RPC.
+ * Most people will not.
+ */
+async function noteCommand(dir: string, io: Io, parsed: Parsed): Promise<number> {
+  const text = parsed.positional.join(" ").trim();
+  if (text.length === 0) {
+    io.err('refused: note takes the text to remember, e.g. counterparts note "..."');
+    return EXIT.usage;
+  }
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}. Run 'counterparts install' first.`);
+    return EXIT.failed;
+  }
+  let claimed: number | undefined;
+  const salienceFlag = parsed.flags["salience"];
+  if (typeof salienceFlag === "string" && salienceFlag.length > 0) {
+    const n = Number(salienceFlag);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      io.err(`refused: --salience takes a number from 0 to 1, not '${salienceFlag}'.`);
+      return EXIT.refused;
+    }
+    claimed = n;
+  }
+
+  const counterpart = openCounterpart(dir);
+  try {
+    const session = "console";
+    const scope = process.cwd();
+    // Step 1 of 2, and the ORDER is the rule (see the docblock above).
+    const captured = counterpart.captureJot({ session, scope, text });
+    const ownSpanHash = captured.spans[0]?.hash ?? null;
+
+    const draft: Record<string, unknown> = { content: text };
+    if (typeof parsed.flags["kind"] === "string") draft["kind"] = parsed.flags["kind"];
+    if (typeof parsed.flags["title"] === "string") draft["title"] = parsed.flags["title"];
+    if (claimed !== undefined) draft["claimed"] = claimed;
+
+    const deposit = await counterpart.submitJot(draft, {
+      session,
+      scope,
+      ...(ownSpanHash === null ? {} : { ownSpanHash }),
+    });
+    if (!deposit.deposited) {
+      io.err(
+        `not stored: ${deposit.reason}${deposit.gate === null ? "" : ` (${deposit.gate})`}`,
+      );
+      return EXIT.refused;
+    }
+    io.out(`Remembered ${deposit.memoryId ?? "(no id)"} — ${deposit.reason}.`);
+    return EXIT.ok;
+  } finally {
+    counterpart.close();
+  }
+}
+
+/** The deliberate look, in plain lines. Writes nothing. */
+function recallCommand(dir: string, io: Io, parsed: Parsed): number {
+  const idFlag = typeof parsed.flags["id"] === "string" ? parsed.flags["id"].trim() : "";
+  const question = parsed.positional.join(" ").trim();
+  if (idFlag.length === 0 && question.length === 0) {
+    io.err('refused: recall takes a question, e.g. counterparts recall "..." — or --id <id>.');
+    return EXIT.usage;
+  }
+  if (idFlag.length > 0 && question.length > 0) {
+    io.err("refused: a question and --id are two different asks. Send one.");
+    return EXIT.usage;
+  }
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}. Run 'counterparts install' first.`);
+    return EXIT.failed;
+  }
+
+  const counterpart = openCounterpart(dir);
+  try {
+    const result = deliberateRecall(
+      counterpart,
+      idFlag.length > 0 ? { handle: idFlag } : { question },
+      {
+        sessionId: "console",
+        owner: true,
+        vector: null,
+        // The console opens no socket, so the semantic channel never ran, and
+        // the answer says which channel did (§9.1 G5).
+        semantic: "embedder-off",
+      },
+    );
+    if (parsed.flags["json"] === true) {
+      io.out(JSON.stringify(result, null, 2));
+      return result.memories.length > 0 ? EXIT.ok : EXIT.ok;
+    }
+    io.out(
+      `${result.path} · ${result.reason} · semantic ${result.semantic} · ` +
+        `considered ${result.considered} of ${result.storeSize} live · returned ${result.memories.length}`,
+    );
+    if (result.memories.length === 0) {
+      io.out("");
+      io.out("Nothing came back.");
+      if (result.reason === "nothing-came" && result.considered === 0) {
+        io.out("  No candidate was even scored — nothing in the store matched a word of");
+        io.out("  the question. Try words the memory itself would use, or ask for it by");
+        io.out("  id: counterparts recall --id <mem_...>");
+      }
+      return EXIT.ok;
+    }
+    for (const m of result.memories) {
+      io.out("");
+      io.out(`  ${m.id}  [${m.tier}] ${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
+      for (const line of m.body.split("\n")) io.out(`    ${line}`);
+    }
+    return EXIT.ok;
+  } finally {
+    counterpart.close();
+  }
+}
+
 // ── verify ──────────────────────────────────────────────────────────────────
+
+/**
+ * What box 3 holds right now, read WITHOUT going through `Store` — because
+ * `Store` has no read API for it. `unembeddedCount()` is the coverage
+ * denominator (live rows with no vector), not a count of the vectors held, and
+ * the census needs the latter before it may drop anything.
+ *
+ * The direct open is the same deep import `snapshot.ts` and `export.ts` already
+ * make (INTERFACE-GAPS §5): the CLI genuinely needs the database here, not the
+ * store's abstraction of it. It is gated on the file EXISTING, because `openDb`
+ * creates what it opens and a census that minted box 3 by looking at it would be
+ * the instrument-mints-its-subject wart all over again (§7, closed 2026-08-26).
+ */
+interface CacheCensus {
+  readonly path: string;
+  /** False when box 3 has never been built here. Nothing was opened, nothing created. */
+  readonly present: boolean;
+  /** Null when the file is there and its tables are not — a half-built cache. */
+  readonly counts: {
+    readonly embeddings: number;
+    readonly indexRows: number;
+    readonly lengths: number;
+    readonly ranking: number;
+    /** The distinct ids the token index holds, for the set diff below. */
+    readonly indexed: readonly string[];
+  } | null;
+  readonly why: string | null;
+}
+
+function censusCache(dir: string): CacheCensus {
+  const path = paths.cache(dir);
+  if (!existsSync(path)) return { path, present: false, counts: null, why: "never built" };
+  let db: Db | undefined;
+  try {
+    db = openDb(path);
+    const handle = db;
+    const n = (sql: string): number => handle.get<{ n: number }>(sql)?.n ?? 0;
+    return {
+      path,
+      present: true,
+      why: null,
+      counts: {
+        embeddings: n("SELECT COUNT(*) AS n FROM embeddings"),
+        indexRows: n("SELECT COUNT(*) AS n FROM doc_tokens"),
+        lengths: n("SELECT COUNT(*) AS n FROM doc_lens"),
+        ranking: n("SELECT COUNT(*) AS n FROM ranking"),
+        indexed: handle
+          .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
+          .map((r) => r.memory_id),
+      },
+    };
+  } catch (err) {
+    return { path, present: true, counts: null, why: String((err as Error).message ?? err) };
+  } finally {
+    db?.close();
+  }
+}
+
+/**
+ * `verify` — the census by default, the rebuild only when asked, and never the
+ * rebuild by accident.
+ *
+ * **The sharp edge this exists to blunt.** `rebuildCache()` begins with
+ * `resetCache`, which DROPS `embeddings` along with the rest of box 3, and this
+ * console has no embedder to put them back: on the store this was found against,
+ * a bare `counterparts verify` would have deleted ~13,700 vectors that each cost
+ * a paid network call to recompute. `store/cache.ts` says the same thing in its
+ * own voice about `backfillLengths`. Until PR #37 a bare `verify` was saved only
+ * by ACCIDENT — it failed the layout check before it reached the store — and an
+ * accident is not a guard.
+ *
+ * So the destructive half now needs `--rebuild`, and even then it refuses while
+ * box 3 holds vectors nothing here can recompute, unless `--drop-vectors` says
+ * out loud that losing them is the intent. Refuse-unless-flag is the
+ * ADAPTER-level answer; preserving the vectors across a rebuild would take a
+ * core change (`rebuildCache({ keepVectors })`), and that is filed in NOTES
+ * rather than smuggled in here.
+ */
+function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+  return flags["rebuild"] === true
+    ? verifyRebuild(dir, io, flags["drop-vectors"] === true)
+    : verifyCensus(dir, io);
+}
+
+/**
+ * Read-only. Opens the store in OBSERVER stance and box 3 on its own connection,
+ * one after the other rather than both at once, and writes nothing canonical.
+ * (Constructing a `Store` still rewrites box 3's schema-version row when it is
+ * out of date — dashboard INTERFACE-GAPS §1 — which is box 3's business.)
+ */
+function verifyCensus(dir: string, io: Io): number {
+  const store = Store.open({ dir, observer: true });
+  let canonical: string[];
+  let denied: string[];
+  let unembedded: number;
+  try {
+    canonical = store.list();
+    denied = store.deniedIds();
+    unembedded = store.unembeddedCount();
+  } finally {
+    store.close();
+  }
+
+  const cache = censusCache(dir);
+  io.out(`Store: ${dir}`);
+  io.out(`Canonical rows: ${canonical.length}   removed (deny-list): ${denied.length}`);
+
+  // The unreadable half of this is narrow by construction: `Store.open` builds
+  // box 3 on the way in, so a cache this process cannot read usually fails the
+  // open above and is reported there. It is still handled, because between that
+  // close and this read is a window another process can change.
+  if (cache.counts === null) {
+    io.out(
+      cache.present
+        ? `Cache: ${cache.path} — unreadable (${cache.why ?? "no reason given"}).`
+        : `Cache: absent — box 3 has never been built here.`,
+    );
+    if (canonical.length === 0) {
+      io.out("Nothing canonical to index, so nothing is missing.");
+      return EXIT.ok;
+    }
+    io.err(
+      cache.present
+        ? `${canonical.length} canonical rows and a cache that would not open — retry (another process may hold it); if it is truly gone, 'counterparts verify --rebuild' builds box 3 again.`
+        : `${canonical.length} canonical rows have no index — run 'counterparts verify --rebuild' to build box 3.`,
+    );
+    return EXIT.failed;
+  }
+
+  // A SET DIFF, not arithmetic: `indexed + denied === canonical` can agree by
+  // coincidence while holding the wrong ids, and it cannot say WHICH way it is
+  // wrong. Both directions are named, because an orphaned index row and an
+  // unindexed memory are different problems.
+  const indexed = new Set(cache.counts.indexed);
+  const known = new Set(canonical);
+  const deniedSet = new Set(denied);
+  const missing = canonical.filter((id) => !indexed.has(id) && !deniedSet.has(id));
+  const orphans = cache.counts.indexed.filter((id) => !known.has(id));
+
+  io.out(`Cache: ${cache.path}`);
+  io.out(
+    `  indexed documents: ${indexed.size}   index rows: ${cache.counts.indexRows}   ` +
+      `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
+  );
+  io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
+  if (missing.length === 0 && orphans.length === 0) {
+    io.out("The cache covers every canonical row and holds nothing else.");
+    return EXIT.ok;
+  }
+  io.err(
+    `Cache incomplete: ${missing.length} canonical rows are not indexed, ${orphans.length} indexed ids are not canonical rows — ` +
+      `'counterparts verify --rebuild' rebuilds box 3.`,
+  );
+  return EXIT.failed;
+}
 
 /**
  * Rebuild box 3 from canonical state and report. The database is a cache: if
  * this ever loses something canonical, the claim was false and the report is
  * where it shows. What cannot be recomputed is DECLARED, with an owner and a
  * repair, rather than silently missing (§5 G8).
+ *
+ * The vector count is taken BEFORE a writable store is opened, so the refusal
+ * path never constructs one.
  */
-function verifyCommand(dir: string, io: Io): number {
-  if (!storeExists(dir)) {
-    io.err(`no store at ${dir}`);
-    return EXIT.failed;
+function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
+  const cache = censusCache(dir);
+  // FAIL CLOSED. A count that could not be taken is not a count of zero: box 3
+  // is the file the Stop-hook worker writes vectors into, so "database is
+  // locked" after the busy timeout is an ordinary outcome here — and a guard
+  // whose failure mode is "could not count the vectors, so dropped them" is not
+  // a guard. An ABSENT cache is different and stays fine: there is nothing to lose.
+  if (cache.present && cache.counts === null && !dropVectors) {
+    io.err(
+      `Refusing: box 3 exists but could not be read (${cache.why ?? "no reason given"}), so this console cannot tell how many embeddings --rebuild would drop — retry, or pass --drop-vectors to proceed anyway.`,
+    );
+    return EXIT.refused;
+  }
+  const held = cache.counts?.embeddings ?? 0;
+  const vectors = `${held} ${held === 1 ? "embedding" : "embeddings"}`;
+  if (held > 0 && !dropVectors) {
+    io.err(
+      `Refusing: --rebuild drops box 3 and this console has no embedder, so the ${vectors} it holds would be gone and each one costs a paid network call to recompute — pass --drop-vectors if losing them is what you mean.`,
+    );
+    return EXIT.refused;
   }
   const store = Store.open({ dir });
   try {
     const canonical = store.list().length;
     const report = store.rebuildCache();
     io.out(`Canonical rows: ${canonical}`);
+    if (held > 0) io.out(`Dropped on your say-so (--drop-vectors): ${vectors}.`);
     io.out(`Re-indexed: ${report.indexed}`);
     io.out(`Skipped as removed (deny-list): ${report.skippedDenied}`);
     io.out(`Not recomputed: ${report.unrecomputed}`);
@@ -740,12 +1280,13 @@ function rebriefCommand(
   io: Io,
   budgetFlag: string | boolean | undefined,
   now: () => number,
+  home?: string,
 ): number {
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  const ceiling = hostCeiling(dir, budgetFlag);
+  const ceiling = home === undefined ? hostCeiling(dir, budgetFlag) : hostCeiling(dir, budgetFlag, home);
   if (typeof ceiling === "string") {
     io.err(ceiling);
     return EXIT.refused;
@@ -784,6 +1325,7 @@ function rebriefCommand(
 function hostCeiling(
   dir: string,
   flag: string | boolean | undefined,
+  home = homedir(),
 ): { bytes: number; source: string } | string {
   if (typeof flag === "string" && flag.length > 0) {
     const n = Number(flag);
@@ -796,13 +1338,21 @@ function hostCeiling(
   // refuses an unclassified file in the data dir, which is why the deployed
   // config sits at `~/.counterparts/claude-code.json` with `dataDir` pointing
   // at a subdirectory (measured 2026-09-03).
+  //
+  // Two places, in this order: beside the store (the default layout, and the
+  // one a console run with an explicit `--dir` most likely means), then the
+  // hooks' own hardcoded path — because `--dir` moves the store and never the
+  // configuration (`install.ts#installLayout`), so with a moved store the only
+  // copy of the ceiling is the second one.
   const path = join(dir, "..", "claude-code.json");
-  if (existsSync(path)) {
+  const hooksConfig = join(home, ".counterparts", "claude-code.json");
+  for (const candidate of path === hooksConfig ? [path] : [path, hooksConfig]) {
+    if (!existsSync(candidate)) continue;
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      const parsed = JSON.parse(readFileSync(candidate, "utf8")) as Record<string, unknown>;
       const value = parsed["injectionBudgetBytes"];
       if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-        return { bytes: value, source: path };
+        return { bytes: value, source: candidate };
       }
     } catch {
       /* an unreadable host config reports no ceiling — the refusal below says so */

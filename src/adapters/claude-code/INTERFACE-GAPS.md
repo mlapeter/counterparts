@@ -55,11 +55,13 @@ already resolves both sides before comparing, so `~/.bansai/../.bansai/x` is
 caught too; the root's call then becomes redundant belt-and-braces rather than
 the only belt.
 
-**Residue for the owner:** the stray directory this found — `~/.bansai/x`,
-containing an empty v2-shaped layout — could not be removed from this session
-(the sandbox refuses writes under `~/.bansai`, correctly). Nothing of v1's was
-modified: `x` is a new sibling directory, and every pre-existing entry is
-untouched. It needs one `rm -rf ~/.bansai/x` from the owner.
+**Residue.** The bug had already created what it describes: an empty v2-shaped
+directory as a **new sibling** inside v1's store root. Nothing of v1's own data
+was read, written or modified — every pre-existing entry was untouched — and the
+session could not clean it up either, because the sandbox correctly refuses all
+writes under a live store, deletions included. Removing a stray directory from a
+live store is an operator action, not an agent one; that is the design, and the
+guard above is what stops the next one being created.
 
 ## 3. `self.appendChapter` has no gate — FOUND BY THE CALLER-UNIVERSALITY TEST
 

@@ -22,7 +22,7 @@ requirement.
   declares `"engines": { "node": ">=22" }`; the Node driver path in
   `src/core/store/db.ts` was not live-tested this session.
 - Data dirs: all under
-  `/private/tmp/claude-501/.../scratchpad/live-verify/data/*`, created fresh,
+  a session scratchpad outside this repo (`data/*`), created fresh,
   never under `~/.bansai` or `~/.claude-engram`. `COUNTERPARTS_DATA_DIR` set
   explicitly for every run; `assertSafeDataDir`'s forbidden-root guard was never
   approached, let alone tripped.
@@ -214,6 +214,5 @@ fence tonight.
 **Not exercised, and not claimed:** the Node (`node:sqlite`) driver path; any
 host actually wiring `schemas.mention()` to a live adapter (none exists to test).
 
-Scripts, raw frame logs, and export/backup artifacts from this session live under
-`/private/tmp/claude-501/-Users-mlapeter-bansai/d2bbaf8c-179e-4e90-8362-45e62da8a384/scratchpad/live-verify/`
-(scratch, not part of this repo).
+Scripts, raw frame logs, and export/backup artifacts from this session live in a
+session scratchpad outside this repo (scratch, not part of this repo).

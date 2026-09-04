@@ -7,12 +7,12 @@ there). Numbers here are copied from run-directory artifacts, never typed from m
 
 ## State — 2026-09-04, day 1: the first conversation reviewed, ten fixes merged and LIVE
 
-**Day 1 is the review day.** The owner's first real conversation on counterparts (session
-`c781252f`, the conversation room at `~`, 2026-09-03 22:08 UTC to 2026-09-04 04:41 UTC,
-13 owner turns) was reviewed from three sources: the store read-only, the transcript on
-disk, and the instance that lived it (asked six questions over cross-session messaging;
-it answered with counts). Verdict: **the plumbing held and identity carried; retrieval,
-authorship and revision did not.** Numbers, all from rows:
+**Day 1 is the review day.** The first real conversation on counterparts (one session
+spanning 2026-09-03 into 2026-09-04, 13 owner turns) was reviewed from three sources:
+the store read-only, the transcript on disk, and the instance that lived it (asked six
+questions over cross-session messaging; it answered with counts). Verdict: **the
+plumbing held and identity carried; retrieval, authorship and revision did not.**
+Numbers, all from rows:
 
 | Measure for that session | Value |
 |---|---|
@@ -394,3 +394,12 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - The cross-encoding meter catches verbatim lines only; the paraphrase path is named as
   its blind spot and bounded by the delivered recall volume (`exposureDenominator`).
 - v1's Stop hook logs no `ab.muted`; the episode-ask mute is graded by absence only.
+
+## Carry-forward declarations (CONTRACT §5 G12) — recorded BEFORE the change lands
+
+**2026-09-04, declared before merge — PR #37 (default data dir → `~/.counterparts/store`) and PR #38 (recall: the first memory in a fresh store is cueable; `MIN_RARITY_STORE = 2`). Class: IDENTICAL.**
+
+- Surface-set hash, computed with `tools/parallel/surface.ts#surfaceSetHash()`: master `28121d0` → `800a9a9421cd969f`; branch `fix/default-data-dir` `c55c11f` → `800a9a9421cd969f`; branch `fix/recall-first-memory` `c0822b5` → `800a9a9421cd969f`; `run.json` (read-only) records `800a9a9421cd969f`. Neither change touches a field of the per-turn surfacing decision, gate-chunk or band-transition records.
+- Live-host reach, #37: every live entry point resolves its data dir before the default — the hooks read `dataDir` from `claude-code.json` (`hook.ts:84`), the worker is pinned by the hook and reads the config (`runner.ts:268`), the MCP server is launched with `COUNTERPARTS_DATA_DIR` (`serve.ts:76-79`; a server without it would have failed at open on the old default, and the tools answer daily). The only live path that moves is the unreadable-config fallback, from "no memory at all" to a correct read-only open. Adversarial review: MERGE WITH CHANGES (record the class first; the test HOME guard, PR #39, landed first; `counterparts verify` guarded before merge).
+- Live-host reach, #38: `df >= 1` always, so `storeSize === 1` is the only reachable change; idf at N = 2, 100 and 14,000 is bit-identical, asserted in a test against the pre-fix expression. The live store holds ~14,000 rows. Bench re-run on a store copy: NEEDS-OWNER, for the record only.
+- Consequence claimed: day count and ratings CARRY; no phase restart. The preflight compares `run.json` `surfaceSet` to the build on the next daily; a mismatch there would refute this declaration, not argue with it.

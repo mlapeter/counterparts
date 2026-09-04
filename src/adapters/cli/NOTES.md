@@ -75,8 +75,60 @@ deliberately in bake-in, or carried as declared-dormant-by-design.**
 ## Owner-in-the-loop is one item long
 
 §5 G12: currently `remove`. `export --plaintext` requires an explicit flag but no
-prompt; `backup`, `verify` and `init` are autonomous. Adding to the list is a
-discussion, never an assumption.
+prompt; `backup`, `verify --rebuild` and `init` are autonomous — though
+`--rebuild` now has a refusal of its own (below), which is a flag rather than a
+human.
+
+## 2026-09-04 — `verify` is a census by default; the rebuild is opt-in
+
+**The sharp edge, found by the adversarial review of PR #37 (the default-data-dir
+fix).** `verify` opened the store WRITABLE and called `store.rebuildCache()`,
+which begins with `resetCache` — and `resetCache` drops every box-3 table
+INCLUDING `embeddings`. This console wires no embedder, so every vector came back
+`unrecomputed` and gone: on the owner's live store, ~13,700 vectors that each
+cost a paid network call. `store/cache.ts` says the same thing in its own voice
+about why `backfillLengths` is not a rebuild. Before #37 a bare `counterparts
+verify` was saved only by ACCIDENT — it failed the layout check on the old
+default before it ever reached a store — and after #37 the default resolves to
+the live store. An accident is not a guard.
+
+What shipped:
+
+- **Bare `verify` is a read-only census.** Observer stance, one box at a time
+  (store opened, read, closed; then box 3 on its own connection), and it
+  rebuilds nothing. It prints canonical rows, the deny-list count, box 3's
+  index/length/ranking/embedding counts, live memories with no vector, and one
+  line saying whether the cache covers every canonical row. That last line is a
+  **set diff**, not arithmetic: `indexed + denied == canonical` can agree by
+  coincidence and cannot say which way it is wrong, so both directions are named
+  (canonical rows not indexed, indexed ids that are not canonical rows).
+- **`verify --rebuild` is the old behavior**, and it REFUSES while box 3 holds
+  embeddings this console cannot recompute, unless `--drop-vectors` says out loud
+  that losing them is the intent. The count is read BEFORE a writable store is
+  opened, so the refusal path never constructs one.
+- **The guard fails CLOSED.** A count that could not be taken is not a count of
+  zero: box 3 is the file the Stop-hook worker writes vectors into, so a locked
+  read there is ordinary, and a guard whose failure mode is "could not count the
+  vectors, so dropped them" is not a guard. An unreadable-but-present cache
+  refuses the same way a populated one does. An ABSENT cache still proceeds —
+  there is nothing to lose.
+
+**Why refuse-unless-flag rather than preserve the vectors.** Preserving them
+across a rebuild is a CORE change and this was an adapter-only fix. The core
+follow-ups, named so they are not lost: `Store.rebuildCache({ keepVectors })`
+(re-index the token side without dropping `embeddings`), and
+`Store.embeddingCount()` — because there is no read API for "how many vectors
+does box 3 hold". `unembeddedCount()` is the coverage denominator (live rows with
+no vector), which is a different number. Until that exists, the census opens
+`cache.sqlite` directly with `openDb`, the same deep import `snapshot.ts` and
+`export.ts` already make (INTERFACE-GAPS §5), gated on the file existing so the
+census cannot mint the box it is inspecting.
+
+**`verify` stays on `OWNER_OPS`,** so `--observer verify` still refuses even
+though the census writes nothing. That is a false refusal in the safe direction,
+and taking it off the list is stance semantics — threading the stance into the
+command so `--rebuild` alone refuses — which is a separate decision, not a
+safety fix. Left open deliberately.
 
 ## Verified live? No
 

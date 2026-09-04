@@ -10,17 +10,18 @@
  *   ... browse --id mem_abc123
  *   ... stories --limit 3
  *
- * The data dir comes from `COUNTERPARTS_DATA_DIR` or `~/.counterparts` by the
+ * The data dir comes from `COUNTERPARTS_DATA_DIR` or `~/.counterparts/store` by the
  * store's own resolution, at call time; `--dir` overrides it for one run, and
  * `store/paths.ts` structurally refuses a path inside v1's live store.
  */
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Dashboard, VIEWS, VIEW_BLURB, isViewName } from "../index.js";
 import type { ViewArgs, ViewName } from "../index.js";
 import { terminalWantsColour } from "../ansi.js";
-import { dataDir, isStoreError } from "../../../core/store/index.js";
+import { DATA_DIR_ENV, dataDir, isStoreError } from "../../../core/store/index.js";
+import type { StoreError } from "../../../core/store/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 
 interface Parsed {
@@ -111,6 +112,50 @@ export function helpText(): string {
   return lines.join("\n");
 }
 
+/**
+ * Every store refusal, as one sentence. An owner reading an instrument is owed a
+ * SENTENCE, not nine frames: the code is the wire shape (`store/errors.ts`), the
+ * detail is ids and counts only, and neither ever carries prose — so both can be
+ * printed. Constitution 16: a refusal the owner cannot read is a refusal that
+ * teaches nothing.
+ */
+export function describeStoreError(err: StoreError, dir: string): string {
+  switch (err.code) {
+    // The instrument refuses to mint an absent store (cli INTERFACE-GAPS §7) —
+    // and an owner pointing a dashboard at nothing deserves a sentence, not a
+    // stack trace.
+    case "STORE_UNINITIALIZED":
+      return `No store at ${dir}. Run 'counterparts init' to create one.`;
+    // The exact error a stranger who put the adapter's config in the wrong place
+    // will hit. The CLI's `init` already teaches the rule; this says the same
+    // thing at the moment the rule bites.
+    case "LAYOUT_UNCLASSIFIED":
+      return (
+        `LAYOUT_UNCLASSIFIED: ${dir} holds ${String(err.detail["name"] ?? "an unclassified entry")}, ` +
+        "which the store's layout does not classify. Write the adapter's configuration BESIDE " +
+        "the store, never inside it — the layout check refuses an unclassified file in the data " +
+        `dir (§5 G11): ${join(dir, "..", "claude-code.json")}`
+      );
+    default:
+      return `${err.code}: the store at ${dir} refused this read (${JSON.stringify(err.detail)}).`;
+  }
+}
+
+/**
+ * The dir to NAME in a refusal — resolved defensively, because `dataDir()` can
+ * itself throw (`DATA_DIR_FORBIDDEN`, when the env points inside v1's live
+ * store). A handler that throws while describing an error would be the very bug
+ * it was written to fix, one frame further down.
+ */
+function targetDir(parsed: Parsed): string {
+  if (parsed.dir !== undefined) return resolve(parsed.dir);
+  try {
+    return dataDir();
+  } catch {
+    return `the default data dir (${DATA_DIR_ENV} or ~/.counterparts/store)`;
+  }
+}
+
 export function run(argv: readonly string[]): string {
   const parsed = parseArgv(argv);
   if (parsed.view === "help") return helpText();
@@ -122,16 +167,17 @@ export function run(argv: readonly string[]): string {
       ...(parsed.width === undefined ? {} : { width: parsed.width }),
     });
   } catch (err) {
-    // The instrument refuses to mint an absent store (cli INTERFACE-GAPS §7) —
-    // and an owner pointing a dashboard at nothing deserves a sentence, not a
-    // stack trace.
-    if (isStoreError(err, "STORE_UNINITIALIZED")) {
-      return `No store at ${parsed.dir ?? dataDir()}. Run 'counterparts init' to create one.`;
-    }
+    // EVERY store refusal, not just the one that was anticipated. A code this
+    // file has never heard of still reaches the owner as a line it can read;
+    // anything that is not a StoreError is a bug here and still throws.
+    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed));
     throw err;
   }
   try {
     return dashboard.render(parsed.view, parsed.args);
+  } catch (err) {
+    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed));
+    throw err;
   } finally {
     dashboard.close();
   }

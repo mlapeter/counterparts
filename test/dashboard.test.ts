@@ -35,8 +35,16 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -791,6 +799,36 @@ describe("browse — the memory list, and one memory opened", () => {
     }
   });
 
+  test("the journal is skipped — an episode is not a memory, and the footer knows it", async () => {
+    // `store.list()` returns the whole `memories` table, episodes included, and
+    // the filter has no way to say "memories only". Left in, an episode renders
+    // as `kind self`, `band episodic`, strength 0.00 — and the footer count is
+    // off by one per lived day. `status.ts` already skips it; so does this.
+    await seed();
+    const before = stripAnsi(dash().browse({ limit: 100 }));
+    const rowsBefore = before.split("\n").filter((l) => /^\s+\d\.\d\d\s/.test(l)).length;
+    const countBefore = Number(/(\d+) memor(?:y|ies) match/.exec(before)?.[1] ?? "-1");
+    expect(rowsBefore).toBeGreaterThan(0);
+    expect(countBefore).toBe(rowsBefore);
+
+    const c = Counterpart.open({ dir, owner: true });
+    const epiId = c.store.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nThe account of the day.\n",
+      source: "episode",
+    });
+    c.close();
+
+    const after = stripAnsi(dash().browse({ limit: 100 }));
+    expect(after.split("\n").filter((l) => /^\s+\d\.\d\d\s/.test(l)).length).toBe(rowsBefore);
+    expect(Number(/(\d+) memor(?:y|ies) match/.exec(after)?.[1] ?? "-1")).toBe(countBefore);
+    expect(after).not.toContain(epiId);
+    // The single-episode view still opens: skipping it from the CENSUS is not
+    // hiding it from the owner who asks for it by address.
+    expect(stripAnsi(dash().browse({ id: epiId }))).toContain("The account of the day");
+  });
+
   test("a filter that matches nothing says so, with the filter named", async () => {
     await seed();
     const text = stripAnsi(dash().browse({ kind: "place" }));
@@ -883,6 +921,28 @@ describe("stories — the revision narrative, from the durable log", () => {
     expect(story.increments.length).toBe(CHALLENGES.length);
     expect(story.headId).toBe(s.successorId);
     expect(story.lineage.some((l) => l.successorId === s.successorId)).toBe(true);
+  });
+
+  test("an episode carrying pressure is not a contested belief", async () => {
+    // `contestedBeliefs` unions the durable pressure log with any row still
+    // carrying pressure, and that second half walked the whole `memories` table.
+    // Nothing argues with the account of a day: an episode admitted here would
+    // open a story with no challenge log behind it.
+    await seed();
+    const c = Counterpart.open({ dir, owner: true });
+    const epiId = c.store.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 2 — lived day 3\n\nThe account of another day.\n",
+      source: "episode",
+      physics: { pressure: 1 },
+    });
+    c.close();
+
+    const d = dash();
+    expect(stripAnsi(d.browse({ id: epiId }))).toContain("1.00 standing");
+    expect(contestedBeliefs(d.source).flat()).not.toContain(epiId);
+    expect(stripAnsi(d.stories())).not.toContain(epiId);
   });
 
   test("a store where nothing was ever argued with says exactly that", () => {
@@ -1052,6 +1112,63 @@ describe("the adapter's surface", () => {
     expect(stripAnsi(out)).toContain("storage split");
     expect(helpText()).toContain("observer mode");
     for (const view of VIEWS) expect(helpText()).toContain(view);
+  });
+
+  test("a store refusal reaches the owner as ONE SENTENCE, never a stack trace", async () => {
+    await seed();
+    // The exact mistake a stranger makes: the adapter's config written INSIDE
+    // the data dir, where the layout check refuses it (§5 G11). Before the fix
+    // this escaped `run()` as nine frames and exit 1 (LAUNCH-STATUS §I4).
+    writeFileSync(join(dir, "claude-code.json"), "{}");
+    const out = run(["status", "--dir", dir, "--no-colour"]);
+    expect(out.split("\n").length).toBe(1);
+    expect(out).toContain("LAYOUT_UNCLASSIFIED");
+    expect(out).toContain("claude-code.json");
+    // It teaches the rule the CLI's `init` teaches, in the same words.
+    expect(out).toContain("BESIDE the store, never inside it");
+    expect(out).toContain("§5 G11");
+    expect(out).not.toContain("StoreError:");
+    expect(out).not.toContain("    at ");
+  });
+
+  test("an absent store still gets its own sentence — the codes are not collapsed", () => {
+    const nowhere = mkdtempSync(join(tmpdir(), "counterparts-absent-"));
+    try {
+      const out = run(["status", "--dir", nowhere, "--no-colour"]);
+      expect(out.split("\n").length).toBe(1);
+      expect(out).toContain(nowhere);
+      expect(out).toContain("counterparts init");
+    } finally {
+      rmSync(nowhere, { recursive: true, force: true });
+    }
+  });
+
+  test("a code the entry script has never heard of is still a sentence, not a stack", () => {
+    // DATA_DIR_FORBIDDEN has no branch of its own in `describeStoreError`: the
+    // default arm is what makes "every StoreError" true rather than "the two
+    // codes this file happened to think of". It is also thrown by `dataDir()`
+    // itself, so the handler must be able to name a dir without calling it.
+    // Nothing is created — `store/paths.ts` refuses on path arithmetic alone,
+    // before a directory exists (the guard `test/cli.test.ts` leans on too).
+    const forbidden = join(homedir(), ".bansai", "dashboard-test-must-not-exist");
+    const viaFlag = run(["status", "--dir", forbidden, "--no-colour"]);
+    expect(viaFlag.split("\n").length).toBe(1);
+    expect(viaFlag).toContain("DATA_DIR_FORBIDDEN");
+    expect(viaFlag).not.toContain("    at ");
+
+    // The other arm, and the one that bites the handler itself: with no `--dir`,
+    // `dataDir()` is what throws, so naming the dir in the message cannot be
+    // done by calling it.
+    process.env[ENV] = forbidden;
+    try {
+      const viaEnv = run(["status", "--no-colour"]);
+      expect(viaEnv.split("\n").length).toBe(1);
+      expect(viaEnv).toContain("DATA_DIR_FORBIDDEN");
+      expect(viaEnv).not.toContain("    at ");
+    } finally {
+      process.env[ENV] = dir;
+    }
+    expect(existsSync(forbidden)).toBe(false);
   });
 
   test("the entry script leaves the canonical boxes byte-identical too", async () => {

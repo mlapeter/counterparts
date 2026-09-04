@@ -1,5 +1,15 @@
 # Build status — feature-complete, 2026-08-25
 
+> **This is a snapshot of 2026-08-25 and it is kept for the record, not for current
+> state. `docs/LAUNCH-STATUS.md` supersedes it.** Several things it lists as open have
+> since closed: the four numbered gaps under "Open gaps, by what they block" all closed
+> the night of 2026-08-25 (the "Night shift" section below says so and this header is
+> the pointer to it), and **CLI §7** — an observer minting an absent store at open —
+> closed 2026-08-26 and was re-verified by running it (`LAUNCH-STATUS.md` §C2). The
+> "merged, not yet verified live" list is superseded by `LAUNCH-STATUS.md` §B and §C;
+> what remains genuinely open from this page is carried forward there as §I5. Nothing
+> below has been rewritten — read it as of its date.
+
 *One repo-birth-to-feature-complete day: 24 commits, 854 tests / 0 failures across
 core (11 modules), 14 closed seams, 4 adapters, and the replay harness. This file is
 the honest inventory the milestone claim rests on, stratified the way the day taught

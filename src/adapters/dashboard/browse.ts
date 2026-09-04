@@ -16,6 +16,7 @@
  * question a memory browser is actually asked.
  */
 import { band, rep, sal, strength } from "../../core/physics/index.js";
+import { isJournal } from "../../core/sleep/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import { PLAIN } from "./ansi.js";
 import type { Style } from "./ansi.js";
@@ -80,6 +81,13 @@ function renderList(src: DashboardSource, opts: BrowseOptions): string {
   for (const id of store.list(filter)) {
     const row = store.row(id);
     if (row === undefined) continue;
+    // The `memories` table holds episodes too, and `list`'s filter has no way
+    // to say "memories only": an episode is the SOURCE a memory was made from,
+    // outside every sleep phase (`sleep/types.ts#isJournal`), and `status.ts`
+    // already counts it apart. Listed here it would read as a memory with kind
+    // `self`, band `episodic` and strength 0.00, and it would be counted in the
+    // footer — a census that is wrong by exactly the number of days lived.
+    if (isJournal(row)) continue;
     let gist: string;
     let s: number;
     let b: Band;

@@ -92,3 +92,40 @@ place. `band.promoted (never run)` is now a line the owner reads.
   canonical — but it is a stance-blind write on the read path, and it is filed
   (INTERFACE-GAPS §1). The suite proves the strict property for boxes 1 and 2 and
   the across-renders property for box 3, rather than excluding the file quietly.
+
+## 2026-09-04 — three fixes from the launch inventory (§E-W2, §I4)
+
+1. **`browse` listed episodes as memories.** `store.list()` returns the whole
+   `memories` table and its filter has no "memories only" switch, so an `epi_…`
+   row printed as `kind self`, `band episodic`, strength 0.00, and the footer
+   over-counted by one per lived day (the inventory saw `27 memories` over 26).
+   `renderList` now skips `isJournal(row)` — the same door `status.ts` has used
+   since it started counting the journal apart. Opening one by address still
+   works: `browse --id epi_…` renders the episode. Skipping it from the CENSUS is
+   not hiding it from the owner who asks for it.
+2. **`stories` admitted any row with pressure.** `contestedBeliefs` unions the
+   durable pressure log with rows still carrying pressure, and that second half
+   walked every row. Same skip: nothing argues with the account of a day, and an
+   episode admitted there would open a story with no challenge log behind it.
+   `status.ts`'s `everContested` reads through this function, so it is fixed too.
+3. **The entry script printed a stack trace for every store code but one.**
+   `run()` caught `STORE_UNINITIALIZED` and rethrew the rest, so a data dir with
+   `claude-code.json` inside it gave nine frames of `LAYOUT_UNCLASSIFIED` and
+   exit 1 — to the exact stranger who most needs a sentence. Now one
+   `describeStoreError` handles EVERY `StoreError`, at open and at render: the
+   named codes get their sentence, an unknown code gets its code and detail (ids
+   and counts only, never prose — `store/errors.ts` §5 G10), and anything that is
+   not a `StoreError` still throws, because that would be a bug here.
+   `LAYOUT_UNCLASSIFIED` repeats what `cli/commands.ts`'s `init` teaches, in the
+   same words: the adapter's configuration goes BESIDE the store, never inside it.
+
+   One trap found while writing it: the dir the sentence NAMES cannot be resolved
+   eagerly, because `dataDir()` throws `DATA_DIR_FORBIDDEN` when the env points
+   inside v1's live store — a handler that throws while describing an error is
+   the same bug one frame further down. `targetDir()` is the defensive read, and
+   there is a test for the code no branch was written for.
+
+**`browse` and `stories` now filter the journal, the way `status` always has.**
+Three views, one rule, three copies of it — if a fourth view ever needs it, that
+is the moment the skip becomes a helper rather than the moment it becomes a
+policy.
