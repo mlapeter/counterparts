@@ -42,9 +42,27 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   [v1 §1 G7]
 - **Episodes are substance-paced, appended live, asked exactly once per blocked moment, the
   advance committed before the ask blocks, and collection never depends on the ritual.**
-  [v1 §13 G1–G5]
+  [v1 §13 G1–G5] *Broken and restored 2026-09-04: v2 raised a second ask (authorship) on a
+  second pacer beside this one, and the two fired on different Stops — about a dozen asks
+  in a 13-turn evening. The pacing itself had drifted too: v1 re-asked on bytes AND turns,
+  v2 on bytes OR turns with a byte threshold a third of v1's. One ask, one pacer, a
+  conjunction — and a cap that is spent by the LIVED DAY rather than by the session, since
+  the calibration ("a work day gets about three") was always stated in days.*
 - **Episodes are context and source, in that order**, ingested once as ordinary self-kind
   memories with named handles. **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
+  *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
+  the journal was a file that never became a memory. The door is `reconcileEpisodes` at
+  `Counterpart.sessionEnd` — the boundary, not a script.*
+- **Forgetting applies to what an episode PRODUCED, never to the episode.** The journal is
+  the owner's own account and the source the memory was made from, so it is outside decay,
+  dedup, consolidation and the floor prune (`sleep/CONTRACT.md` §5 G15,
+  `sleep/types.ts#isJournal`); the memory minted from it fades like anything else.
+  Constitution 6 (the owner owns the data, in prose readable in any editor) and 7 (memory
+  changes like human memory — which is a claim about memories). *Measured 2026-09-04: all
+  224 migrated episodes sit in the episodic band at zero on every dimension, so the phases
+  that walk "every row" would have archived the whole journal at the floor — and an
+  archived episode stops reconciling, so the memories it had not yet minted would never
+  exist.*
 - **The narration→span join is identity-safe** — spans with no session identity are skipped
   outright, because every anonymous session collapses to the same marker. [v1 §13 G7]
 - **Ingestion is ordinary and the gates apply**: a first-person reflection is not exempt from
@@ -162,10 +180,22 @@ recompression proposals and their archive; render and delivery telemetry.
 11. **[M]** Observers receive the wake and are never asked for an episode. Accepted cost:
     instrument runs leave no episode (scar E7).
 12. **[M]** Every derived surface has a scheduled reconciler, and a test asserts each runs at
-    a boundary — not from a script the owner remembers to run.
-13. **[A]** The episode ask's wording is a preference and a probe. That an ask exists at
-    every session-ending path, and that its orphanable tail is bounded and logged, is
-    mechanized.
+    a boundary — not from a script the owner remembers to run. **The episode journal's is
+    `reconcileEpisodes`, called by `Counterpart.sessionEnd` before the cycle**, so an
+    ingested episode is inside the boundary that decays it and renders the briefing around
+    it. It skips on a state read plus a hash, so an episode already ingested at its current
+    text costs no scan. Found the day it was wired: `ingestEpisode` had no production
+    caller at all, which is precisely the "which door reaches this?" failure §3 names.
+13. **[A]** The ask's wording is a preference and a probe. That an ask exists at
+    every session-ending path, that there is exactly ONE of it per blocked moment, and that
+    its orphanable tail is bounded and logged, is mechanized. Tool names and session ids are
+    the ADAPTER's vocabulary and live there (constitution 5); this module's `askText` is the
+    host-agnostic wording.
+14. **[M]** Chapters are counted by what was WRITTEN, asks by what was asked, and the two
+    are separate fields. The ask names `chapters + 1`. A second append with no new ask
+    continues the chapter it is part of — appending in the moment is the doctrine's headline
+    case (§13 G2), not an edge. Measured 2026-09-04: with the ask advancing the chapter
+    count, the hook's number reached 7 in a session whose episode held nothing.
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.
@@ -180,6 +210,10 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
 | `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
+| `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
+| `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
+| `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |
+| `MAX_CHAPTERS_PER_DAY` | 4 | Chapters one LIVED DAY may open, across every session it holds. v1 measured "about three" on a work day; the fourth is headroom for a genuinely long one. |
 
 `PREFACE_RESERVE_BYTES` (128) is **not** tunable: it is the room the renderer subtracts from
 the host's ceiling because delivery will add exactly that line, and one test bounds the
@@ -188,7 +222,11 @@ preface at its widest plausible day, date and store size against the same consta
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and the regrow
-window run on lived days) · **§2.3** (composed budget, sentinel, delivery telemetry, atomic
+window run on lived days — and, from 2026-09-04, the chapter CAP does too) · **the journal
+is neither a memory nor a duplicate of one** (every sleep phase walked every row: dedup
+merged the first real ingestion into its own journal at the boundary that minted it, and
+prune would have archived all 224 migrated episodes at the floor — one predicate,
+`sleep/types.ts#isJournal`, now holds the rule for all four) · **§2.3** (composed budget, sentinel, delivery telemetry, atomic
 write) · **§2.4** (frozen markers are the measurement; a withheld move is a record, not a
 silence) · **§2.7** (episode ingestion traverses the same gate as everything else — v1's
 most heavily gated surface, 66% of all gate fires) · **§2.10** (strengthening without a live

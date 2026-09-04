@@ -155,17 +155,34 @@ export const PRIMACY_DELIVER_EVENT = "adapter.primacy.deliver";
 export const WAKE_INJECTED_EVENT = "adapter.wake.injected";
 export const WAKE_DELIVERED_EVENT = "adapter.wake.delivered";
 export const RECALL_DELIVERED_EVENT = "adapter.recall";
+/**
+ * **HISTORICAL, readable, no longer written.** Until 2026-09-04 a Stop raised
+ * TWO asks on two independent pacers — the episode ritual's and the authorship
+ * ask's — and each left its own row. One evening of 13 owner turns drew about a
+ * dozen asks between them, which is the whole reason `ADAPTER_ASK_EVENT` exists.
+ * The names stay in the vocabulary so the instrument can still read the days
+ * that were recorded under them; nothing writes them any more.
+ */
 export const EPISODE_ASK_EVENT = "adapter.episode.ask";
 /** The boundary itself — every session-ending path leaves one, so a day whose
  *  sessions ended only through `session-end` / `pre-compact` (no `stop`, no
  *  primacy row) is still evidenced as having reached a boundary (parallel-run
  *  "what counts as a day"). Counts and cursors; never text. */
 export const BOUNDARY_EVENT = "adapter.boundary";
-/** The authorship ask, durable so its PACING survives the hook process: the
- *  next Stop reads the last ask's span count out of the store and asks again only
- *  after enough new experience — day-0 finding (2026-09-03): gated on "anything
- *  uncovered" alone it asked at every turn. */
+/** **HISTORICAL, readable, no longer written** — the authorship ask's own row,
+ *  from the fortnight it had its own pacer. See `EPISODE_ASK_EVENT` above. */
 export const AUTHORSHIP_ASK_EVENT = "adapter.authorship.ask";
+/**
+ * THE ONE STOP ASK, and the one row it leaves. Durable because its PACING must
+ * survive the hook process — the next Stop reads the last ask's substance out of
+ * the store — and because "how many times were you asked today" is a claim about
+ * a RUN, which an in-process ring cannot answer after the fact.
+ *
+ * Payload: `outcome` (asked | paced | capped), the verdict's own `reason`, the
+ * chapter it named, the substance at the ask, and the coverage numbers. Counts
+ * and reasons; never text.
+ */
+export const ADAPTER_ASK_EVENT = "adapter.ask";
 /** The worker's embedding backfill, durable because a coverage watch that lives
  *  only in a detached process's stderr is a watch nobody can read tomorrow: how
  *  many memories got a vector this run, how many still lack one, how many
@@ -181,9 +198,8 @@ export type AdapterDurableEventName =
   | typeof WAKE_INJECTED_EVENT
   | typeof WAKE_DELIVERED_EVENT
   | typeof RECALL_DELIVERED_EVENT
-  | typeof EPISODE_ASK_EVENT
   | typeof BOUNDARY_EVENT
-  | typeof AUTHORSHIP_ASK_EVENT
+  | typeof ADAPTER_ASK_EVENT
   | typeof EMBED_BACKFILL_EVENT
   | typeof SEMANTIC_LAG_EVENT;
 
@@ -330,6 +346,15 @@ export interface SessionEndReport {
   readonly edges: FlushReport;
   readonly cycle: CycleReport;
   readonly budgetBytes: number | null;
+  /** The episode reconciler's pass: what the boundary ingested (§5 G12). */
+  readonly episodes: EpisodeReconcileReport;
+}
+
+export interface EpisodeReconcileReport {
+  readonly considered: number;
+  readonly ingested: number;
+  readonly regrown: number;
+  readonly skipped: number;
 }
 
 /**
@@ -1053,6 +1078,18 @@ export class Counterpart {
             ...input.sweep,
           });
     const edges = this.associate.flush();
+    // THE EPISODE DOOR, before the cycle: an episode ingested here is inside the
+    // boundary that decays it, consolidates it and renders the briefing around
+    // it — the same ordering the sweep gets, and for the same reason. Until
+    // 2026-09-04 nothing called `ingestEpisode` at all, so the journal reached
+    // memory through no door (self/CONTRACT §5 G12, §3's "which door reaches
+    // this?"). Fail-open: a reconciler that threw would cost the cycle.
+    let episodes: EpisodeReconcileReport = { considered: 0, ingested: 0, regrown: 0, skipped: 0 };
+    try {
+      episodes = this.self.reconcileEpisodes();
+    } catch (err) {
+      this.emit("counterpart.episode.reconcile.failed", undefined, { code: errCode(err) });
+    }
 
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
@@ -1073,8 +1110,9 @@ export class Counterpart {
       edges: edges.reason,
       budgetBytes,
       observer: cycle.observer,
+      episodesIngested: episodes.ingested + episodes.regrown,
     });
-    return { sweeps, edges, cycle, budgetBytes };
+    return { sweeps, edges, cycle, budgetBytes, episodes };
   }
 
   /**

@@ -508,7 +508,11 @@ export const DURABLE_DETECTORS: readonly string[] = [
   "adapter.wake.injected",
   "adapter.wake.delivered",
   "adapter.recall",
+  // The one Stop ask, plus the two names the old two-pacer Stop wrote under, so
+  // a day recorded before 2026-09-04 still counts its asks.
+  "adapter.ask",
   "adapter.episode.ask",
+  "adapter.authorship.ask",
   "adapter.boundary",
   "gate.chunk",
   // The sweep's gate, one row per worker run (2026-09-04). `gate.chunk` counts

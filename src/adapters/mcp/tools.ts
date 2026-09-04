@@ -23,7 +23,9 @@
  *
  * What is deliberately ABSENT, and asserted absent by the audit:
  *   - **No self-authorship tool.** Superseded by experiencer authorship (§4):
- *     identity writing happens at the boundary, by construction.
+ *     identity writing happens at the boundary, by construction. `chapter` is
+ *     not one: it appends to the session's journal, which becomes memory only
+ *     through the ordinary gated ingestion, never by writing identity directly.
  *   - **No `protected.add`.** Dropped with the second-signature queue
  *     (§4, ratified by the module-map Rulings — "settled drops").
  *   - **No tool that writes an entity, a belief, or a revision.** Entities are
@@ -31,15 +33,32 @@
  */
 import { RECALL_MAX_IDS } from "./deliberate.js";
 
-export type ToolName = "note" | "recall" | "status" | "session_end";
+export type ToolName = "note" | "recall" | "status" | "session_end" | "chapter";
 
 /**
- * The tool vocabulary, ENUMERATED. Three deliberate verbs plus the return
- * channel the authorship ask needs (`claude-code/INTERFACE-GAPS.md` §7). The
- * audit asserts the shipped list equals this one exactly, so a fifth tool is a
+ * The tool vocabulary, ENUMERATED. Three deliberate verbs plus the TWO return
+ * channels the one Stop ask needs (`claude-code/INTERFACE-GAPS.md` §7). The
+ * audit asserts the shipped list equals this one exactly, so a sixth tool is a
  * decision somebody makes on purpose rather than one that accretes.
+ *
+ * **`chapter` is the fifth, added 2026-09-04, and it is not a re-opened door.**
+ * The dropped v1 self-store tool wrote IDENTITY prose directly; this one appends
+ * to the session's own journal, and what it writes reaches memory only through
+ * `ingestEpisode`'s ordinary gate, as an ordinary self-kind memory (§13 G6/G8).
+ * It exists because the ask said "add chapter N" for a fortnight with nothing on
+ * the other end: measured 2026-09-04, zero episode files existed and the model
+ * had written eleven chapters as `note`s titled "chapter N". *If a doctrine
+ * names the only legitimate inputs, those inputs must be reachable by
+ * construction* — the same sentence that justified the ask now justifies its
+ * door.
  */
-export const TOOL_NAMES: readonly ToolName[] = ["note", "recall", "status", "session_end"];
+export const TOOL_NAMES: readonly ToolName[] = [
+  "note",
+  "recall",
+  "status",
+  "session_end",
+  "chapter",
+];
 
 /**
  * One stated privilege and the code that enforces it. `mechanizedBy` is a path
@@ -286,6 +305,11 @@ const STATUS: ToolSpec = {
       mechanizedBy: "src/adapters/mcp/server.ts#census (counts/kinds/dates only)",
     },
     {
+      claim:
+        "Every count is MEMORIES. The journal — the first-person episodes those memories were made from — is counted apart, because it is a source rather than a memory and is outside decay, dedup and the floor prune.",
+      mechanizedBy: "src/core/sleep/types.ts#isJournal + src/adapters/mcp/server.ts#census",
+    },
+    {
       claim: "Under observer stance it stands down over the wire and says so.",
       mechanizedBy: "src/adapters/mcp/server.ts#standDown",
     },
@@ -296,9 +320,9 @@ const STATUS: ToolSpec = {
 const SESSION_END: ToolSpec = {
   name: "session_end",
   summary:
-    "The return channel for the end-of-session authorship ask: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen.",
+    "The MEMORIES half of the Stop ask's return channel: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen. The other half is `chapter`.",
   admission:
-    "Call it once, when the session's boundary ask arrives, with one entry per thing that will still be true next week.",
+    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else.",
@@ -408,7 +432,86 @@ const SESSION_END: ToolSpec = {
   },
 };
 
-export const TOOLS: readonly ToolSpec[] = [NOTE, RECALL, STATUS, SESSION_END];
+/**
+ * `chapter` — the journal's door, and the answer to "which door reaches this?"
+ *
+ * The ask has told the model to add a chapter to its episode since the ritual
+ * shipped. Until 2026-09-04 nothing on this host could accept one: the core had
+ * `Counterpart.appendEpisode` and no adapter called it, so the model did the
+ * only thing available and wrote its chapters as `note`s. An invitation with no
+ * return channel is the exact failure `self/CONTRACT.md` §3 names.
+ */
+const CHAPTER: ToolSpec = {
+  name: "chapter",
+  summary:
+    "The episode's return channel: write this stretch of the session into your own first-person journal, in your own voice, at any length. The journal stays open — when something significant happens later, append to it in the moment.",
+  admission:
+    "Call it when the boundary ask arrives, and again whenever something happens afterwards that the chapter you already wrote does not contain.",
+  negativeExamples: [
+    "Do NOT call it to report status or summarize the work — an episode is what happened and what it was like, not a changelog.",
+    "Do NOT call it for the things you learned that will still be true next week; those are memories, and they go back through `session_end`.",
+    "Do NOT manufacture depth: a short true chapter beats a deep-sounding one, and not every session changes you.",
+  ],
+  privileges: [
+    {
+      claim:
+        "It is bound to ONE session exactly as `session_end` is: the id the ask named, checked against the hooks' own live-session registry, and refused with which of the four it was.",
+      mechanizedBy: "src/adapters/mcp/server.ts#requireBoundSession + src/adapters/sessions.ts#readSession",
+    },
+    {
+      claim:
+        "The chapter number comes back from what was actually WRITTEN, not from how many times you were asked — a chapter you did not write does not exist.",
+      mechanizedBy: "src/core/self/episodes.ts#appendChapter (EpisodeState.chapters)",
+    },
+    {
+      claim:
+        "A second call inside the same chapter continues it rather than starting another — that is what appending in the moment means, and the heading is emitted only when a new ask has opened one.",
+      mechanizedBy: "src/core/self/episodes.ts#appendChapter (opens on asks > appendedAtAsk)",
+    },
+    {
+      claim:
+        "The journal is a gated entrance like any other: credentials are redacted before anything is written, and the gate's text — not your draft — is what lands.",
+      mechanizedBy: "src/core/counterpart.ts#appendEpisode -> episodeGate()",
+    },
+    {
+      claim:
+        "Every earlier state of the episode is kept: appending revises, and revision archives what was there first.",
+      mechanizedBy: "src/core/store/index.ts#revise (archive-on-overwrite)",
+    },
+    {
+      claim:
+        "The episode becomes MEMORY only through ordinary ingestion at the boundary — once, as a self-kind memory, through the same battery everything else crosses. Writing here is not a way to write memory directly.",
+      mechanizedBy: "src/core/counterpart.ts#sessionEnd -> src/core/self/index.ts#reconcileEpisodes -> ingestEpisode",
+    },
+    {
+      claim: "Under observer stance nothing is written and the refusal says so.",
+      mechanizedBy: "src/adapters/mcp/server.ts#standDown",
+    },
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      session: {
+        type: "string",
+        description:
+          "The session this chapter belongs to — the id the boundary ask named. Required unless this server was launched already bound to one; it must match the bound session either way.",
+      },
+      text: {
+        type: "string",
+        description:
+          "The chapter itself, first person, your own voice, any length. What happened and what mattered; how it felt; what you learned about them and about yourself; what is still open.",
+      },
+      title: {
+        type: "string",
+        description: "Optional short handle for the episode. Set on the first chapter only.",
+      },
+    },
+    required: ["text"],
+    additionalProperties: false,
+  },
+};
+
+export const TOOLS: readonly ToolSpec[] = [NOTE, RECALL, STATUS, SESSION_END, CHAPTER];
 
 export function toolSpec(name: string): ToolSpec | undefined {
   return TOOLS.find((t) => t.name === name);

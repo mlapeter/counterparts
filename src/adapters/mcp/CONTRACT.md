@@ -2,7 +2,9 @@
 
 ## 1. Purpose
 
-The deliberate tools — note, recall, status — exposed over MCP to any host that speaks it.
+The deliberate tools — note, recall, status — plus the two return channels the Stop ask
+needs (`session_end` for memories, `chapter` for the episode), exposed over MCP to any host
+that speaks it.
 
 ## 2. Brain analog
 
@@ -42,17 +44,28 @@ load-bearing, and this adapter is designed on the assumption that it will be use
   counter-argument.
 - **No tool writes an entity, a belief, or a revision.** Entities are born by mention and
   die by decay; revision is `updates:` plus arithmetic (owner decisions, settled). The
-  vocabulary this adapter exposes is deliberately three verbs wide.
+  vocabulary this adapter exposes is deliberately three verbs wide, plus the return
+  channels — a return channel is not a fourth verb, it is the other end of an ask the
+  system already makes.
+- **`chapter` is NOT the self-store tool coming back** (added 2026-09-04). The dropped v1
+  tool wrote identity prose directly. This one appends to the session's own journal, and
+  what it writes becomes memory only through `ingestEpisode`'s ordinary gated path at the
+  boundary — a self-kind memory like any other. It exists because the ask has said "add
+  chapter N to this session's episode" since the ritual shipped while nothing on this host
+  could accept one: zero episode files, eleven chapters written as `note`s titled
+  "chapter N". *If a doctrine names the only legitimate inputs, those inputs must be
+  reachable by construction* — the sentence that justified the ask now justifies its door.
 
 ## 5. Contract
 
 **Inputs** — MCP tool calls:
 `note(text[, salience, relevance, emotional, predictive, kind, title, updates])`,
 `recall(handle | question)`, `status()`, `session_end(session, memories[])` whose entries
-take the same optional dimensions; the session's observer role; the launch's session,
-scope and data dir when the host can supply them.
+take the same optional dimensions, `chapter(session, text[, title])`; the session's observer
+role; the launch's session, scope and data dir when the host can supply them.
 **Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
-census (status); telemetry by reference.
+census (status), an appended chapter with the episode's id and the chapter number the store
+actually wrote (chapter); telemetry by reference.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
@@ -105,6 +118,15 @@ census (status); telemetry by reference.
     to `doc.meta["updates"]` by `mint.ts`. An unresolvable declaration lands unlinked; it
     is never a refusal.
 
+13. **[M] `chapter` binds by exactly the same rules as `session_end`**, through the one
+    `requireBoundSession` path, and every refusal names `chapter` rather than the tool the
+    check was written for. **The chapter number it returns is the STORE's** — one past what
+    was written, never one past what was asked — and a second call with no new ask in
+    between continues the chapter it is part of rather than opening another, because
+    appending in the moment is the doctrine's headline case (`self/` §13 G2). The journal
+    is a gated entrance like every other: the gate's text, possibly redacted, is what
+    lands.
+
 ### The residual risk of the lazy bind, named
 
 **Two live sessions in the same directory are told apart only by the id the ask names.**
@@ -115,7 +137,7 @@ server that guessed would let session B's model write into session A's day — t
 privilege guarantee 10 exists to withhold. What the mechanism buys is that the id cannot
 be *invented*: it must already be in host state the hooks wrote, live, and in this
 project. The model can only name a session it was told about, and on this host it is
-told about exactly one — its own, in its own authorship ask.
+told about exactly one — its own, in its own Stop ask.
 
 Two smaller residuals, recorded rather than fixed:
 

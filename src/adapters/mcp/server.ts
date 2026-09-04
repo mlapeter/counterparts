@@ -12,7 +12,8 @@
  * **The three refusals that live HERE**, because no core module can know them:
  *
  *   1. **The bound session.** `session_end` is the return channel for ONE
- *      session's authorship ask (`claude-code/INTERFACE-GAPS.md` §7). A server
+ *      session's Stop ask (`claude-code/INTERFACE-GAPS.md` §7). `chapter` binds
+ *      by the same rules, through the same one code path. A server
  *      launched for session A may not accept session B's dump, and a server
  *      bound to nothing may not accept a bare claim — "unbound" is a refusal,
  *      not a wildcard. A host that lets a model pick the session id it writes
@@ -42,7 +43,7 @@
  * Telemetry is content-by-reference throughout: ids, counts, tiers, reasons.
  * No body text, no question text, no note text ever reaches an event.
  */
-import type { Counterpart, DepositResult } from "../../core/counterpart.js";
+import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
@@ -64,6 +65,7 @@ import {
 } from "./protocol.js";
 import type { Id, Request, Response } from "./protocol.js";
 import { TOOL_NAMES, toolDefinitions, toolSpec } from "./tools.js";
+import type { ToolName } from "./tools.js";
 
 export const SERVER_NAME = "counterparts";
 export const SERVER_VERSION = "0.0.0";
@@ -295,6 +297,8 @@ export class McpServer {
         return this.statusTool();
       case "session_end":
         return this.sessionEndTool(args);
+      case "chapter":
+        return this.chapterTool(args);
       default:
         return this.refuse(name, "unknown-tool", { tool: name });
     }
@@ -518,14 +522,26 @@ export class McpServer {
     let live = 0;
     let archived = 0;
     let superseded = 0;
+    // Journal entries, counted APART. An episode is the source a memory was
+    // made from, not a memory: it is outside every sleep phase
+    // (`sleep/types.ts#isJournal`), so counting it among the memories would
+    // report as "held" a row that neither decays nor exits. Reported rather
+    // than dropped, because a number that quietly excludes something is the
+    // kind of census §16 forbids.
+    let journal = 0;
 
     for (const kind of kinds) {
       const ids = store.list({ kind });
-      created[kind] = ids.length;
+      let born = 0;
       let gone = 0;
       for (const id of ids) {
         const row = store.row(id);
         if (row === undefined) continue;
+        if (row.type === "episode") {
+          if (row.archived === 0 && !denied.has(id)) journal += 1;
+          continue;
+        }
+        born += 1;
         if (denied.has(id)) {
           gone += 1;
           continue;
@@ -543,6 +559,7 @@ export class McpServer {
         live += 1;
         byBand[row.band] = (byBand[row.band] ?? 0) + 1;
       }
+      created[kind] = born;
       exited[kind] = gone;
     }
     for (const band of bands) byBand[band] = byBand[band] ?? 0;
@@ -564,6 +581,7 @@ export class McpServer {
       live,
       archived,
       superseded,
+      journal,
       byKind: created,
       byBand,
       /** OQ2's symmetry counters: born versus left, per kind. */
@@ -574,6 +592,7 @@ export class McpServer {
         dates: [...dates].sort(),
         note: "Counts, kinds and dates only. No ids, no bodies, no hashes.",
       },
+      counts: "Every number above is MEMORIES. `journal` is the first-person episodes those memories were made from: it is the source, not a memory, and it neither decays nor is pruned.",
       clock: {
         livedDay: store.livedDay(),
         lastActiveDate: store.getMeta("lastActiveDate") ?? null,
@@ -583,7 +602,7 @@ export class McpServer {
   }
 
   /**
-   * `session_end` — the authorship ask's return channel.
+   * `session_end` — the MEMORIES half of the Stop ask's return channel.
    *
    * Per-entry failure isolation (scar E1): one refused entry announces itself
    * and its siblings still land. A single bad item failing the whole dump is
@@ -592,7 +611,7 @@ export class McpServer {
    */
   private async sessionEndTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("session_end");
-    const bound = this.requireBoundSession(args["session"]);
+    const bound = this.requireBoundSession(args["session"], "session_end");
     if (bound !== null) return bound;
 
     const raw = args["memories"];
@@ -660,6 +679,60 @@ export class McpServer {
   }
 
   /**
+   * `chapter` — the journal's door (self/CONTRACT §3: *which door reaches this?*).
+   *
+   * It composes, like everything else here: `Counterpart.appendEpisode` runs the
+   * gate, `self/` decides whether this append opens a chapter or continues the
+   * one already open, and the number that comes back is the number the store
+   * WROTE. The ask reads the same counter, so the two sides cannot drift the way
+   * they did for a fortnight — the model wrote eleven chapters as notes while
+   * the hook's count said seven.
+   */
+  private async chapterTool(args: Record<string, unknown>): Promise<ToolResult> {
+    if (this.observer) return this.standDown("chapter");
+    const bound = this.requireBoundSession(args["session"], "chapter");
+    if (bound !== null) return bound;
+
+    const text = args["text"];
+    if (typeof text !== "string" || text.trim().length === 0) {
+      return this.refuse("chapter", "text-required", {
+        detail: "A chapter has to say something. Nothing worth writing is a real answer — say nothing at all instead.",
+      });
+    }
+    const session = this.session as string;
+    const title = args["title"];
+    let written: ChapterResult;
+    try {
+      written = this.counterpart.appendEpisode(session, text, {
+        ...(typeof title === "string" && title.length > 0 ? { title } : {}),
+      });
+    } catch (err) {
+      // A journal that throws must not look like a journal that refused.
+      return this.refuse("chapter", "threw", { detail: String((err as Error).message ?? err) });
+    }
+    this.emit("mcp.chapter", written.episodeId ?? undefined, {
+      session,
+      stored: written.appended,
+      reason: written.reason,
+      chapter: written.chapter,
+      created: written.created,
+    });
+    return this.result(
+      {
+        stored: written.appended,
+        reason: written.reason,
+        session,
+        episodeId: written.episodeId,
+        // From the STORE, never from the ask count.
+        chapter: written.chapter,
+        created: written.created,
+        ...(written.gate === null ? {} : { gate: written.gate }),
+      },
+      !written.appended,
+    );
+  }
+
+  /**
    * The bound-session refusal, and the ONE way a server binds itself.
    *
    * Three states, in order:
@@ -676,7 +749,7 @@ export class McpServer {
    *      says which of the four it was, because a model that cannot tell
    *      "unknown id" from "wrong project" cannot do anything about either.
    */
-  private requireBoundSession(claimed: unknown): ToolResult | null {
+  private requireBoundSession(claimed: unknown, tool: ToolName): ToolResult | null {
     const bound = this.session;
     if (bound !== null) {
       if (claimed !== undefined && claimed !== bound) {
@@ -684,7 +757,7 @@ export class McpServer {
           bound: true,
           source: this.launchedSession !== null ? "launch" : "registry",
         });
-        return this.refuse("session_end", "session-mismatch", {
+        return this.refuse(tool, "session-mismatch", {
           detail:
             "This server is already bound to a different session, for the life of the process. A dump belongs to the session that lived it.",
         });
@@ -694,7 +767,7 @@ export class McpServer {
 
     if (typeof claimed !== "string" || claimed.length === 0) {
       this.emit("mcp.session.unbound", undefined, { reason: "no-claim" });
-      return this.refuse("session_end", "session-required", {
+      return this.refuse(tool, "session-required", {
         detail:
           "This server was launched without a session. Pass `session` — the session id the end-of-session ask named — and it will bind to it.",
       });
@@ -703,7 +776,7 @@ export class McpServer {
     const record = readSession(this.registryDir, claimed);
     if (record === null) {
       this.emit("mcp.session.unbound", undefined, { reason: "unknown" });
-      return this.refuse("session_end", "session-unknown", {
+      return this.refuse(tool, "session-unknown", {
         detail:
           "No live session by that id has been recorded by this host's hooks. Use the id the end-of-session ask named, exactly.",
       });
@@ -712,14 +785,14 @@ export class McpServer {
       this.emit("mcp.session.unbound", undefined, {
         reason: record.endedAt === null ? "stale" : "ended",
       });
-      return this.refuse("session_end", "session-not-live", {
+      return this.refuse(tool, "session-not-live", {
         detail:
           "That session has ended or has been silent too long to still be writing its own day. Its memories belong to the sweep now.",
       });
     }
     if (!sameScope(record.scope, this.scope)) {
       this.emit("mcp.session.unbound", undefined, { reason: "scope-mismatch" });
-      return this.refuse("session_end", "scope-mismatch", {
+      return this.refuse(tool, "scope-mismatch", {
         detail:
           "That session is running in a different project than this server. A dump belongs to the project that lived it.",
       });

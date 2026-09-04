@@ -725,6 +725,28 @@ describe("status — the brain at a glance", () => {
     expect(text).toMatch(/briefing composed and waiting: \d+ bytes/);
   });
 
+  test("the journal is named beside the memories, never counted among them", async () => {
+    // The counts are memories; an episode is the source one was made from, and
+    // it is outside every sleep phase (`sleep/types.ts#isJournal`). Excluding it
+    // silently would be the same census failure with better arithmetic.
+    await seed();
+    const c = Counterpart.open({ dir, owner: true });
+    const before = stripAnsi(dash().status());
+    expect(before).not.toContain("journal");
+    const held = Number(/I am holding (\d+) memor/.exec(before)?.[1] ?? "0");
+
+    c.store.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nThe account of the day.\n",
+      source: "episode",
+    });
+    c.close();
+    const after = stripAnsi(dash().status());
+    expect(after).toMatch(new RegExp(`I am holding ${String(held)} memor`));
+    expect(after).toContain("1 journal entry that do not decay");
+  });
+
   test("it counts what is protected and what stands under challenge", async () => {
     await seed();
     const text = stripAnsi(dash().status());

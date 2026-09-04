@@ -1263,3 +1263,118 @@ describe("the ratchet tripwire renders a verdict every cycle (guarantee 12)", ()
     expect(events.filter((e) => e.name === "sleep.symmetry.unreadable").length).toBe(1);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("dedup leaves the journal alone", () => {
+  test("an episode and the memory ingested from it are not duplicates of each other", () => {
+    // Found 2026-09-04, the first time anything actually ingested an episode.
+    // The memory carries the episode's own prose, so the two share a content
+    // hash BY CONSTRUCTION — and dedup merged the fresh memory into the journal
+    // at the same boundary that minted it. The episode was then left with no
+    // live memory, and its idempotency key pointed at an archived row, so no
+    // later boundary would mint another. "Episode is not a memory kind."
+    const s = Store.open({ dir });
+    open.push(s);
+    const body = "## chapter 1 — lived day 0\n\nI learned that I stall when the spec is ambiguous.\n";
+    const episodeId = s.put({ type: "episode", kind: "self", body, source: "episode" });
+    const memoryId = s.put({ type: "memory", kind: "self", body, source: "episode" });
+    const out = runDedup(ctx(wrap(s), 0));
+    expect(out.merged.length).toBe(0);
+    expect(s.row(memoryId)?.archived).toBe(0);
+    expect(s.row(episodeId)?.archived).toBe(0);
+    // Two ordinary memories with the same body still merge: the rule is about
+    // the JOURNAL, not a hole in dedup.
+    const twin = s.put({ type: "memory", kind: "self", body, source: "authored" });
+    const again = runDedup(ctx(wrap(s), 0));
+    expect(again.merged.length).toBe(1);
+    expect([s.row(memoryId)?.archived, s.row(twin)?.archived]).toContain(1);
+    expect(s.row(episodeId)?.archived).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE JOURNAL IS OUTSIDE FORGETTING. Every phase was written when every row was
+ * a memory; episodes only became real on 2026-09-04, and on the live store all
+ * 224 migrated ones sit in the episodic band at zero on every dimension — so
+ * the prune pass would have archived the whole journal at the floor, and an
+ * archived episode stops reconciling, so the memories it had not yet minted
+ * would never exist. Forgetting applies to what was minted FROM an episode.
+ */
+describe("sleep leaves the journal alone", () => {
+  test("an episode at zero salience survives a full cycle unarchived and unmoved; its twin does not", () => {
+    const s = store();
+    // Three subjects, identical physics: the journal, an ordinary memory, and
+    // the memory ingested FROM a journal (which is ordinary, and says so).
+    // The store mints the episode's own id prefix, so this one does not go
+    // through `put()`'s `mem_` naming.
+    const episode = s.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nThe account of a day nobody has re-read since.\n",
+      source: "episode",
+      meta: { sessionId: "s-old" },
+      physics: { birthDay: -120, lastUsedDay: -100, uses: 0 },
+    });
+    const twin = prunable(s, { kind: "self", body: "An ordinary memory with exactly the journal's physics." });
+    const ingested = prunable(s, {
+      kind: "self",
+      body: "What that day taught, which is a different thing from the account of it.",
+      source: "episode",
+      meta: { episodeId: episode },
+    });
+    const bandBefore = s.row(episode)?.band;
+    const revisionBefore = s.row(episode)?.revision;
+
+    const report = runCycle({ store: s, date: "2026-01-02" });
+
+    // The journal: untouched. Not archived, not moved, still readable.
+    expect(s.row(episode)?.archived).toBe(0);
+    expect(s.row(episode)?.band).toBe(bandBefore);
+    expect(s.row(episode)?.revision).toBe(revisionBefore);
+    expect(s.read(episode).doc.body).toContain("nobody has re-read");
+    expect(report.pruned.map((p) => p.id)).not.toContain(episode);
+
+    // Its twin, same physics, no journal: pruned at the floor.
+    expect(report.pruned.map((p) => p.id)).toContain(twin);
+    expect(s.row(twin)?.archived).toBe(1);
+    // And the memory made FROM an episode is an ordinary memory: it forgets.
+    expect(report.pruned.map((p) => p.id)).toContain(ingested);
+
+    // Every phase counted the skip rather than passing over it in silence.
+    for (const phase of ["decay", "prune", "consolidate"] as const) {
+      expect(phaseReport(report, phase).skipped["journal"]).toBe(1);
+    }
+  });
+
+  test("the journal writes no strength row and crosses no band, however long it sits", () => {
+    const s = store();
+    const episode = s.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nA day, written down.\n",
+      source: "episode",
+      physics: { birthDay: -120, lastUsedDay: -100, uses: 0 },
+    });
+    const decay = runDecay(ctx(wrap(s), 200), memoryStrengthCache());
+    expect(decay.written.map((r) => r.id)).not.toContain(episode);
+    expect(decay.transitions.length).toBe(0);
+    expect(decay.skipped["journal"]).toBe(1);
+    expect(decay.examined).toBe(0);
+  });
+
+  test("the created-versus-exited counter counts MEMORIES: a chapter is not a birth", () => {
+    // A journal entry counted as born-today would give its kind a permanent
+    // created-without-exit imbalance — the exact signal G13 exists to raise.
+    const s = store();
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nWritten today.\n",
+      source: "episode",
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    const report = runCycle({ store: s, date: "2026-01-02" });
+    expect(report.census.self.created).toBe(0);
+  });
+});

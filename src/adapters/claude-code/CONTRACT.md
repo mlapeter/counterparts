@@ -38,8 +38,12 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   ritual.
 - **Conversational text only**; tool output, file contents, images, and injected context
   never enter capture. [v1] §2 G10.
-- **The episode ask is one ask, committed before it blocks**, and any error in it is
-  fail-open — collection never depends on the ritual. [v1] §13 G3–G5.
+- **The blocked moment carries ONE ask, committed before it blocks**, and any error in
+  it is fail-open — collection never depends on the ritual. [v1] §13 G3–G5. *Violated
+  2026-09-03/04 and restored: v2 grew a second ask (authorship) on a second pacer beside
+  the episode's, and the two fired on different Stops — about a dozen asks in a 13-turn
+  evening. "New features do not get to grow it back into two" is the guarantee, and the
+  feature was the return channel, not a second moment.*
 - **A detached worker that cannot run escalates rather than re-logging.** [engram E4's
   widening] v1's runner starved for two days for one project scope because it expected to
   inherit a credential from whatever shell launched the session; the backlog drained only
@@ -148,8 +152,8 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     tagged `ritual`, `enters()` refuses it, and — because it is refused rather than dropped
     quietly — it lands in the boundary record's `excluded` count, so a boundary that
     captured nothing because everything was ritual is distinguishable from a boundary where
-    nothing happened. The ask's durable record is `adapter.authorship.ask`, not the
-    transcript copy. This **supersedes** the earlier reading that excluding the wrapper
+    nothing happened. The ask's durable record is `adapter.ask`, not the transcript
+    copy. This **supersedes** the earlier reading that excluding the wrapper
     would blind the reader to its own voice: what the transcript copy actually bought was
     the ask's wording becoming a memory of having thought it.
 12. **[M] A peer session's words are kept, but never as the owner's.** A
@@ -167,14 +171,16 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     measured for the whole of the first run — and the authored front door is shut. The
     scope is set once, by SessionStart, so a later hook cannot move the project out from
     under a server that already matched it. An observer records nothing.
-14. **[M] The authorship ask names the session id and the tool that takes it**, and says
-    `updates` is a FIELD rather than prose. The wording is advisory; the two facts it
-    carries are mechanized elsewhere — the id is what the MCP server binds itself with,
-    and the field is what `remember/updates.ts` resolves. The old wording ("say
-    `updates: <id>`") produced four notes whose declaration landed as the first words of
-    their own prose, unlinked. The ask's text is the same text G11 refuses when the host
-    hands it back — it is delivered by the hook and recorded by
-    `adapter.authorship.ask`, never by its transcript copy.
+14. **[M] The Stop ask names the session id and BOTH tools that take it**, says
+    `updates` is a FIELD rather than prose, and says salience is the author's to set. The
+    wording is advisory; every fact it carries is mechanized elsewhere — the id is what
+    the MCP server binds itself with (`mcp/server.ts#requireBoundSession`), the field is
+    what `remember/updates.ts` resolves, the unclaimed default is `physics/`'s. The old
+    wording ("say `updates: <id>`") produced four notes whose declaration landed as the
+    first words of their own prose, unlinked; and on the Stops where only the episode
+    half fired, the model got neither an id nor a tool name. The ask's text is the same
+    text G11 refuses when the host hands it back — delivered by the hook, recorded by
+    `adapter.ask`, never by its transcript copy.
 15. **[M] The prompt path opens no socket, and the semantic cue is LAGGED.** The
     embedding a turn's recall consults is computed by the detached worker AFTER the
     previous turn and read out of per-session gate state on the next one — the same
@@ -208,6 +214,22 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     hands the server an opened embedder or null; the server never sees a key. A missing
     one degrades the ask to lexical-only and the result carries `semantic:
     "embedder-off" | "embed-failed"` rather than a quietly narrower answer.
+
+18. **[M] ONE ask, on ONE pacer, capped per LIVED DAY, and the re-fire advances
+    nothing.** The pacer is `self/`'s and nothing else: first ask on the first real
+    substance (`FIRST_ASK_*`, or `SOLO_ASK_BYTES` alone so a one-prompt agentic session
+    still journals), re-ask on `REASK_TURNS` **and** `REASK_BYTES` since the last ask —
+    a conjunction, the way v1 re-asked, where v2 shipped a disjunction whose byte half
+    was a third of v1's. The cap is `MAX_CHAPTERS_PER_DAY` and it is spent by the DAY,
+    across every session the day held: this host opens a session per invocation, so a
+    per-session cap multiplies the day's asks by however many times the owner typed
+    `claude` — v1 calibrated the ritual in days ("a work day gets about three").
+    The coverage read stays, as a RECORD of the unaskable tail and never as a second
+    condition. Exactly ONE durable row per Stop (`adapter.ask`) carries the outcome —
+    `asked` | `paced` | `capped` — so "how often was it asked today" is a number in the
+    store rather than a guess. The host's re-fire (`stop_hook_active`) reaches the
+    adapter as `reFired` and is refused there as well as at delivery: it spends no
+    pacing slot, no day-cap slot, and leaves no row.
 
 ## 6. Scars honored
 

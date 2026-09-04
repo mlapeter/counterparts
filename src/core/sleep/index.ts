@@ -74,7 +74,7 @@ export type { DedupCandidateInput, DedupCandidateSource, DedupPair, DedupResult 
 export { runBriefing } from "./briefing.js";
 export type { BriefingContext, BriefingOutcome, BriefingResult, RenderFn } from "./briefing.js";
 
-export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, countSkip, emptyOutcome, phaseReport } from "./types.js";
+export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, countSkip, emptyOutcome, isJournal, phaseReport } from "./types.js";
 export type {
   CycleReport,
   CycleStep,

@@ -26,6 +26,7 @@ import type { MergeRecord, Phase } from "../../core/sleep/index.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import {
+  ADAPTER_ASK_EVENT,
   AUTHORSHIP_ASK_EVENT,
   BOUNDARY_EVENT,
   EMBED_BACKFILL_EVENT,
@@ -97,15 +98,21 @@ export type DurableEventName =
   | typeof EPISODE_ASK_EVENT
   | typeof BOUNDARY_EVENT
   | typeof AUTHORSHIP_ASK_EVENT
+  | typeof ADAPTER_ASK_EVENT
   | typeof EMBED_BACKFILL_EVENT
   | typeof SEMANTIC_LAG_EVENT;
 
 export const DURABLE_EVENTS = {
-  "adapter.authorship.ask": "the session-end authorship ask was evaluated (asked or paced out, with the span count)",
+  "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
+  // The two names below are HISTORICAL: until 2026-09-04 the blocked moment
+  // carried two asks on two pacers and each left its own row. Nothing writes
+  // them now; they stay in the vocabulary so the days recorded under them are
+  // still readable, which is what a feed the owner can trust requires (§16).
+  "adapter.authorship.ask": "HISTORICAL: the authorship half of the old two-ask Stop",
   "adapter.boundary": "a session-ending path reached the boundary (spans captured, cursor moved)",
   "adapter.embed.backfill": "the worker gave vectors to memories that had none (embedded, remaining, failed)",
   "adapter.semantic.lag": "the worker left next turn's semantic cue (or named why it could not)",
-  "adapter.episode.ask": "the session-end episode ask was evaluated (asked or not, and why)",
+  "adapter.episode.ask": "HISTORICAL: the episode half of the old two-ask Stop",
   "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
   "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",
   "adapter.recall": "a turn's recall was composed for injection (counts and bytes)",

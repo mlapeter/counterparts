@@ -16,6 +16,17 @@ alone.
 
 ## 3. Keeps
 
+- **The cycle moves MEMORIES, and the journal is not one.** [added 2026-09-04, measured]
+  An episode is the owner's first-person account and the source a memory was made from —
+  "context and source, in that order, ingested ONCE as an ordinary memory"
+  (`self/episodes.ts`). Forgetting applies to what was minted FROM an episode, never to the
+  episode itself (constitution 6: the owner owns the data, in prose readable in any editor;
+  7: memory changes like human memory — a claim about memories). Every phase here was
+  written when every row in the store was a memory; episodes only became real when the
+  chapter door shipped, and on the live store all **224 migrated episodes sit in the
+  episodic band at zero on every salience dimension**, so the floor prune would have
+  archived the entire journal — and an archived episode stops reconciling, so the memories
+  it had not yet minted would never exist.
 - **Detached from the host, single writer, hard watchdog.** [engram E4, v1 §5 G1] — one
   lock; a live holder inside its lease is respected; a stale lease is reclaimed
   **atomically**, so N simultaneous reclaimers produce exactly one winner. (v1's earlier
@@ -129,6 +140,20 @@ and their records; the next session's briefing, written last; a per-cycle summar
     that does not exist was consulted. *(Added 2026-08-25 — physics guarantee 12 had been
     enforced in one place and consumed by nobody, which is how v1 ran 279 up-moves against
     zero down-moves for three days with a tripwire already in the codebase — scar §2.10.)*
+
+15. **[M]** **The journal is outside every phase.** One predicate — `types.ts#isJournal`
+    — is read by decay, dedup, consolidate and prune, so the rule cannot hold in three
+    places and lapse in the fourth. A journal row is never decayed, never given a strength
+    row, never moved across a band, never consolidated or promoted, never merged, and never
+    pruned; it is **counted as a named skip** in each phase (`journal`) rather than passed
+    over in silence, and G13's created-versus-exited census counts memories only, since a
+    chapter written today is not a memory born today and would give its kind a permanent
+    created-without-exit imbalance — the exact signal that counter exists to raise. What
+    the journal produces IS subject to everything: the ingested memory decays, consolidates,
+    merges and is pruned like any other. *Two findings, a day apart and the same shape:
+    dedup merged an ingested memory into its own episode (identical prose, identical
+    content hash) at the boundary that minted it; and prune would have taken the whole
+    migrated journal at the floor.*
 
 ## 6. Scars honored
 

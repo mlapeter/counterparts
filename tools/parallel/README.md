@@ -277,7 +277,7 @@ side's store. Five things govern it:
   v2 delivers nothing, so both directions carry the zero bar.
 - **v1's probe is required.** Without `--v1-wake` or `--v1-ritual` the v1→v2
   direction reads a silent zero, so the daily REFUSES rather than recording an
-  unmetered day. v2's own probes come from the adapter's own `authorshipAsk()`,
+  unmetered day. v2's own probes come from the adapter's own `stopAsk()`,
   imported from the leaf module (`hooks.ts`) so the instrument does not pull
   `Counterpart` and `Store` into its own process. The probe unit is a LINE, and
   one line of that ask now carries the session id — that line is rendered with a
@@ -336,7 +336,7 @@ crash gate's `sweep.gate` row joined them: after the sweep became a fallback in
 fact, its ordinary day is silence, and a silent sweep and a dead worker have to
 be different rows (constitution 16). On 2026-09-03 the four
 delivery records (`adapter.wake.injected`, `adapter.wake.delivered`,
-`adapter.recall`, `adapter.episode.ask`) joined that list, each carrying `date`
+`adapter.recall`, `adapter.ask`) joined that list, each carrying `date`
 and `session` in its payload, because on any day v2 is the muted side — day 0,
 and any day the run reverts — they ARE the contamination
 detectors on v2's side (§5 G4) and a detector that dies with the hook process
