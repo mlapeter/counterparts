@@ -22,6 +22,14 @@
  *      because calling it there would put the clamp in two places). Any lift
  *      emits `salience.lifted` — v1's "remember this" note claimed a floor in its
  *      prompt with no engine backstop, which is the failure encode §5 G6 names.
+ *      The same seam supplies the CHANNEL'S DEFAULT FLOOR when the author
+ *      claimed nothing: `PHYSICS.AUTHORED_DEFAULT_CLAIM` on the lived channel,
+ *      nothing at all on the others. Measured 2026-09-04, all 48 authored
+ *      memories on the live store had zero dimensions and no claim, so an
+ *      unclaimed note's salience was 0 — weakest in the store, first to decay,
+ *      and worth zero revision force. A default is recorded as `defaulted`
+ *      (`meta.claimedDefault` plus `salience.defaulted`), NEVER as a lift: the
+ *      lift metric measures what authors claim, and silence is not a claim.
  *
  *   3. **The freeze seam has a caller** (SEAMS item N). A proposal that resolved
  *      against an existing element is a CLAIM against that element, and every
@@ -47,6 +55,10 @@ import type { Band, Salience } from "./types.js";
 
 /** The canonical prose meta key. One spelling, read by `sleep/dedup.ts`. */
 export const UPDATES_META_KEY = "updates";
+/** The durable record that a memory's floor was the engine's, not its author's.
+ *  Prose is canonical, so this — not the event ring — is what the daily counts
+ *  defaulted-versus-claimed out of. */
+export const CLAIMED_DEFAULT_META_KEY = "claimedDefault";
 /** An open loop is an ordinary memory with a flag (`remember/` CONTRACT §4). */
 export const UNRESOLVED_META_KEY = "unresolved";
 
@@ -90,8 +102,12 @@ export interface MintResult {
   claim: { elementId: string; frozen: boolean; reason: string; reinforced: boolean } | null;
   /** The clamped salience actually written to box 2. */
   salience: Salience;
-  /** True when the author's claimed floor exceeded the computed value. */
+  /** True when the author's claimed floor exceeded the computed value. A
+   *  defaulted floor is NOT a lift — see `defaulted`. */
   lifted: boolean;
+  /** True when the author claimed nothing and the channel's default floor was
+   *  written in its place (`meta.claimedDefault` on the row). */
+  defaulted: boolean;
   /** No schema context existed at encoding — recorded, never defaulted (§2.9). */
   blind: boolean;
   /** The resolved id written to `doc.meta["updates"]`, or null when none was. */
@@ -131,7 +147,12 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // capped. The ceiling is ENGINE-SET off the channel — like the channel
   // itself, no author field can move it.
   const ceiling = channel === "fallback" ? PHYSICS.SWEEP_CLAIM_CEILING : 1;
-  const clamp = clampSalienceAtSeam(dims, proposal.salience.claimed ?? null, ceiling);
+  // The doctrine's other half, and engine-set the same way: an author who
+  // claimed nothing still deposited something LIVED, so the authored channel —
+  // and only it — has a default floor. The fallback channel is untouched: its
+  // ceiling and its interpreter-supplied dimensions stay exactly as they were.
+  const defaultClaim = channel === "authored" ? PHYSICS.AUTHORED_DEFAULT_CLAIM : null;
+  const clamp = clampSalienceAtSeam(dims, proposal.salience.claimed ?? null, ceiling, defaultClaim);
 
   // The RESOLVED id, and only when it resolved (sleep/INTERFACE-GAPS.md §4:
   // "the minting seam persists the RESOLVED id there, and states which it is").
@@ -149,6 +170,9 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // but silently discarding what the author actually said would be its own
   // small destruction — and the re-run's ceiling decision needs the evidence.
   if (clamp.rawClaim !== null) meta["claimedRaw"] = clamp.rawClaim;
+  // Durable, because the event ring is not: prose is canonical, so the flag on
+  // the document is what makes "defaulted vs claimed" countable tomorrow.
+  if (clamp.defaulted) meta[CLAIMED_DEFAULT_META_KEY] = true;
 
   const id = store.put({
     type: "memory",
@@ -173,6 +197,15 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
       applied: clamp.event.applied,
       ceiling: clamp.event.ceiling,
       capped: clamp.event.capped,
+    });
+  }
+  if (clamp.defaultEvent !== null) {
+    opts.onEvent?.("salience.defaulted", {
+      id,
+      channel,
+      computed: clamp.defaultEvent.computed,
+      floor: clamp.defaultEvent.floor,
+      applied: clamp.defaultEvent.applied,
     });
   }
   // SEAMS item N: a resolved `updates:` IS a claim against an existing element.
@@ -209,6 +242,7 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     updates: resolved,
     updatesReason: proposal.updates?.reason ?? "NO_DECLARATION",
     lifted: clamp.lifted,
+    defaulted: clamp.defaulted,
     blind: clamp.blind,
   });
 
@@ -217,6 +251,7 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     claim,
     salience: clamp.salience,
     lifted: clamp.lifted,
+    defaulted: clamp.defaulted,
     blind: clamp.blind,
     updates: resolved,
   };

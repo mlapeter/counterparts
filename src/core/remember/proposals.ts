@@ -87,6 +87,7 @@ export type MalformedReason =
   | "CONTENT_EMPTY"
   | "CLAIMED_NOT_NUMERIC"
   | "CLAIMED_OUT_OF_RANGE"
+  | "DIMENSION_OUT_OF_RANGE"
   | "KIND_UNKNOWN"
   | "TITLE_NOT_STRING"
   | "UPDATES_NOT_STRING"
@@ -101,6 +102,10 @@ const KIND_SET: Record<Kind, true> = {
   place: true,
   fact: true,
 };
+
+/** The three dimensions an author may claim. `novelty` is absent by design:
+ *  prediction error is computed at encoding, never claimed (§2.9). */
+export const AUTHOR_DIMENSIONS = ["relevance", "emotional", "predictive"] as const;
 
 /** Fields a draft may carry. Anything else is dropped and counted — the privilege
  *  cap is "there is nowhere to put it", not a rule someone must remember. */
@@ -152,6 +157,22 @@ export function intake(raw: unknown): IntakeResult {
   }
   if (rec["updates"] !== undefined && typeof rec["updates"] !== "string") {
     return bad("UPDATES_NOT_STRING");
+  }
+  // The author's three dimensions are validated HERE, at the one front door,
+  // rather than at each adapter: `sal()` clamps at read time, but `store.put`
+  // writes whatever number arrives into the row, so an unvalidated 7 or a NaN
+  // would sit in box 2 forever, honest-looking and wrong. `novelty` is not in
+  // this list on purpose — it is stripped below, computed and never claimed.
+  if (rec["salience"] !== undefined && rec["salience"] !== null) {
+    const s = rec["salience"];
+    if (typeof s !== "object" || Array.isArray(s)) return bad("DIMENSION_OUT_OF_RANGE");
+    for (const dim of AUTHOR_DIMENSIONS) {
+      const v = (s as Record<string, unknown>)[dim];
+      if (v === undefined) continue;
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+        return bad("DIMENSION_OUT_OF_RANGE");
+      }
+    }
   }
   if (rec["aliases"] !== undefined) {
     const a = rec["aliases"];

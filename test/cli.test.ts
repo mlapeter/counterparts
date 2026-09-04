@@ -26,6 +26,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { TUNABLES } from "../src/core/physics/index.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -609,6 +610,118 @@ describe("verify", () => {
     expect(text(c.out)).toContain("Re-indexed: 5");
     // What cannot be recomputed is DECLARED, with an owner and a repair (§5 G8).
     expect(text(c.out)).toContain("declared: embeddings");
+  });
+});
+
+// ── backfill-claims ─────────────────────────────────────────────────────────
+
+describe("backfill-claims — the one-shot repair for rows minted before the floor existed", () => {
+  /**
+   * The pre-PR shape, which no seam can produce any more: an AUTHORED row with
+   * no claim and no dimensions. Everything the command must NOT touch is here
+   * too, so "only the intended rows" is a fact about this store, not a hope.
+   */
+  function seedMixed(s: Store): Record<string, string> {
+    return {
+      // The two targets.
+      unclaimedA: s.put({
+        type: "memory",
+        kind: "fact",
+        body: "An authored memory from before the default floor existed.",
+        source: "authored",
+      }),
+      unclaimedB: s.put({
+        type: "memory",
+        kind: "self",
+        body: "A second authored memory, also silent about its salience.",
+        source: "authored",
+      }),
+      // Testimony: an explicit low claim is never overwritten.
+      claimedLow: s.put({
+        type: "memory",
+        kind: "fact",
+        body: "An authored memory whose author said, explicitly, barely.",
+        source: "authored",
+        salience: { claimed: 0.05 },
+      }),
+      // The other channel: the fallback's ceiling and dims stay as they are.
+      swept: s.put({
+        type: "memory",
+        kind: "fact",
+        body: "A swept memory that claimed nothing, and stays that way.",
+        source: "fallback",
+      }),
+      // A pre-v4 row: provenance unrecorded is not provenance claimed.
+      unrecorded: s.put({
+        type: "memory",
+        kind: "fact",
+        body: "A memory whose minting channel was never recorded at all.",
+      }),
+    };
+  }
+
+  test("the dry run is the default: it names the rows and changes nothing", async () => {
+    const s = store();
+    const ids = seedMixed(s);
+    const before = fingerprint(dir);
+    s.close();
+
+    const c = consoleWith();
+    const code = await run(["backfill-claims"], { io: c.io, env: { [ENV]: dir } });
+    expect(code).toBe(EXIT.ok);
+    const out = text(c.out);
+    expect(out).toContain("Authored memories with no claimed salience: 2");
+    expect(out).toContain(ids["unclaimedA"] as string);
+    expect(out).toContain(ids["unclaimedB"] as string);
+    expect(out).toContain("Dry run. Nothing has changed.");
+    // Ids and numbers only — a repair report never prints a body.
+    expect(out).not.toContain("before the default floor existed");
+    expect(fingerprint(dir)).toBe(before);
+  });
+
+  test("--apply writes the floor to exactly the intended rows, flags them, and logs the run", async () => {
+    const s = store();
+    const ids = seedMixed(s);
+    s.close();
+
+    const c = consoleWith();
+    const code = await run(["backfill-claims", "--apply"], { io: c.io, env: { [ENV]: dir } });
+    expect(code).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Applied the default floor to 2 memories.");
+
+    const after = store({ observer: true });
+    for (const key of ["unclaimedA", "unclaimedB"]) {
+      const id = ids[key] as string;
+      expect(after.row(id)?.claimed).toBe(TUNABLES.AUTHORED_DEFAULT_CLAIM);
+      expect(after.readProse(id).meta["claimedDefault"]).toBe(true);
+      // The dimensions are not invented along the way: the floor is a floor.
+      expect(after.row(id)?.relevance).toBe(0);
+    }
+    // Untouched, all three, for three different reasons.
+    expect(after.row(ids["claimedLow"] as string)?.claimed).toBe(0.05);
+    expect(after.row(ids["swept"] as string)?.claimed).toBeNull();
+    expect(after.row(ids["unrecorded"] as string)?.claimed).toBeNull();
+    for (const key of ["claimedLow", "swept", "unrecorded"]) {
+      expect(after.readProse(ids[key] as string).meta["claimedDefault"]).toBeUndefined();
+    }
+    const logged = after.eventLog({ name: "salience.defaulted" });
+    expect(logged.length).toBe(2);
+    expect(logged.map((e) => e.ref).sort()).toEqual(
+      [ids["unclaimedA"] as string, ids["unclaimedB"] as string].sort(),
+    );
+  });
+
+  test("a second --apply is a no-op: the first run left nothing that still qualifies", async () => {
+    const s = store();
+    seedMixed(s);
+    s.close();
+    await run(["backfill-claims", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+    const mid = fingerprint(dir);
+
+    const c = consoleWith();
+    expect(await run(["backfill-claims", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Authored memories with no claimed salience: 0");
+    expect(fingerprint(dir)).toBe(mid);
   });
 });
 
