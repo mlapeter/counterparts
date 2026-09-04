@@ -210,6 +210,31 @@ export type RevisionReason =
   | "protected-refuses-revision"
   | "challenger-unknown";
 
+/**
+ * A CURRENT-STATE row is a "now" fact, and the owner's ruling (2026-09-04) is
+ * that a resolved `updates:` against one REPLACES it immediately, with lineage —
+ * no pressure to accumulate. World-state flips on one clear correction (§4.3),
+ * and pressure on a fact that is already wrong would only delay the correction
+ * while the stale row kept rendering into slices.
+ */
+export type ReplacementReason =
+  | "replaced"
+  | "no-declared-target"
+  | "target-unresolvable"
+  | "target-not-current-state"
+  | "target-archived"
+  | "protected-refuses-revision"
+  | "challenger-unknown";
+
+export interface ReplacementOutcome {
+  ok: boolean;
+  reason: ReplacementReason;
+  /** The id the declaration resolved to after following the supersede chain. */
+  targetId: string | null;
+  retargeted: boolean;
+  successorId: string | null;
+}
+
 export interface PressureIncrement {
   readonly event: "revision.pressure";
   readonly targetId: string;

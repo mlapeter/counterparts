@@ -23,6 +23,13 @@ credential — belongs here, discovered at runtime, never assumed by the core.
 - **The wake never fails the session.** [v1] §1 G7 — missing bundle, unreadable config, or
   failed telemetry means the bootstrap line or nothing, and a clean exit.
 - **The injected block is framed as context, not instruction.** [v1] §1.
+- **The delivery preface is composed HERE, at injection.** The bundle was composed at the
+  last boundary and is served unchanged to every session until the next one, so the line
+  naming which system this is, the lived day, TODAY'S DATE (the adapter's own fact) and the
+  store's current size can only be written at delivery. `self/` owns its wording and its
+  byte accounting; this adapter owns asking for it and reporting the delivered bytes,
+  sentinel included (2026-09-03: the memory system changed mid-day and the body went on
+  speaking as the old one).
 - **Delivery telemetry, distinct from render telemetry.** [v1] scar §2.3 — the adapter is
   the only thing that can report *arrival*, and v1 shipped eleven days of truncated wakes
   because only the render was instrumented.
@@ -168,6 +175,39 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     their own prose, unlinked. The ask's text is the same text G11 refuses when the host
     hands it back — it is delivered by the hook and recorded by
     `adapter.authorship.ask`, never by its transcript copy.
+15. **[M] The prompt path opens no socket, and the semantic cue is LAGGED.** The
+    embedding a turn's recall consults is computed by the detached worker AFTER the
+    previous turn and read out of per-session gate state on the next one — the same
+    one-turn lag carried cues already run on (owner ruling, 2026-09-04). Measured on the
+    live store: `RecallTurn.vector` existed from `recall/`'s first commit and neither
+    live path ever set it, so 13,862 embeddings were consulted by nothing; and every
+    hook process already spends 700-1000 ms cold against a 1200 ms budget, so an in-line
+    embed would have bought a `latency-abort`, not a channel. A test spies
+    `globalThis.fetch` AND injects a throwing `embedFetch`, so neither route can quietly
+    reappear. **The RANKING travels with the cue, not the vector**: `Store.nearestTo`
+    over a live-sized index measured 590-1040 ms, so carrying a vector would have moved
+    the network call off the hot path and left the scan on it.
+    **It runs on EVERY boundary, outside the sweep gate and regardless of its verdict**,
+    and `stop()`/`sessionEnd()` spawn the worker unconditionally. The crash gate (open
+    question 3, answered) decides whether a *SWEEP* selects anything — its ordinary
+    answer is "nothing crashed", recorded as a durable `sweep.gate` row — and
+    the cue expires after one turn, so a step that fired only when the gate opened would
+    leave the semantic channel dark on every ordinary turn. The two are separately
+    ordered on purpose: the cue reads the LIVE span buffer and must precede the sweep's
+    claim, which would move those spans out of it.
+16. **[M] The worker gives vectors to memories that have none, at a bounded rate.** Up
+    to `BACKFILL_LIMIT` (64) per run, first-person material first — what the experiencer
+    authored and its own episodes, then everything else oldest-first — with
+    `{embedded, remaining, failed}` written durably (`adapter.embed.backfill`) so the
+    coverage watch reads a number out of the store rather than out of a dead process's
+    stderr. The authored door still warms its own vector when a `vectors` socket is
+    wired; this is the GUARANTEED path, because a memory that predates the embedder, or
+    arrived by migration, has nothing and no future deposit comes back for it.
+17. **[M] The deliberate ask MAY embed in line, and says which channel answered.** The
+    MCP entry point loads the same 0600 credentials file the hook entry point names and
+    hands the server an opened embedder or null; the server never sees a key. A missing
+    one degrades the ask to lexical-only and the result carries `semantic:
+    "embedder-off" | "embed-failed"` rather than a quietly narrower answer.
 
 ## 6. Scars honored
 
@@ -187,6 +227,33 @@ charter).
 2. **What is the honest bound on the orphanable tail** — the stretch after the last
    session-ending event nobody can ask about — in this host specifically? v1 bounded it by
    its re-ask threshold and logged it, which is the right shape; the number is host-local.
-3. **Which host event, if any, means "crashed"?** Crash-fallback interpretation is the only
-   remaining transcript-reading path, and it needs a trigger that is not merely "no
-   end-of-session write happened," since that also describes an ordinary abrupt exit.
+3. ~~**Which host event, if any, means "crashed"?**~~ **ANSWERED 2026-09-04 (owner
+   ruling).** *No host event does* — and that is the answer, not a gap. This host has no
+   crash signal: an abrupt exit, a killed terminal and an ordinary close all leave the
+   same trace. So "crashed" is defined on the boundary record instead, and the definition
+   is host-agnostic enough to live in the core (`remember/spans.ts#crashedSessions`):
+
+   > A session is CRASHED when it holds uncovered spans, has recorded **no `session-end`
+   > boundary**, and has had **no boundary activity for `CRASH_STALE_MS`** (12 hours,
+   > CAL).
+
+   Two consequences this adapter owns. First, `session-end` is now load-bearing beyond
+   its ask: it is the host's own statement that the author got the pen, and a session
+   carrying one is never swept, however much trailing material it left. **That this host
+   actually delivers it is measured, not assumed** (2026-09-04, live store): durable
+   `adapter.boundary` rows carry `hook: "session-end"` for 5 of the 9 sessions that ever
+   reached a boundary, and the other 4 are sessions still open. The hook is wired in the
+   host settings and lands inside its shared budget. It stays a **standing watch** rather
+   than a settled fact — session-end boundaries per ended session, on the daily — because
+   the whole "a normally-ended session is never swept" clause rests on it: were the hook
+   to go silent, the live behaviour would degrade to "everything is swept once it goes
+   quiet", which still fixes the Stop-time twin race but moves the twin risk to idle
+   sessions. Second,
+   `pre-compact` is **not** a crash. It was the closest thing to a named catastrophe and
+   it is still wired — but what answers compaction is the unconditional *capture* at that
+   boundary, not a model call; the sweep follows only if that session then goes silent.
+
+   The hook path is unchanged by this: boundaries still capture at all three paths and
+   the worker still spawns at Stop and SessionEnd for the Hebbian flush and the sleep
+   cycle. Only the worker's sweep step is gated, and its skip is a durable `sweep.gate`
+   row so a quiet sweep is distinguishable from a dead one.

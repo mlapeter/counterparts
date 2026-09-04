@@ -40,15 +40,20 @@ import {
 } from "./readers.js";
 import type {
   Bars,
+  BoundaryEvidence,
+  BoundaryGrade,
   ContaminationDetectors,
   CreatedExited,
   CrossEncodingDirection,
   CrossEncodingMeter,
   DailyRecord,
   DayClass,
+  PhaseRestart,
   Primacy,
+  PrimacyCheck,
   RunPhase,
   RunRecord,
+  Watch,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -232,6 +237,35 @@ const DELIVERY_RECORDS: readonly string[] = [
  * before the flip, and no minimum counts it; `P` is the run.
  */
 const RUN_PHASES: readonly RunPhase[] = ["0", "P"];
+
+/**
+ * Active days PER PHASE, honoring a declared restart of the phase clock.
+ *
+ * ONE COPY, imported by `restart.ts` rather than reimplemented there: the
+ * restart command and the daily run must agree about what the clock now reads,
+ * and two copies of this filter would drift on the first change (§5 G3's rule,
+ * applied to the instrument's own arithmetic).
+ *
+ * The restart's `date` is the FIRST day of the restarted clock. Days before it,
+ * in the restarted phase only, stay in `days[]` as history and stop counting —
+ * §5 G12's "anything else: the phase restarts", made a number rather than a
+ * note. Other phases are untouched: a restart of P cannot rewrite day 0.
+ */
+export function countActiveDays(
+  days: readonly { readonly date: string; readonly class: DayClass; readonly phase: RunPhase }[],
+  restart: PhaseRestart | null,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const p of RUN_PHASES) {
+    counts[p] = days.filter(
+      (d) =>
+        d.class === "active" &&
+        d.phase === p &&
+        (restart === null || restart.phase !== p || d.date >= restart.date),
+    ).length;
+  }
+  return counts;
+}
 
 export interface MeterSide {
   /** The addresses this side INJECTED — the probes. */
@@ -606,24 +640,85 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     });
   }
 
-  // THE OPERATOR'S `--primacy` AGAINST THE FILE THAT ACTUALLY DECIDES. v1 and
-  // v2 both resolve primacy from the assignment file's `override` at every
-  // hook; a record stamped with the operator's belief instead would misattribute
-  // every contamination verdict on the day (§5 G3). Disagreement is fatal.
+  // THE PRIMACY THIS DAY IS GRADED WITH, AGAINST THE FILE THAT ACTUALLY
+  // DECIDES. v1 and v2 both resolve primacy from the assignment file's
+  // `override` at every hook; a day stamped with anything else misattributes
+  // every contamination verdict on it (§5 G3).
+  //
+  // TWO SOURCES CAN DISAGREE WITH THE FILE, and until 2026-09-04 only one of
+  // them was checked. The flip on 2026-09-03 wrote `flips.jsonl` and left
+  // `run.json.primacy` at `v1`; the daily takes its primacy from that field
+  // when no `--primacy` is passed, so every day after the flip graded as
+  // `contaminated` — "the muted v2 side delivered" — off a stale field nobody
+  // compared. The stored field is now checked too, and the refusal says WHICH
+  // of the two to fix rather than grading past the disagreement.
   const declared = opts.assignmentOverride ?? null;
+  const fromFile: Primacy | null =
+    declared === "engram" ? "v2" : declared === "bansai" ? "v1" : null;
   if (declared !== null) {
-    const fromFile: Primacy | null =
-      declared === "engram" ? "v2" : declared === "bansai" ? "v1" : null;
-    if (fromFile === null || fromFile !== primacy) {
+    if (fromFile === null) {
       throw new RecordError("PRIMACY_DISAGREES_WITH_ASSIGNMENT", {
         declared: primacy,
         assignmentOverride: declared,
-        resolved: fromFile ?? "neither bansai nor engram",
+        resolved: "neither bansai nor engram",
+        remedy:
+          "the assignment file's override is the one field both resolvers read, and it must be exactly `bansai` or `engram` (§5 G3)",
+      });
+    }
+    if (opts.primacy !== undefined && opts.primacy !== fromFile) {
+      throw new RecordError("PRIMACY_DISAGREES_WITH_ASSIGNMENT", {
+        source: "--primacy",
+        declared: opts.primacy,
+        assignmentOverride: declared,
+        resolved: fromFile,
         remedy:
           "the assignment file is what both resolvers read; fix the file or the flag, never record past the disagreement (§5 G3)",
       });
     }
+    // THE STALE `run.json` — the 2026-09-03 flip's own scar. The operator is
+    // told both readings and given the one deliberate act that heals it: a
+    // `--primacy` that AGREES with the file (checked immediately above) re-stamps
+    // the run record. Nothing here repairs it silently.
+    if (opts.primacy === undefined && prior != null && prior.primacy !== fromFile) {
+      throw new RecordError("RUN_PRIMACY_DISAGREES_WITH_ASSIGNMENT", {
+        source: "run.json",
+        runJson: prior.primacy,
+        assignmentOverride: declared,
+        resolved: fromFile,
+        remedy:
+          `run.json says primacy ${prior.primacy}; the assignment file's override "${declared}" resolves to ${fromFile}. ` +
+          `Fix ONE of them deliberately: if the flip happened, re-run with --primacy ${fromFile} (it is cross-checked against the file and re-stamps run.json); ` +
+          "if it did not, restore the override. The flip tooling lives outside this repo, so this guard is the only thing standing between a stale field and a run of misgraded days (§5 G3).",
+      });
+    }
+    // AND THE DEFAULT IS NOT EXEMPT. With no flag and no prior run record the
+    // primacy comes from the phase (`P` means v2), and a phase typed against a
+    // file that says otherwise is the same defect with a third source.
+    if (fromFile !== primacy) {
+      throw new RecordError("PRIMACY_DISAGREES_WITH_ASSIGNMENT", {
+        source: "phase default",
+        declared: primacy,
+        phase,
+        assignmentOverride: declared,
+        resolved: fromFile,
+        remedy:
+          "no --primacy and no run.json, so the primacy came from --phase; the assignment file disagrees, and the file is what both resolvers read (§5 G3)",
+      });
+    }
   }
+  const restamped = opts.primacy !== undefined && prior != null && prior.primacy !== opts.primacy;
+  const primacyCheck: PrimacyCheck = {
+    verified: fromFile !== null,
+    assignmentOverride: declared,
+    source: fromFile !== null ? "assignment" : opts.primacy !== undefined ? "--primacy" : "run.json",
+    note:
+      fromFile !== null
+        ? `primacy ${primacy} agrees with the assignment file's override "${declared}", the field both resolvers read (§5 G3)` +
+          (restamped ? ` — run.json's stale ${prior?.primacy} was RE-STAMPED to ${primacy} by --primacy` : "")
+        : opts.assignmentOverride === undefined
+          ? `primacy ${primacy} was NOT cross-checked: no assignment reading was offered to this record (§5 G3)`
+          : `primacy ${primacy} was NOT cross-checked: the assignment file carried no usable override, so the field both resolvers read could not be compared (§5 G3)`,
+  };
 
   const v1 = readV1Day(opts.v1Dir, opts.date);
   const v2 = readV2Day(opts.v2DataDir, opts.date, {
@@ -743,7 +838,115 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // passed through `stop` is still evidenced.
   const v2BoundaryRows = v2.byNameForDate["adapter.boundary"] ?? 0;
   const v2Boundaries = v2StopBoundaries + v2AskBoundaries + v2BoundaryRows;
-  const bothReachedBoundary = v1.sessionEnd > 0 && v2Boundaries > 0;
+
+  // ── boundary evidence, GRADED PER SIDE (four-valued, §5 G13) ──────────────
+  //
+  // THE MUTED SIDE'S MISSING BOUNDARY IS NOT A MISSING BOUNDARY. Measured on
+  // day 1 (2026-09-04): a muted v1 logs `ab.muted` at session_start and
+  // user_prompt_submit and NOTHING at Stop — its Stop hook emits no `ab.muted`
+  // at all (PARALLEL-RUN-STATUS: "the episode-ask mute is graded by absence
+  // only"). So on a clean v2-primary day v1's log holds no `session.end`, and
+  // the old `v1.sessionEnd > 0 && v2Boundaries > 0` classed every such day
+  // `thin`: the instrument grading the mute WORKING as the mute broken, and
+  // no day of the run could ever count.
+  //
+  // The absence is graded as what it is — `muted-consistent`, its own value,
+  // never `pass` — and `thin` is derived from the PRIMARY system's boundary
+  // evidence. The exception is not unconditional: it requires v1's log to be
+  // PRESENT and to carry `ab.muted` rows. A muted v1 that logged nothing at all
+  // is a v1 nobody can show was alive, and §7's same-day encode pairing rests
+  // on v1 still encoding while muted — so that reads `fail` and sinks the day.
+  const v1AbMuted = Object.values(v1.abMutedByHook).reduce((n, x) => n + x, 0);
+  const v1MutedConsistent =
+    v1Muted && v1.present && v1AbMuted > 0 && !v1Contaminated && (v1Signal ?? 0) === 0;
+  const v1Boundary: BoundaryGrade =
+    v1.sessionEnd > 0
+      ? "pass"
+      : !v1.present
+        ? "not-exercised"
+        : v1MutedConsistent
+          ? "muted-consistent"
+          : "fail";
+  // v2 has no equivalent exception and needs none: a stood-down v2 still writes
+  // its `stop` primacy record, so `v2StopBoundaries` counts stand-downs too.
+  const v2Boundary: BoundaryGrade =
+    v2Boundaries > 0 ? "pass" : !v2.present ? "not-exercised" : v2Unreadable ? "not-exercised" : "fail";
+  const primaryGrade = primacy === "v1" ? v1Boundary : v2Boundary;
+  const mutedGrade = primacy === "v1" ? v2Boundary : v1Boundary;
+  const bothReachedBoundary =
+    primaryGrade === "pass" && (mutedGrade === "pass" || mutedGrade === "muted-consistent");
+  const boundaries: BoundaryEvidence = {
+    v1: v1Boundary,
+    v2: v2Boundary,
+    primary: primacy,
+    primaryGrade,
+    mutedGrade,
+    ok: bothReachedBoundary,
+    note:
+      `v1 ${v1Boundary} (${v1.present ? `${v1.sessionEnd} session.end, ${v1AbMuted} ab.muted row(s)` : "no log for this day"}) · ` +
+      `v2 ${v2Boundary} (${v2StopBoundaries} stop primacy, ${v2AskBoundaries} episode-ask, ${v2BoundaryRows} adapter.boundary) · ` +
+      `PRIMARY is ${primacy}` +
+      (mutedGrade === "muted-consistent"
+        ? " — the muted side reached no boundary this instrument can see, which is what a working mute looks like on v1 (its Stop hook logs no ab.muted); counted as muted-consistent, never as a pass"
+        : ""),
+  };
+
+  // ── the non-durable watches, GRADED (four-valued, §5 G13) ────────────────
+  //
+  // These four printed as a bare comma-separated name list — "v2 not durable:
+  // sleep.symmetry, self.schema.pressure, …" — which is neither a value nor a
+  // reason, and an operator reading past it has read nothing. Each is now a
+  // named value with one line behind it, and `pass` is unreachable for all
+  // four: a watch with no reading behind it can never render green.
+  // TOTAL OVER THE READER'S OWN LIST, never a second list beside it: every name
+  // in `nonDurable` gets a row, and a name with no grading rule yet gets one
+  // that says exactly that rather than vanishing (scar §2.17's totality rule,
+  // applied to this table).
+  const bandTransitions = v2.byNameForLivedDay["band.transition"] ?? 0;
+  const graded: Record<string, Watch> = {
+    "sleep.symmetry":
+      bandTransitions > 0
+        ? {
+            detector: "sleep.symmetry",
+            value: "needs-rater",
+            reason: `${bandTransitions} band.transition row(s) on lived day ${String(v2.livedDayRead)}: the symmetry verdict is arithmetic OVER those rows, and its rater is the G12 symmetry consumer in src/core/sleep — not this instrument, which reads rows and does not recompute verdicts`,
+          }
+        : {
+            detector: "sleep.symmetry",
+            value: "not-exercised",
+            reason:
+              v2.livedDayRead === null
+                ? "band.transition carries only the store's LIVED day and no --lived-day was given, so no transition can be attributed to this date — the watch was not driven here (a zero would be scar §2.4)"
+                : `no band.transition row on lived day ${String(v2.livedDayRead)}: no band moved, so there was no symmetry to verify`,
+          },
+    "self.schema.pressure": {
+      detector: "self.schema.pressure",
+      value: "not-exercised",
+      reason:
+        "no durable revision-pressure row exists in this build — the revision-pressure path is being wired separately, and until it lands there is nothing for this watch to read (README: the watches)",
+    },
+    "self.schema.tripped": {
+      detector: "self.schema.tripped",
+      value: "not-exercised",
+      reason:
+        "not a row: the trip is `schemaBytes` over the self rows, recomputed read-only by the preflight's `store.schemaBytes` check. No trip fired durably on this day and the daily takes no reading of its own",
+    },
+    "self.schema.quarantined": {
+      detector: "self.schema.quarantined",
+      value: "not-exercised",
+      reason:
+        "not a row: the F8 fallback quarantine is subtracted INSIDE `schemaBytes` (the preflight's reading). The SPAN quarantine ledger is a different thing and IS on this record, as `quarantine`",
+    },
+  };
+  const watches: Watch[] = v2.nonDurable.map(
+    (name) =>
+      graded[name] ?? {
+        detector: name,
+        value: "needs-rater",
+        reason:
+          "named non-durable by the reader with no grading rule in record.ts yet — it is shown ungraded rather than dropped, and it can never render green (§5 G13)",
+      },
+  );
 
   const flags: DayClass[] = [];
   if (straddled.length > 0) flags.push("mixed");
@@ -764,6 +967,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     turns,
     floor: bars.activeDayTurnFloor,
     bothReachedBoundary,
+    boundaries,
     straddled: straddled.length,
     silent: silentSessions,
     silentSessions: silentSessionIds.length,
@@ -836,6 +1040,9 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     turns,
     v1,
     v2,
+    boundaries,
+    watches,
+    primacyCheck,
     mute: {
       v1AbMutedByHook: v1.abMutedByHook,
       v2StanddownByHook: v2.primacyByHook.standdown,
@@ -867,10 +1074,12 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     ...(prior?.days ?? []).filter((d) => d.date !== opts.date),
     { date: opts.date, class: dayClass, phase },
   ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const activeDays: Record<string, number> = {};
-  for (const p of RUN_PHASES) {
-    activeDays[p] = days.filter((d) => d.class === "active" && d.phase === p).length;
-  }
+  // AND THE RESTART IS CARRIED FORWARD. `activeDays` is recomputed from
+  // `days[]` on every write, so a restart that lived only in `run.json`'s
+  // annotation would be undone by the very next daily run — the clock would
+  // resurrect the days it was told to stop counting (§5 G12).
+  const phaseRestart = prior?.phaseRestart;
+  const activeDays = countActiveDays(days, phaseRestart ?? null);
 
   const run: RunRecord = {
     startDate: opts.startDate ?? prior?.startDate ?? opts.date,
@@ -890,6 +1099,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     // G12's carry-forward hash, written on every day so a mid-run change has
     // something from BEFORE it to be compared against (precondition 9).
     surfaceSet: surfaceSetHash(),
+    ...(phaseRestart === undefined ? {} : { phaseRestart }),
     updatedAt: opts.at ?? new Date().toISOString(),
   };
 
@@ -908,6 +1118,7 @@ interface WhyFacts {
   turns: number;
   floor: number;
   bothReachedBoundary: boolean;
+  boundaries: BoundaryEvidence;
   straddled: number;
   silent: number;
   silentSessions: number;
@@ -940,16 +1151,19 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
       if (f.bothReachedBoundary) {
         return `${f.turns} conversational turn(s) is below the committed floor of ${f.floor}`;
       }
-      if (!f.v2Present) {
-        return "no v2 store was found at the given data dir, so v2 reached no boundary this instrument can see";
+      if (f.boundaries.primaryGrade !== "pass") {
+        if (!f.v2Present && f.boundaries.primary === "v2") {
+          return "no v2 store was found at the given data dir, so the PRIMARY system reached no boundary this instrument can see";
+        }
+        return `the PRIMARY system (${f.boundaries.primary}) reached no session boundary on this day — ${f.boundaries.note}`;
       }
-      if (f.v2StopBoundaries + f.v2AskBoundaries === 0) {
-        return "one of the two systems reached no session boundary on this day (v2's evidence: a `stop` primacy record, an episode-ask record, or the durable `adapter.boundary` row every session-ending path leaves).";
-      }
-      return "one of the two systems reached no session boundary on this day";
+      // The primary reached one, so the muted side is what sank the day, and it
+      // did NOT qualify for the muted-consistent reading (its log was absent,
+      // or it carried no ab.muted row at all — a side nobody can show was alive).
+      return `the MUTED side's boundary evidence graded ${f.boundaries.mutedGrade} — ${f.boundaries.note}`;
     case "active":
       return (
-        `both systems reached a boundary (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s), at or above the committed floor of ${f.floor}` +
+        `the primary (${f.boundaries.primary}) reached a boundary and the muted side graded ${f.boundaries.mutedGrade} (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s), at or above the committed floor of ${f.floor}` +
         (f.joinAvailable
           ? ""
           : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2DateRows} v2 row(s) for this date, none carrying a session id), so this day is not evidence that nobody was left unspoken to`)

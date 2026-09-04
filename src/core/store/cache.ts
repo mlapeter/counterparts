@@ -111,6 +111,26 @@ export function indexDoc(db: Db, id: string, text: string, vec?: readonly number
   });
 }
 
+/**
+ * Write ONE document's vector, and touch nothing else.
+ *
+ * Split out of `indexDoc` because the backfill needs exactly this and `indexDoc`
+ * does far more: it `DELETE`s and re-inserts every token row for the document.
+ * For a memory whose text has not changed, that is pure churn on `doc_tokens` —
+ * and `doc_tokens` is the 263 MB index whose page-cache warming measured 794-819
+ * ms on the first recall of every fresh hook process, which is the whole reason
+ * `BUDGET_MS` went from 250 to 1200. Sixty-four token-index rewrites per Stop
+ * would have fought the constraint that motivated the lag in the first place.
+ */
+export function setEmbedding(db: Db, id: string, vec: readonly number[]): void {
+  db.run(
+    "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+    id,
+    vec.length,
+    JSON.stringify(vec),
+  );
+}
+
 export interface Hit {
   id: string;
   score: number;

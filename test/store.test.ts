@@ -117,14 +117,18 @@ describe("dataDir", () => {
     const here = fileURLToPath(new URL(".", import.meta.url));
     const roots = [join(here, "..", "src"), join(here, "..", "tools")];
     const forbidden = [".bansai", ".claude-engram", ".memory-ab"];
-    // Also allowed: the parallel-run instrument's two CLIs, which carry the real
+    // Also allowed: the parallel-run instrument's CLIs, which carry the real
     // read-only paths as DEFAULTS — `test/parallel.test.ts` proves nothing in
-    // that tool but its run-dir writer imports a write API.
+    // that tool but its run-dir writer imports a write API. `bin/restart.ts`
+    // carries them for the same reason the other two do: the run directory's
+    // overlap guard needs the live stores NAMED to refuse a run dir inside one,
+    // and a default that has to be typed is a guard that is sometimes skipped.
     const allowed = new Set([
       "src/core/store/paths.ts",
       "src/adapters/claude-code/primacy.ts",
       "tools/parallel/bin/preflight.ts",
       "tools/parallel/bin/daily.ts",
+      "tools/parallel/bin/restart.ts",
     ]);
     const hits: string[] = [];
     const walk = (dir: string): void => {
@@ -959,6 +963,7 @@ describe("observer mode is enforced at the store seam", () => {
     pruneSupersededVersions: [],
     appendRemovalRecord: [{ memoryId: "mem_000000000000", stage: "requested", actor: "owner" }],
     rebuildCache: [],
+    embedOne: ["mem_0"],
   };
 
   function populated(): { id: string; snapshot: string } {

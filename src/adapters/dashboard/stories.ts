@@ -27,7 +27,9 @@ import { NONE, heading, indent, num, plural, stack, subheading, table } from "./
 import { resolveRef } from "./resolve.js";
 import type { DashboardSource } from "./source.js";
 
-/** The durable increment's event name, owned by `schemas/challengeBelief`. */
+/** The durable increment's event name. Written by `schemas/challengeBelief` and
+ *  by `core/revision.ts`'s identity arm, in the same shape — so an identity
+ *  element's story renders here without this file knowing there are two. */
 export const PRESSURE_EVENT = "revision.pressure";
 
 export const DEFAULT_STORY_LIMIT = 10;

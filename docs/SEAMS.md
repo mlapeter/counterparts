@@ -165,6 +165,65 @@ N. **CLOSED 2026-08-25** — `mintProposal` routes every proposal that RESOLVED 
 
 **Wave 3 is CLOSED (2026-08-25): A–N all wired and proved in `test/seams.test.ts`.**
 
+## Found in the parallel run
+
+O. **CLOSED 2026-09-04** — `src/core/revision.ts` (`applyRevision`) is the REVISION seam,
+   called from every mint door (`deposit`, which is the session-end dump and the note,
+   and `applySweep`). **The gap, measured on the live store on day 1 of the parallel
+   run:** the surprise pipeline dissented and the dissent went nowhere. The sweep declared
+   a revision against a shown card; `remember/` resolved it; `mint.ts` wrote
+   `doc.meta["updates"]` and routed the claim through the freeze seam — and then nothing.
+   `encode/chunk.ts` emitted a `revision.challenge` DurableEffect no consumer applied, and
+   `Schemas.challengeBelief` — the pressure accumulator, the durable events, the supersede
+   past the bar — had callers only in test files. Store-wide, for the store's whole life:
+   zero rows with pressure, zero `last_challenged_day`, zero `superseded_by`, zero
+   `versions` rows, zero `revision.pressure` events. `self/freeze.ts` called the revision
+   path "the caller's next stop"; the caller had never been written.
+
+   **The dispatch is by TARGET (owner ruling, Mike, 2026-09-04):** a schema BELIEF and an
+   IDENTITY element (a `type: "memory"` row in band `identity` or carrying
+   `promoted_identity`) accumulate PRESSURE through `physics.applyChallenge` and are
+   superseded only past the bar, both writing the SAME durable `revision.pressure` event
+   with the same `(target, day, challenger)` latch, so the dashboard's story reads one
+   shape; a CURRENT-STATE row is REPLACED immediately with lineage
+   (`Schemas.replaceCurrentState`, versions reason `replaced-by-declaration`), because
+   world-state flips on one clear correction; an ENTITY row and any ORDINARY memory are
+   LINKED and nothing else; a PROTECTED element refuses every path. Authored declarations
+   out-push swept ones through the PHYSICS alone — the reteller's claim was already cut at
+   the minting seam — and no second weighting was added. A CONFIRMATION (`content` /
+   `content+hint`: the engine matched a restatement) never enters the pressure path, read
+   off `mint.directionOf` so the freeze seam and this one cannot disagree. Refusals are
+   returned and evented, never thrown, and the declaration is logged as a hash. One apply
+   per DECLARATION, resolved or not, so the applies stand one for one with encode's
+   effects. Closes queued item 11 and `schemas/INTERFACE-GAPS.md` §8. Proof:
+   `test/seams.test.ts` — "a SWEPT declaration adds pressure to a belief — the increment
+   is durable", "the LINK alone is what the gap looked like — meta.updates without a
+   mover", "one credited challenge per target per lived day, whatever the chunk says",
+   "pressure crosses the bar and the belief is SUPERSEDED, with lineage", "an AUTHORED
+   declaration carries more force than a SWEPT one on the same belief", "the NOTE door
+   applies a declaration too — every door, not just the sweep", "an IDENTITY element takes
+   pressure on the same arithmetic and the same event", "the increment reaches the
+   DASHBOARD's story view, unchanged", "a CURRENT-STATE row is REPLACED immediately, with
+   a versions row and no pressure", "an ORDINARY memory is LINKED and nothing else — no
+   supersede, no pressure", "an ENTITY is not a claim: a declaration against one links and
+   stops", "a PROTECTED element refuses the declaration, from every door", "one apply per
+   DECLARATION — an address that resolves to nothing is counted, not silent", "a FULLY
+   GATED chunk moves nothing — no effect, and therefore no apply", "an OBSERVER moves
+   nothing, at the door and at the applier itself", "a CONFIRMATION is not a challenge — a
+   matched restatement adds no pressure"; plus `test/schemas.test.ts` — the
+   `replaceCurrentState` block ("a declared update REPLACES a now-fact immediately — no
+   bar, no pressure", "the versions row says WHICH crossing ran — a replace is not a
+   climbed bar", "a declaration against a SUPERSEDED now-fact is forwarded, never
+   dangled", "every refusal names its own ground, and none of them throws", "a PROTECTED
+   now-fact refuses the replace path too", "an archived-but-unsuperseded now-fact refuses
+   with its own reason") and the surface-totality test, which now enumerates
+   `replaceCurrentState`.
+
+   **Open, and stated so it is not mistaken for settled:** a `content+hint` resolution
+   where the author DID write an `updates:` string is classified `confirm` by the existing
+   `mint.directionOf`, and therefore takes no pressure. That is the standing doctrine, not
+   a decision made here — but it is the corner the ruling is least explicit about.
+
 **Accepted rent, stated so nobody rediscovers it:** `Store.pruneEvents()` deliberately
 never sweeps a row carrying a `dedup_key`, because that key is the replay latch — and
 every consumer wired so far (schemas' pressure increments, sleep's prune / promotion /
@@ -176,10 +235,11 @@ nothing needs yet (constitution 15).
 No item was skipped and no genuine gap-vs-CONTRACT contradiction was found, so there is
 no Conflicts section. One item needed an INTERPRETATION rather than a transcription —
 item L, where SEAMS' own summary was read against `associate/INTERFACE-GAPS.md` §1 and
-recall's CONTRACT; the reasoning is recorded in L's entry above. Three composition roots
+recall's CONTRACT; the reasoning is recorded in L's entry above. Four composition roots
 now exist alongside `bridge.ts`: `src/core/mint.ts` (proposal→memory),
 `src/core/retrieval.ts` (recall's three borrowed channels), `src/core/briefing.ts`
-(sleep→self). Store schema: `SCHEMA_VERSION` 2 and `CACHE_SCHEMA_VERSION` 2, fresh-open
+(sleep→self), and `src/core/revision.ts` (a resolved `updates:` → the target it hit,
+added 2026-09-04, item O). Store schema: `SCHEMA_VERSION` 2 and `CACHE_SCHEMA_VERSION` 2, fresh-open
 only — no live stores exist yet, so there is no migration path and none was written.
 
 ## Queued (non-blocking, wire at the next seam pass)
@@ -198,8 +258,9 @@ only — no live stores exist yet, so there is no migration path and none was wr
    default moves behind the gate verdict.
 10. **`InterpretFn` adapter contract** — streaming, token headroom, detachment are the
     adapter's; `remember.validateWatchdog()` must be proven inside `STALE_CLAIM_MS`.
-11. **`CandidateSource` + `IdResolver`** for `updates:` resolution come from
-    store/schemas; `UPDATES_FLOOR`/`UPDATES_MARGIN` are CAL and uncalibrated.
+11. **CLOSED 2026-09-04 — see item O.** (`remember/` resolves text to a candidate id;
+    `src/core/revision.ts` walks that id through the supersede chain and dispatches by
+    target. `UPDATES_FLOOR`/`UPDATES_MARGIN` remain CAL and uncalibrated, unmoved.)
 12. **Caller-universality test** — once entrances exist (adapters), enumerate every
     ingestion entrance and prove the gate battery covers each (encode's caller-side
     half).

@@ -23,6 +23,20 @@ export interface SelfTunables {
    *  bound; this only stops a pathological store from composing a megabyte to
    *  throw it away. CAL. [v1 self-index: 16 elements] */
   IDENTITY_MAX: number;
+  /** The largest fraction of the COMPOSED BUDGET the identity lane may take
+   *  **while the other lanes have content to spend the rest on**. Not a lane
+   *  budget (contract §5 G2 — the total still governs): it is how the total is
+   *  SPLIT when lanes compete, applied by whole elements and released back to
+   *  identity when nothing else can use the room. CAL.
+   *
+   *  Measured 2026-09-03/04 on the live host: a migrated store's identity
+   *  elements run ~1.1 KB each, identity trims LAST, so the wake delivered to
+   *  every session was 8 identity elements filling all 9,000 bytes — craft 0,
+   *  threads 0, hints 0, horizon 0 — while v1's wake the same day carried 20
+   *  elements across four lanes. 0.5 leaves ~4.5 KB for the other four lanes at
+   *  that ceiling, which is v1's whole non-identity wake, and still gives
+   *  identity four of the long migrated elements (or ~20 v2-native ones). */
+  IDENTITY_SHARE: number;
   /** Most craft (skill-kind) elements considered. CAL. */
   CRAFT_MAX: number;
   /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12] */
@@ -82,6 +96,7 @@ export interface SelfTunables {
 
 export const SELF_TUNABLES: SelfTunables = {
   IDENTITY_MAX: 24,
+  IDENTITY_SHARE: 0.5,
   CRAFT_MAX: 8,
   THREADS_MAX: 12,
   HINTS_MAX: 8,

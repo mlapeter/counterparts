@@ -26,7 +26,7 @@
 import type { Counterpart } from "../../core/counterpart.js";
 import { strength } from "../../core/physics/index.js";
 import { isConfidential } from "../../core/recall/index.js";
-import type { CandidateVerdict, Verdict } from "../../core/recall/index.js";
+import type { CandidateVerdict, SemanticSource, Verdict } from "../../core/recall/index.js";
 
 /**
  * The confidence tiers this adapter reports. Named, not numeric: v1 labeled its
@@ -68,6 +68,19 @@ export const HARD_GATES: readonly Verdict[] = ["dark-uncued", "below-floor", "cu
 /** Adapter-owned, not a memory property: how many dim items are worth reading. */
 export const DELIBERATE_DIM_CAP = 5;
 
+/**
+ * The latency budget for the DEEPER LOOK, in ms — deliberately generous, and
+ * deliberately not the ambient one.
+ *
+ * The ambient 1200 ms is a promise to somebody mid-sentence; this is a question
+ * a person typed and is waiting for an answer to. It matters because this is the
+ * one path allowed to embed IN LINE (the ruling of 2026-09-04: the hot path may
+ * not, the ask may), and the vector scan that follows measured 590-1040 ms on a
+ * live-sized index all by itself — under the ambient budget the semantic channel
+ * would buy the ask nothing but a `latency-abort`.
+ */
+export const DELIBERATE_BUDGET_MS = 15_000;
+
 export interface Recalled {
   readonly id: string;
   readonly tier: Tier;
@@ -93,6 +106,10 @@ export type DeliberateReason =
 
 export interface DeliberateResult {
   readonly path: "handle" | "question" | "none";
+  /** How the semantic channel got its input on THIS ask — `in-line` when the
+   *  caller embedded the question, `unavailable` when it could not, `none` on
+   *  the handle path, which does no scoring at all. */
+  readonly semantic: SemanticSource;
   readonly reason: DeliberateReason;
   readonly memories: readonly Recalled[];
   /** Candidates the deeper look actually considered — NOT the number returned.
@@ -114,9 +131,19 @@ export interface DeliberateOptions {
   /** The owner's own session? Confidentiality turns on this and nothing else. */
   readonly owner: boolean;
   readonly day?: number;
+  /**
+   * The question's embedding, computed IN LINE by the caller (`server.ts`).
+   * Absent means the semantic channel degrades to lexical-only and the result
+   * SAYS so — never a silently narrower answer (contract §5 G1).
+   */
+  readonly vector?: readonly number[] | null;
+  /** Why there is no vector, when there is none — the caller knows and this
+   *  file cannot. Defaults to `embedder-off`, the ordinary case. */
+  readonly semantic?: SemanticSource;
 }
 
 const EMPTY = {
+  semantic: "none" as SemanticSource,
   memories: [] as readonly Recalled[],
   considered: 0,
   storeSize: 0,
@@ -160,7 +187,14 @@ export function expandHandle(
 ): DeliberateResult {
   const store = counterpart.store;
   const storeSize = store.list({ archived: false }).length;
-  const base = { path: "handle" as const, storeSize, ambiguous: [] as readonly string[] };
+  // The expansion path scores nothing, so no channel is consulted and none is
+  // reported dark: `none` here means "not asked", not "asked and empty".
+  const base = {
+    path: "handle" as const,
+    semantic: "none" as SemanticSource,
+    storeSize,
+    ambiguous: [] as readonly string[],
+  };
 
   const matches: string[] = [];
   try {
@@ -241,10 +275,17 @@ export function answerQuestion(
   opts: DeliberateOptions,
 ): DeliberateResult {
   const store = counterpart.store;
+  // THE ONE PATH ALLOWED TO EMBED IN LINE. The caller did the round trip; this
+  // pass does the ranking, under a budget that can afford it.
+  const vector = opts.vector ?? null;
+  const semantic: SemanticSource =
+    vector !== null && vector.length > 0 ? "in-line" : opts.semantic ?? "embedder-off";
   const built = counterpart.recall.build({
     sessionId: opts.sessionId,
     text: question,
     owner: opts.owner,
+    budgetMs: DELIBERATE_BUDGET_MS,
+    ...(vector === null || vector.length === 0 ? {} : { vector }),
     ...(opts.day === undefined ? {} : { day: opts.day }),
   });
   const decision = built.decision;
@@ -295,6 +336,7 @@ export function answerQuestion(
 
   return {
     path: "question",
+    semantic,
     reason: memories.length === 0 ? "nothing-came" : "answered",
     memories,
     considered: decision.candidates,

@@ -19,6 +19,14 @@
  *   - **The trim order is declared and tested** (`TRIM_ORDER`), and trimming eats
  *     from the END of a lane, whose ordering is itself policy: *truncation must
  *     never be iteration luck* (§1 G3–G4).
+ *   - **The identity SHARE decides how the total is split when lanes compete.**
+ *     The budget still governs the composed total (§5 G2); the share is not a
+ *     lane budget but a rule about who wins the contested bytes, and it exists
+ *     because trimming identity LAST means a store of long identity elements
+ *     silently takes everything: measured 2026-09-04, the delivered wake was 8
+ *     identity elements at ~1.1 KB each and four empty lanes. Whole elements
+ *     only, never a truncated one; and when the other lanes cannot fill the
+ *     remainder, identity takes the leftover back — a ceiling, not a cap.
  *   - **Truncation is never mid-statement.** A statement is admitted whole or not
  *     at all — there is no `clip()` here on purpose. A half-sentence about who
  *     someone is, is not a smaller identity; it is a corrupted one.
@@ -216,6 +224,79 @@ export function compose(kept: Kept, day: number, resolve: Resolve): Composed {
   };
 }
 
+/** What one element costs the composition: its own rendered line, exactly. */
+function elementBytes(item: Ranked, resolve: Resolve): number {
+  return byteLength(`- ${flatten(resolve(item.id).statement)}\n`);
+}
+
+/** The identity lane's ceiling in bytes while other lanes are competing for it. */
+export function identityShareBytes(budgetBytes: number, t: SelfTunables): number {
+  return Math.floor(budgetBytes * t.IDENTITY_SHARE);
+}
+
+/**
+ * Cut the identity lane down to its share, BY WHOLE ELEMENTS, and return what
+ * was held back (in rank order) so the leftover pass can offer it the room.
+ *
+ * Two rules keep this from becoming a lane budget:
+ *
+ *   - **No other lane has content ⇒ no share at all.** A store that is nothing
+ *     but identity is not a store competing with itself, and half a budget of
+ *     white space is not a smaller wake, it is a worse one.
+ *   - **The first element always survives the cut.** An element is admitted
+ *     whole or not at all, so a single element longer than the share would
+ *     otherwise empty the lane the briefing exists for. The BUDGET may still
+ *     take it later, in `TRIM_ORDER` position, which is where that decision
+ *     belongs.
+ */
+function withheldForShare(
+  kept: Kept,
+  budgetBytes: number,
+  resolve: Resolve,
+  t: SelfTunables,
+): Ranked[] {
+  const competing = LANE_ORDER.some((l) => l !== "identity" && kept[l].length > 0);
+  if (!competing || kept.identity.length === 0) return [];
+  const share = identityShareBytes(budgetBytes, t);
+  let used = 0;
+  let n = 0;
+  for (const item of kept.identity) {
+    const cost = elementBytes(item, resolve);
+    if (n > 0 && used + cost > share) break;
+    used += cost;
+    n += 1;
+  }
+  return kept.identity.splice(n);
+}
+
+/**
+ * Give identity back the bytes nobody else could use. Elements return in rank
+ * order and only while the whole composition still fits, so the result is the
+ * same prefix of the identity lane a larger share would have produced.
+ */
+function offerLeftover(
+  kept: Kept,
+  held: Ranked[],
+  composed: Composed,
+  req: BriefingRequest,
+  resolve: Resolve,
+): Composed {
+  let current = composed;
+  while (held.length > 0) {
+    const next = held[0];
+    if (next === undefined) break;
+    kept.identity.push(next);
+    const candidate = compose(kept, req.day, resolve);
+    if (candidate.bytes > req.budgetBytes) {
+      kept.identity.pop();
+      break;
+    }
+    held.shift();
+    current = candidate;
+  }
+  return current;
+}
+
 /**
  * Compose within the caller's budget, trimming in `TRIM_ORDER` until it fits.
  *
@@ -244,6 +325,11 @@ export function render(
     horizon: [...lanes.horizon],
   };
   const trimmed: TrimEvent[] = [];
+  // THE SHARE, applied BEFORE the trim order rather than inside it: identity
+  // trims last by policy, so by the time the trim loop could bound identity
+  // every other lane is already gone. Held-back elements are not trimmed —
+  // nothing is dropped here, and `held` is offered the leftover below.
+  const held = withheldForShare(kept, req.budgetBytes, resolve, t);
 
   for (;;) {
     const c = compose(kept, req.day, resolve);
@@ -260,8 +346,14 @@ export function render(
       }
     }
     if (fits || cut === null) {
+      // The leftover clause. Only when NOTHING had to be trimmed: a lane that
+      // lost an element wanted the room, and handing it to identity instead
+      // would make the share decide the opposite of what it was set for. When
+      // the other lanes are all present and the budget is still not spent, the
+      // held-back identity elements take it back, in rank order, whole.
+      const composed = trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve) : c;
       return {
-        ...c,
+        ...composed,
         budgetBytes: req.budgetBytes,
         day: req.day,
         kept: {
@@ -272,7 +364,7 @@ export function render(
           horizon: kept.horizon.map((r) => r.id),
         },
         trimmed,
-        pressure: c.bytes >= req.budgetBytes * t.BUDGET_PRESSURE,
+        pressure: composed.bytes >= req.budgetBytes * t.BUDGET_PRESSURE,
         overBudget: !fits,
       };
     }
@@ -327,3 +419,115 @@ export function readSentinel(text: string): SentinelReading {
   };
 }
 
+
+// ── the delivery preface (composed at INJECTION, never at sleep) ─────────────
+
+/**
+ * THE ONE LINE THE BODY CANNOT WRITE FOR ITSELF.
+ *
+ * The bundle is composed at a boundary and then served, unchanged, to every
+ * session until the next one. On 2026-09-03 the memory system under this host
+ * was switched from v1 to Counterparts mid-day; the stored wake still carried a
+ * v1-era finding ("bansai's surprise pipeline has never fired") as a current
+ * fact, nothing in the body said which system was speaking or how old the
+ * render was, and the model repeated it as current until the owner corrected
+ * it. Only the HTML comment named the system, and comments are furniture.
+ *
+ * So one line, composed where and when the bundle is DELIVERED — which system,
+ * which lived day, today's date, how big the store is — and it says out loud
+ * that the body below was composed at the last boundary. Constitution 16: if
+ * the owner (or the waking session) cannot see it, it isn't trustworthy.
+ *
+ * It is deliberately not per-session: nothing in it varies between two sessions
+ * on the same day in the same store, so the delivery check the next hook makes
+ * (§2.3) compares a sentinel that is stable for as long as the bundle is.
+ */
+export const WAKE_SYSTEM = "Counterparts";
+
+/**
+ * The room the composed budget leaves for the preface, in bytes. It is the
+ * preface's OWN cap, asserted by a test at the widest plausible day, date and
+ * store size — one number, not a lane cap that can drift from what it bounds.
+ * Structural, not tunable: the renderer must reserve exactly what delivery adds.
+ */
+export const PREFACE_RESERVE_BYTES = 128;
+
+export interface PrefaceFacts {
+  /** Which memory system composed and is delivering this. */
+  readonly system: string;
+  /** The lived day (scar E8) — days lived, never calendar days. */
+  readonly day: number;
+  /** Today's calendar date as the HOST reports it. Absent ⇒ no date is stated. */
+  readonly date?: string;
+  /** Live memories in the store AT DELIVERY, not at the render. */
+  readonly memories: number;
+}
+
+/** Thousands, hand-rolled: `toLocaleString` varies with the runtime's ICU. */
+export function groupDigits(n: number): string {
+  const s = String(Math.trunc(Math.abs(n)));
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 === 0) out += ",";
+    out += s[i];
+  }
+  return n < 0 ? `-${out}` : out;
+}
+
+/** One line, under `PREFACE_RESERVE_BYTES`, stating what the body cannot. */
+export function prefaceLine(f: PrefaceFacts): string {
+  const when = f.date === undefined ? `day ${f.day}` : `day ${f.day} (${f.date})`;
+  return `${f.system} memory, ${when}, ${groupDigits(f.memories)} memories — composed at the last boundary.`;
+}
+
+export interface PrefacedBundle {
+  readonly text: string;
+  readonly bytes: number;
+  /** The sentinel of the DELIVERED text — what the next hook must see. */
+  readonly sentinel: string | null;
+  /** False when the bundle was not a well-formed render and was left alone. */
+  readonly applied: boolean;
+}
+
+const BYTES_FIELD = /bytes=\d+/;
+const OPEN_RE = /^<!-- counterparts:wake .*elements=(\d+) bytes=(\d+) -->$/;
+
+/**
+ * Splice the preface INSIDE the wake block, above the composed body, and re-solve
+ * the byte fixed point so the opening comment and the tail sentinel both state
+ * the delivered total. The alternative — adding bytes and leaving the two lines
+ * describing something smaller — would hand every reader a sentinel that fails
+ * the check it exists to pass (§1 G2).
+ *
+ * A bundle that is not a well-formed render (bootstrap line, clipped, edited) is
+ * returned UNTOUCHED: rewriting the byte count of a damaged bundle would erase
+ * the damage, which is the one thing the sentinel is for.
+ */
+export function applyPreface(text: string, preface: string): PrefacedBundle {
+  const lines = text.split("\n");
+  const open = lines[0] ?? "";
+  const tail = lines[lines.length - 1] ?? "";
+  if (lines.length < 2 || !OPEN_RE.test(open) || !SENTINEL_RE.test(tail)) {
+    return {
+      text,
+      bytes: byteLength(text),
+      sentinel: SENTINEL_RE.test(tail) ? tail : null,
+      applied: false,
+    };
+  }
+  const build = (stated: string): string[] => [
+    open.replace(BYTES_FIELD, `bytes=${stated}`),
+    preface,
+    ...lines.slice(1, -1),
+    tail.replace(BYTES_FIELD, `bytes=${stated}`),
+  ];
+  const skeleton = byteLength(build("").join("\n"));
+  const composed = build(String(fixedPointTotal(skeleton, 2)));
+  const out = composed.join("\n");
+  return {
+    text: out,
+    bytes: byteLength(out),
+    sentinel: composed[composed.length - 1] ?? null,
+    applied: true,
+  };
+}

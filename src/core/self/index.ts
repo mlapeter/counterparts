@@ -61,7 +61,17 @@ import type {
   Ranked,
   SchemaBytesReport,
 } from "./identity.js";
-import { FRAMING, LANE_ORDER, TRIM_ORDER, flatten, readSentinel, render } from "./briefing.js";
+import {
+  FRAMING,
+  LANE_ORDER,
+  TRIM_ORDER,
+  WAKE_SYSTEM,
+  applyPreface,
+  flatten,
+  prefaceLine,
+  readSentinel,
+  render,
+} from "./briefing.js";
 import type { BriefingRequest, BriefingResult, Resolve, SentinelReading } from "./briefing.js";
 import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
@@ -170,9 +180,26 @@ export interface WakeResult {
   /** True when a bundle was read and its sentinel verified against its bytes. */
   readonly ok: boolean;
   readonly reason: WakeReason;
+  /** Bytes of what is INJECTED — the preface included, when one was composed. */
   readonly bytes: number;
+  /** The sentinel of the injected text: with a preface, the rewritten one. */
   readonly sentinel: string | null;
+  /** The integrity reading of the STORED bundle, before any preface. */
   readonly reading: SentinelReading | null;
+  /** The delivery-time line, or null when none was asked for or it could not
+   *  be applied (a damaged bundle is never rewritten). */
+  readonly preface: string | null;
+}
+
+/**
+ * What the DELIVERING host knows and the stored bundle cannot: today's date.
+ * Passing this object at all is the request for a delivery preface; passing
+ * nothing returns the published bundle byte for byte, which is what every
+ * non-delivering reader (the dashboard, a test, replay) wants.
+ */
+export interface WakeDelivery {
+  /** Today's calendar date as the host reports it. Absent ⇒ no date is stated. */
+  readonly date?: string;
 }
 
 export interface ClaimOccasion {
@@ -356,8 +383,15 @@ export class Self {
    * gets the honest bootstrap line, and a store whose bundle is present but
    * damaged gets the bundle it has, flagged, because printing "initializing" over
    * a full store is the identity-amnesia failure this guarantee exists for.
+   *
+   * **The one cost, named:** a caller asking for a delivery preface also buys two
+   * meta reads and one `COUNT(*)` — the store's size is a delivery-time fact and
+   * a bundle rendered yesterday cannot state it. Still no ranking, no prose read,
+   * no model and no write; the cost is a single aggregate, not O(store) prose,
+   * and a caller that passes nothing pays exactly the old one meta row
+   * (INTERFACE-GAPS #2).
    */
-  wake(): WakeResult {
+  wake(delivery?: WakeDelivery): WakeResult {
     const raw = this.store.getMeta(BRIEFING_KEY);
     if (raw === undefined) {
       this.emit("self.wake", undefined, { ok: false, reason: "absent", bytes: 0 });
@@ -368,6 +402,7 @@ export class Self {
         bytes: byteLength(BOOTSTRAP),
         sentinel: null,
         reading: null,
+        preface: null,
       };
     }
     if (raw.length === 0) {
@@ -380,6 +415,7 @@ export class Self {
         bytes: 0,
         sentinel: null,
         reading: null,
+        preface: null,
       };
     }
     const reading = readSentinel(raw);
@@ -388,20 +424,36 @@ export class Self {
       : reading.intact
         ? "delivered"
         : "sentinel-mismatch";
+    // THE DELIVERY PREFACE, composed here and never at the boundary: which
+    // system this is, which lived day, today's date, how big the store is now.
+    // A damaged bundle is delivered exactly as found — `applyPreface` refuses to
+    // rewrite a byte count that is already telling the truth about damage.
+    const preface =
+      delivery === undefined || reason !== "delivered"
+        ? null
+        : prefaceLine({
+            system: WAKE_SYSTEM,
+            day: this.store.livedDay(),
+            ...(delivery.date === undefined ? {} : { date: delivery.date }),
+            memories: this.store.countMemories({ type: "memory", archived: false }),
+          });
+    const delivered = preface === null ? null : applyPreface(raw, preface);
     this.emit("self.wake", undefined, {
       ok: reason === "delivered",
       reason,
-      bytes: reading.actualBytes,
+      bytes: delivered?.bytes ?? reading.actualBytes,
       stated: reading.statedBytes,
       elements: reading.statedElements,
+      preface: delivered?.applied ?? false,
     });
     return {
-      text: raw,
+      text: delivered?.text ?? raw,
       ok: reason === "delivered",
       reason,
-      bytes: reading.actualBytes,
-      sentinel: reading.line,
+      bytes: delivered?.bytes ?? reading.actualBytes,
+      sentinel: delivered?.sentinel ?? reading.line,
       reading,
+      preface: delivered?.applied === true ? preface : null,
     };
   }
 

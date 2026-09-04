@@ -170,10 +170,14 @@ into the wrapper.
    `self/`'s re-ask thresholds — a memory number, not a host one. The host-local
    number (how long after the last session-ending event a session can keep
    living) is still unknown.
-3. **Which host event means "crashed"?** Still open, and the reason the fallback
-   runs on eligibility (`endedSessions` ∧ uncovered spans) rather than on a
-   crash signal. `pre-compact` is the closest thing to a named catastrophe and it
-   is wired; an abrupt exit is indistinguishable from an ordinary one.
+3. **Which host event means "crashed"? — CLOSED 2026-09-04.** None does, and the
+   answer is a definition rather than an event: a session is crashed when it
+   holds uncovered spans, recorded no `session-end` boundary, and has been silent
+   for `CRASH_STALE_MS` (`remember/spans.ts#crashedSessions`, CONTRACT §7.3). The
+   old eligibility rule — *any* boundary ∧ uncovered spans — made the sweep the
+   primary path in fact: it ran after every Stop, and on 2026-09-04 one evening's
+   sweeps billed 13 chunks and minted 61 memories beside 34 authored ones.
+   `pre-compact` is still wired and still captures; it is not by itself a crash.
 4. **Long-call survival is asserted, not proven in this host (CONTRACT §5 G6).**
    The call streams (scar E3) and `socketLifetimeMs` is a reported capability
    with no reporter. The proof G6 asks for — one long call surviving this host's

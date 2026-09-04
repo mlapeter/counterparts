@@ -280,7 +280,17 @@ export class ClaudeCodeAdapter {
         // what this host can carry — an invented ceiling is scar §2.18.
         this.emit("adapter.budget.unreported", {});
       }
-      const woke = this.counterpart.wake(budget);
+      // THE DELIVERY PREFACE is asked for here, at injection, and composed
+      // nowhere else. The stored bundle was rendered at the last boundary and is
+      // served unchanged to every session until the next one; on 2026-09-03 the
+      // memory system under this host changed mid-day and the body went on
+      // speaking as the old one, with only the HTML comment naming the new. The
+      // date is the HOST's — this hook is the only place that has it — and
+      // nothing in the line varies between two sessions of the same day, so the
+      // delivery expectation below stays a stable string (§2.3).
+      const woke = this.counterpart.wake(budget, {
+        ...(input.at === undefined ? {} : { date: input.at }),
+      });
       this.expected.set(input.sessionId, woke.sentinel);
 
       if (budget !== undefined && woke.bytes > budget) {
@@ -294,6 +304,7 @@ export class ClaudeCodeAdapter {
         bytes: woke.bytes,
         budget: budget ?? null,
         sentinel: woke.sentinel !== null,
+        preface: woke.preface !== null,
       });
       return {
         ...out,
@@ -349,6 +360,12 @@ export class ClaudeCodeAdapter {
         bytes: decision.bytes,
         budget: decision.budgetBytes,
         observer: decision.observer,
+        // WHERE the semantic channel's input came from, on the row a coverage
+        // watch can read out of the store tomorrow. `semantic: "none"` on every
+        // real turn is exactly the finding this PR closes; anything but
+        // "lagged" here after a worker ran is the lag failing, by name.
+        semantic: decision.semanticSource,
+        semanticFrom: decision.semanticFromTurn,
       });
       return {
         ...out,
@@ -396,7 +413,7 @@ export class ClaudeCodeAdapter {
       // The boundary is UNCONDITIONAL — the shadow encodes the same days v1
       // encodes, and a parallel run that stopped capturing would be comparing
       // nothing (parallel-run G5: encode-only, and honest). What the stand-down
-      // withholds is the two ASKS, which are delivery: an ask from a system the
+      // withholds is the ASK, which is delivery: an ask from a system the
       // owner is not talking to today is exactly the double-voice G3 forbids.
       const deliver = this.deliveryVerdict("stop", input);
       // THE AUTHORED FRONT DOOR, first: the experiencer writes its own memories
@@ -404,8 +421,16 @@ export class ClaudeCodeAdapter {
       // only the fallback for the day nobody got to (contract §4). The ask goes
       // out after the spans are durable, so a crash between the two costs a
       // dump, never a day.
+      //
+      // The worker below still spawns at EVERY boundary — it carries the
+      // Hebbian flush and the sleep cycle, which are not optional — but since
+      // 2026-09-04 its sweep step selects nothing unless a session is CRASHED
+      // (`remember/fallback.ts`: uncovered spans, no `session-end` boundary,
+      // silent past `CRASH_STALE_MS`). Before that gate this line was a comment
+      // the code did not keep: one evening's Stops billed 13 chunks and minted
+      // 61 memories beside 34 the model had authored itself.
       const ask = deliver ? this.askAtStop(input) : null;
-      const spawn = this.spawnWorker();
+      const spawn = this.spawnWorker(input);
       return { ...claimed, ask, spawn };
     });
   }
@@ -419,7 +444,7 @@ export class ClaudeCodeAdapter {
       // sweep's job, not the experiencer's.
       this.noteSession("end", input);
       this.noteTail(input);
-      return { ...claimed, spawn: this.spawnWorker() };
+      return { ...claimed, spawn: this.spawnWorker(input) };
     });
   }
 
@@ -652,7 +677,16 @@ export class ClaudeCodeAdapter {
    * against the staleness window, credential, data dir, stance — and a refusal
    * that repeats ESCALATES rather than re-logging (scar E4's widening).
    */
-  private spawnWorker(): SpawnOutcome {
+  private spawnWorker(input?: HookInput): SpawnOutcome {
+    // The child is TOLD whose turn it just followed. Without it the worker can
+    // sweep and sleep but cannot leave the next turn a semantic cue, because
+    // that cue is per-session state (`recall/session.ts`).
+    const bound = {
+      ...(input?.sessionId === undefined || input.sessionId.length === 0
+        ? {}
+        : { session: input.sessionId }),
+      ...(input?.scope === undefined || input.scope.length === 0 ? {} : { scope: input.scope }),
+    };
     const seat = interpretSeat(this.config, new Date(this.nowFn()).toISOString().slice(0, 10));
     if (!seat.usable) {
       // A placeholder that expired is a decision nobody made; the worker's only
@@ -665,6 +699,7 @@ export class ClaudeCodeAdapter {
       command: this.command,
       args: this.args,
       priorFailures: 0,
+      ...bound,
     });
     const prior = plan.ok ? 0 : reasonKey(plan.reason);
     const replanned = plan.ok
@@ -674,6 +709,7 @@ export class ClaudeCodeAdapter {
           command: this.command,
           args: this.args,
           priorFailures: prior,
+          ...bound,
         });
     const outcome = spawnDetached(replanned, {
       ...(this.spawner === undefined ? {} : { spawner: this.spawner }),

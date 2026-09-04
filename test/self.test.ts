@@ -31,9 +31,12 @@ import {
   FRAMING,
   FROZEN_KINDS,
   LANE_ORDER,
+  PREFACE_RESERVE_BYTES,
   SELF_TUNABLES,
   Self,
   TRIM_ORDER,
+  WAKE_SYSTEM,
+  applyPreface,
   askText,
   byteLength,
   compose,
@@ -42,12 +45,16 @@ import {
   findIdentityCore,
   fixedPointTotal,
   flatten,
+  groupDigits,
+  identityShareBytes,
   intakeEpisode,
+  prefaceLine,
   rankLanes,
   readSentinel,
   render,
   scanActive,
   stateKey,
+  withTunables,
 } from "../src/core/self/index.js";
 import type { EpisodeGate, LaneName, Lanes, Ranked, Resolve } from "../src/core/self/index.js";
 
@@ -340,6 +347,156 @@ describe("the wake briefing — budget, at production scale", () => {
     expect(out.briefing.overBudget).toBe(false);
     expect(events).toContain("self.briefing.pressure");
     expect(events).toContain("self.briefing.rendered");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * The lane balance, measured on the live host 2026-09-03/04: the wake delivered
+ * to every session was 8 identity elements at ~1.1 KB each filling all 9,000
+ * bytes — craft 0, threads 0, hints 0, horizon 0 — while v1's wake the same day
+ * carried 20 elements across four lanes. Identity trims LAST, so on a migrated
+ * store of long identity elements nothing else ever reaches the page.
+ */
+describe("the wake briefing — the identity share", () => {
+  const HOST_BUDGET = 9_000;
+  /** A migrated identity element, at the length the live store actually holds. */
+  const LONG = `${"I hold this about myself and it has stayed true across many sessions of real work. ".repeat(13)}`;
+  const SKILL = `${"I work this way when the work is hard and the answer is not obvious. ".repeat(8)}`;
+
+  function migrated(over: { crafts?: number; craftBody?: string } = {}): {
+    lanes: Lanes;
+    resolve: Resolve;
+  } {
+    const s = store();
+    for (let i = 0; i < 24; i++) identity(s, `Identity element ${i}. ${LONG}`, { relevance: 0.9 - i / 100 });
+    for (let i = 0; i < (over.crafts ?? 12); i++) {
+      craft(s, `Craft element ${i}. ${over.craftBody ?? SKILL}`);
+    }
+    const scanned = scanActive(s, 0);
+    const map = new Map<string, string>();
+    for (const sc of scanned) {
+      const para = sc.doc.body.split(/\n\s*\n/).find((p) => p.trim().length > 0) ?? sc.doc.body;
+      map.set(sc.id, flatten(para));
+    }
+    return {
+      lanes: rankLanes(scanned, [], SELF_TUNABLES),
+      resolve: (id) => ({ statement: map.get(id) ?? id }),
+    };
+  }
+
+  /** The statement lines rendered under one lane heading, in order. */
+  function laneLines(text: string, heading: string): string[] {
+    const lines = text.split("\n");
+    const start = lines.indexOf(heading);
+    if (start < 0) return [];
+    const out: string[] = [];
+    for (let i = start + 1; i < lines.length; i++) {
+      const line = lines[i] ?? "";
+      if (!line.startsWith("- ")) break;
+      out.push(line);
+    }
+    return out;
+  }
+
+  /** The bytes a lane's own statement lines actually spend. */
+  function laneBytes(text: string, heading: string): number {
+    return laneLines(text, heading).reduce((n, l) => n + byteLength(`${l}\n`), 0);
+  }
+
+  /** The smallest identity element on the page — the granularity of "full",
+   *  because identity is the lane with elements still waiting to come back. */
+  function smallestElement(text: string): number {
+    const sizes = laneLines(text, FRAMING.identity).map((l) => byteLength(`${l}\n`));
+    return sizes.length === 0 ? 0 : Math.min(...sizes);
+  }
+
+  test("identity stops at its share and craft reaches the page — the measured failure, fixed", () => {
+    const { lanes, resolve } = migrated();
+    const out = render(lanes, { budgetBytes: HOST_BUDGET, day: 0 }, resolve, SELF_TUNABLES);
+
+    expect(laneBytes(out.text, FRAMING.identity)).toBeLessThanOrEqual(
+      identityShareBytes(HOST_BUDGET, SELF_TUNABLES),
+    );
+    expect(out.counts.identity).toBeGreaterThan(0);
+    expect(out.counts.craft).toBeGreaterThan(0);
+    // Whole elements, always: the share never produces a half-statement.
+    for (const line of statementLines(out.text)) expect(line.endsWith(".")).toBe(true);
+
+    // The same store with the share switched OFF is the bug as it was measured:
+    // eight identity elements, every other lane dark.
+    const unshared = render(
+      lanes,
+      { budgetBytes: HOST_BUDGET, day: 0 },
+      resolve,
+      withTunables({ IDENTITY_SHARE: 1 }),
+    );
+    expect(unshared.counts.craft).toBe(0);
+    expect(unshared.counts.identity).toBeGreaterThan(out.counts.identity);
+  });
+
+  test("a store with ONLY identity gives identity the whole budget — a ceiling, not a cap", () => {
+    const s = store();
+    for (let i = 0; i < 24; i++) identity(s, `Identity element ${i}. ${LONG}`, { relevance: 0.9 - i / 100 });
+    const scanned = scanActive(s, 0);
+    const map = new Map(scanned.map((sc) => [sc.id, flatten(sc.doc.body)] as const));
+    const resolve: Resolve = (id) => ({ statement: map.get(id) ?? id });
+    const out = render(
+      rankLanes(scanned, [], SELF_TUNABLES),
+      { budgetBytes: HOST_BUDGET, day: 0 },
+      resolve,
+      SELF_TUNABLES,
+    );
+
+    expect(laneBytes(out.text, FRAMING.identity)).toBeGreaterThan(
+      identityShareBytes(HOST_BUDGET, SELF_TUNABLES),
+    );
+    // Nothing else could have fitted: what is left over is smaller than the
+    // smallest whole element, which is the only honest way to say "full" when
+    // statements are never cut.
+    expect(HOST_BUDGET - out.bytes).toBeLessThan(smallestElement(out.text));
+    expect(out.bytes).toBeLessThanOrEqual(HOST_BUDGET);
+  });
+
+  test("what the other lanes cannot fill comes BACK to identity, whole", () => {
+    // One short craft element: the remainder is real and nothing else can use it.
+    const { lanes, resolve } = migrated({ crafts: 1, craftBody: "I read the whole file first." });
+    const out = render(lanes, { budgetBytes: HOST_BUDGET, day: 0 }, resolve, SELF_TUNABLES);
+
+    expect(out.counts.craft).toBe(1);
+    expect(laneBytes(out.text, FRAMING.identity)).toBeGreaterThan(
+      identityShareBytes(HOST_BUDGET, SELF_TUNABLES),
+    );
+    // The leftover is SPENT, not left as white space beside a half-empty wake.
+    expect(HOST_BUDGET - out.bytes).toBeLessThan(smallestElement(out.text));
+    expect(out.bytes).toBeLessThanOrEqual(HOST_BUDGET);
+  });
+
+  test("the sentinel's lane counts are the lanes actually rendered", () => {
+    const { lanes, resolve } = migrated();
+    const out = render(lanes, { budgetBytes: HOST_BUDGET, day: 0 }, resolve, SELF_TUNABLES);
+    const headings: Record<LaneName, string> = {
+      identity: FRAMING.identity,
+      craft: FRAMING.craft,
+      threads: FRAMING.threads,
+      hints: FRAMING.hints,
+      horizon: FRAMING.horizon,
+    };
+    let total = 0;
+    for (const lane of LANE_ORDER) {
+      const lines = out.text.split("\n");
+      const start = lines.indexOf(headings[lane]);
+      let rendered = 0;
+      for (let i = start + 1; start >= 0 && i < lines.length; i++) {
+        if (!(lines[i] ?? "").startsWith("- ")) break;
+        rendered += 1;
+      }
+      expect({ lane, rendered }).toEqual({ lane, rendered: out.counts[lane] });
+      expect(out.sentinel).toContain(`${lane}=${out.counts[lane]}`);
+      total += rendered;
+    }
+    expect(out.sentinel).toContain(`elements=${total}`);
+    expect(readSentinel(out.text).statedElements).toBe(total);
   });
 });
 
@@ -1207,6 +1364,98 @@ describe("wake: publish, deliver, reconcile", () => {
     expect(delivered[0]?.data?.["ok"]).toBe(true);
     expect(delivered[1]?.data?.["ok"]).toBe(false);
     expect(self.events("self.briefing.rendered").length).toBe(1);
+  });
+
+  /**
+   * The staleness marker. The bundle is composed at a boundary and served to
+   * every session until the next one; on 2026-09-03 the memory system under the
+   * live host changed mid-day and the body kept speaking as the old one, with
+   * only the HTML comment naming the new. The preface is the delivery-time line
+   * that says which system, which day, which date and how big the store is —
+   * composed at WAKE, never at sleep, and never stored.
+   */
+  test("the delivery preface is composed at WAKE, names the system, and never enters the store", () => {
+    const s = store();
+    identity(s, "I would rather ship the smaller true thing.");
+    const self = new Self({ store: s });
+    const published = self.boundary({ budgetBytes: 8_000, day: 0 });
+
+    // A read that is not a delivery is the published bundle, byte for byte.
+    expect(self.wake().text).toBe(published.briefing.text);
+    expect(self.wake().preface).toBe(null);
+
+    const woke = self.wake({ date: "2026-09-04" });
+    const lines = woke.text.split("\n");
+    const preface = woke.preface as string;
+    expect(preface).not.toBe(null);
+    // INSIDE the wake block, above the stored body: the opening comment, then
+    // the preface, then the framing the boundary composed.
+    expect(lines[0] ?? "").toContain("<!-- counterparts:wake ");
+    expect(lines[1]).toBe(preface);
+    expect(lines[2]).toBe(FRAMING.context);
+    expect(preface).toContain(WAKE_SYSTEM);
+    expect(preface).toContain("2026-09-04");
+    expect(preface).toContain(`day ${s.livedDay()}`);
+    expect(preface).toContain(`${s.countMemories({ type: "memory", archived: false })} memories`);
+    expect(byteLength(preface)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
+    // The framing names the system in the BODY too, not only in the comment.
+    expect(FRAMING.context).toContain(WAKE_SYSTEM);
+
+    // Composed at delivery: the published row never learns about it.
+    expect(s.getMeta(BRIEFING_KEY)).toBe(published.briefing.text);
+  });
+
+  test("a prefaced bundle states its OWN bytes at both ends, inside the reserve", () => {
+    const s = store();
+    identity(s, "The sentinel has to describe what was actually delivered.");
+    const self = new Self({ store: s });
+    const published = self.boundary({ budgetBytes: 8_000, day: 0 });
+    const woke = self.wake({ date: "2026-09-04" });
+
+    const reading = readSentinel(woke.text);
+    expect(reading.intact).toBe(true);
+    expect(woke.bytes).toBe(byteLength(woke.text));
+    expect(woke.sentinel as string).toBe(woke.text.split("\n").pop() ?? "");
+    expect(woke.sentinel).toContain(`bytes=${woke.bytes}`);
+    expect(woke.text.split("\n")[0]).toContain(`bytes=${woke.bytes}`);
+    // The whole cost of delivery fits the room the renderer reserves for it.
+    expect(woke.bytes - published.briefing.bytes).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
+    // The stored bundle's own integrity is still read from the STORED bytes.
+    expect(woke.reading?.intact).toBe(true);
+    expect(woke.reading?.actualBytes).toBe(published.briefing.bytes);
+  });
+
+  test("the preface fits its reserve at any plausible day, date and store size", () => {
+    const worst = prefaceLine({
+      system: WAKE_SYSTEM,
+      day: 999_999,
+      date: "2026-09-04",
+      memories: 999_999_999,
+    });
+    expect(byteLength(worst)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
+    expect(worst).toContain("999,999,999 memories");
+    expect(groupDigits(15_409)).toBe("15,409");
+    expect(groupDigits(0)).toBe("0");
+    // No date reported by the host is a preface without one, never an invented
+    // date and never a crash.
+    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2 })).toContain("day 1, 2 memories");
+  });
+
+  test("a DAMAGED bundle is delivered as found — a preface never rewrites a byte count", () => {
+    const s = store();
+    identity(s, "A full store, whose bundle got clipped in transit.");
+    const self = new Self({ store: s });
+    const published = self.boundary({ budgetBytes: 8_000, day: 0 });
+    const clipped = published.briefing.text.slice(0, 200);
+    s.setMeta(BRIEFING_KEY, clipped);
+
+    const woke = self.wake({ date: "2026-09-04" });
+    expect(woke.reason).toBe("sentinel-missing");
+    expect(woke.preface).toBe(null);
+    expect(woke.text).toBe(clipped);
+    // And the same refusal at the seam itself, for anything not a whole render.
+    expect(applyPreface(BOOTSTRAP, "x").applied).toBe(false);
+    expect(applyPreface(BOOTSTRAP, "x").text).toBe(BOOTSTRAP);
   });
 
   test("THE RECONCILER: a new identity element reaches the next wake without a human", () => {

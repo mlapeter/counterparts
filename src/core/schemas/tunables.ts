@@ -32,4 +32,13 @@ export const TUNABLES = {
 
   /** Why an entity's archive row says it left. One string, one meaning. */
   FADE_REASON: "faded-by-decay" as const,
+
+  /** What the versions row says when a belief fell to accumulated pressure. */
+  REVISED_REASON: "revised-by-pressure" as const,
+
+  /** And when a "now" fact was replaced on one clear correction (§4.3). The two
+   *  are DIFFERENT strings because they are different crossings: a reader of the
+   *  lineage must be able to tell a bar that was climbed from a fact that simply
+   *  changed (scar §2.4). */
+  REPLACED_REASON: "replaced-by-declaration" as const,
 } as const;
