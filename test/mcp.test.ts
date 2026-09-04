@@ -51,7 +51,7 @@ import {
 } from "../src/adapters/mcp/index.js";
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
-import { TUNABLES } from "../src/core/recall/index.js";
+import { TUNABLES as RECALL_TUNABLES } from "../src/core/recall/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const SESSION = "sess_mcp_1";
@@ -575,8 +575,8 @@ describe("recall — deliberate retrieval", () => {
     expect(result["truncated"]).toBe(true);
     expect(result["budget"] as string).toContain("ids");
     // `considered` is a cap, and the payload says which one (§9.1 G3).
-    expect(result["consideredCap"]).toBe(TUNABLES.MAX_CANDIDATES);
-    expect(result["considered"] as number).toBeLessThanOrEqual(TUNABLES.MAX_CANDIDATES);
+    expect(result["consideredCap"]).toBe(RECALL_TUNABLES.MAX_CANDIDATES);
+    expect(result["considered"] as number).toBeLessThanOrEqual(RECALL_TUNABLES.MAX_CANDIDATES);
   });
 
   test("ids expands a few of those in full, capped, and refuses a fourth", async () => {
