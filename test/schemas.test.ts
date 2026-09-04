@@ -883,6 +883,136 @@ describe("belief revision by pressure", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Current state — a "now" fact flips on one clear correction (SEAMS item O)
+// ---------------------------------------------------------------------------
+
+describe("current-state replacement (owner ruling 2026-09-04)", () => {
+  function setup(): { s: Schemas; entityId: string; stateId: string } {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const stateId = s.addCurrentState({
+      entityId,
+      statement: "Bansai is running as the live instance",
+      day: 0,
+      statedOn: "2026-08-01",
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    return { s, entityId, stateId };
+  }
+
+  test("a declared update REPLACES a now-fact immediately — no bar, no pressure", () => {
+    const { s, entityId, stateId } = setup();
+    const cid = challenger(s.store, {
+      day: 1,
+      salience: 0.45,
+      body: "Bansai is muted; counterparts is primary",
+    });
+    const out = s.replaceCurrentState({ updates: stateId, challengerId: cid, day: 1 });
+
+    expect(out.reason).toBe("replaced");
+    expect(out.successorId).not.toBeNull();
+    // The correction did not have to climb anything: world state flips on one
+    // clear correction (§4.3), so the pressure field never moved.
+    expect(s.store.physicsOf(stateId).pressure).toBe(0);
+    expect(s.store.physicsOf(stateId).lastChallengedDay).toBeNull();
+    expect(s.events("revision.pressure")).toHaveLength(0);
+
+    // Lineage, the same as any revision: the old row is retained, superseded,
+    // and still resolvable (constitution 7).
+    const successorId = out.successorId as string;
+    expect(s.store.read(stateId).supersededBy).toBe(successorId);
+    expect(s.store.resolve(stateId)).toBe(successorId);
+    expect(s.store.readVersion(stateId, 1).body).toBe("Bansai is running as the live instance");
+    expect(s.store.versions(stateId).map((v) => v.reason)).toEqual([TUNABLES.REPLACED_REASON]);
+
+    // ... and the successor stays attached, as current state, on the same entity.
+    expect(s.element(successorId)?.role).toBe("current-state");
+    expect(s.element(successorId)?.entityId).toBe(entityId);
+    expect(s.currentState(entityId).map((c) => c.id)).toEqual([successorId]);
+    expect(s.slices()[0]?.currentState.map((c) => c.statement)).toEqual([
+      "Bansai is muted; counterparts is primary",
+    ]);
+    // A replaced status is a status as of the day that replaced it.
+    expect(s.element(successorId)?.statedOnDay).toBe(1);
+    expect(s.store.row(successorId)?.source).toBe("accommodation");
+  });
+
+  test("the versions row says WHICH crossing ran — a replace is not a climbed bar", () => {
+    const { s, stateId } = setup();
+    const cid = challenger(s.store, { day: 1, salience: 0.45, body: "muted now" });
+    s.replaceCurrentState({ updates: stateId, challengerId: cid, day: 1 });
+    expect(TUNABLES.REPLACED_REASON).not.toBe(TUNABLES.REVISED_REASON);
+    expect(s.store.versions(stateId)[0]?.reason).toBe("replaced-by-declaration");
+  });
+
+  test("a declaration against a SUPERSEDED now-fact is forwarded, never dangled", () => {
+    const { s, stateId } = setup();
+    const first = challenger(s.store, { day: 1, salience: 0.45, body: "muted now" });
+    const head = s.replaceCurrentState({ updates: stateId, challengerId: first, day: 1 })
+      .successorId as string;
+    const second = challenger(s.store, { day: 2, salience: 0.45, body: "retired entirely" });
+    // The declaration names the ORIGINAL id, a week out of date.
+    const out = s.replaceCurrentState({ updates: stateId, challengerId: second, day: 2 });
+    expect(out.retargeted).toBe(true);
+    expect(out.targetId).toBe(head);
+    expect(out.reason).toBe("replaced");
+  });
+
+  test("every refusal names its own ground, and none of them throws", () => {
+    const { s, entityId, stateId } = setup();
+    const cid = challenger(s.store, { day: 1, salience: 0.45, body: "evidence" });
+    const beliefId = s.addBelief({ entityId, statement: "it is a memory system", day: 0 })
+      .id as string;
+
+    expect(s.replaceCurrentState({ updates: "", challengerId: cid, day: 1 }).reason).toBe(
+      "no-declared-target",
+    );
+    expect(
+      s.replaceCurrentState({ updates: "sch_deadbeefdead", challengerId: cid, day: 1 }).reason,
+    ).toBe("target-unresolvable");
+    // A belief is not a now-fact: it takes pressure, and this path says so.
+    expect(s.replaceCurrentState({ updates: beliefId, challengerId: cid, day: 1 }).reason).toBe(
+      "target-not-current-state",
+    );
+    expect(s.replaceCurrentState({ updates: entityId, challengerId: cid, day: 1 }).reason).toBe(
+      "target-not-current-state",
+    );
+    expect(
+      s.replaceCurrentState({ updates: stateId, challengerId: "mem_deadbeefdead", day: 1 }).reason,
+    ).toBe("challenger-unknown");
+
+    // Nothing moved on any of them.
+    expect(s.store.read(stateId).supersededBy).toBeNull();
+    expect(s.events("schema.state.replace.refused")).toHaveLength(5);
+  });
+
+  test("a PROTECTED now-fact refuses the replace path too (§5 G11)", () => {
+    const { s, stateId } = setup();
+    s.store.updatePhysics(stateId, { protected: true });
+    const cid = challenger(s.store, { day: 1, salience: 1, body: "it changed" });
+    expect(s.replaceCurrentState({ updates: stateId, challengerId: cid, day: 1 }).reason).toBe(
+      "protected-refuses-revision",
+    );
+    expect(s.store.read(stateId).supersededBy).toBeNull();
+  });
+
+  test("an archived-but-unsuperseded now-fact refuses with its own reason", () => {
+    const { s, stateId } = setup();
+    s.store.archive(stateId, "owner-retired-it");
+    const cid = challenger(s.store, { day: 1, salience: 0.45, body: "it changed" });
+    expect(s.replaceCurrentState({ updates: stateId, challengerId: cid, day: 1 }).reason).toBe(
+      "target-archived",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The placement rule — the ~72 KB lesson
 // ---------------------------------------------------------------------------
 
@@ -1226,6 +1356,10 @@ const PRIVATE_HELPERS = new Set([
   "requireEntity",
   "mintElement",
   "supersedeBelief",
+  // SEAMS item O: the ONE supersede flow both element paths cross (lineage,
+  // index registration, the SEAMS-E retarget, the crossing record). Shared so
+  // `replaceCurrentState` cannot quietly grow a second, thinner version of it.
+  "supersedeElement",
   "liveElementIds",
 ]);
 

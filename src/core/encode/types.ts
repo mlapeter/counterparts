@@ -248,6 +248,8 @@ export type GatedProposal = AcceptedProposal | RefusedProposal;
 export type DurableEffect =
   | { effect: "memory.create"; ref: string; kind: Kind; contentHash: string }
   | { effect: "entity.mention"; schemaId: string; ref: string }
+  /** `targetId` is the DECLARATION as written — encode resolves nothing. Its
+   *  applier is `core/revision.ts`, one apply per effect (see `chunk.ts`). */
   | { effect: "revision.challenge"; targetId: string; ref: string }
   | { effect: "prediction.check"; schemaId: string; ref: string; outcome: string };
 

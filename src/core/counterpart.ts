@@ -78,6 +78,7 @@ import type {
   SchemaSlice as EncodeSchemaSlice,
 } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
+import { applyRevision } from "./revision.js";
 import { Schemas } from "./schemas/index.js";
 import { PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
 import type {
@@ -1284,6 +1285,7 @@ export class Counterpart {
       blind: mint.blind,
     });
     this.mentionFromProposal(proposal, `deposit:${mint.id}`);
+    this.applyDeclaredRevision(proposal, mint, source);
     return {
       deposited: true,
       reason: "minted",
@@ -1475,7 +1477,60 @@ export class Counterpart {
         blind: mint.blind,
       });
       this.mentionFromProposal(proposal, `sweep:${chunk.index}`);
+      // The DOOR, not `SWEPT_SOURCE` — that field says "session-end" because
+      // `remember/`'s vocabulary has no word for a sweep (see its comment).
+      this.applyDeclaredRevision(proposal, mint, "sweep");
     }
+  }
+
+  /**
+   * SEAMS item O — the revision seam has a caller, at every door.
+   *
+   * `mint.ts` writes the resolved `updates:` into `doc.meta` and routes the
+   * claim through the freeze seam; `src/core/revision.ts` is where the claim
+   * actually LANDS, dispatching on what the declaration hit (a belief and an
+   * identity element take pressure, a "now" fact is replaced, everything else is
+   * a link). Until this line existed the whole surprise pipeline dissented into
+   * nothing: measured 2026-09-04, the live store had zero rows with pressure and
+   * zero `revision.pressure` events for its whole life.
+   *
+   * Called once per DECLARATION, resolved or not, so the applies stand one for
+   * one with `encode/`'s `revision.challenge` effects — an address that resolves
+   * to nothing becomes a countable refusal instead of silence.
+   */
+  private applyDeclaredRevision(proposal: Proposal, mint: MintResult, door: string): void {
+    const address = mint.updates ?? proposal.updates?.declared ?? null;
+    if (address === null) return;
+    const out = applyRevision(
+      this.store,
+      this.schemas,
+      {
+        updates: address,
+        challengerId: mint.id,
+        day: proposal.day,
+        // The matcher's own verdict travels: `mint.directionOf` decides ONCE
+        // whether this is a softening or a confirmation, for the freeze seam and
+        // for the pressure path alike (SEAMS N — the two must not disagree).
+        ...(proposal.updates?.method === undefined ? {} : { method: proposal.updates.method }),
+      },
+      {
+        // SEAMS E again, for the memory paths `schemas/` does not own.
+        retarget: (oldId, newId, day) => {
+          this.associate.retargetOnSupersede(oldId, newId, day);
+        },
+        onEvent: (name, data) => this.emit(name, undefined, data),
+      },
+    );
+    this.emit("counterpart.revision", mint.id, {
+      door,
+      path: out.path,
+      reason: out.reason,
+      target: out.targetId,
+      credited: out.credited,
+      verdict: out.verdict,
+      successor: out.successorId,
+      day: proposal.day,
+    });
   }
 
   /**

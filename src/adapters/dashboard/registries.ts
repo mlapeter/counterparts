@@ -61,7 +61,9 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
 /**
  * Every event name that reaches box 2's `events` table — the DURABLE log, the
  * one that survives the process. Its writers today: `sleep/`'s consolidate,
- * prune, dedup and decay phases, `schemas/`'s credited challenge, the
+ * prune, dedup and decay phases, `schemas/`'s credited challenge and
+ * `core/revision.ts`'s identity arm (the same name, the same shape, the same
+ * dedup latch — a story does not care which arm moved the row), the
  * composition root's two records — the chunk gate's, and one per turn's
  * surfacing decision — and the one narrow seam an ADAPTER may write through
  * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
@@ -111,7 +113,7 @@ export const DURABLE_EVENTS = {
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
-  "revision.pressure": "a belief took a credited challenge",
+  "revision.pressure": "a belief or an identity element took a credited challenge",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(
