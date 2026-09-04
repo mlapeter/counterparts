@@ -111,7 +111,7 @@ names — move the default behind the gate verdict — closes both.
 
 ## 7. The authorship ask has no RETURN CHANNEL in this host's hooks
 
-**What exists.** `stop()` raises `AUTHORSHIP_ASK` whenever the scope holds spans
+**What exists.** `stop()` raises `authorshipAsk(sessionId)` whenever the scope holds spans
 no proposal has covered, measured (not assumed) from
 `SpanBuffer.coverageReport`. The entry script prints it into the model's context.
 `Counterpart.submitSessionEnd` is the entrance that turns a written dump into a
