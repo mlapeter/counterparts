@@ -35,13 +35,15 @@ export const TUNABLES = {
    *  TAU_DUP 0.95 can never merge). TOO LONG costs only DELAY: a genuinely
    *  crashed session's spans wait in the buffer for the next worker run past
    *  the window — nothing is lost, because nothing is dropped. An asymmetric
-   *  cost gets the generous number. 60 minutes is longer than any inter-turn
-   *  gap observed in the parallel run's transcripts and short enough that a
-   *  crash is recovered the same day.
+   *  cost gets the generous number, and 60 minutes is a judgement, not a
+   *  finding: long enough that an ordinary pause in a live session is not read
+   *  as a death, short enough that a real crash is recovered the same day.
    *
-   *  The measurement that would calibrate it (CAL, owed): count sessions swept
-   *  under this rule that LATER received an authored deposit. A nonzero count
-   *  is the window being too short. */
+   *  NOT MEASURED, and both halves are owed (scar §2.8): (a) the distribution
+   *  of inter-turn gaps inside live sessions — the number this window has to
+   *  clear — and (b) sessions swept under this rule that LATER received an
+   *  authored deposit, which is the falsifier. A nonzero (b) is the window
+   *  being too short. */
   CRASH_STALE_MS: 60 * 60_000,
   /** Target bytes per fallback chunk. Chunking is per-chunk failure isolation
    *  (scar E1), not a token budget — the budget belongs to whoever injects the

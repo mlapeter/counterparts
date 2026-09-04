@@ -175,16 +175,16 @@ used?"); telemetry by reference.
     about the person and about oneself. It sanctions honesty about a routine stretch and
     closes *"write for the next you, not as a report."* Wording is a preference; that an
     ask exists at every session-ending path is mechanized.
-12. **[M] The fallback reads a transcript only for a CRASHED session**, by the
+12. **[M] Coverage of the session is measured, not assumed.** The stretch after the last
+    session-ending event that nobody can ask about is **bounded and logged**, so the miss
+    is measurable before anyone debates a reconstruction fallback (§13 known gap: *that is
+    the right shape for an unfixable gap — bound it, measure it, don't pretend*).
+13. **[M] The fallback reads a transcript only for a CRASHED session**, by the
     three-clause definition in §4, and every run records which of the two it was —
     `sweep.gate` in the durable log carries `ran`, `skippedNotCrashed` and the window it
     used, so "no sweep today" is a fact about the day and not a silence that could also
     be a dead worker (constitution 16, scar §2.4). The gate is answered **before** the
     claim, so a scope with nothing crashed costs no rename and no model call.
-13. **[M] Coverage of the session is measured, not assumed.** The stretch after the last
-    session-ending event that nobody can ask about is **bounded and logged**, so the miss
-    is measurable before anyone debates a reconstruction fallback (§13 known gap: *that is
-    the right shape for an unfixable gap — bound it, measure it, don't pretend*).
 
 ## 6. Scars honored
 
@@ -223,6 +223,12 @@ declarable field carries an admission test and a named negative example — v1's
    retirement that consumes covered spans without any model call; an age-based sweep of
    the buffer on the lived-day clock; nothing at all, if the measured growth stays
    trivial.
-6. **Is 60 minutes the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. The
+6. **A session that moved scope is judged per scope.** `crashedSessions` reads one
+   scope's `boundaries.jsonl`, so a session that captured under scope A and then ended
+   under scope B leaves A holding only `stop` boundaries — and A's spans for it are swept
+   once the window passes, even though the author did get the pen elsewhere. PR-1 found
+   11 real session ids under more than one scope, so this is not hypothetical; whether it
+   ever coincides with a session END in another scope is unmeasured.
+7. **Is 60 minutes the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. The
    falsifying measurement is named in `tunables.ts`: sessions swept under this rule that
    later received an authored deposit.

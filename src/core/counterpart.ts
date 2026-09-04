@@ -278,6 +278,9 @@ export interface SweepEntry {
    *  (`TUNABLES.CRASH_STALE_MS`). The replay harness overrides it, because a
    *  corpus of finished days is a corpus of sessions nobody will come back to. */
   crashStaleMs?: number;
+  /** The calendar date this run belongs to, carried into the `sweep.gate` row so
+   *  it is self-attributing. Absent ⇒ the row is attributed by lived day alone. */
+  date?: string;
 }
 
 export interface SessionEndInput {
@@ -930,7 +933,13 @@ export class Counterpart {
     const budgetBytes = input.budgetBytes ?? this.reportedBudget;
     if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
 
-    const sweeps = input.sweep === undefined ? [] : await this.sweepFallback(input.sweep);
+    const sweeps =
+      input.sweep === undefined
+        ? []
+        : await this.sweepFallback({
+            ...(input.date === undefined ? {} : { date: input.date }),
+            ...input.sweep,
+          });
     const edges = this.associate.flush();
 
     const render = selfRenderer(this.self, {
@@ -1013,7 +1022,7 @@ export class Counterpart {
       entry.scope !== undefined
         ? [await sweep(this.spans, { ...options, scope: entry.scope })]
         : await sweepAll(this.spans, options);
-    this.recordSweepGate(reports);
+    this.recordSweepGate(reports, entry.date ?? null);
     return reports;
   }
 
@@ -1029,7 +1038,7 @@ export class Counterpart {
    * Guarded the way `recordDecision` is — a lock lost to a concurrent process
    * must cost the ROW, never the sweep — and an observer writes nothing.
    */
-  private recordSweepGate(reports: readonly SweepReport[]): void {
+  private recordSweepGate(reports: readonly SweepReport[], date: string | null): void {
     if (this.observer) return;
     const ran = reports.filter((r) => r.ran).length;
     const skipped = reports.filter((r) => r.reason === "NO_CRASHED_SESSION").length;
@@ -1045,6 +1054,10 @@ export class Counterpart {
       restored: reports.reduce((n, r) => n + r.spansRestored, 0),
       quarantined: reports.reduce((n, r) => n + r.spansQuarantined, 0),
       crashStaleMs: this.spans.crashStaleMs,
+      // The CALENDAR date, when the caller knows it. `day` is the lived-day
+      // column, and a reader without this field can only attribute by that —
+      // the same hole `gate.chunk` has (parallel `readers.ts`, `livedDay`).
+      date,
     };
     let durable = true;
     try {

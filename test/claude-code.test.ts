@@ -928,6 +928,9 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
     expect(rows.length).toBe(2);
     expect({ ran: rows[0]?.["ran"], skipped: rows[0]?.["skippedNotCrashed"] }).toEqual({ ran: 0, skipped: 1 });
     expect(rows[1]?.["ran"]).toBe(1);
+    // Self-attributing: the row carries the calendar date the run belonged to,
+    // so a reader does not have to infer it from the lived-day column.
+    expect([rows[0]?.["date"], rows[1]?.["date"]]).toEqual(["2026-01-02", "2026-01-03"]);
   });
 
   test("a run sweeps the captured spans, mints, and publishes a briefing the next wake reads", async () => {
