@@ -46,10 +46,11 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 
 ## 5. Contract
 
-**Inputs** — MCP tool calls: `note(text[, salience, kind, title, updates])`,
-`recall(handle | question)`, `status()`, `session_end(session, memories[])`; the
-session's observer role; the launch's session, scope and data dir when the host can
-supply them.
+**Inputs** — MCP tool calls:
+`note(text[, salience, relevance, emotional, predictive, kind, title, updates])`,
+`recall(handle | question)`, `status()`, `session_end(session, memories[])` whose entries
+take the same optional dimensions; the session's observer role; the launch's session,
+scope and data dir when the host can supply them.
 **Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
 census (status); telemetry by reference.
 
@@ -61,6 +62,16 @@ census (status); telemetry by reference.
    high-salience floor **in its prompt only**, with no engine backstop — the single place a
    stated guarantee had no enforcement (§4.1 known gap). Here the claimed salience is a
    floor clamped in `physics/` §5.2, or the description does not claim it.
+   The same guarantee now covers **silence**: an entry that claims no salience gets the
+   authored channel's default floor at the mint seam rather than a zero (measured
+   2026-09-04: 48 authored rows, all dimensions zero, most unclaimed — the deliberate
+   channel's own deposits were the weakest things in the store). The ask never told the
+   model to set salience, so silence is the common case, and a mechanism that only works
+   when the model remembers to speak is the same class of gap this guarantee exists for.
+   An author's own **dimensions** (relevance, emotional, predictive) may be given per note
+   and per session-end entry; they reach the row exactly as written, an out-of-range one is
+   refused by name rather than clamped or dropped, and `novelty` remains unclaimable —
+   prediction error is measured, never asserted.
 3. **[M] Every tool carries an admission test and at least one named negative example** in
    its description, plus an engine-side check wherever the rule is safety-relevant
    (scar §2.16 — v1's `thread.open` shipped with no criteria and produced 33 opens and zero
@@ -137,12 +148,23 @@ this scar's direct descendant) · **§2.7** (the note traverses the one write ch
    down-moves) — the numbers that made v1's pathologies visible — not a store census.
 3. **Should `recall` expose the confidence label as a tier name or a number?** v1 labeled
    the fallback tier and left the rest implicit.
-4. **Is four hours the right TTL?** CAL. Every Stop refreshes the clock and the ask is
+4. **NAMED GAP: the stated-emotion gate cannot supply the `emotional` dimension.**
+   The obvious brain-faithful move — affect at encoding stamping a memory vivid — is not
+   available here, for two separate reasons, and neither was papered over. (a)
+   `encode/emotion.ts#gateEmotion` returns a `DurableFeeling` of `{type, subject}`: a
+   feeling that SURVIVED, with no magnitude anywhere on it, so there is no number to feed
+   `emotional` without inventing one — and inventing one is retro-typing emotion, which
+   §3 forbids. (b) These tool schemas expose no `feeling` field at all, so on the MCP
+   door the gate has nothing to fire on in the first place. Closing this means deciding
+   what a feeling's magnitude IS (a fired-cue count? a stated intensity the author
+   supplies alongside the type?) — a design question, not a wiring one. Until then the
+   author's own `emotional` score is the only route, which is why it is now exposed.
+5. **Is four hours the right TTL?** CAL. Every Stop refreshes the clock and the ask is
    delivered AT a Stop, so the window only ever bounds the gap between an ask and its
    answer: four hours is far past any plausible think-time and comfortably inside a day,
    so last night's session cannot be claimed into today's memory. The number to watch is
    `session-not-live` refusals — more than a rare one means the window is wrong.
-5. **Should `note` take a session claim too?** Today it deposits under the bound session
+6. **Should `note` take a session claim too?** Today it deposits under the bound session
    when there is one and under the literal `"mcp"` when there is not. Letting it BIND
    would give an in-the-moment jot the power to claim a day, which is more privilege
    than the tool needs; leaving it means an unbound server's notes still carry no

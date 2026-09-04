@@ -233,6 +233,69 @@ describe("[M] guarantee 2 — salience is fixed at birth; a claim is a floor wit
     expect(clamped.event?.claimed).toBe(0.9);
   });
 
+  test("no default claim unless the channel offers one — an omitted default leaves claimed null", () => {
+    const clamped = clampSalienceAtSeam(S(0), null);
+    expect({ defaulted: clamped.defaulted, claimed: clamped.salience.claimed }).toEqual({
+      defaulted: false,
+      claimed: null,
+    });
+    expect(clamped.defaultEvent).toBeNull();
+    expect(sal(clamped.salience)).toBe(0);
+  });
+
+  test("an UNCLAIMED memory takes the channel's default floor — and it is never a lift", () => {
+    const clamped = clampSalienceAtSeam(S(0), null, 1, TUNABLES.AUTHORED_DEFAULT_CLAIM);
+    expect(clamped.defaulted).toBe(true);
+    // The lift metric measures what AUTHORS claim; silence is not a claim, so the
+    // lift event stays silent and a separate record carries the default.
+    expect(clamped.lifted).toBe(false);
+    expect(clamped.event).toBeNull();
+    expect(clamped.defaultEvent).toEqual({
+      event: "salience.defaulted",
+      computed: 0,
+      floor: TUNABLES.AUTHORED_DEFAULT_CLAIM,
+      applied: TUNABLES.AUTHORED_DEFAULT_CLAIM,
+    });
+    expect(sal(clamped.salience)).toBeCloseTo(TUNABLES.AUTHORED_DEFAULT_CLAIM, 10);
+  });
+
+  test("an EXPLICIT claim, however low, is kept — the default never overrides testimony", () => {
+    const clamped = clampSalienceAtSeam(S(0), 0.05, 1, TUNABLES.AUTHORED_DEFAULT_CLAIM);
+    expect({ defaulted: clamped.defaulted, claimed: clamped.salience.claimed }).toEqual({
+      defaulted: false,
+      claimed: 0.05,
+    });
+    expect(sal(clamped.salience)).toBeCloseTo(0.05, 10);
+    // Even an explicit ZERO is testimony, not silence.
+    expect(clampSalienceAtSeam(S(0), 0, 1, TUNABLES.AUTHORED_DEFAULT_CLAIM).salience.claimed).toBe(0);
+  });
+
+  test("the default floor CANNOT park a memory in the semantic band — the F5 scar, as arithmetic", () => {
+    // v1's failure was a self-claimed 0.8 parking ~75% of the store above
+    // THETA_SEM. The bound here is structural rather than a check: the largest
+    // wSal is 1.0, and even WITH the consolidation bonus the default lands short.
+    const maxWSal = Math.max(...ALL_KINDS.map((k) => kindPhysics(k).wSal));
+    expect(maxWSal).toBe(1);
+    expect(TUNABLES.AUTHORED_DEFAULT_CLAIM + TUNABLES.CONS_BONUS).toBeLessThan(TUNABLES.THETA_SEM);
+    for (const kind of ALL_KINDS) {
+      const defaulted = mem({
+        kind,
+        salience: { novelty: null, relevance: 0, emotional: 0, predictive: 0, claimed: TUNABLES.AUTHORED_DEFAULT_CLAIM },
+        consolidated: true,
+      });
+      expect(band(defaulted, 0)).toBe("episodic");
+      expect(strength(defaulted, 0)).toBeLessThan(TUNABLES.THETA_SEM);
+    }
+  });
+
+  test("the default sits below the sweep ceiling and below the measured mean of real claims", () => {
+    expect(TUNABLES.AUTHORED_DEFAULT_CLAIM).toBeGreaterThan(0);
+    expect(TUNABLES.AUTHORED_DEFAULT_CLAIM).toBeLessThan(TUNABLES.SWEEP_CLAIM_CEILING);
+    // 0.34 = the mean of the claims authors DID make, measured 2026-09-04 on the
+    // live store. Staying silent must say strictly less than speaking.
+    expect(TUNABLES.AUTHORED_DEFAULT_CLAIM).toBeLessThan(0.34);
+  });
+
   test("the ceiling sits between the semantic and identity floors by construction", () => {
     expect(TUNABLES.SWEEP_CLAIM_CEILING).toBeGreaterThanOrEqual(TUNABLES.THETA_SEM);
     expect(TUNABLES.SWEEP_CLAIM_CEILING).toBeLessThan(TUNABLES.THETA_ID);

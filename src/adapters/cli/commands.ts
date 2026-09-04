@@ -31,6 +31,8 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart } from "../../core/counterpart.js";
+import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
+import { TUNABLES } from "../../core/physics/index.js";
 import {
   LAYOUT,
   Store,
@@ -42,11 +44,26 @@ import { exportStore } from "./export.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
-export const COMMANDS = ["status", "init", "export", "backup", "remove", "verify"] as const;
+export const COMMANDS = [
+  "status",
+  "init",
+  "export",
+  "backup",
+  "remove",
+  "verify",
+  "backfill-claims",
+] as const;
 export type Command = (typeof COMMANDS)[number];
 
 /** Commands that change durable state. Under observer, every one of them refuses. */
-export const OWNER_OPS: readonly Command[] = ["init", "export", "backup", "remove", "verify"];
+export const OWNER_OPS: readonly Command[] = [
+  "init",
+  "export",
+  "backup",
+  "remove",
+  "verify",
+  "backfill-claims",
+];
 
 export const EXIT = {
   ok: 0,
@@ -79,6 +96,8 @@ export function usage(): string {
     "  backup --out <dir>  Snapshot: prose + canonical DB via VACUUM INTO. Cache excluded.",
     "  remove <id>         The loud removal. Dry run unless --confirm.",
     "  verify              Rebuild the cache from canonical state and report.",
+    "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
+    "                      floor. Dry run unless --apply.",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
     "  --observer          Stand down: read-only, owner operations refuse.",
@@ -106,6 +125,7 @@ export function parse(argv: readonly string[]): Parsed {
       passphrase: { type: "string" },
       plaintext: { type: "boolean" },
       confirm: { type: "boolean" },
+      apply: { type: "boolean" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -175,6 +195,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return exportCommand(dir, io, parsed.flags);
       case "remove":
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
+      case "backfill-claims":
+        return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -555,6 +577,124 @@ async function removeCommand(
   } finally {
     store.close();
   }
+}
+
+// ── backfill-claims ─────────────────────────────────────────────────────────
+
+/**
+ * The one-shot repair for memories minted BEFORE the authored default existed.
+ *
+ * Measured 2026-09-04 on the parallel-run store: 48 authored memories, every
+ * one of them with relevance/emotional/predictive = 0, most with no claim — so
+ * `sal(m)` was 0 and the lived channel's own deposits were the weakest things in
+ * the store. New mints get the floor at the seam (`mint.ts`); these rows never
+ * crossed a seam that had one.
+ *
+ * Three properties, all of them the console's usual ones rather than new
+ * inventions: it is a DRY RUN unless `--apply`; it refuses under observer via
+ * `OWNER_OPS` (an instrument does not repair the store it is reading); and it
+ * touches only rows whose `source` is `authored` and whose `claimed` is NULL —
+ * an explicit claim, however low, is testimony and is never overwritten.
+ * Archived, superseded and removed rows are excluded: the repair is for what
+ * the store is still holding.
+ *
+ * Each write is two durable acts plus a record: the claim onto box 2
+ * (`updatePhysics`), the `claimedDefault` flag onto canonical prose (`revise`,
+ * which keeps the prior version — constitution 7), and a `salience.defaulted`
+ * row in the event log so the daily can count this run.
+ *
+ * `revise` re-hashes the whole serialized document, so every backfilled row's
+ * `content_hash` moves when the flag lands. That is inert by design and not an
+ * oversight: `content_hash` addresses the document (id and frontmatter
+ * included), which makes it a CHANGE detector, and `sleep/dedup.ts` deliberately
+ * hashes the BODY instead — its header says so in as many words. The
+ * content-idempotency ledger in `remember/` hashes normalized content and never
+ * reads this column at all.
+ */
+function backfillClaimsCommand(dir: string, io: Io, apply: boolean): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+  const floor = TUNABLES.AUTHORED_DEFAULT_CLAIM;
+
+  // The plan is made read-only, as every plan here is (scar E5).
+  const planning = Store.open({ dir, observer: true });
+  let targets: { id: string; kind: string; dims: string }[];
+  try {
+    targets = backfillTargets(planning);
+  } finally {
+    planning.close();
+  }
+
+  io.out(`Authored memories with no claimed salience: ${targets.length}`);
+  io.out(`Default floor to apply: ${floor} (physics TUNABLES.AUTHORED_DEFAULT_CLAIM)`);
+  // IDS AND NUMBERS ONLY — a repair report is not a place to print bodies.
+  for (const t of targets) io.out(`  ${t.id}  ${t.kind}  dims ${t.dims}`);
+
+  if (!apply) {
+    io.out("");
+    io.out("Dry run. Nothing has changed. Re-run with --apply to write the floor.");
+    return EXIT.ok;
+  }
+  if (targets.length === 0) {
+    io.out("");
+    io.out("Nothing to do.");
+    return EXIT.ok;
+  }
+
+  const store = Store.open({ dir });
+  let written = 0;
+  const failures: string[] = [];
+  try {
+    // RE-CHECK under the writing store: the plan was made against a store that
+    // may have moved, and this loop must not write a floor over a claim that
+    // arrived in between.
+    for (const target of backfillTargets(store)) {
+      try {
+        const physics = store.physicsOf(target.id);
+        store.updatePhysics(target.id, { salience: { ...physics.salience, claimed: floor } });
+        store.revise(
+          target.id,
+          { meta: { [CLAIMED_DEFAULT_META_KEY]: true }, reason: "salience.default" },
+        );
+        store.appendEvent({
+          name: "salience.defaulted",
+          day: store.livedDay(),
+          ref: target.id,
+          payload: { channel: "authored", floor, backfill: true },
+        });
+        written += 1;
+      } catch (err) {
+        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+      }
+    }
+  } finally {
+    store.close();
+  }
+
+  io.out("");
+  io.out(`Applied the default floor to ${written} memories.`);
+  for (const failure of failures) io.err(`  FAILED ${failure}`);
+  return failures.length === 0 ? EXIT.ok : EXIT.failed;
+}
+
+/** Live, authored, unclaimed — in that order, and nothing else. */
+function backfillTargets(store: Store): { id: string; kind: string; dims: string }[] {
+  const denied = new Set(store.deniedIds());
+  const out: { id: string; kind: string; dims: string }[] = [];
+  for (const id of store.list()) {
+    const row = store.row(id);
+    if (row === undefined || denied.has(id)) continue;
+    if (row.archived === 1 || row.superseded_by !== null) continue;
+    if (row.source !== "authored" || row.claimed !== null) continue;
+    out.push({
+      id,
+      kind: row.kind,
+      dims: `rel ${row.relevance} emo ${row.emotional} pred ${row.predictive}`,
+    });
+  }
+  return out;
 }
 
 /** Exported for the caller-universality test: the console composes a brain the

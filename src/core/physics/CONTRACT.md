@@ -92,6 +92,14 @@ other three dimensions are
 author-supplied, and a claimed salience is a **floor**: `sal(m) ≥ sal_claimed(m)`, clamped
 at the proposal→memory seam, any lift logged [v1 §4.1 G3].
 
+A memory whose author claimed **nothing** takes its channel's default floor, applied at the
+same seam and only when `claimed` is null: `AUTHORED_DEFAULT_CLAIM = 0.25` on the lived
+channel, nothing at all on the others. The number is bounded rather than chosen:
+`0.25 + cons = 0.45 < THETA_SEM`, so the default alone can never park a memory in the
+semantic band — the arithmetic form of the F5 scar. A default is recorded as `defaulted`
+(`salience.defaulted`, plus `meta.claimedDefault` on the row), never as a lift, and an
+explicit claim — however low — is never overridden. See NOTES.md item 16.
+
 ### 5.2 Strength — the one number
 
 ```
@@ -270,7 +278,8 @@ low-strength memory is still present and still retrievable by a strong enough cu
    never fetches one. A test asserts it imports nothing from `store/`, `encode/`, or any
    client.
 2. **[M]** Salience is fixed at birth; a claimed salience is a floor, clamped at the seam,
-   and a lift emits an event.
+   and a lift emits an event. An UNCLAIMED memory takes its channel's default floor —
+   recorded as a default, not as a lift — and no default can reach `THETA_SEM` on its own.
 3. **[M]** `base` is monotone non-decreasing: reinforcement re-lifts what decay eroded;
    nothing demotes what salience earned.
 4. **[M]** Repetition never reaches the identity band — structurally, from the cap

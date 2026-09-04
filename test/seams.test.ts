@@ -16,7 +16,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Store, WRITE_METHODS } from "../src/core/store/index.js";
-import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility } from "../src/core/physics/index.js";
+import {
+  TUNABLES as PHYSICS_TUNABLES,
+  challengeForce,
+  consolidationEligibility,
+  sal,
+  strength,
+} from "../src/core/physics/index.js";
 import { MEMORY_SOURCES } from "../src/core/types.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import {
@@ -31,7 +37,12 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { applyRevision } from "../src/core/revision.js";
 import { Dashboard, stripAnsi } from "../src/adapters/dashboard/index.js";
 import { batteryGate, episodeGate } from "../src/core/bridge.js";
-import { UPDATES_META_KEY, directionOf, mintProposal } from "../src/core/mint.js";
+import {
+  CLAIMED_DEFAULT_META_KEY,
+  UPDATES_META_KEY,
+  directionOf,
+  mintProposal,
+} from "../src/core/mint.js";
 import { SCALAR_REF, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import { Associate } from "../src/core/associate/index.js";
 import { Prospective } from "../src/core/prospective/index.js";
@@ -1836,6 +1847,133 @@ describe("mint-source doctrine — who wrote it is recorded, and a reteller's cl
     const row = s.row(minted.id);
     expect(row?.claimed).toBe(0.5);
     expect(s.readProse(minted.id).meta["claimedRaw"]).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The authored default floor — the doctrine's other half, at the same seam
+// (measured 2026-09-04: 48 authored rows, all dims 0, most unclaimed => sal 0)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("an UNCLAIMED authored memory gets the default floor; the swept channel is untouched", () => {
+  test("authored + no claim: the floor lands on the row, flagged in prose, announced once", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "The deploy needs the migration run before the container starts.",
+      kind: "fact",
+    });
+    const events: Record<string, unknown>[] = [];
+    const minted = mintProposal(s, p, { onEvent: (name, data) => events.push({ name, ...data }) });
+
+    const row = s.row(minted.id);
+    expect({ src: row?.source, claimed: row?.claimed }).toEqual({
+      src: "authored",
+      claimed: PHYSICS_TUNABLES.AUTHORED_DEFAULT_CLAIM,
+    });
+    // The DURABLE half: prose is canonical, so this is what the daily counts.
+    expect(s.readProse(minted.id).meta[CLAIMED_DEFAULT_META_KEY]).toBe(true);
+    expect({ defaulted: minted.defaulted, lifted: minted.lifted }).toEqual({
+      defaulted: true,
+      lifted: false,
+    });
+    // A default is NOT a lift: polluting `salience.lifted` would make the
+    // claimed-vs-computed watch metric read every silent note as a claim.
+    expect(events.some((e) => e["name"] === "salience.lifted")).toBe(false);
+    const defaulted = events.find((e) => e["name"] === "salience.defaulted");
+    expect({
+      channel: defaulted?.["channel"],
+      floor: defaulted?.["floor"],
+      computed: defaulted?.["computed"],
+    }).toEqual({
+      channel: "authored",
+      floor: PHYSICS_TUNABLES.AUTHORED_DEFAULT_CLAIM,
+      computed: 0,
+    });
+  });
+
+  test("an explicit LOW claim is kept exactly, and is not flagged as defaulted", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "A small preference, deliberately marked as barely worth holding.",
+      kind: "fact",
+      claimed: 0.05,
+    });
+    const minted = mintProposal(s, p);
+    expect(s.row(minted.id)?.claimed).toBe(0.05);
+    expect(minted.defaulted).toBe(false);
+    expect(s.readProse(minted.id).meta[CLAIMED_DEFAULT_META_KEY]).toBeUndefined();
+  });
+
+  test("a SWEPT proposal is unaffected: no default, no flag, claimed stays null", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "A crashed session's fragment that claimed nothing at all.",
+      kind: "fact",
+    });
+    const events: Record<string, unknown>[] = [];
+    const minted = mintProposal(s, p, {
+      channel: "fallback",
+      onEvent: (name, data) => events.push({ name, ...data }),
+    });
+    const row = s.row(minted.id);
+    expect({ src: row?.source, claimed: row?.claimed }).toEqual({ src: "fallback", claimed: null });
+    expect(minted.defaulted).toBe(false);
+    expect(s.readProse(minted.id).meta[CLAIMED_DEFAULT_META_KEY]).toBeUndefined();
+    expect(events.some((e) => e["name"] === "salience.defaulted")).toBe(false);
+  });
+
+  test("the author's own dimensions ride through the seam onto the row, the floor inert beside them", async () => {
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const p = await authored(buffer, {
+      content: "The migration ordering finally clicked, and it mattered.",
+      kind: "fact",
+      salience: { relevance: 0.9, emotional: 0.6, predictive: 0.9 },
+    });
+    const minted = mintProposal(s, p);
+    const row = s.row(minted.id);
+    expect({ rel: row?.relevance, emo: row?.emotional, pred: row?.predictive }).toEqual({
+      rel: 0.9,
+      emo: 0.6,
+      pred: 0.9,
+    });
+    // The claim was still absent, so the floor is still recorded — it is simply
+    // inert: sal(m) is the dimensions' mean, which out-ranks it.
+    expect(minted.defaulted).toBe(true);
+    expect(sal(s.physicsOf(minted.id).salience)).toBeCloseTo(0.8, 10);
+  });
+
+  test("STRENGTH ORDERING: same kind, same zero dims, same day — the authored mint is the stronger one", async () => {
+    // The exact assertion, and no more: two memories that differ ONLY in
+    // channel, both with zero dimensions and neither claiming anything. Before
+    // this change both scored 0. It is deliberately NOT a claim that an
+    // unclaimed note out-ranks a TYPICAL swept memory (whose interpreter dims
+    // average ~0.55) — inflating the default to win that comparison is the F5
+    // scar wearing a new hat.
+    const s = store();
+    const buffer = new SpanBuffer({ dir });
+    const pa = await authored(buffer, {
+      content: "An ordinary thing the experiencer chose to write down.",
+      kind: "fact",
+    });
+    const pf = await authored(buffer, {
+      content: "An ordinary thing a summarizer noticed after the fact.",
+      kind: "fact",
+    });
+    const a = mintProposal(s, pa);
+    const f = mintProposal(s, pf, { channel: "fallback" });
+    const day = s.livedDay();
+    const sa = strength(s.physicsOf(a.id), day);
+    const sf = strength(s.physicsOf(f.id), day);
+    expect(sf).toBe(0);
+    expect(sa).toBeCloseTo(PHYSICS_TUNABLES.AUTHORED_DEFAULT_CLAIM, 10);
+    expect(sa).toBeGreaterThan(sf);
+    // And the consequence the measurement was actually about: a challenge the
+    // authored memory declares now pushes with force, where it pushed with none.
+    expect(challengeForce(s.physicsOf(a.id), day)).toBeGreaterThan(0);
+    expect(challengeForce(s.physicsOf(f.id), day)).toBe(0);
   });
 });
 
