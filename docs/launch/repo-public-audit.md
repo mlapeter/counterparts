@@ -268,7 +268,7 @@ positive costs a table row, a false negative ships someone's name.
 | `scratchpad-path` | 2 | 1 | **REWRITE** | Both in `docs/live-verify-2026-08-25.md`. See 4.2. |
 | `owner-site` | 1 | 1 | **SHIP** | `mikelapeter.com/lab/memory` in `CONSTITUTION.md:52` — the author's public site, cited as the reference shelf. Keep it; it is a credential for the project, not a leak. |
 
-### 4.2 The specific rewrites (5 sites, all one-line edits, no history surgery)
+### 4.2 The pattern-found rewrites (small, mechanical; the serious ones are in §6)
 
 | # | file:line | what is there | rewrite to |
 |---|---|---|---|
@@ -408,14 +408,15 @@ v1 store by name is a shipped safety feature and the scar it pays for is cited i
 
 ### `test/` (24 files)
 
-**SHIP, with R4 and the R6 decision.** Fixtures are synthetic throughout (§3.2). Fixture
-people are `Mike` (the owner as the fixture identity — correct, it is his memory system),
-`Ada`, `Robin Fielding` / `Robin Chen`, `Mike Chen`, `Atlas`, `Paris`, and `Katie` (R6).
+**SHIP, except the two below.** Credential fixtures are synthetic throughout (§3.2).
+Fixture people are `Mike` (the owner as the fixture identity — correct, it is his memory
+system), `Ada`, `Robin Fielding` / `Robin Chen` (a Roy Fielding pun), `Mike Chen`, `Atlas`,
+`Paris` — and `Katie`, who is the exception and the reason item 1 of §8 exists.
 
 | path | verdict | reason |
 |---|---|---|
 | `test/claude-code.test.ts` | REWRITE | **R4** — `mlapeter-41` ×7 → `peer-41`. |
-| `test/migrate.test.ts` | REWRITE-if-real | **R6** — the "Katie" fixture. NEEDS-OWNER. |
+| `test/migrate.test.ts` | **NEEDS-OWNER, then REWRITE** | **H-B** (§6.1) — the "Katie" persona and her two belief statements, in a fixture modeled file-for-file on the live store's layout including the real `schemas/person-katie.md` filename. Not a string swap: `:726` asserts `e.name === "Katie"`. |
 | `test/README.md` | REWRITE | One line, and it is stale: "Tests land with implementation, after the skeleton check-in." 1,431 tests have landed. |
 | all other `test/*.ts` | SHIP | Hermetic, synthetic, and the suite is a selling point. |
 
@@ -665,10 +666,9 @@ event?** If yes it is a 15-file rename (`src/core/prospective/*`, `src/core/reca
 is example-writing and needs no change — but it is one question and the cost of being wrong
 is a stranger reading a real person's move date.
 
-### Step 1 — the content rewrites (§4.2), on a normal PR branch
+### Step 1 — the content rewrites (§6 and §4.2), on a normal PR branch
 
-Not master directly. These are docs/tests only, so they are free under the parallel-run
-rule (no `src/` behaviour change).
+Not master directly.
 
 ```sh
 # owner executes
