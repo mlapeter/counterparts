@@ -8,8 +8,9 @@ was cleaned is therefore the **working tree**, and that work is done: see the re
 `launch/w3-depersonalize` and, until it is deleted at step 3, `docs/launch/repo-public-audit.md`
 for what each one was and why.*
 
-**Every step below is executed by the owner. No agent runs any of it.** Steps 5 and 8 are
-the ones that are hard to undo; everything before them is reversible.
+**Every step below is executed by the owner. No agent runs any of it.** **Step 8 is the
+one that cannot be undone.** Everything before it is a commit or a local edit and can be
+put back.
 
 This file deliberately does **not** restate what was redacted. Naming the removals in a
 file that ships would put them back.
@@ -31,10 +32,11 @@ nothing ships that is not merged.
 ```
 
 Both scanners are over-broad on purpose: a hit is a question, not a verdict. What the
-last run left behind was, in every case, one of three deliberate things — a business or
-product name the owner has ruled fine, the author's own name in his own project, or a
+last run left behind was, in every case, one of four deliberate things — a business or
+product name the owner has ruled fine; the author's own name in his own project; a
 dotfile name that is load-bearing product behaviour (the guard that refuses to open a
-live v1 store has to name it). **A hit in a class or a file that is new since then is the
+live v1 store has to name it); or a record id from the project's own instruments, cited
+as the evidence for a number. **A hit in a class or a file that is new since then is the
 one to read.** Files added after the audit — anything under `tools/demo/`, and the launch
 status documents — were covered by the pattern scan but never read end to end by a human;
 a regex cannot find a name nobody knew to look for.
@@ -77,15 +79,17 @@ credentials.env
 ```
 
 **6. Read the 30 PR bodies.** They become public with the repo and no file scan covers
-them. The audit pattern-scanned them; it did not read them. Two are already known to
-need an edit, and the first is the only absolute home path that would be visible
-anywhere on the public repo:
+them. The audit pattern-scanned them; it did not read them. One needs an edit: **PR #19**
+carries the only absolute home path that would be visible anywhere on the public repo.
 
 ```sh
 gh pr list --repo mlapeter/counterparts --state all --limit 40 --json number,title,body > /tmp/pr-bodies.json
 gh pr edit 19 --repo mlapeter/counterparts --body-file /tmp/pr19-body.md   # after editing it
-gh pr edit 17 --repo mlapeter/counterparts --body-file /tmp/pr17-body.md   # after editing it
 ```
+
+Optional, not needed: **PR #17**'s body quotes a test fixture name that the tree has since
+renamed. The old name is the owner's own handle, which the ruling permits — edit it only
+if he wants the PR body and the tree to read the same.
 
 Seventeen PR bodies carry a "Generated with Claude Code" trailer. Fine to keep — the
 project's whole premise says the work is agent-assisted — but it should be a choice.
