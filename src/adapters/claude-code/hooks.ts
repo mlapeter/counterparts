@@ -343,6 +343,12 @@ export class ClaudeCodeAdapter {
         bytes: decision.bytes,
         budget: decision.budgetBytes,
         observer: decision.observer,
+        // WHERE the semantic channel's input came from, on the row a coverage
+        // watch can read out of the store tomorrow. `semantic: "none"` on every
+        // real turn is exactly the finding this PR closes; anything but
+        // "lagged" here after a worker ran is the lag failing, by name.
+        semantic: decision.semanticSource,
+        semanticFrom: decision.semanticFromTurn,
       });
       return {
         ...out,
@@ -408,7 +414,7 @@ export class ClaudeCodeAdapter {
       // 61 memories beside 34 the model had authored itself.
       const authorshipAsk = deliver ? this.askForAuthorship(input) : null;
       const ask = deliver ? this.askForEpisode(input) : null;
-      const spawn = this.spawnWorker();
+      const spawn = this.spawnWorker(input);
       return { ...claimed, ask, authorshipAsk, spawn };
     });
   }
@@ -422,7 +428,7 @@ export class ClaudeCodeAdapter {
       // sweep's job, not the experiencer's.
       this.noteSession("end", input);
       this.noteTail(input);
-      return { ...claimed, spawn: this.spawnWorker() };
+      return { ...claimed, spawn: this.spawnWorker(input) };
     });
   }
 
@@ -670,7 +676,16 @@ export class ClaudeCodeAdapter {
    * against the staleness window, credential, data dir, stance — and a refusal
    * that repeats ESCALATES rather than re-logging (scar E4's widening).
    */
-  private spawnWorker(): SpawnOutcome {
+  private spawnWorker(input?: HookInput): SpawnOutcome {
+    // The child is TOLD whose turn it just followed. Without it the worker can
+    // sweep and sleep but cannot leave the next turn a semantic cue, because
+    // that cue is per-session state (`recall/session.ts`).
+    const bound = {
+      ...(input?.sessionId === undefined || input.sessionId.length === 0
+        ? {}
+        : { session: input.sessionId }),
+      ...(input?.scope === undefined || input.scope.length === 0 ? {} : { scope: input.scope }),
+    };
     const seat = interpretSeat(this.config, new Date(this.nowFn()).toISOString().slice(0, 10));
     if (!seat.usable) {
       // A placeholder that expired is a decision nobody made; the worker's only
@@ -683,6 +698,7 @@ export class ClaudeCodeAdapter {
       command: this.command,
       args: this.args,
       priorFailures: 0,
+      ...bound,
     });
     const prior = plan.ok ? 0 : reasonKey(plan.reason);
     const replanned = plan.ok
@@ -692,6 +708,7 @@ export class ClaudeCodeAdapter {
           command: this.command,
           args: this.args,
           priorFailures: prior,
+          ...bound,
         });
     const outcome = spawnDetached(replanned, {
       ...(this.spawner === undefined ? {} : { spawner: this.spawner }),

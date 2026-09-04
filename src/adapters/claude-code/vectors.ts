@@ -1,0 +1,286 @@
+/**
+ * The worker's two vector jobs — the half of the semantic channel that is
+ * allowed to take a second.
+ *
+ * **The finding, 2026-09-04, on the live store.** `RecallTurn.vector` has been
+ * an input since `recall/` was written and NEITHER live path set it: the
+ * UserPromptSubmit hook built its turn without one and the MCP recall tool built
+ * its own. So the 13,862 embeddings the store had paid for were consulted by
+ * nothing live — the semantic channel existed in tests and in the sweep's card
+ * preselection and nowhere a person could feel it. And only the sweep ever
+ * warmed a vector, so 40 authored notes, 224 episodes and 288 migrated memories
+ * had none at all: the channel was blind to the first-person material even where
+ * it did fire.
+ *
+ * **The ruling (Mike, 2026-09-04): do not embed on the hot path.** Every hook is
+ * a fresh process that already spends 700-1000 ms cold against a 1200 ms recall
+ * budget, and `recall.build` is a synchronous pass with checkpoints — an overrun
+ * does not degrade the channel, it aborts the whole turn. So the cue is computed
+ * AFTER a turn and used on the NEXT one, the way carried cues already work.
+ *
+ * **And the RANK travels with it, not the vector.** Measured hermetically at the
+ * live index's size, `Store.nearestTo` over 13,862 vectors costs 590-1040 ms:
+ * `cache.nearest` reads and JSON-parses every row. Handing the hot path a vector
+ * would have moved the network call off it and left that scan on it — the same
+ * abort one layer down. So this file embeds AND ranks, and stores the top-M
+ * `{id, score}` slice as per-session gate state (`recall/session.ts`).
+ *
+ * Both jobs run in the detached worker, both take the injected `fetch` and the
+ * watchdog's `AbortSignal`, and neither may fail the run: an embedder that
+ * cannot embed costs a cue, never a day.
+ */
+import { EMBED_BACKFILL_EVENT, SEMANTIC_LAG_EVENT } from "../../core/counterpart.js";
+import type { Counterpart } from "../../core/counterpart.js";
+import { stripBoilerplate } from "../../core/recall/index.js";
+import type { SemanticReason } from "../../core/recall/index.js";
+import { indexTextOf } from "../../core/store/index.js";
+
+import type { LiveEmbedder } from "./embed-client.js";
+
+export type Emit = (name: string, data: Record<string, string | number | boolean | null>) => void;
+
+/**
+ * How much of the just-finished turn becomes the next turn's cue.
+ *
+ * **The conversation side in full (to a cap), a SHORT tail of the reply.** The
+ * prompt is what the next turn continues from — topic continuity is the thing
+ * being cued. Precisely: the conversation-side SPAN, which `SpanBuffer.capture`
+ * builds by joining every non-assistant turn of the window `enters()` kept. That
+ * is mostly the owner's own words, and since 2026-09-04 it may also carry a peer
+ * session's message — rewritten in place to name its speaker, and therefore
+ * legible in the cue rather than mistakable for the owner (CONTRACT G12). It
+ * cannot carry this system's own asks: those are `ritual` and enter nothing
+ * (G11), which is what keeps the cue from being an embedding of our own
+ * boilerplate. The reply is included because a turn is an
+ * exchange and the material actually discussed often appears only there; it is
+ * bounded hard because an assistant turn can be twenty times the prompt and a
+ * long one would drown the prompt in the embedding, which is the semantic
+ * analogue of the cue-flood scar (§2.4). 2000/800 bytes: CAL, chosen so the
+ * prompt keeps at least ~70% of the joined text at typical lengths and the whole
+ * cue stays inside one embedding call. Not measured against surfacing quality
+ * yet — the day-1 watch is whether `semantic: "lagged"` turns into surfaced
+ * items that were not already lexically cued.
+ */
+export const LAG_PROMPT_BYTES = 2000;
+export const LAG_REPLY_BYTES = 800;
+
+/** How many unembedded memories one worker run may pay for. CAL. */
+export const BACKFILL_LIMIT = 64;
+
+export interface LagReport {
+  readonly reason: SemanticReason;
+  readonly stored: boolean;
+  readonly hits: number;
+  /** Bytes of turn text embedded. Never the text itself. */
+  readonly bytes: number;
+}
+
+/**
+ * Compute the next turn's semantic cue for one session.
+ *
+ * It reads the session's own last exchange out of the span buffer — which is why
+ * it must run BEFORE the sweep, whose claim moves those spans out of the live
+ * buffer. The text is stripped of host boilerplate first: recall's §9 G3 says
+ * "before cue extraction AND before embedding", and it was measured — an image
+ * placeholder token surfaced an unrelated image-cache memory.
+ *
+ * It ALWAYS records something. A run with no embedder writes `embedder-off`, a
+ * run with no credential writes `no-credentials`, and the next turn's decision
+ * says so by name rather than looking identical to a session nobody has spoken
+ * in yet (scar §2.4).
+ */
+export async function laggedSemantic(input: {
+  counterpart: Counterpart;
+  sessionId: string;
+  scope: string;
+  embedder: LiveEmbedder | null;
+  /** Present ⇒ a credential answered. Its VALUE is never read here. */
+  hasCredential: boolean;
+  onEvent?: Emit;
+}): Promise<LagReport> {
+  const { counterpart, sessionId, scope } = input;
+  const emit = input.onEvent ?? ((): void => {});
+  const note = (reason: SemanticReason, vector: number[] | null, bytes: number): LagReport => {
+    const out = counterpart.noteSessionSemantic({
+      sessionId,
+      reason,
+      vector,
+      model: input.embedder?.model ?? null,
+    });
+    emit("vectors.lag", { reason: out.reason, hits: out.hits, stored: out.stored, bytes });
+    // Durable through `noteAdapterEvent`, the ONE seam an adapter may write the
+    // event log through — so tomorrow's coverage watch can count the turns whose
+    // cue never got computed, and why, after this process is gone.
+    if (!counterpart.observer) {
+      counterpart.noteAdapterEvent(SEMANTIC_LAG_EVENT, {
+        session: sessionId,
+        reason: out.reason,
+        hits: out.hits,
+        stored: out.stored,
+        turn: out.turn,
+        bytes,
+      });
+    }
+    return { reason: out.reason, stored: out.stored, hits: out.hits, bytes };
+  };
+
+  if (input.embedder === null) return note("embedder-off", null, 0);
+  if (!input.hasCredential) return note("no-credentials", null, 0);
+
+  const text = lagText(counterpart, sessionId, scope);
+  if (text.length === 0) return note("no-text", null, 0);
+
+  let vector: number[] | null = null;
+  try {
+    vector = await input.embedder.vector(text);
+  } catch {
+    // `LiveEmbedder.vector` is documented never to throw; if a future one does,
+    // a cue is still not worth a failed run.
+    vector = null;
+  }
+  return note(vector === null ? "embed-failed" : "ok", vector, text.length);
+}
+
+/**
+ * The last exchange of one session, bounded and stripped — the string this cue
+ * is computed from.
+ *
+ * Exported for the test that asserts the bound and the strip, because "we
+ * embedded the right thing" is not observable from a vector.
+ */
+export function lagText(counterpart: Counterpart, sessionId: string, scope: string): string {
+  const mine = (kind: string): string | null => {
+    const spans = counterpart.spans.spans(scope);
+    for (let i = spans.length - 1; i >= 0; i -= 1) {
+      const s = spans[i];
+      if (s !== undefined && s.session === sessionId && s.kind === kind) return s.text;
+    }
+    return null;
+  };
+  const prompt = clip(strip(mine("conversation")), LAG_PROMPT_BYTES);
+  // The assistant's words live in their own stream (`assistantSpans`), captured
+  // beside the conversation ones.
+  const replies = counterpart.spans.assistantSpans(scope).filter((s) => s.session === sessionId);
+  const reply = clip(strip(replies.at(-1)?.text ?? null), LAG_REPLY_BYTES);
+  return [prompt, reply].filter((s) => s.length > 0).join("\n\n");
+}
+
+function strip(text: string | null): string {
+  if (text === null) return "";
+  return stripBoilerplate(text).text.trim();
+}
+
+/** Head, not tail: a prompt states its subject first, and a truncated cue that
+ *  kept only the closing courtesy is a cue for nothing. */
+function clip(text: string, bytes: number): string {
+  return text.length <= bytes ? text : text.slice(0, bytes);
+}
+
+export interface BackfillReport {
+  readonly embedded: number;
+  readonly failed: number;
+  /** Live memories still without a vector AFTER this run. The number that must
+   *  fall run over run, and the one a coverage watch reads. */
+  readonly remaining: number;
+  readonly attempted: number;
+  readonly reason: "ran" | "embedder-off" | "no-credentials" | "nothing-missing" | "observer";
+}
+
+/**
+ * Give vectors to memories that have none — up to `BACKFILL_LIMIT` per run,
+ * **first-person material first**.
+ *
+ * `Store.missingVectors` owns the order and states why: what the experiencer
+ * authored (`source = 'authored'`) and its own episodes come before everything else,
+ * oldest first inside each group. A bounded backfill that only ever reaches N
+ * per run should reach the memories this brain wrote about itself.
+ *
+ * **This is the GUARANTEED path, not the only one.** The authored door already
+ * warms its own vector when a `vectors` socket is wired — `submitJot` runs the
+ * battery gate, which embeds the GATED text, and `Store.put` then finds it in
+ * the same cache. But that only helps a deposit made while an embedder was
+ * configured; every memory that predates the embedder, arrived by migration, or
+ * was minted on a run whose credential was missing has nothing, and no future
+ * deposit will ever come back for it. This does.
+ *
+ * The two-step is the seam that makes it work and the one that can silently
+ * break: `warm()` fills the live embedder's cache keyed by
+ * `indexTextOf(title, body)`, and `Store.embedOne` looks it up by exactly that
+ * string. `embedOne` reports `vector: false` on a miss, so a backfill that
+ * warmed the wrong text reports zero embedded — never a success count over an
+ * empty `embeddings` table, which is the shape of the run this whole PR exists
+ * to stop repeating.
+ */
+export async function backfillVectors(input: {
+  counterpart: Counterpart;
+  embedder: LiveEmbedder | null;
+  hasCredential: boolean;
+  limit?: number;
+  onEvent?: Emit;
+}): Promise<BackfillReport> {
+  const { counterpart } = input;
+  const emit = input.onEvent ?? ((): void => {});
+  const limit = input.limit ?? BACKFILL_LIMIT;
+  const store = counterpart.store;
+
+  const done = (
+    reason: BackfillReport["reason"],
+    embedded: number,
+    failed: number,
+    attempted: number,
+  ): BackfillReport => {
+    const remaining = store.unembeddedCount();
+    const report: BackfillReport = { embedded, failed, remaining, attempted, reason };
+    emit("vectors.backfill", { ...report });
+    if (!counterpart.observer) {
+      // Durable, because a coverage watch that lives in a detached process's
+      // stderr is a watch nobody can read tomorrow.
+      counterpart.noteAdapterEvent(EMBED_BACKFILL_EVENT, { ...report });
+    }
+    return report;
+  };
+
+  if (counterpart.observer) return done("observer", 0, 0, 0);
+  if (input.embedder === null) return done("embedder-off", 0, 0, 0);
+  if (!input.hasCredential) return done("no-credentials", 0, 0, 0);
+
+  const ids = store.missingVectors(limit);
+  if (ids.length === 0) return done("nothing-missing", 0, 0, 0);
+
+  const texts: string[] = [];
+  const wanted: string[] = [];
+  for (const id of ids) {
+    let doc;
+    try {
+      doc = store.readProse(id);
+    } catch {
+      continue; // a row whose prose has gone is not a failure worth a retry
+    }
+    // THE SAME STRING `embedOne` will ask for. Composing it any other way
+    // caches under a key the store never looks up, and the backfill becomes a
+    // paid-for no-op that reports success.
+    texts.push(indexTextOf(doc.title, doc.body));
+    wanted.push(id);
+  }
+  if (wanted.length === 0) return done("nothing-missing", 0, 0, 0);
+
+  try {
+    await input.embedder.warm(texts);
+  } catch {
+    // One batched call; a refusal leaves the cache as it was and every
+    // `embedOne` below reports `vector: false`. Counted, not thrown.
+  }
+
+  let embedded = 0;
+  let failed = 0;
+  for (const id of wanted) {
+    try {
+      const out = store.embedOne(id);
+      if (out.vector) embedded += 1;
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return done("ran", embedded, failed, wanted.length);
+}

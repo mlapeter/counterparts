@@ -47,13 +47,14 @@ import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
 import { Prospective } from "./prospective/index.js";
-import { Recall } from "./recall/index.js";
+import { Recall, loadGateState, loadSessionSemantic, saveSessionSemantic } from "./recall/index.js";
 import type {
   CandidateVerdict,
   CreditResult,
   RecallDecision,
   Turn as RecallTurn,
   RecallResult,
+  SemanticReason,
 } from "./recall/index.js";
 import { SpanBuffer, TUNABLES as REMEMBER, errCode, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
 import type {
@@ -165,6 +166,15 @@ export const BOUNDARY_EVENT = "adapter.boundary";
  *  after enough new experience — day-0 finding (2026-09-03): gated on "anything
  *  uncovered" alone it asked at every turn. */
 export const AUTHORSHIP_ASK_EVENT = "adapter.authorship.ask";
+/** The worker's embedding backfill, durable because a coverage watch that lives
+ *  only in a detached process's stderr is a watch nobody can read tomorrow: how
+ *  many memories got a vector this run, how many still lack one, how many
+ *  failed (2026-09-04 — 40 authored notes, 224 episodes and 288 migrated
+ *  memories had none, so the semantic channel was blind to all of them). */
+export const EMBED_BACKFILL_EVENT = "adapter.embed.backfill";
+/** The lagged semantic cue the worker computed for the next turn — off, refused,
+ *  or stored with a hit count. Three records, never one silence (scar §2.4). */
+export const SEMANTIC_LAG_EVENT = "adapter.semantic.lag";
 export type AdapterDurableEventName =
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -173,7 +183,9 @@ export type AdapterDurableEventName =
   | typeof RECALL_DELIVERED_EVENT
   | typeof EPISODE_ASK_EVENT
   | typeof BOUNDARY_EVENT
-  | typeof AUTHORSHIP_ASK_EVENT;
+  | typeof AUTHORSHIP_ASK_EVENT
+  | typeof EMBED_BACKFILL_EVENT
+  | typeof SEMANTIC_LAG_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
@@ -724,7 +736,7 @@ export class Counterpart {
    * missing `at` means no temporal channel — a lived day is not a date.
    */
   recallForTurn(turn: RecallTurn, opts: { at?: string } = {}): RecallResult {
-    const result = recallTurn(this.recall, turn, {
+    const result = recallTurn(this.recall, this.withSemantic(turn), {
       schemas: this.schemas,
       prospective: this.prospective,
       associate: this.associate,
@@ -732,6 +744,86 @@ export class Counterpart {
     });
     this.recordDecision(result.decision, opts.at ?? null);
     return result;
+  }
+
+  /**
+   * THE FOURTH BORROWED CHANNEL, and the one that had no wiring: the lagged
+   * semantic cue.
+   *
+   * `Turn.vector` existed from the first commit of `recall/` and neither live
+   * path ever set it — the hook built its turn without one, the deliberate tool
+   * built its own — so the store's embeddings were consulted by nothing live
+   * (measured 2026-09-04). This is where that ends, and it is here rather than
+   * in an adapter for the same reason the alias map is: a caller that forgets a
+   * channel loses it silently, and this composition root is the one place all of
+   * them meet.
+   *
+   * A CALLER-SUPPLIED input always wins — the deliberate ask embeds its own
+   * question in line and must not be overridden by a stale conversational cue.
+   */
+  private withSemantic(turn: RecallTurn): RecallTurn {
+    if (turn.vector !== undefined || turn.semanticHits !== undefined) return turn;
+    const lag = loadSessionSemantic(this.store, turn.sessionId);
+    return {
+      ...turn,
+      ...(lag.hits === null ? {} : { semanticHits: lag.hits }),
+      semanticSource: lag.source,
+      ...(lag.fromTurn === null ? {} : { semanticFromTurn: lag.fromTurn }),
+    };
+  }
+
+  /**
+   * Record the lagged semantic cue for the NEXT turn: rank the vector the caller
+   * embedded, and store the top-M slice as this session's gate state.
+   *
+   * The RANK lives here, in the detached caller's process, because it is the
+   * expensive half — `Store.nearestTo` measured 590-1040 ms over a live-sized
+   * vector index — and the whole point of the lag is that the hot path spends
+   * none of that. `SEMANTIC_TOP_M` is `recall/`'s own number, read off the gate
+   * rather than restated by an adapter: a slice size chosen at the caller would
+   * be a threshold with no home.
+   *
+   * It writes on EVERY call, including the ones with no vector, so the next
+   * turn's decision can say *why* the channel was dark by name.
+   */
+  noteSessionSemantic(input: {
+    sessionId: string;
+    reason: SemanticReason;
+    vector?: readonly number[] | null;
+    model?: string | null;
+  }): { stored: boolean; hits: number; reason: SemanticReason; turn: number | null } {
+    const vec = input.vector ?? null;
+    const reason: SemanticReason =
+      input.reason === "ok" && (vec === null || vec.length === 0) ? "embed-failed" : input.reason;
+    const hits =
+      reason === "ok" && vec !== null
+        ? this.store.nearestTo(vec, this.recall.tunables.SEMANTIC_TOP_M)
+        : [];
+    if (this.observer) {
+      // An instrument leaves the world as it found it, and says so (G6).
+      this.emit(SEMANTIC_LAG_EVENT, input.sessionId, { reason, hits: hits.length, stored: false });
+      return { stored: false, hits: hits.length, reason, turn: null };
+    }
+    // The turn this cue is FOR: the session's served count right now, which the
+    // next turn's `loadSessionSemantic` compares against to expire it after one.
+    const served = loadGateState(this.store, input.sessionId).state.turn;
+    try {
+      saveSessionSemantic(this.store, {
+        sessionId: input.sessionId,
+        turn: served,
+        lastDay: this.store.livedDay(),
+        reason,
+        model: input.model ?? null,
+        dim: vec?.length ?? 0,
+        hits,
+      });
+    } catch {
+      // A lock lost to a concurrent hook costs the CUE, never the run.
+      this.emit(SEMANTIC_LAG_EVENT, input.sessionId, { reason, hits: hits.length, stored: false });
+      return { stored: false, hits: hits.length, reason, turn: served };
+    }
+    this.emit(SEMANTIC_LAG_EVENT, input.sessionId, { reason, hits: hits.length, stored: true });
+    return { stored: true, hits: hits.length, reason, turn: served };
   }
 
   /**

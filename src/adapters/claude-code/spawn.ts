@@ -43,6 +43,19 @@ import type { AdapterConfig } from "./config.js";
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
 /** The child is told its own watchdog, so the worker can arm one internally too. */
 export const WATCHDOG_ENV = "COUNTERPARTS_WATCHDOG_MS";
+/**
+ * The session and scope the child is working on behalf of — the same two names
+ * the MCP entry point already reads (`mcp/bin/serve.ts` ENV), because a second
+ * name for "which session is this" is a second answer waiting to disagree.
+ *
+ * They exist because the worker's lagged semantic cue is PER-SESSION state: a
+ * run that does not know whose turn it just followed can compute a vector for
+ * nobody. The TEXT never travels this way — a process environment is visible in
+ * `ps` — only the two identifiers, and the worker reads the words themselves out
+ * of the span buffer it already owns.
+ */
+export const SESSION_ENV = "COUNTERPARTS_SESSION";
+export const SCOPE_ENV = "COUNTERPARTS_SCOPE";
 
 export type SpawnRefusal =
   | "NO_DATA_DIR"
@@ -73,6 +86,10 @@ export interface PlanInput {
   baseEnv?: Readonly<Record<string, string | undefined>>;
   /** How many times this exact refusal has been seen already (E4's counter). */
   priorFailures?: number;
+  /** The session this run follows, pinned onto the child (see `SESSION_ENV`). */
+  session?: string;
+  /** That session's project scope — where its spans live. */
+  scope?: string;
 }
 
 /**
@@ -129,6 +146,11 @@ export function planSpawn(input: PlanInput): SpawnPlan {
 
   env[DATA_DIR_ENV] = config.dataDir;
   env[WATCHDOG_ENV] = String(timeoutMs);
+  // Pinned LAST for the same reason the data dir is: a caller's exported
+  // COUNTERPARTS_SESSION (an MCP server's, say) must not decide whose cue this
+  // worker computes.
+  if (input.session !== undefined && input.session.length > 0) env[SESSION_ENV] = input.session;
+  if (input.scope !== undefined && input.scope.length > 0) env[SCOPE_ENV] = input.scope;
   return {
     ok: true,
     reason: "ready",

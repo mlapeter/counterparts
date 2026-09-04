@@ -43,7 +43,13 @@ export type {
 } from "./deliberate.js";
 
 export { McpServer, SERVER_NAME, SERVER_VERSION, resolveScope } from "./server.js";
-export type { McpEvent, McpServerOptions, ScopeSource, ToolResult } from "./server.js";
+export type {
+  McpEvent,
+  McpServerOptions,
+  QuestionEmbedder,
+  ScopeSource,
+  ToolResult,
+} from "./server.js";
 
 export { serveStdio } from "./stdio.js";
 export type { StdioOptions } from "./stdio.js";
@@ -74,6 +80,9 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.session === undefined ? {} : { session: opts.session }),
     ...(opts.scope === undefined ? {} : { scope: opts.scope }),
     ...(opts.owner === undefined ? {} : { owner: opts.owner }),
+    // The embedder is the ENTRY POINT's to open, because the credential is:
+    // this file composes, it does not read a key (server.ts's header).
+    ...(opts.embedder === undefined ? {} : { embedder: opts.embedder }),
     ...(opts.registryDir === undefined ? {} : { registryDir: opts.registryDir }),
     ...(opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: opts.sessionTtlMs }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),

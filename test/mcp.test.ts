@@ -897,3 +897,77 @@ describe("the core imports nothing from this adapter", () => {
     expect(direct.list({ archived: false }).length).toBe(1);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The deliberate ask embeds IN LINE — the half of the ruling that may
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * The ruling of 2026-09-04 splits the two retrieval paths on latency, not on
+ * principle: the ambient hook may not embed (a 1200 ms budget, a person
+ * mid-sentence, and a synchronous pass that ABORTS rather than degrades), and
+ * the deliberate ask may (someone typed a question and is waiting).
+ *
+ * Before this, `answerQuestion` built its turn with no vector at all, so the
+ * tool that exists to look harder looked with one channel of three.
+ */
+describe("the recall tool embeds the question when it can, and SAYS SO when it cannot", () => {
+  /** The narrow face the server takes. A test supplies its own; production
+   *  supplies `claude-code/embed-client.ts`'s `LiveEmbedder`, opened by the
+   *  entry point that holds the credential. */
+  function embedder(vector: number[] | null): { vector(text: string): Promise<number[] | null>; asked: string[] } {
+    const asked: string[] = [];
+    return {
+      asked,
+      vector: async (text: string) => {
+        asked.push(text);
+        return vector;
+      },
+    };
+  }
+
+  test("a question is embedded once, and the answer names the channel that ran", async () => {
+    const emb = embedder([0.1, 0.2, 0.3]);
+    const s = server({ embedder: emb });
+    seed(s.counterpart);
+    const out = await s.call("recall", { question: "What did we decide about the storage split?" });
+    expect(emb.asked).toEqual(["What did we decide about the storage split?"]);
+    expect(out.structuredContent["semantic"]).toBe("in-line");
+    expect(s.events("mcp.recall")[0]?.data?.["semantic"]).toBe("in-line");
+  });
+
+  test("no embedder ⇒ the ask still answers, LEXICALLY, and says which channel was dark", async () => {
+    const s = server();
+    seed(s.counterpart);
+    const out = await s.call("recall", { question: "What did we decide about the storage split?" });
+    // Degraded, not failed: guarantee 1 is "degrade to lexical-only rather than
+    // fail", and the caller is told rather than handed a quietly thinner answer.
+    expect(out.structuredContent["semantic"]).toBe("embedder-off");
+    expect(out.isError).toBeUndefined();
+  });
+
+  test("an embedder that refuses is `embed-failed`, not silence", async () => {
+    const s = server({ embedder: embedder(null) });
+    seed(s.counterpart);
+    const out = await s.call("recall", { question: "What did we decide about the storage split?" });
+    expect(out.structuredContent["semantic"]).toBe("embed-failed");
+  });
+
+  test("the HANDLE path embeds nothing — an exact address needs no vector", async () => {
+    const emb = embedder([0.1, 0.2, 0.3]);
+    const s = server({ embedder: emb });
+    seed(s.counterpart);
+    const out = await s.call("recall", { handle: "nothing-by-this-name" });
+    expect(emb.asked).toEqual([]);
+    expect(out.structuredContent["semantic"]).toBe("none");
+  });
+
+  test("an OBSERVER opens no socket, whatever the host handed it (scar E7)", async () => {
+    const emb = embedder([0.1, 0.2, 0.3]);
+    // An observer refuses to open a store that does not exist, so the dir is
+    // initialized by an ordinary session first — as it would be in life.
+    server().counterpart.close();
+    const s = server({ observer: true, embedder: emb });
+    await s.call("recall", { question: "Anything at all?" });
+    expect(emb.asked).toEqual([]);
+  });
+});

@@ -54,7 +54,7 @@ import {
   stageProse,
 } from "./prose.js";
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
-import { indexDoc, nearest, nearestVectors, openCache, resetCache, searchIndex } from "./cache.js";
+import { indexDoc, nearest, nearestVectors, openCache, resetCache, searchIndex, setEmbedding } from "./cache.js";
 import type { Hit } from "./cache.js";
 
 export * from "./errors.js";
@@ -286,6 +286,7 @@ export const WRITE_METHODS = [
   "pruneSupersededVersions",
   "appendRemovalRecord",
   "rebuildCache",
+  "embedOne",
 ] as const;
 
 export type WriteMethod = (typeof WRITE_METHODS)[number];
@@ -1034,6 +1035,89 @@ export class Store {
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
     return report;
+  }
+
+  /**
+   * Give ONE existing memory its vector — **the vector row only**, never the
+   * token rows.
+   *
+   * `rebuildCache()` was the only public way to put a vector in box 3, and it
+   * resets the whole cache: a store whose embedder arrived after its memories
+   * did (this one — 40 authored notes, 224 episodes and 288 migrated memories
+   * with no vector, measured 2026-09-04) had no way to fill the gap
+   * incrementally, so the semantic channel stayed blind to exactly the
+   * first-person material it most wanted.
+   *
+   * **Why not `indexDoc`, which would have been the obvious reuse:** it deletes
+   * and re-inserts every `doc_tokens` row for the document. The text has not
+   * changed — only the vector is missing — so that is pure churn on the 263 MB
+   * token index whose page-cache warming is what pushed `recall/`'s BUDGET_MS
+   * from 250 to 1200. A backfill of 64 memories per Stop would have made the
+   * cold recall it exists to serve slower.
+   *
+   * It reads the SYNC embedder, like every other indexing site, so the caller's
+   * job is to have warmed the live half first with `indexTextOf(title, body)` —
+   * the same string `indexOne` looks a vector up by. A miss is not an error and
+   * not a lie: nothing is written and `vector` comes back false, so a backfill
+   * that warmed the wrong text reports zero rather than success.
+   */
+  embedOne(id: string): { found: boolean; vector: boolean } {
+    this.assertWritable("embedOne");
+    if (this.isDenied(id)) return { found: false, vector: false };
+    const row = this.row(id);
+    if (row === undefined) return { found: false, vector: false };
+    let doc: ProseDoc;
+    try {
+      doc = this.readProse(id);
+    } catch {
+      return { found: false, vector: false };
+    }
+    const vec = this.embed ? this.embed(indexText(doc)) : null;
+    if (vec === null) return { found: true, vector: false };
+    setEmbedding(this.cache, id, vec);
+    return { found: true, vector: true };
+  }
+
+  /**
+   * Live memories box 3 holds no vector for, in the order a backfill should take
+   * them: **the first-person material first** — what the experiencer authored
+   * (`source = 'authored'`) and its own episodes — then everything else, oldest
+   * first inside each group.
+   *
+   * The order is the whole point and it is a memory claim, not a convenience:
+   * an authored note and an episode are the memories this brain wrote about
+   * itself, so if a bounded backfill only ever reaches N per run, those are the
+   * N that should arrive first.
+   *
+   * Two boxes, two queries, diffed here: box 2 knows what is live, box 3 knows
+   * what is embedded, and they are separate files by design.
+   */
+  missingVectors(limit = 64): string[] {
+    const embedded = new Set(
+      this.cache.all<{ memory_id: string }>("SELECT memory_id FROM embeddings").map(
+        (r) => r.memory_id,
+      ),
+    );
+    const denied = new Set(this.deniedIds());
+    const rows = this.ops.all<{ id: string }>(
+      `SELECT id FROM memories
+        WHERE archived = 0 AND superseded_by IS NULL
+        ORDER BY CASE WHEN source IN ('authored', 'episode') OR type = 'episode' THEN 0 ELSE 1 END,
+                 birth_day ASC, id ASC`,
+    );
+    const out: string[] = [];
+    for (const r of rows) {
+      if (embedded.has(r.id) || denied.has(r.id)) continue;
+      out.push(r.id);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /** How many live memories still have no vector — the denominator a coverage
+   *  watch needs, and the number that must fall run over run. */
+  unembeddedCount(): number {
+    return this.missingVectors(Number.MAX_SAFE_INTEGER).length;
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────

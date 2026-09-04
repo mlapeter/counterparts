@@ -819,3 +819,96 @@ describe("structural guarantees", () => {
     expect(after.decision.reason).toBe("no-candidates");
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The semantic channel takes a RANKING, not only a vector
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * The deviation this block exists to hold: `Turn.vector` was the only way in,
+ * and ranking it means `store.nearestTo`, which reads and JSON-parses every row
+ * in box 3 — measured at 590-1040 ms over 13,862 vectors. A synchronous pass
+ * with a 1200 ms budget cannot pay that, so the ranking is done ONE TURN EARLIER
+ * by the detached worker and crosses the lag as `{id, score}`.
+ *
+ * Which makes this the property worth mechanizing: supplied hits must reach the
+ * activation pass WITHOUT the index being consulted at all.
+ */
+describe("supplied semantic hits bypass the vector scan entirely", () => {
+  test("a store with NO vectors still lights a candidate the hits name", () => {
+    const s = store();
+    seed(s);
+    const target = put(s, { body: "The kestrel hovered over the verge by the bypass." });
+    // Box 3 holds no embeddings at all: `nearestTo` can only ever answer empty.
+    expect(s.nearestTo([1, 0, 0], 8)).toEqual([]);
+
+    const r = new Recall({ store: s, owner: true });
+    const quiet = r.build({ sessionId: "s1", text: "Nothing here about that at all." });
+    expect(quiet.decision.verdicts.map((v) => v.id)).not.toContain(target);
+    expect(quiet.decision.semanticSource).toBe("none");
+
+    const lit = r.build({
+      sessionId: "s2",
+      text: "Nothing here about that at all.",
+      semanticHits: [{ id: target, score: 0.95 }],
+      semanticSource: "lagged",
+      semanticFromTurn: 3,
+    });
+    expect(lit.decision.semanticUsed).toBe(true);
+    expect(lit.decision.semanticDegraded).toBe(false);
+    expect(lit.decision.semanticSource).toBe("lagged");
+    expect(lit.decision.semanticFromTurn).toBe(3);
+    expect(lit.decision.verdicts.map((v) => v.id)).toContain(target);
+  });
+
+  test("hits below the seed floor score nothing, and an EMPTY list degrades", () => {
+    const s = store();
+    seed(s);
+    const target = put(s, { body: "The kestrel hovered over the verge by the bypass." });
+    const r = new Recall({ store: s, owner: true });
+
+    const weak = r.build({
+      sessionId: "s1",
+      text: "Nothing here about that at all.",
+      semanticHits: [{ id: target, score: 0.1 }],
+      semanticSource: "lagged",
+    });
+    expect(weak.decision.semanticUsed).toBe(true);
+    expect(weak.decision.verdicts.map((v) => v.id)).not.toContain(target);
+
+    // "The worker embedded fine and nothing was near" is a DEGRADATION, and it
+    // is recorded rather than looking identical to "nobody asked".
+    const none = r.build({
+      sessionId: "s2",
+      text: "Nothing here about that at all.",
+      semanticHits: [],
+      semanticSource: "lagged",
+    });
+    expect(none.decision.semanticUsed).toBe(true);
+    expect(none.decision.semanticDegraded).toBe(true);
+  });
+
+  test("a per-turn latency budget is honoured — the deliberate ask's one lever", () => {
+    const s = store();
+    seed(s);
+    let clock = 0;
+    // A clock that jumps past any ambient budget on its second read, so the
+    // first checkpoint decides — with and without the override.
+    const r = new Recall({
+      store: s,
+      owner: true,
+      budgetMs: 10,
+      now: () => {
+        clock += 1;
+        return clock === 1 ? 0 : 5_000;
+      },
+    });
+    expect(r.build({ sessionId: "s1", text: "The reservoir loop before breakfast." }).decision.reason).toBe(
+      "latency-abort",
+    );
+    clock = 0;
+    expect(
+      r.build({ sessionId: "s2", text: "The reservoir loop before breakfast.", budgetMs: 60_000 })
+        .decision.reason,
+    ).not.toBe("latency-abort");
+  });
+});

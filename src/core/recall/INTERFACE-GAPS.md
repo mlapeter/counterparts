@@ -78,3 +78,38 @@ no model, no file reads, precision over recall — is §9.2's rule and is not im
 anywhere. Whoever builds it (boundary adapter, most likely) calls this method; recall
 adds the two refusals that belong to the gate state it owns (ambiguous-handle, and never
 downgrade a credited item) and nothing else.
+
+## 6. Nothing computes the turn's embedding — CLOSED 2026-09-04, by moving it
+
+**Owner:** was nobody's, which was the defect.
+**Needed:** `Turn.vector` is an input this module has taken since it was written, and
+guarantee 1's whole point is that the ambient path MAY consult an embedding.
+**Had:** neither live caller set it. The UserPromptSubmit hook built its turn without
+one; the MCP recall tool built its own without one. So the semantic channel was live
+code reached only by tests and by the sweep's card preselection, and the store's 13,862
+embeddings were consulted by nothing a person could feel — the §2.6 shape again ("a
+pure function over caller-owned state is only as real as its caller"), one layer up.
+
+**Closed, but NOT by giving recall a client.** There is still no fetch in this
+directory. Two things moved instead:
+
+1. `Counterpart.recallForTurn` now wires the semantic channel the way it already wires
+   aliases, temporal cues and hops — from the composition root, so a caller cannot
+   forget it. What it wires is a **lagged** cue: `recall/session.ts`'s `gate_session`
+   `semantic` row, written by the detached worker after the previous turn.
+2. The row carries a **ranking**, not a vector. This is the part worth remembering:
+   moving the embedding call off the hot path would not have been enough, because
+   `Store.nearestTo` reads and `JSON.parse`s every row in box 3 and measured 590-1040 ms
+   at the live index's size — inside a 1200 ms budget that aborts rather than degrades.
+
+**What is still borrowed, and from whom:** the WORDS. `adapters/claude-code/vectors.ts`
+decides what text becomes the cue (the owner's prompt to 2000 bytes plus 800 bytes of
+the reply) and does the embedding and the ranking. That is correct — the host owns its
+transcript and its credential — but it means a host that never runs that worker gets a
+permanently dark semantic channel, and the only sign is `semanticSource` staying
+`"none"` on every turn. That field exists so the sign is legible.
+
+**The real fix, if box 3 ever earns it:** an approximate index (IVF/HNSW) would make
+`nearestTo` cheap enough that the hot path could rank a vector itself, and the lag would
+become a choice rather than a constraint. Not built: constitution line 15, and one
+measured failure is not yet a case for an index.

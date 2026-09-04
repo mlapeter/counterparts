@@ -175,6 +175,39 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     their own prose, unlinked. The ask's text is the same text G11 refuses when the host
     hands it back — it is delivered by the hook and recorded by
     `adapter.authorship.ask`, never by its transcript copy.
+15. **[M] The prompt path opens no socket, and the semantic cue is LAGGED.** The
+    embedding a turn's recall consults is computed by the detached worker AFTER the
+    previous turn and read out of per-session gate state on the next one — the same
+    one-turn lag carried cues already run on (owner ruling, 2026-09-04). Measured on the
+    live store: `RecallTurn.vector` existed from `recall/`'s first commit and neither
+    live path ever set it, so 13,862 embeddings were consulted by nothing; and every
+    hook process already spends 700-1000 ms cold against a 1200 ms budget, so an in-line
+    embed would have bought a `latency-abort`, not a channel. A test spies
+    `globalThis.fetch` AND injects a throwing `embedFetch`, so neither route can quietly
+    reappear. **The RANKING travels with the cue, not the vector**: `Store.nearestTo`
+    over a live-sized index measured 590-1040 ms, so carrying a vector would have moved
+    the network call off the hot path and left the scan on it.
+    **It runs on EVERY boundary, outside the sweep gate and regardless of its verdict**,
+    and `stop()`/`sessionEnd()` spawn the worker unconditionally. The crash gate (open
+    question 3, answered) decides whether a *SWEEP* selects anything — its ordinary
+    answer is "nothing crashed", recorded as a durable `sweep.gate` row — and
+    the cue expires after one turn, so a step that fired only when the gate opened would
+    leave the semantic channel dark on every ordinary turn. The two are separately
+    ordered on purpose: the cue reads the LIVE span buffer and must precede the sweep's
+    claim, which would move those spans out of it.
+16. **[M] The worker gives vectors to memories that have none, at a bounded rate.** Up
+    to `BACKFILL_LIMIT` (64) per run, first-person material first — what the experiencer
+    authored and its own episodes, then everything else oldest-first — with
+    `{embedded, remaining, failed}` written durably (`adapter.embed.backfill`) so the
+    coverage watch reads a number out of the store rather than out of a dead process's
+    stderr. The authored door still warms its own vector when a `vectors` socket is
+    wired; this is the GUARANTEED path, because a memory that predates the embedder, or
+    arrived by migration, has nothing and no future deposit comes back for it.
+17. **[M] The deliberate ask MAY embed in line, and says which channel answered.** The
+    MCP entry point loads the same 0600 credentials file the hook entry point names and
+    hands the server an opened embedder or null; the server never sees a key. A missing
+    one degrades the ask to lexical-only and the result carries `semantic:
+    "embedder-off" | "embed-failed"` rather than a quietly narrower answer.
 
 ## 6. Scars honored
 
