@@ -30,7 +30,7 @@ into search. What it CANNOT do is change the candidate SET: a lower bar with the
 same `MAX_CANDIDATES` is a lower bar over the same shortlist.
 
 **The honest fix.** `Recall.build(turn, { tunables })` — a per-call override so a
-deliberate ask can raise `MAX_CANDIDATES` and lower `FLOOR_GLOBAL` on its own
+deliberate ask can raise `MAX_CANDIDATES` and lower `FLOOR_GLOBAL_UNITS` on its own
 terms. One optional argument, no new module.
 
 ## 2. Confidentiality is a prose-`meta` convention with one reader

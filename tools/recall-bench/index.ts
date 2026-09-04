@@ -158,21 +158,20 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
     CUE_DOC_CAP: config.cap,
     ...(config.snrGlobal === undefined ? {} : { SNR_GLOBAL: config.snrGlobal }),
     ...(config.maxFootnotes === undefined ? {} : { MAX_FOOTNOTES: config.maxFootnotes }),
-    ...(config.floorGlobal === undefined ? {} : { FLOOR_GLOBAL: config.floorGlobal }),
+    ...(config.floorGlobalUnits === undefined
+      ? {}
+      : { FLOOR_GLOBAL_UNITS: config.floorGlobalUnits }),
     ...(config.snrStrong === undefined ? {} : { SNR_STRONG: config.snrStrong }),
-    // The per-kind floors keep their SHAPE and move together: §9 G12's whole
-    // finding is that the kinds sit on different activation scales, so a sweep
-    // that flattens them would be re-deciding a measured thing by accident.
-    ...(config.floorStrongScale === undefined
+    // The loud floor moves as ONE number, in cue units, because the per-kind
+    // shape it used to carry was v1's and v2's corpus refused it (312 candidate
+    // rows over these 13 prompts: p50 1.21-1.45 and p90 1.93-2.79 across five
+    // kinds — one distribution). A sweep that re-imposed a shape here would be
+    // deciding by accident the thing the measurement decided on purpose.
+    ...(config.floorStrongUnits === undefined
       ? {}
       : {
-          FLOOR_STRONG_BY_KIND: Object.fromEntries(
-            Object.entries(TUNABLES.FLOOR_STRONG_BY_KIND).map(([k, v]) => [
-              k,
-              v * config.floorStrongScale!,
-            ]),
-          ),
-          FLOOR_STRONG_DEFAULT: TUNABLES.FLOOR_STRONG_DEFAULT * config.floorStrongScale,
+          FLOOR_STRONG_BY_KIND_UNITS: {},
+          FLOOR_STRONG_DEFAULT_UNITS: config.floorStrongUnits,
         }),
     // The bench measures the SCORER, not the clock: a cold 300 MB index in a
     // fresh process is the latency finding of a different PR, and letting it

@@ -118,41 +118,29 @@ function sweepGrid(): BenchConfig[] {
  */
 function gateGrid(): BenchConfig[] {
   const out: BenchConfig[] = [
-    { name: "shipped bar (SNR 1.2/2.5, floor x1)", b: TUNABLES.CUE_LENGTH_NORM, k1: TUNABLES.CUE_TF_SATURATION, cap: TUNABLES.CUE_DOC_CAP, oneSided: TUNABLES.CUE_LENGTH_ONE_SIDED },
+    { name: "shipped", b: TUNABLES.CUE_LENGTH_NORM, k1: TUNABLES.CUE_TF_SATURATION, cap: TUNABLES.CUE_DOC_CAP, oneSided: TUNABLES.CUE_LENGTH_ONE_SIDED },
   ];
   // SNR_STRONG is fixed: the first grid measured it and it cannot do this job.
   // Turn 3's top candidate stands 3.5 sd above its own background where a
   // busy turn's stands 2.6, so raising `k` silences the busy turn FIRST. What
-  // separates turn 3 is absolute — 17.7 against 27-48 — which is exactly what
-  // the per-kind loud FLOOR is for (§9 G12), and that floor carries v1's
-  // normalized-similarity scale into an activation space that runs 13-48.
-  // The DECISIVE stage. Seven earlier stages narrowed to it and are recorded in
-  // recall/CONTRACT.md §7 OQ5 rather than left here as dead grids:
-  //   1. SNR_GLOBAL x SNR_STRONG x loud-floor scale (x1/x1.5/x2) — the floor
-  //      scale changed NOTHING, which is how the dead-knob finding surfaced.
-  //   2. the same with the scale to x15 — still nothing.
-  //   3. loud-floor scale x30..x60 — where an absolute floor finally bites, and
-  //      where the quiet turn goes silent.
-  //   4. + MAX_FOOTNOTES and FLOOR_GLOBAL 10..30 — reaches every target and
-  //      blinds small stores.
-  //   5-7. the same grid with the floors denominated in
-  //      `informativeness(1, storeSize)` — fixes the idf half, not the
-  //      cue-count half.
-  // What is left is the band a library default can actually occupy.
-  for (const floorGlobal of [0.2]) {
-    for (const snrGlobal of [1.2, 1.6, 2.0]) {
-      for (const floorStrongScale of [1, 2, 3, 4]) {
-        out.push({
-          name: `floorG ${floorGlobal}, SNR_G ${snrGlobal}, floorS x${floorStrongScale}`,
-          b: TUNABLES.CUE_LENGTH_NORM,
-          k1: TUNABLES.CUE_TF_SATURATION,
-          cap: TUNABLES.CUE_DOC_CAP,
-          oneSided: TUNABLES.CUE_LENGTH_ONE_SIDED,
-          floorGlobal,
-          snrGlobal,
-          floorStrongScale,
-        });
-      }
+  // separates turn 3 is ABSOLUTE, and an absolute floor is what this grid moves.
+  //
+  // The floors are now in CUE UNITS (`recall/gate.ts#floorUnit`), so a cell here
+  // means the same thing on a seventeen-memory store as on a fifteen-thousand
+  // one. Measured 2026-09-04, each turn's best candidate lands between 0.88
+  // units (the near-contentless turn 3) and 5.17 units (the busiest), so the
+  // loud floor's interesting band is 3.5-5.0 and the admission floor's is 0-1.
+  for (const floorGlobalUnits of [0, 0.5, 1.0]) {
+    for (const floorStrongUnits of [3.0, 3.5, 4.0, 4.5, 5.0]) {
+      out.push({
+        name: `floorG ${floorGlobalUnits}u, floorS ${floorStrongUnits}u`,
+        b: TUNABLES.CUE_LENGTH_NORM,
+        k1: TUNABLES.CUE_TF_SATURATION,
+        cap: TUNABLES.CUE_DOC_CAP,
+        oneSided: TUNABLES.CUE_LENGTH_ONE_SIDED,
+        floorGlobalUnits,
+        floorStrongUnits,
+      });
     }
   }
   return out;

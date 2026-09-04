@@ -32,7 +32,14 @@ reply actually used reconsolidates, where in humans every retrieval does.
 - **Host boilerplate is stripped before cue extraction and before embedding** — measured: an
   image placeholder token surfaced an unrelated image-cache memory. [v1 §9 G3]
 - **Cue matching is word-bounded and rarity-weighted**; informativeness weighting replaces
-  stop-lists. [v1 §9 G4]
+  stop-lists — **and rarity is COUNTED, not inferred from a bounded top-K.** The pass read
+  `df` off the LENGTH of its own `PER_CUE_FETCH` result, which is `min(trueDf, K)`, so the
+  rule held on a fixture (where `trueDf` cannot reach `K`) and switched itself off as the
+  store grew: MEASURED 2026-09-04 on a 15,421-document index, `conversation` (df 574) and
+  `chat` (df 444) both drew informativeness **5.70** against a ceiling of 8.95, where their
+  true frequencies put them at 2.6 and 2.9. `Store.docFrequency` counts, in one grouped
+  query (8-36 ms cold, 2-4 ms warm for 72 tokens) — paid for several times over by asking
+  rarity FIRST and probing the index only for the tokens that became cues. [v1 §9 G4]
 - **…and the same rule holds on the DOCUMENT side: a cue's evidence for a memory does not
   scale with how long the memory is.** Informativeness says a token spanning the whole store
   is evidence of nothing; a memory spanning every topic is likewise specific evidence for
@@ -65,11 +72,23 @@ reply actually used reconsolidates, where in humans every retrieval does.
 - **The affect flag and the retrieval cue have different subject rules**: the flag is
   subject-inclusive; the *cue* is first-person only, guarding against mood-congruent
   overgeneralization. [v1 §9 G11]
-- **Per-kind floors, because kinds live on different activation scales** — measured: person
-  activation peaked near 0.79 where craft material floored at 1.0, so a global floor silently
-  excluded whole kinds. The *background statistic* stays global. [v1 §9 G12]
+- **The absolute floors are in the model's own unit: one maximally-rare cue.** A floor of
+  `4.5` means *four and a half maximally-rare cues' worth of evidence* — the same sentence on
+  a seventeen-memory store as on a fifteen-thousand-memory one (`gate.ts#floorUnit`,
+  `informativeness(1, storeSize)`). This is what the loud tier's rarity rests on, and it is a
+  v2 addition: v1's floors were absolute numbers on a normalized 0-1 cosine, and carried into
+  a SUM of `idf x evidence` they could not fire at any scale anyone measured (§7 OQ5). ACT-R's
+  retrieval threshold τ, restored to the model's units.
+- **Per-kind floors are a MECHANISM, not a shape** — v1 measured one (person activation peaked
+  near 0.79 where craft material floored at 1.0) and v2's corpus refuses it: over 312 candidate
+  rows from 13 real prompts, p50 runs 1.21-1.45 and p90 1.93-2.79 across `fact`, `person`,
+  `self`, `skill` and `entity` — one distribution, not five, because v2's activation is
+  cue-driven and kind-agnostic. So the override table ships EMPTY (scar §2.8: measured or
+  disabled) and a kind that earns an override still gets one. The *background statistic* stays
+  global. [v1 §9 G12, re-earned 2026-09-04]
 - **Cold start is stricter, not looser** — below a minimum store size the variance estimate is
-  meaningless, and small stores over-surface. [v1 §9 G13]
+  meaningless, and small stores over-surface. In the same cue units, at twice the ordinary
+  floor, so "stricter" is arithmetic rather than a comment. [v1 §9 G13]
 - **Lateral inhibition with a query-aware relaxation**, and a suppressed candidate may reclaim
   a slot only as competition, never as un-inhibition. **An empty slot stays quiet.**
   [v1 §9 G14–G15]
@@ -106,11 +125,16 @@ reply actually used reconsolidates, where in humans every retrieval does.
 - **v1's ~40 recall knobs are not ported as a set.** Each ships with a recorded calibration
   against a real corpus and a fixture-bounded window, or ships disabled (scar §2.8). v1's
   values in behavioral-spec §9 are the best surviving record of what lived use moved — the
-  starting point, not the default. **Four knobs are no longer inherited**:
+  starting point, not the default. **Nine knobs are no longer inherited**:
   `CUE_LENGTH_NORM`, `CUE_TF_SATURATION`, `CUE_LENGTH_ONE_SIDED` and `CUE_DOC_CAP` were
-  measured on v2's own corpus (`tools/recall-bench`, 2026-09-04) rather than carried over,
-  and `BUDGET_MS` was re-measured on day 0 of the parallel run. That is what "re-earned against v2's own corpus"
-  looks like when it actually happens.
+  measured on v2's own corpus (`tools/recall-bench`, 2026-09-04) rather than carried over;
+  `BUDGET_MS` was re-measured on day 0 of the parallel run; and the three absolute floors
+  plus `SNR_GLOBAL` were re-earned on 2026-09-04 with a **change of UNIT**, not only of value
+  — `FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`, `FLOOR_STRONG_DEFAULT` and `COLD_START_FLOOR` are
+  now `*_UNITS`, denominated in `informativeness(1, storeSize)`. The rename is the mechanism:
+  a re-scaled tunable that keeps its old name is how v1's numbers survived into v2 unnoticed
+  for a month, and every stale reading of the old scale is now a compile error. That is what
+  "re-earned against v2's own corpus" looks like when it actually happens.
 - **The learned-edge type coupling is made deliberate.** In v1, learned co-activation edges
   were written as the same type the activation pass *boosts*, so learning silently rode a
   1.6× multiplier. **PROPOSED** — owner call at check-in, since choosing deliberately may
@@ -207,31 +231,53 @@ decision record carries ids, never bodies).
    The module map's standing check-in question; owned by `associate/`.
 4. **Is the "quietly available / ignorable" framing actually ignorable to a model?** v1
    shipped it as a deliberate probe question and never answered it.
-5. **The absolute floors have never fired in v2, and the loud tier needs them.** MEASURED
-   2026-09-04, and the most consequential thing this module now knows about itself.
-   `FLOOR_GLOBAL` (0.2) and `FLOOR_STRONG_BY_KIND` (0.5-1.0) are v1's numbers on v1's
-   scale — a normalized cosine in 0-1. v2's activation is a SUM of `idf x length-normalized
-   evidence` over up to `MAX_CUES` cues and runs **13 to 48** on the live store. Scaling
-   the floors from x1 to x15 changes not one delivered item. Hard gate (b) and §9 G12's
-   per-kind floors are, today, decorative.
-   It surfaced because length normalization removed the nine outliers that were setting
-   every turn's variance, and the loud tier then fired on **13 of 13** turns where §3 says
-   *rarely*. The relative bar cannot fix that — swept and confirmed: a near-contentless
-   turn's top candidate stands 3.5 sd above its own thin background where a busy turn's
-   stands 2.6, so `SNR_STRONG` silences the busy turn FIRST. Only an absolute floor can
-   keep a low-evidence turn quiet, which is exactly what one is for (ACT-R's retrieval
-   threshold τ: below it, a chunk is not retrieved however distinctive it looks against
-   its neighbours).
-   Shipped instead, because both are scale-free: `SNR_GLOBAL` 1.2 -> 1.6 (6.1 -> 4.8
-   delivered per turn) and `MAX_SURFACED` 2 -> 1 (24 -> 13 loud items). The turn COUNT is
-   unfixed: 13 of 13 turns still carry one loud item.
-   **What the fix needs, and why it is not in this change.** A floor calibrated to the live
-   store (`FLOOR_GLOBAL` 25, loud floors x57) reaches every target — 3.1 delivered per
-   turn, loud on 5 of 13, the quiet turn silent — and blinds a small store, because
-   activation scales with how many cues a turn matched (~24 here, 2-3 on a 17-memory test
-   store). Denominating the floors in `informativeness(1, storeSize)` — one maximally-rare
-   cue, the model's own unit — fixes the idf half and was prototyped and swept; the
-   cue-count half remains. Two candidates for it: normalize activation by the turn's own
-   cue mass, or gate the loud tier on whether the TURN carried distinctive vocabulary at
-   all. Both are new mechanisms, and Amendment 15 says a mechanism ships after the failure
-   is named — it now is, with numbers — not inside the change that produced the numbers.
+5. ~~**The absolute floors have never fired in v2, and the loud tier needs them.**~~
+   **ANSWERED 2026-09-04. The floors are in cue units now, and the "cue-count half" was
+   never a second half — it was a broken measurement.**
+
+   The finding that closed it: `activate.ts` took a token's document frequency from the
+   LENGTH of its own `PER_CUE_FETCH` result, and a bounded top-K's length is
+   `min(trueDf, K)`. So on a 15,421-document index every word occurring in 24 or more
+   memories measured as equally rare — `conversation` (true df 574) and `chat` (444) both
+   drew informativeness **5.70** against a ceiling of 8.95 — while on a seventeen-memory
+   fixture the truncation cannot happen at all. §3 G4's "informativeness weighting replaces
+   stop-lists" was therefore *true in miniature and progressively false at scale*, which is
+   exactly the asymmetry that made a floor calibrated on the live store blind a small one.
+   Counting df instead (`store/cache.ts#docFrequency`) removes it: a hermetic
+   seventeen-memory fixture whose turn cleanly cues one memory now lands at **3.00 cue
+   units**, INSIDE the live store's per-turn range of **0.88 to 5.17**. One scale, two
+   corpora three orders of magnitude apart.
+
+   With that fixed, denominating the floors in `informativeness(1, storeSize)` — one
+   maximally-rare cue, the model's own unit — is sufficient on its own, and it is what
+   shipped: `FLOOR_GLOBAL_UNITS` 0.2, `FLOOR_STRONG_DEFAULT_UNITS` 4.5,
+   `COLD_START_FLOOR_UNITS` 0.4, `FLOOR_STRONG_BY_KIND_UNITS` empty. On the 13-prompt
+   bench, against the same store copy: loud fell from **13 of 13 turns to 3 of 13**, the
+   near-contentless turn 3 went silent, delivered per turn went 3.9 → 2.8, hub deliveries
+   stayed 0, **no id was delivered on 3 or more turns at all** (against 5 ids carrying 27 of
+   51 deliveries before), and the labeled positives went from 3 to 7 — including both
+   ambient ones, on the turn they were labeled for.
+
+   **What the two candidate mechanisms turned out to be worth**, since both were named here
+   and only one of them was ever going to ship:
+   - *Normalize activation by the turn's own cue mass* is **refuted by arithmetic**, and
+     usefully so: turn 3's top candidate takes **22%** of its turn's cue mass where turn 5's
+     takes **7%**. A thin turn CONCENTRATES, so this is the relative bar's failure again in
+     a new coat. Recorded rather than left as a lead, so nobody prototypes it.
+   - *Gate the loud tier on whether the turn carried distinctive vocabulary* (candidate b)
+     works but discriminates poorly: turn 3's cue mass is 3.67 units against 15.3-67.7 for
+     the other twelve, which silences turn 3 and nothing else; reaching one-in-four needs a
+     floor near 40 units, and mass scales with turn LENGTH (14 tokens vs 163), so that floor
+     would be gating on how much the person typed. It also fails the miniature outright — a
+     four-word hermetic turn carries 3.0 units, indistinguishable from turn 3. Not shipped,
+     and not needed: the per-candidate floor reaches the target without a turn-level gate.
+   - *Loud pacing* (candidate c) was not needed and is not shipped. It is a gate where the
+     evidence supported a gradient, and it would have made the loud tier a function of when
+     the session started rather than of what the turn said.
+
+   **A second instance of the same scar, found on the way and fixed here**:
+   `prospective.CUE_STRENGTH` (0.5) was also an absolute number on v1's scale, so a temporal
+   arrival was worth 0.23 of a maximally-rare word on a seventeen-memory store and 0.056 of
+   one on a fifteen-thousand-memory store — the calendar going quiet as the owner remembers
+   more. It is converted at the fold (`activate.ts`), which is what makes "one more cue, like
+   the user typing 'Portland'" finally true.

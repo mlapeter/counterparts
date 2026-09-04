@@ -33,7 +33,7 @@ import type { ProseDoc, Store } from "../store/index.js";
 import { activate } from "./activate.js";
 import type { Candidate } from "./activate.js";
 import { detectAffect, stripBoilerplate } from "./cues.js";
-import { gate } from "./gate.js";
+import { floorUnit, gate } from "./gate.js";
 import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { loadGateState, saveGateState } from "./session.js";
 import type { GateState, SemanticSource } from "./session.js";
@@ -294,9 +294,13 @@ export class Recall {
           n: 0,
           mean: 0,
           sd: 0,
-          bar: this.tunables.FLOOR_GLOBAL,
-          strongBar: this.tunables.FLOOR_GLOBAL,
-          floor: this.tunables.FLOOR_GLOBAL,
+          // The floors are in CUE UNITS now (`gate.ts#floorUnit`), and a quiet
+          // turn reports `storeSize: 0` — it never counted one. Quoting the
+          // floor at that store size is the honest reading of this record: no
+          // store, no unit, no bar anything was judged against.
+          bar: this.tunables.FLOOR_GLOBAL_UNITS * floorUnit(0),
+          strongBar: this.tunables.FLOOR_GLOBAL_UNITS * floorUnit(0),
+          floor: this.tunables.FLOOR_GLOBAL_UNITS * floorUnit(0),
         },
         stripped,
         cueCount: 0,

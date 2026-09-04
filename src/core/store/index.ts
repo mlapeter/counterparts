@@ -56,6 +56,7 @@ import {
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
+  docFrequency,
   indexDoc,
   nearest,
   nearestVectors,
@@ -1320,6 +1321,17 @@ export class Store {
    */
   search(cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM): Hit[] {
     return searchIndex(this.cache, cue, limit, norm);
+  }
+
+  /**
+   * How many indexed documents hold each token — the rarity denominator.
+   *
+   * Separate from `search` on purpose: `search` returns a bounded TOP-K, and a
+   * top-K's length is `min(trueDf, k)`, not a document frequency. Reading it as
+   * one is the measurement error `cache.ts#docFrequency` documents.
+   */
+  docFrequency(tokens: readonly string[]): Map<string, number> {
+    return docFrequency(this.cache, tokens);
   }
 
   nearestTo(vec: readonly number[], limit = 10): Hit[] {
