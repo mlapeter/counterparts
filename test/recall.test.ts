@@ -1217,6 +1217,11 @@ describe("the loud tier is rare, in miniature", () => {
       sessionId: "s1",
       text: "thanks, as before, interesting to chat — where would you like to take this from here?",
     });
+    // The positive FIRST: this turn reached memories and still said nothing
+    // loud. Asserting an empty loud tier alone would pass on an empty store,
+    // and "the gate refused it" is not "the cue extractor never found it".
+    expect(out.decision.reason).toBe("rendered");
+    expect(delivered(out.decision).length).toBeGreaterThan(0);
     expect(out.decision.surfaced).toEqual([]);
     expect(out.injection).not.toContain(FRAMING.surfacedHeader);
   });

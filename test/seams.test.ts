@@ -56,7 +56,7 @@ import { Recall, TUNABLES as RECALL_TUNABLES, freshGateState, gate, withTunables
  * The shipped absolute floors are denominated in `informativeness(1, storeSize)`
  * (`gate.ts#floorUnit`) and calibrated against a real store, where a turn's best
  * candidate lands at 0.9-5.2 of those units. These fixtures declare
- * `storeSize: 100`, whose unit is 3.92, so the shipped loud floor would be 15.7
+ * `storeSize: 100`, whose unit is 3.92, so the shipped loud floor would be 17.6
  * in activation and a hand-built candidate at 1.0 would be refused by hard gate
  * (b) before any of the rules under test were reached — so the floors are
  * restated here in the fixtures' own scale. Multiplying every fixture by 16
