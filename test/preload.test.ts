@@ -43,7 +43,7 @@ describe("test/preload.ts — the home-directory guard", () => {
     try {
       delete process.env[DATA_DIR_ENV];
       const fallback = dataDir();
-      expect(fallback).toBe(join(homedir(), ".counterparts"));
+      expect(fallback).toBe(join(homedir(), ".counterparts", "store"));
       expect(fallback.startsWith(`${REAL_TMP}/`)).toBe(true);
       // A tripwire, not a purity claim: if THIS fails, some test file loaded
       // earlier in the run fell back to the default data dir instead of setting
