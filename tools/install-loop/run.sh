@@ -358,27 +358,47 @@ else
   fi
 fi
 
-step "console note then recall round-trips (QUICKSTART §7)"
-NOTE_CMD='counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."'
-RECALL_CMD='counterparts recall "what espresso machine is in the kitchen?"'
-if ! doc_check "$NOTE_CMD" || ! doc_check "$RECALL_CMD"; then
-  no "not in QUICKSTART verbatim: $NOTE_CMD / $RECALL_CMD"
+step "the §7 demo DISCRIMINATES: two notes, one question, the right memory"
+# The one-row case (step 14) proves the store answers. It cannot prove RECALL,
+# because a store with one row returns that row to any question at all — the
+# cold-stranger review asked a one-row store about Mars and got the espresso
+# machine. So §7's demo is two notes and a question only one of them answers,
+# and this step asserts the OTHER note stayed out of the result.
+NOTE_A='counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."'
+NOTE_B='counterparts note "Postgres in dev listens on port 5433, not 5432."'
+RECALL_CMD='counterparts recall "which port does postgres use in dev?"'
+if ! doc_check "$NOTE_A" || ! doc_check "$NOTE_B" || ! doc_check "$RECALL_CMD"; then
+  no "not in QUICKSTART verbatim: $NOTE_A / $NOTE_B / $RECALL_CMD"
 elif ! doc_check 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'; then
-  no "the export that makes those two commands work is not in QUICKSTART verbatim"
+  no "the export that makes those commands work is not in QUICKSTART verbatim"
 else
   # The doc's own line, evaluated: `$HOME` is the clean room's.
   eval 'export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"'
-  OUT=$(eval "$NOTE_CMD" 2>&1)
+  OUT=$(eval "$NOTE_A" 2>&1; eval "$NOTE_B" 2>&1)
   RECALL_OUT=$(eval "$RECALL_CMD" 2>&1)
   unset COUNTERPARTS_DATA_DIR
-  if printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
+  if printf '%s' "$RECALL_OUT" | grep -q "port 5433" &&
+     ! printf '%s' "$RECALL_OUT" | grep -q "Rancilio Silvia" &&
      printf '%s' "$RECALL_OUT" | grep -q "semantic embedder-off"; then
     ok
   else
-    no "the console round trip did not return the note" "note: $OUT
+    no "recall did not pick the one memory that answers the question" "notes: $OUT
 recall: $RECALL_OUT"
   fi
 fi
+
+step "an answer names the TIER it came back at"
+# `answered` says the question reached something, never that it is right. The
+# tier is the only confidence signal there is, so it is glossed on screen.
+if printf '%s' "$RECALL_OUT" | grep -qE '^  (vivid|quiet|dim) = '; then
+  ok
+else
+  no "no tier gloss under the results" "$RECALL_OUT"
+fi
+
+step "a recall that finds nothing SAYS so, in a sentence"
+OUT=$(counterparts recall "xylophone quokka semaphore" --dir "$FIRSTSTORE" 2>&1)
+if printf '%s' "$OUT" | grep -q "NOTHING CAME BACK"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
 
 # ── 4. the SessionStart hook ────────────────────────────────────────────────
 
@@ -463,7 +483,39 @@ if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   OUT=$(eval "$CMD" 2>&1)
-  if printf '%s' "$OUT" | grep -q "Re-rendered the wake bundle"; then ok; else no "rebrief declined" "$OUT"; fi
+  # It must NAME the file the ceiling came from. On the default layout that is
+  # the config beside the store — the same file the hooks read.
+  if printf '%s' "$OUT" | grep -q "Re-rendered the wake bundle" &&
+     printf '%s' "$OUT" | grep -q "budget 9000 bytes from $BASE/claude-code.json"; then
+    ok
+  else
+    no "rebrief declined, or did not name the config it read" "$OUT"
+  fi
+fi
+
+step "rebrief on a store with NO config beside it says which file it fell back to"
+# The divergence the cold-stranger review found and this loop could not see: the
+# default layout puts the beside-the-store config and the hooks' config at the
+# same path, so the fallback never showed. A SECOND store, with no config of its
+# own, is the only shape that exercises it — and the point of the step is the
+# printed source line, not the number.
+OUT=$(counterparts rebrief --dir "$FIRSTSTORE" 2>&1)
+if printf '%s' "$OUT" | grep -q "budget 9000 bytes from $BASE/claude-code.json"; then
+  ok
+else
+  no "the fallback to the hooks' config was silent, or named the wrong file" "$OUT"
+fi
+
+step "rebrief with no ceiling anywhere refuses and lists every path it tried"
+NOCONFIG="$WORK/no-config-store"
+counterparts init --dir "$NOCONFIG" >/dev/null 2>&1
+OUT=$(env HOME="$WORK/empty-home" counterparts rebrief --dir "$NOCONFIG" 2>&1)
+if printf '%s' "$OUT" | grep -q "no injection ceiling" &&
+   printf '%s' "$OUT" | grep -q "$WORK/claude-code.json" &&
+   printf '%s' "$OUT" | grep -q "$WORK/empty-home/.counterparts/claude-code.json"; then
+  ok
+else
+  no "the refusal did not name both places it looked" "$OUT"
 fi
 
 step "SessionStart now injects that bundle instead of the bootstrap line"

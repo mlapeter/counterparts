@@ -22,7 +22,7 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -967,7 +967,7 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     expect(printed).toContain("identity 2");
     expect(printed).toContain("craft 1");
     expect(printed).toContain("elements 3");
-    expect(printed).toContain("ceiling 9000 bytes (--budget)");
+    expect(printed).toContain("budget 9000 bytes from --budget");
     expect(printed).toContain("published");
 
     const after = store({ observer: true });
@@ -1025,7 +1025,7 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     });
     expect(c.err).toEqual([]);
     expect(code).toBe(EXIT.ok);
-    expect(text(c.out)).toContain("ceiling 4096 bytes (");
+    expect(text(c.out)).toContain(`budget 4096 bytes from ${config}`);
     expect(text(c.out)).toContain("claude-code.json");
 
     const after = Store.open({ dir: inner, observer: true });
@@ -1033,6 +1033,61 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     expect(byteLength(after.getMeta(BRIEFING_KEY) ?? "")).toBeLessThanOrEqual(
       4096 - PREFACE_RESERVE_BYTES,
     );
+  });
+
+  test("the lookup order is flag, then beside the store, then the hooks' own config — and it SAYS which", async () => {
+    // The finding this pins (cold-stranger review 2026-09-04, issue 3): a
+    // stranger ran `rebrief --dir <scratch>` and it composed under a ceiling
+    // read out of `~/.counterparts/claude-code.json` — a file outside the
+    // directory they had named — while the page claimed in bold that no console
+    // command reads that file at all. The fallback is legitimate; the silence
+    // was not. Every branch below asserts the PRINTED source, not just the number.
+    const home = join(outside, "order-home");
+    const hooksConfig = join(home, ".counterparts", "claude-code.json");
+    mkdirSync(join(home, ".counterparts"), { recursive: true });
+    const inner = join(dir, "store");
+    const beside = join(dir, "claude-code.json");
+    const s = Store.open({ dir: inner });
+    open.push(s);
+    element(s, "Something true about how I work.", "2026-08-01");
+    s.close();
+
+    // (3) only the hooks' config exists: the fallback answers, and names itself.
+    writeFileSync(hooksConfig, JSON.stringify({ dataDir: inner, injectionBudgetBytes: 7000 }));
+    const fallback = consoleWith();
+    expect(await run(["rebrief", "--dir", inner], { io: fallback.io, env: {}, home })).toBe(EXIT.ok);
+    expect(text(fallback.out)).toContain(`budget 7000 bytes from ${hooksConfig}`);
+
+    // (2) a config beside the store WINS over the hooks' config.
+    writeFileSync(beside, JSON.stringify({ dataDir: inner, injectionBudgetBytes: 4096 }));
+    const nearer = consoleWith();
+    expect(await run(["rebrief", "--dir", inner], { io: nearer.io, env: {}, home })).toBe(EXIT.ok);
+    expect(text(nearer.out)).toContain(`budget 4096 bytes from ${beside}`);
+    expect(text(nearer.out)).not.toContain(hooksConfig);
+
+    // (1) the flag beats both, and reads no file at all.
+    const flagged = consoleWith();
+    expect(
+      await run(["rebrief", "--dir", inner, "--budget", "5000"], { io: flagged.io, env: {}, home }),
+    ).toBe(EXIT.ok);
+    expect(text(flagged.out)).toContain("budget 5000 bytes from --budget");
+    expect(text(flagged.out)).not.toContain("claude-code.json");
+
+    // NEVER inside the data dir. A config there fails the layout check and the
+    // store stops opening, so it is not a place this lookup may find one.
+    rmSync(beside);
+    rmSync(hooksConfig);
+    writeFileSync(join(inner, "claude-code.json"), JSON.stringify({ injectionBudgetBytes: 1234 }));
+    const inside = consoleWith();
+    expect(await run(["rebrief", "--dir", inner], { io: inside.io, env: {}, home })).toBe(
+      EXIT.refused,
+    );
+    expect(text(inside.err)).toContain("no injection ceiling");
+    // And the refusal names EVERY place it looked, in order, so "where should I
+    // put it" is answered by the failure itself.
+    expect(text(inside.err)).toContain(join(dir, "claude-code.json"));
+    expect(text(inside.err)).toContain(hooksConfig);
+    rmSync(join(inner, "claude-code.json"));
   });
 
   test("under observer it refuses and publishes nothing — an instrument makes no content write", async () => {
@@ -1307,8 +1362,32 @@ describe("note and recall", () => {
       EXIT.ok,
     );
     const printed = text(c.out);
-    expect(printed).toContain("Nothing came back.");
+    expect(printed).toContain("NOTHING CAME BACK");
     expect(printed).toContain("counterparts recall --id");
+  });
+
+  test("an answer says which TIER it came back at, so a footnote is not read as an answer", async () => {
+    // `answered` means the question reached something, never that the something
+    // is right. The cold-stranger review asked a one-row store what colour the
+    // sky is on Mars, got the espresso machine, and had nothing on screen to
+    // tell that apart from the right answer to a real question — the `[quiet]`
+    // marker sat on both. The tier is the only confidence signal there is, so
+    // the output now says what each tier it printed actually means.
+    store().close();
+    await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
+      io: consoleWith().io,
+    });
+    const c = consoleWith();
+    expect(await run(["recall", "what espresso machine is in the kitchen?", "--dir", dir], { io: c.io })).toBe(
+      EXIT.ok,
+    );
+    const printed = text(c.out);
+    // Whatever tier came back, its gloss is on screen beside it.
+    const tier = /\[(vivid|quiet|dim)\]/.exec(printed)?.[1];
+    expect(tier).toBeDefined();
+    expect(printed).toContain(`${tier as string} = `);
+    // Nothing vivid means the caller is told these are leads, not answers.
+    if (tier !== "vivid") expect(printed).toContain("leads rather than answers");
   });
 
   test("note refuses empty text, refuses an out-of-range salience, and refuses under observer", async () => {
