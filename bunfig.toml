@@ -1,0 +1,4 @@
+[test]
+# Redirects `homedir()` to a fresh temp dir for the whole run, so no test can
+# reach the owner's live `~/.counterparts`. See test/preload.ts for the wound.
+preload = ["./test/preload.ts"]
