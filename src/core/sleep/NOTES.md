@@ -243,7 +243,7 @@ same-hash merge"**, not merely the pair relation. The pair relation alone was th
 first draft and it is not enough — see the two doors below, both closed by the
 wider clause, both regression-tested. The wider clause is sound rather than a
 blanket exemption: a successor's body IS its challenger's body by construction
-(`schemas/index.ts:944`), so every same-hash group a successor belongs to is that
+(`schemas/index.ts:946`), so every same-hash group a successor belongs to is that
 challenger plus ordinary twins of the same sentence, and none of those is the
 thing the revision produced. The COSINE path is deliberately untouched — a merely
 similar row is an ordinary near-duplicate question, and the argument above does

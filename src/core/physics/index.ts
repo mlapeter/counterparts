@@ -913,9 +913,14 @@ export interface DedupInput {
   /** The candidate's `updates:` declaration, if it made one. */
   declaredUpdates: string | null;
   /**
-   * True when the two rows stand in a DIRECT revision-successor relation: one of
-   * them was minted by revising, carrying the other's words as the new
-   * statement. Lineage is a store fact, so the caller reads it and supplies it
+   * True when merging this pair would archive a revision's SUCCESSOR — either
+   * because the two rows stand in a direct successor relation (one was minted by
+   * revising, carrying the other's words), or because the candidate is a
+   * successor and the pair is same-hash. The second case is sound for the same
+   * reason as the first: a successor's body IS its challenger's body by
+   * construction, so any same-hash group it belongs to is that challenger plus
+   * ordinary twins of the same sentence, and none of those is what the revision
+   * produced. Lineage is a store fact, so the caller reads it and supplies it
    * here — the same division of labour as `sameContentHash`.
    */
   revisionSuccessorPair?: boolean;
