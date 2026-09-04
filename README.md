@@ -35,8 +35,11 @@ about what has been verified and what has not.*
 
 **[`docs/QUICKSTART.md`](docs/QUICKSTART.md) is the one canonical install path** and this
 is the summary of it. That page is kept honest mechanically: `tools/install-loop/run.sh`
-runs every command on it, verbatim, in a throwaway home directory with no copy of this
-repository on the PATH, and fails if the page and the machine drift apart.
+runs the page's console commands verbatim — each one is grepped out of the page before it
+is executed, so a doc edit that changes one fails the loop — in a throwaway home directory
+with no copy of this repository on the PATH. It packs the tarball itself and feeds the
+hook its own payload. It cannot run `git clone`, `claude mcp add` or Claude Code;
+QUICKSTART §9 lists what that leaves unverified.
 
 **You need [bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript sources
 and runs them directly — there is no build step and no `dist/`. **Node is untested.** The
@@ -52,8 +55,10 @@ a session that ended before the AI could write it up — cannot run; when it doe
 sends that captured conversation to a model provider. Both are the only two ways anything
 here leaves your machine, and both are yours to turn on.
 
-**Counterparts is not on npm yet.** The name is reserved and nothing has been pushed to
-it. Until it is, you build the package yourself:
+**Counterparts is not on npm yet, and this repository is not public yet.** Nothing is
+published under the npm name, and the clone below will refuse anyone who is not the author
+until the repository is flipped public at launch. If you were sent a tarball, skip to
+`bun add -g`. Otherwise you build the package yourself:
 
 ```
 git clone https://github.com/mlapeter/counterparts.git
@@ -76,7 +81,8 @@ counterparts install --budget 9000 --name "Your Name"
 
 `--budget` is the size ceiling, in bytes, for the briefing injected at the start of each
 session; 9,000 is the number the author's host runs on, and the package has no default for
-one. This writes a store, a configuration file and an empty credentials file under
+one. This writes a store, a configuration file, and a 0600 credentials file holding only
+comments that name the two keys, all under
 `~/.counterparts/`, and then **prints — without applying** — the two things that belong to
 Claude Code: a block of hooks to merge into its settings, and one `claude mcp add` command
 to run. It never edits your Claude Code configuration for you. Apply both, restart Claude
@@ -143,19 +149,21 @@ generated from a list of stated privileges, each naming the file that enforces i
 | `session_end` | Hand back what this session taught, as memories, in the AI's own words. |
 | `chapter` | Write this stretch of the session into the AI's own first-person journal, at any length. |
 
-**Your console** — `counterparts <command>`. Read-only: `status`, `recall`, and `verify`
-(a census of the search cache against the real state; `--rebuild` is what rebuilds it).
-The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
+**Your console** — `counterparts <command>`. Read-only: `status` and `recall`. `verify` is
+a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
+which is why `verify` counts as a write and refuses under `--observer` even without the
+flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
 explicitly `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run
 unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`, and
 `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
 read-only, and the commands that would write refuse instead.
 
-**The dashboard** — `counterparts-dashboard <view>`, five views today, in your terminal:
-`status` (the brain at a glance), `browse` (memories by strength), `stories` (per contested
-belief, the pressure log as a story), `identity`, and `activity`. It is read-only and
-writes nothing, ever. A local **web** dashboard is in progress and is not merged
-as this is written; the screenshots above come from it.
+**The dashboard** — `counterparts-dashboard`, read-only, writing nothing, ever. Five views
+in your terminal: `status` (the brain at a glance), `browse` (memories by strength),
+`stories` (per contested belief, the pressure log as a story), `identity`, and `activity`.
+And a local **web** dashboard: `counterparts-dashboard serve --dir <store> [--port <n>]`,
+bound to 127.0.0.1 only, default port 4747 — an overview, memories, mind, flow and health,
+plus a `/brain` view. The screenshots above come from it.
 
 ---
 
@@ -184,12 +192,14 @@ documentation on a machine with no copy of this repository.
 
 **Known rough edges** (QUICKSTART §10 has all of them, with reproductions):
 
-1. **The store you point at and the credentials you use come from two different files.**
+1. **The store you point at and the host settings you get come from two different files.**
    Your console, the dashboard and the MCP server take `--dir` or `COUNTERPARTS_DATA_DIR`
    to choose the store — but the server reads its keys and its embedding setting from
    `~/.counterparts/claude-code.json` regardless, so a scratch store on a configured
-   machine uses that machine's keys. The hooks are stricter still: they read only that one
-   file, for the store as well, with no flag and no environment override.
+   machine uses that machine's keys. `counterparts rebrief` will fall back to the same
+   file for the injection ceiling if there is none beside the store; it prints which file
+   it read. The hooks are stricter still: they read only that one file, for the store as
+   well, with no flag and no environment override.
 2. **The vector cache stores embeddings as JSON text.** On the author's migrated store
    that is 177.5 MB for about 13,900 vectors, and a nearest-neighbour scan of 0.6–1.0 s.
    Irrelevant to a fresh store; a named debt.

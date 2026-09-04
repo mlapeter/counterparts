@@ -31,8 +31,10 @@ tests, module CONTRACTs, and `docs/harvest/`.
 
 ## Toolchain
 
-- TypeScript strict, ESM. Target: Node (built-in `node:sqlite`; verify exact version
-  floor at packaging) and Bun. bun at `~/.bun/bin/bun` for tests (`bun test`).
+- TypeScript strict, ESM. Runtime: **bun** — the TypeScript sources run directly, no
+  build step. **Node is untested at launch**: the store binds `bun:sqlite` under bun and
+  `node:sqlite` under Node (22.5+ flagged, 23.4+ default), but nobody has run it there.
+  bun at `~/.bun/bin/bun` for tests (`bun test`).
 - Runtime deps: dependency hygiene is judgment, not a vow (Amendment 15 spirit) — but
   the default is zero.
 

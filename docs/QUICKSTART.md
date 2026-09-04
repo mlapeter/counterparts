@@ -1,8 +1,12 @@
 # Counterparts — install
 
-This is the one canonical install path. `tools/install-loop/run.sh` runs every
-command on this page, verbatim, in a throwaway HOME, and fails if a command here
-and a command there stop matching — so the page and the machine cannot drift.
+This is the one canonical install path. `tools/install-loop/run.sh` runs this
+page's CONSOLE commands verbatim — each one is grepped out of this file before it
+is executed, so a doc edit that changes one fails the loop — in a throwaway home
+directory with no copy of this repository on its PATH. It packs the tarball
+itself and feeds the hook its own payload. It cannot run `git clone`,
+`claude mcp add`, `export PATH` or Claude Code; §9 lists what that leaves
+unverified.
 
 No API key required. The scripted version of this page — install, configure,
 hook, note, recall — runs end to end in about two seconds; the part that takes
@@ -14,6 +18,10 @@ you time is §4, pasting two blocks into Claude Code's own configuration.
 
 - **[bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript
   sources and runs them directly; bun is the runtime. `curl -fsSL https://bun.sh/install | bash`
+- **npm**, for one command: `npm pack`, in §2, is how you build the tarball while
+  the package is unpublished. It comes with Node; a machine set up by the bun
+  line above may not have it. (`bun pm pack` exists but is not what §2 was tested
+  with, so this page does not tell you to use it.)
 - **[Claude Code](https://claude.com/claude-code)**, if you want the hooks and
   the MCP tools. The store, the console and the dashboard work without it.
 - **No API keys.** Counterparts runs with none; §6 says exactly what you give up.
@@ -28,10 +36,13 @@ target is ever added, it will need one.
 
 ## 2. Install
 
-**Counterparts is not on npm yet.** When it is published, this section becomes
-`bun add -g counterparts` and nothing else. That is not true today — the name is
-reserved and nothing has been pushed to it — so until then you build the tarball
-yourself, which takes one command:
+**Counterparts is not on npm yet, and the repository is not public yet.** When it
+is published, this section becomes `bun add -g counterparts` and nothing else.
+Neither is true today: nothing is published under the npm name yet, and the clone
+below will refuse anyone who is not the author until the repository is flipped
+public at launch. **If you are reading this from a tarball somebody sent
+you, skip the clone and start at `npm pack` — or at `bun add -g`, if the tarball
+is the thing you were sent.** Otherwise:
 
 ```
 git clone https://github.com/mlapeter/counterparts.git
@@ -95,7 +106,7 @@ nothing to say yet. This command writes three things that are **yours**:
 ```
 ~/.counterparts/
 ├── claude-code.json      the adapter's configuration
-├── credentials.env       an empty 0600 file for your API keys
+├── credentials.env       0600, holding only comments that name the two keys
 └── store/                the memory itself — the default data dir
     ├── prose/            the memories, as Markdown you can read in any editor
     ├── versions/         prior versions of a memory that was revised
@@ -142,14 +153,38 @@ counterparts install --budget 9000 --name "Your Name" --dir /Volumes/vault/count
 
 **The configuration does not follow it.** `~/.counterparts/claude-code.json` is the
 one path the hooks read — `src/adapters/claude-code/bin/hook.ts` and its worker
-hardcode it, with no flag and no environment override — so a config written
-anywhere else is an ambient half that never fires, and every hook exits 0 by
-design, so nothing would ever tell you. `install` keeps the config where the hooks
-look and points its `dataDir` at wherever you sent the store, and says so in its
-output when you use `--dir`.
+hardcode it and take no flag — so a config written anywhere else is an ambient
+half that never fires, and no hook will tell you: a hook that stands down says so
+on stderr and exits 0 (§5 has the one exception). The hook falls back to
+`COUNTERPARTS_DATA_DIR` only when that file names no `dataDir` at all
+(`hook.ts:84`), and `install` always writes one.
+
+`install` keeps the config where the hooks look, points its `dataDir` at wherever
+you sent the store, and says so in its output when you use `--dir`.
 
 The one `--dir` it refuses is `~/.counterparts` itself, which would put the config
 inside the data dir. It says so instead of creating a store that will not open.
+
+### `install` or `init` — which one
+
+```
+counterparts init --dir /somewhere/else/store
+```
+
+`init` makes **just a store**: a data dir, and a printout of the same install
+steps. It writes nothing under `~/.counterparts/`, no configuration and no
+credentials file, and it touches no host settings.
+
+Use `install` for your first, real memory — it is the cold start, it owns
+`~/.counterparts/`, and it is the only one that produces a config the hooks will
+read. Use `init` for a second store, a scratch store, or a store on another disk
+that you only want to reach from the console and the dashboard. A store made by
+`init` has no host wiring at all: the hooks will not see it, because they read
+one hardcoded configuration path and nothing else.
+
+`counterparts status` on a directory with no store points you at `init` — that is
+the store-only path, and it is correct for the case you are usually in when you
+see that message.
 
 ### The `injectionBudgetBytes` number
 
@@ -201,11 +236,13 @@ everything else, so it takes no arguments and no environment.
 claude mcp add counterparts -s user -e COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store" -- "/abs/path/to/bun" run "/abs/path/to/counterparts/src/adapters/mcp/bin/serve.ts"
 ```
 
-`COUNTERPARTS_DATA_DIR` in that line is **not optional**. Claude Code launches MCP
-servers from a static configuration with no per-session substitution, so the
-server gets no session id and no working directory it can trust; the data dir is
-how it finds the same store the hooks are writing. Use an absolute path — for the
-same PATH reason as above.
+**Keep `COUNTERPARTS_DATA_DIR` in that line, and keep it absolute.** It is how the
+server finds a store that is not at the default; `install` prints it even for the
+default store, because Claude Code launches MCP servers from a static
+configuration with no per-session substitution — the server gets no session id and
+no working directory it can trust, so the one thing it should not also have to
+guess is where the memory is. (Absent it, the server falls back to the same
+default the console uses, `serve.ts:23`. That is a fallback, not a plan.)
 
 Then **restart Claude Code**. Hooks are read at session start; MCP servers are
 launched at session start.
@@ -218,9 +255,12 @@ launched at session start.
 last boundary published, plus a preface naming the system, the day and the
 store's size. `UserPromptSubmit` recalls against the turn. `Stop`, `SessionEnd`
 and `PreCompact` are boundaries: they capture the conversation into `spans/` and,
-at most once in a while, ask you a question through the model. Every hook exits 0
-whatever happens — a hook that fails your session is the one failure mode this
-adapter does not have.
+at most once in a while, ask you a question through the model. No hook ever fails
+your session — that is the one failure mode this adapter does not have. Every hook
+exits 0, with one deliberate exception: a Stop that has a question to ask exits 2
+and writes the ask to stderr, because on this host that is the channel the model
+actually reads (`hook.ts:166-181`, measured; §9). That 2 is the feedback channel,
+not a failure.
 
 **The MCP server** is the deliberate half: `note` (remember this), `recall` (ask
 memory a question), `status`, `session_end` (write the session's memories),
@@ -281,9 +321,9 @@ The values, and exactly what each one means
 
 | `semantic` | meaning |
 |---|---|
-| `embedder-off` | no embedder was built. Either no `VOYAGE_API_KEY`, or `embedder.enabled` is absent from the config. **This is the no-key mode.** |
-| `in-line` | the question WAS embedded and the semantic channel ran. You have a key and the knob on. |
-| `embed-failed` | an embedder exists and the call returned nothing or threw. Lexical answered; the failure is named rather than hidden. |
+| `embedder-off` | **no embedder was built**, because `embedder.enabled` is not `true` (or the server stood down as an observer). This is the no-key mode *with the knob off* — the state you are in after a plain `counterparts install`, and the state the console is always in. |
+| `embed-failed` | an embedder was built and the call did not return a vector. **This is what a knob turned on with no `VOYAGE_API_KEY` looks like** — the client exists, the call raises `NO_API_KEY`, and lexical answers. Also a network failure or an empty vector. |
+| `in-line` | the question WAS embedded and the semantic channel ran. Key present, knob on. |
 | `none` | the `handle` and `ids` paths — an exact address does no scoring at all. |
 
 If you have no key and see `in-line`, something is supplying one: the MCP server
@@ -312,29 +352,38 @@ export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"
 ```
 
 Every command in this section takes `--dir <store>` instead if you prefer; the
-console and the dashboard read one or the other, and neither reads
-`claude-code.json`.
+console and the dashboard read one or the other. The console reads
+`claude-code.json` for exactly one thing — `rebrief` without `--budget` takes
+`injectionBudgetBytes` from `<store>/../claude-code.json`, then from
+`~/.counterparts/claude-code.json`, and prints which — and never for the store,
+the keys or the embedder.
 
-### Store a memory and ask for it back
+### Store some memories and ask for one back
 
-This is the product. Two commands, no host, no keys:
+This is the product. Three commands, no host, no keys:
 
 ```
 counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."
-counterparts recall "what espresso machine is in the kitchen?"
+counterparts note "Postgres in dev listens on port 5433, not 5432."
+counterparts recall "which port does postgres use in dev?"
 ```
 
-`note` prints `Remembered mem_… — minted.` `recall` prints a header line and the
-memory:
+`note` prints `Remembered mem_… — minted.` `recall` prints a header line, the
+memories it found, and what the tier on each one means:
 
 ```
-question · answered · semantic embedder-off · considered 1 of 1 live · returned 1
+question · answered · semantic embedder-off · considered 1 of 2 live · returned 1
 
-  mem_e351c4a75217  [quiet] fact
-    The espresso machine in the kitchen is a Rancilio Silvia.
+  mem_3856a5e8f2fa  [quiet] fact
+    Postgres in dev listens on port 5433, not 5432.
+
+  quiet = quietly available; the ambient path would have footnoted it, not said it
+  Nothing here came back vividly, so treat these as leads rather than answers.
 ```
 
-(That is a real capture, on a store holding nothing but that one memory.)
+(A real capture. Two memories in the store, one question, and it came back with
+the one that answers it — `considered 1 of 2 live` is recall discriminating, not
+a store small enough to have no choice.)
 
 These are the same two doors the MCP tools use — `note` captures the words into
 the span buffer and then deposits a draft that claims that span by hash; `recall`
@@ -343,9 +392,20 @@ Code will see. `--kind`, `--title` and `--salience` shape a note; `--id <mem_…
 asks for one memory in full instead of asking a question; `--json` prints the
 tool's own payload.
 
-That works on the very first memory: a store holding exactly one row answers the
-question about it. The install loop checks precisely that case every run, because
-it is the first thing anyone does and it is invisible to any test that seeds two.
+**Read the tier, not the word `answered`.** `answered` means the question reached
+something; it is not a claim that the something is right. The tiers are the only
+confidence signal in the output, and the line under the results says what the
+ones you got mean. Asked something this store genuinely does not know — *"what
+colour is the sky on Mars?"* — the same two-memory store returns the espresso
+machine at `[quiet]`, with the same "treat these as leads" line. A cue-based
+channel with no embedder answers with the nearest thing it has; a `[quiet]` or
+`[dim]` result is the system saying *this is what I would have murmured*, not
+*this is your answer*.
+
+It also works on the very first memory: a store holding exactly one row answers
+the question about it (`considered 1 of 1 live`). The install loop checks that
+case on every run, because it is the first thing anyone does and it is invisible
+to any test that seeds two rows.
 
 ### Look at the store
 
@@ -376,8 +436,8 @@ On a store that has never lived a boundary this prints the honest bootstrap line
 and exits 0. That is the wake path working, with nothing yet to say.
 
 **This one reads `~/.counterparts/claude-code.json` and nothing else.** It takes no
-`--dir` and honors no environment variable, so it acts on whatever store that file
-names — which is the point of §3's rule that the config stays where the hooks look.
+`--dir`, so it acts on whatever store that file names — falling back to
+`COUNTERPARTS_DATA_DIR` only if the file names no `dataDir` at all — which is the point of §3's rule that the config stays where the hooks look.
 If you have not run `counterparts install`, or you are trying it against a scratch
 store, this command will not do what you expect: the only way to point the hook
 somewhere else is to point that one file somewhere else.
@@ -391,11 +451,20 @@ counterparts rebrief --dir "$HOME/.counterparts/store"
 which re-renders and republishes the wake bundle now, through the boundary's own
 renderer, advancing no sleep marker. Run the hook again and you get the bundle.
 
+`rebrief` needs an injection ceiling and will not invent one. It takes it from
+`--budget <bytes>` if you pass one; otherwise from `<store>/../claude-code.json`;
+otherwise from `~/.counterparts/claude-code.json`, which is where the hooks read.
+**It always prints which**, as `budget 9000 bytes from <path>` — a ceiling taken
+out of a file you did not name should never be silent — and if none of the three
+answers, it refuses and lists every path it tried.
+
 To recap which entry point reads what: the console and the dashboard take `--dir`
 or `COUNTERPARTS_DATA_DIR`; the MCP server takes `--dir` or
-`COUNTERPARTS_DATA_DIR`; the hook and its worker read `dataDir` out of
-`~/.counterparts/claude-code.json` and take neither. **The console does not read
-`claude-code.json`** — that file is the hooks' and the MCP server's.
+`COUNTERPARTS_DATA_DIR`; the hook and its worker take no flag and read `dataDir`
+out of `~/.counterparts/claude-code.json`, falling back to
+`COUNTERPARTS_DATA_DIR` only if that file names no store. The console reads that
+file only for `rebrief`'s ceiling; the store, the keys and the embedder knob in it
+are the hooks' and the MCP server's.
 
 ---
 
@@ -444,10 +513,12 @@ real session can settle them: that Claude Code reads the hooks block from
 text actually reaches the model's context; that the Stop ask arrives (it is
 delivered on stderr with exit 2, the one channel measured to work on this host);
 that `claude mcp add` registers a server the client then launches; and that
-`session_end` binds to a live session through the registry. All five are verified
-on the owner's machine by the parallel run
+`session_end` binds to a live session through the registry. **The first four** are
+verified on the owner's machine by the parallel run
 ([`docs/PARALLEL-RUN-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/PARALLEL-RUN-STATUS.md),
-in the repository), not by this loop.
+in the repository), not by this loop. The fifth is not: the lazy bind is exercised
+by `test/mcp.test.ts` and by the loop's registry step, but a live `session_end`
+binding through the registry is the run's next watch, not yet a record.
 
 ---
 
@@ -456,21 +527,24 @@ in the repository), not by this loop.
 1. **Three entry points, two ways to name the store.** `counterparts` and
    `counterparts-dashboard` read `--dir` or `COUNTERPARTS_DATA_DIR`;
    `counterparts-mcp` reads `--dir` or `COUNTERPARTS_DATA_DIR`;
-   `counterparts-hook` and its worker read `dataDir` out of
-   `~/.counterparts/claude-code.json` and accept **neither** a flag nor an
-   environment variable. There is no way to point the hook at a different store
-   except by editing that file, which is why `install` always writes it there.
+   `counterparts-hook` and its worker take **no flag**; they read `dataDir` out of
+   `~/.counterparts/claude-code.json`, which `install` always writes, and fall
+   back to `COUNTERPARTS_DATA_DIR` only when that file names no store. In
+   practice, on any installed machine, that one file is the only way to point the
+   hook anywhere.
 2. **`bun add -g` needs an absolute tarball path — and the same error means "no
    such file".** On bun 1.3.10 a relative path fails with
    `error: ENOENT extracting tarball from ./x.tgz`, and so does an absolute path
    naming a file that does not exist. Check `ls *.tgz`. Hence
    `"$PWD"/counterparts-*.tgz` in §2.
-3. **The store you point at and the credentials you use come from two different
+3. **The store you point at and the host settings you get come from two different
    files.** `--dir` / `COUNTERPARTS_DATA_DIR` choose the store;
-   `~/.counterparts/claude-code.json` chooses the embedder knob and the
-   credentials file, for the MCP server as well as the hooks. Running a scratch
-   store on a machine that already has a configured install will use that
-   install's keys. §6 says how to tell from the `semantic` field.
+   `~/.counterparts/claude-code.json` supplies host settings — the embedder knob
+   and the credentials file for the MCP server and the hooks, and, as a last
+   resort, the injection ceiling for `counterparts rebrief` (§7). Running a
+   scratch store on a machine that already has a configured install will use that
+   install's keys, and can compose a briefing under that install's ceiling. §6
+   says how to tell from the `semantic` field; `rebrief` names the file it read.
 4. **The vector cache stores embeddings as JSON text.** On the owner's migrated
    store that is 177 MB at 13.9K vectors, with a nearest-neighbour scan of
    0.6–1.0 s. Irrelevant to a fresh store; a named debt.
@@ -478,6 +552,8 @@ in the repository), not by this loop.
    parallel-run knob and makes Counterparts stand down unless another file says
    it may speak. Do not copy it.
 6. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
-   `INTERFACE-GAPS.md`** — about 1.9 MB unpacked. Deliberate: those files are what
+   `INTERFACE-GAPS.md`** — 40 files, 0.44 MB, in a 2.2 MB package (measured
+   2026-09-04 on `npm pack --dry-run` plus the tarball's own listing; the
+   TypeScript sources are the bulk of the rest). Deliberate: those files are what
    `src/` is documented by, and this page points at them. Delete `src/**/*.md`
    from your install if you would rather not carry them.

@@ -142,7 +142,9 @@ export function usage(): string {
     "                      the hooks read), and PRINT the host's hooks block and MCP",
     "                      line. Never edits the host. --dir moves the STORE only.",
     "                      --budget <bytes> --name <owner> --embedder --force.",
-    "  init                Create a fresh data dir and PRINT the hook install steps.",
+    "  init                Just a store: create a data dir and PRINT the install steps.",
+    "                      No host config, no credentials file, nothing under",
+    "                      ~/.counterparts/. For a second store or a scratch one.",
     "  note <text>         Remember this, deliberately. The same two doors the MCP",
     "                      tool uses. --kind --title --salience.",
     "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
@@ -158,8 +160,12 @@ export function usage(): string {
     "                      floor. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
-    "                      no other sleep phase. --budget <bytes> overrides the host",
-    "                      ceiling read from <dir>/claude-code.json.",
+    "                      no other sleep phase. Needs an injection ceiling, and says",
+    "                      which of these gave it one: --budget <bytes>, else",
+    "                      <dir>/../claude-code.json (beside the store), else",
+    "                      ~/.counterparts/claude-code.json (where the hooks read).",
+    "                      Never a config INSIDE the data dir — that store stops",
+    "                      opening (§5 G11).",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
     "  --observer          Stand down: read-only, owner operations refuse.",
@@ -284,7 +290,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "status":
         return statusCommand(dir, io);
       case "init":
-        return initCommand(dir, io);
+        return initCommand(dir, io, opts.home);
       case "note":
         return await noteCommand(dir, io, parsed);
       case "recall":
@@ -565,7 +571,7 @@ function installCommand(
  * aimed at v1's live store fails before anything exists (scar §2.13). This
  * function only has to not catch it.
  */
-function initCommand(dir: string, io: Io): number {
+function initCommand(dir: string, io: Io, home = homedir()): number {
   const existed = storeExists(dir);
   let store: Store;
   try {
@@ -593,11 +599,20 @@ function initCommand(dir: string, io: Io): number {
   io.out(`       ${join(resolved, "..", "claude-code.json")}`);
   io.out('       { "dataDir": "<this dir>", "injectionBudgetBytes": <your host\'s ceiling> }');
   io.out("");
+  io.out("     WHO HONORS THAT FILE, exactly: this console reads it for the injection");
+  io.out(`     ceiling ('${BIN.cli} rebrief'). The HOOKS DO NOT — they read only`);
+  io.out(`       ${join(home, ".counterparts", "claude-code.json")}`);
+  io.out("     with no flag and no environment override, and every hook exits 0, so a");
+  io.out("     config anywhere else is an ambient half that never fires and never says");
+  io.out(`     so. If you want the hooks to fire, use '${BIN.cli} install'.`);
+  io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
   io.out("refuses to render rather than compose to a number nobody chose (scar §2.18).");
   io.out("");
-  io.out(`'${BIN.cli} install' does step 3 for you, adds a 0600 credentials file beside`);
-  io.out("it, and prints 1 and 2 filled in and ready to paste.");
+  io.out(`'${BIN.cli} init' makes a STORE and nothing else — a second store, a scratch`);
+  io.out(`one, a store on another disk. '${BIN.cli} install' is the cold start: it owns`);
+  io.out("~/.counterparts/, writes step 3 there plus a 0600 credentials file, and prints");
+  io.out("1 and 2 filled in and ready to paste.");
   return EXIT.ok;
 }
 
@@ -717,18 +732,41 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     );
     if (result.memories.length === 0) {
       io.out("");
-      io.out("Nothing came back.");
-      if (result.reason === "nothing-came" && result.considered === 0) {
-        io.out("  No candidate was even scored — nothing in the store matched a word of");
-        io.out("  the question. Try words the memory itself would use, or ask for it by");
-        io.out("  id: counterparts recall --id <mem_...>");
-      }
+      // NOTHING CAME, said as a sentence rather than as an absence. A blank
+      // where a memory would have been is the one output a reader cannot tell
+      // from a crash, and the reason belongs in the same breath.
+      io.out(
+        result.considered === 0
+          ? "NOTHING CAME BACK — nothing in the store shared a word with the question, so no memory was even scored."
+          : `NOTHING CAME BACK — ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} scored and none was close enough to show.`,
+      );
+      io.out("  Try words the memory itself would use, or ask for it by id:");
+      io.out("  counterparts recall --id <mem_...>");
       return EXIT.ok;
     }
     for (const m of result.memories) {
       io.out("");
       io.out(`  ${m.id}  [${m.tier}] ${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
       for (const line of m.body.split("\n")) io.out(`    ${line}`);
+    }
+    // THE TIER LEGEND, and it is not decoration. `answered` means the question
+    // reached something, never that the something is right, and the loudest
+    // tier present is the only confidence signal in the output. A reader who
+    // takes `[quiet]` for a strong hit is reading a footnote as an answer —
+    // the cold-stranger review asked a one-row store about Mars, got the
+    // espresso machine, and had nothing on screen to tell it apart from the
+    // right answer to a real question.
+    io.out("");
+    const tiers = new Set(result.memories.map((m) => m.tier));
+    for (const [tier, gloss] of [
+      ["vivid", "came clearly to mind; the ambient path would have surfaced this"],
+      ["quiet", "quietly available; the ambient path would have footnoted it, not said it"],
+      ["dim", "reached only because you asked deliberately — lower confidence, and labelled so"],
+    ] as const) {
+      if (tiers.has(tier)) io.out(`  ${tier} = ${gloss}`);
+    }
+    if (!tiers.has("vivid")) {
+      io.out("  Nothing here came back vividly, so treat these as leads rather than answers.");
     }
     return EXIT.ok;
   } finally {
@@ -1287,8 +1325,8 @@ function rebriefCommand(
     return EXIT.failed;
   }
   const ceiling = home === undefined ? hostCeiling(dir, budgetFlag) : hostCeiling(dir, budgetFlag, home);
-  if (typeof ceiling === "string") {
-    io.err(ceiling);
+  if ("refusal" in ceiling) {
+    for (const line of ceiling.refusal.split("\n")) io.err(line);
     return EXIT.refused;
   }
   const counterpart = openCounterpart(dir);
@@ -1303,9 +1341,16 @@ function rebriefCommand(
     }
     io.out(`Re-rendered the wake bundle for ${counterpart.store.dir}.`);
     io.out(`  lived day ${report.day}, horizon asked about ${at}`);
+    // THE LINE THAT MAKES THE LOOKUP HONEST. It names the file, always — a
+    // ceiling read out of a configuration the user never mentioned is a
+    // surprise only while nobody says where it came from.
     io.out(
-      `  ceiling ${ceiling.bytes} bytes (${ceiling.source}); composed under ${report.composeBudget}` +
-        ` — the delivery preface reserves ${PREFACE_RESERVE_BYTES}`,
+      ceiling.source === "--budget"
+        ? `  budget ${ceiling.bytes} bytes from --budget`
+        : `  budget ${ceiling.bytes} bytes from ${ceiling.source}`,
+    );
+    io.out(
+      `  composed under ${report.composeBudget} — the delivery preface reserves ${PREFACE_RESERVE_BYTES}`,
     );
     io.out(`  lanes: ${LANE_ORDER.map((l) => `${l} ${report.counts[l] ?? 0}`).join("  ")}`);
     io.out(`  elements ${report.elements}, bytes ${report.bytes}`);
@@ -1321,38 +1366,72 @@ function rebriefCommand(
   }
 }
 
-/** The host's reported injection ceiling, or the sentence explaining its absence. */
-function hostCeiling(
+/**
+ * WHERE THE CONSOLE LOOKS FOR THE HOST CONFIGURATION. One rule, and the only one.
+ *
+ * `injectionBudgetBytes` is a host capability, and the console has no host — so
+ * a command that needs it (today: `rebrief`) has to read the file the host's own
+ * adapter reads. That is a real thing the console does, and the documentation
+ * said for a while that it did not; a bolded claim a stranger disproved with the
+ * second command past the round trip (cold-stranger review, 2026-09-04, issue 3).
+ * So it is stated once, here, and every page repeats this and nothing else:
+ *
+ *   1. `--budget <bytes>`, when given. Nothing is read at all.
+ *   2. `<dir>/../claude-code.json` — BESIDE the store. This is the deployed
+ *      layout: `~/.counterparts/claude-code.json` with the store at
+ *      `~/.counterparts/store`, so for a default install (1) and (2) are the
+ *      same file. For a `--dir` elsewhere it is the config that names THAT store.
+ *   3. `~/.counterparts/claude-code.json` — the hooks' own hardcoded path, which
+ *      is where `counterparts install` always writes, because `--dir` moves the
+ *      store and never the configuration.
+ *
+ * **Never `<dir>/claude-code.json`.** A file inside the data dir fails the layout
+ * totality check (§5 G11) and the store stops opening; the `--help` said that
+ * path for a while and it was never true.
+ *
+ * The caller PRINTS which of these answered, always — a number read out of a
+ * file the user did not name is only a surprise while it is silent. `searched`
+ * carries the paths so a refusal can name every place that was tried rather
+ * than one of them.
+ */
+export interface CeilingFound {
+  readonly bytes: number;
+  /** `--budget`, or the absolute path of the file that answered. */
+  readonly source: string;
+  readonly searched: readonly string[];
+}
+export interface CeilingMissing {
+  readonly refusal: string;
+  readonly searched: readonly string[];
+}
+
+export function hostCeiling(
   dir: string,
   flag: string | boolean | undefined,
   home = homedir(),
-): { bytes: number; source: string } | string {
+): CeilingFound | CeilingMissing {
   if (typeof flag === "string" && flag.length > 0) {
     const n = Number(flag);
     if (!Number.isInteger(n) || n <= 0) {
-      return `refused: --budget takes a positive whole number of bytes, not '${flag}'.`;
+      return {
+        refusal: `refused: --budget takes a positive whole number of bytes, not '${flag}'.`,
+        searched: [],
+      };
     }
-    return { bytes: n, source: "--budget" };
+    return { bytes: n, source: "--budget", searched: [] };
   }
-  // BESIDE the store, never inside it: the layout totality check (§5 G11)
-  // refuses an unclassified file in the data dir, which is why the deployed
-  // config sits at `~/.counterparts/claude-code.json` with `dataDir` pointing
-  // at a subdirectory (measured 2026-09-03).
-  //
-  // Two places, in this order: beside the store (the default layout, and the
-  // one a console run with an explicit `--dir` most likely means), then the
-  // hooks' own hardcoded path — because `--dir` moves the store and never the
-  // configuration (`install.ts#installLayout`), so with a moved store the only
-  // copy of the ceiling is the second one.
-  const path = join(dir, "..", "claude-code.json");
+  const beside = join(dir, "..", "claude-code.json");
   const hooksConfig = join(home, ".counterparts", "claude-code.json");
-  for (const candidate of path === hooksConfig ? [path] : [path, hooksConfig]) {
+  // De-duplicated, because on a default install these are the same file and a
+  // refusal that named it twice would read as two separate misses.
+  const searched = beside === hooksConfig ? [beside] : [beside, hooksConfig];
+  for (const candidate of searched) {
     if (!existsSync(candidate)) continue;
     try {
       const parsed = JSON.parse(readFileSync(candidate, "utf8")) as Record<string, unknown>;
       const value = parsed["injectionBudgetBytes"];
       if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-        return { bytes: value, source: candidate };
+        return { bytes: value, source: candidate, searched };
       }
     } catch {
       /* an unreadable host config reports no ceiling — the refusal below says so */
@@ -1360,10 +1439,16 @@ function hostCeiling(
   }
   // Scar §2.18: the ceiling is a host capability. There is no default anywhere
   // in this package and this command does not become the place there is one.
-  return (
-    "refused: no injection ceiling. Pass --budget <bytes>, or set " +
-    `"injectionBudgetBytes" in ${path}. A briefing never invents one (scar §2.18).`
-  );
+  return {
+    refusal: [
+      'refused: no injection ceiling. Nothing set "injectionBudgetBytes" in either place',
+      "this command looks, so there is no number to compose under, and a briefing never",
+      "invents one (scar §2.18). Looked, in order:",
+      ...searched.map((p) => `  ${p}${existsSync(p) ? "  (present, no injectionBudgetBytes)" : "  (absent)"}`),
+      "Pass --budget <bytes>, or add the key to one of those files.",
+    ].join("\n"),
+    searched,
+  };
 }
 
 /** Exported for the caller-universality test: the console composes a brain the
