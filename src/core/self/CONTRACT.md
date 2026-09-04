@@ -53,6 +53,16 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
   the journal was a file that never became a memory. The door is `reconcileEpisodes` at
   `Counterpart.sessionEnd` — the boundary, not a script.*
+- **Forgetting applies to what an episode PRODUCED, never to the episode.** The journal is
+  the owner's own account and the source the memory was made from, so it is outside decay,
+  dedup, consolidation and the floor prune (`sleep/CONTRACT.md` §5 G15,
+  `sleep/types.ts#isJournal`); the memory minted from it fades like anything else.
+  Constitution 6 (the owner owns the data, in prose readable in any editor) and 7 (memory
+  changes like human memory — which is a claim about memories). *Measured 2026-09-04: all
+  224 migrated episodes sit in the episodic band at zero on every dimension, so the phases
+  that walk "every row" would have archived the whole journal at the floor — and an
+  archived episode stops reconciling, so the memories it had not yet minted would never
+  exist.*
 - **The narration→span join is identity-safe** — spans with no session identity are skipped
   outright, because every anonymous session collapses to the same marker. [v1 §13 G7]
 - **Ingestion is ordinary and the gates apply**: a first-person reflection is not exempt from
@@ -213,9 +223,10 @@ preface at its widest plausible day, date and store size against the same consta
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and the regrow
 window run on lived days — and, from 2026-09-04, the chapter CAP does too) · **the journal
-is not a duplicate of the memory made from it** (dedup walked every row, and the ingested
-memory carries the episode's own prose, so the first real ingestion was merged into its own
-journal at the boundary that minted it — `sleep/dedup.ts` skips `type: "episode"`) · **§2.3** (composed budget, sentinel, delivery telemetry, atomic
+is neither a memory nor a duplicate of one** (every sleep phase walked every row: dedup
+merged the first real ingestion into its own journal at the boundary that minted it, and
+prune would have archived all 224 migrated episodes at the floor — one predicate,
+`sleep/types.ts#isJournal`, now holds the rule for all four) · **§2.3** (composed budget, sentinel, delivery telemetry, atomic
 write) · **§2.4** (frozen markers are the measurement; a withheld move is a record, not a
 silence) · **§2.7** (episode ingestion traverses the same gate as everything else — v1's
 most heavily gated surface, 66% of all gate fires) · **§2.10** (strengthening without a live

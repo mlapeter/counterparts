@@ -481,14 +481,26 @@ export class McpServer {
     let live = 0;
     let archived = 0;
     let superseded = 0;
+    // Journal entries, counted APART. An episode is the source a memory was
+    // made from, not a memory: it is outside every sleep phase
+    // (`sleep/types.ts#isJournal`), so counting it among the memories would
+    // report as "held" a row that neither decays nor exits. Reported rather
+    // than dropped, because a number that quietly excludes something is the
+    // kind of census §16 forbids.
+    let journal = 0;
 
     for (const kind of kinds) {
       const ids = store.list({ kind });
-      created[kind] = ids.length;
+      let born = 0;
       let gone = 0;
       for (const id of ids) {
         const row = store.row(id);
         if (row === undefined) continue;
+        if (row.type === "episode") {
+          if (row.archived === 0 && !denied.has(id)) journal += 1;
+          continue;
+        }
+        born += 1;
         if (denied.has(id)) {
           gone += 1;
           continue;
@@ -506,6 +518,7 @@ export class McpServer {
         live += 1;
         byBand[row.band] = (byBand[row.band] ?? 0) + 1;
       }
+      created[kind] = born;
       exited[kind] = gone;
     }
     for (const band of bands) byBand[band] = byBand[band] ?? 0;
@@ -527,6 +540,7 @@ export class McpServer {
       live,
       archived,
       superseded,
+      journal,
       byKind: created,
       byBand,
       /** OQ2's symmetry counters: born versus left, per kind. */
@@ -537,6 +551,7 @@ export class McpServer {
         dates: [...dates].sort(),
         note: "Counts, kinds and dates only. No ids, no bodies, no hashes.",
       },
+      counts: "Every number above is MEMORIES. `journal` is the first-person episodes those memories were made from: it is the source, not a memory, and it neither decays nor is pruned.",
       clock: {
         livedDay: store.livedDay(),
         lastActiveDate: store.getMeta("lastActiveDate") ?? null,

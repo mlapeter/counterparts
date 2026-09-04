@@ -40,6 +40,7 @@ import { runPrune } from "./prune.js";
 import { sqliteStrengthCache, storeRankingCache, supportsRanking } from "./strength-cache.js";
 import type { StrengthCache } from "./strength-cache.js";
 import { shouldSpawn } from "./tunables.js";
+import { isJournal } from "./types.js";
 import type {
   BandTransition,
   CycleReport,
@@ -532,6 +533,11 @@ export function census(
   for (const id of store.list()) {
     const row = store.row(id);
     if (row === undefined) continue;
+    // MEMORIES. A chapter written today is not a memory born today, and
+    // counting it as one would give every journal kind a permanent
+    // created-without-exit imbalance — the exact signal G13 exists to raise
+    // (`sleep/types.ts#isJournal`).
+    if (isJournal(row)) continue;
     if (row.birth_day === day) created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
   }
   for (const p of pruned) exited.set(p.record.kind, (exited.get(p.record.kind) ?? 0) + 1);

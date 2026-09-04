@@ -284,6 +284,11 @@ const STATUS: ToolSpec = {
       mechanizedBy: "src/adapters/mcp/server.ts#census (counts/kinds/dates only)",
     },
     {
+      claim:
+        "Every count is MEMORIES. The journal — the first-person episodes those memories were made from — is counted apart, because it is a source rather than a memory and is outside decay, dedup and the floor prune.",
+      mechanizedBy: "src/core/sleep/types.ts#isJournal + src/adapters/mcp/server.ts#census",
+    },
+    {
       claim: "Under observer stance it stands down over the wire and says so.",
       mechanizedBy: "src/adapters/mcp/server.ts#standDown",
     },

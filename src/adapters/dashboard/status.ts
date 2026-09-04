@@ -26,6 +26,7 @@ import {
   MARKER_UNSET,
   MERGE_ARCHIVE_REASON,
   PRUNE_ARCHIVE_REASON,
+  isJournal,
   readMarker,
 } from "../../core/sleep/index.js";
 import type { Band, Kind } from "../../core/types.js";
@@ -64,6 +65,11 @@ interface Tally {
   everContested: number;
   live: number;
   archived: number;
+  /** Journal entries — episodes. NOT counted in `live`: an episode is the
+   *  SOURCE a memory was made from, not a memory, and it is outside every
+   *  sleep phase (`sleep/types.ts#isJournal`). Counted here so excluding it
+   *  from the census is visible rather than silent (constitution 16). */
+  journal: number;
 }
 
 function tally(src: DashboardSource, day: number): Tally {
@@ -79,6 +85,7 @@ function tally(src: DashboardSource, day: number): Tally {
     everContested: contestedBeliefs(src).length,
     live: 0,
     archived: 0,
+    journal: 0,
   };
   const strengths = new Map<Kind, number[]>();
 
@@ -89,6 +96,10 @@ function tally(src: DashboardSource, day: number): Tally {
       out.archived += 1;
       const reason = row.archived_reason ?? "no reason recorded";
       out.exits.set(reason, (out.exits.get(reason) ?? 0) + 1);
+      continue;
+    }
+    if (isJournal(row)) {
+      out.journal += 1;
       continue;
     }
     out.live += 1;
@@ -128,10 +139,15 @@ export function renderStatus(src: DashboardSource, opts: StatusOptions = {}): st
     `I have lived ${plural(day, "day")}` +
     (lastActive === "" ? "" : ` — the last of them ${lastActive}`) +
     ". " +
-    (t.live + t.archived === 0
+    (t.live + t.archived + t.journal === 0
       ? "I am holding nothing yet."
       : `I am holding ${plural(t.live, "memory", "memories")}` +
-        (t.archived === 0 ? "." : `, and ${t.archived} more sit archived.`));
+        (t.archived === 0 ? "" : `, and ${t.archived} more sit archived`) +
+        // Said out loud because it is EXCLUDED from the count before it: the
+        // journal is the source, and it is not subject to forgetting.
+        (t.journal === 0
+          ? "."
+          : `, beside ${plural(t.journal, "journal entry", "journal entries")} that do not decay.`));
 
   return stack(
     heading("What I am, right now", style),

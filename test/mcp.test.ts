@@ -768,6 +768,30 @@ describe("recall — deliberate retrieval", () => {
 // ── status ──────────────────────────────────────────────────────────────────
 
 describe("status — the census", () => {
+  test("the journal is counted APART from the memories, and the census says so", async () => {
+    // An episode neither decays nor exits (`sleep/types.ts#isJournal`), so
+    // counting it as a memory would report as "held" a row that can never
+    // leave — and a count that quietly excludes something is worse.
+    const s = server();
+    s.counterpart.store.put({
+      type: "memory",
+      kind: "self",
+      body: "What that day taught, which is a different thing from the account of it.",
+    });
+    s.counterpart.store.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nThe account itself.\n",
+      source: "episode",
+    });
+    const census = payload(await s.call("status", {}));
+    expect(census["live"]).toBe(1);
+    expect(census["journal"]).toBe(1);
+    expect((census["byKind"] as Record<string, number>)["self"]).toBe(1);
+    expect(String(census["counts"])).toContain("MEMORIES");
+  });
+
+
   test("counts by kind and band, symmetry counters, and what was removed — no ids, bodies or hashes", async () => {
     const s = server();
     seed(s.counterpart);

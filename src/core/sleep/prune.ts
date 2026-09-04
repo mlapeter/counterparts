@@ -27,7 +27,7 @@ import type { MemoryPhysics, PruneReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PRUNE_ARCHIVE_REASON, PRUNE_RECORD_PREFIX } from "./tunables.js";
 import type { MemoryRow, PhaseCtx, PhaseOutcome, PrunedRecord } from "./types.js";
-import { countSkip, emptyOutcome } from "./types.js";
+import { countSkip, emptyOutcome, isJournal } from "./types.js";
 
 export interface PruneResult extends PhaseOutcome {
   readonly pruned: readonly PrunedRecord[];
@@ -68,6 +68,7 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
   const out = emptyOutcome();
   out.skipped["archived"] = 0;
   out.skipped["removed"] = 0;
+  out.skipped["journal"] = 0;
   const blocked: Record<string, number> = {};
   const pruned: PrunedRecord[] = [];
   const recordFailures: { id: string; error: string }[] = [];
@@ -94,6 +95,14 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
     // archived memory has already exited; it is not pruned a second time.
     if (row.archived === 1) {
       countSkip(out, "archived");
+      continue;
+    }
+    // THE JOURNAL IS NEVER PRUNED. Measured 2026-09-04: 224 migrated episodes
+    // at zero on every dimension would have been archived at the floor, and an
+    // archived episode stops reconciling — so the memories it had not yet
+    // minted would never exist (`types.ts#isJournal`).
+    if (isJournal(row)) {
+      countSkip(out, "journal");
       continue;
     }
     out.examined += 1;
