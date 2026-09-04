@@ -29,7 +29,7 @@ import { indexTextOf } from "../src/core/store/index.js";
 import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
 import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
-import { BOOTSTRAP } from "../src/core/self/index.js";
+import { BOOTSTRAP, BRIEFING_KEY } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
   API_KEY_ENV,
@@ -328,6 +328,52 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     // The sentinel states the bundle's own byte count, so truncation is
     // detectable from a preview alone (§1 G2, scar §2.3).
     expect(result.sentinel).toContain(`bytes=${result.bytes}`);
+  });
+
+  /**
+   * The delivery preface: the wake is composed at a boundary and served
+   * unchanged to every session until the next one, so the line that says WHICH
+   * SYSTEM, which lived day, today's date and how big the store is has to be
+   * composed here, at injection. On 2026-09-03 the system under this host
+   * changed mid-day and the body went on speaking as the old one.
+   */
+  test("the injection carries the delivery preface — composed at the hook, counted, inside the ceiling", async () => {
+    const { a } = adapter();
+    for (let i = 0; i < 6; i += 1) {
+      a.counterpart.store.put({
+        type: "memory",
+        kind: "self",
+        band: "identity",
+        body: `Something true about how I work, number ${i}, in enough words to spend bytes on.`,
+        salience: { novelty: null, relevance: 0.9, emotional: 0.6, predictive: 0.7 },
+        physics: { birthDay: 0, lastUsedDay: 0, promotedIdentity: true },
+      });
+    }
+    await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+
+    const result = a.sessionStart(input());
+    const lines = result.injection.split("\n");
+    expect(lines[0] ?? "").toContain("<!-- counterparts:wake ");
+    expect(lines[1] ?? "").toContain("Counterparts memory, day ");
+    expect(lines[1] ?? "").toContain("2026-01-02");
+    expect(lines[1] ?? "").toContain(" memories ");
+
+    // Counted: the hook's bytes, the sentinel's bytes and the text agree, and
+    // the whole thing still fits what the host said it can carry.
+    expect(result.bytes).toBe(Buffer.byteLength(result.injection, "utf8"));
+    expect(result.sentinel).toContain(`bytes=${result.bytes}`);
+    expect(lines[lines.length - 1] ?? "").toBe(result.sentinel as string);
+    expect(result.bytes).toBeLessThanOrEqual(BUDGET_BYTES);
+    expect(a.events("adapter.injection.overbudget").length).toBe(0);
+    expect(a.events("adapter.wake.injected")[0]?.data?.preface).toBe(true);
+
+    // Composed at DELIVERY: the published row carries no preface at all.
+    expect(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "").not.toContain("Counterparts memory, day ");
+
+    // And the delivered loop still closes, on the sentinel actually shipped.
+    a.userPromptSubmit(input({ prompt: "hello", sentinelSeen: result.sentinel }));
+    const delivered = a.events("adapter.wake.delivered");
+    expect(delivered[delivered.length - 1]?.data?.delivered).toBe(true);
   });
 
   test("the budget REPORTED BY THE HOST is what the briefing composes to", async () => {

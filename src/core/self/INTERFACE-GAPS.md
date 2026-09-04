@@ -71,8 +71,15 @@ is not queryable at all. `protected` is a real column in box 2; `unresolved` is 
 `meta` key.
 **Workaround:** `scanActive()` reads every active memory's prose once per boundary, and
 `enumerate()` reads them again for the protected list. Correct, and O(store) per boundary
-call — acceptable because it runs at a boundary and never at wake (wake reads one meta
-row), but it is the wrong shape at 10⁴ memories.
+call — acceptable because it runs at a boundary and never at wake, but it is the wrong
+shape at 10⁴ memories.
+
+**Amended 2026-09-04:** wake no longer reads *only* one meta row. A wake that is a
+DELIVERY also reads the lived day and one `COUNT(*)` over `memories`, because the delivery
+preface states how big the store is and a bundle rendered at yesterday's boundary cannot
+know that. `Store.countMemories(filter)` is `list()`'s WHERE counted in SQL — deliberately
+not `list().length`, which would materialize every id — and it is the one aggregate on the
+wake path. A read that is not a delivery still pays exactly one meta row.
 **Real fix:** `list({ protected: true })` (the column is already there) and either an
 `unresolved` column or a store-side `meta` index. `episodes.ts`'s `findIngested()` and
 `memoriesForEpisode()` scan for the same reason and would collapse to one indexed query.
@@ -155,3 +162,27 @@ a repeat of which element — is `remember/`'s crash-fallback path plus `schemas
 and neither wires it today. Recorded here so the freeze does not become v1's
 "documented in three places, enforced in one, consumed by nobody" (scar §2.6). The
 guarantee that this seam is reachable is the coordinator's, not this module's.
+
+## 8. The threads lane has no source on a migrated store — nothing carries `unresolved`
+
+**Owner:** `remember/` (who mints and revises memories) plus `tools/migrate` (what came
+across from v1).
+**Needed:** the threads lane is "memories flagged `unresolved`", person-scoped first, oldest
+first (contract §5, behavioral-spec §1). It is the lane that says *what we were in the
+middle of*, and it is second only to identity in what a waking session actually uses.
+**Have, measured on the live store 2026-09-04:** of 14,700 migrated memories, **zero** carry
+the `unresolved` flag. v1's open threads did not migrate as threads — they came across as
+ordinary memories — and nothing in v2 sets the flag yet, because opening and closing a
+thread is a lifecycle this module deliberately does not own (NOTES §7). The store holds
+2,862 skill-kind memories, so craft fills the moment it is given room; threads stay dark
+regardless of `THREADS_MAX`, of the identity share, or of any other cap. Said plainly here
+rather than papered over: **the empty "Still open:" lane is a missing source, not a tuning
+problem, and no number in `tunables.ts` will light it.**
+**Workaround:** none, and none is wanted. The lane, its heading, its ordering and its trim
+position exist and are tested; an empty lane renders as no lane at all, which is honest.
+**Real fix, in the order they would land:** (1) whoever mints memories sets `unresolved` on
+the ones that are genuinely open — the end-of-session authorship path is the obvious door,
+since the experiencer knows what it left hanging; (2) something closes them, or they are
+worse than nothing within a week; (3) optionally, a migration pass that re-reads v1's own
+open-thread list and flags the memories it can still resolve — cheap, one-shot, and it is
+the only way the pre-migration years get a threads lane at all.

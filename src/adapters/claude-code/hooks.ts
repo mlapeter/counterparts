@@ -263,7 +263,17 @@ export class ClaudeCodeAdapter {
         // what this host can carry — an invented ceiling is scar §2.18.
         this.emit("adapter.budget.unreported", {});
       }
-      const woke = this.counterpart.wake(budget);
+      // THE DELIVERY PREFACE is asked for here, at injection, and composed
+      // nowhere else. The stored bundle was rendered at the last boundary and is
+      // served unchanged to every session until the next one; on 2026-09-03 the
+      // memory system under this host changed mid-day and the body went on
+      // speaking as the old one, with only the HTML comment naming the new. The
+      // date is the HOST's — this hook is the only place that has it — and
+      // nothing in the line varies between two sessions of the same day, so the
+      // delivery expectation below stays a stable string (§2.3).
+      const woke = this.counterpart.wake(budget, {
+        ...(input.at === undefined ? {} : { date: input.at }),
+      });
       this.expected.set(input.sessionId, woke.sentinel);
 
       if (budget !== undefined && woke.bytes > budget) {
@@ -277,6 +287,7 @@ export class ClaudeCodeAdapter {
         bytes: woke.bytes,
         budget: budget ?? null,
         sentinel: woke.sentinel !== null,
+        preface: woke.preface !== null,
       });
       return {
         ...out,
