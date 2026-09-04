@@ -99,9 +99,27 @@ export interface LengthNorm {
   readonly k1: number;
   /** length normalization (BM25 b). 0 = none; 1 = fully proportional. */
   readonly b: number;
+  /**
+   * ONE-SIDED: clamp the length factor at 1, so a long document is penalized
+   * and a short one is never REWARDED.
+   *
+   * BM25's factor is centered on the mean, so at `b = 0.75` a very short
+   * document scores up to ~1.6× what it scored with no normalization at all.
+   * That is fine for ranking — ranking is relative — and it is not fine for the
+   * gate's ABSOLUTE floors (`FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`), which are
+   * inherited numbers calibrated against the old scale. Clamping keeps every
+   * score at or below its previous value, so a floor still means what it meant.
+   *
+   * Measured before shipping (`tools/recall-bench`, 13 real prompts, 2026-09-04):
+   * one-sided keeps hub hits at 0 and takes the loud tier from 26 back to 8
+   * against a "before" of 4, where symmetric BM25 left it at 26. So the loud
+   * inflation was the moved scale meeting old floors, not the gate finding new
+   * signal — and this is the answer to that question rather than a preference.
+   */
+  readonly oneSided?: boolean;
 }
 
-export const DEFAULT_LENGTH_NORM: LengthNorm = { k1: 1, b: 0.75 };
+export const DEFAULT_LENGTH_NORM: LengthNorm = { k1: 1, b: 0.75, oneSided: true };
 
 /**
  * Mean document length, memoized per open database.
@@ -240,18 +258,23 @@ export interface Hit {
  * average rather than dropped. Box 3 is rebuildable and partially-built states
  * are ordinary; a missing length must cost precision, never a hit.
  *
- * `CAST(tf AS REAL)`: every operand here is otherwise an INTEGER, and integer
- * division would truncate the whole score to 0 or 1.
+ * `CAST(… AS REAL)` on every operand: SQLite divides integers as integers, and
+ * both drivers bind an integer-valued JS number as INTEGER. At `b = 1` with an
+ * integer mean length, `1 * len / avg` would truncate — silently, and only for
+ * some values of the tunables, which is the worst way for arithmetic to be wrong.
  */
 export function searchIndex(db: Db, cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM): Hit[] {
   const tokens = [...new Set(tokenize(cue))];
   if (tokens.length === 0) return [];
   const placeholders = tokens.map(() => "?").join(",");
   const avg = avgDocLen(db);
+  const lengthFactor =
+    `CAST(? AS REAL) + CAST(? AS REAL) * COALESCE(dl.len, CAST(? AS REAL)) / CAST(? AS REAL)`;
+  const clamped = norm.oneSided === true ? `MAX(1.0, ${lengthFactor})` : lengthFactor;
   const rows = db.all<{ memory_id: string; score: number }>(
     `SELECT dt.memory_id AS memory_id,
-            SUM(CAST(dt.tf AS REAL) * ?
-                / (dt.tf + ? * (? + ? * COALESCE(dl.len, ?) / ?))) AS score
+            SUM(CAST(dt.tf AS REAL) * CAST(? AS REAL)
+                / (dt.tf + CAST(? AS REAL) * (${clamped}))) AS score
        FROM doc_tokens dt
        LEFT JOIN doc_lens dl ON dl.memory_id = dt.memory_id
       WHERE dt.token IN (${placeholders})

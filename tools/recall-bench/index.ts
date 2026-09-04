@@ -66,6 +66,11 @@ export type { BenchConfig, BenchInput, BenchReport } from "./types.js";
  */
 export const BEFORE: BenchConfig = { name: "before (b=0, no cap)", b: 0, k1: 1, cap: Infinity };
 
+/** Ids delivered on `MIN_RECURRENCE` turns or more: the hub metric that needs no
+ *  blocklist. `known_hubs` names the nine that were caught; this names whatever
+ *  is behaving like them THIS run. */
+export const MIN_RECURRENCE = 3;
+
 /**
  * The roots this tool refuses to open, whatever the operator typed.
  *
@@ -149,6 +154,7 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
   const tunables = withTunables({
     CUE_LENGTH_NORM: config.b,
     CUE_TF_SATURATION: config.k1,
+    CUE_LENGTH_ONE_SIDED: config.oneSided === true,
     CUE_DOC_CAP: config.cap,
     // The bench measures the SCORER, not the clock: a cold 300 MB index in a
     // fresh process is the latency finding of a different PR, and letting it
@@ -203,6 +209,23 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
     toolRows.push(runToolQuery(store, recall, tq, hubs, day, `tool ${i + 1}`));
   }
 
+  // Recurrence, over the ambient turns only: the tool queries are a different
+  // question and would double-count the same memory under a different intent.
+  const seen = new Map<string, { turns: number; loud: number }>();
+  for (const r of rows) {
+    for (const d of new Map(r.delivered.map((x) => [x.id, x])).values()) {
+      const e = seen.get(d.id) ?? { turns: 0, loud: 0 };
+      e.turns += 1;
+      if (d.tier === "surfaced") e.loud += 1;
+      seen.set(d.id, e);
+    }
+  }
+  const recurring = [...seen.entries()]
+    .filter(([, e]) => e.turns >= MIN_RECURRENCE)
+    .map(([id, e]) => ({ id, turns: e.turns, loud: e.loud }))
+    .sort((a, b) => b.turns - a.turns || (a.id < b.id ? -1 : 1));
+  const recurringIds = new Set(recurring.map((r) => r.id));
+
   const totals = {
     turns: rows.length,
     delivered: rows.reduce((a, r) => a + r.delivered.length, 0),
@@ -217,6 +240,11 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
     rendered: rows.filter((r) => r.reason === "rendered").length,
     capped: rows.reduce((a, r) => a + r.capped, 0),
     maxElapsedMs: rows.reduce((a, r) => Math.max(a, r.elapsedMs), 0),
+    recurring,
+    recurringDeliveries: rows.reduce(
+      (a, r) => a + r.delivered.filter((d) => recurringIds.has(d.id)).length,
+      0,
+    ),
   };
   return { config, storeSize, rows, toolRows, totals };
 }
@@ -311,12 +339,12 @@ export function renderReport(report: BenchReport): string {
 /** The sweep's one-line-per-cell summary — how `b` and the cap were chosen. */
 export function renderSweep(reports: readonly BenchReport[]): string {
   const out: string[] = [];
-  out.push("| config | hub hits | turns w/ hub | should-surface hits | missed | delivered | loud | footnotes | all-gated | capped docs |");
-  out.push("|---|---|---|---|---|---|---|---|---|---|");
+  out.push("| config | hub hits | turns w/ hub | should-surface hits | missed | delivered | loud | footnotes | recurring ids | recurring deliveries | capped docs |");
+  out.push("|---|---|---|---|---|---|---|---|---|---|---|");
   for (const r of reports) {
     const t = r.totals;
     out.push(
-      `| ${r.config.name} | ${t.hubHits} | ${t.turnsWithHub}/${t.turns} | ${t.wanted} | ${t.missed} | ${t.delivered} | ${t.surfaced} | ${t.footnotes} | ${t.allGated} | ${t.capped} |`,
+      `| ${r.config.name} | ${t.hubHits} | ${t.turnsWithHub}/${t.turns} | ${t.wanted} | ${t.missed} | ${t.delivered} | ${t.surfaced} | ${t.footnotes} | ${t.recurring.length} | ${t.recurringDeliveries} | ${t.capped} |`,
     );
   }
   return out.join("\n");

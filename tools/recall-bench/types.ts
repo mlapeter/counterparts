@@ -81,6 +81,17 @@ export interface BenchConfig {
   readonly k1: number;
   /** Per-document ceiling; `Infinity` disables it. */
   readonly cap: number;
+  /** Clamp the length factor at 1 — penalize long, never reward short. */
+  readonly oneSided?: boolean;
+}
+
+/** One id and how many of the turns delivered it. The hub metric that does not
+ *  need a blocklist: "hub hits 0" is true of last week's nine and blind to next
+ *  week's, where recurrence is a property of the RUN. */
+export interface Recurrence {
+  readonly id: string;
+  readonly turns: number;
+  readonly loud: number;
 }
 
 export interface BenchReport {
@@ -103,5 +114,10 @@ export interface BenchReport {
     readonly rendered: number;
     readonly capped: number;
     readonly maxElapsedMs: number;
+    /** Ids delivered on 3 or more turns, most-recurrent first. */
+    readonly recurring: readonly Recurrence[];
+    /** Deliveries that went to a recurring id — the share of the run that is
+     *  the same handful of memories saying hello again. */
+    readonly recurringDeliveries: number;
   };
 }

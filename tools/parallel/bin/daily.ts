@@ -9,15 +9,15 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // THE LEAF MODULE, not the barrel. `adapters/claude-code/index.js` re-exports
 // `Counterpart` and `Store`, so importing the ask through it pulled both
 // systems-under-test into the instrument's process — the independent-scorer
-// rule's whole point ([v1] §17.2, replay G5). `hooks.js` is where the constant
+// rule's whole point ([v1] §17.2, replay G5). `hooks.js` is where the ask
 // lives; nothing else comes with it.
-import { AUTHORSHIP_ASK } from "../../../src/adapters/claude-code/hooks.js";
-import { primacyFromAssignment } from "../assignment.js";
+import { authorshipAsk } from "../../../src/adapters/claude-code/hooks.js";
+import { primacyReading } from "../assignment.js";
 import { dailyRecord } from "../record.js";
 import type { Primacy, RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
@@ -57,7 +57,7 @@ function usage(): never {
       "  --v1-wake <file>      v1's rendered wake for the day (cross-encoding probe).",
       "  --v2-wake <file>      v2's rendered wake for the day (the other direction).",
       "  --v1-ritual <file>    v1's ritual ask text, one probe per line. v2's own asks",
-      "                        are taken from the adapter's AUTHORSHIP_ASK constant.",
+      "                        are taken from the adapter's own authorshipAsk().",
       "  --phase <0|P>         overrides run.json. P from day 1.",
       "  --primacy <v1|v2>     overrides run.json.",
       "  --seat <id>           the acting seat, pinned into run.json.",
@@ -187,6 +187,16 @@ function main(argv: readonly string[]): number {
     engramDir: args.engramDir,
     abDir: args.abDir,
   });
+  // THE PRIMACY CROSS-CHECK IS NOT OPT-IN ANY MORE. It used to run only when
+  // the operator passed `--assignment`, and the daily command the run actually
+  // uses does not pass one — so the flip of 2026-09-03, which left
+  // `run.json.primacy` at `v1`, graded every day after it as `contaminated`
+  // with nothing objecting. The assignment DIRECTORY is already a flag with a
+  // default (`--ab-dir`), and `primacy.ts` resolves its own filename inside it,
+  // so the file both hooks read is always available to compare against (§5 G3).
+  const assignment = primacyReading(
+    args.assignment === null ? args.abDir : dirname(args.assignment),
+  );
   const artifacts = dailyRecord({
     runDir: args.runDir,
     date: args.date,
@@ -199,19 +209,20 @@ function main(argv: readonly string[]): number {
     ...(args.seat === null ? {} : { seat: args.seat }),
     ...(args.vectors === null ? {} : { vectors: args.vectors }),
     ...(args.livedDay === null ? {} : { livedDay: args.livedDay }),
-    // The assignment file is what both resolvers actually read; when the
-    // operator points at one, `--primacy` is checked against it (§5 G3).
-    ...(args.assignment === null
-      ? {}
-      : { assignmentOverride: primacyFromAssignment(args.assignment) }),
+    // The assignment file is what both resolvers actually read, so BOTH the
+    // `--primacy` flag and `run.json`'s stored field are checked against it.
+    assignmentOverride: assignment.override,
     v1WakeFile: args.v1Wake,
     v2WakeFile: args.v2Wake,
     ...(args.v1Ritual === null ? {} : { v1Ritual: [readTextOr(args.v1Ritual)] }),
-    // v2's asks are CONSTANTS in the adapter, so the meter's v2->v1 direction
+    // v2's asks are RENDERED by the adapter, so the meter's v2->v1 direction
     // takes them from there rather than from a second copy — the same
     // one-recognizer-list rule `FOREIGN_MARKERS` follows. Without probes this
     // direction would print 0/0, which reads clean when it means unmeasured.
-    v2Ritual: [AUTHORSHIP_ASK],
+    // The probe unit is a LINE, and the authorship ask now carries the session
+    // id on one of its lines (`hooks.ts#authorshipAsk`): that one line is
+    // session-specific and will not match, the other five are the recognizer.
+    v2Ritual: [authorshipAsk("<session>")],
   });
 
   for (const [rel, value] of Object.entries(artifacts.json)) run.writeJson(rel, value);
@@ -225,6 +236,13 @@ function main(argv: readonly string[]): number {
   out.push(`  ${pad("class", 18)}${r.class.toUpperCase()}  [flags: ${r.flags.join(", ")}]`);
   out.push(`  ${pad("why", 18)}${r.why}`);
   out.push(`  ${pad("turns", 18)}${r.turns} (floor K=${r.turnFloor})`);
+  // The primacy READING, always shown. An unverified primacy is the one that
+  // graded eight days wrong, so it says so on its face rather than sitting in
+  // the JSON (§5 G3).
+  out.push(
+    `  ${pad("primacy check", 18)}${r.primacyCheck.verified ? "VERIFIED" : "UNVERIFIED"} — ${r.primacyCheck.note} [${assignment.path}${assignment.healthy ? "" : ` · ${assignment.reason ?? "unhealthy"}`}]`,
+  );
+  out.push(`  ${pad("boundaries", 18)}${r.boundaries.note}`);
   out.push(
     `  ${pad("v1", 18)}lines ${r.v1.lines} · wake ${r.v1.wakeRendered}/${r.v1.wakeDelivered} · inject ${r.v1.surfaceInject} · asked ${r.v1.episodeAsked} · sessions ${r.v1.sessionStart}/${r.v1.sessionEnd}`,
   );
@@ -237,7 +255,14 @@ function main(argv: readonly string[]): number {
   out.push(
     `  ${pad("v2 store", 18)}read-only proof ${String(r.v2.readOnlyProof)} · memories ${r.v2.memories.total} · created ${r.tally.v2.created} · exited ${r.tally.v2.exited}`,
   );
-  out.push(`  ${pad("v2 not durable", 18)}${r.v2.nonDurable.join(", ")}`);
+  // THE NON-DURABLE WATCHES, ONE LINE EACH, EACH WITH ITS VALUE AND ITS REASON.
+  // The old line printed the four names and nothing else — not a verdict, not
+  // an explanation, and an operator who read past it read nothing (§5 G13: a
+  // `not-exercised` is never silently green, and neither is an unexplained
+  // string).
+  for (const w of r.watches) {
+    out.push(`  ${pad(w.detector, 24)}${w.value.toUpperCase()} — ${w.reason}`);
+  }
   out.push(
     `  ${pad("quarantine", 18)}${
       r.quarantine.present

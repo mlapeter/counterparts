@@ -511,6 +511,11 @@ export const DURABLE_DETECTORS: readonly string[] = [
   "adapter.episode.ask",
   "adapter.boundary",
   "gate.chunk",
+  // The sweep's gate, one row per worker run (2026-09-04). `gate.chunk` counts
+  // only sweeps that READ something, and after the crash-fallback ruling the
+  // ordinary day has none — so without this row a healthy quiet sweep and a
+  // dead worker produce the same zero on the daily.
+  "sweep.gate",
   "band.transition",
   // Precondition 9's evidence: the per-turn surfacing decision, durable. The
   // S→P preflight reads its presence out of the store rather than taking the

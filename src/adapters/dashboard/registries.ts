@@ -34,6 +34,7 @@ import {
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
   RECALL_DELIVERED_EVENT,
+  SWEEP_GATE_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
@@ -59,9 +60,13 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
 /**
  * Every event name that reaches box 2's `events` table — the DURABLE log, the
  * one that survives the process. Its writers today: `sleep/`'s consolidate,
- * prune, dedup and decay phases, `schemas/`'s credited challenge, the
- * composition root's two records — the chunk gate's, and one per turn's
- * surfacing decision — and the one narrow seam an ADAPTER may write through
+ * prune, dedup and decay phases, `schemas/`'s credited challenge and
+ * `core/revision.ts`'s identity arm (the same name, the same shape, the same
+ * dedup latch — a story does not care which arm moved the row), the
+ * composition root's three records — the chunk gate's, one per turn's surfacing
+ * decision, and one per crash-fallback run's gate, whose ordinary answer is
+ * "nothing crashed" and which is therefore the one record here written to prove
+ * a SILENCE — and the one narrow seam an ADAPTER may write through
  * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
  *
  * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
@@ -80,6 +85,7 @@ export type DurableEventName =
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
   | typeof RECALL_DECISION_EVENT
+  | typeof SWEEP_GATE_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -105,7 +111,8 @@ export const DURABLE_EVENTS = {
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
-  "revision.pressure": "a belief took a credited challenge",
+  "revision.pressure": "a belief or an identity element took a credited challenge",
+  "sweep.gate": "the crash fallback ran its gate (scopes looked at, scopes skipped as nothing-crashed, spans swept)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

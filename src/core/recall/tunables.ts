@@ -37,6 +37,12 @@ export interface RecallTunables {
   /** How much of a cue's evidence is normalized by document length (BM25 b).
    *  0 = none (the measured bug); 1 = fully proportional to length. CAL. */
   CUE_LENGTH_NORM: number;
+  /** Clamp the length factor at 1: penalize a long document, never REWARD a
+   *  short one. BM25's factor is centered on the mean, which raises short
+   *  documents above their old scores — harmless for ranking, not harmless for
+   *  the ABSOLUTE floors below, which are v1 inheritances calibrated against the
+   *  old scale. See `store/cache.ts#LengthNorm.oneSided` for the measurement. CAL. */
+  CUE_LENGTH_ONE_SIDED: boolean;
   /** Per-document ceiling on the cue channel, as a multiple of that document's
    *  single strongest cue. Corroboration is real evidence; sheer coverage is
    *  not. v1 capped the same quantity absolutely (`entityCueCap`); this is the
@@ -165,6 +171,7 @@ export const TUNABLES: RecallTunables = {
   // forecast. CAL.
   CUE_TF_SATURATION: 1.0,
   CUE_LENGTH_NORM: 0.75,
+  CUE_LENGTH_ONE_SIDED: true,
   CUE_DOC_CAP: 3.0,
 
   SEMANTIC_WEIGHT: 1.0,

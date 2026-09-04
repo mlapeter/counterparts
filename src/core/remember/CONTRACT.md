@@ -57,6 +57,13 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   host's context is `foreign`, and `enters()` refuses it outright (unlike `injected`,
   which is kept and merely unpaced). Added for the parallel run beside v1: without it,
   each system encodes the other's briefing as a memory of having thought it.
+- **This system's OWN ritual text never enters either** — an ask this system emitted, read
+  back off a host that returns hook output into the model's context, is `ritual`, and
+  `enters()` refuses it. Foreign's mirror image: the failure there is encoding someone
+  else's words as ours, the failure here is encoding our own words as something that
+  happened to us. Both refusals are COUNTED in `CaptureResult.excluded`, so a boundary
+  that captured nothing because everything was excluded is distinguishable from a boundary
+  where nothing happened.
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].
 
@@ -65,8 +72,52 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
 - **The transcript-reading interpreter is demoted from primary path to crash fallback**
   (owner decision 2026-08-25, settled). The experiencer writes at session end with lived
   context (rung 2 of the authorship ladder); in-the-moment jots run where the host allows
-  them; transcript interpretation runs **only** when the experiencer never got the pen —
-  a crash, a compaction that ate the session, a host with no end-of-session hook.
+  them; transcript interpretation runs **only** when the experiencer never got the pen.
+
+  **What "crashed" means, mechanically** (owner ruling 2026-09-04, closing the adapter's
+  open question 3; implemented as `SpanBuffer.crashedSessions`). A session is crashed
+  when all three hold:
+
+  1. it holds **uncovered spans** — something nobody authored;
+  2. it has recorded **no `session-end` boundary**, ever;
+  3. it has had **no boundary activity for `CRASH_STALE_MS`** (12 hours, CAL — see
+     `tunables.ts` for the measurement that set it and the falsifier still owed). A
+     session that recorded *no* boundary at all is therefore not crashed either: nothing
+     of it has ended, and its author may still get the pen.
+
+  Nothing else is swept. Not an ordinary Stop — the ask goes out at every Stop and the
+  author still has the pen. Not `pre-compaction` on its own: compaction destroying the
+  transcript is answered by the **capture** at that boundary, which is unconditional;
+  the sweep only follows if that session then never comes back. A host with no
+  end-of-session event has every session swept once it goes quiet, which is the intended
+  degradation for a host that cannot ask.
+
+  **Why the rule needed teeth.** The demotion was written here on 2026-08-25 and the
+  implementation drifted: the worker spawned at every Stop and the sweep took every
+  uncovered span it could see. Measured 2026-09-04 on the live store — one evening
+  billed 13 chunks and minted 61 memories beside 34 the model had authored itself,
+  producing paraphrase twins no dedup threshold can merge. A contract a mechanism does
+  not keep is a comment.
+
+  **Three named costs**, since this rule buys its savings with them:
+
+  - **Up to one ask-interval of trailing turns per session is never encoded** unless the
+    model deposited. A session that ends normally is never swept, so anything after its
+    last authored deposit is forgotten — by design (constitution 3: forget the trials),
+    but it is a real loss and it is this rule's price.
+  - **Those spans stay in the buffer.** Nothing consumes the spans of a session that
+    ended normally, so `buffer.jsonl` grows with every such session. Bounded growth is
+    not designed for here; it is named as open question 5 rather than pre-solved
+    (constitution 15).
+  - **An idle-but-alive session past the window is indistinguishable from a crash** and
+    will be swept. If its author later writes, that stretch has twins after all — which
+    is the measurement `CRASH_STALE_MS` owes: count sessions swept-then-authored. The
+    live store already produced one 4h07m idle-then-resume gap, which is why the window
+    is 12 hours and not the hour first proposed.
+
+  And the recovery is **delayed, never lost**: a crashed session's spans wait for the
+  first worker run past the window, which needs a boundary in *some* session to spawn
+  one.
 - **The v1 self-store tool is superseded by experiencer authorship** — self-writing became
   the primary path, not silently dropped. Its doctrine is kept whole (lived salience is the
   only legitimate identity input); only its delivery shape is gone. A tool the model must
@@ -137,6 +188,12 @@ used?"); telemetry by reference.
     session-ending event that nobody can ask about is **bounded and logged**, so the miss
     is measurable before anyone debates a reconstruction fallback (§13 known gap: *that is
     the right shape for an unfixable gap — bound it, measure it, don't pretend*).
+13. **[M] The fallback reads a transcript only for a CRASHED session**, by the
+    three-clause definition in §4, and every run records which of the two it was —
+    `sweep.gate` in the durable log carries `ran`, `skippedNotCrashed` and the window it
+    used, so "no sweep today" is a fact about the day and not a silence that could also
+    be a dead worker (constitution 16, scar §2.4). The gate is answered **before** the
+    claim, so a scope with nothing crashed costs no rename and no model call.
 
 ## 6. Scars honored
 
@@ -158,7 +215,8 @@ declarable field carries an admission test and a named negative example — v1's
 2. **What does the fallback actually cost when it runs?** v1 ran the sweep as the primary
    path, so there is no measurement of a sweep that only ever runs post-crash. Its blind
    rate, its yield, and whether it needs the full preselection machinery are all unknown at
-   this scale.
+   this scale. **Narrowed 2026-09-04**: the gate now makes the question answerable — count
+   `sweep.gate` rows with `ran > 0` against the days they cover.
 3. **Where do jots live between deposit and boundary** — in the buffer with spans, or as
    already-formed proposals in the operational database? The second is simpler; the first
    makes the ordering guarantees uniform.
@@ -166,3 +224,24 @@ declarable field carries an admission test and a named negative example — v1's
    degrades to content matching. But showing a census of ids is precisely what produced
    v1's confabulation incident (scar §2.5: 7 of 8 rejected thread ids existed in the
    schema, in a different section, in the identical `- [el_id]` format).
+5. **What retires the spans of a session that ended normally?** (Opened 2026-09-04 by the
+   crash gate.) Nothing does: they are never claimed, so the buffer keeps them. On the
+   parallel run's volume that is kilobytes a day and a file the owner can read, which is
+   why no pruner is built here (constitution 15) — but the growth is real, unbounded, and
+   should be watched. The candidate answers, in order of preference: a coverage-driven
+   retirement that consumes covered spans without any model call; an age-based sweep of
+   the buffer on the lived-day clock; nothing at all, if the measured growth stays
+   trivial.
+6. **A session that moved scope is judged per scope.** `crashedSessions` reads one
+   scope's `boundaries.jsonl`, so a session that captured under scope A and then ended
+   under scope B leaves A holding only `stop` boundaries — and A's spans for it are swept
+   once the window passes, even though the author did get the pen elsewhere. PR-1 found
+   11 real session ids under more than one scope, so this is not hypothetical; whether it
+   ever coincides with a session END in another scope is unmeasured.
+7. **Is 12 hours the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. It was
+   raised from a guessed 60 minutes after the live store falsified that number — session
+   `c781252f` sat idle 4h07m with its author still holding the pen, then resumed and
+   authored 20 more notes. The falsifier is unchanged and still owed: sessions swept under
+   this rule that later received an authored deposit. The other direction now has a cost
+   too — a genuinely crashed session waits up to half a day for its fallback, which is
+   only a delay but is a longer one than before.

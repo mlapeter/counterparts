@@ -76,6 +76,72 @@ export type DayClass = "active" | "thin" | "contaminated" | "mixed" | "silent" |
 /** Which system holds the microphone, as the run record spells it. */
 export type Primacy = "v1" | "v2";
 
+/**
+ * The four-value verdict vocabulary (§5 G13), plus the ONE pre-declared
+ * exclusion this instrument needs.
+ *
+ * `muted-consistent` is that exclusion, and it exists for one measured reason:
+ * v1's Stop hook logs no `ab.muted` (PARALLEL-RUN-STATUS, day 1), so on a clean
+ * v2-primary day a correctly muted v1 leaves session-start and prompt-submit
+ * mute rows and NO session boundary at all. Reading that absence as a failure
+ * classed every such day `thin` — the instrument grading the mute working as
+ * the mute broken. It is its own named value, never folded into `pass`: a day
+ * carried by it is not a day on which v1 was seen to reach a boundary (§5 G13,
+ * "a `not-exercised` is never silently green" — nor is this).
+ */
+export type BoundaryGrade = "pass" | "fail" | "muted-consistent" | "not-exercised";
+
+/** One side's session-boundary evidence for a day, graded and explained. */
+export interface BoundaryEvidence {
+  readonly v1: BoundaryGrade;
+  readonly v2: BoundaryGrade;
+  /** Which side held the microphone — the side THIN is derived from. */
+  readonly primary: Primacy;
+  /** The primary's grade, lifted out: `thin` follows this and the turn floor. */
+  readonly primaryGrade: BoundaryGrade;
+  readonly mutedGrade: BoundaryGrade;
+  /** True when the day's boundary evidence supports an `active` class. */
+  readonly ok: boolean;
+  /** One line: which grade each side got and on what evidence. */
+  readonly note: string;
+}
+
+/**
+ * A detector the CONTRACT names that this instrument cannot read as a row —
+ * graded four-valued rather than printed as a bare name (§5 G13).
+ *
+ * `pass` is deliberately unreachable here: a watch with no reading behind it
+ * can never render green. It is `needs-rater` when the mechanism fired and
+ * something OTHER than this instrument holds the verdict, `not-exercised` when
+ * the mechanism did not fire at all — §13's split, kept honest per watch.
+ */
+export type WatchValue = "pass" | "fail" | "needs-rater" | "not-exercised";
+
+export interface Watch {
+  readonly detector: string;
+  readonly value: WatchValue;
+  /** One line: why this value, and who holds the reading if not this tool. */
+  readonly reason: string;
+}
+
+/**
+ * Whether the day's primacy was CROSS-CHECKED against the file both resolvers
+ * actually read (§5 G3), and what that file said.
+ *
+ * A day graded with a primacy nobody verified is the 2026-09-03 defect: the
+ * flip wrote `flips.jsonl` and left `run.json` at `v1`, so every later day read
+ * as `contaminated` because "the muted v2 side delivered". The record now says
+ * on its face which of the three states it is in.
+ */
+export interface PrimacyCheck {
+  readonly verified: boolean;
+  /** The raw `override` as the hooks read it, or null when it was not read. */
+  readonly assignmentOverride: string | null;
+  /** `assignment` (the file decided), `run.json`, or `--primacy`. */
+  readonly source: string;
+  readonly note: string;
+}
+
 export interface MuteEvidence {
   /** v1's `ab.muted`, split by the hook that emitted it. */
   readonly v1AbMutedByHook: Readonly<Record<string, number>>;
@@ -195,6 +261,15 @@ export interface DailyRecord {
   readonly turns: number;
   readonly v1: V1DayCounts;
   readonly v2: V2DayCounts;
+  /** Both sides' boundary evidence, graded — the other half of `thin`. */
+  readonly boundaries: BoundaryEvidence;
+  /**
+   * The non-durable detectors, graded four-valued with a reason each, instead
+   * of the bare name list that printed as an unexplained string.
+   */
+  readonly watches: readonly Watch[];
+  /** Was this day's primacy checked against the assignment file? (§5 G3) */
+  readonly primacyCheck: PrimacyCheck;
   readonly mute: MuteEvidence;
   readonly contamination: {
     readonly v1: ContaminationDetectors;
@@ -446,7 +521,31 @@ export interface RunRecord {
    * identical" needs a hash written down BEFORE the change it prices.
    */
   readonly surfaceSet: string;
+  /**
+   * The phase clock's restart, when one has been declared (§5 G12: "anything
+   * else — the phase restarts"). The LATEST one only; `restarts.jsonl` in the
+   * run directory is the history, and `days/` keeps every day it ever recorded.
+   *
+   * `date` is the FIRST day of the restarted clock: days before it stay in
+   * `days[]` as history and stop counting toward this phase's minimum. Without
+   * this field on the record, the next daily run recomputes `activeDays` from
+   * `days[]` and resurrects the count the restart was meant to clear.
+   */
+  readonly phaseRestart?: PhaseRestart;
   readonly updatedAt: string;
+}
+
+/** One declared restart of the phase clock (§5 G12's carry-forward rule). */
+export interface PhaseRestart {
+  readonly restartedAt: string;
+  /** The first day of the restarted clock, `YYYY-MM-DD`. */
+  readonly date: string;
+  readonly phase: RunPhase;
+  readonly reason: string;
+  /** G12's surface-set hash AS OF the restart — what the change is priced against. */
+  readonly surfaceSet: string;
+  /** The per-phase active-day counts this restart cleared. Evidence, not a delta. */
+  readonly clearedActiveDays: Readonly<Record<string, number>>;
 }
 
 export interface Bars {

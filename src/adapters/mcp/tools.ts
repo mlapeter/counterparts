@@ -29,6 +29,7 @@
  *   - **No tool that writes an entity, a belief, or a revision.** Entities are
  *     born by mention; revision is `updates:` plus arithmetic.
  */
+import { RECALL_MAX_IDS } from "./deliberate.js";
 
 export type ToolName = "note" | "recall" | "status" | "session_end";
 
@@ -110,6 +111,12 @@ const NOTE: ToolSpec = {
       mechanizedBy: "src/core/counterpart.ts#captureJot -> SubmitContext.ownSpanHash",
     },
     {
+      claim:
+        "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the note unlinked rather than refusing it when the address does not hold.",
+      mechanizedBy:
+        "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
+    },
+    {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/core/store/index.ts#mutate (observer stand-down)",
     },
@@ -118,6 +125,11 @@ const NOTE: ToolSpec = {
     type: "object",
     properties: {
       text: { type: "string", description: "What to remember, in your own words." },
+      updates: {
+        type: "string",
+        description:
+          "The id or handle of a memory this revises, if it revises one. A field — never written into the text.",
+      },
       salience: {
         type: "number",
         minimum: 0,
@@ -208,9 +220,10 @@ const RECALL: ToolSpec = {
       ids: {
         type: "array",
         items: { type: "string" },
-        maxItems: 3,
-        description:
-          "Memory ids from an earlier result, to return in full. At most three. Not combinable with handle or question.",
+        // The cap is one number, imported. A literal here and a constant in
+        // `deliberate.ts` is the drift the registry audit exists to prevent.
+        maxItems: RECALL_MAX_IDS,
+        description: `Memory ids from an earlier result, to return in full. At most ${RECALL_MAX_IDS}. Not combinable with handle or question.`,
       },
     },
     required: [],
@@ -259,14 +272,25 @@ const SESSION_END: ToolSpec = {
     "Call it once, when the session's boundary ask arrives, with one entry per thing that will still be true next week.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
-    "Do NOT call it for another session's id: it is bound to the session this server was launched for and refuses any other.",
+    "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else.",
     "Do NOT summarize the conversation; a transcript is not a memory. Write what was LEARNED.",
   ],
   privileges: [
     {
       claim:
-        "It is bound to one session: an entry claiming another session's id is refused, and so is a call made when no session was bound.",
+        "It is bound to ONE session for the life of this server: the one the host named at launch, or — when the host could not name one — the first session id you pass that this machine's hooks have recorded as live, in this project. A second, different id is refused.",
       mechanizedBy: "src/adapters/mcp/server.ts#requireBoundSession",
+    },
+    {
+      claim:
+        "The id you pass is checked against host state you cannot write — the hooks' own live-session registry — and a claim that is unknown there, ended, silent too long, or running in another project is refused with which of the four it was.",
+      mechanizedBy: "src/adapters/sessions.ts#readSession + isLive + sameScope",
+    },
+    {
+      claim:
+        "`updates` is a FIELD on an entry, not prose: name the id of the memory that entry revises and the engine resolves it, writes the resolved id, and leaves the entry unlinked rather than refusing it when the address does not hold.",
+      mechanizedBy:
+        "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
     },
     {
       claim: "Each entry takes the same road as ambient memory, gate battery included.",
@@ -295,7 +319,8 @@ const SESSION_END: ToolSpec = {
     properties: {
       session: {
         type: "string",
-        description: "The session this dump belongs to. Must be the session this server is bound to.",
+        description:
+          "The session this dump belongs to — the id the end-of-session ask named. Required unless this server was launched already bound to one; it must match the bound session either way.",
       },
       memories: {
         type: "array",

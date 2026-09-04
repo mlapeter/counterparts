@@ -1,18 +1,20 @@
 # `tools/parallel/` — the parallel run's instrument
 
-`CONTRACT.md` is the design. This is the operator's half: what the two commands
-do, what lands in the run directory, and what each check actually verifies.
+`CONTRACT.md` is the design. This is the operator's half: what the three
+commands do, what lands in the run directory, and what each check actually
+verifies.
 
 The instrument is an **observer**. The subjects — v1 (bansai) and Counterparts —
 run their own production paths and write their own live stores; this tool reads
 both and writes exactly one thing: the run directory you name. That is CONTRACT
 §5 G1, and it is test-asserted two ways (see *Guarantee 1*, below).
 
-## The two commands
+## The three commands
 
 ```
 bun tools/parallel/bin/preflight.ts --run-dir <dir> [options]
 bun tools/parallel/bin/daily.ts     --run-dir <dir> --date <YYYY-MM-DD> [options]
+bun tools/parallel/bin/restart.ts   --run-dir <dir> --date <YYYY-MM-DD> --reason "<text>"
 ```
 
 Every real path is a flag. The defaults name the live locations, because that is
@@ -35,15 +37,17 @@ directory at all, so nothing else can reach one by accident.
 | `--engram-dir` / `--ab-dir` *(daily too)* | checked disjoint from `--run-dir` before anything is created | as above |
 | `--date` *(daily)* | the lived day to record | *(required)* |
 | `--seat` / `--vectors` | pinned into `run.json` | — |
+| `--reason` *(restart)* | why the phase clock restarts, in one line | *(required)* |
 | `--lived-day` *(daily)* | the store's lived day for this date, when known | — |
 
 **Exit codes.** The preflight exits `1` on `ready: false`. The daily exits `1` on
 ANY red-line — a cross-encoding breach, a v2 store not provably read-only, a
-sqlite read error, a truncated event read, or a `contaminated` day. Both exit `2`
-on a named REFUSAL (a run directory overlapping a live store, a corrupt
+sqlite read error, a truncated event read, or a `contaminated` day. All three
+exit `2` on a named REFUSAL (a run directory overlapping a live store, a corrupt
 `run.json`, uncommitted bars, a day with no v1 cross-encoding probe, a
-`--primacy` that disagrees with the assignment file). A gate that prints red and
-exits 0 is a document.
+`--primacy` **or a stored `run.json` primacy** that disagrees with the assignment
+file, a restart with no run record / no reason / an impossible date). A gate that
+prints red and exits 0 is a document.
 
 ## The run directory
 
@@ -66,11 +70,16 @@ exits 0 is a document.
                           copied in as precondition 1 requires.
   run.json                start date, phase, primacy, active days PER PHASE, the
                           day-class list (each day stamped with its own phase), both
-                          config hashes, the seat / vector pins, and `surfaceSet` —
+                          config hashes, the seat / vector pins, `surfaceSet` —
                           G12's hash of `surfaceSetFields()`, which precondition 9
-                          reads. Written tmp+rename; an unparsable one THROWS rather
-                          than restarting the run.
-  days/<date>.json        one lived day: class, counts, mute evidence, tally, meter.
+                          reads — and `phaseRestart`, the latest declared restart of
+                          the phase clock (below). Written tmp+rename; an unparsable
+                          one THROWS rather than restarting the run.
+  restarts.jsonl          one line per declared restart of the phase clock, ever: when,
+                          from which day, why, and the surface-set hash at the time.
+                          History, never rewritten — `run.json` carries only the latest.
+  days/<date>.json        one lived day: class, counts, boundary grades, the graded
+                          watches, the primacy check, mute evidence, tally, meter.
   v1-log-copies/events-<date>.jsonl
                           that day's DETECTOR lines, copied read-only — G2's evidence must
                           not depend on v1's 30-day log retention.
@@ -110,9 +119,10 @@ sit in, because it is not the obvious one:
                                           leaves ask-channel.json + recall.decision rows
   preflight.ts --run-dir <dir> --phase 0  must exit 0: every row, 8 and 9 included
   (the flip: override -> "engram", tmp+rename, no session open, wall clock stamped)
+  daily.ts   --date <day-1> --phase P --primacy v2   the flip, STAMPED into run.json
 ```
 
-Two orderings that are load-bearing rather than stylistic:
+Three orderings that are load-bearing rather than stylistic:
 
 - **The daily runs BEFORE the throwaway, once.** The throwaway is v2 speaking on
   a day whose primacy is still v1 — precisely the G4 contamination detector — so
@@ -120,6 +130,12 @@ Two orderings that are load-bearing rather than stylistic:
   from the one session that was supposed to speak.
 - **The preflight runs LAST**, because preconditions 8 and 9 are read off the
   artifacts the two steps above leave behind.
+- **The first daily AFTER the flip carries `--primacy v2`, once.** `run.json`
+  holds the day-0 primacy (`v1`) and the daily inherits it when no flag is
+  given, so without that one flag the run grades v2-primary days against a
+  stale field. The daily now refuses rather than doing so, and `--primacy v2` —
+  cross-checked against the assignment file before anything is written — is the
+  deliberate act that re-stamps the record. Later days need no flag.
 
 ### `ready` means every row passed
 
@@ -151,15 +167,60 @@ marker to find.
 **The day's class** (§5 "What counts as a day"). Days are stamped `0` (day 0,
 before the flip) or `P` (the run, from day 1) — there is no `S`, and `run.json`'s
 `activeDays` is keyed by phase, so only `P` days count toward the ≥7 minimum.
-`active` requires that both
-systems reached at least one session boundary *and* the day carried at least K
-conversational turns. Everything else is recorded with a class and does **not**
-count toward a phase minimum: `thin`, `contaminated`, `mixed`, `silent`.
+`active` requires that the day's boundary evidence held (the rule below) *and*
+that the day carried at least K conversational turns. Everything else is recorded
+with a class and does **not** count toward a phase minimum: `thin`,
+`contaminated`, `mixed`, `silent`.
 
 A day can match more than one, so every match is kept in `flags` and one wins
 `class` by a stated precedence: **mixed → contaminated → silent → thin →
 active**. Mixed goes first because a straddling session's later `ab.muted` *is*
 the flip — the run's own act — not a revived instrument.
+
+**Boundary evidence is graded per side, four-valued** (`boundaries` on the day
+record), and this is the rule `thin` is derived from:
+
+| side's grade | what it means |
+|---|---|
+| `pass` | that side reached a boundary this instrument can see — v1 by a `session.end` line, v2 by a `stop` primacy record (deliver **or** stand-down), an episode-ask record, or the durable `adapter.boundary` row |
+| `muted-consistent` | the MUTED side reached no boundary, and that is what a working mute looks like: **v1's Stop hook logs no `ab.muted` at all**, so on a clean v2-primary day a correctly muted v1 leaves session-start and prompt-submit mute rows and no `session.end`. It requires v1's log to be PRESENT, to carry `ab.muted` rows, and to carry no delivery of its own. Its own value — never folded into `pass` |
+| `fail` | boundary evidence that should be there and is not: the primary reaching no boundary, or a muted side with no `ab.muted` row at all (a side nobody can show was alive — §7's same-day encode pairing rests on v1 still encoding while muted) |
+| `not-exercised` | no evidence either way: an absent v1 log for the day, or no v2 store at all. An unread log shows nothing, and never reads as a quiet one |
+
+The day is boundary-clear when the **PRIMARY** side grades `pass` and the muted
+side grades `pass` or `muted-consistent`; anything else is `thin`, and the `why`
+says which side and which grade. The primary gets no exception — on a v1-primary
+day (day 0) a v1 with no boundary is `thin`, as it always was.
+
+*Why the rule moved (2026-09-04).* The old rule was `v1.sessionEnd > 0 &&
+v2Boundaries > 0`, which classed day 1 of the real run `thin` on the sentence
+"one of the two systems reached no session boundary on this day" — the
+instrument reading the mute working as the mute broken, on a run where no
+v2-primary day could then ever count.
+
+**The primacy check runs on every daily, and it is not opt-in.** `primacyCheck`
+on the day record says whether the primacy this day was graded with was
+cross-checked against the assignment file's `override` — the one field both
+resolvers actually read (§5 G3). The daily reads that file from `--ab-dir` (or
+`--assignment`) whether or not you name one, and REFUSES with exit 2 when it
+disagrees with either the `--primacy` flag **or** the primacy stored in
+`run.json`. The stored half is the 2026-09-03 scar: the flip wrote its own log
+and left `run.json.primacy` at `v1`, so every day after it graded
+`contaminated` — "the muted v2 side delivered" — off a stale field nobody
+compared. The refusal names both readings and the one deliberate act that heals
+it: re-run with `--primacy <the file's value>`, which is itself cross-checked
+against the file and re-stamps `run.json` (the record then says `RE-STAMPED`).
+**The flip tooling lives outside this repo**, so this guard — not a flip command
+— is what stands between a stale field and a run of misgraded days. When the
+assignment file cannot be read at all the row prints `UNVERIFIED` with the
+reason; it is never passed over in silence.
+
+The check compares against the file's CURRENT state, which is the right
+comparison for the day you are recording today and the wrong one for a
+historical day whose primacy the file has since moved past. To re-record a
+pre-flip day after the flip, point `--ab-dir` at the dated backup of the
+assignment file taken at the flip — the file is the authority, so re-grading an
+old day means reading the file as it was, never asserting a primacy over it.
 
 **Mute evidence** is per channel, by named detector: v1's `ab.muted` split by
 hook, and v2's durable `adapter.primacy.standdown` / `.deliver` split by hook.
@@ -216,9 +277,11 @@ side's store. Five things govern it:
   v2 delivers nothing, so both directions carry the zero bar.
 - **v1's probe is required.** Without `--v1-wake` or `--v1-ritual` the v1→v2
   direction reads a silent zero, so the daily REFUSES rather than recording an
-  unmetered day. v2's own probes come from the adapter's `AUTHORSHIP_ASK`
-  constant, imported from the leaf module (`hooks.ts`) so the instrument does not
-  pull `Counterpart` and `Store` into its own process.
+  unmetered day. v2's own probes come from the adapter's own `authorshipAsk()`,
+  imported from the leaf module (`hooks.ts`) so the instrument does not pull
+  `Counterpart` and `Store` into its own process. The probe unit is a LINE, and
+  one line of that ask now carries the session id — that line is rendered with a
+  placeholder and simply never matches; the other five are the recognizer.
 - **Migrated rows are excluded by construction** — v1's text in v2's store is the
   migration, not contamination — joined on **realpaths**, because the store
   records one spelling of a path and a directory walk produces another.
@@ -229,11 +292,49 @@ zeroes reads as clean when it means nothing was asked. The meter carries
 assistant restates a delivered recall in its own words — rides beside it as
 `exposureDenominator`, so the number can never be read without it.
 
+## Restarting the phase clock
+
+```
+bun tools/parallel/bin/restart.ts --run-dir <dir> --date <YYYY-MM-DD> --reason "<text>"
+```
+
+CONTRACT §5 G12 prices mid-run change by class: an identical surface-set hash is
+telemetry-only and the day count carries; a red-line fix restarts the clock for
+the criteria whose surface set moved; **anything else restarts the phase**. The
+owner ruled (2026-09-04) that the behavior-changing fixes landing during this run
+take that last branch — the seven-day count starts again — and a rule with no
+command behind it is a rule nobody applies. This is the command.
+
+It writes only the run directory, like everything else here, and it refuses a run
+directory that overlaps a live store before it creates anything (the same guard
+the other two bins open with). What it does:
+
+- **`activeDays` for the phase goes to zero**, and `--date` becomes the FIRST day
+  of the restarted clock. Days before it, in that phase only, stop counting. A
+  restart of `P` never rewrites day 0's count.
+- **`run.json` gains `phaseRestart`** — `{restartedAt, date, phase, reason,
+  surfaceSet, clearedActiveDays}`. This annotation is load-bearing, not
+  decorative: the daily recomputes `activeDays` from `days[]` on every write, so
+  a restart that only set the number would be undone by the next daily run. Both
+  sides count through the one `countActiveDays` filter.
+- **`restarts.jsonl` gains a line**, and keeps every earlier one.
+- **`days/` is left exactly as it is.** A restarted clock is not a deleted
+  history: the days stay, stamped with their class, and stop counting toward the
+  minimum (§5 G10 — halt and *preserve*).
+
+It refuses, named and with exit 2, on: a run directory with no `run.json`
+(nothing to restart), a corrupt one (evidence, never a reason to start a fresh
+clock), an empty `--reason` (§5 G12 records the class, and `""` is not a class),
+a malformed date, and a date before the run began.
+
 ## Two gaps this tool makes visible rather than papers over
 
 **1. Two detectors the CONTRACT names are recomputed, not rows — and the
 delivery records that were not durable now are.** Box 2's `events` table takes
-exactly the **thirteen** names in `DURABLE_EVENTS`. On 2026-09-03 the four
+exactly the names in `DURABLE_EVENTS` — **sixteen** as of 2026-09-04, when the
+crash gate's `sweep.gate` row joined them: after the sweep became a fallback in
+fact, its ordinary day is silence, and a silent sweep and a dead worker have to
+be different rows (constitution 16). On 2026-09-03 the four
 delivery records (`adapter.wake.injected`, `adapter.wake.delivered`,
 `adapter.recall`, `adapter.episode.ask`) joined that list, each carrying `date`
 and `session` in its payload, because on any day v2 is the muted side — day 0,
@@ -247,7 +348,23 @@ return a fabricated zero.
 
 Two remain non-rows by design and are named in `nonDurable` rather than reported
 as zeros: `sleep.symmetry` (arithmetic over `band.transition`) and
-`self.schema.*` (`schemaBytes` over the rows). A third,
+`self.schema.*` (`schemaBytes` over the rows). **Each is now GRADED**, on the day
+record as `watches` and one line each in the daily's output — a value from the
+four-value vocabulary plus the reason for it, never the bare comma-separated name
+list that used to print (a string an operator reads past is not a verdict). `pass`
+is unreachable for all four: a watch with no reading behind it can never render
+green (§5 G13).
+
+| watch | value | why |
+|---|---|---|
+| `sleep.symmetry` | `needs-rater` when `band.transition` rows are attributable to the day, else `not-exercised` | the verdict is arithmetic OVER those rows and its rater is the G12 symmetry consumer in `src/core/sleep`, not this instrument. With no `--lived-day` nothing can be attributed at all, and the row says so rather than printing a zero |
+| `self.schema.pressure` | `not-exercised` | no durable revision-pressure row exists in this build. **The revision-pressure path is being wired in a separate PR; once it lands this watch has durable `revision.pressure` events to read and its grading rule in `record.ts` should move with it.** |
+| `self.schema.tripped` | `not-exercised` | the trip is `schemaBytes` over the self rows, recomputed read-only by the preflight's `store.schemaBytes` check; the daily takes no reading of its own |
+| `self.schema.quarantined` | `not-exercised` | the F8 fallback quarantine is subtracted INSIDE `schemaBytes`; the SPAN quarantine ledger is a different thing and IS on the day record, as `quarantine` |
+
+The table is built by walking the reader's own `nonDurable` list, so a detector
+added there with no grading rule still gets a row — `needs-rater`, saying exactly
+that — rather than vanishing. A third,
 `remember.span.quarantined`, is **recomputed here**: the line count of every
 scope's `quarantine.jsonl`, on the day record as `quarantine`. Lines only — a
 quarantined span is verbatim lived text.
@@ -291,6 +408,11 @@ Three structural guarantees, not a promise in a comment:
    probe was a bare `CREATE TABLE IF NOT EXISTS`, a real committed write into
    the owner's live store if the read-only flag ever failed to take. A handle
    that ACCEPTS the write makes the reader throw rather than report.
+
+The scan covers `bin/restart.ts` like everything else: the restart engine holds
+no write API at all — it returns artifacts and the bin hands them to `RunDir`,
+which is why `restarts.jsonl` is appended by reading the file and writing the
+whole text back rather than by opening it for append.
 
 A fourth test holds the hermetic line: no module but `bin/` may import
 `node:os` — every module in the directory is walked, so a new one cannot slip

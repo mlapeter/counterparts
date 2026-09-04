@@ -111,7 +111,7 @@ names — move the default behind the gate verdict — closes both.
 
 ## 7. The authorship ask has no RETURN CHANNEL in this host's hooks
 
-**What exists.** `stop()` raises `AUTHORSHIP_ASK` whenever the scope holds spans
+**What exists.** `stop()` raises `authorshipAsk(sessionId)` whenever the scope holds spans
 no proposal has covered, measured (not assumed) from
 `SpanBuffer.coverageReport`. The entry script prints it into the model's context.
 `Counterpart.submitSessionEnd` is the entrance that turns a written dump into a
@@ -130,6 +130,22 @@ the right order: the alternative is a channel nobody is ever invited to use. The
 telemetry says which happened — `adapter.authorship.ask` records `uncovered`
 every time, so the day the channel lands, the backlog it inherits is already a
 measured number.
+
+**CLOSED 2026-09-04, and what closing it cost.** The MCP adapter exists, so the
+channel exists — but the first run measured it shut anyway: this host registers
+MCP servers from a STATIC configuration (command, args, env), so the server never
+receives `--session`, and `session_end` refused every dump with
+`no-bound-session`. Zero episodes were written; the model fell back to `note` 34
+times in one session.
+
+The fix is a note the hooks leave where the tool can read it —
+`adapters/sessions.ts`, `<dataDir>/sessions/<id>.json`, written at SessionStart,
+refreshed at Stop, closed at SessionEnd — plus an ask that now NAMES the session
+id, because on this host the id can only reach the server through the model. What
+the hooks owe the seam is exactly three things and they are all here: the record,
+its scope (the hook's own cwd, set once so a later hook cannot move it), and the
+id in the ask's text. Everything about what the server then does with a claim is
+`mcp/CONTRACT.md` §5 G10 and its residual-risk note.
 
 ## 6. `sleep/`'s `SleepStore` and `Store` agree structurally, undocumented
 
@@ -154,10 +170,14 @@ into the wrapper.
    `self/`'s re-ask thresholds — a memory number, not a host one. The host-local
    number (how long after the last session-ending event a session can keep
    living) is still unknown.
-3. **Which host event means "crashed"?** Still open, and the reason the fallback
-   runs on eligibility (`endedSessions` ∧ uncovered spans) rather than on a
-   crash signal. `pre-compact` is the closest thing to a named catastrophe and it
-   is wired; an abrupt exit is indistinguishable from an ordinary one.
+3. **Which host event means "crashed"? — CLOSED 2026-09-04.** None does, and the
+   answer is a definition rather than an event: a session is crashed when it
+   holds uncovered spans, recorded no `session-end` boundary, and has been silent
+   for `CRASH_STALE_MS` (`remember/spans.ts#crashedSessions`, CONTRACT §7.3). The
+   old eligibility rule — *any* boundary ∧ uncovered spans — made the sweep the
+   primary path in fact: it ran after every Stop, and on 2026-09-04 one evening's
+   sweeps billed 13 chunks and minted 61 memories beside 34 authored ones.
+   `pre-compact` is still wired and still captures; it is not by itself a crash.
 4. **Long-call survival is asserted, not proven in this host (CONTRACT §5 G6).**
    The call streams (scar E3) and `socketLifetimeMs` is a reported capability
    with no reporter. The proof G6 asks for — one long call surviving this host's

@@ -71,8 +71,31 @@ let priorEnv: string | undefined;
 /** Paths this test chmod'ed, restored in afterEach so the temp dir can be removed. */
 const relaxed: string[] = [];
 
+/**
+ * THE TEST CLOCK, as an OFFSET on the real one. Every buffer this suite builds
+ * reads it, because the crash fallback's eligibility is a fact about TIME: a
+ * session is crashed when it has gone silent past `CRASH_STALE_MS` with no
+ * `session-end` boundary. Making a session go quiet is the honest fixture for a
+ * crash — the alternative, setting the window to zero, deletes the gate the
+ * fixture is supposed to exercise.
+ *
+ * An OFFSET rather than a frozen instant because the orphan-merge path compares
+ * this clock against a claim file's real `mtime`: a frozen clock set before the
+ * file existed makes every orphan look like the future and never merge.
+ */
+let offsetMs = 0;
+
+function testNow(): number {
+  return Date.now() + offsetMs;
+}
+
 function buf(opts: Partial<BufferOptions> = {}): SpanBuffer {
-  return new SpanBuffer({ dir, minClaimBytes: 0, staleClaimMs: 0, day: () => 3, ...opts });
+  return new SpanBuffer({ dir, minClaimBytes: 0, staleClaimMs: 0, day: () => 3, now: testNow, ...opts });
+}
+
+/** The session stopped and nobody ever came back: this host's only crash signal. */
+function goQuiet(): void {
+  offsetMs += TUNABLES.CRASH_STALE_MS + 60_000;
 }
 
 function u(text: string): Turn {
@@ -136,6 +159,7 @@ function claimed(buffer: SpanBuffer, scope = SCOPE, opts?: { minBytes?: number }
 }
 
 beforeEach(() => {
+  offsetMs = 0;
   priorEnv = process.env[DATA_DIR_ENV];
   dir = mkdtempSync(join(tmpdir(), "counterparts-"));
   process.env[DATA_DIR_ENV] = dir;
@@ -285,6 +309,29 @@ describe("capture (G1, G2, G3)", () => {
     expect(enters({ role: "user", text: "x", source: "injected" })).toBe(true);
     expect(enters({ role: "user", text: "x", source: "conversation" })).toBe(true);
     expect(enters({ role: "user", text: "x" })).toBe(true);
+    // And `ritual` — THIS system's own ask, read back off a host that returns
+    // hook output into the context — is refused for the mirror-image reason:
+    // encoding it would make the ask's wording a memory of having thought it.
+    expect(enters({ role: "user", text: "x", source: "ritual" })).toBe(false);
+  });
+
+  test("ritual text is refused and COUNTED — the ask does not become its own memory", () => {
+    const b = buf();
+    const r = b.capture({
+      session: "s1",
+      scope: SCOPE,
+      turns: [
+        { role: "user", text: "Stop hook feedback:\n- what did you LEARN here?", source: "ritual" },
+        { role: "user", text: "what I actually said", source: "conversation" },
+      ],
+    });
+    // The exclusion is a NUMBER, not an absence: a boundary that captured
+    // nothing because everything was ritual must be distinguishable from a
+    // boundary where nothing happened.
+    expect({ excluded: r.excluded, text: r.spans[0]?.text }).toEqual({
+      excluded: 1,
+      text: "what I actually said",
+    });
   });
 
   test("a boundary with nothing conversational still advances (ALL_EXCLUDED)", () => {
@@ -343,7 +390,12 @@ describe("boundaries (G11 mechanized half, G12)", () => {
       expect({ kind: rec.kind, ask: rec.askRaised }).toEqual({ kind, ask: true });
     }
     expect(b.boundaries(SCOPE).map((r) => r.kind)).toEqual([...BOUNDARY_KINDS]);
-    expect(b.endedSessions(SCOPE).size).toBe(3);
+    // All three ended; only two can ever be CRASHED. A `session-end` boundary is
+    // the author reaching the host's own end-of-session path, and a session that
+    // got the pen is never read by the fallback (owner ruling 2026-09-04).
+    expect([...b.crashedSessions(SCOPE)]).toEqual([]);
+    goQuiet();
+    expect([...b.crashedSessions(SCOPE)].sort()).toEqual(["s-pre-compaction", "s-stop"]);
   });
 
   test("the unaskable stretch is bounded and measured, not assumed (G12)", () => {
@@ -878,16 +930,65 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     const report = await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) });
     expect({ ran: report.ran, reason: report.reason, calls: calls.length }).toEqual({
       ran: false,
-      reason: "NO_ENDED_SESSION",
+      reason: "NO_CRASHED_SESSION",
       calls: 0,
     });
     expect(b.spans(SCOPE).length).toBe(1);
+  });
+
+  test("THE CRASH DEFINITION, all three clauses (owner ruling 2026-09-04)", async () => {
+    const b = buf();
+    // `quiet` stops and never comes back; `ritual` reaches the host's own
+    // end-of-session path; `live` is still going.
+    b.capture({ session: "quiet", scope: SCOPE, turns: [u(long("stopped mid-thought"))] });
+    b.capture({ session: "ritual", scope: SCOPE, turns: [u(long("wrote it up first"))] });
+    b.capture({ session: "live", scope: SCOPE, turns: [u(long("still talking"))] });
+    b.boundary({ session: "quiet", scope: SCOPE, kind: "stop" });
+    b.boundary({ session: "ritual", scope: SCOPE, kind: "stop" });
+    b.boundary({ session: "ritual", scope: SCOPE, kind: "session-end" });
+
+    // Clause 2, before the window: a stop is not a crash, however uncovered.
+    expect([...b.crashedSessions(SCOPE)]).toEqual([]);
+    expect(b.crashedPending(SCOPE)).toEqual({ sessions: new Set(), spans: 0, uncovered: 0 });
+    const calls: SweepChunk[] = [];
+    expect((await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) })).reason).toBe("NO_CRASHED_SESSION");
+    expect(calls.length).toBe(0);
+
+    // Past the window: only `quiet`. `ritual` got the pen (clause 1) and `live`
+    // has ended nothing at all.
+    goQuiet();
+    expect([...b.crashedSessions(SCOPE)]).toEqual(["quiet"]);
+    expect(b.crashedPending(SCOPE).spans).toBe(1);
+    await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) });
+    expect(calls[0]?.spans.map((s) => s.session)).toEqual(["quiet"]);
+    expect(b.spans(SCOPE).map((s) => s.session).sort()).toEqual(["live", "ritual"]);
+  });
+
+  test("the gate counts spans held in a CLAIM FILE, so a crashed run's orphans are not stranded by it", async () => {
+    const b = buf();
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("claimed by a run that died"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
+    // A worker claimed these spans and never came back: the buffer is empty and
+    // the only copy is the orphan claim file.
+    const orphan = claimed(b);
+    expect(b.spans(SCOPE)).toEqual([]);
+    expect(existsSync(orphan.path)).toBe(true);
+
+    // The gate must still see them, or its own pre-claim check would keep the
+    // orphan from ever being merged back in.
+    expect(b.crashedPending(SCOPE).spans).toBe(1);
+    const calls: SweepChunk[] = [];
+    const report = await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) });
+    expect({ ran: report.ran, reason: report.reason }).toEqual({ ran: true, reason: "SWEPT" });
+    expect(calls[0]?.spans.length).toBe(1);
   });
 
   test("unclaimed spans past a boundary are swept, applied, and consumed", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("crashed session"))] });
     b.boundary({ session: "s1", scope: SCOPE, kind: "pre-compaction" });
+    goQuiet();
     const calls: SweepChunk[] = [];
     const applied: unknown[] = [];
     const report = await sweep(b, {
@@ -912,7 +1013,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     for (let i = 0; i < 3; i++) {
       b.capture({ session: "s1", scope: SCOPE, turns: turnsUpTo(i + 1) });
     }
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[1];
 
     const report = await sweep(b, {
@@ -936,7 +1038,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   test("the SECOND failure of the same content still restores — the ledger holds only what was APPLIED (replay-review P0)", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("twice doomed"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[0];
     const failing = async (): Promise<InterpretResult> => {
       throw new Error("NO_JSON_IN_RESPONSE");
@@ -999,7 +1102,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     let day = 3;
     const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("permanently doomed"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
     const failing = poison(counter);
@@ -1030,7 +1134,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     // Nothing can resurrect it: the claim file is gone, so no orphan merge can
     // bring it back, and the next boundary makes no model call at all.
     expect(readdirSync(join(dir, "spans", keyFor(SCOPE), "claims"))).toEqual([]);
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const after = await sweep(b, { scope: SCOPE, interpret: failing });
     expect({ reason: after.reason, calls: counter.calls }).toEqual({
       reason: "NOTHING_TO_SWEEP",
@@ -1045,7 +1150,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     // lived days, so the same day's retries are one failure.
     const b = buf({ day: () => 3 });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("caught in an outage"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const counter = { calls: 0 };
     const failing = poison(counter);
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES + 2; i++) {
@@ -1063,7 +1169,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     let day = 3;
     const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed for now"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
 
@@ -1098,7 +1205,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     // 1. Scraps under the minimum ride to the next boundary (spec §2 G8).
     const small = buf({ minClaimBytes: 5_000 });
     small.capture({ session: "s1", scope: SCOPE, turns: [u(long("too small to run"))] });
-    small.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    small.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const scraps = await sweep(small, { scope: SCOPE, interpret: async () => ({ proposals: [] }) });
     expect(scraps.reason).toBe("BELOW_MIN_CLAIM");
     expect(small.spans(SCOPE).length).toBe(1);
@@ -1108,20 +1216,24 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     const b = buf();
     b.capture({ session: "ended", scope: SCOPE, turns: [u(long("done"))] });
     b.capture({ session: "live", scope: SCOPE, turns: [u(long("still going"))] });
-    b.boundary({ session: "ended", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "ended", scope: SCOPE, kind: "stop" });
+    goQuiet();
     await sweep(b, { scope: SCOPE, interpret: interpretOk([]) });
     expect(b.spans(SCOPE).map((s) => s.session)).toEqual(["live"]);
     expect(existsSync(scopeFile(SCOPE, "failures.jsonl"))).toBe(false);
 
     // 3. And the already-authored retirement, which restores without a call.
+    //    Its OWN session id: the read cursor is per (scope, session), so reusing
+    //    part 1's would capture nothing and prove nothing.
     const authored = buf();
-    authored.capture({ session: "s1", scope: SCOPE, turns: [u(long("all authored"))] });
+    authored.capture({ session: "wrote-it-up", scope: SCOPE, turns: [u(long("all authored"))] });
     await submitProposal(
       authored,
       { content: "I wrote the whole session up myself." },
-      { session: "s1", scope: SCOPE, source: "session-end", gate: pass },
+      { session: "wrote-it-up", scope: SCOPE, source: "session-end", gate: pass },
     );
-    authored.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    authored.boundary({ session: "wrote-it-up", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const retired = await sweep(authored, { scope: SCOPE, interpret: interpretOk([]) });
     expect(retired.reason).toBe("NOTHING_UNCLAIMED");
     expect(existsSync(scopeFile(SCOPE, "failures.jsonl"))).toBe(false);
@@ -1131,7 +1243,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     let day = 3;
     const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed then fine"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
@@ -1163,7 +1276,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   test("a ledger that cannot be written quarantines NOTHING — the failure path fails toward retry", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("doomed, unwritable"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES - 1; i++) {
@@ -1188,7 +1302,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     let day = 3;
     const b = buf({ day: () => day });
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("secret-looking doom"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const doomed = b.spans(SCOPE)[0];
     const counter = { calls: 0 };
     for (let i = 0; i < TUNABLES.MAX_SPAN_FAILURES; i++) {
@@ -1210,7 +1325,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   test("a truncated response is a FAILURE, not data (scar E2)", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("long answer"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const report = await sweep(b, {
       scope: SCOPE,
       interpret: async () => ({ proposals: [{ content: "half a" }], stopReason: "max_tokens" }),
@@ -1225,7 +1341,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   test("a malformed result is a failure with its own reason", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("garbage back"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const report = await sweep(b, {
       scope: SCOPE,
       interpret: async () => ({ proposals: "not an array" } as unknown as InterpretResult),
@@ -1237,7 +1354,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   test("returned-nothing and failed are DISTINCT records (scar §2.4)", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("nothing here"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const report = await sweep(b, { scope: SCOPE, interpret: async () => ({ proposals: [], stopReason: "end_turn" }) });
     expect(report.chunks.map((c) => ({ ok: c.ok, reason: c.reason }))).toEqual([{ ok: true, reason: "EMPTY" }]);
     expect({ empty: b.events("remember.chunk.empty").length, failed: b.events("remember.chunk.failed").length }).toEqual(
@@ -1249,7 +1367,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
   test("an apply failure keeps the chunk's spans, not the sweep's verdict", async () => {
     const b = buf();
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("apply fails"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const report = await sweep(b, {
       scope: SCOPE,
       interpret: async () => ({ proposals: [{ content: "x" }], stopReason: "end_turn" }),
@@ -1273,7 +1392,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     );
     // Now a second, unauthored stretch arrives and the session ends in a crash.
     b.capture({ session: "s1", scope: SCOPE, turns: [u(long("what we discussed")), u(long("the residual"))] });
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
 
     const calls: SweepChunk[] = [];
     await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) });
@@ -1295,7 +1415,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
       { content: "I wrote the whole session up myself." },
       { session: "s1", scope: SCOPE, source: "session-end", gate: pass },
     );
-    b.boundary({ session: "s1", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const calls: SweepChunk[] = [];
     const report = await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) });
     expect({ ran: report.ran, reason: report.reason, calls: calls.length, consumed: report.consumed }).toEqual({
@@ -1311,7 +1432,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     const b = buf();
     b.capture({ session: "ended", scope: SCOPE, turns: [u(long("done"))] });
     b.capture({ session: "live", scope: SCOPE, turns: [u(long("still going"))] });
-    b.boundary({ session: "ended", scope: SCOPE, kind: "session-end" });
+    b.boundary({ session: "ended", scope: SCOPE, kind: "stop" });
+    goQuiet();
     const calls: SweepChunk[] = [];
     await sweep(b, { scope: SCOPE, interpret: interpretOk(calls) });
     expect(calls[0]?.spans.map((s) => s.session)).toEqual(["ended"]);
@@ -1322,7 +1444,8 @@ describe("crash fallback (G4, E1, E2, E7)", () => {
     const b = buf();
     for (const scope of [SCOPE, OTHER]) {
       b.capture({ session: `s-${scope}`, scope, turns: [u(long(`lived in ${scope}`))] });
-      b.boundary({ session: `s-${scope}`, scope, kind: "session-end" });
+      b.boundary({ session: `s-${scope}`, scope, kind: "stop" });
+      goQuiet();
     }
     const calls: SweepChunk[] = [];
     const reports = await sweepAll(b, { interpret: interpretOk(calls) });

@@ -77,9 +77,17 @@ import type {
   SchemaSlice as EncodeSchemaSlice,
 } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
+import { applyRevision } from "./revision.js";
 import { Schemas } from "./schemas/index.js";
-import { Self } from "./self/index.js";
-import type { ChapterAppend, ChapterAsk, IdentityCoreSpec, IngestResult, WakeResult } from "./self/index.js";
+import { PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
+import type {
+  ChapterAppend,
+  ChapterAsk,
+  IdentityCoreSpec,
+  IngestResult,
+  WakeDelivery,
+  WakeResult,
+} from "./self/index.js";
 import { runCycle } from "./sleep/index.js";
 import type { CycleReport } from "./sleep/index.js";
 import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
@@ -106,6 +114,21 @@ export type GateChunkField = (typeof GATE_CHUNK_FIELDS)[number];
 
 /** The durable per-turn surfacing record (same registry, same rule). */
 export const RECALL_DECISION_EVENT = "recall.decision";
+
+/**
+ * THE SWEEP GATE'S OWN RECORD — one row per `sweepFallback()` call, whether the
+ * sweep read anything or nothing.
+ *
+ * The sweep is now a crash fallback in fact and not only in the CONTRACT
+ * (`remember/fallback.ts`, owner ruling 2026-09-04), which means its ordinary
+ * state is SILENCE. Silence must never masquerade as health (constitution 16):
+ * without this row, "no sweeps today" is indistinguishable from a worker that
+ * never started, a credential that never loaded, or a gate that refuses
+ * everything. So the run says how many scopes it looked at, how many held a
+ * crashed session, how many it skipped for `NO_CRASHED_SESSION`, and what it
+ * swept and minted when it did run.
+ */
+export const SWEEP_GATE_EVENT = "sweep.gate";
 
 /**
  * The durable events an ADAPTER may write, and the whole list of them.
@@ -259,6 +282,13 @@ export interface SweepEntry {
   chunkBytes?: number;
   minBytes?: number;
   staleClaimMs?: number;
+  /** How long a session must be SILENT before the fallback may call it crashed
+   *  (`TUNABLES.CRASH_STALE_MS`). The replay harness overrides it, because a
+   *  corpus of finished days is a corpus of sessions nobody will come back to. */
+  crashStaleMs?: number;
+  /** The calendar date this run belongs to, carried into the `sweep.gate` row so
+   *  it is self-attributing. Absent ⇒ the row is attributed by lived day alone. */
+  date?: string;
 }
 
 export interface SessionEndInput {
@@ -644,18 +674,23 @@ export class Counterpart {
    * briefing at the next boundary — loudly, rather than composing to a number
    * nobody chose.
    */
-  wake(budgetBytes?: number): WakeOutcome {
+  wake(budgetBytes?: number, delivery?: WakeDelivery): WakeOutcome {
     if (budgetBytes === undefined) {
       this.emit("counterpart.budget.unreported", undefined, { had: this.reportedBudget });
     } else {
       this.reportedBudget = budgetBytes;
       this.emit("counterpart.budget.reported", undefined, { budgetBytes });
     }
-    const result = this.self.wake();
+    // `delivery` present means THIS read is an injection: the bundle gets the
+    // preface that states which system, which day, which date and what size —
+    // the facts the body was composed too early to know. A read that is not a
+    // delivery (the dashboard, replay) gets the published bundle untouched.
+    const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery);
     this.emit("counterpart.wake", undefined, {
       ok: result.ok,
       reason: result.reason,
       bytes: result.bytes,
+      preface: result.preface !== null,
       budgetBytes: this.reportedBudget,
     });
     return { ...result, budgetBytes: this.reportedBudget };
@@ -905,13 +940,26 @@ export class Counterpart {
    * briefing around it. Then the Hebbian buffer flushes — the DB-is-a-cache
    * exemption, batched here rather than per turn. Then the cycle, whose LAST
    * content write is `self.boundary()` through `briefing.selfRenderer` (SEAMS G),
-   * carrying the ceiling the HOST reported and refusing to invent one.
+   * carrying the ceiling the HOST reported and refusing to invent one — minus
+   * the room the wake's delivery preface will take at injection. That
+   * subtraction is HERE and nowhere else: the preface is composed at wake
+   * (`self/briefing.ts`), so this root is the one place that knows both numbers,
+   * and reserving is the difference between a wake that fits the host's cliff
+   * and one that blows it by its own first line every day.
    */
   async sessionEnd(input: SessionEndInput = {}): Promise<SessionEndReport> {
     const budgetBytes = input.budgetBytes ?? this.reportedBudget;
     if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
+    const composeBudget =
+      budgetBytes === null ? null : Math.max(budgetBytes - PREFACE_RESERVE_BYTES, 0);
 
-    const sweeps = input.sweep === undefined ? [] : await this.sweepFallback(input.sweep);
+    const sweeps =
+      input.sweep === undefined
+        ? []
+        : await this.sweepFallback({
+            ...(input.date === undefined ? {} : { date: input.date }),
+            ...input.sweep,
+          });
     const edges = this.associate.flush();
 
     const render = selfRenderer(this.self, {
@@ -923,7 +971,7 @@ export class Counterpart {
       store: this.store,
       render,
       ...(input.date === undefined ? {} : { date: input.date }),
-      ...(budgetBytes === null ? {} : { budgetBytes }),
+      ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
       onEvent: (e) => this.relay("sleep", e),
     });
 
@@ -988,11 +1036,57 @@ export class Counterpart {
       ...(entry.chunkBytes === undefined ? {} : { chunkBytes: entry.chunkBytes }),
       ...(entry.minBytes === undefined ? {} : { minBytes: entry.minBytes }),
       ...(entry.staleClaimMs === undefined ? {} : { staleClaimMs: entry.staleClaimMs }),
+      ...(entry.crashStaleMs === undefined ? {} : { crashStaleMs: entry.crashStaleMs }),
     };
-    if (entry.scope !== undefined) {
-      return [await sweep(this.spans, { ...options, scope: entry.scope })];
+    const reports =
+      entry.scope !== undefined
+        ? [await sweep(this.spans, { ...options, scope: entry.scope })]
+        : await sweepAll(this.spans, options);
+    this.recordSweepGate(reports, entry.date ?? null);
+    return reports;
+  }
+
+  /**
+   * ONE durable row per sweep run, so a silent sweep is EVIDENCED silence.
+   *
+   * The gate's ordinary answer is "nothing crashed", and a mechanism whose
+   * healthy state is doing nothing is exactly the mechanism whose failure is
+   * invisible. `ran` versus `skipped` is the whole reading: `skipped == scopes`
+   * with `ran: 0` is a healthy quiet day; no row at all on a day the worker was
+   * spawned is a broken worker.
+   *
+   * Guarded the way `recordDecision` is — a lock lost to a concurrent process
+   * must cost the ROW, never the sweep — and an observer writes nothing.
+   */
+  private recordSweepGate(reports: readonly SweepReport[], date: string | null): void {
+    if (this.observer) return;
+    const ran = reports.filter((r) => r.ran).length;
+    const skipped = reports.filter((r) => r.reason === "NO_CRASHED_SESSION").length;
+    const payload = {
+      scopes: reports.length,
+      ran,
+      skippedNotCrashed: skipped,
+      // Every other refusal in one number: below-min claims, empty buffers, a
+      // failed restore. Nonzero here with `ran: 0` is NOT a quiet day.
+      otherRefusals: reports.length - ran - skipped,
+      swept: reports.reduce((n, r) => n + r.spansSwept, 0),
+      minted: reports.reduce((n, r) => n + r.proposals, 0),
+      restored: reports.reduce((n, r) => n + r.spansRestored, 0),
+      quarantined: reports.reduce((n, r) => n + r.spansQuarantined, 0),
+      crashStaleMs: this.spans.crashStaleMs,
+      // The CALENDAR date, when the caller knows it. `day` is the lived-day
+      // column, and a reader without this field can only attribute by that —
+      // the same hole `gate.chunk` has (parallel `readers.ts`, `livedDay`).
+      date,
+    };
+    let durable = true;
+    try {
+      this.store.appendEvent({ name: SWEEP_GATE_EVENT, day: this.store.livedDay(), payload });
+    } catch (err) {
+      durable = false;
+      this.emit("counterpart.sweep.gate.failed", undefined, { code: errCode(err) });
     }
-    return sweepAll(this.spans, options);
+    this.emit("counterpart.sweep.gate", undefined, { ...payload, durable });
   }
 
   /**
@@ -1173,6 +1267,7 @@ export class Counterpart {
       blind: mint.blind,
     });
     this.mentionFromProposal(proposal, `deposit:${mint.id}`);
+    this.applyDeclaredRevision(proposal, mint, source);
     return {
       deposited: true,
       reason: "minted",
@@ -1364,7 +1459,60 @@ export class Counterpart {
         blind: mint.blind,
       });
       this.mentionFromProposal(proposal, `sweep:${chunk.index}`);
+      // The DOOR, not `SWEPT_SOURCE` — that field says "session-end" because
+      // `remember/`'s vocabulary has no word for a sweep (see its comment).
+      this.applyDeclaredRevision(proposal, mint, "sweep");
     }
+  }
+
+  /**
+   * SEAMS item O — the revision seam has a caller, at every door.
+   *
+   * `mint.ts` writes the resolved `updates:` into `doc.meta` and routes the
+   * claim through the freeze seam; `src/core/revision.ts` is where the claim
+   * actually LANDS, dispatching on what the declaration hit (a belief and an
+   * identity element take pressure, a "now" fact is replaced, everything else is
+   * a link). Until this line existed the whole surprise pipeline dissented into
+   * nothing: measured 2026-09-04, the live store had zero rows with pressure and
+   * zero `revision.pressure` events for its whole life.
+   *
+   * Called once per DECLARATION, resolved or not, so the applies stand one for
+   * one with `encode/`'s `revision.challenge` effects — an address that resolves
+   * to nothing becomes a countable refusal instead of silence.
+   */
+  private applyDeclaredRevision(proposal: Proposal, mint: MintResult, door: string): void {
+    const address = mint.updates ?? proposal.updates?.declared ?? null;
+    if (address === null) return;
+    const out = applyRevision(
+      this.store,
+      this.schemas,
+      {
+        updates: address,
+        challengerId: mint.id,
+        day: proposal.day,
+        // The matcher's own verdict travels: `mint.directionOf` decides ONCE
+        // whether this is a softening or a confirmation, for the freeze seam and
+        // for the pressure path alike (SEAMS N — the two must not disagree).
+        ...(proposal.updates?.method === undefined ? {} : { method: proposal.updates.method }),
+      },
+      {
+        // SEAMS E again, for the memory paths `schemas/` does not own.
+        retarget: (oldId, newId, day) => {
+          this.associate.retargetOnSupersede(oldId, newId, day);
+        },
+        onEvent: (name, data) => this.emit(name, undefined, data),
+      },
+    );
+    this.emit("counterpart.revision", mint.id, {
+      door,
+      path: out.path,
+      reason: out.reason,
+      target: out.targetId,
+      credited: out.credited,
+      verdict: out.verdict,
+      successor: out.successorId,
+      day: proposal.day,
+    });
   }
 
   /**

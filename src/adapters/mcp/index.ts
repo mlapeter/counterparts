@@ -50,8 +50,8 @@ export type {
   Tier,
 } from "./deliberate.js";
 
-export { McpServer, SERVER_NAME, SERVER_VERSION } from "./server.js";
-export type { McpEvent, McpServerOptions, ToolResult } from "./server.js";
+export { McpServer, SERVER_NAME, SERVER_VERSION, resolveScope } from "./server.js";
+export type { McpEvent, McpServerOptions, ScopeSource, ToolResult } from "./server.js";
 
 export { serveStdio } from "./stdio.js";
 export type { StdioOptions } from "./stdio.js";
@@ -82,6 +82,8 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.session === undefined ? {} : { session: opts.session }),
     ...(opts.scope === undefined ? {} : { scope: opts.scope }),
     ...(opts.owner === undefined ? {} : { owner: opts.owner }),
+    ...(opts.registryDir === undefined ? {} : { registryDir: opts.registryDir }),
+    ...(opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: opts.sessionTtlMs }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.now === undefined ? {} : { now: opts.now }),
   });

@@ -13,6 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { BEFORE, readBenchInput, renderReport, renderSweep, runBench } from "../index.js";
+import { TUNABLES } from "../../../src/core/recall/index.js";
 import type { BenchConfig, BenchReport } from "../types.js";
 
 interface Args {
@@ -23,6 +24,7 @@ interface Args {
   b: number;
   k1: number;
   cap: number;
+  oneSided: boolean;
 }
 
 function usage(): never {
@@ -37,6 +39,8 @@ function usage(): never {
       "  --sweep             run the b x cap grid instead of one configuration.",
       "  --b / --k1 / --cap  one configuration's numbers. Defaults are the shipped",
       "                      CAL values; --cap inf disables the per-document ceiling.",
+      "  --one-sided         clamp the length factor at 1 (penalize long, never",
+      "  --two-sided         reward short). Default follows the shipped CAL value.",
       "",
     ].join("\n"),
   );
@@ -44,7 +48,16 @@ function usage(): never {
 }
 
 function parse(argv: readonly string[]): Args {
-  const a: Args = { storeDir: null, input: null, out: null, sweep: false, b: 0.75, k1: 1, cap: 3 };
+  const a: Args = {
+    storeDir: null,
+    input: null,
+    out: null,
+    sweep: false,
+    b: TUNABLES.CUE_LENGTH_NORM,
+    k1: TUNABLES.CUE_TF_SATURATION,
+    cap: TUNABLES.CUE_DOC_CAP,
+    oneSided: TUNABLES.CUE_LENGTH_ONE_SIDED,
+  };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const next = (): string => {
@@ -60,6 +73,8 @@ function parse(argv: readonly string[]): Args {
       case "--b": a.b = Number(next()); break;
       case "--k1": a.k1 = Number(next()); break;
       case "--cap": { const v = next(); a.cap = v === "inf" ? Infinity : Number(v); break; }
+      case "--one-sided": a.oneSided = true; break;
+      case "--two-sided": a.oneSided = false; break;
       case "-h": case "--help": usage();
       default: usage();
     }
@@ -70,10 +85,18 @@ function parse(argv: readonly string[]): Args {
 
 function sweepGrid(): BenchConfig[] {
   const out: BenchConfig[] = [BEFORE];
-  for (const b of [0, 0.5, 0.75, 1.0]) {
-    for (const cap of [Infinity, 3, 2]) {
-      if (b === 0 && cap === Infinity) continue; // that cell is BEFORE
-      out.push({ name: `b=${b} cap=${cap === Infinity ? "inf" : cap}`, b, k1: 1, cap });
+  for (const oneSided of [false, true]) {
+    for (const b of [0, 0.5, 0.75, 1.0]) {
+      for (const cap of [Infinity, 3, 2]) {
+        if (b === 0 && cap === Infinity) continue; // that cell is BEFORE
+        out.push({
+          name: `${oneSided ? "1-sided" : "2-sided"} b=${b} cap=${cap === Infinity ? "inf" : cap}`,
+          b,
+          k1: 1,
+          cap,
+          oneSided,
+        });
+      }
     }
   }
   return out;
@@ -84,7 +107,15 @@ function main(): void {
   const input = readBenchInput(a.input as string);
   const configs: BenchConfig[] = a.sweep
     ? sweepGrid()
-    : [{ name: `b=${a.b} k1=${a.k1} cap=${a.cap === Infinity ? "inf" : a.cap}`, b: a.b, k1: a.k1, cap: a.cap }];
+    : [
+        {
+          name: `${a.oneSided ? "1-sided" : "2-sided"} b=${a.b} k1=${a.k1} cap=${a.cap === Infinity ? "inf" : a.cap}`,
+          b: a.b,
+          k1: a.k1,
+          cap: a.cap,
+          oneSided: a.oneSided,
+        },
+      ];
 
   const reports: BenchReport[] = [];
   const chunks: string[] = [];

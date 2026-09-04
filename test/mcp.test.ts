@@ -18,12 +18,14 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { UPDATES_META_KEY } from "../src/core/mint.js";
 import { Store } from "../src/core/store/index.js";
+import { SESSION_TTL_MS, recordSession } from "../src/adapters/sessions.js";
 import {
   DELIBERATE_TIERS,
   ERROR_CODES,
@@ -41,8 +43,10 @@ import {
   openServer,
   parseLine,
   renderDescription,
+  resolveScope,
   serveStdio,
   tierOf,
+  toolSpec,
 } from "../src/adapters/mcp/index.js";
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
@@ -697,12 +701,15 @@ describe("session_end — the authorship ask's return channel", () => {
     expect(s.counterpart.store.list().length).toBe(0);
   });
 
-  test("an unbound server refuses everyone — unbound is a refusal, not a wildcard", async () => {
+  test("an unbound server refuses a bare dump — a claim with no id is not a wildcard", async () => {
     const s = server({ session: undefined });
     const result = payload(
       await s.call("session_end", { memories: [{ content: "A dump with no day to belong to." }] }),
     );
-    expect(result["reason"]).toBe("no-bound-session");
+    expect(result["reason"]).toBe("session-required");
+    // The refusal tells the model what to do about it, which is the whole
+    // difference between a refusal and a dead end.
+    expect(String(result["detail"])).toContain("session");
     expect(s.counterpart.store.list().length).toBe(0);
   });
 
@@ -724,6 +731,210 @@ describe("session_end — the authorship ask's return channel", () => {
     expect(outcomes[0]?.stored).toBe(false);
     expect(outcomes[1]?.stored).toBe(true);
     expect(outcomes[2]?.gate).toBe("content-stub");
+  });
+});
+
+// ── the lazy bind ───────────────────────────────────────────────────────────
+
+/**
+ * The bind matrix. This host launches its MCP servers from a static config, so
+ * `--session` never arrives and every dump for the first run was refused; the
+ * lazy bind is the answer, and its whole safety argument is that the id is
+ * CORROBORATED against host state the model cannot write.
+ *
+ * Every row here writes the registry through `recordSession` — the same function
+ * the hooks call — rather than hand-rolling JSON, so a change to the record
+ * shape cannot pass this suite while breaking the hooks.
+ */
+describe("the lazy session bind", () => {
+  const dump = (session?: string): Record<string, unknown> => ({
+    ...(session === undefined ? {} : { session }),
+    memories: [{ content: "The MCP server learns its session from the hooks' registry, not from the model." }],
+  });
+
+  function live(sessionId: string, scope: string, phase: "start" | "boundary" | "end" = "start"): void {
+    expect(recordSession(dir, { sessionId, scope, phase })).not.toBeNull();
+  }
+
+  test("a valid claim binds the server, and the deposit lands under the claimed session", async () => {
+    live("sess_live_1", "/proj/alpha");
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    const result = payload(await s.call("session_end", dump("sess_live_1")));
+    expect(result["session"]).toBe("sess_live_1");
+    expect(result["deposited"]).toBe(1);
+    expect(s.session).toBe("sess_live_1");
+    expect(s.events("mcp.session.bound")[0]?.data?.["source"]).toBe("registry");
+  });
+
+  test("the bind is for the life of the process: a second, different id is refused", async () => {
+    live("sess_live_1", "/proj/alpha");
+    live("sess_live_2", "/proj/alpha");
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    expect(payload(await s.call("session_end", dump("sess_live_1")))["deposited"]).toBe(1);
+    const second = payload(await s.call("session_end", dump("sess_live_2")));
+    expect(second["reason"]).toBe("session-mismatch");
+    // The first session's memory stands; the second session's does not exist.
+    expect(s.counterpart.store.list().length).toBe(1);
+  });
+
+  test("an id nobody recorded is refused — the registry is the corroboration", async () => {
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    const result = payload(await s.call("session_end", dump("sess_invented")));
+    expect(result["reason"]).toBe("session-unknown");
+    expect(s.session).toBeNull();
+    expect(s.counterpart.store.list().length).toBe(0);
+  });
+
+  test("an ENDED session is refused: its memories belong to the sweep now", async () => {
+    live("sess_over", "/proj/alpha");
+    live("sess_over", "/proj/alpha", "end");
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    const result = payload(await s.call("session_end", dump("sess_over")));
+    expect(result["reason"]).toBe("session-not-live");
+    expect(s.events("mcp.session.unbound").at(-1)?.data?.["reason"]).toBe("ended");
+  });
+
+  test("a session silent past the TTL is refused, and the TTL is the only thing that decides it", async () => {
+    live("sess_stale", "/proj/alpha");
+    const stale = server({ session: undefined, scope: "/proj/alpha", now: () => Date.now() + SESSION_TTL_MS + 1_000 });
+    expect(payload(await stale.call("session_end", dump("sess_stale")))["reason"]).toBe("session-not-live");
+    expect(stale.events("mcp.session.unbound").at(-1)?.data?.["reason"]).toBe("stale");
+    // The same record, one second inside the window: bound.
+    const fresh = server({ session: undefined, scope: "/proj/alpha", now: () => Date.now() + SESSION_TTL_MS - 1_000 });
+    expect(payload(await fresh.call("session_end", dump("sess_stale")))["deposited"]).toBe(1);
+  });
+
+  test("a live session in ANOTHER project is refused — a dump belongs to the project that lived it", async () => {
+    live("sess_elsewhere", "/proj/beta");
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    const result = payload(await s.call("session_end", dump("sess_elsewhere")));
+    expect(result["reason"]).toBe("scope-mismatch");
+    expect(s.counterpart.store.list().length).toBe(0);
+  });
+
+  test("scope comparison is PHYSICAL: a symlinked path and its target are the same project", async () => {
+    const realProject = mkdtempSync(join(tmpdir(), "counterparts-proj-"));
+    const links = mkdtempSync(join(tmpdir(), "counterparts-link-"));
+    const linked = join(links, "link-to-project");
+    try {
+      symlinkSync(realProject, linked);
+      live("sess_symlink", linked);
+      // The server's own scope names the target; the hook recorded the link.
+      const s = server({ session: undefined, scope: realProject });
+      expect(payload(await s.call("session_end", dump("sess_symlink")))["deposited"]).toBe(1);
+    } finally {
+      rmSync(links, { recursive: true, force: true });
+      rmSync(realProject, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit --session still wins: the registry is never consulted, and a bad claim is a mismatch", async () => {
+    // A registry that says something ELSE about both ids. The launched server
+    // does not care: being told is the preferred path and it is unchanged.
+    live("sess_other", "/proj/beta");
+    const s = server({ scope: "/proj/alpha" });
+    expect(s.launchedSession).toBe(SESSION);
+    expect(payload(await s.call("session_end", dump(SESSION)))["deposited"]).toBe(1);
+    expect(payload(await s.call("session_end", dump("sess_other")))["reason"]).toBe("session-mismatch");
+    expect(s.events("mcp.session.bound")).toEqual([]);
+  });
+
+  test("a session id is a FILENAME, and the claim comes from a model: traversal is not looked up", async () => {
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    for (const bad of ["../../etc/passwd", "..", "sess/../other", "sess one"]) {
+      expect(payload(await s.call("session_end", dump(bad)))["reason"]).toBe("session-unknown");
+    }
+    expect(s.session).toBeNull();
+  });
+
+  test("once bound, the session id reaches the other tools too — no more literal \"mcp\"", async () => {
+    live("sess_gate", "/proj/alpha");
+    const s = server({ session: undefined, scope: "/proj/alpha" });
+    await s.call("session_end", dump("sess_gate"));
+    expect(s.session).toBe("sess_gate");
+    // `note` and `recall` both read `this.session`, so both stop borrowing the
+    // shared "mcp" gate-state row the moment the bind lands (INTERFACE-GAPS §6).
+    const noted = payload(await s.call("note", { text: "A note written after the bind rides the same session as the dump." }));
+    expect(noted["stored"]).toBe(true);
+    expect(payload(await s.call("recall", { question: "what binds this server?" }))["path"]).toBeDefined();
+    expect(s.counterpart.store.row(noted["id"] as string)?.origin_scope).toBe("/proj/alpha");
+  });
+});
+
+describe("the scope default", () => {
+  test("no --scope means this process's working directory, not the store dir", () => {
+    const s = server({ scope: undefined });
+    expect(s.scope).toBe(process.cwd());
+    expect(s.scopeSource).toBe("cwd");
+    // Reported at startup: which default won is on the record from event one.
+    expect(s.events("mcp.scope")[0]?.data?.["source"]).toBe("cwd");
+  });
+
+  test("an explicit scope wins, and the store dir is the last resort only", () => {
+    expect(resolveScope("/proj/alpha", "/data")).toEqual({ scope: "/proj/alpha", source: "flag" });
+    expect(resolveScope(undefined, "/data").source).toBe("cwd");
+    // The one case the store fallback exists for: no working directory at all.
+    const cwd = process.cwd;
+    try {
+      process.cwd = (): string => {
+        throw new Error("ENOENT");
+      };
+      expect(resolveScope(undefined, "/data")).toEqual({ scope: "/data", source: "store" });
+    } finally {
+      process.cwd = cwd;
+    }
+  });
+
+  test("a memory authored through the server is stamped with the PROJECT, not the store path", async () => {
+    const s = server({ scope: "/proj/alpha" });
+    const body = payload(await s.call("note", { text: "Origin scope is the project the session ran in, never the store's own directory." }));
+    const id = body["id"] as string;
+    expect(s.counterpart.store.row(id)?.origin_scope).toBe("/proj/alpha");
+    expect(s.counterpart.store.row(id)?.origin_scope).not.toBe(dir);
+  });
+});
+
+// ── `updates` as a field ────────────────────────────────────────────────────
+
+describe("`updates` is a field on `note`, not prose", () => {
+  test("a declared id that resolves is written to meta as the RESOLVED id", async () => {
+    const s = server();
+    const first = payload(
+      await s.call("note", { text: "Deploys go out at 4pm on Thursdays, after the migration window closes." }),
+    );
+    const target = first["id"] as string;
+    const second = payload(
+      await s.call("note", {
+        text: "Deploys moved to 10am on Tuesdays, because the Thursday window collided with the finance batch.",
+        updates: target,
+      }),
+    );
+    expect(second["stored"]).toBe(true);
+    expect(s.counterpart.store.readProse(second["id"] as string).meta[UPDATES_META_KEY]).toBe(target);
+  });
+
+  test("an unresolvable declaration lands UNLINKED — never refused", async () => {
+    const s = server();
+    const body = payload(
+      await s.call("note", {
+        text: "The retro moved to Fridays, which is a real thing to remember whatever it revises.",
+        updates: "mem_that_never_existed",
+      }),
+    );
+    expect(body["stored"]).toBe(true);
+    expect(
+      s.counterpart.store.readProse(body["id"] as string).meta[UPDATES_META_KEY],
+    ).toBeUndefined();
+  });
+
+  test("the schema OFFERS the field — the ask tells the model it is a field, so it has to exist", () => {
+    const props = (toolSpec("note")?.inputSchema as { properties: Record<string, unknown> }).properties;
+    expect(props["updates"]).toBeDefined();
+    const entry = (
+      (toolSpec("session_end")?.inputSchema as { properties: Record<string, { items?: { properties?: Record<string, unknown> } }> })
+        .properties["memories"]?.items?.properties ?? {}
+    );
+    expect(entry["updates"]).toBeDefined();
   });
 });
 

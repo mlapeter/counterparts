@@ -167,7 +167,11 @@ export function activate(
    * long documents holding every slot (see `store/cache.ts#searchIndex`).
    */
   const postings = new Map<string, Map<string, number>>();
-  const norm = { k1: t.CUE_TF_SATURATION, b: t.CUE_LENGTH_NORM };
+  const norm = {
+    k1: t.CUE_TF_SATURATION,
+    b: t.CUE_LENGTH_NORM,
+    oneSided: t.CUE_LENGTH_ONE_SIDED,
+  };
   for (const tok of searchTokens) {
     const hits = store.search(tok, t.PER_CUE_FETCH, norm);
     df.set(tok, hits.length);
