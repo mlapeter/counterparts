@@ -9,7 +9,7 @@
 /* The poster. Same glow theme, one job: make a stranger stop scrolling, and
    then tell them the truth — that the mapping is a metaphor and the flow tab is
    the architecture-true view. */
-:root{--bg:#04070c;--ink:#c5cdd8;--dim:#5c6773;--faint:#39424d;--cyan:#00e5ff;--purple:#b388ff;
+:root{--bg:#04070c;--ink:#c5cdd8;--dim:#8a95a3;--faint:#79848f;--cyan:#00e5ff;--purple:#b388ff;
   --amber:#ffd740;--teal:#00bfa5;--red:#ff5252;--card:rgba(13,17,23,.84);--border:rgba(0,229,255,.14)}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
@@ -49,8 +49,8 @@ h1{font-size:20px;font-weight:300;letter-spacing:8px;text-transform:uppercase;co
 #ticker .t{color:var(--faint);margin-right:8px}
 #ticker.amber{border-color:rgba(255,215,64,.4)}
 #ticker.amber #tickmsg{color:var(--amber)}
-#note{position:fixed;right:22px;bottom:16px;z-index:50;color:var(--faint);font-size:10px;
-  max-width:320px;text-align:right;line-height:1.7}
+#note{position:fixed;right:22px;bottom:16px;z-index:50;color:var(--dim);font-size:10px;
+  max-width:430px;text-align:right;line-height:1.7}
 #note a{color:var(--dim)}
 #fail{position:fixed;inset:0;display:none;z-index:60;align-items:center;justify-content:center;
   text-align:center;padding:40px}
@@ -136,6 +136,8 @@ try {
   THREE = await import("https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js");
 } catch (err) {
   document.getElementById("fail").classList.add("show");
+  // Nothing to drag and nothing to zoom: the hint would be a lie.
+  document.getElementById("note").hidden = true;
   say("the hologram needs the network; the rest of the dashboard does not", "calm", null);
   ready();
   // Deliberately NOT rethrown: an unhandled rejection here would be a page
@@ -376,13 +378,51 @@ if (THREE) {
     autoPause = performance.now() + 2500;
   });
   addEventListener("wheel", (e) => {
-    camera.position.z = Math.max(2.2, Math.min(6.5, camera.position.z + e.deltaY * 0.0018));
+    // Zoom is a MULTIPLIER on the fitted distance, so a resize re-frames the
+    // silhouette without throwing away where the reader had zoomed to.
+    zoom = Math.max(0.55, Math.min(2.2, zoom + e.deltaY * 0.0009));
+    camera.position.z = baseZ * zoom;
   }, { passive: true });
+
+  /**
+   * FRAME THE SILHOUETTE, NOT THE VIEWPORT.
+   *
+   * The camera used to sit at a fixed distance with a fixed vertical FOV, so
+   * the horizontal extent was whatever the aspect ratio happened to give: at
+   * 1920 the outer shell read as a brain, and at 1440 — the size the visual
+   * loop and the README actually use — it ran off frame and read as a
+   * jellyfish. Worse, the legend panel covers ~330px on the right, so the
+   * model was centred in the viewport and therefore off-centre in the space
+   * anyone can see.
+   *
+   * So: pull back far enough that the silhouette's own bounding box fits the
+   * FREE width (viewport minus the legend), and shift the frustum by half the
+   * legend so the brain sits in the middle of what is left.
+   */
+  const HALF_X = 1.75;
+  const HALF_Y = 1.15;
+  // 1.05, not 1.12: measured against the 1920 framing the design review called
+  // "reads as a brain", this is the distance that reproduces it at 1440 and at
+  // 1024 instead of leaving a band of dark above the silhouette.
+  const MARGIN = 1.05;
+  let baseZ = 3.0;
+  let zoom = 1;
 
   function resize() {
     const w = innerWidth, h = innerHeight;
     renderer.setSize(w, h);
+    const legend = w >= 900 ? 330 : 0;
+    const free = Math.max(300, w - legend);
     camera.aspect = w / h;
+    const t = Math.tan(((camera.fov * Math.PI) / 180) / 2);
+    const zForY = (HALF_Y * MARGIN) / t;
+    const zForX = (HALF_X * MARGIN) / (t * (free / h));
+    baseZ = Math.max(2.4, Math.min(6.4, Math.max(zForY, zForX)));
+    camera.position.z = baseZ * zoom;
+    // Shift what the camera sees right, which moves the model left — out from
+    // under the legend.
+    if (legend > 0) camera.setViewOffset(w, h, legend / 2, 0, w, h);
+    else camera.clearViewOffset();
     camera.updateProjectionMatrix();
     uniforms.uPx.value = Math.min(devicePixelRatio, 2) * Math.min(1.4, w / 1100);
   }

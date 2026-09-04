@@ -17,12 +17,26 @@
 :root{
   --bg:#0a0e14; --card:#0d1117; --hover:#111820; --deep:#060a10;
   --border:rgba(0,229,255,.12); --glow:rgba(0,229,255,.25);
-  --ink:#c5cdd8; --dim:#5c6773; --faint:#39424d;
+  /* The three text steps, measured rather than eyeballed. WCAG ratios against
+     the page ground (#0a0e14) and the card (#0d1117), which are the only two
+     backgrounds any text sits on:
+       --ink   11.8 : 1  — memory prose, table cells, node state
+       --dim    6.4 : 1 / 6.2 : 1 — the narration lede, nav, legends, headers
+       --faint  5.1 : 1 / 5.0 : 1 — the per-memory metadata row
+     The old values were 3.35 and 1.86. The 1.86 was the line carrying what was
+     remembered and when — the least legible text on the page was the one
+     constitution line 16 is actually about. The hierarchy survives as a real
+     three-step ramp; only the floor moved. */
+  --ink:#c5cdd8; --dim:#8a95a3; --faint:#79848f;
   --cyan:#00e5ff; --purple:#b388ff; --amber:#ffd740; --teal:#00bfa5; --red:#ff5252;
   --radius:4px;
   --hovershadow:0 0 15px rgba(0,229,255,.15), inset 0 0 15px rgba(0,229,255,.02);
 }
 *{margin:0;padding:0;box-sizing:border-box}
+/* The UA's `[hidden]{display:none}` loses to any rule with an id or a class in
+   it — `#flowcv{display:block}` kept the canvas on screen after `hidden` was
+   set, and the flow list rendered below an invisible blank box. */
+[hidden]{display:none!important}
 html,body{background:var(--bg)}
 body{color:var(--ink);font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
   font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased}
@@ -42,7 +56,7 @@ nav a.on{color:var(--cyan);background:var(--hover)}
 .badge{font-size:9px;padding:1px 8px;border-radius:9px;border:1px solid var(--glow);color:var(--dim);
   letter-spacing:.5px;white-space:nowrap}
 .badge.ok{color:var(--teal);border-color:rgba(0,191,165,.45)}
-.badge.dirpath{color:var(--dim);max-width:360px;overflow:hidden;text-overflow:ellipsis}
+.badge.dirpath{color:var(--dim);max-width:240px;overflow:hidden;text-overflow:ellipsis;cursor:help}
 .hright a{color:var(--dim);font-size:11px}
 .hright a:hover{color:var(--cyan)}
 
@@ -67,6 +81,12 @@ h2:first-child{margin-top:0}
 
 .cols{display:grid;grid-template-columns:1.05fr 1fr;gap:20px;align-items:start}
 .cols-wide{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}
+/* A grid item defaults to `min-width:auto`, which means it refuses to shrink
+   below its widest content — so `.tablewrap{overflow-x:auto}` never engaged and
+   a seven-column table pushed the whole PAGE wider than the device. The page
+   body must never scroll horizontally; this is the line that makes the
+   per-panel scrollers do their job instead. */
+.cols>*,.cols-wide>*{min-width:0}
 @media(max-width:1080px){.cols,.cols-wide{grid-template-columns:1fr}}
 
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;
@@ -140,7 +160,12 @@ td.dimtd{color:var(--dim)}
 .story h3{font-size:12px;color:var(--cyan);font-weight:400;letter-spacing:1px;margin-bottom:2px}
 .story .about{color:var(--faint);font-size:10px;letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px}
 .story .said{font-size:11.5px;margin:5px 0;line-height:1.65}
-.story .said .k{color:var(--dim);display:inline-block;min-width:88px}
+.story .said .k{color:var(--dim);display:inline-block;min-width:88px;vertical-align:top}
+.story .said .stmt{display:inline-block;max-width:calc(100% - 96px)}
+.story .said .stmt.click{cursor:pointer}
+.story .said .stmt.click:hover{color:var(--cyan)}
+.beat .verdict.became{color:var(--amber);cursor:pointer}
+.beat .verdict.became:hover{text-decoration:underline}
 .beat{display:grid;grid-template-columns:52px 1fr 210px;gap:11px;align-items:start;
   padding:9px 0;border-top:1px solid var(--border);font-size:11px}
 .beat .day{color:var(--faint);font-size:10px}
@@ -166,6 +191,19 @@ td.dimtd{color:var(--dim)}
 
 #flowbox{padding:4px}
 #flowcv{width:100%;display:block;cursor:pointer}
+/* Below ~900px the diagram becomes a LIST of the same fourteen nodes. A canvas
+   shrunk to a phone is text clipped mid-word inside overlapping boxes; the data
+   behind it is a list of {label, sub, state} records, and a list is honest. */
+#flowlist{padding:4px 2px}
+.fnode{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:baseline;
+  padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius);
+  margin:6px 4px;cursor:pointer;background:var(--card)}
+.fnode:hover,.fnode.on{border-color:var(--glow);background:var(--hover)}
+.fnode .nm{font-size:11.5px;letter-spacing:1.4px}
+.fnode .sb{color:var(--dim);font-size:10px;display:block;margin-top:3px;letter-spacing:0}
+.fnode .st{font-size:10.5px;color:var(--ink);white-space:nowrap;text-align:right}
+.fnode.silent .st{color:var(--dim)}
+.fchain{color:var(--faint);font-size:9px;letter-spacing:1px;text-align:center;padding:1px 0}
 #flowdetail h3{color:var(--cyan);font-size:13px;font-weight:400;letter-spacing:1.5px;margin-bottom:6px}
 #flowdetail .brain{color:var(--purple);font-size:11px;line-height:1.65;margin:8px 0}
 #flowdetail .breaks{color:var(--amber);font-size:11px;line-height:1.65;margin:8px 0}
@@ -186,7 +224,12 @@ td.dimtd{color:var(--dim)}
 #modal{background:var(--card);border:1px solid var(--glow);border-radius:8px;max-width:900px;width:100%;
   max-height:88vh;overflow-y:auto;padding:20px 24px;box-shadow:0 0 60px rgba(0,229,255,.08)}
 #modal h3{font-size:14px;color:var(--cyan);font-weight:400;letter-spacing:1px;margin-bottom:4px;padding-right:26px}
-#modal .sub{color:var(--dim);font-size:10.5px;margin-bottom:16px;word-break:break-all}
+#modal .sub{color:var(--dim);font-size:10.5px;margin-bottom:16px;word-break:break-word;
+  display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+#modal .sub .path{color:var(--faint)}
+#modal .copy{background:none;border:1px solid var(--border);border-radius:3px;color:var(--dim);
+  font:inherit;font-size:9px;letter-spacing:.6px;padding:1px 7px;cursor:pointer}
+#modal .copy:hover{color:var(--cyan);border-color:var(--glow)}
 #modal .x{float:right;cursor:pointer;color:var(--dim);font-size:18px;line-height:1;padding:0 4px}
 #modal .x:hover{color:var(--ink)}
 #modal .body{white-space:pre-wrap;font-size:12px;line-height:1.75;background:var(--deep);
@@ -219,7 +262,8 @@ td.dimtd{color:var(--dim)}
       <span class="badge ok" title="it strengthens nothing, deposits nothing, and writes no file of its own">read-only · observer</span>
       <span class="badge dirpath" id="dir" title="the data directory this window is reading">…</span>
       <a href="/brain" title="the same machinery, mapped to a rough anatomy">brain</a>
-      <span class="badge" id="clock">…</span>
+      <span class="badge" id="clock" title="the store's own clock — lived days, the unit everything else here is measured in">…</span>
+      <span class="badge" id="seen" hidden></span>
     </div>
   </header>
 
@@ -315,7 +359,10 @@ td.dimtd{color:var(--dim)}
       still diagram is a still machine. Click any part for what it does, its brain analogy, where that analogy
       deliberately breaks, and what it has actually been doing.
     </p>
-    <div class="card" id="flowbox"><canvas id="flowcv" height="560"></canvas></div>
+    <div class="card" id="flowbox">
+      <canvas id="flowcv" height="560"></canvas>
+      <div id="flowlist" hidden></div>
+    </div>
     <div class="cols">
       <div>
         <h2>What just happened <small>— the durable log, in plain english</small></h2>
@@ -324,7 +371,7 @@ td.dimtd{color:var(--dim)}
       <div>
         <h2>Selected mechanism</h2>
         <div class="card pad" id="flowdetail">
-          <p style="color:var(--dim)">Click any node in the diagram.</p>
+          <p style="color:var(--dim)">Loading…</p>
         </div>
       </div>
     </div>
@@ -788,14 +835,32 @@ function storyCard(s) {
           '<div class="who">' + esc(b.challenger) + "<em>force " + n3(b.force) + "</em></div>" +
           "<div><div class='track'><span class='fill' style='display:block;width:" + pct(Math.min(1, b.fraction)) +
             "%'></span><span class='barline' style='left:" + pct(Math.min(1, 1 / Math.max(b.fraction || 1, 1))) + "%'></span></div>" +
-            "<div class='verdict'>" + n3(b.pressureAfter) + " of " + n3(b.bar) + " · " + esc(b.verdict) + "</div></div>" +
+            // The numbers first, then the clause they mean. "0.598 of 0.470"
+            // beside the bare word REVISED read as a numerator larger than its
+            // denominator with nothing saying that IS what clearing looks like.
+            "<div class='verdict'>pressure " + n3(b.pressureAfter) + " against a bar of " + n3(b.bar) +
+              " — " + esc(b.verdict) + "</div>" +
+            (b.became
+              ? "<div class='verdict became'" + (b.becameId ? " onclick=\"openMemory('" + b.becameId + "')\"" : "") +
+                ">it became: " + esc(b.became) + "</div>"
+              : "") +
+          "</div>" +
         "</div>"
       ).join("");
+  // The two ends are shown around the point they DIVERGE, so a revision that
+  // kept most of its sentence still reads as a revision. The whole statement is
+  // one hover (or one click) away.
+  const said = (label, text, full, id, style) =>
+    '<div class="said"><span class="k">' + label + "</span>" +
+    '<span class="stmt' + (id ? " click" : "") + '" title="' + esc(full) + '"' +
+    (id ? " onclick=\"openMemory('" + id + "')\"" : "") + (style ? ' style="' + style + '"' : "") + ">" +
+    esc(text) + "</span></div>";
   return '<div class="story">' +
     '<div class="about">about ' + esc(s.about) + "</div>" +
-    '<div class="said"><span class="k">it began as</span>' + esc(s.began) + "</div>" +
-    '<div class="said"><span class="k">it now says</span>' +
-      (s.revised ? '<span style="color:var(--amber)">' + esc(s.now) + "</span>" : esc(s.now) + " — nothing has revised it") + "</div>" +
+    said("it began as", s.began, s.beganFull, s.id, "") +
+    (s.revised
+      ? said("it now says", s.now, s.nowFull, s.headId, "color:var(--amber)")
+      : said("it now says", s.now + " — nothing has revised it", s.nowFull, s.headId, "")) +
     '<div class="said"><span class="k">pressure now</span>' +
       (s.pressure === 0
         ? '<span style="color:var(--dim)">(none yet) — ' + (s.revised ? "the revision reset it; the successor starts clean" : "it has decayed, or was never credited") + "</span>"
@@ -814,12 +879,24 @@ async function renderFlow() {
   renderFeed($("flow-feed"), FLOW.feed, FLOW);
   lastSeq = FLOW.lastSeq;
   drawFlow();
+  // Open on a node rather than on "click any node in the diagram." The
+  // mechanism panel is the best writing on the page and an empty box is a
+  // 900×90 hole in the middle of it; sleep is the one whose brain analogy most
+  // people already half-know, so it is the one worth meeting first.
+  if (selectedNode === null) await selectNode("sleep");
 }
 
 function nodeCentre(b) { return { x: b.x + b.w / 2, y: b.y + b.h / 2 }; }
 
+/** Under ~900px of container the diagram is a list. Above it, a canvas. */
+const FLOW_CANVAS_MIN = 900;
+
 function drawFlow() {
   if (!FLOW) return;
+  const narrow = ($("flowbox").clientWidth || 0) < FLOW_CANVAS_MIN;
+  $("flowcv").hidden = narrow;
+  $("flowlist").hidden = !narrow;
+  if (narrow) return renderFlowList();
   const cv = $("flowcv");
   const { ctx, w, h } = fit(cv);
   const M = 10;
@@ -840,6 +917,14 @@ function drawFlow() {
   // to the first and last points in open space, and the label is placed on the
   // visible middle — or dropped when there is no room for it.
   const SAMPLES = 64;
+  // Labels already placed this frame. An edge label that would land on another
+  // one is dropped rather than overprinted: `at session startootnotes · one
+  // loud` was two labels rendering as one string.
+  const placed = [];
+  const overlaps = (r, o) => r.x < o.x + o.w + 4 && r.x + r.w > o.x - 4 && r.y < o.y + o.h + 3 && r.y + r.h > o.y - 3;
+  // Kept for the frame: a particle rides the same clipped curve the edge was
+  // drawn along, rather than a second approximation of it.
+  edgePaths = {};
 
   for (const e of FLOW.edges) {
     const a = boxes[e.from], z = boxes[e.to];
@@ -860,6 +945,7 @@ function drawFlow() {
     for (let i = 0; i <= SAMPLES; i++) { if (!inside(at(i / SAMPLES), a, 3)) { start = i / SAMPLES; break; } }
     for (let i = SAMPLES; i >= 0; i--) { if (!inside(at(i / SAMPLES), z, 3)) { end = i / SAMPLES; break; } }
     if (end <= start) continue;
+    edgePaths[e.from + ">" + e.to] = { at, start, end };
 
     ctx.save();
     ctx.strokeStyle = e.dotted ? "rgba(255,215,64,.24)" : "rgba(0,229,255,.18)";
@@ -894,9 +980,10 @@ function drawFlow() {
       for (const f of [0.5, 0.42, 0.58, 0.34, 0.66]) {
         const pt = at(start + (end - start) * f);
         const box = { x: pt.x - tw / 2 - 4, y: pt.y - 13, w: tw + 8, h: 14 };
-        const clear = !flowBoxes.some((b) =>
-          box.x < b.x + b.w + 4 && box.x + box.w > b.x - 4 && box.y < b.y + b.h + 4 && box.y + box.h > b.y - 4);
-        if (clear && box.x > M && box.x + box.w < w - M) { at_ = pt; break; }
+        const clear =
+          !flowBoxes.some((b) => overlaps(box, { x: b.x, y: b.y, w: b.w, h: b.h })) &&
+          !placed.some((o) => overlaps(box, o));
+        if (clear && box.x > M && box.x + box.w < w - M) { at_ = pt; placed.push(box); break; }
       }
       if (at_) {
         ctx.textAlign = "center";
@@ -923,7 +1010,10 @@ function drawFlow() {
     if (glow > 0.02) {
       ctx.save();
       ctx.shadowColor = col;
-      ctx.shadowBlur = 22 * glow;
+      ctx.shadowBlur = 34 * glow;
+      ctx.lineWidth = 1 + 1.4 * glow;
+      ctx.strokeStyle = col;
+      ctx.stroke();
       ctx.stroke();
       ctx.restore();
     }
@@ -931,7 +1021,7 @@ function drawFlow() {
 
     ctx.fillStyle = n.silent && !on ? col + "aa" : col;
     ctx.font = '10px "JetBrains Mono", ui-monospace, monospace';
-    ctx.fillText(n.label, b.x + 9, b.y + 16);
+    ctx.fillText(clip(ctx, n.label, b.w - 18), b.x + 9, b.y + 16);
     ctx.fillStyle = "#5c6773";
     ctx.font = '9px "JetBrains Mono", ui-monospace, monospace';
     wrapText(ctx, n.sub, b.x + 9, b.y + 29, b.w - 16, 10, 2);
@@ -940,16 +1030,73 @@ function drawFlow() {
     ctx.fillText(clip(ctx, n.state, b.w - 18), b.x + 9, b.y + b.h - 9);
   }
 
-  // particles ride only on real new events
+  // PARTICLES RIDE ONLY ON REAL NEW EVENTS — and they have to be seen to mean
+  // anything. A 2.6px dot on a 1400px diagram was the entire payoff for "only
+  // particles mean activity"; this is a comet with a trail, travelling the edge
+  // into the node that recorded the event, ending in a flare on the box itself.
   for (const p of particles) {
-    const b = boxes[p.node];
-    if (!b) continue;
-    const c = nodeCentre(b);
+    const path = edgePaths[p.key];
+    const target = boxes[p.node];
+    if (!target) continue;
+    const point = (t) => {
+      if (path) return path.at(path.start + (path.end - path.start) * Math.max(0, Math.min(1, t)));
+      // No edge into this node on the diagram: orbit its own box instead.
+      const c = nodeCentre(target);
+      const a = p.spin + t * 4.4;
+      return { x: c.x + Math.cos(a) * (target.w / 2 + 10), y: c.y + Math.sin(a) * (target.h / 2 + 10) };
+    };
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = TRAIL; i >= 0; i--) {
+      const t = p.t - i * 0.022;
+      if (t < 0) continue;
+      const q = point(t);
+      const fade = 1 - i / (TRAIL + 1);
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, 1.2 + 3.4 * fade * fade, 0, Math.PI * 2);
+      ctx.fillStyle = p.col;
+      ctx.globalAlpha = 0.10 + 0.55 * fade * fade;
+      ctx.fill();
+    }
+    // The head, with a halo, so one event is unmistakable at a glance.
+    const head = point(p.t);
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = p.col;
+    ctx.shadowBlur = 16;
     ctx.beginPath();
-    ctx.arc(c.x + Math.cos(p.a) * p.r, c.y + Math.sin(p.a) * p.r, 2.6, 0, Math.PI * 2);
-    ctx.fillStyle = p.col;
+    ctx.arc(head.x, head.y, 4.2, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
     ctx.fill();
+    ctx.beginPath();
+    ctx.arc(head.x, head.y, 7.5, 0, Math.PI * 2);
+    ctx.fillStyle = p.col;
+    ctx.globalAlpha = 0.35;
+    ctx.fill();
+    ctx.restore();
   }
+}
+
+/**
+ * The same fourteen nodes, in pipeline order, as a list. Every node keeps its
+ * accent, its subtitle and its state line, and clicking one opens the same
+ * mechanism panel the diagram opens — so nothing is lost on a phone except the
+ * arrows, which are named in the chain markers between the rows.
+ */
+function renderFlowList() {
+  const order = ["session","spans","sweep","remember","encode","store","physics","recall","associate","schemas","prospective","sleep","wake","self"];
+  const byKey = {};
+  for (const n of FLOW.nodes) byKey[n.key] = n;
+  $("flowlist").innerHTML = order.map((key, i) => {
+    const n = byKey[key];
+    if (!n) return "";
+    const col = ACCENT[n.accent] || COL.cyan;
+    return (i === 0 ? "" : '<div class="fchain">↓</div>') +
+      '<div class="fnode' + (n.silent ? " silent" : "") + (selectedNode === n.key ? " on" : "") +
+        '" onclick="selectNode(\'' + n.key + '\')">' +
+        '<span><span class="nm" style="color:' + col + '">' + esc(n.label) + "</span>" +
+        '<span class="sb">' + esc(n.sub) + "</span></span>" +
+        '<span class="st">' + esc(n.state) + "</span></div>";
+  }).join("");
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -961,10 +1108,14 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+/** Trim to fit AND SAY SO. A silent trim reads as the whole value — `SELF` was
+ *  reporting "15 in the band · 2 pe" as if that were a sentence. */
 function clip(ctx, text, maxw) {
-  let t = String(text);
-  while (t.length > 1 && ctx.measureText(t).width > maxw) t = t.slice(0, -1);
-  return t;
+  const t = String(text);
+  if (ctx.measureText(t).width <= maxw) return t;
+  let cut = t;
+  while (cut.length > 1 && ctx.measureText(cut + "…").width > maxw) cut = cut.slice(0, -1);
+  return cut.trimEnd() + "…";
 }
 function wrapText(ctx, text, x, y, maxw, lh, maxLines) {
   const words = String(text).split(" ");
@@ -1013,6 +1164,18 @@ async function selectNode(key) {
             "<p class='tone-" + ev.tone + "' style='font-size:11px'>" +
             "<span style='color:var(--faint)'>day " + ev.day + " · </span>" + esc(ev.text) + "</p>").join(""));
 }
+
+window.selectNode = selectNode;
+/** How many comets are in flight. A harness that wants to photograph "only
+ *  particles mean activity" has to know WHEN, and a fixed sleep either misses
+ *  the animation or catches an empty frame. */
+window.particleCount = () => particles.length;
+/** One node's state line, for a harness that wants to prove the counters are
+ *  live rather than take a screenshot's word for it. */
+window.flowState = (key) => {
+  const node = FLOW && FLOW.nodes.find((n) => n.key === key);
+  return node ? node.state : "";
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // health
@@ -1105,8 +1268,11 @@ async function openMemory(id) {
   const s = d.salience;
   openModal(
     "<h3>" + (d.title ? esc(d.title) : d.confidential ? said(d.text, true) : esc(headline(d.text))) + "</h3>" +
-    "<div class='sub'>" + esc(d.id) + (d.askedFor ? " · you asked for " + esc(d.askedFor) + ", which forwards here" : "") +
-      " · " + esc(d.prosePath) + "</div>" +
+    "<div class='sub'><span>" + esc(d.id) + "</span>" +
+      (d.askedFor ? "<span>you asked for " + esc(d.askedFor) + ", which forwards here</span>" : "") +
+      "<span class='path' title='" + esc(d.prosePath) + "'>" + esc(d.prosePathShort) + "</span>" +
+      "<button class='copy' data-path=\"" + esc(d.prosePath) + "\" onclick=\"copyPath(this)\">copy full path</button>" +
+      "</div>" +
     "<div class='body'>" + (d.confidential ? '<span class="withheld">' + esc(d.text) + "</span>" : esc(d.text)) + "</div>" +
     (d.journal
       ? "<p style='color:var(--purple);font-size:11px;line-height:1.7;margin:-4px 0 14px'>" +
@@ -1162,6 +1328,22 @@ function section(title, body, emptyMsg) {
 }
 window.openMemory = openMemory;
 
+/** The absolute path, on demand — it is what an editor wants and what a modal
+ *  subtitle should never have to display. Failure is silent and local: a
+ *  clipboard a browser refuses is not worth a console error. */
+function copyPath(btn) {
+  const path = btn.dataset.path || "";
+  const done = () => { btn.textContent = "copied"; setTimeout(() => { btn.textContent = "copy full path"; }, 1400); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(path).then(done, () => { btn.textContent = "select it below"; });
+      return;
+    }
+  } catch (e) { /* fall through */ }
+  btn.textContent = path;
+}
+window.copyPath = copyPath;
+
 async function openEvent(seq) {
   let d;
   try { d = await api("/api/event?seq=" + seq); } catch (e) { return fail("That event", e); }
@@ -1189,14 +1371,18 @@ let lastSeq = 0;
 const particles = [];
 const flashes = {};
 let animating = false;
+/** Curves the last frame drew, so a particle rides the edge it belongs to. */
+let edgePaths = {};
+/** How many fading samples make the comet's tail. */
+const TRAIL = 11;
 
 function animate() {
   if (particles.length === 0 && Object.values(flashes).every((v) => v < 0.02)) { animating = false; return; }
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.a += 0.09;
-    p.life -= 1;
-    if (p.life <= 0) particles.splice(i, 1);
+    p.t += 0.014;
+    // The tail has to finish arriving after the head does.
+    if (p.t > 1 + TRAIL * 0.022) particles.splice(i, 1);
   }
   for (const k of Object.keys(flashes)) flashes[k] *= 0.96;
   if (currentTab === "flow") drawFlow();
@@ -1206,7 +1392,19 @@ function ignite(events) {
   for (const e of events) {
     if (!e.node) continue;
     flashes[e.node] = 1;
-    particles.push({ node: e.node, a: Math.random() * 6.28, r: 26, life: 90, col: e.tone === "amber" ? COL.amber : COL.cyan });
+    // Ride an edge that ENDS at this node when the diagram has one — a signal
+    // arriving is the thing being drawn. Otherwise ride one leaving it, and
+    // otherwise orbit the box.
+    const edge =
+      (FLOW && FLOW.edges.find((x) => x.to === e.node)) ||
+      (FLOW && FLOW.edges.find((x) => x.from === e.node));
+    particles.push({
+      node: e.node,
+      key: edge ? edge.from + ">" + edge.to : "",
+      t: 0,
+      spin: Math.random() * 6.28,
+      col: e.tone === "amber" ? COL.amber : e.tone === "notable" ? COL.cyan : COL.teal,
+    });
   }
   if (!animating) { animating = true; requestAnimationFrame(animate); }
 }
@@ -1216,6 +1414,11 @@ async function poll() {
   try { d = await api("/api/activity?limit=40&sinceSeq=" + lastSeq); } catch (e) { return; }
   if (d.lastSeq > lastSeq) {
     lastSeq = d.lastSeq;
+    // A new event means the store moved, so everything the diagram counts moved
+    // with it: left open, the flow page silently reported yesterday's numbers
+    // beside today's feed. Refresh the node state — and the lived day, which is
+    // the one number in the header that is allowed to change.
+    refreshCounters();
     const fresh = d.events.slice().reverse();
     ignite(fresh);
     for (const el of [$("ov-feed"), $("flow-feed")]) {
@@ -1231,8 +1434,31 @@ async function poll() {
       }
       while (el.children.length > 60) el.removeChild(el.lastChild);
     }
+    // The wall clock gets its OWN chip, and only when something happened. It
+    // used to overwrite the lived-day chip on every four-second tick whether or
+    // not anything had — so the product's own clock survived four seconds and
+    // was then replaced by a host timestamp that means nothing to the store.
+    const seen = $("seen");
+    seen.hidden = false;
+    seen.textContent = "last event " + new Date().toTimeString().slice(0, 8);
   }
-  $("clock").textContent = "updated " + new Date().toTimeString().slice(0, 8);
+}
+
+/** What a new event changes, re-read. Only the counters — the pages themselves
+ *  are not rebuilt under the reader's cursor. */
+async function refreshCounters() {
+  try {
+    const meta = await api("/api/meta");
+    $("clock").textContent = "day " + meta.day;
+  } catch (e) { /* the next poll retries */ }
+  if (!loaded.flow) return;
+  try {
+    const fresh = await api("/api/flow?limit=24");
+    if (FLOW) {
+      FLOW = { ...FLOW, nodes: fresh.nodes, lastSeq: fresh.lastSeq };
+      if (currentTab === "flow") drawFlow();
+    }
+  } catch (e) { /* the next poll retries */ }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1250,8 +1476,12 @@ addEventListener("resize", () => {
 (async function boot() {
   try {
     const meta = await api("/api/meta");
-    // The tail of a path is the part that identifies it; the head is /Users/…
-    $("dir").textContent = meta.dir.length > 44 ? "…" + meta.dir.slice(-43) : meta.dir;
+    // The NAME of the store, not its address. A temp path in the header is in
+    // every screenshot this dashboard produces, and it says nothing about the
+    // store — the full path is one hover away for the moment it matters.
+    const name = meta.dir.replace(/\/+$/, "").split("/").pop() || meta.dir;
+    $("dir").textContent = name;
+    $("dir").title = `reading ${meta.dir}`;
     $("dir").title = "reading " + meta.dir;
     $("clock").textContent = "day " + meta.day;
   } catch (e) { fail("The header", e); }

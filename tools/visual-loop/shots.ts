@@ -34,11 +34,16 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import type { Browser, ConsoleMessage, Page } from "playwright";
 
+import { Counterpart } from "../../src/core/counterpart.js";
 import { startDashboard } from "../../src/adapters/dashboard/web/server.js";
 import { seedDemo, seedEmpty } from "../demo/seed.js";
 
 /** Desktop first — the screenshots in the README are 1440×900. */
 const DESKTOP = { width: 1440, height: 900 };
+/** The awkward middle. The flow diagram's silent text clipping and its
+ *  colliding edge labels showed at this width and nowhere else, so it is now
+ *  shot on every run rather than only when somebody thinks to look. */
+const LAPTOP = { width: 1024, height: 768 };
 const PHONE = { width: 390, height: 844 };
 
 /** Every tab on the app page, plus the poster. */
@@ -47,9 +52,29 @@ const TABS = ["overview", "memories", "mind", "flow", "health"] as const;
 interface Finding {
   readonly store: "rich" | "empty";
   readonly page: string;
-  readonly kind: "console" | "pageerror" | "requestfailed" | "response";
+  readonly kind:
+    | "console"
+    | "pageerror"
+    | "requestfailed"
+    | "response"
+    | "overflow"
+    | "contrast"
+    | "stale";
   readonly text: string;
 }
+
+/** Text that must be readable, measured rather than eyeballed. */
+interface Measured {
+  readonly store: string;
+  readonly page: string;
+  readonly viewport: string;
+  readonly innerWidth: number;
+  readonly scrollWidth: number;
+  readonly contrast: { selector: string; colour: string; on: string; ratio: number }[];
+}
+
+/** WCAG AA for the sizes this dashboard uses. */
+const MIN_RATIO = 4.5;
 
 interface Shot {
   readonly store: string;
@@ -83,6 +108,59 @@ function isProblem(msg: ConsoleMessage): boolean {
   return !msg.text().includes("GPU stall due to ReadPixels");
 }
 
+/**
+ * THE TWO THINGS A SCREENSHOT CANNOT TELL YOU, MEASURED IN THE PAGE.
+ *
+ *   - **Horizontal overflow.** The page body must never scroll sideways. A
+ *     mobile emulator hides this by widening the layout viewport when content
+ *     refuses to shrink, so `scrollLeft` stays 0 and the failure is invisible;
+ *     `scrollWidth > innerWidth` is the honest test, and `innerWidth` itself is
+ *     recorded because a 390 request that reports 448 has already failed.
+ *   - **Contrast.** Computed colours against the first non-transparent
+ *     background an ancestor actually paints, as a WCAG ratio. The narration
+ *     lede and the per-memory metadata row are the text constitution line 16 is
+ *     about; they were measured at 3.35:1 and 1.86:1 before this existed.
+ */
+const PROBE = `(() => {
+  const px = (c) => {
+    const m = /rgba?\\(([^)]+)\\)/.exec(c);
+    if (!m) return null;
+    const p = m[1].split(",").map((v) => parseFloat(v));
+    return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+  };
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+  const bgOf = (el) => {
+    let node = el;
+    while (node) {
+      const c = px(getComputedStyle(node).backgroundColor);
+      if (c && c.a > 0.05) return c;
+      node = node.parentElement;
+    }
+    return { r: 0, g: 0, b: 0, a: 1 };
+  };
+  const ratio = (a, b) => {
+    const la = lum(a), lb = lum(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+  const SELECTORS = [".lede", "nav a", ".rows .meta", "th", ".legend", ".badge", ".foot",
+    ".tile .l", ".tile .s", ".gloss", ".story .said .k", ".fnode .sb", "#modal .sub .path"];
+  const contrast = [];
+  for (const sel of SELECTORS) {
+    for (const el of document.querySelectorAll(sel)) {
+      const box = el.getBoundingClientRect();
+      if (box.width < 2 || box.height < 2) continue;
+      if ((el.textContent || "").trim().length === 0) continue;
+      const fg = px(getComputedStyle(el).color);
+      if (!fg) continue;
+      const bg = bgOf(el);
+      contrast.push({ selector: sel, colour: getComputedStyle(el).color, on: "rgb(" + bg.r + "," + bg.g + "," + bg.b + ")", ratio: Math.round(ratio(fg, bg) * 100) / 100 });
+      break;
+    }
+  }
+  return { innerWidth: window.innerWidth, scrollWidth: document.documentElement.scrollWidth, contrast };
+})()`;
+
 async function shoot(
   browser: Browser,
   url: string,
@@ -90,12 +168,13 @@ async function shoot(
   out: string,
   findings: Finding[],
   shots: Shot[],
+  measures: Measured[],
 ): Promise<void> {
-  for (const viewport of [DESKTOP, PHONE]) {
-    const label = viewport === DESKTOP ? "1440x900" : "390x844";
+  for (const viewport of [DESKTOP, LAPTOP, PHONE]) {
+    const label = `${viewport.width}x${viewport.height}`;
     // The phone pass is a layout check on the app page only; the poster is a
     // desktop artefact and a 390-wide hologram proves nothing.
-    const pages: string[] = viewport === DESKTOP ? [...TABS, "brain"] : [...TABS];
+    const pages: string[] = viewport === PHONE ? [...TABS] : [...TABS, "brain"];
     const context = await browser.newContext({ viewport, deviceScaleFactor: 2 });
     const page = await context.newPage();
     wire(page, store, findings);
@@ -123,9 +202,41 @@ async function shoot(
         await page.waitForTimeout(450);
       }
       const file = join(out, `${store}-${name}-${label}.png`);
-      await page.screenshot({ path: file, fullPage: viewport === DESKTOP && name !== "brain" });
+      await page.screenshot({ path: file, fullPage: viewport !== PHONE && name !== "brain" });
       shots.push({ store, page: name, viewport: label, file });
       process.stdout.write(`  ${store} · ${name} · ${label}\n`);
+
+      // The brain view is a full-bleed canvas with its own fixed chrome; the
+      // text probes below are about the dashboard's reading surfaces.
+      if (name !== "brain") {
+        const probe = (await page.evaluate(PROBE)) as Omit<Measured, "store" | "page" | "viewport">;
+        measures.push({ store, page: name, viewport: label, ...probe });
+        if (probe.scrollWidth > probe.innerWidth + 1) {
+          findings.push({
+            store,
+            page: `${name} @ ${label}`,
+            kind: "overflow",
+            text: `the page scrolls sideways: scrollWidth ${probe.scrollWidth} > innerWidth ${probe.innerWidth}`,
+          });
+        }
+        if (probe.innerWidth > viewport.width + 1) {
+          findings.push({
+            store,
+            page: `${name} @ ${label}`,
+            kind: "overflow",
+            text: `the layout viewport widened to ${probe.innerWidth} for a ${viewport.width} request — content refused to shrink`,
+          });
+        }
+        for (const c of probe.contrast) {
+          if (c.ratio >= MIN_RATIO) continue;
+          findings.push({
+            store,
+            page: `${name} @ ${label}`,
+            kind: "contrast",
+            text: `${c.selector} measures ${c.ratio}:1 (${c.colour} on ${c.on}) — AA needs ${MIN_RATIO}:1`,
+          });
+        }
+      }
 
       // The click paths matter as much as the panels: a modal that throws is a
       // console error nobody sees until a stranger clicks. Exercised on the
@@ -185,6 +296,103 @@ async function nodePanel(
   process.stdout.write(`  ${store} · flow-node · ${label}\n`);
 }
 
+/**
+ * ONE REAL EVENT, WATCHED FROM AN OPEN PAGE.
+ *
+ * Two claims this page makes can only be checked by making something happen
+ * while somebody is looking:
+ *
+ *   - **Particles ride only on real events.** A still diagram is supposed to be
+ *     a still machine, so the only way to see the animation is to cause one.
+ *   - **The counters are live.** They were not: `/api/flow` was fetched once at
+ *     boot, so a page left open reported yesterday's numbers beside today's
+ *     feed. This asserts the number actually moves.
+ *
+ * The deposit goes through the real door of the loop's OWN temp store — the
+ * same call `tools/demo/seed.ts` uses — with no embedder and no interpreter, so
+ * it spends nothing and reaches no network.
+ */
+async function liveEvent(
+  browser: Browser,
+  url: string,
+  dir: string,
+  out: string,
+  findings: Finding[],
+  shots: Shot[],
+): Promise<void> {
+  const context = await browser.newContext({ viewport: DESKTOP, deviceScaleFactor: 2 });
+  const page = await context.newPage();
+  wire(page, "rich", findings);
+  try {
+    await page.goto(`${url}/#flow`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset["loaded"] === "1", null, {
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(600);
+    const readSleep = async (): Promise<string> =>
+      (await page.evaluate(
+        "window.flowState ? window.flowState('sleep') : ''",
+      )) as string;
+    const before = await readSleep();
+
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      c.store.advanceClock("2026-07-13");
+      await c.submitSessionEnd(
+        {
+          content:
+            "The visual loop deposits one memory of its own so the diagram has something true to animate.",
+          kind: "fact",
+          title: "the loop's own deposit",
+          salience: { relevance: 0.7, emotional: 0.4, predictive: 0.6 },
+        },
+        { session: "visual-loop", scope: "visual-loop" },
+      );
+      await c.sessionEnd({ date: "2026-07-13", at: "2026-07-13", budgetBytes: 9000 });
+    } finally {
+      c.close();
+    }
+
+    // Shoot WHILE the comet is in flight rather than after a fixed sleep: the
+    // poll interval is 4s and a particle lives about 1.2s, so a fixed wait
+    // photographs an empty diagram roughly two times in three.
+    let sawParticle = false;
+    for (let waited = 0; waited < 12_000; waited += 120) {
+      const live = (await page.evaluate("window.particleCount ? window.particleCount() : 0")) as number;
+      if (live > 0) { sawParticle = true; break; }
+      await page.waitForTimeout(120);
+    }
+    const file = join(out, "rich-flow-live-event-1440x900.png");
+    await page.screenshot({ path: file });
+    if (!sawParticle) {
+      findings.push({
+        store: "rich",
+        page: "flow @ live event",
+        kind: "stale",
+        text: "no particle was ever in flight after a real deposit — \"only particles mean activity\" has nothing to show",
+      });
+    }
+    // Let the counters settle before reading them back.
+    await page.waitForTimeout(1200);
+    shots.push({ store: "rich", page: "flow-live-event", viewport: "1440x900", file });
+    process.stdout.write("  rich · flow-live-event · 1440x900\n");
+
+    const after = await readSleep();
+    if (before === after) {
+      findings.push({
+        store: "rich",
+        page: "flow @ live event",
+        kind: "stale",
+        text: `the sleep node still reads "${after}" after a real deposit — the counters are not refreshing`,
+      });
+    } else {
+      process.stdout.write(`  sleep node: "${before}" → "${after}"\n`);
+    }
+  } finally {
+    await context.close();
+  }
+}
+
 function wire(page: Page, store: "rich" | "empty", findings: Finding[]): void {
   const where = (): string => page.url();
   page.on("console", (msg) => {
@@ -225,6 +433,7 @@ async function main(): Promise<number> {
 
   const findings: Finding[] = [];
   const shots: Shot[] = [];
+  const measures: Measured[] = [];
   const browser = await chromium.launch({ headless: !flag("headed") });
 
   try {
@@ -235,7 +444,10 @@ async function main(): Promise<number> {
       const running = await startDashboard({ dir, port: 0 });
       process.stdout.write(`${store}: ${running.url} → ${running.dir}\n`);
       try {
-        await shoot(browser, running.url, store, out, findings, shots);
+        await shoot(browser, running.url, store, out, findings, shots, measures);
+        // Only the rich store: the empty one is the never-lived case, and
+        // depositing into it would make it something else.
+        if (store === "rich") await liveEvent(browser, running.url, dir, out, findings, shots);
       } finally {
         await running.stop();
       }
@@ -252,13 +464,34 @@ async function main(): Promise<number> {
 
   writeFileSync(
     join(out, "log.json"),
-    `${JSON.stringify({ at: new Date().toISOString(), shots, findings }, null, 2)}\n`,
+    `${JSON.stringify({ at: new Date().toISOString(), shots, findings, measures }, null, 2)}\n`,
     "utf8",
+  );
+
+  // The worst reading on each selector, across every page and viewport — the
+  // number to quote, rather than the best one.
+  const worst = new Map<string, { ratio: number; colour: string; on: string }>();
+  for (const m of measures) {
+    for (const c of m.contrast) {
+      const prior = worst.get(c.selector);
+      if (prior === undefined || c.ratio < prior.ratio) {
+        worst.set(c.selector, { ratio: c.ratio, colour: c.colour, on: c.on });
+      }
+    }
+  }
+  process.stdout.write("\ncontrast, worst reading per selector:\n");
+  for (const [selector, c] of [...worst].sort((a, b) => a[1].ratio - b[1].ratio)) {
+    process.stdout.write(`  ${c.ratio.toFixed(2)}:1  ${selector.padEnd(20)} ${c.colour} on ${c.on}\n`);
+  }
+  const widest = measures.reduce((a, m) => Math.max(a, m.innerWidth - m.scrollWidth >= 0 ? 0 : 1), 0);
+  process.stdout.write(
+    `\nlayout viewport at 390: ${[...new Set(measures.filter((m) => m.viewport === "390x844").map((m) => m.innerWidth))].join(", ")} ` +
+      `(sideways-scrolling pages: ${widest === 0 ? "none" : widest})\n`,
   );
 
   process.stdout.write(`\n${shots.length} screenshots in ${out}\n`);
   if (findings.length === 0) {
-    process.stdout.write("no console errors, no page errors, no failed requests.\n");
+    process.stdout.write("no console errors, no page errors, no failed requests, no overflow, no AA failures.\n");
     return 0;
   }
   process.stdout.write(`\n${findings.length} findings:\n`);
