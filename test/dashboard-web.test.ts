@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { FRAMING, LANE_ORDER } from "../src/core/self/index.js";
+import { isJournal } from "../src/core/sleep/index.js";
 import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { EVENT_NODE, FLOW_EDGES, FLOW_NODES, NODE_KEYS, nodeOf } from "../src/adapters/dashboard/web/flow.js";
@@ -759,6 +760,41 @@ describe("the shapes the page draws with", () => {
       const detail = get(d.src, "/api/node?key=encode").json;
       expect(String(detail["unloggedPath"]).length).toBeGreaterThan(80);
       expect(String(detail["unloggedPath"])).toContain("crash-sweep");
+    } finally {
+      d.close();
+    }
+  });
+
+  test("`memories held` counts memories — beliefs and entities are counted apart", () => {
+    const d = open(richDir);
+    try {
+      // The definition, read off the store itself rather than off either
+      // surface: live, not archived, not the journal, not a schema row. The
+      // console prints this number after `Memories:`; the overview printed the
+      // whole population instead — 145 against 121 on the same store, at the
+      // same moment, which is the kind of disagreement that makes a reader
+      // stop trusting both.
+      let memories = 0;
+      let beliefs = 0;
+      for (const id of d.src.store.list({ archived: false })) {
+        const row = d.src.store.row(id);
+        if (row === undefined || isJournal(row)) continue;
+        if (row.type === "schema") beliefs += 1;
+        else memories += 1;
+      }
+      expect(beliefs).toBeGreaterThan(0);
+
+      const tiles = get(d.src, "/api/overview").json["tiles"] as { label: string; value: string }[];
+      const tile = (label: string): string => tiles.find((t) => t.label === label)?.value ?? "";
+      expect(tile("memories held")).toBe(String(memories));
+      expect(tile("beliefs and entities")).toBe(String(beliefs));
+
+      // And every other surface that says the word agrees with the tile.
+      expect(get(d.src, "/api/pulse").json["memories"]).toBe(memories);
+      const nodes = get(d.src, "/api/flow").json["nodes"] as { key: string; state: string }[];
+      expect(nodes.find((n) => n.key === "store")?.state).toBe(`${memories} memories held`);
+      expect(nodes.find((n) => n.key === "remember")?.state).toBe(`${memories} came through`);
+      expect(String(get(d.src, "/api/overview").json["opening"])).toContain(`${memories} memories`);
     } finally {
       d.close();
     }

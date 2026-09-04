@@ -74,6 +74,16 @@ export interface MemoryLine {
   readonly promoted: boolean;
   readonly pressure: number;
   readonly archived: string | null;
+  /**
+   * True for a `schema` row — an entity, or a belief about one.
+   *
+   * It is in this census because the physics runs on it like anything else and
+   * every distribution on the memories page should cover it. It is NOT a
+   * memory, and counting it as one made the overview's headline disagree with
+   * the console: 145 against `counterparts status`'s 121 memories plus 24
+   * beliefs and entities, on the same store, at the same moment.
+   */
+  readonly schema: boolean;
   /** True when the row would not read at all — listed, never dropped. */
   readonly unreadable: boolean;
 }
@@ -119,6 +129,7 @@ function census(src: DashboardSource, opts: CensusOptions = {}): MemoryLine[] {
         promoted: physics.promotedIdentity === true,
         pressure: physics.pressure,
         archived: row.archived === 1 ? (row.archived_reason ?? "archived") : null,
+        schema: row.type === "schema",
         unreadable: false,
       });
     } catch {
@@ -141,6 +152,7 @@ function census(src: DashboardSource, opts: CensusOptions = {}): MemoryLine[] {
         promoted: row.promoted_identity === 1,
         pressure: row.pressure,
         archived: row.archived === 1 ? (row.archived_reason ?? "archived") : null,
+        schema: row.type === "schema",
         unreadable: true,
       });
     }
@@ -166,6 +178,12 @@ function countMap<T extends string>(rows: readonly { readonly [K in keyof Memory
 function absenceFor(count: number, everAsked: boolean): string | null {
   if (count > 0) return null;
   return everAsked ? NONE : NEVER;
+}
+
+/** Live memories, journal and schema rows excluded. The number the console
+ *  prints after `Memories:`, and the number every surface here must agree on. */
+function memoriesHeld(src: DashboardSource): number {
+  return census(src).filter((r) => !r.schema).length;
 }
 
 function eventsNamed(src: DashboardSource, name: string): number {
@@ -296,6 +314,12 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
   const store = src.store;
   const day = store.livedDay();
   const rows = census(src);
+  // A SCHEMA ROW IS NOT A MEMORY. The census keeps both, because the bands and
+  // kinds below are true of both and the physics runs on both — but the number
+  // in the headline tile is the one a person compares against the console, and
+  // the console says memories. See `MemoryLine.schema`.
+  const held = rows.filter((r) => !r.schema);
+  const beliefs = rows.length - held.length;
   const archived = census(src, { includeArchived: true }).filter((r) => r.archived !== null);
   const journal = chapters(src, 5);
   const journalCount = store.list().filter((id) => {
@@ -320,7 +344,14 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
       accent: "cyan",
       absent: day === 0,
     },
-    { label: "memories held", value: String(rows.length), note: "live, journal excluded", accent: "cyan", absent: rows.length === 0 },
+    { label: "memories held", value: String(held.length), note: "live, journal excluded", accent: "cyan", absent: held.length === 0 },
+    {
+      label: "beliefs and entities",
+      value: String(beliefs),
+      note: "what the schemas are made of — held like memories, counted apart",
+      accent: "teal",
+      absent: beliefs === 0,
+    },
     { label: "archived", value: String(archived.length), note: "held, not gone", accent: "teal", absent: archived.length === 0 },
     { label: "journal entries", value: String(journalCount), note: "chapters — these do not decay", accent: "purple", absent: journalCount === 0 },
     { label: "identity band", value: String(e.identity.length), note: "what strength earned", accent: "purple", absent: e.identity.length === 0 },
@@ -351,7 +382,8 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
   const opening =
     day === 0 && rows.length === 0
       ? "I have not lived a day yet. Everything below is what I would be able to tell you, and the honest word for how much of it I know is on each panel."
-      : `I have lived ${day} ${day === 1 ? "day" : "days"}. I am holding ${rows.length} ${rows.length === 1 ? "memory" : "memories"}` +
+      : `I have lived ${day} ${day === 1 ? "day" : "days"}. I am holding ${held.length} ${held.length === 1 ? "memory" : "memories"}` +
+        (beliefs === 0 ? "" : ` and ${beliefs} ${beliefs === 1 ? "belief or entity" : "beliefs and entities"}`) +
         (archived.length === 0 ? "" : `, with ${archived.length} more archived`) +
         (journalCount === 0 ? "." : `, beside ${journalCount} journal ${journalCount === 1 ? "entry" : "entries"} that do not decay.`);
 
@@ -664,7 +696,7 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
     }),
     hubs: hubs(src, 15),
     hubsAbsent: hubs(src, 1).length === 0 ? (everLived ? NONE : NEVER) : null,
-    note: "Every dot is one memory: how many lived days old across, how strong up, how much it mattered at encoding as its size. Colour is the band it is in today, computed now — not the band it was born into.",
+    note: "Every dot is one memory — or one of the beliefs and entities the schemas hold, which decay and consolidate the same way and are counted apart only where a headline says memories. How many lived days old across, how strong up, how much it mattered at encoding as its size. Colour is the band it is in today, computed now — not the band it was born into.",
   };
 }
 
@@ -1247,7 +1279,9 @@ export interface FlowView {
 
 export function flowView(src: DashboardSource, feedLimit = 24): FlowView {
   const store = src.store;
-  const rows = census(src);
+  // MEMORIES, not every row: the STORE node says "N memories held" and the
+  // overview's tile says the same words, so they had better be the same number.
+  const rows = census(src).filter((r) => !r.schema);
   const day = store.livedDay();
   const activity = activityView(src, { limit: feedLimit });
   const counts = new Map<NodeKey, number>();
@@ -1408,7 +1442,7 @@ export function nodeDetail(src: DashboardSource, key: string, limit = 8): NodeDe
     unloggedPath: UNLOGGED_PATH[node.key] ?? null,
     recent,
     recentAbsent: recent.length === 0 ? (names.length === 0 ? null : everLived ? NONE : NEVER) : null,
-    state: nodeState(src, node.key, rows.length, census(src).length, store.livedDay()),
+    state: nodeState(src, node.key, rows.length, memoriesHeld(src), store.livedDay()),
   };
 }
 
@@ -1597,7 +1631,7 @@ export function pulse(src: DashboardSource): { day: number; memories: number; ev
   const activity = activityView(src, { limit: 1 });
   return {
     day: src.store.livedDay(),
-    memories: census(src).length,
+    memories: memoriesHeld(src),
     events: activity.total,
     lastSeq: activity.lastSeq,
   };
