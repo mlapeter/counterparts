@@ -126,9 +126,63 @@ async function shoot(
       await page.screenshot({ path: file, fullPage: viewport === DESKTOP && name !== "brain" });
       shots.push({ store, page: name, viewport: label, file });
       process.stdout.write(`  ${store} · ${name} · ${label}\n`);
+
+      // The click paths matter as much as the panels: a modal that throws is a
+      // console error nobody sees until a stranger clicks. Exercised on the
+      // desktop pass, and only where there is something to click.
+      if (viewport === DESKTOP && store === "rich") {
+        if (name === "overview") await modal(page, ".ev", `${store}-event-modal`, out, shots, label);
+        if (name === "memories") await modal(page, "#hubs .r", `${store}-memory-modal`, out, shots, label);
+        if (name === "flow") await nodePanel(page, out, shots, label, store);
+      }
     }
     await context.close();
   }
+}
+
+/** Click the first `selector`, wait for the overlay, shoot it, close it. */
+async function modal(
+  page: Page,
+  selector: string,
+  name: string,
+  out: string,
+  shots: Shot[],
+  label: string,
+): Promise<void> {
+  const target = page.locator(selector).first();
+  if ((await target.count()) === 0) return;
+  await target.click();
+  await page.waitForSelector("#overlay.show", { timeout: 8000 });
+  await page.waitForTimeout(250);
+  const file = join(out, `${name}-${label}.png`);
+  await page.screenshot({ path: file });
+  shots.push({ store: name.split("-")[0] ?? "", page: name, viewport: label, file });
+  process.stdout.write(`  ${name} · ${label}\n`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(120);
+}
+
+/** The flow page's node panel — the brain-analogy half of the poster's claim. */
+async function nodePanel(
+  page: Page,
+  out: string,
+  shots: Shot[],
+  label: string,
+  store: string,
+): Promise<void> {
+  // Click inside the SLEEP box: normalized (0.60,0.10)-(0.76,0.27) of the canvas.
+  const box = await page.locator("#flowcv").boundingBox();
+  if (!box) return;
+  const M = 10;
+  await page.mouse.click(
+    box.x + M + (0.60 + 0.16 / 2) * (box.width - 2 * M),
+    box.y + M + (0.10 + 0.17 / 2) * (box.height - 2 * M),
+  );
+  await page.waitForTimeout(400);
+  const file = join(out, `${store}-flow-node-${label}.png`);
+  await page.screenshot({ path: file, fullPage: true });
+  shots.push({ store, page: "flow-node", viewport: label, file });
+  process.stdout.write(`  ${store} · flow-node · ${label}\n`);
 }
 
 function wire(page: Page, store: "rich" | "empty", findings: Finding[]): void {

@@ -1104,7 +1104,7 @@ async function openMemory(id) {
   const kv = (k, v) => '<div class="k">' + esc(k) + '</div><div class="v">' + v + "</div>";
   const s = d.salience;
   openModal(
-    "<h3>" + esc(d.title || d.id) + "</h3>" +
+    "<h3>" + (d.title ? esc(d.title) : d.confidential ? said(d.text, true) : esc(headline(d.text))) + "</h3>" +
     "<div class='sub'>" + esc(d.id) + (d.askedFor ? " · you asked for " + esc(d.askedFor) + ", which forwards here" : "") +
       " · " + esc(d.prosePath) + "</div>" +
     "<div class='body'>" + (d.confidential ? '<span class="withheld">' + esc(d.text) + "</span>" : esc(d.text)) + "</div>" +
@@ -1144,6 +1144,11 @@ async function openMemory(id) {
       "<div class='ref'><span class='role'>" + esc(r.stage) + "</span>by " + esc(r.actor) +
       " — " + esc(r.reason || "no reason recorded") + "</div>").join(""), ""))
   );
+}
+/** Most memories carry no title: the first sentence is what they are called. */
+function headline(text) {
+  const first = String(text).split(/(?<=[.!?])\s/)[0] || String(text);
+  return first.length > 96 ? first.slice(0, 95).trimEnd() + "…" : first;
 }
 function section(title, body, emptyMsg) {
   if (!body && !emptyMsg) return "";
