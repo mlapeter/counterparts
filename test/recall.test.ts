@@ -23,6 +23,7 @@ import type { MemoryPhysics } from "../src/core/types.js";
 import { USE_TIER_WEIGHT } from "../src/core/physics/index.js";
 import {
   FRAMING,
+  MIN_RARITY_STORE,
   Recall,
   TRIM_ORDER,
   byteLength,
@@ -265,7 +266,9 @@ describe("cues — boilerplate, rarity, and the two subject rules", () => {
     // weight of a match, it does not invent one.
     expect(informativeness(0, 1)).toBe(0);
     // A store of one is read as the smallest store where "spans everything"
-    // means anything — never MORE informative than that store's rare cue.
+    // means anything — and `MIN_RARITY_STORE` is that size, named rather than
+    // a literal 2 sitting in an expression.
+    expect(informativeness(1, 1)).toBe(informativeness(1, MIN_RARITY_STORE));
     expect(informativeness(1, 1)).toBeLessThanOrEqual(informativeness(1, 2));
   });
 
@@ -345,7 +348,60 @@ describe("the surfacing pipeline", () => {
     expect(quiet.decision.reason).toBe("no-candidates");
   });
 
+  test("on a store of one nothing goes LOUD — the rarity channel cannot discriminate", () => {
+    // The cost of making the first memory cueable, and its bound. At N=1 every
+    // token the memory holds is maximally rare (df = 1 = MIN_RARITY_STORE's
+    // reading of the store), so a turn sharing only `the`/`that`/`and`/`not`
+    // scores like a turn that is about it: MEASURED 2026-09-04, an ordinary
+    // three-sentence note against five unrelated function-word turns reached
+    // activation 1.82-2.24 against a loud floor of 4.5 x 0.4055 = 1.8246 and
+    // went `surfaced` on all five. Cold start is STRICTER, not looser, so the
+    // tier is capped at this size rather than the floor retuned.
+    const s = store();
+    const id = put(s, {
+      body:
+        "The parallel run started on the third and the first day of it was mostly about the hooks: " +
+        "the Stop hook was not firing and that meant the notes that were written did not land. " +
+        "The fix was small and the rest of the day was spent watching that it held.",
+    });
+    const turns = [
+      "what is the plan for today and the rest of it",
+      "that is not what I meant, and it is fine",
+      "can you check the thing that was not done",
+      "the meeting and the review are not on the calendar",
+      "I think that the answer is not obvious",
+    ];
+    let turn = 0;
+    for (const text of turns) {
+      const out = new Recall({ store: s, owner: true }).recall({
+        sessionId: `s${(turn += 1)}`,
+        text,
+      });
+      const v = out.decision.verdicts.find((x) => x.id === id);
+      // Warm, not loud — and the record NAMES why, rather than leaving a
+      // reader to infer it from a number that did not fire.
+      expect(v?.verdict).toBe("footnoted");
+      expect(v?.loudBlockedBy).toBe("cold-start-undiscriminating");
+      expect(out.decision.surfaced).toEqual([]);
+    }
+
+    // …and the cap is inert the moment a second memory exists: at N=2 the
+    // ordinary floors are back in force and it is they that hold the tier.
+    put(s, { body: "Bought hiking boots that finally fit properly and are not too stiff." });
+    const after = new Recall({ store: s, owner: true }).recall({
+      sessionId: "sN2",
+      text: turns[0] as string,
+    });
+    expect(after.decision.verdicts.find((x) => x.id === id)?.loudBlockedBy).not.toBe(
+      "cold-start-undiscriminating",
+    );
+  });
+
   test("N=2 and N=3: an unrelated arrival is what USED to make the first one findable", () => {
+    // A REGRESSION GUARD, not a demonstration: these two sizes pass on pre-fix
+    // code too — the bug was N=1 only, and that asymmetry is what named it.
+    // They are here so a later change to the smoothing cannot buy N=1 back by
+    // spending N=2 or N=3.
     // The bug's tell was that ANY second memory fixed it. Both directions are
     // asserted at each size: the older memory still answers its own question,
     // and a question that matches only the newest returns only the newest.

@@ -19,7 +19,8 @@ override — `RecallTunables` is fixed per instance. So "deliberate recall is a
 deeper effort with different thresholds" (CONTRACT §3, [v1] §9.1 G2) is
 implemented in `deliberate.ts` by RE-TIERING build's verdicts rather than by
 running the gate at a different bar: soft verdicts (`below-bar`,
-`below-strong-floor`, `capped`, `dedup-suppressed`, `cue-only-temporal`) are
+`below-strong-floor`, `capped`, `dedup-suppressed`, `cue-only-temporal`,
+`cold-start-undiscriminating`) are
 admitted at a labeled `dim` tier; hard gates (`dark-uncued`, `below-floor`,
 `cue-fraction`) are not.
 

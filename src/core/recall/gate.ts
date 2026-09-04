@@ -29,7 +29,7 @@
  */
 import { tokenize } from "../store/index.js";
 import type { Candidate } from "./activate.js";
-import { informativeness } from "./cues.js";
+import { MIN_RARITY_STORE, informativeness } from "./cues.js";
 import type { GateState } from "./session.js";
 import { strongFloor } from "./tunables.js";
 import type { RecallTunables } from "./tunables.js";
@@ -54,6 +54,11 @@ export type Verdict =
   /** The per-candidate ceiling: the only cue was a remembered date, and a date
    *  may make a memory quietly available, never loud (prospective §12 G5). */
   | "cue-only-temporal"
+  /** The store is smaller than `MIN_RARITY_STORE`, so the rarity channel cannot
+   *  discriminate: every token in the only memory is maximally rare and a turn
+   *  sharing nothing but function words scores like a turn that is about it.
+   *  Arrival makes it warm; nothing at this size can make it loud. */
+  | "cold-start-undiscriminating"
   /** Reached the bar, but not the loud tier's per-kind floor. */
   | "below-strong-floor"
   /** Lateral inhibition: a near-duplicate of a stronger admitted candidate. */
@@ -353,6 +358,21 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     if (c.maxTier === "footnoted") {
       loud = false;
       loudBlock.set(c.id, "cue-only-temporal");
+    } else if (input.storeSize < MIN_RARITY_STORE) {
+      // Cold start is STRICTER, not looser — and below `MIN_RARITY_STORE` the
+      // strictness the floors provide is not available, because the unit the
+      // floors are denominated in is itself the thing that has stopped
+      // discriminating. On a one-memory store every token the memory holds is
+      // maximally rare (`cues.ts#MIN_RARITY_STORE`), so an ordinary note and a
+      // turn sharing only `the`/`that`/`and`/`not` reach the loud tier:
+      // MEASURED 2026-09-04, a three-sentence note against five unrelated
+      // turns went `surfaced` on all five at activation 1.82-2.24 against a
+      // loud floor of 4.5 x 0.4055 = 1.8246. The same five turns at N=2
+      // footnote at 0.36-0.62. So the tier is capped rather than the floor
+      // retuned: arrival makes a memory warm, only relevance makes it loud,
+      // and at this size there is no relevance to measure.
+      loud = false;
+      loudBlock.set(c.id, "cold-start-undiscriminating");
     } else if (c.cueFraction < t.MIN_CUE_FRACTION) {
       loud = false;
       loudBlock.set(c.id, "cue-fraction");

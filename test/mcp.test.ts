@@ -837,6 +837,9 @@ describe("recall — deliberate retrieval", () => {
   });
 
   test("N=2 and N=3 at the note door: the first note keeps answering as the store grows", async () => {
+    // A REGRESSION GUARD, not a demonstration: both sizes pass on pre-fix code
+    // too. The bug was N=1 only, and this is here so a later change to the
+    // smoothing cannot buy N=1 back by spending N=2 or N=3.
     const s = server();
     const first = payload(
       await s.call("note", { text: "The sourdough starter died after two weeks of neglect." }),
