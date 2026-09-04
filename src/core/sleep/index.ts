@@ -72,6 +72,7 @@ export {
   contentHashCandidates,
   declaredUpdates,
   mergeRecordKey,
+  revisionSuccessorOf,
   revisionSuccessorPair,
   runDedup,
 } from "./dedup.js";

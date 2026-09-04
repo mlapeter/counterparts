@@ -1498,6 +1498,103 @@ describe("dedup leaves a revision's successor alone", () => {
     expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
     expect(s.row(successor)?.archived).toBe(0);
   });
+
+  test("a twin born EARLIER takes the original's seat — the successor still survives", () => {
+    // The pair relation alone is not enough. If an ordinary memory already says
+    // what the challenger is about to say, and was born first, the tie-break
+    // makes THAT row the group's original: the challenger and the successor both
+    // pair against the twin, the relation reads false against it, and both
+    // archive. The element is then left with NO live version at all — worse than
+    // the finding this suite opened with. The trigger is ordinary: the same
+    // sentence noted twice.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const stateId = sc.addCurrentState({
+      entityId,
+      statement: "Bansai is running as the live instance",
+      day: 0,
+      statedOn: "2026-08-01",
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+
+    const BODY = "Bansai is muted; counterparts is primary";
+    // Born a day BEFORE the challenger, so it is unambiguously the original.
+    const twin = put(s, { body: BODY, physics: { birthDay: 0, lastUsedDay: 0 } });
+    const challengerId = challengerFor(s, { day: 1, body: BODY, updates: stateId });
+    const successor = applyRevision(
+      s,
+      sc,
+      { updates: stateId, challengerId, day: 1, method: "declared" },
+      {},
+    ).successorId as string;
+
+    const out = runDedup(ctx(wrap(s), 1));
+
+    // The SUCCESSOR is what the revision produced, and it survives: an
+    // accommodation row can never be the losing candidate of a same-hash merge.
+    expect(s.row(successor)?.archived).toBe(0);
+    expect(sc.currentState(entityId).map((e) => e.id)).toEqual([successor]);
+    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+
+    // The CHALLENGER is a different question, and it is deliberately left to the
+    // ordinary rule: it is a plain memory that says what a plain memory already
+    // said, so it merges into the twin and credits it. Nothing about the
+    // revision is lost by that — the successor holds the words, the element
+    // holds the successor, and `origin_ref` still names the merged challenger,
+    // whose prose and id survive the archive.
+    expect(out.merged.map((m) => m.candidateId)).toEqual([challengerId]);
+    expect(out.merged[0]?.originalId).toBe(twin);
+    expect(s.row(challengerId)?.archived).toBe(1);
+    expect(s.row(challengerId)?.archived_reason).toBe(MERGE_ARCHIVE_REASON);
+  });
+
+  test("two challengers with ONE body revise two elements — both successors live", () => {
+    // The second door of the same edge. `sb` (b's successor) pairs against `ca`
+    // (a's challenger), not against its own `cb`, so the pair relation is false
+    // and — before the wider clause — `cb` and `sb` both archived: element b
+    // silently lost its revision while element a kept its own.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const mk = (statement: string): string =>
+      sc.addCurrentState({
+        entityId,
+        statement,
+        day: 0,
+        statedOn: "2026-08-01",
+        dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+      }).id as string;
+    const a = mk("Bansai runs the morning batch");
+    const b = mk("Bansai runs the evening batch");
+
+    // One sentence, noted twice on the same day, against two different rows.
+    const BODY = "Bansai runs nothing; the batches moved to counterparts";
+    const ca = challengerFor(s, { day: 1, body: BODY, updates: a });
+    const cb = challengerFor(s, { day: 1, body: BODY, updates: b });
+    const sa = applyRevision(s, sc, { updates: a, challengerId: ca, day: 1, method: "declared" }, {})
+      .successorId as string;
+    const sb = applyRevision(s, sc, { updates: b, challengerId: cb, day: 1, method: "declared" }, {})
+      .successorId as string;
+
+    runDedup(ctx(wrap(s), 1));
+
+    expect(s.row(sa)?.archived).toBe(0);
+    expect(s.row(sb)?.archived).toBe(0);
+    expect(sc.currentState(entityId).map((e) => e.id).sort()).toEqual([sa, sb].sort());
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

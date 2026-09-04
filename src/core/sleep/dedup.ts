@@ -18,12 +18,15 @@
  * decision): accepted rent, paid for zero substrate confabulation.
  *
  * The same refusal has a second half, found 2026-09-04 on the first store that
- * ever crossed the pressure bar: **a revision's successor and the challenger it
- * was minted from are never merged into each other, in either direction**
- * (`revisionSuccessorPair` below). The declaration guard cannot reach it —
- * that declaration names the PREDECESSOR — and the two bodies are identical by
- * construction, so the merge fired on the revision's own evening and the
- * revised belief stopped being a belief.
+ * ever crossed the pressure bar: **a revision's successor is never the losing
+ * candidate of a same-hash merge** (`revisionSuccessorPair` and the wider clause
+ * in `runDedup` below). The declaration guard cannot reach it — that declaration
+ * names the PREDECESSOR — and the successor's body IS its challenger's body by
+ * construction, so the merge fired on the revision's own evening and the revised
+ * belief stopped being a belief. The rule is stated as "never the loser" rather
+ * than as a pair, because a THIRD row with the same text (the same sentence
+ * noted twice) takes the original's seat and the pair relation reads false
+ * against it — and then the element loses its only live version.
  *
  * **A merge is `uses(original) += 1` and the duplicate ARCHIVES.** Both halves
  * are load-bearing. Without the credit the merge is a deletion; without the
@@ -141,18 +144,23 @@ export function declaredUpdates(store: SleepStore, id: string): string | null {
  *
  * Two columns say it, and no prose read is needed: `source` is
  * `"accommodation"` — written at exactly two sites, both of them supersedes
- * under pressure (`schemas/index.ts`, `revision.ts`'s identity arm) — and
- * `origin_ref` is the challenger the successor was made from. The relation is
- * checked BOTH WAYS, because which row the tie-break calls the original is an
- * accident of ids.
+ * with lineage (`schemas/index.ts` for both element arms, `revision.ts` for the
+ * identity arm; the belief arm climbs a bar and the current-state arm does not,
+ * so "under pressure" would only describe one of them) — and `origin_ref` is
+ * the challenger the successor was made from.
+ */
+export function revisionSuccessorOf(store: SleepStore, id: string): string | null {
+  const row = store.row(id);
+  if (row === undefined || row.source !== ACCOMMODATION_SOURCE) return null;
+  return row.origin_ref;
+}
+
+/**
+ * The pair relation, checked BOTH WAYS, because which row the tie-break calls
+ * the original is an accident of ids.
  */
 export function revisionSuccessorPair(store: SleepStore, a: string, b: string): boolean {
-  const successorOf = (id: string): string | null => {
-    const row = store.row(id);
-    if (row === undefined || row.source !== ACCOMMODATION_SOURCE) return null;
-    return row.origin_ref;
-  };
-  return successorOf(a) === b || successorOf(b) === a;
+  return revisionSuccessorOf(store, a) === b || revisionSuccessorOf(store, b) === a;
 }
 
 export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupResult {
@@ -215,7 +223,19 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
     const verdict = dedupVerdict({
       originalId: pair.originalId,
       declaredUpdates: declaredUpdates(store, pair.candidateId),
-      revisionSuccessorPair: revisionSuccessorPair(store, pair.candidateId, pair.originalId),
+      // The pair relation, PLUS the wider truth it is a special case of: an
+      // accommodation row can never be the losing candidate of a SAME-HASH
+      // merge. Its body IS its challenger's body by construction
+      // (`schemas/index.ts` mints it from `readProse(challengerId).body`), so
+      // every same-hash group it belongs to is that challenger plus ordinary
+      // twins of the same text — and none of those is the thing the revision
+      // produced. Without this clause a twin born EARLIER takes the original's
+      // seat, the pair relation reads false against it, and the element loses
+      // its only live version. The cosine path is deliberately untouched: a
+      // merely SIMILAR row is an ordinary near-duplicate question.
+      revisionSuccessorPair:
+        revisionSuccessorPair(store, pair.candidateId, pair.originalId) ||
+        (pair.sameContentHash === true && revisionSuccessorOf(store, pair.candidateId) !== null),
       ...(pair.sameContentHash !== undefined ? { sameContentHash: pair.sameContentHash } : {}),
       ...(pair.cosine !== undefined ? { cosine: pair.cosine } : {}),
     });

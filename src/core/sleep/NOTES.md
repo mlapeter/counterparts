@@ -234,12 +234,43 @@ dispatch fire it: the belief path and the current-state replacement, plus
 the contract wants the challenger's statement verbatim, so the body is not
 negotiable. `physics.dedupVerdict` gains `revisionSuccessorPair` and the verdict
 `revision-successor-never-merged`, checked before hash and before cosine (the
-hash is exactly what is guaranteed to match). `dedup.ts#revisionSuccessorPair`
-supplies the fact from two columns — `source: "accommodation"`, written at
-exactly the two supersede sites, and `origin_ref`, the challenger — and asks it
-BOTH WAYS, because which row the tie-break calls the original is an accident of
-ids. The guard is narrow by construction: two ordinary memories with one body
-still merge, and a test says so.
+hash is exactly what is guaranteed to match). `dedup.ts` supplies the fact from
+two columns — `source: "accommodation"`, written at exactly the two supersede
+sites that mint with lineage, and `origin_ref`, the challenger.
+
+The rule as shipped is **"an accommodation row is never the LOSING candidate of a
+same-hash merge"**, not merely the pair relation. The pair relation alone was the
+first draft and it is not enough — see the two doors below, both closed by the
+wider clause, both regression-tested. The wider clause is sound rather than a
+blanket exemption: a successor's body IS its challenger's body by construction
+(`schemas/index.ts:944`), so every same-hash group a successor belongs to is that
+challenger plus ordinary twins of the same sentence, and none of those is the
+thing the revision produced. The COSINE path is deliberately untouched — a merely
+similar row is an ordinary near-duplicate question, and the argument above does
+not hold for it. The guard is otherwise narrow: two ordinary memories with one
+body still merge, and a test says so.
+
+**The two doors the pair relation left open**, both found by the adversarial
+review, both closed here:
+
+1. **A twin born EARLIER takes the original's seat.** An ordinary memory that
+   already says what the challenger is about to say becomes the group's original.
+   The challenger and the successor then both pair against the TWIN, the relation
+   reads false against it, and **both archive** — so the element is left with no
+   live version at all: `currentState(entity) === []`. Strictly worse than the
+   finding this note opened with, which at least left the challenger standing.
+2. **Two challengers with one body, revising two elements on one day.** `sb`
+   pairs against `ca` rather than against its own `cb`; the relation is false;
+   `cb` and `sb` both archive and element *b* silently loses its revision while
+   element *a* keeps its own.
+
+The trigger for both is ordinary — the same sentence noted twice — not exotic.
+
+**What the fix deliberately does not protect in case 1: the challenger.** It is a
+plain memory saying what a plain memory already said, so it merges into the twin
+under the ordinary rule and credits it. Nothing about the revision is lost: the
+successor holds the words, the element holds the successor, and `origin_ref`
+still names the challenger, whose prose and id survive the archive.
 
 Same shape as the journal finding a day earlier (CONTRACT §5 G15), and worth
 naming as a class: **phases that walk "every row" were written when two identical
@@ -254,23 +285,42 @@ successor is the head of one — so the shorter fix looks like handing dedup
 `prune.ts#inLiveRevisionChain`. It would not have worked as that predicate
 stands: a successor has no forwarding address, no standing pressure (the seed
 resets it) and no version rows of its own, so the predicate reads `false` for
-exactly the row this bug destroys. Closing G7's wording properly means widening
-the predicate to "is the head of a chain still inside H" AND consulting it in
-dedup — a bigger change than the finding demands, and one that would also close
-the twin-original edge below. Amendment 15: named, not built, until it fires.
+exactly the row this bug destroys, and dedup never consulted it in any case.
+Widening the predicate to "is the head of a chain still inside `H`" and reading
+it in dedup would be the general close of G7's wording; G9b's own rule reaches
+every case the finding and the review produced, so G7's paragraph in the CONTRACT
+now states what the predicate actually enforces rather than more.
 
-**The edge this guard does not cover.** If an ordinary memory with the
-challenger's exact body was born EARLIER, it becomes the group's original and
-both the challenger and the successor pair against IT rather than against each
-other — the pair relation is false, and the successor merges after all. Not seen
-in any store; recorded so the next person finds it named rather than fresh.
+**Still open, and NOT fixed here — probe H (adversarial review, 2026-09-04).**
+An element and an ordinary memory can collide with **no revision anywhere**: an
+`addBelief` whose statement is X and a memory whose body is X, born the same
+lived day. No accommodation row is involved, so G9b does not apply; the tie-break
+puts `mem_` before `sch_` and the belief is archived `merged` into the memory.
+Kin of the migration case: migrated ELEMENTS were minted at the import day while
+migrated MEMORIES kept their v1 `birthDay`, so on the live store a migrated
+belief colliding with a memory body would already have lost — the memory is older
+on every such pair. Not chased here (constitution 15: named, not built), because
+the honest fix is the wider question of whether a `type: "schema"` row should
+ever be a dedup candidate at all — the same shape as G15's journal answer.
+
+**The owner's read-only check, for both this and the finding above:** look for
+`memory.merged` events whose `candidateId` starts with `sch_`. That one query
+answers "has an element ever been archived as a duplicate on this store", needs
+no writes, and does not depend on any claim made in this file.
 
 **What changes on a live store.** Only stores where a dedup pass runs while a
 revision's successor and its challenger are both live — in practice any cycle
 after a crossing, not merely the same evening, since the pair stays live and
 identical until something merges it. Nothing is repaired retroactively: a
 successor already archived `merged` stays archived (its prose and id survive, and
-its merge record names the original). The owner's live store had 1 revision
-declaration with 0 effect as of parallel-run day 1 — no crossing, no successor,
-so there is nothing there for this to change yet. Stores that never revise are
-untouched; genuine duplicates merge exactly as before.
+its merge record names the original). Stores that never revise are untouched;
+genuine duplicates merge exactly as before.
+
+**UNVERIFIED, and do not repeat it as fact:** "the owner's live store has had 1
+revision declaration with 0 effect — zero `superseded_by`, zero
+`revision.pressure`" is a day-1 reading that master's day-2 watch list still owes
+a recount of, and this session cannot open that store. It is also the weakest
+possible claim to lean on here, because the CURRENT-STATE arm supersedes on ONE
+declaration with no bar to climb (PR #22 is live), so a successor may already
+exist without any pressure event to show for it. The read-only check that settles
+it: `memory.merged` events whose `candidateId` starts with `sch_`.
