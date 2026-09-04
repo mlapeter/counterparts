@@ -606,3 +606,92 @@ for the whole suite). Root fact: `.counterparts` is not in `FORBIDDEN_ROOT_NAMES
 ### Spend
 
 $0.00 this session so far (no interpreter or embedder call by any agent; the critic ran with no keys).
+
+## 2026-09-04, round 2 — the core fixes landed, the tree is public-ready except for images
+
+*Appended by the coordinator after Wave 2's first landings. Master `c00cef9` at the time
+of writing; suite on master **1513 pass / 1 skip / 0 fail** (the skip is the W1 loop's
+first-memory test, un-skipped in the sync PR that follows). Merging rule adopted after #44:
+the suite runs on a preview of master + branch before any merge, never on the branch alone.*
+
+### Owner rulings since round 1
+
+- **History stays as-is; this repo flips public** (the owner is fine with first names and
+  business names existing in history). The fresh-root recommendation in the audit is
+  withdrawn on that ruling. The fixture name was swapped anyway (#40).
+- **Reviewed PRs may merge** on a standing approval for this session (the classifier
+  still blocks an unapproved merge).
+- **Data-dir default → `~/.counterparts/store`** approved and merged (#37).
+- Still pending: the removal-residue option (§I2: A = honest `unchasable: spans` line now,
+  adapter; B = a chase, core) and whether §I7/§I8 block the launch.
+
+### Merged since round 1
+
+| PR | What | Suite on the merge |
+|---|---|---|
+| #32 | W1 round 2 after the cold-stranger critic: `install --dir` writes the config at the hooks' one path and moves only the store; tarball command matches `npm pack`'s real filename; `counterparts note` / `recall` on the console (the MCP doors, `captureJot` + `submitJot` with `ownSpanHash`, `deliberateRecall`); `--help` exits 0; `files` ships ELI5, module-map and the loop; loop 25/26 with step 14 EXPECTED-FAIL until #38 | 1502 / 1 skip |
+| #39 | Test HOME guard: `test/preload.ts` redirects `homedir()` to a temp dir for the whole suite via `mock.module("node:os")` (Bun fixes `homedir()` at startup and ignores a later `$HOME`, measured); fails closed; sweeps in a root `afterAll` (`process.on("exit")` does not fire under `bun test`, measured) | 1480 |
+| #40 | Migration fixture's second person is invented; the harvest inventory counts schema files by kind | 1480 |
+| #41 | G12 carry-forward declarations for #37 and #38, class IDENTICAL, recorded BEFORE merge: `surfaceSetHash()` = `800a9a9421cd969f` on master, both branches and `run.json` | docs |
+| #42 | De-personalization of the working tree (session id, machine path, quoted live-store content, the owner's verbatim config, third-party PII descriptions, dated affect markers; every count kept); `CLAUDE.md` status current; BUILD-STATUS snapshot header; `docs/launch/flip-checklist.md` (12 owner-executes steps, names no redaction). Scanner 580/86 → 569/87, every remaining hit classified deliberate | 1480 |
+| #43 | `counterparts verify` is a read-only observer census; `--rebuild` refuses to drop vectors it cannot recompute unless `--drop-vectors`; fails closed on an unreadable box 3 (from #37's review: a bare `verify` would otherwise have wiped the live store's ~13,700 vectors once the default resolved there) | 1506 / 1 skip |
+| #37 | **CORE** — default data dir `~/.counterparts/store` (`DEFAULT_STORE_SUBDIR`); adversarial review MERGE WITH CHANGES, all three procedural and met (G12 record #41, HOME guard #39, `verify` guard #43). Live-host reach: none; the unreadable-config fallback moves from "no memory" to a correct read-only open | 1506 / 1 fail → |
+| #44 | One-line test fix: #39 and #37 were each green alone; merged, `preload.test.ts` asserted the old default. Master red ~4 min | 1506 / 1 skip |
+| #38 | **CORE** — first memory in a fresh store is cueable: `informativeness = log((N+df)/(2df))` is exactly 0 at `df = N = 1`, so every cue was dropped (`considered: 0`); `MIN_RARITY_STORE = 2` inside the log, bit-identical at N ≥ 2 (asserted); plus the review's cap — below `MIN_RARITY_STORE` nothing goes LOUD (`loudBlockedBy: cold-start-undiscriminating`), because at N=1 a note surfaced loudly on `the`/`that`/`and`/`not` alone (measured 5/5 → footnoted 5/5; inert at N=2). Hash still `800a9a9421cd969f` | 1513 / 1 skip |
+| #45 | README rewritten for a cold reader (claims list in the PR); two screenshot slots for W2 | docs |
+
+### Scores — round 1 stands; round 2 not yet run
+
+The cold-stranger critic's round-1 ranked list is closed except for the two that were
+fixed by #38 and the sync (items 1 and 4's second half). Round 2 of the cold-stranger runs
+after the sync PR; design-director and claims auditor run after W2.
+
+### New findings (reproduced by reviewers; core; NEEDS-OWNER)
+
+- **I13** `df` counts `doc_tokens` rows while `storeSize` counts live `memories` rows, so
+  `df > storeSize` is reachable (archived sibling; **superseded head**) and re-zeroes a rare
+  token: revise your first memory on a fresh store and it goes dark again. A fix moves
+  output on the live store → its own G12 declaration.
+- **I14** Recall counts, indexes and DELIVERS journal (`epi_`) rows (an episode came back
+  `quiet` on a question and `footnoted` ambient); the dashboard census skips them since
+  #33, `recall/` does not. Kin of #27's ruling that the journal is not a memory.
+- **I15** (tools) The run instrument's `--v2-data-dir` default is the base dir; its
+  readers need the store dir. Pre-existing; the owner passes the flag explicitly.
+- **I16** (src comment) `src/core/remember/tunables.ts:39` still carries a session id and
+  a clock time; `CLAUDE.md`'s toolchain line still says "Target: Node … and Bun" (bun
+  ruled). Both for a small docs/comments PR.
+- **Day-0 wake is empty of content** (identity lane renders nothing until a boundary
+  composes one); QUICKSTART no longer implies `--name` produces visible output. `self/`
+  owner to look.
+
+### Incident — disclosed
+
+The round-1 cold-stranger critic ran with the real HOME (the harness refuses `HOME`
+assignment in agent shells), so `counterparts-mcp` read the owner's live
+`claude-code.json` (embedder on, credentials file named) while pointing at a scratch
+store: its recall calls made a handful of Voyage embedding requests on the owner's key.
+The text embedded was the critic's own invented notes; no store was touched. Documented as
+QUICKSTART §10.4 and README rough edge 2. Root fact, twice today: the store is redirected
+and the credentials are not.
+
+### NEEDS-OWNER (running list; G1–G13 above)
+
+| # | Item | State |
+|---|---|---|
+| G3 | default data dir | **closed** (#37) |
+| G7 | merges | standing approval given; #32–#45 merged as reviewed |
+| G8 | data-dir ruling | **closed** |
+| G9 | history | **closed** — flip this repo |
+| G10 | removal residue | open — A vs B |
+| G11 | `fix/recall-first-memory` | **closed** (#38) |
+| G12 | I7 / I8 (wall-clock `learnedOn`; dedup eats a revised belief's successor) — launch blockers? | open |
+| G13 | `~/.counterparts/x/` | **closed** — owner deleted it |
+| G14 | I13 / I14 — schedule as core PRs after launch or before? | open |
+| G15 | Bench re-run on a store copy after #38 (record only; N=14,000 is bit-identical) | open, optional |
+
+### Spend
+
+| Item | Actual |
+|---|---|
+| Round-1 cold-stranger critic, Voyage embeddings on the owner's key (unintended, see incident) | cents; count unknown (no usage logging) |
+| Everything else this session (agents, loops, seeder, reviews) | $0.00 — no interpreter or embedder call |
