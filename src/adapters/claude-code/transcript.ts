@@ -119,9 +119,11 @@ function attr(attrs: string, name: string): string | undefined {
  * to interpretation has to be in the words.
  *
  * The name preferred is the host's `from-name` (a session's display name, the
- * thing a human would recognize), then `from-session`, then the socket address
- * in `from` — and "unnamed" when the host gave none, since an unattributed peer
- * message must still not read as the owner.
+ * thing a human would recognize), then `from-session` — and "unnamed" when the
+ * host gave neither, since an unattributed peer message must still not read as
+ * the owner. The `from` attribute is DELIBERATELY NOT a fallback: it is a local
+ * socket path (`uds:/tmp/cc-socks/30478.sock`), and a machine-local path has no
+ * business in memory prose that outlives the socket by years.
  */
 export function attributePeers(text: string): PeerAttribution {
   CROSS_SESSION_MESSAGE.lastIndex = 0;
@@ -140,8 +142,7 @@ export function attributePeers(text: string): PeerAttribution {
     outside.push(before);
     parts.push(before);
     const attrs = match[1] ?? "";
-    const who =
-      attr(attrs, "from-name") ?? attr(attrs, "from-session") ?? attr(attrs, "from") ?? "unnamed";
+    const who = attr(attrs, "from-name") ?? attr(attrs, "from-session") ?? "unnamed";
     parts.push(`[message from another Claude session, ${who}]: ${(match[2] ?? "").trim()}`);
     cursor = match.index + match[0].length;
   }

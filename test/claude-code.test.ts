@@ -1492,14 +1492,17 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
     expect(named('from-name="mlapeter-41" from="uds:/tmp/cc-socks/1.sock"')).toBe(
       "[message from another Claude session, mlapeter-41]: hi",
     );
-    // No display name: the session id, then the socket address. An unattributed
-    // peer message is still not the owner, so there is always a label.
+    // No display name: the session id. An unattributed peer message is still
+    // not the owner, so there is always a label.
     expect(named('from="uds:/tmp/cc-socks/1.sock" from-session="c781252f"')).toBe(
       "[message from another Claude session, c781252f]: hi",
     );
+    // `from` is NOT a fallback: it is a machine-local socket path, and it must
+    // not land in prose that outlives the socket. "unnamed" instead.
     expect(named('from="uds:/tmp/cc-socks/1.sock"')).toBe(
-      "[message from another Claude session, uds:/tmp/cc-socks/1.sock]: hi",
+      "[message from another Claude session, unnamed]: hi",
     );
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).not.toContain("cc-socks");
     expect(named("")).toBe("[message from another Claude session, unnamed]: hi");
     expect(named("from-name=''")).toBe("[message from another Claude session, unnamed]: hi");
     // Two peers in one block are two labels, in order.

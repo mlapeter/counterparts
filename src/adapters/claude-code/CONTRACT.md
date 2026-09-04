@@ -90,7 +90,9 @@ owner's (measured 2026-09-04, `fix/transcript-peer-speakers`):
   `from`, `from-name`, `from-session`, `from-mode`, `hop-chain` read off the v2.1.260
   bundle). The content is **real experience and is kept**; the wrapper is replaced **in
   place** with `[message from another Claude session, <name>]: …`, because a span is text
-  and attribution has to survive in the words. A block that is nothing but a peer message
+  and attribution has to survive in the words. The name is `from-name`, then
+  `from-session`, then `unnamed`; **`from` is deliberately not a fallback** — it is a
+  machine-local socket path, and a path has no business in prose that outlives the socket. A block that is nothing but a peer message
   is `injected` (kept in capture, out of pacing); a block that mixes the owner's own text
   with a wrapper stays `conversation`. The rewrite never splits a block into extra turns —
   the per-session read cursor indexes into that list. The sibling **idle notice** is plain
