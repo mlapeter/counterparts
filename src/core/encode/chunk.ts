@@ -226,6 +226,18 @@ function buildEffects(
       }
     }
     if (a.updates !== null) {
+      // `targetId` is the DECLARATION, exactly as the author wrote it — encode
+      // resolves nothing and holds no store. The applier is
+      // `src/core/revision.ts`, reached once per effect from every mint door,
+      // and it is what walks the declaration to a real row (`remember/` matches
+      // text to a candidate; the store walks an id through the supersede chain).
+      //
+      // So the correspondence this list promises is ONE APPLY PER EFFECT, not
+      // one movement per effect: a declaration that resolves to nothing lands as
+      // a named `target-unresolvable` refusal, and one that hit an ordinary
+      // memory lands as a link. What the chunk MOVED is the applier's own
+      // record. A fully gated chunk accepts nothing, so it emits no effect and
+      // applies none — and an observer's chunk emits none either (see above).
       effects.push({ effect: "revision.challenge", targetId: a.updates, ref: a.ref });
     }
   }
