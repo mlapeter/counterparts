@@ -1,9 +1,10 @@
 # Repo-public audit — secrets, de-personalization, ship list, flip checklist
 
-*W3 part 1 of the launch session. Audited 2026-09-04 on branch `launch/w3-audit`, at
-`master` = `55c12bc`. This is a **read-only** audit: no source was changed, no history
-rewritten, nothing pushed. Every step the owner must run is staged as a command below and
-marked **owner executes**.*
+*W3 part 1 of the launch session. Audited 2026-09-04 on branch `launch/w3-audit`, branched
+from `master` at `55c12bc` (master has since advanced to `9ccda0f`, PR #31 — nothing in
+that PR changes a finding here). This is a **read-only** audit: no source was changed, no
+history rewritten, nothing pushed, `master` never touched. Every step the owner must run is
+staged as a command below and marked **owner executes**.*
 
 *This file is a working default like everything except `CONSTITUTION.md`. Where it names a
 rewrite, the rewrite is a recommendation with a reason, not a ruling.*
