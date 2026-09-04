@@ -37,7 +37,7 @@ import { num } from "../layout.js";
 import type { DurableEventName } from "../registries.js";
 import { nodeOf } from "./flow.js";
 import type { NodeKey } from "./flow.js";
-import { reveal, revealPayload, shortOf } from "./reveal.js";
+import { reveal, revealHere, revealPayload, shortOf } from "./reveal.js";
 
 /** `calm` — ordinary machinery. `notable` — a real change of state.
  *  `amber` — the owner should look. Nothing else exists. */
@@ -77,6 +77,12 @@ function subject(t: Told, id?: string | null): string {
   const r = reveal(t.store, target, 60);
   if (r.text !== null) return `“${r.text}”`;
   return r.label;
+}
+
+/** The same, at THIS address rather than at the end of the forwarding chain. */
+function subjectHere(t: Told): string {
+  const r = revealHere(t.store, t.row.ref, 60);
+  return r.text === null ? r.label : `“${r.text}”`;
 }
 
 /** Ids the payload carries in a list — `recall.decision`'s two tiers. */
@@ -273,13 +279,20 @@ export const NARRATORS = {
     const after = n(t, "pressureAfter") ?? 0;
     const bar = n(t, "bar") ?? 0;
     const challenger = subject(t, s(t, "challengerId"));
+    // The TARGET is resolved UNFOLLOWED. Following the supersede chain would
+    // print what the belief became — and since what it became was minted from
+    // this very challenge, the line would read "X broke the bar against X".
+    // What the owner needs is the belief AS IT STOOD when it was argued with,
+    // read live at its own address (the retained prose §5 G10 keeps for exactly
+    // this), which is the same choice `stories.ts` makes for "it began as".
+    const target = subjectHere(t);
     const crossed = after >= bar && bar > 0;
     return crossed
       ? notable(
-          `${challenger} broke the bar against ${subject(t)} — pressure ${num(after)} against ${num(bar)}. I changed my mind.`,
+          `${challenger} broke the bar against ${target} — pressure ${num(after)} against ${num(bar)}. I changed my mind.`,
         )
       : calm(
-          `${challenger} argued with ${subject(t)} — force ${num(force)}, pressure now ${num(after)} of the ${num(bar)} it would take. I am holding for now.`,
+          `${challenger} argued with ${target} — force ${num(force)}, pressure now ${num(after)} of the ${num(bar)} it would take. I am holding for now.`,
         );
   },
 } as const satisfies Record<DurableEventName, Teller>;

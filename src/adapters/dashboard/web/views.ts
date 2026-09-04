@@ -34,6 +34,7 @@ import {
   isJournal,
   readMarker,
 } from "../../../core/sleep/index.js";
+import { FRAMING, LANE_ORDER } from "../../../core/self/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 import { NEVER, NONE, num } from "../layout.js";
 import { BANDS, CYCLE_PHASES, DURABLE_EVENTS, DURABLE_EVENT_NAMES, KINDS } from "../registries.js";
@@ -181,12 +182,17 @@ export interface MetaView {
   readonly generatedAt: number;
 }
 
+/** An empty string is the store's "never moved", not a date. */
+function lastActive(raw: string | undefined): string | null {
+  return raw === undefined || raw.trim().length === 0 ? null : raw;
+}
+
 export function metaView(src: DashboardSource): MetaView {
   const store = src.store;
   return {
     dir: store.dir,
     day: store.livedDay(),
-    lastActive: store.getMeta("lastActiveDate") ?? null,
+    lastActive: lastActive(store.getMeta("lastActiveDate")),
     observer: true,
     retentionDays: store.retentionDays,
     empty: store.list().length === 0,
@@ -245,9 +251,9 @@ export interface OverviewView {
   readonly bands: BarRow[];
   readonly bandNote: string;
   readonly feed: NarratedEvent[];
-  readonly identity: { id: string; text: string; kind: Kind; band: Band; strength: number; learnedOn: string; confidential: boolean }[];
+  readonly identity: { id: string; text: string; kind: Kind; band: Band; strength: number; learnedOn: string; bornDay: number; confidential: boolean }[];
   readonly identityAbsent: string | null;
-  readonly guarded: { id: string; text: string; kind: Kind; learnedOn: string; confidential: boolean }[];
+  readonly guarded: { id: string; text: string; kind: Kind; learnedOn: string; bornDay: number; confidential: boolean }[];
   readonly guardedAbsent: string | null;
   readonly contested: ContestedRow[];
   readonly contestedAbsent: string | null;
@@ -282,7 +288,10 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
     {
       label: "lived days",
       value: String(day),
-      note: store.getMeta("lastActiveDate") === undefined ? "the clock has never moved" : `last of them ${store.getMeta("lastActiveDate")}`,
+      note:
+        lastActive(store.getMeta("lastActiveDate")) === null
+          ? "the clock has never moved"
+          : `last of them ${lastActive(store.getMeta("lastActiveDate")) ?? ""}`,
       accent: "cyan",
       absent: day === 0,
     },
@@ -346,13 +355,21 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
         band: el.band,
         strength: el.strength,
         learnedOn: learnedOn(src, el.id),
+        bornDay: bornDay(src, el.id),
         confidential: r.confidential,
       };
     }),
     identityAbsent: e.identity.length === 0 ? (everLived ? NONE : NEVER) : null,
     guarded: e.protected.slice(0, 12).map((el) => {
       const r = reveal(store, el.id, 90);
-      return { id: el.id, text: r.text ?? r.label, kind: el.kind, learnedOn: learnedOn(src, el.id), confidential: r.confidential };
+      return {
+        id: el.id,
+        text: r.text ?? r.label,
+        kind: el.kind,
+        learnedOn: learnedOn(src, el.id),
+        bornDay: bornDay(src, el.id),
+        confidential: r.confidential,
+      };
     }),
     guardedAbsent: e.protected.length === 0 ? (everLived ? NONE : NEVER) : null,
     contested,
@@ -367,6 +384,24 @@ function learnedOn(src: DashboardSource, id: string): string {
     return src.store.readProse(id).learnedOn;
   } catch {
     return "—";
+  }
+}
+
+/**
+ * The lived day a memory was born on.
+ *
+ * Shown BESIDE `learnedOn` on the identity list rather than instead of it: the
+ * calendar date is what the wake briefing puts in front of every claim, and the
+ * lived day is what the physics ran on. In a store built in one run they say
+ * different things — every `learnedOn` reads the run day while the lived days
+ * spread across the month — and a reader who can only see the first would
+ * conclude the whole identity was learned this morning.
+ */
+function bornDay(src: DashboardSource, id: string): number {
+  try {
+    return src.store.physicsOf(id).birthDay;
+  } catch {
+    return 0;
   }
 }
 
@@ -812,8 +847,12 @@ export function searchView(src: DashboardSource, q: string, limit = 25): SearchV
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface WakeLane {
+  /** The lane's own heading, as the briefing writes it. */
   readonly heading: string;
-  readonly lines: string[];
+  /** The lane name, when this is one of `self/`'s lanes; null for the preface. */
+  readonly lane: string | null;
+  /** One element per line, bullets stripped. Verbatim otherwise. */
+  readonly items: string[];
 }
 
 export interface StoryBeat {
@@ -922,27 +961,41 @@ export function mindView(src: DashboardSource): MindView {
  * is bookkeeping, not something the assistant says.
  */
 export function wakeLanes(text: string): WakeLane[] {
-  const lanes: WakeLane[] = [];
-  let current: { heading: string; lines: string[] } = { heading: "the preface", lines: [] };
+  // The lane names and their headings are TAKEN FROM `self/` — `LANE_ORDER` and
+  // `FRAMING` — never retyped here. A renamed lane heading would otherwise leave
+  // this splitter silently returning one enormous lane called "the preface",
+  // which is precisely the quiet-wrong-answer shape the registries exist against.
+  const headings = new Map<string, string>();
+  for (const lane of LANE_ORDER) headings.set(FRAMING[lane], lane);
+
+  const lanes: { heading: string; lane: string | null; items: string[] }[] = [];
+  let current: { heading: string; lane: string | null; items: string[] } = {
+    heading: "How this arrives",
+    lane: null,
+    items: [],
+  };
   for (const raw of text.split("\n")) {
-    const line = raw.replace(/\s+$/, "");
+    const line = raw.trim();
+    // The sentinel is bookkeeping, not something the assistant says.
     if (line.startsWith("<!--")) continue;
-    if (/^#{1,6}\s/.test(line)) {
-      if (current.lines.some((l) => l.trim().length > 0)) lanes.push(current);
-      current = { heading: line.replace(/^#{1,6}\s+/, ""), lines: [] };
+    if (line.length === 0) continue;
+    const lane = headings.get(line);
+    // A markdown heading counts too, so a future briefing that uses one still
+    // splits rather than collapsing into a single block.
+    const mdHeading = /^#{1,6}\s+(.*)$/.exec(line);
+    if (lane !== undefined || mdHeading !== null) {
+      if (current.items.length > 0) lanes.push(current);
+      current = {
+        heading: lane === undefined ? (mdHeading?.[1] ?? line) : line,
+        lane: lane ?? null,
+        items: [],
+      };
       continue;
     }
-    current.lines.push(line);
+    current.items.push(line.replace(/^[-*]\s+/, ""));
   }
-  if (current.lines.some((l) => l.trim().length > 0)) lanes.push(current);
-  return lanes.map((l) => ({ heading: l.heading, lines: trimBlank(l.lines) }));
-}
-
-function trimBlank(lines: readonly string[]): string[] {
-  const out = [...lines];
-  while (out.length > 0 && (out[0] ?? "").trim().length === 0) out.shift();
-  while (out.length > 0 && (out[out.length - 1] ?? "").trim().length === 0) out.pop();
-  return out;
+  if (current.items.length > 0) lanes.push(current);
+  return lanes;
 }
 
 function storyViews(src: DashboardSource): StoryView[] {
@@ -1153,8 +1206,26 @@ function nodeState(src: DashboardSource, key: NodeKey, count: number, memories: 
       return entities === 0 ? NONE : `${entities} entities`;
     }
     case "spans":
-      // Turn capture writes no durable event; see NO_EVENT_OF_ITS_OWN.
-      return NEVER;
+      // Turn capture writes no durable event; see NO_EVENT_OF_ITS_OWN. On a
+      // store that has never lived a day the honest word is still `(never run)`
+      // — "silent by design" would claim a design decision was exercised.
+      return day === 0 ? NEVER : "silent by design";
+    case "session": {
+      const sessions = new Set<string>();
+      for (const name of eventsOfNode("session")) {
+        for (const row of store.eventLog({ name, limit: LOG_CEILING })) if (row.ref !== null) sessions.add(row.ref);
+      }
+      // The surfacing log names its session, so a store whose host wrote no
+      // boundary rows can still say how many conversations it has seen.
+      for (const row of store.eventLog({ name: "recall.decision", limit: LOG_CEILING })) {
+        if (row.ref !== null) sessions.add(row.ref);
+      }
+      return sessions.size === 0 ? (day === 0 ? NEVER : NONE) : `${sessions.size} sessions seen`;
+    }
+    case "remember":
+      // The door's own record is the ask's pacing row, which only a HOST
+      // writes. What the door actually did is the count that came through it.
+      return memories === 0 ? (day === 0 ? NEVER : NONE) : `${memories} came through`;
     default:
       return count === 0 ? NEVER : `${count} recorded`;
   }

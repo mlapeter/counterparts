@@ -37,6 +37,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { FRAMING, LANE_ORDER } from "../src/core/self/index.js";
 import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { EVENT_NODE, FLOW_EDGES, FLOW_NODES, NODE_KEYS, nodeOf } from "../src/adapters/dashboard/web/flow.js";
@@ -618,14 +619,43 @@ describe("what the page withholds", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the shapes the page draws with", () => {
-  test("the wake briefing splits into lanes at its own headings", () => {
+  test("the wake briefing splits at the lane headings `self/` itself writes", () => {
     const lanes = wakeLanes(
-      ["<!-- counterparts:wake -->", "# Who I am", "", "I build slowly.", "", "## Threads", "The swap sheet."].join("\n"),
+      [
+        "<!-- counterparts:wake/end day=3 -->",
+        FRAMING.context,
+        "",
+        FRAMING.identity,
+        "- 2026-07-01 · I build slowly.",
+        "",
+        FRAMING.threads,
+        "- 2026-07-02 · The swap sheet is unresolved.",
+      ].join("\n"),
     );
-    expect(lanes.map((l) => l.heading)).toEqual(["Who I am", "Threads"]);
-    expect(lanes[0]?.lines).toEqual(["I build slowly."]);
+    expect(lanes.map((l) => l.lane)).toEqual([null, "identity", "threads"]);
+    expect(lanes[0]?.items).toEqual([FRAMING.context]);
+    // Bullets are stripped; the statement and its date are otherwise verbatim.
+    expect(lanes[1]?.items).toEqual(["2026-07-01 · I build slowly."]);
     // The sentinel comment is bookkeeping, not something the assistant says.
     expect(JSON.stringify(lanes)).not.toContain("counterparts:wake");
+  });
+
+  test("the real briefing splits into the lanes it was composed with", () => {
+    const d = open(richDir);
+    try {
+      const wake = mindView(d.src).wake;
+      expect(wake.ok).toBe(true);
+      const named = wake.lanes.filter((l) => l.lane !== null);
+      expect(named.length).toBeGreaterThan(1);
+      for (const lane of named) {
+        expect(LANE_ORDER as readonly string[]).toContain(String(lane.lane));
+        expect(lane.items.length).toBeGreaterThan(0);
+        // No bullet survives into the rendered item.
+        for (const item of lane.items) expect(item.startsWith("- ")).toBe(false);
+      }
+    } finally {
+      d.close();
+    }
   });
 
   test("health names what it cannot see, rather than filling the panel", () => {

@@ -134,7 +134,7 @@ export const FLOW_NODES: readonly FlowNode[] = [
     key: "encode",
     label: "ENCODE",
     sub: "secrets · precision · salience · novelty",
-    what: "The bouncer. Strips secrets, refuses what is too thin to keep, scores how much this matters (relevance, feeling, predictive value) and how new it is against what is already believed.",
+    what: "The bouncer. Strips secrets, refuses what is too thin to keep, scores how much this matters (relevance, feeling, predictive value) and how new it is against what is already believed. Only the crash-sweep path leaves a durable record here — the authored path is gated in line, and silently.",
     analog: "Attention selecting what is worth encoding, plus amygdala tagging that marks emotional material for preferential consolidation.",
     breaks: "The secrets gate has no biological analog — the brain has no interlock that refuses to encode a credential. It is a deliberate, non-ablatable addition.",
     x: 0.40,

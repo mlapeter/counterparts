@@ -1,1 +1,412 @@
-<!doctype html><html><head><meta charset="utf-8"><title>counterparts</title></head><body>placeholder</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>counterparts — brain view</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+/* The poster. Same glow theme, one job: make a stranger stop scrolling, and
+   then tell them the truth — that the mapping is a metaphor and the flow tab is
+   the architecture-true view. */
+:root{--bg:#04070c;--ink:#c5cdd8;--dim:#5c6773;--faint:#39424d;--cyan:#00e5ff;--purple:#b388ff;
+  --amber:#ffd740;--teal:#00bfa5;--red:#ff5252;--card:rgba(13,17,23,.84);--border:rgba(0,229,255,.14)}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:radial-gradient(1200px 800px at 50% 42%, #0a1220 0%, var(--bg) 62%);
+  color:var(--ink);font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+  font-size:13px;overflow:hidden}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:40;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.05) 2px,rgba(0,0,0,.05) 4px)}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:39;
+  box-shadow:inset 0 0 220px rgba(0,0,0,.75)}
+#stage{position:fixed;inset:0;cursor:grab;display:block}
+#stage.drag{cursor:grabbing}
+header{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:baseline;gap:16px;
+  padding:16px 22px;pointer-events:none;flex-wrap:wrap}
+header a,header .badge{pointer-events:auto}
+h1{font-size:20px;font-weight:300;letter-spacing:8px;text-transform:uppercase;color:var(--cyan);
+  text-shadow:0 0 20px rgba(0,229,255,.4),0 0 45px rgba(0,229,255,.12);white-space:nowrap}
+.sub{color:var(--dim);font-size:11px}
+.hright{margin-left:auto;display:flex;gap:14px;align-items:center}
+.hright a{color:var(--dim);text-decoration:none;font-size:11px}
+.hright a:hover{color:var(--cyan)}
+.badge{font-size:9px;padding:1px 8px;border-radius:9px;border:1px solid var(--border);color:var(--dim);
+  letter-spacing:.5px;white-space:nowrap}
+#legend{position:fixed;right:18px;top:64px;z-index:50;width:306px;background:var(--card);
+  border:1px solid var(--border);border-radius:6px;backdrop-filter:blur(3px);overflow:hidden;
+  max-height:calc(100vh - 130px);overflow-y:auto}
+#legend h2{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);padding:11px 14px 7px;font-weight:400}
+.lg{display:grid;grid-template-columns:14px 1fr;gap:9px;padding:8px 14px;font-size:11px;cursor:pointer;
+  border-top:1px solid rgba(0,229,255,.05);align-items:start}
+.lg:hover,.lg.on{background:rgba(0,229,255,.07)}
+.lg .dot{width:9px;height:9px;border-radius:50%;margin-top:4px;box-shadow:0 0 8px currentColor}
+.lg .nm{font-weight:600}
+.lg .mech{color:var(--dim);font-size:10px;line-height:1.5}
+#ticker{position:fixed;left:22px;bottom:18px;z-index:50;max-width:54%;background:var(--card);
+  border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:11.5px;
+  backdrop-filter:blur(3px);line-height:1.6}
+#ticker .t{color:var(--faint);margin-right:8px}
+#ticker.amber{border-color:rgba(255,215,64,.4)}
+#ticker.amber #tickmsg{color:var(--amber)}
+#note{position:fixed;right:22px;bottom:16px;z-index:50;color:var(--faint);font-size:10px;
+  max-width:320px;text-align:right;line-height:1.7}
+#note a{color:var(--dim)}
+#fail{position:fixed;inset:0;display:none;z-index:60;align-items:center;justify-content:center;
+  text-align:center;padding:40px}
+#fail.show{display:flex}
+#fail .box{max-width:540px;border:1px dashed var(--border);border-radius:8px;padding:28px;
+  color:var(--dim);font-size:12px;line-height:1.8}
+#fail .box b{color:var(--ink);font-weight:400}
+@media(max-width:900px){#legend{display:none}#ticker{max-width:calc(100% - 44px)}#note{display:none}}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<header>
+  <h1>counterparts</h1>
+  <span class="sub">brain view — the same machinery, mapped to a rough anatomy</span>
+  <div class="hright">
+    <span class="badge" title="it strengthens nothing and writes nothing">read-only · observer</span>
+    <a href="/#flow">flow</a><a href="/">dashboard</a>
+  </div>
+</header>
+<div id="legend"><h2>regions ≈ modules</h2></div>
+<div id="ticker"><span class="t">…</span><span id="tickmsg">listening for events</span></div>
+<div id="note">drag to rotate · scroll to zoom<br>
+  the mapping is a metaphor — the <a href="/#flow">flow tab</a> is the architecture-true view</div>
+<div id="fail"><div class="box">
+  <b>The brain view needs three.js, and this machine cannot reach the CDN right now.</b><br><br>
+  Nothing else in the dashboard needs the network: every other page renders fully offline, from your own store.
+  <br><br><a href="/" style="color:var(--cyan)">back to the dashboard</a>
+</div></div>
+
+<script type="module">
+"use strict";
+/* Regions ≈ modules. The mapping is stated as a metaphor in the corner because
+   it is one: the flow tab is the architecture-true view, and this page says so
+   rather than letting a pretty picture imply more than it knows. */
+const REGIONS = [
+  { key:"cortex",     name:"cortex",            mech:"store — the three boxes: prose you can open, one small database, a cache that can always be rebuilt", col:[0.16,0.80,1.00], nodes:["store"] },
+  { key:"prefrontal", name:"prefrontal cortex", mech:"self — identity, the episode journal, and the briefing the next session wakes into",                 col:[0.72,0.53,1.00], nodes:["self","wake"] },
+  { key:"hippocampus",name:"hippocampus",       mech:"remember — the authored door, where a lived session becomes a durable trace",                          col:[0.25,1.00,0.72], nodes:["remember","sweep","spans"] },
+  { key:"amygdala",   name:"amygdala",          mech:"encode — salience tagging: what mattered, what was felt, what was new",                                col:[1.00,0.42,0.52], nodes:["encode"] },
+  { key:"thalamus",   name:"thalamus",          mech:"recall — the gate: cues in, and rarely, one memory out loud",                                          col:[1.00,0.80,0.32], nodes:["recall","session"] },
+  { key:"cerebellum", name:"cerebellum",        mech:"associate & schemas — what fires together wires together, and what that adds up to believing",         col:[0.30,0.95,0.85], nodes:["associate","schemas"] },
+  { key:"brainstem",  name:"brainstem",         mech:"sleep, physics & prospective — the clocks: decay, pruning, consolidation, and what is due",             col:[0.55,0.66,0.85], nodes:["sleep","physics","prospective"] },
+];
+const OF_NODE = {};
+REGIONS.forEach((r, i) => { for (const n of r.nodes) OF_NODE[n] = i; });
+
+// ── legend ─────────────────────────────────────────────────────────────────
+const legend = document.getElementById("legend");
+const lgEls = [];
+let locked = null;
+REGIONS.forEach((r, i) => {
+  const el = document.createElement("div");
+  el.className = "lg";
+  const c = `rgb(${r.col.map((v) => Math.round(v * 255)).join(",")})`;
+  el.innerHTML = `<span class="dot" style="background:${c};color:${c}"></span>
+    <span><span class="nm" style="color:${c}">${r.name}</span><div class="mech">${r.mech}</div></span>`;
+  el.onclick = () => {
+    locked = locked === i ? null : i;
+    lgEls.forEach((e2, j) => e2.classList.toggle("on", locked === j));
+  };
+  legend.appendChild(el);
+  lgEls.push(el);
+});
+
+const ticker = document.getElementById("ticker");
+const tickmsg = document.getElementById("tickmsg");
+function say(text, tone, at) {
+  tickmsg.textContent = text;
+  ticker.classList.toggle("amber", tone === "amber");
+  ticker.querySelector(".t").textContent = at
+    ? new Date(at).toTimeString().slice(0, 8)
+    : "…";
+}
+
+/** Mark the page ready whichever way it ends: the screenshot loop waits on this
+ *  flag, and a hologram that failed to load is still a page worth capturing. */
+function ready() { document.documentElement.dataset.loaded = "1"; }
+
+// ── three.js, pinned, from the one CDN this project allows ─────────────────
+let THREE;
+try {
+  THREE = await import("https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js");
+} catch (err) {
+  document.getElementById("fail").classList.add("show");
+  say("the hologram needs the network; the rest of the dashboard does not", "calm", null);
+  ready();
+  // Deliberately NOT rethrown: an unhandled rejection here would be a page
+  // error on a page that is behaving exactly as designed.
+}
+
+if (THREE) {
+  const canvas = document.getElementById("stage");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+  camera.position.set(0, 0.18, 3.0);
+  const group = new THREE.Group();
+  group.position.y = 0.08;
+  scene.add(group);
+
+  // A deterministic generator: the poster looks the same every time it is shot.
+  const rand = (() => { let s = 20260904; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; })();
+  const pts = [], cols = [], regs = [];
+  function push(p, region, dim = 1) {
+    pts.push(p[0], p[1], p[2]);
+    const c = REGIONS[region].col;
+    cols.push(c[0] * dim, c[1] * dim, c[2] * dim);
+    regs.push(region);
+  }
+  function dir() {
+    const u = rand() * 2 - 1, ph = rand() * Math.PI * 2, r = Math.sqrt(1 - u * u);
+    return [r * Math.cos(ph), u, r * Math.sin(ph)];
+  }
+  const RID = {};
+  REGIONS.forEach((r, i) => { RID[r.key] = i; });
+
+  // cerebrum: a wrinkled ellipsoid shell, split by the longitudinal fissure
+  for (let i = 0; i < 11000; i++) {
+    const d = dir();
+    const th = Math.atan2(d[2], d[0]), ph = Math.asin(d[1]);
+    let r = 1 + 0.05 * Math.sin(th * 7 + 3 * Math.sin(ph * 4)) + 0.03 * Math.sin(th * 13 + ph * 9)
+      + 0.018 * Math.sin(th * 23) * Math.sin(ph * 17);
+    r *= 0.985 + 0.05 * rand();
+    let x = d[0] * r * 1.02, y = d[1] * r * 0.86, z = d[2] * r * 1.28;
+    if (y < 0) { y *= 0.74; z *= 0.96; }
+    if (Math.abs(x) < 0.035 && y > -0.1) continue;
+    x += Math.sign(x) * 0.03;
+    if (y < -0.28 && z < -0.35) continue;
+    push([x, y, z], z > 0.78 ? RID.prefrontal : RID.cortex, 0.75 + 0.25 * rand());
+  }
+  // cerebellum: striated, rear underside
+  for (let i = 0; i < 2300; i++) {
+    const d = dir();
+    let r = 1 + 0.06 * Math.sin(Math.asin(d[1]) * 22);
+    r *= 0.97 + 0.06 * rand();
+    push([d[0] * r * 0.5, -0.58 + d[1] * r * 0.3, -0.82 + d[2] * r * 0.42], RID.cerebellum, 0.7 + 0.3 * rand());
+  }
+  // brainstem: a tapering column
+  for (let i = 0; i < 700; i++) {
+    const t = rand(), a = rand() * Math.PI * 2, rr = (0.17 - 0.06 * t) * Math.sqrt(rand());
+    push([Math.cos(a) * rr, -0.4 - 0.75 * t, -0.2 - 0.3 * t + Math.sin(a) * rr], RID.brainstem, 0.6 + 0.3 * rand());
+  }
+  // thalamus: two central lobes
+  for (const s of [-1, 1]) for (let i = 0; i < 430; i++) {
+    const d = dir();
+    push([s * 0.15 + d[0] * 0.13, -0.02 + d[1] * 0.11, 0.02 + d[2] * 0.16], RID.thalamus, 0.45 + 0.25 * rand());
+  }
+  // hippocampus: a curved arc through each medial temporal lobe
+  for (const s of [-1, 1]) for (let i = 0; i < 540; i++) {
+    const t = rand(), a = rand() * Math.PI * 2, rr = 0.055 * Math.sqrt(rand());
+    const cx = s * (0.3 + 0.12 * Math.sin(Math.PI * t)), cy = -0.2 - 0.26 * t * (1 - 0.35 * t), cz = -0.38 + 0.78 * t;
+    push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.8, cz + Math.sin(a + 1) * rr], RID.hippocampus, 0.75 + 0.25 * rand());
+  }
+  // amygdala: a small cluster at each hippocampal head
+  for (const s of [-1, 1]) for (let i = 0; i < 240; i++) {
+    const d = dir();
+    push([s * 0.42 + d[0] * 0.085, -0.42 + d[1] * 0.075, 0.42 + d[2] * 0.085], RID.amygdala, 0.75 + 0.25 * rand());
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  geo.setAttribute("aColor", new THREE.Float32BufferAttribute(cols, 3));
+  geo.setAttribute("aRegion", new THREE.Float32BufferAttribute(regs, 1));
+
+  const regionVerts = REGIONS.map(() => []);
+  for (let i = 0; i < regs.length; i++) regionVerts[regs[i]].push(i);
+  const vAt = (i) => new THREE.Vector3(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
+  const randVert = (r) => vAt(regionVerts[r][Math.floor(rand() * regionVerts[r].length)]);
+
+  const uniforms = {
+    uTime: { value: 0 },
+    uGlow: { value: new Array(REGIONS.length).fill(0) },
+    uLock: { value: -1 },
+    uPx: { value: 1 },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `attribute vec3 aColor;attribute float aRegion;
+      uniform float uTime;uniform float uGlow[${REGIONS.length}];uniform float uLock;uniform float uPx;
+      varying vec3 vC;varying float vA;
+      void main(){
+        int r=int(aRegion+0.5);
+        float glow=uGlow[r];
+        float tw=0.82+0.18*sin(uTime*2.1+position.x*37.0+position.y*53.0+position.z*41.0);
+        float lockBoost=(uLock<-0.5)?1.0:(abs(uLock-aRegion)<0.5?1.9:0.30);
+        vC=aColor*(0.88+1.35*glow)*tw*lockBoost;
+        vA=(0.70+0.30*glow)*lockBoost;
+        vec4 mv=modelViewMatrix*vec4(position,1.0);
+        gl_PointSize=uPx*(2.7+2.2*glow)*(3.0/-mv.z);
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader: `varying vec3 vC;varying float vA;
+      void main(){
+        vec2 d=gl_PointCoord-vec2(0.5);
+        float a=smoothstep(0.5,0.08,length(d));
+        gl_FragColor=vec4(vC,a*vA);
+      }`,
+  });
+  group.add(new THREE.Points(geo, mat));
+
+  for (const [r, op] of [[1.45, 0.16], [1.15, 0.08], [1.75, 0.05]]) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(r, r + 0.012, 90),
+      new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: op,
+        side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -1.45;
+    scene.add(ring);
+  }
+
+  // ── arcs: one signal travelling between two regions ──────────────────────
+  const glowTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d"), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, "rgba(255,255,255,1)");
+    gr.addColorStop(0.25, "rgba(255,255,255,.6)");
+    gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  const arcs = [];
+  function spawnArc(fromR, toR) {
+    if (fromR === toR) return;
+    const p0 = randVert(fromR), p2 = randVert(toR);
+    const mid = p0.clone().add(p2).multiplyScalar(0.5).multiplyScalar(1.55 + 0.35 * rand());
+    const col = REGIONS[toR].col;
+    const color = new THREE.Color(col[0], col[1], col[2]);
+    const N = 42, arr = new Float32Array(N * 3);
+    const curve = new THREE.QuadraticBezierCurve3(p0, mid, p2);
+    curve.getPoints(N - 1).forEach((p, i) => { arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z; });
+    const g2 = new THREE.BufferGeometry();
+    g2.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+    g2.setDrawRange(0, 0);
+    const line = new THREE.Line(g2, new THREE.LineBasicMaterial({ color, transparent: true,
+      opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const head = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false }));
+    head.scale.setScalar(0.15);
+    group.add(line); group.add(head);
+    arcs.push({ line, head, curve, born: performance.now(), dur: 1500, N });
+  }
+  function stepArcs(now) {
+    for (let i = arcs.length - 1; i >= 0; i--) {
+      const a = arcs[i], t = (now - a.born) / a.dur;
+      if (t >= 1.25) { group.remove(a.line); group.remove(a.head); a.line.geometry.dispose(); arcs.splice(i, 1); continue; }
+      const tt = Math.min(t, 1);
+      const headI = Math.floor(tt * (a.N - 1));
+      const tail = Math.max(0, headI - 14);
+      a.line.geometry.setDrawRange(tail, Math.max(1, headI - tail));
+      a.line.material.opacity = 0.55 * (t < 1 ? 1 : 1 - (t - 1) / 0.25);
+      a.head.material.opacity = t < 1 ? 1 : 1 - (t - 1) / 0.25;
+      a.head.position.copy(a.curve.getPoint(tt));
+    }
+  }
+
+  // ── live events: the ticker speaks the dashboard's own sentences ─────────
+  const glowTarget = new Array(REGIONS.length).fill(0);
+  let lastSeq = 0;
+  let booted = false;
+  function flashLegend(i) {
+    const el = lgEls[i];
+    if (!el) return;
+    el.style.background = "rgba(0,229,255,.13)";
+    setTimeout(() => { if (locked !== i) el.style.background = ""; }, 700);
+  }
+  let prevRegion = null;
+  function fire(e) {
+    const region = OF_NODE[e.node];
+    if (region === undefined) return;
+    glowTarget[region] = 1;
+    flashLegend(region);
+    if (prevRegion !== null) spawnArc(prevRegion, region);
+    prevRegion = region;
+    say(e.text, e.tone, e.at);
+  }
+  async function poll() {
+    try {
+      const res = await fetch(`/api/activity?limit=40&sinceSeq=${lastSeq}`, { headers: { accept: "application/json" } });
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d.lastSeq <= lastSeq && booted) return;
+      const fresh = d.events.slice().reverse();
+      lastSeq = d.lastSeq;
+      const play = booted ? fresh : fresh.slice(-10);
+      play.forEach((e, i) => setTimeout(() => fire(e), i * (booted ? 500 : 380)));
+      if (!booted && fresh.length === 0) {
+        say("nothing has reached my durable log yet — this store has not lived a day", "calm", null);
+      }
+      booted = true;
+    } catch (err) { /* the next poll retries; a dashboard does not shout */ }
+  }
+  // Seed from the whole kept log so a cold open is not a dead stage, then
+  // switch to "only what is new" — the same rule the flow tab follows.
+  (async () => {
+    try {
+      const res = await fetch("/api/activity?limit=12", { headers: { accept: "application/json" } });
+      if (res.ok) {
+        const d = await res.json();
+        lastSeq = d.lastSeq;
+        const fresh = d.events.slice().reverse();
+        fresh.forEach((e, i) => setTimeout(() => fire(e), i * 380));
+        if (fresh.length === 0) say("nothing has reached my durable log yet — this store has not lived a day", "calm", null);
+      }
+    } catch (err) { /* offline: the stage still renders */ }
+    booted = true;
+  })();
+  setInterval(poll, 4000);
+
+  // ── interaction ─────────────────────────────────────────────────────────
+  let dragging = false, px = 0, py = 0, rotY = 0.6, rotX = 0.12, autoPause = 0;
+  canvas.addEventListener("pointerdown", (e) => { dragging = true; px = e.clientX; py = e.clientY; canvas.classList.add("drag"); });
+  addEventListener("pointerup", () => { dragging = false; canvas.classList.remove("drag"); });
+  addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    rotY += (e.clientX - px) * 0.005;
+    rotX += (e.clientY - py) * 0.004;
+    rotX = Math.max(-0.9, Math.min(0.9, rotX));
+    px = e.clientX; py = e.clientY;
+    autoPause = performance.now() + 2500;
+  });
+  addEventListener("wheel", (e) => {
+    camera.position.z = Math.max(2.2, Math.min(6.5, camera.position.z + e.deltaY * 0.0018));
+  }, { passive: true });
+
+  function resize() {
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    uniforms.uPx.value = Math.min(devicePixelRatio, 2) * Math.min(1.4, w / 1100);
+  }
+  addEventListener("resize", resize);
+  resize();
+
+  function frame(now) {
+    uniforms.uTime.value = now / 1000;
+    if (now > autoPause) rotY += 0.0016;
+    group.rotation.y = rotY;
+    group.rotation.x = rotX;
+    for (let i = 0; i < REGIONS.length; i++) {
+      const cur = uniforms.uGlow.value[i];
+      uniforms.uGlow.value[i] = cur + (glowTarget[i] - cur) * 0.14;
+      glowTarget[i] *= 0.965;
+    }
+    uniforms.uLock.value = locked === null ? -1 : locked;
+    stepArcs(now);
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  ready();
+}
+</script>
+</body>
+</html>

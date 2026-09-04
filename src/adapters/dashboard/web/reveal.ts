@@ -84,6 +84,24 @@ export function reveal(store: Store, id: string | null | undefined, width = 64):
   };
 }
 
+/**
+ * Resolve an id at ITS OWN address, without following the forwarding chain.
+ *
+ * "It began as X" and "it now says Y" are unsayable without reading both ends,
+ * and a superseded belief's prose is retained by design for exactly this. Still
+ * render-time: an id whose own row is gone comes back as a named absence.
+ */
+export function revealHere(store: Store, id: string | null | undefined, width = 64): Revealed {
+  const ref = resolveRef(store, id, { width, follow: false });
+  if (!ref.present || ref.headId === null) {
+    return { id: ref.id, headId: ref.headId, state: ref.state, present: false, text: null, confidential: false, label: ref.label };
+  }
+  if (confidentialAt(store, ref.headId)) {
+    return { id: ref.id, headId: ref.headId, state: ref.state, present: true, text: null, confidential: true, label: WITHHELD };
+  }
+  return { id: ref.id, headId: ref.headId, state: ref.state, present: true, text: ref.text, confidential: false, label: ref.label };
+}
+
 /** The short form a feed line or a tooltip wants: text, or the reason there is none. */
 export function shortOf(store: Store, id: string | null | undefined, width = 56): string {
   const r = reveal(store, id, width);
