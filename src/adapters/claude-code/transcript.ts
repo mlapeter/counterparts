@@ -41,7 +41,9 @@
  *   cursor indexes into this turn list: splitting a block into several turns
  *   would re-slice a live session's uncaptured tail.
  *
- *   **G11 — this system's own asks never enter.** The host returns a blocking
+ *   **CONTRACT §5 G11 — this system's own asks never enter.** (Not the
+ *   behavioral spec's §2 G11 three paragraphs up: that one is about injected
+ *   context, this one is about our own voice.) The host returns a blocking
  *   Stop hook's stderr to the model as user-role `Stop hook feedback:` text, so
  *   v2's authorship and episode asks arrive back in its own transcript looking
  *   like something the owner said. Earlier this reader left that block
