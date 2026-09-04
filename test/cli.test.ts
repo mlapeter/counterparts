@@ -46,6 +46,7 @@ import {
   MCP_SCRIPT,
   OWNER_OPS,
   installLayout,
+  layoutRefusal,
   mcpCommand,
   openCounterpart,
   runCommand,
@@ -814,7 +815,11 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     s.close();
 
     const c = consoleWith();
-    const code = await run(["rebrief", "--budget", "9000"], { io: c.io, env: { [ENV]: dir } });
+    const code = await run(["rebrief", "--budget", "9000"], {
+      io: c.io,
+      env: { [ENV]: dir },
+      home: join(outside, "rebrief-home"),
+    });
     const printed = text(c.out);
 
     expect(code).toBe(EXIT.ok);
@@ -845,7 +850,14 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
   test("without a ceiling it refuses and names both ways to give it one (§2.18)", async () => {
     store().close();
     const c = consoleWith();
-    const code = await run(["rebrief"], { io: c.io, env: { [ENV]: dir } });
+    // A throwaway home: with no ceiling beside the store, `hostCeiling` falls
+    // back to the hooks' own `~/.counterparts/claude-code.json`, and a test that
+    // used the real one would be reading the owner's live configuration.
+    const code = await run(["rebrief"], {
+      io: c.io,
+      env: { [ENV]: dir },
+      home: join(outside, "rebrief-home"),
+    });
     expect(code).toBe(EXIT.refused);
     expect(text(c.err)).toContain("no injection ceiling");
     expect(text(c.err)).toContain("--budget");
@@ -866,7 +878,11 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     writeFileSync(config, JSON.stringify({ dataDir: inner, injectionBudgetBytes: 4096 }));
 
     const c = consoleWith();
-    const code = await run(["rebrief", "--dir", inner], { io: c.io, env: { [ENV]: dir } });
+    const code = await run(["rebrief", "--dir", inner], {
+      io: c.io,
+      env: { [ENV]: dir },
+      home: join(outside, "rebrief-home"),
+    });
     expect(c.err).toEqual([]);
     expect(code).toBe(EXIT.ok);
     expect(text(c.out)).toContain("ceiling 4096 bytes (");
@@ -1045,6 +1061,160 @@ describe("the destruction path is importable from this directory only", () => {
   });
 });
 
+// ── the console's own shape ─────────────────────────────────────────────────
+
+describe("usage", () => {
+  test("--help is an answered question (exit 0); a bare invocation is a usage error", async () => {
+    // Two commands apart in a stranger's first minute, and they used to share
+    // the failing code: `counterparts --help` set $? to 1 and any `set -e`
+    // wrapper died on the help text.
+    const helped = consoleWith();
+    expect(await run(["--help"], { io: helped.io })).toBe(EXIT.ok);
+    expect(text(helped.out)).toContain("the owner's console");
+
+    const bare = consoleWith();
+    expect(await run([], { io: bare.io })).toBe(EXIT.usage);
+    expect(text(bare.out)).toContain("the owner's console");
+
+    const perCommand = consoleWith();
+    expect(await run(["status", "--help"], { io: perCommand.io })).toBe(EXIT.ok);
+  });
+});
+
+// ── note / recall ───────────────────────────────────────────────────────────
+
+/**
+ * The console's own two memory acts. They exist because the cold-stranger
+ * review of 2026-09-04 reached the end of the install page with no way to test
+ * the one thing the product is for, and hand-wrote MCP JSON-RPC instead.
+ */
+describe("note and recall", () => {
+  test("a note round-trips: stored by one call, found by the next", async () => {
+    store().close();
+    const w = consoleWith();
+    expect(
+      await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
+        io: w.io,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(w.out)).toContain("Remembered mem_");
+    // A SECOND, unrelated memory — and it is here under protest. At store size
+    // one the question path returns `considered: 0` and finds nothing; write
+    // any second row and the first becomes retrievable by the same query. That
+    // is the cold-stranger review's finding 1, reproduced on four stores, and it
+    // is the first thing every new user does. The fix is `fix/recall-first-memory`;
+    // the executable proof lives in `tools/install-loop/run.sh`, which carries
+    // the one-memory case as a step that is EXPECTED TO FAIL until it lands.
+    // When it does, delete this line and the test still passes.
+    await run(["note", "An unrelated second memory about the fire escape.", "--dir", dir], {
+      io: consoleWith().io,
+    });
+
+    const r = consoleWith();
+    expect(await run(["recall", "what espresso machine?", "--dir", dir], { io: r.io })).toBe(EXIT.ok);
+    const printed = text(r.out);
+    expect(printed).toContain("Rancilio Silvia");
+    // The console opens no socket, so the answer says which channel ran.
+    expect(printed).toContain("semantic embedder-off");
+  });
+
+  // SKIPPED, not deleted, and written out in full so it can be switched on by
+  // removing one word. It fails today: at store size one the question path
+  // scores no candidates at all (`considered: 0`) and returns `nothing-came`,
+  // while the same memory is retrievable by id — so the write and the index are
+  // sound and the search path is blind at n=1. Reproduced on four independent
+  // fresh stores by the cold-stranger review, 2026-09-04. Fix in flight:
+  // `fix/recall-first-memory`. `tools/install-loop/run.sh` carries the same case
+  // as a step that reports EXPECTED-FAIL rather than passing quietly.
+  test.skip("recalls the FIRST memory in a fresh store (fix/recall-first-memory)", async () => {
+    store().close();
+    await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
+      io: consoleWith().io,
+    });
+    const c = consoleWith();
+    expect(await run(["recall", "what espresso machine?", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Rancilio Silvia");
+  });
+
+  test("note takes the SAME two doors the MCP tool does: the span is captured, then claimed", async () => {
+    // The order is the rule: without the claim, the end-of-session sweep finds
+    // the jot's own words in the buffer and mints them a second time.
+    const s = store();
+    s.close();
+    await run(["note", "Marisol keeps the postgres runbook in her head.", "--dir", dir], {
+      io: consoleWith().io,
+    });
+    const spans = join(dir, "spans");
+    expect(existsSync(spans)).toBe(true);
+    // One memory, not two: the deposit claimed the span it rode in on.
+    const after = openCounterpart(dir);
+    open.push(after);
+    expect(after.store.list({ archived: false }).length).toBe(1);
+    after.close();
+  });
+
+  test("recall --id is the exact address, and answers where a question may not", async () => {
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "The heron is blue in October." });
+    s.close();
+    const c = consoleWith();
+    expect(await run(["recall", "--id", id, "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("The heron is blue in October.");
+    expect(text(c.out)).toContain("expanded");
+  });
+
+  test("an empty recall is an ANSWER, and says what to try next", async () => {
+    store().close();
+    const c = consoleWith();
+    expect(await run(["recall", "xylophone quokka nothing", "--dir", dir], { io: c.io })).toBe(
+      EXIT.ok,
+    );
+    const printed = text(c.out);
+    expect(printed).toContain("Nothing came back.");
+    expect(printed).toContain("counterparts recall --id");
+  });
+
+  test("note refuses empty text, refuses an out-of-range salience, and refuses under observer", async () => {
+    store().close();
+    const empty = consoleWith();
+    expect(await run(["note", "--dir", dir], { io: empty.io })).toBe(EXIT.usage);
+
+    const bad = consoleWith();
+    expect(await run(["note", "x", "--salience", "7", "--dir", dir], { io: bad.io })).toBe(
+      EXIT.refused,
+    );
+    expect(text(bad.err)).toContain("--salience");
+
+    // An instrument may LOOK at a memory and may not add to one.
+    expect(OWNER_OPS).toContain("note");
+    expect(OWNER_OPS).not.toContain("recall");
+    const obs = consoleWith();
+    expect(await run(["note", "x", "--observer", "--dir", dir], { io: obs.io })).toBe(EXIT.refused);
+  });
+
+  test("recall refuses a question AND an --id together, and needs one of them", async () => {
+    store().close();
+    const both = consoleWith();
+    expect(await run(["recall", "a question", "--id", "mem_x", "--dir", dir], { io: both.io })).toBe(
+      EXIT.usage,
+    );
+    const neither = consoleWith();
+    expect(await run(["recall", "--dir", dir], { io: neither.io })).toBe(EXIT.usage);
+  });
+
+  test("--json prints the tool's own payload, whose storeSize is the real one", async () => {
+    store().close();
+    await run(["note", "A canary for the payload shape.", "--dir", dir], { io: consoleWith().io });
+    const c = consoleWith();
+    expect(await run(["recall", "canary payload", "--dir", dir, "--json"], { io: c.io })).toBe(
+      EXIT.ok,
+    );
+    const payload = JSON.parse(text(c.out)) as Record<string, unknown>;
+    expect(payload["path"]).toBe("question");
+    expect(payload["storeSize"]).toBe(1);
+  });
+});
+
 // ── install ─────────────────────────────────────────────────────────────────
 
 /**
@@ -1057,26 +1227,39 @@ describe("the destruction path is importable from this directory only", () => {
  * helper is exercised against an injected home rather than the real one.
  */
 describe("install", () => {
-  test("writes the store, the config BESIDE it, and a 0600 credentials file", async () => {
+  /** A throwaway HOME per test. `install` writes to `~/.counterparts` BY DESIGN
+   *  — that is the one path the hooks read — so a test that used the real one
+   *  would write the owner's live configuration. */
+  function fakeHome(name: string): string {
+    return join(outside, "home", name);
+  }
+
+  test("writes the store, and the config under ~/.counterparts whatever --dir says", async () => {
+    const home = fakeHome("cold");
     const store = join(outside, "cold", "store");
     const c = consoleWith();
     const code = await run(["install", "--dir", store, "--budget", "9000", "--name", "Ada"], {
       io: c.io,
       env: {},
+      home,
     });
     const printed = text(c.out);
 
     expect(code).toBe(EXIT.ok);
     expect(existsSync(paths.operational(store))).toBe(true);
 
-    // BESIDE, never inside: an unclassified file in the data dir is a store
-    // that will not open (§5 G11), which is the whole reason for this layout.
-    const config = join(outside, "cold", CONFIG_FILE);
+    // THE ONE PATH THE HOOKS READ. `claude-code/bin/hook.ts` and `bin/runner.ts`
+    // both hardcode `join(homedir(), ".counterparts", "claude-code.json")` with
+    // no flag and no environment override, and every hook exits 0 — so a config
+    // written anywhere else is an ambient half that never fires and never says
+    // why. `--dir` therefore moves the STORE and only the store.
+    const config = join(home, ".counterparts", CONFIG_FILE);
     expect(existsSync(config)).toBe(true);
     expect(existsSync(join(store, CONFIG_FILE))).toBe(false);
+    expect(existsSync(join(outside, "cold", CONFIG_FILE))).toBe(false);
     const parsed = JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>;
     expect(parsed["dataDir"]).toBe(store);
-    expect(parsed["credentialsFile"]).toBe(join(outside, "cold", CREDENTIALS_FILE));
+    expect(parsed["credentialsFile"]).toBe(join(home, ".counterparts", CREDENTIALS_FILE));
     expect(parsed["injectionBudgetBytes"]).toBe(9000);
     expect(parsed["owner"]).toBe(true);
     expect(parsed["identity"]).toEqual({ name: "Ada" });
@@ -1085,12 +1268,17 @@ describe("install", () => {
     // Nor is the parallel-run knob: that one is the run's, not a stranger's.
     expect(parsed["parallel"]).toBeUndefined();
 
-    const creds = join(outside, "cold", CREDENTIALS_FILE);
+    const creds = join(home, ".counterparts", CREDENTIALS_FILE);
     expect(existsSync(creds)).toBe(true);
     expect((statSync(creds).mode & 0o777).toString(8)).toBe("600");
     // Names, never values: the template mentions the two variables and holds none.
     expect(readFileSync(creds, "utf8")).toContain("ANTHROPIC_API_KEY");
     expect(readFileSync(creds, "utf8")).toContain("VOYAGE_API_KEY");
+
+    // A moved store is SAID OUT LOUD, because the thing that did not move is
+    // the thing the reader would otherwise assume followed it.
+    expect(printed).toContain("--dir moved the STORE only");
+    expect(printed).toContain(config);
 
     // The host's two steps are PRINTED, and they name absolute paths.
     expect(printed).toContain("claude mcp add counterparts");
@@ -1099,6 +1287,22 @@ describe("install", () => {
     expect(printed).toContain(MCP_SCRIPT);
     for (const event of HOST_EVENTS) expect(printed).toContain(event);
     expect(printed).toContain("printed, not applied");
+  });
+
+  test("refuses a --dir that would put the config inside the data dir", async () => {
+    // `--dir ~/.counterparts` is the shape that creates a store and then never
+    // opens again: the layout totality check refuses an unclassified top-level
+    // entry, and `claude-code.json` is one. Caught before anything is written.
+    const home = fakeHome("selfeating");
+    const c = consoleWith();
+    const code = await run(["install", "--dir", join(home, ".counterparts")], {
+      io: c.io,
+      env: {},
+      home,
+    });
+    expect(code).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("INSIDE the data dir");
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
 
   test("the printed host commands survive a PATH with no bun on it", () => {
@@ -1122,47 +1326,57 @@ describe("install", () => {
   });
 
   test("--embedder is the only way the egress knob is written", async () => {
+    const home = fakeHome("egress");
     const store = join(outside, "egress", "store");
     await run(["install", "--dir", store, "--budget", "9000", "--embedder"], {
       io: consoleWith().io,
       env: {},
+      home,
     });
     const parsed = JSON.parse(
-      readFileSync(join(outside, "egress", CONFIG_FILE), "utf8"),
+      readFileSync(join(home, ".counterparts", CONFIG_FILE), "utf8"),
     ) as Record<string, unknown>;
     expect(parsed["embedder"]).toEqual({ enabled: true });
   });
 
   test("invents no injection ceiling, and says so (scar §2.18)", async () => {
+    const home = fakeHome("noceiling");
     const store = join(outside, "noceiling", "store");
     const c = consoleWith();
-    expect(await run(["install", "--dir", store], { io: c.io, env: {} })).toBe(EXIT.ok);
+    expect(await run(["install", "--dir", store], { io: c.io, env: {}, home })).toBe(EXIT.ok);
     const parsed = JSON.parse(
-      readFileSync(join(outside, "noceiling", CONFIG_FILE), "utf8"),
+      readFileSync(join(home, ".counterparts", CONFIG_FILE), "utf8"),
     ) as Record<string, unknown>;
     expect(parsed["injectionBudgetBytes"]).toBeUndefined();
     expect(text(c.out)).toContain("invents none");
   });
 
   test("refuses a --budget that is not a positive whole number, before anything is created", async () => {
+    const home = fakeHome("badbudget");
     const store = join(outside, "badbudget", "store");
     const c = consoleWith();
-    expect(await run(["install", "--dir", store, "--budget", "lots"], { io: c.io, env: {} })).toBe(
-      EXIT.refused,
-    );
+    expect(
+      await run(["install", "--dir", store, "--budget", "lots"], { io: c.io, env: {}, home }),
+    ).toBe(EXIT.refused);
     expect(text(c.err)).toContain("--budget");
     expect(existsSync(store)).toBe(false);
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
 
   test("is idempotent: a second install keeps both files, and --force replaces them", async () => {
+    const home = fakeHome("twice-install");
     const store = join(outside, "twice-install", "store");
-    const config = join(outside, "twice-install", CONFIG_FILE);
-    await run(["install", "--dir", store, "--budget", "9000"], { io: consoleWith().io, env: {} });
+    const config = join(home, ".counterparts", CONFIG_FILE);
+    await run(["install", "--dir", store, "--budget", "9000"], {
+      io: consoleWith().io,
+      env: {},
+      home,
+    });
     writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234 }));
 
     const second = consoleWith();
     expect(
-      await run(["install", "--dir", store, "--budget", "9000"], { io: second.io, env: {} }),
+      await run(["install", "--dir", store, "--budget", "9000"], { io: second.io, env: {}, home }),
     ).toBe(EXIT.ok);
     expect(text(second.out)).toContain("kept");
     // The file pointing at somebody's live memory is never silently rewritten.
@@ -1175,6 +1389,7 @@ describe("install", () => {
       await run(["install", "--dir", store, "--budget", "9000", "--force"], {
         io: third.io,
         env: {},
+        home,
       }),
     ).toBe(EXIT.ok);
     expect(
@@ -1183,46 +1398,57 @@ describe("install", () => {
   });
 
   test("refuses a forbidden data dir before a single file is written", async () => {
+    const home = fakeHome("forbidden");
     const forbidden = join(homedir(), ".bansai", "cli-install-must-not-exist", "store");
     const c = consoleWith();
-    expect(await run(["install", "--dir", forbidden], { io: c.io, env: {} })).toBe(EXIT.refused);
+    expect(await run(["install", "--dir", forbidden], { io: c.io, env: {}, home })).toBe(
+      EXIT.refused,
+    );
     expect(text(c.err)).toContain("DATA_DIR_FORBIDDEN");
     expect(existsSync(forbidden)).toBe(false);
   });
 
   test("is an owner operation: an observer console refuses it", async () => {
     expect(OWNER_OPS).toContain("install");
+    const home = fakeHome("obs");
     const c = consoleWith();
     expect(
       await run(["install", "--dir", join(outside, "obs", "store"), "--observer"], {
         io: c.io,
         env: {},
+        home,
       }),
     ).toBe(EXIT.refused);
     expect(existsSync(join(outside, "obs"))).toBe(false);
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
 
-  test("the default layout puts the store UNDER the config dir, never at it", () => {
-    // The store's own default data dir is `~/.counterparts` — the directory
-    // this command writes two unclassifiable files into. `install` must not
-    // inherit it, or the store it creates is one that cannot be opened.
-    const home = join(outside, "home");
+  test("the config dir is ~/.counterparts always; only the store moves", () => {
+    const home = join(outside, "layout-home");
     const layout = installLayout(undefined, {}, home);
     expect(layout.base).toBe(join(home, ".counterparts"));
     expect(layout.store).toBe(join(home, ".counterparts", "store"));
     expect(layout.config).toBe(join(home, ".counterparts", CONFIG_FILE));
     expect(layout.credentials).toBe(join(home, ".counterparts", CREDENTIALS_FILE));
 
-    // A named store — flag or environment — puts the config at its parent.
+    // A named store — flag or environment — moves the STORE and nothing else,
+    // because the hooks read one hardcoded configuration path and no other.
     const named = installLayout(join(outside, "elsewhere", "s"), {}, home);
     expect(named.store).toBe(join(outside, "elsewhere", "s"));
-    expect(named.config).toBe(join(outside, "elsewhere", CONFIG_FILE));
+    expect(named.config).toBe(join(home, ".counterparts", CONFIG_FILE));
     const fromEnv = installLayout(
       undefined,
       { COUNTERPARTS_DATA_DIR: join(outside, "e", "s") },
       home,
     );
     expect(fromEnv.store).toBe(join(outside, "e", "s"));
+    expect(fromEnv.config).toBe(join(home, ".counterparts", CONFIG_FILE));
+
+    // And the one shape that must be refused rather than created.
+    expect(layoutRefusal(layout)).toBe(null);
+    expect(layoutRefusal(installLayout(join(home, ".counterparts"), {}, home))).toContain(
+      "INSIDE the data dir",
+    );
   });
 
   test("the printed settings block is one command on all five events, and is only printed", () => {

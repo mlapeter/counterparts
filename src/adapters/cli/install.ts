@@ -36,12 +36,15 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** The store directory under the base. Named, because three files agree on it. */
+export const DEFAULT_STORE_DIR = "store";
+
 // The two credential NAMES, taken from the adapter that defines them rather
 // than retyped here — a template that named a third variable, or misspelled one
 // of these, would be a file the loader silently ignores and counts. The same
 // direction `mcp/bin/serve.ts` already takes for the same reason.
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
-import { DEFAULT_DATA_DIR_NAME } from "../../core/store/index.js";
+import { DEFAULT_DATA_DIR_NAME, isWithin } from "../../core/store/index.js";
 
 /** The five host events one executable serves (`claude-code/bin/hook.ts`). */
 export const HOST_EVENTS = [
@@ -111,12 +114,22 @@ export interface InstallLayout {
  * Where an install lands, from the flags and the environment — resolved, never
  * guessed halfway.
  *
- * `--dir` and `COUNTERPARTS_DATA_DIR` name the STORE, so the base is its
- * parent; with neither, the base is `~/.counterparts` and the store is the
- * `store/` under it. That default is deliberately NOT `dataDir()`'s: the store's
- * own default resolves to `~/.counterparts` itself, which is the directory this
- * command puts two unclassifiable files into (rule 1, and the open bug this
- * layout works around).
+ * **The base is ALWAYS `~/.counterparts`, whatever `--dir` says.** That is not a
+ * convenience; it is the only shape that works. `claude-code/bin/hook.ts:39` and
+ * `bin/runner.ts` both hardcode `join(homedir(), ".counterparts",
+ * "claude-code.json")` as the one configuration they read, with no flag and no
+ * environment override, and every hook exits 0 by design — so a config written
+ * anywhere else is a config the ambient half never finds and never complains
+ * about. The cold-stranger review of 2026-09-04 found exactly that: `--dir`
+ * produced a working store, a correct config and correct printed hooks, and an
+ * ambient half permanently blind, with nothing on screen to say so.
+ *
+ * So `--dir` (and `COUNTERPARTS_DATA_DIR`) move the STORE and only the store;
+ * `dataDir` in the config is how the hooks are told where it went.
+ *
+ * The default store is `~/.counterparts/store`, deliberately NOT `dataDir()`'s
+ * `~/.counterparts` — that is the directory holding the two unclassifiable
+ * files, and rule 1 is why.
  */
 export function installLayout(
   dirFlag: string | undefined,
@@ -129,15 +142,33 @@ export function installLayout(
       : (env["COUNTERPARTS_DATA_DIR"] ?? "").trim().length > 0
         ? (env["COUNTERPARTS_DATA_DIR"] as string)
         : undefined;
-  const store =
-    named === undefined ? join(home, DEFAULT_DATA_DIR_NAME, "store") : resolve(named);
-  const base = named === undefined ? join(home, DEFAULT_DATA_DIR_NAME) : dirname(store);
+  const base = join(home, DEFAULT_DATA_DIR_NAME);
+  const store = named === undefined ? join(base, DEFAULT_STORE_DIR) : resolve(named);
   return {
     base,
     store,
     config: join(base, CONFIG_FILE),
     credentials: join(base, CREDENTIALS_FILE),
   };
+}
+
+/**
+ * Why this store cannot hold this install's configuration, or null when it can.
+ *
+ * The one case: a `--dir` that IS `~/.counterparts`, or any ancestor of it, puts
+ * `claude-code.json` and `credentials.env` inside the data dir, and the layout
+ * totality check (§5 G11) refuses an unclassified top-level entry at open. The
+ * store would be created and then never open again. Caught before anything is
+ * written, and named.
+ */
+export function layoutRefusal(layout: InstallLayout): string | null {
+  if (!isWithin(layout.store, layout.config)) return null;
+  return (
+    `refused: the configuration lives at ${layout.config}, which would sit INSIDE the ` +
+    `data dir ${layout.store}. The store's layout check refuses an unclassified file at ` +
+    `open (§5 G11), so that store would never open again. Choose a --dir that is not ` +
+    `${layout.base} or an ancestor of it — ${join(layout.base, DEFAULT_STORE_DIR)} is the default.`
+  );
 }
 
 export interface ConfigInput {
