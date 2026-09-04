@@ -10,6 +10,14 @@ import { StoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
 export const DEFAULT_DATA_DIR_NAME = ".counterparts";
+/**
+ * The STORE sits one level below the base dir. The base dir belongs to the host
+ * adapters (configuration, credentials); the store classifies every top-level
+ * entry it holds and refuses an unclassified one at open (§5 G11), so a store
+ * that IS the base dir cannot open once a host has written its config there.
+ * Ruled by the owner 2026-09-04 after the launch inventory reproduced it.
+ */
+export const DEFAULT_STORE_SUBDIR = "store";
 
 /**
  * Roots this repo may never write into: v1's live memory and its ancestor.
@@ -43,14 +51,14 @@ export function assertSafeDataDir(dir: string): string {
 /**
  * The data directory for THIS call. Resolution order:
  *   1. `COUNTERPARTS_DATA_DIR` (read now, not at import)
- *   2. `~/.counterparts`
+ *   2. `~/.counterparts/store` (the base dir minus its host-adapter files)
  */
 export function dataDir(): string {
   const fromEnv = process.env[DATA_DIR_ENV];
   const raw =
     fromEnv && fromEnv.trim().length > 0
       ? fromEnv
-      : join(homedir(), DEFAULT_DATA_DIR_NAME);
+      : join(homedir(), DEFAULT_DATA_DIR_NAME, DEFAULT_STORE_SUBDIR);
   return assertSafeDataDir(raw);
 }
 
