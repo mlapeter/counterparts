@@ -195,7 +195,9 @@ dashboard's behaviour on a missing store. **Not verified at
 all**: anything under Node, and — until you do it — a stranger installing from the
 documentation on a machine with no copy of this repository.
 
-**Known rough edges** (QUICKSTART §10 has all of them, with reproductions):
+**Known rough edges.** QUICKSTART §10 carries the install-facing ones — 1 as its §10.3, 2
+as its §10.4, and 4 as its §10.6 with a reproduction (and in §7, where `remove` is run). 3 lives in QUICKSTART §6,
+where the embedder knob is set, and 5 in §1 with the runtime requirements:
 
 1. **The store you point at and the host settings you get come from two different files.**
    Your console, the dashboard and the MCP server take `--dir` or `COUNTERPARTS_DATA_DIR`
@@ -213,10 +215,13 @@ documentation on a machine with no copy of this repository.
 3. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
    `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
    Absent that, no client is built and no connection opens whatever keys are lying around.
-4. **Removal leaves one residue.** `remove` chases a memory out of the prose, the
-   database, the links and the cache, and reports what it chased. It does not yet reach
-   the buffer that holds the raw captured conversation, so a removed memory's words can
-   survive there. Found and filed 2026-09-04; the fix is not written as this is stated.
+4. **Removal leaves one residue — and now says so, by name.** `remove` chases a memory out
+   of the prose, the database, the links and the cache. It does not reach
+   `spans/<scope>/jots.jsonl`, the buffer that holds the raw capture, so a note's words can
+   survive there; a later backup copies them, and `export` does not. Since 2026-09-04 the
+   dry run and the completion report name that file as unchased — with the count in the
+   durable removal record — instead of reporting `nothing`. Chasing it is a core change,
+   not yet written. Found and filed 2026-09-04.
 5. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and

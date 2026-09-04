@@ -79,6 +79,47 @@ prompt; `backup`, `verify --rebuild` and `init` are autonomous — though
 `--rebuild` now has a refusal of its own (below), which is a flag rather than a
 human.
 
+## 2026-09-04 — removal names the span buffer: the seventh surface
+
+**LAUNCH-STATUS §I2, owner ruling: option A.** `remove` reported `unchased:
+nothing` while a removed note's verbatim words were still on disk. A note is
+CAPTURED first — `captureJot` appends the raw text to
+`spans/<keyFor(scope)>/jots.jsonl` — and minted second; the chase never reached
+that file, `unchasable` was a hardcoded `[]`, and a `backup` taken afterwards
+copied the words into the snapshot (`export` does not; spans are outside its
+set). Against §16 G15, quoted in the comment sitting on that very `[]`, this was
+a silent partial success.
+
+What shipped, adapter-side:
+
+- **`RemovalPlan.spans`** — a seventh surface, reported rather than chased, and
+  present in ALL THREE states. `not applicable` is printed too: a surface that
+  goes quiet when it is empty is what made the residue invisible.
+- **`unchasable` carries it**, so `ownerRemoval` seeds `unchased` from it and the
+  durable `cli.removal.complete` record counts it. The dry run prints it ABOVE
+  `Dry run. Nothing has changed.` — a disclosure under the closing line is one
+  the reader has already stopped reading (cold-stranger round 3, C3).
+- **Evidence first, provenance second.** `spanResidue()` searches the scope's
+  buffer files for the doomed words (during the plan, before anything is chased,
+  §16 G13) and reports `held` with the file named. Provenance only breaks a tie
+  when the search misses: `source = 'authored'` means the memory came through the
+  jot door, so a miss is `unknown`, never an all-clear. The two blind spots — the
+  prose already gone, provenance never recorded — are reported as `unknown`
+  rather than resolved in the comfortable direction. Paths are store-RELATIVE and
+  no line of what was read is ever printed (§16 G15).
+
+**Why not chase it.** Striking a span needs a door in `remember/` that does not
+exist, and the buffer is a state machine whose spec (§2 G6) forbids a span being
+in neither claim nor buffer — a `rmSync` from the destruction path would race a
+concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
+(`SpanBuffer.strike`), including the detail that `Proposal.ownSpanHash` is minted
+but never persisted, which is why the adapter detects by content rather than by
+hash.
+
+**Still true after this change:** the words are still on disk. This makes the
+report honest; it does not make the removal complete. README rough edge 4 and
+QUICKSTART §10.6 say so in the same words the command does.
+
 ## 2026-09-04 — `verify` is a census by default; the rebuild is opt-in
 
 **The sharp edge, found by the adversarial review of PR #37 (the default-data-dir

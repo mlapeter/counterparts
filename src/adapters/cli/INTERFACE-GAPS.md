@@ -169,3 +169,40 @@ clock; birth has no caller. For the coordinator to route: either the mint path
 mentions the entities a deposit names (ambient, constitution 8) or the console
 grows an owner-facing verb, but a birth rule with no live caller cannot be
 claimed as working.
+
+## 9. `remember/` has no door to strike a span, so removal can only NAME the buffer
+
+**Filed 2026-09-04**, with the adapter half of LAUNCH-STATUS §I2 (owner ruling:
+option A — report it now, chase it later).
+
+A note is CAPTURED before it is minted: `captureJot` appends the verbatim text to
+`spans/<keyFor(scope)>/jots.jsonl`, and `submitJot` mints from it. Nothing prunes
+that file, so a removed note's words stay on disk — and `backup` copies them
+(measured; `export` does not, §C1). `removal.ts` now reports the surface in all
+three states, and the count reaches the durable `cli.removal.complete` record.
+Reporting is all it can do.
+
+**What is missing.** `SpanBuffer` exposes `claim`/`consume`/`restore` — the
+lifecycle of a buffer being drained forward — and nothing that removes ONE span
+from wherever it currently sits (live stream, `claims/*.jsonl` aside, consumed
+ledger). The destruction path cannot be given a `rmSync` over `spans/`: that file
+is `remember/`'s state machine, spec §2 G6 forbids a span being in neither claim
+nor buffer, and a claim renaming underneath a chase is exactly the race that
+guarantee exists to prevent.
+
+**Fix, for the coordinator to route:** `SpanBuffer.strike(scope, predicate |
+spanHash): StrikeReport` — one seam, inside `remember/`'s own `mutate()`, that
+rewrites each stream file without the matching records and reports counts per
+file. The removal path then calls it between `dark` and `chased` and moves the
+surface from `unchasable` into `surfaces`. The hash to strike is already minted:
+`Proposal.ownSpanHash` — but it is NOT persisted (the store keeps
+`origin_session` / `origin_scope` / `origin_ref` and drops the span hash), so
+either that column joins `memories`, or `strike` takes the content predicate the
+adapter already uses to detect the residue.
+
+**Until then**, `spanResidue()` in `removal.ts` decides by LOOKING: it searches
+the scope's buffer files for the doomed words and reports `held` on a hit,
+`not-applicable` on a checked miss, and `unknown` for its two blind spots (the
+prose already gone; provenance never recorded). Evidence first, provenance
+second — `source = 'authored'` turns a miss into `unknown` rather than an
+all-clear, because "I did not find it" is not "it was never there".

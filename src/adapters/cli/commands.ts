@@ -1116,7 +1116,18 @@ async function removeCommand(
 
   io.out(`Removal plan for ${targetId}:`);
   for (const surface of plan.surfaces) io.out(`  chase ${surface.surface}: ${surface.count}`);
+  // The seventh surface, printed in ALL THREE states and ABOVE the closing
+  // "Nothing has changed" line — a disclosure under the last line of a dry run
+  // is a disclosure a reader has already stopped reading (cold-stranger round 3,
+  // C3). `not applicable` is stated too: the silence is what made the residue
+  // undiscoverable outside the README (LAUNCH-STATUS §I2).
+  io.out(
+    plan.spans.state === "not-applicable"
+      ? `  ${plan.spans.line}`
+      : `  NOT chased — ${plan.spans.line}`,
+  );
   for (const name of plan.unchasable) {
+    if (name === plan.spans.line) continue; // said once, on its own line above
     io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
   }
   // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
