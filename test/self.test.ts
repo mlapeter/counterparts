@@ -625,6 +625,68 @@ describe("the wake briefing — every element carries its date", () => {
     expect(lines).toContain("- 2026-09-01 · Today's standup moved to ten.");
   });
 
+  test("a MIGRATED element's date is an upper bound — 'by', never a plain claim", () => {
+    // Live 2026-09-05, the first dated wake: all eleven elements read
+    // "2026-09-03 ·", the import day, a July incident among them. The importer
+    // writes the import date wherever v1 carried none and the row does not say
+    // which it did, so the element states what is actually known.
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "self",
+      body: "The surprise pipeline has never fired in three weeks.",
+      band: "identity",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      physics: { promotedIdentity: true },
+      learnedOn: "2026-09-03",
+      source: "migrated",
+    });
+    // Beside it, an element this system learned itself: plain, as before.
+    identityOn(s, "The parallel run started this morning.", "2026-09-04");
+
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+    expect(lines).toContain("- by 2026-09-03 · The surprise pipeline has never fired in three weeks.");
+    expect(lines).toContain("- 2026-09-04 · The parallel run started this morning.");
+    // A wrong date is worse than none: nothing renders the import day as a claim.
+    expect(lines.some((l) => l.startsWith("- 2026-09-03 ·"))).toBe(false);
+  });
+
+  test("a migrated element carrying a REAL content date renders it plainly", () => {
+    // `happened_on` is evidence about the thing itself and survived the import
+    // unaltered. Hedging real evidence would make "by" mean nothing.
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "The credential incident took a Saturday to unpick.",
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      learnedOn: "2026-09-03",
+      happenedOn: "2026-07-26",
+      source: "migrated",
+    });
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+    expect(lines).toEqual([
+      "- 2026-09-03 (of 2026-07-26) · The credential incident took a Saturday to unpick.",
+    ]);
+    for (const line of lines) expect(line.startsWith("- by ")).toBe(false);
+  });
+
+  test("the bound costs exactly 3 bytes, and the budget counts them", () => {
+    expect(byteLength(datePrefix({ statement: "x", learnedOn: "2026-09-03" }))).toBe(14);
+    expect(
+      byteLength(datePrefix({ statement: "x", learnedOn: "2026-09-03", boundedDate: true })),
+    ).toBe(17);
+    // A content date wins over the bound, so its width is unchanged by the flag.
+    const both = { statement: "x", learnedOn: "2026-09-03", happenedOn: "2026-07-26" };
+    expect(datePrefix({ ...both, boundedDate: true })).toBe(datePrefix(both));
+
+    // And the composed total moves by exactly 3 bytes per bounded element.
+    const lanes: Lanes = { ...emptyLanes(), identity: [ranked("m1"), ranked("m2")] };
+    const plain: Resolve = (id) => ({ statement: `Statement for ${id}.`, learnedOn: "2026-09-03" });
+    const bounded: Resolve = (id) => ({ ...plain(id), boundedDate: true });
+    expect(compose(lanes, 0, bounded).bytes - compose(lanes, 0, plain).bytes).toBe(3 * 2);
+  });
+
   test("an UNDATED element renders with no prefix rather than an empty one", () => {
     // A chased row reads `learned_on = ''`; blank is not a date, and inventing
     // today's for it would be the exact lie the dates exist to prevent.

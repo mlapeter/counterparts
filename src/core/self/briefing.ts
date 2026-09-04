@@ -97,6 +97,13 @@ export interface Resolved {
   readonly learnedOn?: string;
   /** The content date (`ProseDoc.happenedOn`), rendered only when it DIFFERS. */
   readonly happenedOn?: string;
+  /**
+   * True when the encode date is only an UPPER BOUND — the element was known BY
+   * then, not learned then. Set for migrated elements, whose `learned_on` is
+   * v1's date when v1 carried one and the IMPORT date when it did not, with
+   * nothing in the row to tell the two apart. See `datePrefix`.
+   */
+  readonly boundedDate?: boolean;
 }
 
 export type Resolve = (id: string) => Resolved;
@@ -201,15 +208,35 @@ export function flatten(text: string): string {
  * A differing content date is named inline and neutrally — `(of 2026-06-01)` —
  * because the horizon lane's dates are in the FUTURE (an arriving occasion), and
  * "happened" would be a lie about half of them.
+ *
+ * **`by` — the upper bound, and why a MIGRATED element gets one.** Run live on
+ * 2026-09-05, the first dated wake read `2026-09-03 ·` on all eleven elements,
+ * including a July incident and a mid-August finding: the importer writes the
+ * IMPORT date as `learned_on` for every row v1 carried no date for, and nothing
+ * in the row distinguishes those from the ones that kept v1's own. A wrong date
+ * is worse than no date — it is a claim, made confidently, in the one line the
+ * reader uses to discount everything else — so a migrated element states what is
+ * actually known: `by 2026-09-03 ·`, three bytes for a date that is true
+ * whichever of the two it is.
+ *
+ * A migrated element carrying a CONTENT date is the exception and renders
+ * plainly, as everything else does: `happened_on` is evidence about the thing
+ * itself, it survived the import unaltered, and hedging real evidence would make
+ * `by` mean nothing. *Named cost: a migrated row that did keep v1's own date and
+ * has no content date is hedged too — "by 2026-07-26" instead of "2026-07-26".
+ * Weaker, never wrong, and the alternative needs a per-row discriminator the
+ * import did not record.*
  */
 export const DATE_SEP = " · ";
+export const DATE_BOUND = "by ";
 
 export function datePrefix(r: Resolved): string {
   const learned = (r.learnedOn ?? "").trim();
   if (learned === "") return "";
   const happened = (r.happenedOn ?? "").trim();
-  const of = happened === "" || happened === learned ? "" : ` (of ${happened})`;
-  return `${learned}${of}${DATE_SEP}`;
+  if (happened !== "" && happened !== learned) return `${learned} (of ${happened})${DATE_SEP}`;
+  const bound = r.boundedDate === true ? DATE_BOUND : "";
+  return `${bound}${learned}${DATE_SEP}`;
 }
 
 /**

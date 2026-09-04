@@ -164,7 +164,18 @@ recompression proposals and their archive; render and delivery telemetry.
    rather than once per element. An undated row (a chased one reads `learned_on = ''`)
    renders with no prefix rather than an invented date. 2026-09-04: the wake carried no
    date of any kind, and a migrated element learned 2026-07-26 was read as a current fact
-   and repeated to the owner as one.
+   and repeated to the owner as one. **A MIGRATED element's encode date is rendered as an
+   upper bound** — `- by 2026-09-03 · statement`, +3 bytes — because the importer writes
+   the IMPORT date wherever v1 carried none and nothing in the row tells those apart from
+   the ones that kept v1's own: the first dated wake, run live 2026-09-05, read
+   `2026-09-03 ·` on all eleven elements, a July incident and a mid-August finding among
+   them. A wrong date is worse than no date; it is a confident claim in the one line the
+   reader discounts everything else by. The exception is a migrated row carrying a CONTENT
+   date, which renders plainly as any other does: `happened_on` is evidence about the thing
+   itself and survived the import unaltered, and hedging real evidence would make `by` mean
+   nothing. *Named cost: a migrated row that DID keep v1's own date and has no content date
+   is hedged too — weaker, never wrong, and the alternative needs a per-row discriminator
+   the import did not record.*
 4. **[M]** Status does not accumulate on the self. A memory whose truth expires with a date
    is not an identity element, discriminated at encode time by one question: *would this
    still be a true memory worth holding after the date passes?* A standing counter reports

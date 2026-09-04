@@ -294,8 +294,15 @@ export class Self {
     const horizon: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
     const lanes: Lanes = rankLanes(scanned, horizon, this.tunables);
     const docs = new Map<string, ProseDoc>();
-    for (const s of scanned) docs.set(s.id, s.doc);
-    const resolve: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs));
+    // Provenance rides along from the SAME scan the docs came from: the render
+    // dates a migrated element as an upper bound, and a second row read per
+    // element to learn that would be a scan the boundary already paid for.
+    const sources = new Map<string, string | null>();
+    for (const s of scanned) {
+      docs.set(s.id, s.doc);
+      sources.set(s.id, s.source);
+    }
+    const resolve: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
     return render(lanes, { budgetBytes: req.budgetBytes, day: req.day }, resolve, this.tunables);
   }
 
@@ -1055,7 +1062,11 @@ export class Self {
    * exist to prevent. The dates come from the SAME read as the text, so an
    * element's age can never be one boundary older than its words.
    */
-  private resolveStatement(id: string, docs: Map<string, ProseDoc>): Resolved {
+  private resolveStatement(
+    id: string,
+    docs: Map<string, ProseDoc>,
+    sources: Map<string, string | null>,
+  ): Resolved {
     let doc = docs.get(id);
     if (doc === undefined) {
       try {
@@ -1064,16 +1075,27 @@ export class Self {
         return { statement: id };
       }
     }
+    // The horizon lane's ids never went through `scanActive`, so their
+    // provenance is read here — the one row read the scan did not already make.
+    const source = sources.has(id) ? sources.get(id) ?? null : this.store.row(id)?.source ?? null;
     const paragraph = doc.body.split(/\n\s*\n/).find((p) => p.trim().length > 0) ?? doc.body;
     const statement = flatten(paragraph);
-    const out: { statement: string; learnedOn?: string; happenedOn?: string } = {
-      statement: statement.length > 0 ? statement : id,
-    };
+    const out: {
+      statement: string;
+      learnedOn?: string;
+      happenedOn?: string;
+      boundedDate?: boolean;
+    } = { statement: statement.length > 0 ? statement : id };
     // Blank is how a chased row reads (`owner-op-seam`), and blank is not a date.
     if (doc.learnedOn.trim() !== "") out.learnedOn = doc.learnedOn;
     if (doc.happenedOn !== undefined && doc.happenedOn.trim() !== "") {
       out.happenedOn = doc.happenedOn;
     }
+    // A MIGRATED element's encode date is an upper bound, not a claim: the
+    // importer wrote the import date wherever v1 carried none, and the row does
+    // not say which it did (measured live 2026-09-05 — all eleven elements read
+    // the import day, a July incident among them).
+    if (source === "migrated") out.boundedDate = true;
     return out;
   }
 
