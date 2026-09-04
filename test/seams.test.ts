@@ -2142,6 +2142,20 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
     expect(c.store.readProse(successorId).meta["entityId"]).toBeUndefined();
     expect(c.store.readProse(successorId).meta["role"]).toBeUndefined();
     expect(c.schemas.element(successorId)).toBeUndefined();
+
+    // The claim the shared event shape is FOR: the story view does not care
+    // which arm moved the row. An identity element has no entity, and the
+    // renderer says so rather than failing on a schema-only assumption.
+    c.close();
+    brains.length = 0;
+    const d = Dashboard.open({ dir });
+    try {
+      const text = stripAnsi(d.stories({ id: identityId }));
+      expect(text).toContain("REVISED");
+      expect(text).toContain("no entity named");
+    } finally {
+      d.close();
+    }
   });
 
   test("the increment reaches the DASHBOARD's story view, unchanged", async () => {

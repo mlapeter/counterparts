@@ -232,12 +232,16 @@ function buildEffects(
       // and it is what walks the declaration to a real row (`remember/` matches
       // text to a candidate; the store walks an id through the supersede chain).
       //
-      // So the correspondence this list promises is ONE APPLY PER EFFECT, not
-      // one movement per effect: a declaration that resolves to nothing lands as
-      // a named `target-unresolvable` refusal, and one that hit an ordinary
-      // memory lands as a link. What the chunk MOVED is the applier's own
-      // record. A fully gated chunk accepts nothing, so it emits no effect and
-      // applies none — and an observer's chunk emits none either (see above).
+      // So the correspondence this list promises is ONE APPLY PER DECLARATION,
+      // not one movement per effect: a declaration that resolves to nothing
+      // lands as a named `target-unresolvable` refusal, and one that hit an
+      // ordinary memory lands as a link. (The applier is reached slightly more
+      // often than this list is long: a proposal that declared NOTHING but whose
+      // content the engine matched to an existing memory also arrives there, and
+      // is a named no-move — a restatement is a confirmation, never a challenge.
+      // No effect is missing, because nothing moved.) What the chunk MOVED is
+      // the applier's own record. A fully gated chunk accepts nothing, so it
+      // emits no effect and applies none — and an observer's emits none either.
       effects.push({ effect: "revision.challenge", targetId: a.updates, ref: a.ref });
     }
   }

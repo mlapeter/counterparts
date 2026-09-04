@@ -183,13 +183,17 @@ export function applyRevision(
     extra: Partial<RevisionApplication> = {},
   ): RevisionApplication => {
     const out: RevisionApplication = { ...NOTHING, path, reason, targetId, ...extra };
-    // Three DISTINCT records, never one (scar §2.4): state moved, the link was
-    // the whole effect, or the declaration was refused and why.
-    const name =
-      out.moved
-        ? "revision.applied"
-        : path === "link-only"
-          ? "revision.linked"
+    // FOUR DISTINCT records, never one string for two facts (scar §2.4): state
+    // moved; the link was the whole effect; the engine matched a restatement and
+    // there was nothing to challenge; or the declaration was refused, and why.
+    // A confirmation is not a refusal — filing it as one would make the refusal
+    // distribution unreadable, which is the shape of v1's ambiguous zeroes.
+    const name = out.moved
+      ? "revision.applied"
+      : path === "link-only"
+        ? "revision.linked"
+        : reason === "confirmation-not-a-challenge"
+          ? "revision.confirmed"
           : "revision.refused";
     opts.onEvent?.(name, {
       path,
