@@ -23,8 +23,8 @@ comparison" needs a future v2 run to be checked against.**
 - **Last event:** `2026-08-25T17:52:35.978Z`
 - **26 log files** (`events-YYYY-MM-DD.jsonl`), one per day with activity, spanning a
   30-calendar-day range (2026-07-27 through 2026-08-25 inclusive).
-- **4 calendar dates have no log file** (no activity that day): 2026-07-28, 2026-08-02,
-  2026-08-16, 2026-08-20.
+- **4 calendar dates in the range have no log file** (no activity those days); the dates
+  themselves are not reproduced here.
 - **Total events parsed: 65,075**, all valid JSON, one object per line.
 - **Active-day counter** (`runner.start.activeDay`, the lived-day clock, not calendar
   days — scar #8): 26 distinct values, 154 through 179 — one per log-file day, confirming
@@ -167,7 +167,7 @@ sch_placeholder" ×3, "no schema sch_hearddd_v2" ×3, six distinct "no thread el
 
 - `prospective.fire`: 15 (all `via: "wake"` — no other delivery channel fired this
   window) · `prospective.suppressed`: 18 (all reason `prior-session-high-affect`,
-  concentrated on a single day, 2026-08-25) · `prospective.referenced`: 6.
+  concentrated on a single day) · `prospective.referenced`: 6.
 - Fire rate over fire+suppressed: 45.5%; reference rate over fires: 40.0%.
 - Sample is small (33 fire-or-suppress events total) — not enough to re-derive PR-A
   through PR-F against; see §3 for where those bars already live.
@@ -297,18 +297,15 @@ what's needed to count/size it. Paths and counts only.*
 - `aliases`: 24,732 rows.
 - `meta`: `schema_version` 3, `migration_epoch_day` 20500.
 
-**Raw-span retention status** (`~/.bansai/config.json`, this instance):
-```json
-{ "toggles": { "subconscious": true },
-  "retention": { "keepRawSpans": true, "rawSpanRetentionDays": 30 } }
-```
-This is the **owner's bake-in instance opting in locally** (shipped default is
-`keepRawSpans: false`, per `src/config.ts:725` and the privacy-review memo). The
-30-day retention window on `buffer-archive/` is why its date range tracks the log
-window almost exactly — both are on the same rolling 30-day clock, and both roll
-forward together. **This is the wasting asset §17.5 item 2 calls out**: today is as
-much raw-span history as will ever be available unless something is deliberately
-snapshotted out of the rolling window before it prunes.
+**Raw-span retention status.** Raw-span retention was **on** for the measured
+instance, with a 30-day window — a local opt-in; the **shipped default is
+`keepRawSpans: false`** (v1's `src/config.ts:725` and its privacy-review memo). The
+instance's own config file is not reproduced here. That 30-day window on
+`buffer-archive/` is why its date range tracks the log window almost exactly — both
+are on the same rolling 30-day clock, and both roll forward together. **This is the
+wasting asset §17.5 item 2 calls out**: today is as much raw-span history as will
+ever be available unless something is deliberately snapshotted out of the rolling
+window before it prunes.
 
 **Gaps that would block an input-for-input replay:**
 - The raw-span archive only covers the log window (30 days back from today); nothing

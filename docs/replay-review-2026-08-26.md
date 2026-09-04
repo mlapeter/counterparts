@@ -44,15 +44,14 @@ identity config, and pass identity in the replay runner.
 ### 3. Secrets gate: held on every shipped family — with one real scope gap
 Zero credential-shaped bodies among all 1,694 (and one memory carries
 `[REDACTED:google-api-key]` — the gate fired in-band on the exact v1 scar shape,
-on the new path; the guarantee is now proven, not assumed). But a staff
-magic-login URL survived whole: a 16-char bearer token in the URL *path*, which
-no `SECRET_FAMILIES` entry covers (`url-credentials` only matches
-`user:pass@host`).
+on the new path; the guarantee is now proven, not assumed). But a magic-login
+URL survived whole: a 16-char bearer token in the URL *path*, which no
+`SECRET_FAMILIES` entry covers (`url-credentials` only matches `user:pass@host`).
 **Fix:** add a token-in-URL-path family.
 **Owner policy question (not a bug):** no email/phone family exists by design —
-38 memories carry emails, 6 carry E.164 numbers (two are third-party staff
-personal numbers), plus a Cloudflare account id. Whether personal-contact PII
-belongs in the store is a policy call for the owner, recorded here as OPEN.
+38 memories carry emails, 6 carry E.164 numbers, plus a service-provider account
+id. Whether personal-contact PII belongs in the store is a policy call for the
+owner, recorded here as OPEN.
 
 ## HIGH — quality and instrumentation
 
