@@ -466,6 +466,42 @@ step "recall says out loud that it ran without an embedder"
 # this exact field; the loop is what keeps that quote true.
 if printf '%s' "$RECALLED" | grep -q '"semantic":"embedder-off"'; then ok; else no "recall did not report the embedder as off" "$RECALLED"; fi
 
+step "session_end binds LAZILY through the hooks' registry and writes the day"
+# THE FIFTH HOST BEHAVIOUR, and the only one nobody had exercised outside the
+# owner's machine. Claude Code launches MCP servers from a static configuration,
+# so the server never receives `--session`; the hooks know the id and leave a
+# record at <dataDir>/sessions/<id>.json, and the server binds to it on the first
+# claim. Until now this loop asserted only that the RECORD exists — the thing the
+# bind reads, not the bind — and the docs claimed more than that.
+#
+# Two things have to line up for a bind: the id must be live in the registry (the
+# SessionStart step above wrote it), and the session's scope must match this
+# server's. The hook recorded the payload's cwd, so the server is told the same
+# scope rather than being run from that directory.
+SESSION_END_PARAMS=$(printf '{"name":"session_end","arguments":{"session":"%s","memories":[{"content":"%s"}]}}' \
+  "$SESSION" "The install loop proved the lazy session bind end to end.")
+RPC=$(
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}'
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":%s}\n' "$SESSION_END_PARAMS"
+)
+MCP_OUT=$(printf '%s\n' "$RPC" |
+  COUNTERPARTS_DATA_DIR="$STORE" COUNTERPARTS_SCOPE="$HOME/project" counterparts-mcp 2>"$WORK/mcp3.err")
+printf '%s' "$MCP_OUT" > "$WORK/mcp-session-end.jsonl"
+ENDED=$(printf '%s\n' "$MCP_OUT" | grep '"id":2' || true)
+# The refusals this step exists to catch, by name: a server that could not find
+# the record says `session-unknown`; one in the wrong project says
+# `scope-mismatch`; one that was never told an id says `session-required`.
+if printf '%s' "$ENDED" | grep -qE 'session-unknown|scope-mismatch|session-required|session-not-live'; then
+  no "the lazy bind refused — the registry record was not usable" "$ENDED
+$(cat "$WORK/mcp3.err")"
+elif printf '%s' "$ENDED" | grep -q '"stored"'; then
+  ok
+else
+  no "session_end did not report a deposit" "$ENDED
+$(cat "$WORK/mcp3.err")"
+fi
+
 step "the note is durable: the console counts it after both processes exited"
 OUT=$(counterparts status --dir "$STORE" 2>&1)
 LIVE=$(printf '%s\n' "$OUT" | sed -n 's/^Live memories: \([0-9]*\).*/\1/p' | head -1)

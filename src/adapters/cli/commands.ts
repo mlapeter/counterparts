@@ -513,10 +513,12 @@ function installCommand(
   io.out(`  ${config.what} ${config.path}`);
   io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
   if (!isWithin(layout.base, resolved)) {
-    // --dir moved the STORE. It cannot move the configuration: the hooks read
-    // one hardcoded path and nothing else, and every hook exits 0, so a config
-    // they cannot find is a silence nobody debugs. Said out loud rather than
-    // left for the reader to discover from an ambient half that never fires.
+    // --dir moved the STORE. It cannot move the configuration: the hooks take no
+    // flag and read one hardcoded path (falling back to COUNTERPARTS_DATA_DIR
+    // only when that file names no store), and a hook that finds nothing stands
+    // down and exits 0 — so a config they cannot find is a silence nobody
+    // debugs. Said out loud rather than left for the reader to discover from an
+    // ambient half that never fires.
     io.out("");
     io.out(`  --dir moved the STORE only. The configuration stays at ${config.path}:`);
     io.out("  that is the one path the hooks read, hardcoded, with no flag and no");
@@ -602,9 +604,11 @@ function initCommand(dir: string, io: Io, home = homedir()): number {
   io.out("     WHO HONORS THAT FILE, exactly: this console reads it for the injection");
   io.out(`     ceiling ('${BIN.cli} rebrief'). The HOOKS DO NOT — they read only`);
   io.out(`       ${join(home, ".counterparts", "claude-code.json")}`);
-  io.out("     with no flag and no environment override, and every hook exits 0, so a");
-  io.out("     config anywhere else is an ambient half that never fires and never says");
-  io.out(`     so. If you want the hooks to fire, use '${BIN.cli} install'.`);
+  io.out("     taking no flag, and falling back to COUNTERPARTS_DATA_DIR only when that");
+  io.out("     file names no store. A hook that finds no config stands down quietly and");
+  io.out("     exits 0 (a Stop with a question exits 2 on purpose, and that is the only");
+  io.out("     non-zero a hook produces), so a config anywhere else is an ambient half");
+  io.out(`     that never fires and never says so. To wire the hooks, use '${BIN.cli} install'.`);
   io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
   io.out("refuses to render rather than compose to a number nobody chose (scar §2.18).");

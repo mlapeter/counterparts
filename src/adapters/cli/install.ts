@@ -117,10 +117,11 @@ export interface InstallLayout {
  * **The base is ALWAYS `~/.counterparts`, whatever `--dir` says.** That is not a
  * convenience; it is the only shape that works. `claude-code/bin/hook.ts:39` and
  * `bin/runner.ts` both hardcode `join(homedir(), ".counterparts",
- * "claude-code.json")` as the one configuration they read, with no flag and no
- * environment override, and every hook exits 0 by design — so a config written
- * anywhere else is a config the ambient half never finds and never complains
- * about. The cold-stranger review of 2026-09-04 found exactly that: `--dir`
+ * "claude-code.json")` as the one configuration they read, taking no flag and
+ * falling back to `COUNTERPARTS_DATA_DIR` only when that file names no store —
+ * and a hook that finds no config stands down and exits 0 (the Stop ask's exit 2
+ * is the one deliberate non-zero). So a config written anywhere else is a config
+ * the ambient half never finds and never complains about. The cold-stranger review of 2026-09-04 found exactly that: `--dir`
  * produced a working store, a correct config and correct printed hooks, and an
  * ambient half permanently blind, with nothing on screen to say so.
  *
