@@ -79,6 +79,29 @@ credential — belongs here, discovered at runtime, never assumed by the core.
 
 **Inputs** — host hook events (session start, user turn, stop, session end, pre-compaction);
 the host's transcript slice since the last boundary; host configuration.
+
+Two of that transcript's shapes arrive **user-role and are not the owner speaking**, and
+both are named here because a reader that misses either mints someone else's words as the
+owner's (measured 2026-09-04, `fix/transcript-peer-speakers`):
+
+- **`<cross-session-message from="…" from-name="…" from-mode="…">…</cross-session-message>`** —
+  a message from another of the owner's Claude Code sessions
+  ([docs](https://code.claude.com/docs/en/cross-session-messaging); the attribute set
+  `from`, `from-name`, `from-session`, `from-mode`, `hop-chain` read off the v2.1.260
+  bundle). The content is **real experience and is kept**; the wrapper is replaced **in
+  place** with `[message from another Claude session, <name>]: …`, because a span is text
+  and attribution has to survive in the words. The name is `from-name`, then
+  `from-session`, then `unnamed`; **`from` is deliberately not a fallback** — it is a
+  machine-local socket path, and a path has no business in prose that outlives the socket. A block that is nothing but a peer message
+  is `injected` (kept in capture, out of pacing); a block that mixes the owner's own text
+  with a wrapper stays `conversation`. The rewrite never splits a block into extra turns —
+  the per-session read cursor indexes into that list. The sibling **idle notice** is plain
+  text, not a wrapper (`[Cross-session idle notice] "x" is idle now` / `… has exited`), so
+  it gets no rewrite; it and any other `<cross-session-*>` wrapper the host may add are
+  classified `injected` as the conservative reading of a shape not yet measured.
+- **`Stop hook feedback: …`** — the host returning a blocking Stop hook's stderr to the
+  model. It carries **this adapter's own asks**, so it is `ritual` and enters nothing
+  (G11). One carrying a v1 marker is still `foreign`: foreign is checked first.
 **Outputs** — an injected context block or the empty string; appended spans; the
 end-of-session ask; a detached worker spawn; capability reports (injection ceiling,
 execution ceiling, socket lifetime, credential availability AND which source answered —
@@ -112,6 +135,21 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     exported constant (`FOREIGN_MARKERS`), so the preflight canary and the reader cannot
     disagree about what foreign looks like. Without this, a parallel run makes each system
     encode the other's briefing as a memory of having thought it.
+11. **[M] This system's OWN ritual text never enters capture, and the refusal is counted.**
+    A host that returns hook output into the model's context (`Stop hook feedback:`) hands
+    this adapter its own authorship and episode asks back as user-role prose. That text is
+    tagged `ritual`, `enters()` refuses it, and — because it is refused rather than dropped
+    quietly — it lands in the boundary record's `excluded` count, so a boundary that
+    captured nothing because everything was ritual is distinguishable from a boundary where
+    nothing happened. The ask's durable record is `adapter.authorship.ask`, not the
+    transcript copy. This **supersedes** the earlier reading that excluding the wrapper
+    would blind the reader to its own voice: what the transcript copy actually bought was
+    the ask's wording becoming a memory of having thought it.
+12. **[M] A peer session's words are kept, but never as the owner's.** A
+    `<cross-session-message>` block is rewritten in place to name its speaker before it can
+    reach a span, and a block that is only a peer message does not pace a ritual. Without
+    this the fallback sweep mints another instance's findings as things the owner said in
+    conversation — the failure this guarantee is named after.
 
 ## 6. Scars honored
 

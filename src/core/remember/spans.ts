@@ -60,8 +60,23 @@ import { TUNABLES } from "./tunables.js";
  *
  *  `foreign` is the parallel run's addition: material ANOTHER memory system's
  *  hooks put into this host's context. It is not the host speaking (`injected`)
- *  and it is certainly not the user, so it enters nothing — see `enters()`. */
-export type TurnSource = "conversation" | "injected" | "tool" | "file" | "image" | "foreign";
+ *  and it is certainly not the user, so it enters nothing — see `enters()`.
+ *
+ *  `ritual` is THIS system's own asks, read back off the transcript. A host that
+ *  returns hook output into the context (Claude Code's `Stop hook feedback:`)
+ *  hands us our own words as though the user had said them; encoding those is
+ *  the self-referential half of the same mistake `foreign` names. It enters
+ *  nothing either, and — because it is refused rather than dropped silently —
+ *  it is COUNTED in `CaptureResult.excluded`, so the exclusion is a number the
+ *  boundary record carries rather than an absence nobody can see. */
+export type TurnSource =
+  | "conversation"
+  | "injected"
+  | "tool"
+  | "file"
+  | "image"
+  | "foreign"
+  | "ritual";
 
 export interface Turn {
   role: "user" | "assistant";
@@ -1162,6 +1177,12 @@ export function enters(turn: Turn): boolean {
   // to v2 as a memory of having thought it. `injected` is kept and merely
   // unpaced; `foreign` is refused outright.
   if (source === "foreign") return false;
+  // THE RITUAL EXCLUSION, named for the same reason: this system's OWN ask,
+  // handed back by a host that returns hook output into the context, is not
+  // something that happened to us — it is us. Capturing it would let the ask's
+  // wording become a memory of having thought it, and the ask already has a
+  // durable record of its own (`adapter.authorship.ask`). Refused, and counted.
+  if (source === "ritual") return false;
   return source === "conversation" || source === "injected";
 }
 
