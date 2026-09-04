@@ -23,6 +23,13 @@ credential — belongs here, discovered at runtime, never assumed by the core.
 - **The wake never fails the session.** [v1] §1 G7 — missing bundle, unreadable config, or
   failed telemetry means the bootstrap line or nothing, and a clean exit.
 - **The injected block is framed as context, not instruction.** [v1] §1.
+- **The delivery preface is composed HERE, at injection.** The bundle was composed at the
+  last boundary and is served unchanged to every session until the next one, so the line
+  naming which system this is, the lived day, TODAY'S DATE (the adapter's own fact) and the
+  store's current size can only be written at delivery. `self/` owns its wording and its
+  byte accounting; this adapter owns asking for it and reporting the delivered bytes,
+  sentinel included (2026-09-03: the memory system changed mid-day and the body went on
+  speaking as the old one).
 - **Delivery telemetry, distinct from render telemetry.** [v1] scar §2.3 — the adapter is
   the only thing that can report *arrival*, and v1 shipped eleven days of truncated wakes
   because only the render was instrumented.

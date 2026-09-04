@@ -78,8 +78,15 @@ import type {
 } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
 import { Schemas } from "./schemas/index.js";
-import { Self } from "./self/index.js";
-import type { ChapterAppend, ChapterAsk, IdentityCoreSpec, IngestResult, WakeResult } from "./self/index.js";
+import { PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
+import type {
+  ChapterAppend,
+  ChapterAsk,
+  IdentityCoreSpec,
+  IngestResult,
+  WakeDelivery,
+  WakeResult,
+} from "./self/index.js";
 import { runCycle } from "./sleep/index.js";
 import type { CycleReport } from "./sleep/index.js";
 import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
@@ -644,18 +651,23 @@ export class Counterpart {
    * briefing at the next boundary — loudly, rather than composing to a number
    * nobody chose.
    */
-  wake(budgetBytes?: number): WakeOutcome {
+  wake(budgetBytes?: number, delivery?: WakeDelivery): WakeOutcome {
     if (budgetBytes === undefined) {
       this.emit("counterpart.budget.unreported", undefined, { had: this.reportedBudget });
     } else {
       this.reportedBudget = budgetBytes;
       this.emit("counterpart.budget.reported", undefined, { budgetBytes });
     }
-    const result = this.self.wake();
+    // `delivery` present means THIS read is an injection: the bundle gets the
+    // preface that states which system, which day, which date and what size —
+    // the facts the body was composed too early to know. A read that is not a
+    // delivery (the dashboard, replay) gets the published bundle untouched.
+    const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery);
     this.emit("counterpart.wake", undefined, {
       ok: result.ok,
       reason: result.reason,
       bytes: result.bytes,
+      preface: result.preface !== null,
       budgetBytes: this.reportedBudget,
     });
     return { ...result, budgetBytes: this.reportedBudget };
@@ -905,11 +917,18 @@ export class Counterpart {
    * briefing around it. Then the Hebbian buffer flushes — the DB-is-a-cache
    * exemption, batched here rather than per turn. Then the cycle, whose LAST
    * content write is `self.boundary()` through `briefing.selfRenderer` (SEAMS G),
-   * carrying the ceiling the HOST reported and refusing to invent one.
+   * carrying the ceiling the HOST reported and refusing to invent one — minus
+   * the room the wake's delivery preface will take at injection. That
+   * subtraction is HERE and nowhere else: the preface is composed at wake
+   * (`self/briefing.ts`), so this root is the one place that knows both numbers,
+   * and reserving is the difference between a wake that fits the host's cliff
+   * and one that blows it by its own first line every day.
    */
   async sessionEnd(input: SessionEndInput = {}): Promise<SessionEndReport> {
     const budgetBytes = input.budgetBytes ?? this.reportedBudget;
     if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
+    const composeBudget =
+      budgetBytes === null ? null : Math.max(budgetBytes - PREFACE_RESERVE_BYTES, 0);
 
     const sweeps = input.sweep === undefined ? [] : await this.sweepFallback(input.sweep);
     const edges = this.associate.flush();
@@ -923,7 +942,7 @@ export class Counterpart {
       store: this.store,
       render,
       ...(input.date === undefined ? {} : { date: input.date }),
-      ...(budgetBytes === null ? {} : { budgetBytes }),
+      ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
       onEvent: (e) => this.relay("sleep", e),
     });
 
