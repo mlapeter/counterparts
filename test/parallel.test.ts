@@ -16,6 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -68,6 +69,8 @@ import { preflightArtifacts, readBars, runPreflight } from "../tools/parallel/pr
 import { surfaceSetComponents, surfaceSetHash } from "../tools/parallel/surface.js";
 import { surfaceSetFields } from "../src/core/counterpart.js";
 import { readRunRecord } from "../tools/parallel/record.js";
+import { primacyFromAssignment, primacyReading } from "../tools/parallel/assignment.js";
+import { restartArtifacts } from "../tools/parallel/restart.js";
 import { RunDir } from "../tools/parallel/writer.js";
 import type { LiveStores } from "../tools/parallel/writer.js";
 import type { GateEntry, GateReadableRecord } from "../tools/parallel/gate.js";
@@ -1734,6 +1737,142 @@ describe("day classes", () => {
     expect(artifacts.run.activeDays["P"]).toBe(0);
   });
 
+  // ── day 1's own defect (measured 2026-09-04): the muted side's boundary ───
+  //
+  // A muted v1 logs `ab.muted` at session_start and user_prompt_submit and
+  // NOTHING at Stop, so on a clean v2-primary day its log holds no
+  // `session.end` at all. Requiring one classed every such day `thin` — the
+  // instrument reading the mute working as the mute broken, on a run where no
+  // day could then ever count.
+  /** v1's side of a REAL Phase-P day: muted, alive, and no Stop row anywhere. */
+  function v1MutedNoStop(s: Scene): void {
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: "s1", type: "buffer.append" },
+      { seq: 3, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { seq: 4, session: "s1", type: "buffer.append" },
+      { seq: 5, session: "s1", type: "buffer.append" },
+    ]);
+  }
+
+  test("MUTED-CONSISTENT: a muted v1 that reached no Stop is not THIN — the day is graded on the PRIMARY's boundary", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.class).toBe("active");
+    expect(r.flags).not.toContain("thin");
+    // Its own named value, never folded into a pass (§5 G13).
+    expect(r.boundaries.v1).toBe("muted-consistent");
+    expect(r.boundaries.v2).toBe("pass");
+    expect(r.boundaries.primary).toBe("v2");
+    expect(r.boundaries.ok).toBe(true);
+    expect(r.boundaries.note).toContain("Stop hook logs no ab.muted");
+    expect(r.why).toContain("muted-consistent");
+  });
+
+  test("and THIN still follows the PRIMARY: the same muted v1, but v2 reached no boundary", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    // v2 speaks at session start only: no `stop` record, no episode ask, no
+    // `adapter.boundary` row — nothing that evidences a session ending.
+    v2Delivering(s, ["session-start", "user-prompt-submit"]);
+    const r = classOf(s);
+    expect(r.class).toBe("thin");
+    expect(r.boundaries.primaryGrade).toBe("fail");
+    expect(r.why).toContain("PRIMARY system (v2)");
+  });
+
+  test("the exception needs PROOF OF LIFE: a muted v1 with no ab.muted row at all is a fail, not a pass", () => {
+    const s = scene(3);
+    // A v1 that logged turns and never said it was muted. §7's same-day encode
+    // pairing rests on v1 still encoding while muted, so "no evidence v1 ran"
+    // is not the same state as "v1 ran, muted, and left no Stop row".
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "buffer.append" },
+      { seq: 2, session: "s1", type: "buffer.append" },
+      { seq: 3, session: "s1", type: "buffer.append" },
+    ]);
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.boundaries.v1).toBe("fail");
+    expect(r.class).toBe("thin");
+    expect(r.why).toContain("MUTED side's boundary evidence graded fail");
+  });
+
+  test("the PRIMARY gets NO exception: a v1-primary day with no v1 boundary is thin", () => {
+    const s = scene(3);
+    // Day 0's shape: v1 holds the microphone and v2 stands down.
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "buffer.append" },
+      { seq: 2, session: "s1", type: "buffer.append" },
+      { seq: 3, session: "s1", type: "buffer.append" },
+    ]);
+    buildStore(s.v2Dir, (store) => {
+      for (const hook of ["session-start", "stop"]) {
+        store.appendEvent({
+          name: PRIMACY_STANDDOWN_EVENT,
+          day: 0,
+          payload: { hook, reason: "override-bansai", system: "v1", date: DATE, session: "s1" },
+        });
+      }
+    });
+    const r = classOf(s, { phase: "0", primacy: "v1" });
+    expect(r.boundaries.primary).toBe("v1");
+    expect(r.boundaries.primaryGrade).toBe("fail");
+    expect(r.class).toBe("thin");
+  });
+
+  test("an ABSENT v1 log reads not-exercised, never muted-consistent — an unread log shows nothing", () => {
+    const s = scene(3);
+    v2Delivering(s);
+    const r = classOf(s);
+    expect(r.boundaries.v1).toBe("not-exercised");
+    expect(r.class).toBe("thin");
+  });
+
+  // ── the four watches box 2 cannot carry: named values, never a bare list ──
+  test("every non-durable watch renders a NAMED VALUE with a reason, and none can be a pass", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    v2Delivering(s);
+    const r = classOf(s);
+    // Total over the reader's own list — no watch may be silently dropped.
+    expect(r.watches.map((w) => w.detector)).toEqual([...r.v2.nonDurable]);
+    expect(r.watches.length).toBe(4);
+    for (const w of r.watches) {
+      // Named against the DETECTOR, so a failure says which watch went green.
+      expect(`${w.detector}=${w.value}`).toBe(
+        `${w.detector}=${w.value === "needs-rater" ? "needs-rater" : "not-exercised"}`,
+      );
+      expect(w.reason.length).toBeGreaterThan(40);
+    }
+    const pressure = r.watches.find((w) => w.detector === "self.schema.pressure");
+    expect(pressure?.value).toBe("not-exercised");
+    expect(pressure?.reason).toContain("revision-pressure");
+    // sleep.symmetry with no attributable transition: not-exercised, and it
+    // says WHY there is nothing to read rather than printing a zero.
+    const symmetry = r.watches.find((w) => w.detector === "sleep.symmetry");
+    expect(symmetry?.value).toBe("not-exercised");
+    expect(symmetry?.reason).toContain("--lived-day");
+  });
+
+  test("sleep.symmetry with band transitions on the lived day is NEEDS-RATER, and names its rater", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    v2Delivering(s);
+    buildStore(s.v2Dir, (store) => {
+      store.appendEvent({ name: "band.transition", day: 7, payload: { from: "warm", to: "cool" } });
+    });
+    const r = classOf(s, { livedDay: 7 });
+    const symmetry = r.watches.find((w) => w.detector === "sleep.symmetry");
+    expect(symmetry?.value).toBe("needs-rater");
+    expect(symmetry?.reason).toContain("symmetry consumer");
+  });
+
   test("a muted v1's RUNNER re-rendering its wake is not a delivery — `wake.rendered` on a muted day stays clean (scar §2.3)", () => {
     const s = scene(3);
     v1Muted(s, [
@@ -2521,6 +2660,386 @@ function preflight(f: Fixture, over: Partial<Parameters<typeof runPreflight>[0]>
     ...over,
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The primacy guard — §5 G3, and the 2026-09-03 flip's own scar
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("the primacy guard — a stale run.json never grades a day", () => {
+  const DATE = "2026-09-04";
+  const V1_RITUAL = "What did you learn in this session that is worth keeping?";
+
+  interface Guard {
+    runDir: string;
+    v1Dir: string;
+    v2Dir: string;
+    abDir: string;
+    engramDir: string;
+  }
+
+  /** A v2-primary day: v1 muted and alive, v2 delivering, override `engram`. */
+  function guard(): Guard {
+    const runDir = dir("run");
+    writeJson(join(runDir, "bars.json"), BARS(3));
+    const g: Guard = {
+      runDir,
+      v1Dir: dir("v1"),
+      v2Dir: dir("v2"),
+      abDir: dir("ab"),
+      engramDir: dir("engram"),
+    };
+    writeJson(join(g.abDir, "assignment.json"), {
+      mode: "alternate-day",
+      anchor: "2026-07-17",
+      override: "engram",
+    });
+    v1Log(g.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: "s1", type: "buffer.append" },
+      { seq: 3, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { seq: 4, session: "s1", type: "buffer.append" },
+      { seq: 5, session: "s1", type: "buffer.append" },
+    ]);
+    buildStore(g.v2Dir, (store) => {
+      for (const hook of ["session-start", "user-prompt-submit", "stop"]) {
+        store.appendEvent({
+          name: PRIMACY_DELIVER_EVENT,
+          day: 0,
+          payload: { hook, reason: "override-engram", system: "v2", date: DATE, session: "s1" },
+        });
+      }
+    });
+    return g;
+  }
+
+  /** The run record the flip left behind: days recorded, primacy never moved. */
+  function staleRunJson(g: Guard): void {
+    writeJson(join(g.runDir, "run.json"), {
+      startDate: "2026-09-03",
+      phase: "P",
+      primacy: "v1",
+      activeDays: { "0": 1, P: 0 },
+      days: [{ date: "2026-09-03", class: "active", phase: "0" }],
+      configHashes: { v2Config: null, assignment: null },
+      seat: "",
+      vectors: "",
+      surfaceSet: surfaceSetHash(),
+      updatedAt: "2026-09-03T23:00:00.000Z",
+    });
+  }
+
+  function daily(g: Guard, over: Partial<Parameters<typeof dailyRecord>[0]> = {}) {
+    return dailyRecord({
+      runDir: g.runDir,
+      date: DATE,
+      v1Dir: g.v1Dir,
+      v2DataDir: g.v2Dir,
+      v1Ritual: [V1_RITUAL],
+      assignmentOverride: primacyFromAssignment(join(g.abDir, "assignment.json")),
+      ...over,
+    });
+  }
+
+  test("THE 2026-09-03 DEFECT: run.json says v1, the file says engram — REFUSED, not graded", () => {
+    const g = guard();
+    staleRunJson(g);
+    // Without the guard this records a v2-primary day as `contaminated`
+    // ("the muted v2 side delivered") every single day, off a field nobody
+    // compared against the file both resolvers read.
+    let thrown: { code?: string; detail?: Record<string, string> } | null = null;
+    try {
+      daily(g, { phase: "P" });
+    } catch (err) {
+      thrown = err as { code?: string; detail?: Record<string, string> };
+    }
+    expect(thrown?.code).toBe("RUN_PRIMACY_DISAGREES_WITH_ASSIGNMENT");
+    // It says WHICH of the two to fix, and how — both readings, by name.
+    expect(thrown?.detail?.["runJson"]).toBe("v1");
+    expect(thrown?.detail?.["assignmentOverride"]).toBe("engram");
+    expect(thrown?.detail?.["resolved"]).toBe("v2");
+    expect(thrown?.detail?.["remedy"]).toContain("--primacy v2");
+  });
+
+  test("a --primacy that AGREES with the file heals the stale field, and the record says so", () => {
+    const g = guard();
+    staleRunJson(g);
+    const artifacts = daily(g, { phase: "P", primacy: "v2" });
+    expect(artifacts.record.class).toBe("active");
+    expect(artifacts.run.primacy).toBe("v2");
+    expect(artifacts.record.primacyCheck.verified).toBe(true);
+    expect(artifacts.record.primacyCheck.note).toContain("RE-STAMPED");
+    // And the day is NOT contaminated: it was the stale field, never v2.
+    expect(artifacts.record.flags).not.toContain("contaminated");
+  });
+
+  test("a --primacy that disagrees with the file is refused, naming the FLAG", () => {
+    const g = guard();
+    let thrown: { code?: string; detail?: Record<string, string> } | null = null;
+    try {
+      daily(g, { phase: "P", primacy: "v1" });
+    } catch (err) {
+      thrown = err as { code?: string; detail?: Record<string, string> };
+    }
+    expect(thrown?.code).toBe("PRIMACY_DISAGREES_WITH_ASSIGNMENT");
+    expect(thrown?.detail?.["source"]).toBe("--primacy");
+  });
+
+  test("the PHASE DEFAULT is not exempt either: no flag, no run.json, and a file that disagrees", () => {
+    const g = guard();
+    writeJson(join(g.abDir, "assignment.json"), { mode: "alternate-day", override: "bansai" });
+    let thrown: { code?: string; detail?: Record<string, string> } | null = null;
+    try {
+      // `--phase P` alone resolves primacy v2; the file says v1.
+      daily(g, { phase: "P" });
+    } catch (err) {
+      thrown = err as { code?: string; detail?: Record<string, string> };
+    }
+    expect(thrown?.code).toBe("PRIMACY_DISAGREES_WITH_ASSIGNMENT");
+    expect(thrown?.detail?.["source"]).toBe("phase default");
+  });
+
+  test("an override that is neither `bansai` nor `engram` is refused, never mapped to a default", () => {
+    const g = guard();
+    writeJson(join(g.abDir, "assignment.json"), { mode: "alternate-day", override: "none" });
+    expect(() => daily(g, { phase: "P", primacy: "v2" })).toThrow(
+      /PRIMACY_DISAGREES_WITH_ASSIGNMENT/,
+    );
+  });
+
+  test("with no assignment reading at all the record says UNVERIFIED — never a silent pass", () => {
+    const g = guard();
+    const r = daily(g, { phase: "P", primacy: "v2", assignmentOverride: undefined }).record;
+    expect(r.primacyCheck.verified).toBe(false);
+    expect(r.primacyCheck.assignmentOverride).toBeNull();
+    expect(r.primacyCheck.note).toContain("NOT cross-checked");
+  });
+
+  test("a missing assignment file reads UNVERIFIED with its reason, and does not fabricate an override", () => {
+    const g = guard();
+    const reading = primacyReading(join(root, "no-such-ab-dir"));
+    expect(reading.override).toBeNull();
+    expect(reading.healthy).toBe(false);
+    expect(reading.reason).toBe("file-missing");
+    const r = daily(g, { phase: "P", primacy: "v2", assignmentOverride: reading.override }).record;
+    expect(r.primacyCheck.verified).toBe(false);
+  });
+
+  // ── the BIN's half: the guard is not opt-in, and a refusal is exit 2 ──────
+  //
+  // The measured defect was the bin's DEFAULT path — the daily command in
+  // PARALLEL-RUN-STATUS passes no `--assignment`, so the cross-check that
+  // exists to catch exactly this never ran. Exit codes only exist at the bin,
+  // so this one test spawns it.
+  test("the daily BIN reads the assignment DIRECTORY by default: exit 2, named, nothing recorded", () => {
+    const g = guard();
+    staleRunJson(g);
+    const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "parallel", "bin", "daily.ts");
+    const ritual = at("probe", "ritual.txt");
+    writeFileSync(ritual, `${V1_RITUAL}\n`, "utf8");
+    const args = [
+      bin,
+      "--run-dir", g.runDir,
+      "--date", DATE,
+      "--phase", "P",
+      "--v1-dir", g.v1Dir,
+      "--v2-data-dir", g.v2Dir,
+      "--engram-dir", g.engramDir,
+      "--ab-dir", g.abDir,
+      "--v1-ritual", ritual,
+    ];
+    const refused = spawnSync(process.execPath, args, { encoding: "utf8" });
+    expect(`${refused.status}: ${refused.stderr}`).toContain("RUN_PRIMACY_DISAGREES_WITH_ASSIGNMENT");
+    expect(refused.status).toBe(2);
+    // A refusal RECORDS NOTHING: the day file was never written.
+    expect(existsSync(join(g.runDir, "days", `${DATE}.json`))).toBe(false);
+
+    // And with the deliberate re-stamp the same command line runs clean — so
+    // the refusal is the guard working, not the tool broken.
+    const healed = spawnSync(process.execPath, [...args, "--primacy", "v2"], { encoding: "utf8" });
+    expect(`${healed.status}: ${healed.stderr}`).not.toContain("REFUSED");
+    expect(healed.status).toBe(0);
+    expect(healed.stdout).toContain("ACTIVE");
+    expect(healed.stdout).toContain("muted-consistent");
+    expect(existsSync(join(g.runDir, "days", `${DATE}.json`))).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The phase clock, restarted — §5 G12's carry-forward rule, as a command
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("restarting the phase clock", () => {
+  interface Run {
+    runDir: string;
+    v1Dir: string;
+  }
+
+  function runWithDays(days: readonly { date: string; class: string; phase: string }[]): Run {
+    const runDir = dir("run");
+    writeJson(join(runDir, "bars.json"), BARS(3));
+    writeJson(join(runDir, "run.json"), {
+      startDate: "2026-09-03",
+      phase: "P",
+      primacy: "v2",
+      activeDays: { "0": 1, P: days.filter((d) => d.class === "active" && d.phase === "P").length },
+      days,
+      configHashes: { v2Config: null, assignment: null },
+      seat: "claude-opus-5",
+      vectors: "voyage-3-large",
+      surfaceSet: surfaceSetHash(),
+      updatedAt: "2026-09-06T23:00:00.000Z",
+    });
+    return { runDir, v1Dir: dir("v1") };
+  }
+
+  const DAYS = [
+    { date: "2026-09-03", class: "active", phase: "0" },
+    { date: "2026-09-04", class: "active", phase: "P" },
+    { date: "2026-09-05", class: "active", phase: "P" },
+    { date: "2026-09-06", class: "thin", phase: "P" },
+  ];
+
+  test("the current phase's count goes to zero, the days stay, and the annotation says why", () => {
+    const r = runWithDays(DAYS);
+    const artifacts = restartArtifacts({
+      runDir: r.runDir,
+      date: "2026-09-07",
+      reason: "recall BUDGET_MS 250 -> 1200: behavior-changing, so the phase restarts",
+      at: "2026-09-07T08:00:00.000Z",
+    });
+    expect(artifacts.run.activeDays["P"]).toBe(0);
+    // Day 0 is NOT rewritten by a restart of P.
+    expect(artifacts.run.activeDays["0"]).toBe(1);
+    // The history is kept, every day of it (§5 G10: halt and PRESERVE).
+    expect(artifacts.run.days.map((d) => d.date)).toEqual(DAYS.map((d) => d.date));
+    expect(artifacts.run.phaseRestart).toEqual({
+      restartedAt: "2026-09-07T08:00:00.000Z",
+      date: "2026-09-07",
+      phase: "P",
+      reason: "recall BUDGET_MS 250 -> 1200: behavior-changing, so the phase restarts",
+      surfaceSet: surfaceSetHash(),
+      clearedActiveDays: { "0": 1, P: 2 },
+    });
+    // And the history line, one JSON object per restart.
+    const log = artifacts.files["restarts.jsonl"];
+    expect(log).toBeDefined();
+    const parsed = JSON.parse((log ?? "").trim()) as Record<string, unknown>;
+    expect(parsed["date"]).toBe("2026-09-07");
+    expect(parsed["priorSurfaceSet"]).toBe(surfaceSetHash());
+  });
+
+  test("A LATER DAILY RUN DOES NOT RESURRECT THE COUNT — the restart is on the record", () => {
+    const r = runWithDays(DAYS);
+    const run = RunDir.open(r.runDir, NO_STORES);
+    const restarted = restartArtifacts({
+      runDir: r.runDir,
+      date: "2026-09-07",
+      reason: "the wake frame names landed",
+      at: "2026-09-07T08:00:00.000Z",
+    });
+    for (const [rel, value] of Object.entries(restarted.json)) run.writeJson(rel, value);
+    for (const [rel, text] of Object.entries(restarted.files)) run.writeText(rel, text);
+
+    // One ordinary active day AFTER the restart. `activeDays.P` recomputes from
+    // `days[]` on every daily write, so without the annotation being carried
+    // forward this would read 3 — the clock resurrecting the days the restart
+    // was told to stop counting.
+    v1Log(r.v1Dir, "2026-09-07", [
+      { seq: 0, session: "s9", type: "session.start" },
+      { seq: 1, session: "s9", type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: "s9", type: "buffer.append" },
+      { seq: 3, session: "s9", type: "buffer.append" },
+      { seq: 4, session: "s9", type: "buffer.append" },
+    ]);
+    const v2Dir = dir("v2");
+    buildStore(v2Dir, (store) => {
+      store.appendEvent({
+        name: PRIMACY_DELIVER_EVENT,
+        day: 0,
+        payload: {
+          hook: "stop",
+          reason: "override-engram",
+          system: "v2",
+          date: "2026-09-07",
+          session: "s9",
+        },
+      });
+    });
+    const artifacts = dailyRecord({
+      runDir: r.runDir,
+      date: "2026-09-07",
+      v1Dir: r.v1Dir,
+      v2DataDir: v2Dir,
+      v1Ritual: ["What did you learn in this session that is worth keeping?"],
+      phase: "P",
+      primacy: "v2",
+    });
+    expect(artifacts.record.class).toBe("active");
+    expect(artifacts.run.activeDays["P"]).toBe(1);
+    expect(artifacts.run.phaseRestart?.date).toBe("2026-09-07");
+  });
+
+  test("the second restart APPENDS to the history rather than replacing it", () => {
+    const r = runWithDays(DAYS);
+    const run = RunDir.open(r.runDir, NO_STORES);
+    const first = restartArtifacts({
+      runDir: r.runDir,
+      date: "2026-09-07",
+      reason: "one",
+      at: "2026-09-07T08:00:00.000Z",
+    });
+    for (const [rel, value] of Object.entries(first.json)) run.writeJson(rel, value);
+    for (const [rel, text] of Object.entries(first.files)) run.writeText(rel, text);
+    const second = restartArtifacts({
+      runDir: r.runDir,
+      date: "2026-09-09",
+      reason: "two",
+      at: "2026-09-09T08:00:00.000Z",
+    });
+    const lines = (second.files["restarts.jsonl"] ?? "").trim().split("\n");
+    expect(lines.length).toBe(2);
+    expect((JSON.parse(lines[0] ?? "{}") as { reason?: string }).reason).toBe("one");
+    expect((JSON.parse(lines[1] ?? "{}") as { reason?: string }).reason).toBe("two");
+    expect((JSON.parse(lines[1] ?? "{}") as { priorPhaseRestart?: string }).priorPhaseRestart).toBe(
+      "2026-09-07",
+    );
+  });
+
+  test("every refusal is NAMED: no run record, an empty reason, a malformed or impossible date", () => {
+    const r = runWithDays(DAYS);
+    expect(() =>
+      restartArtifacts({ runDir: dir("empty-run"), date: "2026-09-07", reason: "x" }),
+    ).toThrow(/NO_RUN_RECORD/);
+    expect(() => restartArtifacts({ runDir: r.runDir, date: "2026-09-07", reason: "   " })).toThrow(
+      /RESTART_REASON_REQUIRED/,
+    );
+    expect(() => restartArtifacts({ runDir: r.runDir, date: "07-09-2026", reason: "x" })).toThrow(
+      /RESTART_DATE_MALFORMED/,
+    );
+    expect(() => restartArtifacts({ runDir: r.runDir, date: "2026-09-01", reason: "x" })).toThrow(
+      /RESTART_DATE_BEFORE_RUN_START/,
+    );
+    // A corrupt run.json is EVIDENCE, not a reason to start a fresh clock.
+    writeFileSync(join(r.runDir, "run.json"), '{"startDate": "2026-09-03", "days": [', "utf8");
+    expect(() => restartArtifacts({ runDir: r.runDir, date: "2026-09-07", reason: "x" })).toThrow(
+      /RUN_RECORD_CORRUPT/,
+    );
+  });
+
+  test("it writes ONLY the run directory — and refuses one that overlaps a live store", () => {
+    const v1Dir = dir("v1-live");
+    expect(() =>
+      RunDir.open(join(v1Dir, "run"), { ...NO_STORES, v1Dir }),
+    ).toThrow(/RUN_DIR_OVERLAPS_STORE/);
+    // The engine itself holds no write API at all: it returns artifacts and the
+    // caller writes them, exactly as `record.ts` does (G1's containment).
+    const r = runWithDays(DAYS);
+    const before = manifest(r.runDir);
+    restartArtifacts({ runDir: r.runDir, date: "2026-09-07", reason: "x" });
+    expect(manifest(r.runDir)).toEqual(before);
+  });
+});
 
 describe("the preflight — Phase 0, as a gate", () => {
   test("a complete fixture reaches ready: true, with EVERY row binding — nothing deferred", () => {
