@@ -299,6 +299,59 @@ export const NARRATORS = {
 
 export const NARRATED_NAMES: readonly string[] = Object.keys(NARRATORS);
 
+/**
+ * WHAT KIND OF THING EACH EVENT'S `ref` COLUMN HOLDS.
+ *
+ * The log's `ref` is not always a memory id, and putting one that is not through
+ * the memory resolver prints `[no longer at this address]` beside a turn that
+ * went perfectly well — a FALSE absence, which is worse than no line at all in a
+ * project whose whole absence discipline is about telling "never happened" from
+ * "gone". Three names carry something else: a surfacing decision is keyed by the
+ * SESSION it happened in, a chunk gate by the CHUNK's content key, and the sweep
+ * gate by nothing at all.
+ *
+ * EXHAUSTIVE BY TYPE, like every other registry here: a durable event added to
+ * the core fails `tsc` until someone has said what its `ref` is, rather than
+ * defaulting silently to "a memory" and rendering a lie.
+ */
+export const REF_KIND = {
+  "adapter.ask": "none",
+  "adapter.authorship.ask": "none",
+  "adapter.boundary": "none",
+  "adapter.embed.backfill": "none",
+  "adapter.episode.ask": "none",
+  "adapter.primacy.deliver": "none",
+  "adapter.primacy.standdown": "none",
+  "adapter.recall": "none",
+  "adapter.semantic.lag": "none",
+  "adapter.wake.delivered": "none",
+  "adapter.wake.injected": "none",
+  "band.promoted": "memory",
+  "band.transition": "memory",
+  "gate.chunk": "chunk",
+  "memory.merged": "memory",
+  "memory.pruned": "memory",
+  "recall.decision": "session",
+  "revision.pressure": "memory",
+  "sweep.gate": "none",
+} as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "none">;
+
+function subjectOf(store: Store, row: EventRow): string | null {
+  if (row.ref === null) return null;
+  switch ((REF_KIND as Record<string, string>)[row.name]) {
+    case "session":
+      return `session ${row.ref}`;
+    case "chunk":
+      return `swept chunk ${row.ref}`;
+    case "none":
+      // A name this file has never heard of, carrying a ref. Print the raw
+      // address rather than guessing at what it points to.
+      return row.ref;
+    default:
+      return reveal(store, row.ref, 60).label;
+  }
+}
+
 export interface NarratedEvent {
   readonly seq: number;
   readonly at: number;
@@ -341,11 +394,6 @@ export function narrate(store: Store, row: EventRow): NarratedEvent {
   } catch {
     line = calm(`${row.name} — recorded, but I could not read it back.`);
   }
-  // `ref` is resolved BY EVENT NAME, not blindly: `recall.decision` carries a
-  // session id there, and a session id put through the memory resolver comes
-  // back as "[no longer at this address]" — a false absence, printed beside a
-  // turn that went perfectly well.
-  const refIsMemory = row.name !== "recall.decision" && row.name !== "sweep.gate";
   return {
     seq: row.seq,
     at: row.at,
@@ -354,7 +402,8 @@ export function narrate(store: Store, row: EventRow): NarratedEvent {
     text: line.text,
     tone: line.tone,
     node: nodeOf(row.name),
-    subject: row.ref === null ? null : refIsMemory ? reveal(store, row.ref, 60).label : `session ${row.ref}`,
+    // Resolved BY EVENT NAME — see `REF_KIND`.
+    subject: subjectOf(store, row),
     detail: revealPayload(store, p, 40),
   };
 }

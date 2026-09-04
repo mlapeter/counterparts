@@ -1108,6 +1108,11 @@ async function openMemory(id) {
     "<div class='sub'>" + esc(d.id) + (d.askedFor ? " · you asked for " + esc(d.askedFor) + ", which forwards here" : "") +
       " · " + esc(d.prosePath) + "</div>" +
     "<div class='body'>" + (d.confidential ? '<span class="withheld">' + esc(d.text) + "</span>" : esc(d.text)) + "</div>" +
+    (d.journal
+      ? "<p style='color:var(--purple);font-size:11px;line-height:1.7;margin:-4px 0 14px'>" +
+        "This is a journal entry, not a memory. It is the account a memory was made from, it sits outside " +
+        "every sleep phase, and the physics below is recorded but never acted on — nothing here decays.</p>"
+      : "") +
     '<div class="kv">' +
       kv("kind", esc(d.kind)) +
       kv("band", esc(d.band) + " <span style='color:var(--faint)'>(recorded " + esc(d.recordedBand) + ")</span>") +

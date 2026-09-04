@@ -145,6 +145,11 @@ function census(src: DashboardSource, opts: CensusOptions = {}): MemoryLine[] {
       });
     }
   }
+  // Strongest first, ties by id — the same order `browse.ts` lists in, so the
+  // two surfaces answer "what is strong today" the same way, and so a caller
+  // that takes the head of this list gets a defined row rather than whatever
+  // SQLite happened to return first.
+  out.sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1));
   return out;
 }
 
@@ -630,6 +635,14 @@ export interface MemoryDetail {
   readonly id: string;
   readonly headId: string | null;
   readonly askedFor: string | null;
+  /**
+   * True when this row is a JOURNAL entry rather than a memory. It matters on
+   * an inspection surface: an episode is the source a memory was made from, it
+   * sits outside every sleep phase, and the physics below it is recorded but
+   * never acted on. Printing its strength without saying that would invite the
+   * owner to read a number the engine ignores.
+   */
+  readonly journal: boolean;
   readonly title: string;
   readonly text: string;
   readonly confidential: boolean;
@@ -669,6 +682,7 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     id,
     headId: r.headId,
     askedFor: null,
+    journal: false,
     title: "",
     text: "",
     confidential: false,
@@ -730,6 +744,7 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     id: headId,
     headId,
     askedFor: headId === id ? null : id,
+    journal: row === undefined ? false : isJournal(row),
     title: doc.title ?? "",
     // The BODY is the memory, and this is the owner's own window onto their own
     // store (constitution line 6). A confidential body is the one exception, and

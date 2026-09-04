@@ -41,7 +41,7 @@ import { FRAMING, LANE_ORDER } from "../src/core/self/index.js";
 import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { EVENT_NODE, FLOW_EDGES, FLOW_NODES, NODE_KEYS, nodeOf } from "../src/adapters/dashboard/web/flow.js";
-import { NARRATORS, narrate } from "../src/adapters/dashboard/web/narrate.js";
+import { NARRATORS, REF_KIND, narrate } from "../src/adapters/dashboard/web/narrate.js";
 import { WITHHELD, reveal } from "../src/adapters/dashboard/web/reveal.js";
 import {
   DEFAULT_PORT,
@@ -50,7 +50,7 @@ import {
   startDashboard,
 } from "../src/adapters/dashboard/web/server.js";
 import { activityView, healthView, mindView, wakeLanes } from "../src/adapters/dashboard/web/views.js";
-import { parseServe } from "../src/adapters/dashboard/bin/dashboard.js";
+import { parseServe, serve } from "../src/adapters/dashboard/bin/dashboard.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -246,6 +246,26 @@ describe("the router answers every endpoint over a store with a life in it", () 
     }
   });
 
+  test("a chapter opens like anything else, and says it is not a memory", () => {
+    const d = open(richDir);
+    try {
+      const chapters = mindView(d.src).chapters;
+      expect(chapters.length).toBeGreaterThan(0);
+      const detail = get(d.src, `/api/memory?id=${chapters[0]?.id ?? ""}`).json;
+      // It resolves — a journal entry is a row like any other.
+      expect(detail["found"]).toBe(true);
+      expect(String(detail["text"]).length).toBeGreaterThan(60);
+      // And it is FLAGGED, because the physics printed beside it is recorded
+      // and never acted on: an episode sits outside every sleep phase.
+      expect(detail["journal"]).toBe(true);
+      // A real memory is not flagged.
+      const mem = (get(d.src, "/api/memories").json["points"] as { id: string }[])[0];
+      expect(get(d.src, `/api/memory?id=${mem?.id ?? ""}`).json["journal"]).toBe(false);
+    } finally {
+      d.close();
+    }
+  });
+
   test("an id that is not there answers with a NAMED absence, not a blank", () => {
     const d = open(richDir);
     try {
@@ -408,6 +428,26 @@ describe("the observer guarantee, restated for a web adapter", () => {
     }
   });
 
+  test("the canonical boxes are byte-identical over a store with a LIFE in it", () => {
+    // The empty-store case above proves the loop; this one proves it where
+    // there is something to damage — thirty lived days, an archived set, a
+    // revised belief and a journal, every endpoint served over all of it.
+    const d = open(richDir);
+    try {
+      const before = canonical(richDir);
+      for (const path of ENDPOINTS) get(d.src, path);
+      const first = (get(d.src, "/api/memories").json["points"] as { id: string }[])[0];
+      get(d.src, `/api/memory?id=${first?.id ?? ""}`);
+      for (const chapter of mindView(d.src).chapters) get(d.src, `/api/memory?id=${chapter.id}`);
+      const lastSeq = activityView(d.src, { limit: 1 }).lastSeq;
+      get(d.src, `/api/event?seq=${lastSeq}`);
+      get(d.src, "/api/search?q=rota");
+      expect(diff(before, canonical(richDir))).toEqual([]);
+    } finally {
+      d.close();
+    }
+  });
+
   test("the WHOLE directory, cache included, is stable across repeated requests", () => {
     const d = open(richDir);
     try {
@@ -510,6 +550,16 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     expect(extra).toEqual([]);
   });
 
+  test("every durable event name says what kind of thing its ref holds", () => {
+    const missing = DURABLE_EVENT_NAMES.filter((name) => !(name in REF_KIND));
+    expect(missing).toEqual([]);
+    // The three that are NOT memory ids are the whole reason this table exists:
+    // resolving one of them through the memory resolver prints a false absence.
+    expect(REF_KIND["recall.decision"]).toBe("session");
+    expect(REF_KIND["gate.chunk"]).toBe("chunk");
+    expect(REF_KIND["sweep.gate"]).toBe("none");
+  });
+
   test("every edge on the diagram joins two real nodes", () => {
     const keys = new Set<string>(NODE_KEYS);
     for (const edge of FLOW_EDGES) {
@@ -596,21 +646,30 @@ describe("what the page withholds", () => {
       const r = reveal(d.src.store, id, 80);
       // The row exists — the owner can see THAT it is there.
       expect(r.present).toBe(true);
-      if (r.confidential) {
-        expect(r.text).toBeNull();
-        expect(r.label).toBe(WITHHELD);
-        const points = get(d.src, "/api/memories").json["points"] as { id: string; text: string; confidential: boolean }[];
-        const row = points.find((p) => p.id === id);
-        expect(row?.confidential).toBe(true);
-        expect(row?.text).toBe(WITHHELD);
-        // Its physics is still fully visible: the dot is on the chart.
-        expect(get(d.src, `/api/memory?id=${id}`).json["text"]).toBe(WITHHELD);
-      } else {
-        // The store's own predicate did not call this confidential; the rule is
-        // still the one the dashboard follows, so the assertion is that the
-        // dashboard AGREES with the predicate rather than inventing its own.
-        expect(r.text).not.toBeNull();
-      }
+      // And its words do not. Asserted outright rather than branched on: a
+      // branch here would swallow the regression this test exists to catch.
+      expect(r.confidential).toBe(true);
+      expect(r.text).toBeNull();
+      expect(r.label).toBe(WITHHELD);
+
+      const points = get(d.src, "/api/memories").json["points"] as {
+        id: string;
+        text: string;
+        confidential: boolean;
+        strength: number;
+        band: string;
+      }[];
+      const row = points.find((p) => p.id === id);
+      expect(row?.confidential).toBe(true);
+      expect(row?.text).toBe(WITHHELD);
+      // The dot is still on the chart with its real physics: withholding the
+      // sentence is not hiding the memory.
+      expect(typeof row?.strength).toBe("number");
+      expect(["episodic", "semantic", "identity"]).toContain(String(row?.band));
+      expect(get(d.src, `/api/memory?id=${id}`).json["text"]).toBe(WITHHELD);
+      // And nothing leaks through the search surface either.
+      const hits = get(d.src, "/api/search?q=whiteboard").json["hits"] as { id: string; text: string }[];
+      for (const hit of hits) if (hit.id === id) expect(hit.text).toBe(WITHHELD);
     } finally {
       d.close();
     }
@@ -746,6 +805,27 @@ describe("starting the thing", () => {
 
   test("the default port is 4747 — 3737 belongs to v1 for the parallel run", () => {
     expect(DEFAULT_PORT).toBe(4747);
+  });
+
+  test("it refuses a directory with no store in it, in one sentence", async () => {
+    const nowhere = join(tempDir("counterparts-web-nostore-"), "not-a-store");
+    const said: string[] = [];
+    const realErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: unknown) => {
+      said.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const code = await serve(["serve", "--dir", nowhere, "--port", "0"]);
+      expect(code).toBe(1);
+    } finally {
+      process.stderr.write = realErr;
+    }
+    const message = said.join("");
+    // ONE sentence, naming the directory and what to do — not a stack.
+    expect(message).toContain(nowhere);
+    expect(message).toContain("counterparts init");
+    expect(message.split("\n").filter((l) => l.trim().length > 0).length).toBe(1);
   });
 
   test("`serve` is parsed apart from the five views", () => {
