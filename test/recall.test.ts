@@ -394,11 +394,20 @@ describe("the hard gates salience cannot override", () => {
       cand({ id: `mem_${i}`, cue: 2, body: `${nouns[i]} grove notes number ${nouns[i]}` }),
     );
     const g = gateOn(many);
-    expect(g.surfaced.length).toBe(2);
-    expect(g.footnotes.length).toBe(6);
+    // ADJUSTED 2026-09-04: the caps are read from the tunables rather than
+    // written down twice. `MAX_SURFACED` moved 2 -> 1 on measurement (the loud
+    // lane fired on 13 of 13 real turns once length normalization removed the
+    // hubs that were setting the variance), and a test that hardcodes a cap is
+    // a test that fails for the calibration rather than for the property. The
+    // PROPERTY here is disjointness and that the overflow is named, and both
+    // are asserted against whatever the caps currently are.
+    expect(g.surfaced.length).toBe(TUNABLES.MAX_SURFACED);
+    expect(g.footnotes.length).toBe(TUNABLES.MAX_FOOTNOTES);
     const loud = new Set(g.surfaced.map((c) => c.id));
     for (const f of g.footnotes) expect(loud.has(f.id)).toBe(false);
-    expect(g.verdicts.filter((v) => v.verdict === "capped").length).toBe(2);
+    expect(g.verdicts.filter((v) => v.verdict === "capped").length).toBe(
+      many.length - TUNABLES.MAX_SURFACED - TUNABLES.MAX_FOOTNOTES,
+    );
   });
 });
 

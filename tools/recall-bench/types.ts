@@ -83,6 +83,21 @@ export interface BenchConfig {
   readonly cap: number;
   /** Clamp the length factor at 1 — penalize long, never reward short. */
   readonly oneSided?: boolean;
+  /** The GATE's side of the sweep: how many sd above this turn's background a
+   *  candidate must stand to be admitted at all, and to go loud. Absent = the
+   *  shipped CAL value. */
+  readonly snrGlobal?: number;
+  readonly snrStrong?: number;
+  /** Multiplier on every per-kind loud-tier floor (and the default). The floors
+   *  keep their RELATIVE shape — kinds live on different activation scales
+   *  (§9 G12) — and only the level moves. */
+  readonly floorStrongScale?: number;
+  /** The hard cap on the footnote lane. A cap, not a bar: it changes how many
+   *  of the ranked survivors are shown, never which ones rank. */
+  readonly maxFootnotes?: number;
+  /** Hard gate (b): the ABSOLUTE floor, checked before any salience adjustment.
+   *  Like the loud floors it carries v1's normalized scale. */
+  readonly floorGlobal?: number;
 }
 
 /** One id and how many of the turns delivered it. The hub metric that does not
@@ -104,6 +119,9 @@ export interface BenchReport {
     readonly delivered: number;
     /** The loud tier — 'came clearly to mind'. The contract says RARELY. */
     readonly surfaced: number;
+    /** TURNS carrying at least one loud item. The contract's word is *rarely*,
+     *  and "rarely" is a property of turns, not of a total. */
+    readonly loudTurns: number;
     readonly footnotes: number;
     readonly hubHits: number;
     readonly turnsWithHub: number;

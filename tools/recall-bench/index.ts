@@ -49,7 +49,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { DELIBERATE_DIM_CAP, tierOf } from "../../src/adapters/mcp/deliberate.js";
-import { Recall, withTunables } from "../../src/core/recall/index.js";
+import { Recall, TUNABLES, withTunables } from "../../src/core/recall/index.js";
 import { activate } from "../../src/core/recall/index.js";
 import { DEFAULT_DATA_DIR_NAME, Store, forbiddenRoots, isWithin } from "../../src/core/store/index.js";
 import type { BenchConfig, BenchInput, BenchReport, Delivered, QueryRow, ToolRow } from "./types.js";
@@ -156,6 +156,24 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
     CUE_TF_SATURATION: config.k1,
     CUE_LENGTH_ONE_SIDED: config.oneSided === true,
     CUE_DOC_CAP: config.cap,
+    ...(config.snrGlobal === undefined ? {} : { SNR_GLOBAL: config.snrGlobal }),
+    ...(config.maxFootnotes === undefined ? {} : { MAX_FOOTNOTES: config.maxFootnotes }),
+    ...(config.floorGlobal === undefined ? {} : { FLOOR_GLOBAL: config.floorGlobal }),
+    ...(config.snrStrong === undefined ? {} : { SNR_STRONG: config.snrStrong }),
+    // The per-kind floors keep their SHAPE and move together: §9 G12's whole
+    // finding is that the kinds sit on different activation scales, so a sweep
+    // that flattens them would be re-deciding a measured thing by accident.
+    ...(config.floorStrongScale === undefined
+      ? {}
+      : {
+          FLOOR_STRONG_BY_KIND: Object.fromEntries(
+            Object.entries(TUNABLES.FLOOR_STRONG_BY_KIND).map(([k, v]) => [
+              k,
+              v * config.floorStrongScale!,
+            ]),
+          ),
+          FLOOR_STRONG_DEFAULT: TUNABLES.FLOOR_STRONG_DEFAULT * config.floorStrongScale,
+        }),
     // The bench measures the SCORER, not the clock: a cold 300 MB index in a
     // fresh process is the latency finding of a different PR, and letting it
     // abort here would silently turn a scoring table into a timing table. The
@@ -230,6 +248,7 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
     turns: rows.length,
     delivered: rows.reduce((a, r) => a + r.delivered.length, 0),
     surfaced: rows.reduce((a, r) => a + r.delivered.filter((d) => d.tier === "surfaced").length, 0),
+    loudTurns: rows.filter((r) => r.delivered.some((d) => d.tier === "surfaced")).length,
     footnotes: rows.reduce((a, r) => a + r.delivered.filter((d) => d.tier === "footnote").length, 0),
     hubHits: rows.reduce((a, r) => a + r.hubHits.length, 0),
     turnsWithHub: rows.filter((r) => r.hubHits.length > 0).length,
@@ -321,7 +340,7 @@ export function renderReport(report: BenchReport): string {
   const t = report.totals;
   out.push("");
   out.push(
-    `**totals** — turns ${t.turns} · delivered ${t.delivered} (loud ${t.surfaced}, footnotes ${t.footnotes}) · **hub hits ${t.hubHits}** (on ${t.turnsWithHub}/${t.turns} turns) · **should-surface hits ${t.wanted}**, missed ${t.missed}, absent-from-store ${t.absent} · rendered ${t.rendered} · all-gated ${t.allGated} · capped docs ${t.capped} · max ${Math.round(t.maxElapsedMs)} ms`,
+    `**totals** — turns ${t.turns} · delivered ${t.delivered} (${(t.delivered / Math.max(1, t.turns)).toFixed(1)}/turn: loud ${t.surfaced} on ${t.loudTurns}/${t.turns} turns, footnotes ${t.footnotes}) · **hub hits ${t.hubHits}** (on ${t.turnsWithHub}/${t.turns} turns) · **should-surface hits ${t.wanted}**, missed ${t.missed}, absent-from-store ${t.absent} · rendered ${t.rendered} · all-gated ${t.allGated} · capped docs ${t.capped} · max ${Math.round(t.maxElapsedMs)} ms`,
   );
   out.push("");
   out.push(
@@ -344,15 +363,23 @@ export function renderReport(report: BenchReport): string {
   return out.join("\n");
 }
 
-/** The sweep's one-line-per-cell summary — how `b` and the cap were chosen. */
+/** Turn 3 is the quiet-turn probe: "thanks, as before interesting to chat with
+ *  you. where would you like to take the conversation from here?" carries almost
+ *  no cue, so anything loud there is the bar admitting noise. */
+function turnThreeLoud(report: BenchReport): number {
+  const row = report.rows.find((r) => r.label === "turn 3");
+  return row === undefined ? -1 : row.delivered.filter((d) => d.tier === "surfaced").length;
+}
+
+/** The sweep's one-line-per-cell summary — how the tunables were chosen. */
 export function renderSweep(reports: readonly BenchReport[]): string {
   const out: string[] = [];
-  out.push("| config | hub hits | turns w/ hub | should-surface hits | missed | delivered | loud | footnotes | recurring ids | recurring deliveries | capped docs |");
-  out.push("|---|---|---|---|---|---|---|---|---|---|---|");
+  out.push("| config | hub hits | should-surface | delivered | per turn | loud | loud turns | turn-3 loud | recurring ids | recurring deliveries |");
+  out.push("|---|---|---|---|---|---|---|---|---|---|");
   for (const r of reports) {
     const t = r.totals;
     out.push(
-      `| ${r.config.name} | ${t.hubHits} | ${t.turnsWithHub}/${t.turns} | ${t.wanted} | ${t.missed} | ${t.delivered} | ${t.surfaced} | ${t.footnotes} | ${t.recurring.length} | ${t.recurringDeliveries} | ${t.capped} |`,
+      `| ${r.config.name} | ${t.hubHits} | ${t.wanted} | ${t.delivered} | ${(t.delivered / Math.max(1, t.turns)).toFixed(1)} | ${t.surfaced} | ${t.loudTurns}/${t.turns} | ${turnThreeLoud(r)} | ${t.recurring.length} | ${t.recurringDeliveries} |`,
     );
   }
   return out.join("\n");

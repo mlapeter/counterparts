@@ -185,8 +185,41 @@ export const TUNABLES: RecallTunables = {
   SEMANTIC_TOP_M: 8,
   ARRIVAL_WEIGHT: 0.15,
 
-  SNR_GLOBAL: 1.2,
+  // 1.2 -> 1.6 (CAL, 2026-09-04). Once length normalization stopped nine hubs
+  // from setting every turn's variance, the relative bar admitted far more:
+  // over the 13-prompt bench, delivered items went from 2.5 to 6.1 per turn.
+  // 1.6 takes that to 4.8 without losing any of the four labeled positives; at
+  // 2.0 the ambient positive goes. Scale-free by construction — it is a count
+  // of standard deviations — which is why it is the volume knob that shipped
+  // and the absolute floors below are not. `tools/recall-bench --gate-sweep`.
+  SNR_GLOBAL: 1.6,
   SNR_STRONG: 2.5,
+  // ── UNCHANGED, AND THE REASON IS A FINDING. ────────────────────────────
+  //
+  // MEASURED 2026-09-04: on the live store, activation runs **13 to 48** per
+  // turn (mean 13.0 on the quietest of the 13 prompts, 27.0 on the busiest).
+  // These floors are v1's, and v1's activation was a normalized cosine in 0-1.
+  // So hard gate (b) and the per-kind loud floors are two orders of magnitude
+  // below anything they could refuse: **they have never fired in v2.** Scaling
+  // them by x1 to x15 changes not one delivered item on the bench.
+  //
+  // That matters because the loud tier now fires on a turn that said nothing
+  // ("where would you like to take the conversation from here?"), and the
+  // RELATIVE bar cannot fix it: that turn's top candidate stands 3.5 sd above
+  // its own thin background where a busy turn's stands 2.6, so raising
+  // `SNR_STRONG` silences the busy turn first. Swept and confirmed — turn-3
+  // loud stayed at 2 for every value of `SNR_STRONG` tried. Only an ABSOLUTE
+  // floor can keep a low-evidence turn quiet, which is what one is for.
+  //
+  // Why they are not simply raised here: a floor calibrated to this store
+  // (FLOOR_GLOBAL 25, loud floors x57) blinds a small one — v2's activation is
+  // a SUM over matched cues, and the live store reaches ~24 cues per turn where
+  // a 17-memory test store reaches 2 or 3. Denominating the floors in
+  // `informativeness(1, storeSize)` — one maximally-rare cue, the model's own
+  // unit — fixes the idf half of that and was prototyped and swept here; it is
+  // not enough on its own, because the CUE-COUNT half remains. That is the
+  // named next measurement, with the data in the PR, and it is deliberately not
+  // guessed at inside a change that already moved the scoring.
   FLOOR_GLOBAL: 0.2,
   FLOOR_STRONG_BY_KIND: {
     self: 0.6,
@@ -208,7 +241,13 @@ export const TUNABLES: RecallTunables = {
   MIN_BACKGROUND_SAMPLE: 3,
 
   NEAR_DUPLICATE: 0.85,
-  MAX_SURFACED: 2,
+  // 2 -> 1 (CAL, 2026-09-04). §3 says the loud tier is for RARELY, and after
+  // length normalization it fired on 13 of 13 real turns. The bar cannot fix
+  // that yet (see FLOOR_GLOBAL above), but a hard cap can, it is scale-free,
+  // and it halves what the owner reads uninvited: 24 loud items over the 13
+  // prompts became 13, one per turn at most. The turn COUNT is still the open
+  // problem and it is CONTRACT §7 OQ5.
+  MAX_SURFACED: 1,
   MAX_FOOTNOTES: 6,
 
   AFFECT_MIN_EMOTION: 0.7,

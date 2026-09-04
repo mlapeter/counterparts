@@ -207,17 +207,31 @@ decision record carries ids, never bodies).
    The module map's standing check-in question; owned by `associate/`.
 4. **Is the "quietly available / ignorable" framing actually ignorable to a model?** v1
    shipped it as a deliberate probe question and never answered it.
-5. **Is the relative bar calibrated for a distribution that is no longer dominated by
-   outliers?** Length normalization removed the nine hubs that were setting `sd` on every
-   turn, and the bench measured the consequence: over the same 13 prompts, delivered items
-   went 32 → 79 and the LOUD tier went 4 → 24 — "came clearly to mind" on every turn, where
-   §3 says *rarely*. **The obvious alternative explanation was tested and refused**: if the
-   cause were an absolute floor meeting a scale that moved, clamping the length factor at 1
-   would have fixed it, and clamping changes the loud count by one (24 vs 23 at `b = 0.75`).
-   So the driver is the relative bar itself — `SNR_GLOBAL` and `SNR_STRONG` are v1
-   inheritances chosen against a distribution whose variance was set by outliers this change
-   removes. Turn 3 of the bench is the clean case: "where would you like to take the
-   conversation from here?" carries almost no cue, and it delivers the maximum the caps
-   allow. Not retuned in the same change that moved the distribution — two calibrations at
-   once measure neither — and the deliberate ask, which does not use the ambient bar, is
-   unaffected either way.
+5. **The absolute floors have never fired in v2, and the loud tier needs them.** MEASURED
+   2026-09-04, and the most consequential thing this module now knows about itself.
+   `FLOOR_GLOBAL` (0.2) and `FLOOR_STRONG_BY_KIND` (0.5-1.0) are v1's numbers on v1's
+   scale — a normalized cosine in 0-1. v2's activation is a SUM of `idf x length-normalized
+   evidence` over up to `MAX_CUES` cues and runs **13 to 48** on the live store. Scaling
+   the floors from x1 to x15 changes not one delivered item. Hard gate (b) and §9 G12's
+   per-kind floors are, today, decorative.
+   It surfaced because length normalization removed the nine outliers that were setting
+   every turn's variance, and the loud tier then fired on **13 of 13** turns where §3 says
+   *rarely*. The relative bar cannot fix that — swept and confirmed: a near-contentless
+   turn's top candidate stands 3.5 sd above its own thin background where a busy turn's
+   stands 2.6, so `SNR_STRONG` silences the busy turn FIRST. Only an absolute floor can
+   keep a low-evidence turn quiet, which is exactly what one is for (ACT-R's retrieval
+   threshold τ: below it, a chunk is not retrieved however distinctive it looks against
+   its neighbours).
+   Shipped instead, because both are scale-free: `SNR_GLOBAL` 1.2 -> 1.6 (6.1 -> 4.8
+   delivered per turn) and `MAX_SURFACED` 2 -> 1 (24 -> 13 loud items). The turn COUNT is
+   unfixed: 13 of 13 turns still carry one loud item.
+   **What the fix needs, and why it is not in this change.** A floor calibrated to the live
+   store (`FLOOR_GLOBAL` 25, loud floors x57) reaches every target — 3.1 delivered per
+   turn, loud on 5 of 13, the quiet turn silent — and blinds a small store, because
+   activation scales with how many cues a turn matched (~24 here, 2-3 on a 17-memory test
+   store). Denominating the floors in `informativeness(1, storeSize)` — one maximally-rare
+   cue, the model's own unit — fixes the idf half and was prototyped and swept; the
+   cue-count half remains. Two candidates for it: normalize activation by the turn's own
+   cue mass, or gate the loud tier on whether the TURN carried distinctive vocabulary at
+   all. Both are new mechanisms, and Amendment 15 says a mechanism ships after the failure
+   is named — it now is, with numbers — not inside the change that produced the numbers.
