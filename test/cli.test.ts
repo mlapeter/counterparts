@@ -187,8 +187,11 @@ describe("status", () => {
     const c = consoleWith();
     expect(await run(["status", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
-    expect(printed).toContain("Live memories: 1");
+    expect(printed).toContain("Memories: 1");
     expect(printed).toContain("Journal: 1 episode");
+    // And a belief is neither: its own label, so no surface adds it into
+    // "memories" and then disagrees with the wake preface (round 8).
+    expect(printed).toContain("Beliefs and entities: 0");
     // And the kind/band breakdowns are over memories only.
     expect(printed).toContain("fact 1");
     expect(printed).toContain("self 0");
@@ -208,7 +211,7 @@ describe("status", () => {
     const printed = text(c.out);
 
     expect(code).toBe(EXIT.ok);
-    expect(printed).toContain("Live memories:");
+    expect(printed).toContain("Memories:");
     expect(printed).toContain("person 1");
     expect(printed).toContain(`Removed: 1`);
     expect(printed).toContain(gone);
@@ -1293,7 +1296,7 @@ describe("owner operations never run under observer", () => {
     store().close();
     const c = consoleWith();
     expect(await run(["status", "--observer"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
-    expect(text(c.out)).toContain("Live memories:");
+    expect(text(c.out)).toContain("Memories:");
   });
 
   test("the environment can stand the console down too, not only the flag", async () => {

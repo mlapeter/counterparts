@@ -289,7 +289,7 @@ if [ -f "$STORE/claude-code.json" ]; then
   no "the config landed INSIDE the data dir; the layout check refuses that at open"
 else
   OUT=$(counterparts status --dir "$STORE" 2>&1)
-  if printf '%s' "$OUT" | grep -q "Live memories:"; then ok; else no "status could not open the store" "$OUT"; fi
+  if printf '%s' "$OUT" | grep -q "^Memories: "; then ok; else no "status could not open the store" "$OUT"; fi
 fi
 
 step "the credentials file is 0600"
@@ -332,7 +332,7 @@ else
   BEFORE=$(find "$STORE" -type f | sort | wc -l)
   OUT=$(eval "$CMD" 2>&1)
   AFTER=$(find "$STORE" -type f | sort | wc -l)
-  if printf '%s' "$OUT" | grep -q "Live memories:" && [ "$BEFORE" = "$AFTER" ]; then ok; else no "status failed or was not a pure read" "$OUT"; fi
+  if printf '%s' "$OUT" | grep -q "^Memories: " && [ "$BEFORE" = "$AFTER" ]; then ok; else no "status failed or was not a pure read" "$OUT"; fi
 fi
 
 # ── 3. the product, from the console ────────────────────────────────────────
@@ -364,10 +364,10 @@ step "a mistyped --dir is REFUSED, and the note does not land somewhere else"
 # store took the words — which on a real machine is the owner's live memory. The
 # assertion is in three parts: the command refuses, it names the flag, and NO
 # store anywhere grew a memory.
-BEFORE_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Live memories: \([0-9]*\).*/\1/p' | head -1)
+BEFORE_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Memories: \([0-9]*\).*/\1/p' | head -1)
 OUT=$(counterparts note "This must not land anywhere." --dirr "$FIRSTSTORE" 2>&1)
 CODE=$?
-AFTER_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Live memories: \([0-9]*\).*/\1/p' | head -1)
+AFTER_DEFAULT=$(counterparts status --dir "$STORE" 2>/dev/null | sed -n 's/^Memories: \([0-9]*\).*/\1/p' | head -1)
 if [ "$CODE" = "2" ] &&
    printf '%s' "$OUT" | grep -q "unknown flag --dirr" &&
    printf '%s' "$OUT" | grep -q "did you mean --dir?" &&
@@ -534,11 +534,16 @@ fi
 
 step "the note is durable: the console counts it after both processes exited"
 OUT=$(counterparts status --dir "$STORE" 2>&1)
-LIVE=$(printf '%s\n' "$OUT" | sed -n 's/^Live memories: \([0-9]*\).*/\1/p' | head -1)
-if [ -n "$LIVE" ] && [ "$LIVE" -ge 1 ] 2>/dev/null && printf '%s' "$OUT" | grep -q '^Journal: '; then
+LIVE=$(printf '%s\n' "$OUT" | sed -n 's/^Memories: \([0-9]*\).*/\1/p' | head -1)
+# The four populations are on ONE line now, each labelled, because adding them
+# together and calling the total "memories" is how three surfaces came to report
+# three different sizes (round 8). `Memories:` is the number the wake states.
+if [ -n "$LIVE" ] && [ "$LIVE" -ge 1 ] 2>/dev/null &&
+   printf '%s' "$OUT" | grep -q 'Journal: ' &&
+   printf '%s' "$OUT" | grep -q 'Beliefs and entities: '; then
   ok
 else
-  no "expected at least one live memory and a Journal line, read '${LIVE:-nothing}'" "$OUT"
+  no "expected at least one memory and the labelled census, read '${LIVE:-nothing}'" "$OUT"
 fi
 
 # ── 6. the wake carries something ───────────────────────────────────────────

@@ -424,8 +424,17 @@ counterparts status --dir "$HOME/.counterparts/store"
 
 A census of what is held, what left, and what was removed. Read-only, and it
 opens the store in observer stance so looking at your memory cannot change it.
-`Live memories:` counts memories; the `Journal:` line counts episodes, which are
-a different thing and do not decay.
+
+The first line names four populations because they are four different things,
+and adding them together is how one store came to report three different sizes:
+**`Memories:`** is what the AI learned, and it is the number the wake preface
+states back to the model at every session start; **`Beliefs and entities:`** is
+what it believes about people and things, which decay and are revised under their
+own rules; **`Journal:`** is episodes, the source a memory was made from, which
+never decay; **`Archived:`** and **`Superseded:`** are what has left. The `by
+kind` and `by band` lines below are over memories and beliefs together, and the
+band is computed from each row's physics today rather than read from the column
+it was born with — which is why it matches the dashboard's.
 
 ```
 counterparts-dashboard status --dir "$HOME/.counterparts/store"

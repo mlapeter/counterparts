@@ -75,6 +75,9 @@ import {
   style as makeStyle,
 } from "../src/adapters/dashboard/index.js";
 import { helpText, parseArgv, run } from "../src/adapters/dashboard/bin/dashboard.js";
+// The console, imported so the two surfaces can be compared on ONE store rather
+// than trusted to agree.
+import { run as runCli } from "../src/adapters/cli/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 /** The HOST's reported ceiling. Nothing in `src/` may invent one (scar §2.18). */
@@ -1187,6 +1190,53 @@ describe("the adapter's surface", () => {
     expect(stripAnsi(out)).toContain("storage split");
     expect(helpText()).toContain("observer mode");
     for (const view of VIEWS) expect(helpText()).toContain(view);
+  });
+
+  test("the console and this view agree, number for number, on the same store", async () => {
+    // THE THREE-COUNTS BUG (2026-09-05): one demo store reported 143 live here
+    // and in the console, 121 in the wake preface, and two different band
+    // breakdowns — the console read the stored `band` column, a birth fossil
+    // that is never "semantic", while this view computed the band from physics.
+    // Both numbers were defensible and the reader had no way to reconcile them.
+    // The fix is one arithmetic (`physics/band`) and one vocabulary; this test
+    // is what keeps the two surfaces from drifting apart again.
+    await seed();
+    const c: string[] = [];
+    const code = await runCli(["status", "--dir", dir], {
+      io: { out: (l) => c.push(l), err: () => undefined },
+    });
+    expect(code).toBe(0);
+    const console_ = c.join("\n");
+    const view = stripAnsi(dash().status());
+
+    const cliBands = /by band: episodic (\d+)\s+semantic (\d+)\s+identity (\d+)/.exec(console_);
+    expect(cliBands).not.toBe(null);
+    const viewBand = (name: string): string =>
+      new RegExp(`${name}\\s+(\\d+)`).exec(view)?.[1] ?? "missing";
+    expect(viewBand("episodic")).toBe((cliBands as RegExpExecArray)[1] as string);
+    expect(viewBand("semantic")).toBe((cliBands as RegExpExecArray)[2] as string);
+    expect(viewBand("identity")).toBe((cliBands as RegExpExecArray)[3] as string);
+
+    // And the populations carry the same labels and the same numbers. The
+    // console's `Memories:` is the number the wake preface states.
+    const counts = /Memories: (\d+)\s+Beliefs and entities: (\d+)\s+Journal: (\d+)/.exec(console_);
+    expect(counts).not.toBe(null);
+    const [, memories, schemas, journal] = counts as RegExpExecArray;
+    expect(view).toContain(`I am holding ${memories as string} memories`);
+    expect(view).toContain(`${schemas as string} beliefs and entities`);
+    // The journal clause appears only when there is one — this fixture writes no
+    // episode, and a view that said "0 journal entries" would be noise. The
+    // console prints the zero because its line is a fixed census.
+    if (Number(journal) > 0) expect(view).toContain(`${journal as string} journal entries`);
+    else expect(view).not.toContain("journal entries");
+
+    // Not vacuous: this fixture really does hold memories AND schemas, which is
+    // the split that was being added together and called "memories".
+    expect(Number(memories)).toBeGreaterThan(0);
+    expect(Number(schemas)).toBeGreaterThan(0);
+    // And two different bands are populated, so the band comparison is real.
+    expect(Number((cliBands as RegExpExecArray)[1])).toBeGreaterThan(0);
+    expect(Number((cliBands as RegExpExecArray)[2])).toBeGreaterThan(0);
   });
 
   test("asking for help opens NO store — not even the default one", () => {

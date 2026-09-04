@@ -33,7 +33,10 @@ import { parseArgs } from "node:util";
 
 import { Counterpart } from "../../core/counterpart.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
-import { TUNABLES } from "../../core/physics/index.js";
+// `band` is imported rather than mirrored: the dashboard computes the live
+// band with this exact function, and two implementations of "which band is this
+// row in today" is how the two surfaces disagreed in the first place.
+import { TUNABLES, band } from "../../core/physics/index.js";
 import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
 // The ONE predicate for "this row is the journal, not a memory" — the same one
 // the sleep phases and the dashboard's census use. A second copy of that test
@@ -489,10 +492,20 @@ function statusCommand(dir: string, io: Io): number {
     const byKind: Record<string, number> = {};
     const byBand: Record<string, number> = {};
     const permanent: { id: string; title: string; why: string }[] = [];
-    let live = 0;
+    // THREE POPULATIONS, THREE LABELS. A single `live` counter that swallowed
+    // all of them is how one demo store reported three different sizes on
+    // 2026-09-05: the wake preface says `<n> memories` and counts
+    // `type: "memory"` rows only (`self/briefing.ts#prefaceLine`,
+    // `store.countMemories({ type: "memory", archived: false })`), while this
+    // census walked every row and called the total "Live memories" — 143 here
+    // against the preface's 121, the difference being exactly the 13 entities
+    // and 9 beliefs. Both numbers were right; one of the labels was not.
+    let memories = 0;
+    let schemas = 0;
     let journal = 0;
     let archived = 0;
     let superseded = 0;
+    const day = store.livedDay();
 
     for (const id of store.list()) {
       const row = store.row(id);
@@ -517,9 +530,22 @@ function statusCommand(dir: string, io: Io): number {
         journal += 1;
         continue;
       }
-      live += 1;
+      if (row.type === "schema") schemas += 1;
+      else memories += 1;
       byKind[row.kind] = (byKind[row.kind] ?? 0) + 1;
-      byBand[row.band] = (byBand[row.band] ?? 0) + 1;
+      // THE LIVE BAND, computed, never the stored column. `memories.band` is a
+      // birth fossil — episodic at mint, identity at promotion, and never
+      // "semantic" — so reading it reported `episodic 128 / semantic 0` where
+      // the dashboard, which does this arithmetic, reported `54 / 74`
+      // (LAUNCH-STATUS §I10). Same helper, same day, same answer.
+      let liveBand: Band = row.band;
+      try {
+        liveBand = band(store.physicsOf(id), day);
+      } catch {
+        // A row whose physics will not read keeps its recorded band, which is
+        // the dashboard's fallback too.
+      }
+      byBand[liveBand] = (byBand[liveBand] ?? 0) + 1;
       if (row.protected === 1 || row.promoted_identity === 1) {
         let title = "(untitled)";
         try {
@@ -538,10 +564,18 @@ function statusCommand(dir: string, io: Io): number {
     io.out(`Store: ${store.dir}`);
     io.out(`Lived day ${store.livedDay()}, last active ${store.getMeta("lastActiveDate") || "never"}`);
     io.out("");
-    io.out(`Live memories: ${live}   archived: ${archived}   superseded: ${superseded}`);
-    io.out(`  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}`);
-    io.out(`  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}`);
-    io.out(`Journal: ${journal} ${journal === 1 ? "episode" : "episodes"}, counted apart — the journal does not decay.`);
+    // One line, four labelled populations, and the first number is the one the
+    // wake preface says. Anything that adds them into a single "live" total is
+    // a surface that will disagree with the briefing the model reads.
+    io.out(
+      `Memories: ${memories}` +
+        `   Beliefs and entities: ${schemas}` +
+        `   Journal: ${journal} ${journal === 1 ? "episode" : "episodes"}` +
+        `   Archived: ${archived}   Superseded: ${superseded}`,
+    );
+    io.out(`  by kind: ${kinds.map((k) => `${k} ${byKind[k] ?? 0}`).join("  ")}   (memories + beliefs and entities)`);
+    io.out(`  by band: ${bands.map((b) => `${b} ${byBand[b] ?? 0}`).join("  ")}   (computed from physics today, not the stored column)`);
+    io.out("  Memories is the number the wake preface states; the journal does not decay.");
     io.out("");
 
     const removals = store.removalRecord().filter((r) => r.stage === "complete");
