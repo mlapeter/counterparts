@@ -106,6 +106,12 @@ export const LAYOUT: readonly LayoutEntry[] = [
     backup: false,
     why: "Staging for atomic writes. Crash-leaked temps are inert: the loader reads *.md under prose/ only.",
   },
+  {
+    name: "sessions",
+    match: "exact",
+    backup: false,
+    why: "adapters/sessions.ts — the live-session registry a host's hooks leave for its tools. Host state, not memory: no content, and its loss costs a lazy bind, never a memory.",
+  },
 ];
 
 export function classifyTopLevel(name: string): LayoutEntry | undefined {

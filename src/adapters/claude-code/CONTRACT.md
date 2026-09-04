@@ -150,6 +150,24 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     reach a span, and a block that is only a peer message does not pace a ritual. Without
     this the fallback sweep mints another instance's findings as things the owner said in
     conversation — the failure this guarantee is named after.
+13. **[M] The live session is recorded where this host's TOOLS can find it.** SessionStart
+    writes `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary), Stop
+    refreshes the clock — creating the record when it is missing — and SessionEnd closes
+    it. The writes are atomic (temp + rename), tiny, and silent on failure, because a hook
+    may not fail the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists
+    because this host launches its MCP servers from a static configuration and cannot tell
+    them which session they serve: without this note `session_end` refuses every dump —
+    measured for the whole of the first run — and the authored front door is shut. The
+    scope is set once, by SessionStart, so a later hook cannot move the project out from
+    under a server that already matched it. An observer records nothing.
+14. **[M] The authorship ask names the session id and the tool that takes it**, and says
+    `updates` is a FIELD rather than prose. The wording is advisory; the two facts it
+    carries are mechanized elsewhere — the id is what the MCP server binds itself with,
+    and the field is what `remember/updates.ts` resolves. The old wording ("say
+    `updates: <id>`") produced four notes whose declaration landed as the first words of
+    their own prose, unlinked. The ask's text is the same text G11 refuses when the host
+    hands it back — it is delivered by the hook and recorded by
+    `adapter.authorship.ask`, never by its transcript copy.
 
 ## 6. Scars honored
 
