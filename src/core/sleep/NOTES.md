@@ -241,11 +241,29 @@ BOTH WAYS, because which row the tie-break calls the original is an accident of
 ids. The guard is narrow by construction: two ordinary memories with one body
 still merge, and a test says so.
 
-Same shape as §15's journal finding a day earlier, and worth naming as a class:
-**phases that walk "every row" were written when two identical bodies could only
-mean a duplicate.** Three constructions now make identical bodies on purpose — an
-episode and the memory ingested from it, a revision's successor and its
+Same shape as the journal finding a day earlier (CONTRACT §5 G15), and worth
+naming as a class: **phases that walk "every row" were written when two identical
+bodies could only mean a duplicate.** Three constructions now make identical
+bodies on purpose — an episode and the memory ingested from it; a revised
+belief's successor and its challenger; a replaced now-fact's successor and its
 challenger — and each needed the pass to be told what it was looking at.
+
+**What this fix deliberately did NOT do.** CONTRACT §5 G7 already promises that
+nothing "in a live revision chain" is decayed, merged, or pruned, and a fresh
+successor is the head of one — so the shorter fix looks like handing dedup
+`prune.ts#inLiveRevisionChain`. It would not have worked as that predicate
+stands: a successor has no forwarding address, no standing pressure (the seed
+resets it) and no version rows of its own, so the predicate reads `false` for
+exactly the row this bug destroys. Closing G7's wording properly means widening
+the predicate to "is the head of a chain still inside H" AND consulting it in
+dedup — a bigger change than the finding demands, and one that would also close
+the twin-original edge below. Amendment 15: named, not built, until it fires.
+
+**The edge this guard does not cover.** If an ordinary memory with the
+challenger's exact body was born EARLIER, it becomes the group's original and
+both the challenger and the successor pair against IT rather than against each
+other — the pair relation is false, and the successor merges after all. Not seen
+in any store; recorded so the next person finds it named rather than fresh.
 
 **What changes on a live store.** Only stores where a dedup pass runs while a
 revision's successor and its challenger are both live — in practice any cycle
