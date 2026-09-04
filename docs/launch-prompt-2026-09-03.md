@@ -95,3 +95,50 @@ night-shift section closed gaps 1–4, and PR #6 later closed replay §1a.
   wait for the owner.
 
 Start now.
+
+# Addendum — 2026-09-04, read before starting
+
+This prompt was written on day 0 of the parallel run. Since then: the run went live, its
+first real conversation was reviewed, and **PRs #17–#28 merged in one day** (suite 1239 →
+1431). `docs/BUILD-STATUS.md` is now 22 PRs stale; the living record is
+`docs/PARALLEL-RUN-STATUS.md` (read its day-1 entry first) and the plain-words map is
+`docs/ELI5.md`. What changed that this session must know:
+
+- **`~/.counterparts` is now the owner's LIVE production memory.** Add it to the
+  off-limits list beside `~/.bansai` and `~/.claude-engram`: never read it, never write
+  it, never point a demo, screenshot, install loop or dashboard at it. Synthetic demo
+  stores only, in temp dirs.
+- **The hooks run `~/counterparts` master directly.** Every merge to master changes the
+  owner's live memory behavior at the next hook event, and the parallel run's carry-forward
+  rule restarts the phase clock on behavior changes (restarted 2026-09-04, first counting
+  day 2026-09-05). So: core `src/` behavior changes are NEEDS-OWNER during the run, even
+  with a test; adapters, docs, dashboard, packaging and the site are free. Never run
+  `tools/parallel/bin/daily.ts` or `restart.ts` against the real run directory from this
+  session; the owner runs the daily.
+- **Behavior that is different from what older docs describe:** the transcript sweep runs
+  only for crashed sessions (no session-end boundary, 12 h silent), never at Stop, session
+  end or compaction; one Stop ask on one pacer (cap 4 per day) names the session id and two
+  tools; `session_end` binds lazily to a live session from the registry under
+  `<dataDir>/sessions/`; the `chapter` MCP tool writes the episode; `note` and
+  `session_end` take `updates` and per-dimension salience; unclaimed authored memories
+  get a 0.25 floor; the wake has a delivery preface and an identity share; recall has a
+  lagged semantic channel, BM25 length normalization and floors in cue units; sleep never
+  touches episodes. Any README or site claim about these must be traced to the current
+  code, not to BUILD-STATUS.
+- **Known stranger-install blockers, for the W1 inventory (verified bugs, PR them):**
+  (1) the default data dir is `~/.counterparts` itself and the hook config
+  `claude-code.json` lives inside it, which the store's layout check rejects at open — the
+  live host works only because its config sets `dataDir` to a subdirectory; (2) the README
+  and QUICKSTART say nothing about `dataDir`, `credentialsFile` (the 0600 file both the
+  hooks and, since #23, the MCP server read for the embed key), `COUNTERPARTS_DATA_DIR`,
+  or the `sessions/` registry; (3) the MCP server must be registered with
+  `COUNTERPARTS_DATA_DIR` in its env and is launched from static config — sessions open
+  across an upgrade keep the old server until restarted; (4) the vector cache stores
+  embeddings as JSON text (177 MB at 13.9K vectors, nearest scan 0.6–1.0 s at that size) —
+  irrelevant to a fresh install, a named debt for the docs' honesty.
+- **Dashboard nits from today:** `dashboard/browse.ts` and `stories.ts` still walk
+  `store.list()` and may render episode rows as memories; the status line now counts the
+  journal apart from live memories. Read-only, presentation only.
+- **Housekeeping done:** the merged agents' worktrees are removed and pruned; the
+  day-0 pre-flip and pre-backfill backups sit in `~/counterparts-backups/` (never a demo
+  source).
