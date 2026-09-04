@@ -303,7 +303,9 @@ opens whatever keys are lying around.
 
 ## 7. Check it
 
-First, tell the console which store, once for this shell:
+`$HOME/.counterparts/store` is the default data dir, so the commands below work
+with nothing set. If your store is somewhere else — or you would rather be
+explicit than rely on a default — say so once for this shell:
 
 ```
 export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"
@@ -311,8 +313,7 @@ export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"
 
 Every command in this section takes `--dir <store>` instead if you prefer; the
 console and the dashboard read one or the other, and neither reads
-`claude-code.json`. Put that `export` in your shell profile and you never think
-about it again.
+`claude-code.json`.
 
 ### Store a memory and ask for it back
 
@@ -327,11 +328,13 @@ counterparts recall "what espresso machine is in the kitchen?"
 memory:
 
 ```
-question · answered · semantic embedder-off · considered 1 of 2 live · returned 1
+question · answered · semantic embedder-off · considered 1 of 1 live · returned 1
 
-  mem_b77c9e0e9808  [quiet] fact
+  mem_e351c4a75217  [quiet] fact
     The espresso machine in the kitchen is a Rancilio Silvia.
 ```
+
+(That is a real capture, on a store holding nothing but that one memory.)
 
 These are the same two doors the MCP tools use — `note` captures the words into
 the span buffer and then deposits a draft that claims that span by hash; `recall`
@@ -340,13 +343,9 @@ Code will see. `--kind`, `--title` and `--salience` shape a note; `--id <mem_…
 asks for one memory in full instead of asking a question; `--json` prints the
 tool's own payload.
 
-**A known failure you may hit on the very first one.** On a store holding exactly
-one memory, the question path currently scores no candidates and answers
-`nothing-came · considered 0 of 1 live`. The memory is stored and is retrievable
-by `--id`; only the search path is blind at store size one, and writing any second
-memory makes the first findable. This is a real bug, reproduced on four stores by
-the 2026-09-04 cold-stranger review, and it is being fixed. Until it lands, if
-your first recall comes back empty, write a second note and ask again.
+That works on the very first memory: a store holding exactly one row answers the
+question about it. The install loop checks precisely that case every run, because
+it is the first thing anyone does and it is invisible to any test that seeds two.
 
 ### Look at the store
 
@@ -432,9 +431,10 @@ repo on its PATH and checks, every time:
 - `counterparts note` then `counterparts recall` round-trips on the console, and
   a `note` then `recall` round trip through `counterparts-mcp` over stdio
   JSON-RPC returns the note;
-- **and the one-memory case, which is EXPECTED TO FAIL today** (§7): one note in a
-  fresh store, recalled by question, is reported as a known failing step rather
-  than skipped, so it cannot quietly stop being fixed;
+- **and the one-memory case** (§7): one note in a fresh store, recalled by
+  question, comes back. It is its own step because a bug at store size one is
+  invisible to every check that seeds two rows — which is how one survived to a
+  stranger's first minute on 2026-09-04;
 - `rebrief` renders a bundle and the next `SessionStart` injects it;
 - the dashboard opens the same store.
 
@@ -453,35 +453,31 @@ in the repository), not by this loop.
 
 ## 10. Known rough edges
 
-1. **The first memory in a fresh store is not findable by question.** §7 has the
-   detail. Stored, indexed, retrievable by `--id`; the search path scores no
-   candidates at store size one. Being fixed; the install loop carries it as an
-   expected failure so it cannot be forgotten.
-2. **Three entry points, two ways to name the store.** `counterparts` and
+1. **Three entry points, two ways to name the store.** `counterparts` and
    `counterparts-dashboard` read `--dir` or `COUNTERPARTS_DATA_DIR`;
    `counterparts-mcp` reads `--dir` or `COUNTERPARTS_DATA_DIR`;
    `counterparts-hook` and its worker read `dataDir` out of
    `~/.counterparts/claude-code.json` and accept **neither** a flag nor an
    environment variable. There is no way to point the hook at a different store
    except by editing that file, which is why `install` always writes it there.
-3. **`bun add -g` needs an absolute tarball path — and the same error means "no
+2. **`bun add -g` needs an absolute tarball path — and the same error means "no
    such file".** On bun 1.3.10 a relative path fails with
    `error: ENOENT extracting tarball from ./x.tgz`, and so does an absolute path
    naming a file that does not exist. Check `ls *.tgz`. Hence
    `"$PWD"/counterparts-*.tgz` in §2.
-4. **The store you point at and the credentials you use come from two different
+3. **The store you point at and the credentials you use come from two different
    files.** `--dir` / `COUNTERPARTS_DATA_DIR` choose the store;
    `~/.counterparts/claude-code.json` chooses the embedder knob and the
    credentials file, for the MCP server as well as the hooks. Running a scratch
    store on a machine that already has a configured install will use that
    install's keys. §6 says how to tell from the `semantic` field.
-5. **The vector cache stores embeddings as JSON text.** On the owner's migrated
+4. **The vector cache stores embeddings as JSON text.** On the owner's migrated
    store that is 177 MB at 13.9K vectors, with a nearest-neighbour scan of
    0.6–1.0 s. Irrelevant to a fresh store; a named debt.
-6. **`parallel: { enabled: true }`** appears in the owner's live config. It is the
+5. **`parallel: { enabled: true }`** appears in the owner's live config. It is the
    parallel-run knob and makes Counterparts stand down unless another file says
    it may speak. Do not copy it.
-7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
+6. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
    `INTERFACE-GAPS.md`** — about 1.9 MB unpacked. Deliberate: those files are what
    `src/` is documented by, and this page points at them. Delete `src/**/*.md`
    from your install if you would rather not carry them.

@@ -16,11 +16,14 @@ editor, and no data leaves it unless you turn something on that sends it.
 Not on npm yet, and Node is untested — the [Status](#status-honestly) section is specific
 about what has been verified and what has not.*
 
-<!-- Images are produced by the dashboard workstream; the paths are fixed. -->
-![overview](docs/images/dashboard-overview.png)
+<!-- Images are produced by the dashboard workstream and land under docs/images/.
+     The URLs are absolute so this file reads correctly from the npm tarball as
+     well as from GitHub, and so the install loop's link check does not demand a
+     file that does not exist yet. -->
+![overview](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-overview.png)
 *Overview (a synthetic demo store — no real memory appears in any screenshot here).*
 
-![flow](docs/images/dashboard-flow.png)
+![flow](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-flow.png)
 *Flow (the same synthetic store).*
 
 ---
@@ -77,8 +80,9 @@ to run. It never edits your Claude Code configuration for you. Apply both, resta
 Code, and you are running. QUICKSTART §4 has them, and the reasons every path in them must
 be absolute.
 
-You can also use it with no host at all. Tell the console which store, once per shell,
-then write and ask:
+You can also use it with no host at all. `$HOME/.counterparts/store` is the default data
+dir, so this works with nothing set; the `export` is there for anyone whose store lives
+elsewhere or who would rather be explicit than rely on a default.
 
 ```
 export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"
@@ -86,8 +90,8 @@ counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."
 counterparts recall "what espresso machine is in the kitchen?"
 ```
 
-On a brand-new store that first `recall` comes back empty — a known bug, rough edge 1
-below. Write a second note and ask again and both are findable.
+That works on the very first memory — a store holding exactly one row answers the question
+about it — and the install loop checks that case on every run.
 
 ---
 
@@ -172,34 +176,30 @@ all five events, the MCP server registers and its tools are used daily, the brie
 reaches the model, and both `backup` and the import of the author's previous-generation
 memory ran against the real store.
 **Verified only against temporary stores**: `export` in all three modes, `remove` end to
-end (which is also where the residue in rough edge 5 was found), and the console's and
+end (which is also where the residue in rough edge 4 was found), and the console's and
 dashboard's behaviour on a missing store. **Not verified at
 all**: anything under Node, and — until you do it — a stranger installing from the
 documentation on a machine with no copy of this repository.
 
 **Known rough edges** (QUICKSTART §10 has all of them, with reproductions):
 
-1. **The very first memory in a fresh store is not findable by question.** It is stored,
-   and retrievable by its id, but the search path scores no candidates at store size one;
-   write a second memory and the first becomes findable. Reproduced on four stores; a fix
-   is in progress and not merged as this is written.
-2. **The store you point at and the credentials you use come from two different files.**
+1. **The store you point at and the credentials you use come from two different files.**
    Your console, the dashboard and the MCP server take `--dir` or `COUNTERPARTS_DATA_DIR`
    to choose the store — but the server reads its keys and its embedding setting from
    `~/.counterparts/claude-code.json` regardless, so a scratch store on a configured
    machine uses that machine's keys. The hooks are stricter still: they read only that one
    file, for the store as well, with no flag and no environment override.
-3. **The vector cache stores embeddings as JSON text.** On the author's migrated store
+2. **The vector cache stores embeddings as JSON text.** On the author's migrated store
    that is 177.5 MB for about 13,900 vectors, and a nearest-neighbour scan of 0.6–1.0 s.
    Irrelevant to a fresh store; a named debt.
-4. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
+3. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
    `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
    Absent that, no client is built and no connection opens whatever keys are lying around.
-5. **Removal leaves one residue.** `remove` chases a memory out of the prose, the
+4. **Removal leaves one residue.** `remove` chases a memory out of the prose, the
    database, the links and the cache, and reports what it chased. It does not yet reach
    the buffer that holds the raw captured conversation, so a removed memory's words can
    survive there. Found and filed 2026-09-04; the fix is not written as this is stated.
-6. **Node.** See above. `package.json` names bun and does not claim Node.
+5. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and
 no comparison table, because nobody has run one, and a number nobody ran is the thing this
