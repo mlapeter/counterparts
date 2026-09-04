@@ -253,14 +253,16 @@ describe("the wire", () => {
 // ── the description audit (CONTRACT §5 G2/G3) ───────────────────────────────
 
 describe("the tool-description audit", () => {
-  test("the shipped list is exactly three verbs plus the return channel — and no self-authorship tool", async () => {
+  test("the shipped list is exactly three verbs plus the two return channels — and no self-authorship tool", async () => {
     const s = server();
     const [response] = await pump(s, [rpc(1, "tools/list")]);
     const tools = (response as unknown as { result: { tools: { name: string }[] } }).result.tools;
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
-    expect(TOOL_NAMES).toEqual(["note", "recall", "status", "session_end"]);
+    expect(TOOL_NAMES).toEqual(["note", "recall", "status", "session_end", "chapter"]);
     // §4: self-writing is the boundary's job by construction, and `protected.add`
-    // went with the second-signature queue. Enumerated absent, not assumed absent.
+    // went with the second-signature queue. Enumerated absent, not assumed
+    // absent. `chapter` is not a re-opened self-store: it appends to the
+    // session's journal, which becomes memory only through gated ingestion.
     for (const banned of ["self", "self_store", "protect", "protected_add", "revise", "entity"]) {
       expect(tools.some((t) => t.name === banned)).toBe(false);
     }

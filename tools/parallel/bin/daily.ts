@@ -16,7 +16,7 @@ import { join } from "node:path";
 // systems-under-test into the instrument's process — the independent-scorer
 // rule's whole point ([v1] §17.2, replay G5). `hooks.js` is where the constant
 // lives; nothing else comes with it.
-import { authorshipAsk } from "../../../src/adapters/claude-code/hooks.js";
+import { stopAsk } from "../../../src/adapters/claude-code/hooks.js";
 import { primacyFromAssignment } from "../assignment.js";
 import { dailyRecord } from "../record.js";
 import type { Primacy, RunPhase } from "../types.js";
@@ -57,7 +57,7 @@ function usage(): never {
       "  --v1-wake <file>      v1's rendered wake for the day (cross-encoding probe).",
       "  --v2-wake <file>      v2's rendered wake for the day (the other direction).",
       "  --v1-ritual <file>    v1's ritual ask text, one probe per line. v2's own asks",
-      "                        are taken from the adapter's own authorshipAsk().",
+      "                        are taken from the adapter's own stopAsk().",
       "  --phase <0|P>         overrides run.json. P from day 1.",
       "  --primacy <v1|v2>     overrides run.json.",
       "  --seat <id>           the acting seat, pinned into run.json.",
@@ -212,9 +212,9 @@ function main(argv: readonly string[]): number {
     // one-recognizer-list rule `FOREIGN_MARKERS` follows. Without probes this
     // direction would print 0/0, which reads clean when it means unmeasured.
     // The probe unit is a LINE, and the authorship ask now carries the session
-    // id on one of its lines (`hooks.ts#authorshipAsk`): that one line is
-    // session-specific and will not match, the other five are the recognizer.
-    v2Ritual: [authorshipAsk("<session>")],
+    // id on two of its lines (`hooks.ts#stopAsk`): those lines are
+    // session-specific and will not match, the rest are the recognizer.
+    v2Ritual: [stopAsk("<session>", 1)],
   });
 
   for (const [rel, value] of Object.entries(artifacts.json)) run.writeJson(rel, value);

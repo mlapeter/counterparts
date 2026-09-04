@@ -33,7 +33,7 @@ import { BOOTSTRAP } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
   API_KEY_ENV,
-  authorshipAsk,
+  stopAsk,
   CREDENTIAL_FILE_EVENT,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
@@ -169,6 +169,16 @@ const TURNS = [
   { role: "assistant" as const, text: "Recorded. The cache being rebuildable is what makes the backup set small enough to be honest about." },
   { role: "user" as const, text: "Right — a backup you cannot verify is a backup you do not have, and that is the whole reason for the split." },
 ];
+
+/**
+ * Enough substance for the FIRST ask. The old authorship ask fired on the first
+ * Stop of any session that had anything uncovered; the one pacer is the
+ * chapter's, so a Stop now has to have earned it — real turns AND real bytes.
+ */
+const BIG_TURNS: HookInput["turns"] = Array.from({ length: 14 }, (_, i) => ({
+  role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+  text: `Turn ${i}: ${"a real exchange with enough substance in it to pace a ritual honestly, said at the length people actually work at, which is what the byte half of the threshold is measuring rather than the turn half. ".repeat(2)}`,
+}));
 
 function input(over: Partial<HookInput> = {}): HookInput {
   return { sessionId: "s1", scope: "proj", turns: TURNS, at: "2026-01-02", ...over };
@@ -538,42 +548,77 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     const { a } = adapter();
     const first = a.stop(input({ turns: bigTurns() }));
     expect(first.ask).not.toBe(null);
-    expect(a.counterpart.self.episodeState("s1").chapters).toBeGreaterThan(0);
+    expect(a.counterpart.self.episodeState("s1").asks).toBeGreaterThan(0);
     // A second stop on the same substance is not due again.
     const second = a.stop(input({ turns: bigTurns() }));
     expect(second.ask).toBe(null);
   });
 
-  test("stop raises the AUTHORSHIP ask while the experiencer still has the pen", async () => {
+  test("ONE ask, not two: one text, one row, and it names both tools and the session", () => {
+    // §13 G3 in v1's words — "the blocked moment carries a single ask; new
+    // features do not get to grow it back into two". v2 grew it back into two
+    // anyway (an authorship pacer beside the chapter pacer) and drew about a
+    // dozen asks in a 13-turn evening, 2026-09-04.
     const { a } = adapter();
-    const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
-    const measured = a.events("adapter.authorship.ask")[0]?.data;
+    const first = a.stop(input({ turns: BIG_TURNS }));
+    expect(first.ask).toBe(stopAsk("s1", 1));
+    expect(first.ask).toContain("session_end");
+    expect(first.ask).toContain("chapter tool");
+    expect(first.ask).toContain("s1");
+    // ONE durable row for the moment, carrying the outcome the daily counts.
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.ask", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.["outcome"]).toBe("asked");
+    expect(rows[0]?.["chapter"]).toBe(1);
+    // The coverage read still happens — as a RECORD, not as a second gate.
+    expect(rows[0]?.["uncovered"]).toBeGreaterThan(0);
+    expect(typeof rows[0]?.["unaskableBytes"]).toBe("number");
+    // And the retired names are not written any more.
+    expect(a.events("adapter.authorship.ask")).toEqual([]);
+    expect(a.events("adapter.episode.ask")).toEqual([]);
+  });
+
+  test("the re-fired Stop asks nothing AND advances nothing — not even the pacing", () => {
+    const { a } = adapter();
+    expect(a.stop(input({ turns: BIG_TURNS })).ask).not.toBe(null);
+    const asked = a.counterpart.self.episodeState("s1").asks;
+    // The host re-fires the blocked Stop with `stop_hook_active`. It must not
+    // spend a pacing slot or a day-cap slot on a moment nobody will read.
+    const refire = a.stop(input({ reFired: true, turns: bigTurns() }));
+    expect(refire.ask).toBe(null);
+    expect(refire.ok).toBe(true);
+    expect(a.counterpart.self.episodeState("s1").asks).toBe(asked);
+    expect(a.counterpart.store.eventLog({ name: "adapter.ask", limit: 100 }).length).toBe(1);
+    // The boundary still happened: the re-fire is silent, never idle (§13 G5).
+    expect(a.events("adapter.boundary").length).toBe(2);
+  });
+
+  test("stop raises the ask while the experiencer still has the pen, and MEASURES the tail", () => {
+    const { a } = adapter();
+    const first = a.stop(input({ turns: BIG_TURNS }));
+    expect(first.ask).toBe(stopAsk("s1", 1));
+    const measured = a.events("adapter.ask")[0]?.data;
     expect(measured?.uncovered).toBeGreaterThan(0);
     // The unaskable tail is MEASURED at the same moment, not assumed (§2 G12).
     expect(typeof measured?.unaskableBytes).toBe("number");
-
-    // Once the experiencer HAS written, the ask stops: the engine claimed the
-    // coverage, so there is nothing uncovered left to ask about (§5 G5/G6).
-    await a.counterpart.submitSessionEnd(
-      {
-        content: "The storage split keeps canonical prose in markdown, so the owner can read their own memory anywhere.",
-        kind: "fact",
-      },
-      { session: "s1", scope: "proj" },
-    );
-    expect(a.stop(input({ sessionId: "s1b" })).authorshipAsk).toBe(null);
   });
 
-  test("the authorship ask is fail-open: a broken measurement never costs the boundary", () => {
+  test("the ask is fail-open, and coverage is a RECORD rather than a second gate", () => {
     const { a } = adapter();
     a.counterpart.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     rmSync(join(dir, "spans"), { recursive: true, force: true });
     Bun.write(join(dir, "spans"), "not a directory");
-    const result = a.stop(input({ sessionId: "fail-open" }));
-    // The boundary still returned cleanly; only the ask is absent.
+    const result = a.stop(input({ sessionId: "fail-open", turns: BIG_TURNS }));
+    // The boundary still returns cleanly, and the ask still goes out: the
+    // coverage read measures the tail (§2 G12) and no longer decides anything.
+    // A second condition on a single ask is what the two-pacer Stop was.
     expect(result.ok).toBe(true);
-    expect(result.authorshipAsk).toBe(null);
+    expect(result.ask).toBe(stopAsk("fail-open", 1));
+    const row = a.events("adapter.ask")[0]?.data;
+    expect(row?.outcome).toBe("asked");
+    expect(typeof row?.uncovered === "number" || row?.uncovered === null).toBe(true);
   });
 
   test("stop spawns a detached worker whose environment is PINNED LAST (scar §2.13)", () => {
@@ -652,12 +697,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
 
   /** Past BOTH first-ask thresholds: 6 real turns AND 4,000 real bytes. */
   function bigTurns(): HookInput["turns"] {
-    const body =
-      "a real exchange with enough substance in it to pace a ritual honestly, said at the length people actually work at, which is what the byte half of the threshold is measuring rather than the turn half. ";
-    return Array.from({ length: 14 }, (_, i) => ({
-      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
-      text: `Turn ${i}: ${body.repeat(2)}`,
-    }));
+    return BIG_TURNS;
   }
 });
 
@@ -1161,13 +1201,9 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     expect(a.counterpart.spans.assistantSpans("proj").length).toBe(1);
     expect(result.spawn?.started).toBe(true);
     expect(calls.length).toBe(1);
-    // And NEITHER ask went out — no episode ask, no authorship ask (G5).
-    expect({ ask: result.ask, authorshipAsk: result.authorshipAsk }).toEqual({
-      ask: null,
-      authorshipAsk: null,
-    });
-    expect(a.events("adapter.episode.ask")).toEqual([]);
-    expect(a.events("adapter.authorship.ask")).toEqual([]);
+    // And the ask did not go out (G5).
+    expect(result.ask).toBe(null);
+    expect(a.events("adapter.ask")).toEqual([]);
     expect(a.events(PRIMACY_STANDDOWN_EVENT)[0]?.data?.hook).toBe("stop");
   });
 
@@ -1194,7 +1230,6 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
         surfaced: r.surfaced,
         footnotes: r.footnotes,
         ask: r.ask,
-        authorshipAsk: r.authorshipAsk,
         spansAppended: r.spansAppended,
         started: r.spawn?.started ?? null,
       });
@@ -1203,9 +1238,9 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       expect(pick(a.userPromptSubmit(input({ prompt: "what about storage?" })))).toEqual(
         pick(plain.userPromptSubmit(input({ prompt: "what about storage?" }))),
       );
-      const parallelStop = a.stop(input());
-      expect(pick(parallelStop)).toEqual(pick(plain.stop(input())));
-      expect(parallelStop.authorshipAsk).toBe(authorshipAsk("s1"));
+      const parallelStop = a.stop(input({ turns: BIG_TURNS }));
+      expect(pick(parallelStop)).toEqual(pick(plain.stop(input({ turns: BIG_TURNS }))));
+      expect(parallelStop.ask).toBe(stopAsk("s1", 1));
 
       // The only difference: three deliver records, one per delivering hook.
       expect(a.events(PRIMACY_DELIVER_EVENT).map((e) => e.data?.hook)).toEqual([
@@ -1226,10 +1261,10 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     const { a } = adapter();
     a.sessionStart(input());
     a.userPromptSubmit(input({ prompt: "what about storage?" }));
-    const stopped = a.stop(input());
+    const stopped = a.stop(input({ turns: BIG_TURNS }));
     expect(a.events(PRIMACY_STANDDOWN_EVENT)).toEqual([]);
     expect(a.events(PRIMACY_DELIVER_EVENT)).toEqual([]);
-    expect(stopped.authorshipAsk).toBe(authorshipAsk("s1"));
+    expect(stopped.ask).toBe(stopAsk("s1", 1));
     expect(a.counterpart.store.eventLog({ limit: 100 }).map((r) => r.name)).not.toContain(
       PRIMACY_STANDDOWN_EVENT,
     );
@@ -1252,7 +1287,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       store
         .eventLog({ name, limit: 100 })
         .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
-    for (const name of ["adapter.wake.injected", "adapter.wake.delivered", "adapter.recall", "adapter.episode.ask"]) {
+    for (const name of ["adapter.wake.injected", "adapter.wake.delivered", "adapter.recall", "adapter.ask"]) {
       const got = rows(name);
       expect(got.length).toBe(1);
       expect(got[0]?.["date"]).toBe("2026-01-02");
@@ -1263,7 +1298,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     expect(typeof rows("adapter.recall")[0]?.["surfaced"]).toBe("number");
     // And under a stand-down none of the three delivering rows is added — the
     // absence is the mute. (Same store as above: count, do not assert empty.)
-    const DELIVERING = ["adapter.wake.injected", "adapter.recall", "adapter.episode.ask"];
+    const DELIVERING = ["adapter.wake.injected", "adapter.recall", "adapter.ask"];
     const before = DELIVERING.map((name) => rows(name).length);
     assign({ override: "bansai" });
     const { a: muted } = adapter(PARALLEL);
@@ -1382,16 +1417,16 @@ describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", (
   });
 
   test("a Stop-hook wrapper WITHOUT a foreign marker is `ritual`, not foreign — and enters nothing", () => {
-    // The ask now carries the session id (`authorshipAsk`), which changes the
+    // The ask now carries the session id (`stopAsk`), which changes the
     // TEXT and not the classification: `ritual` is decided by the host's
     // wrapper, so the rule holds whatever the ask happens to say this turn.
-    const ours = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
+    const ours = `Stop hook feedback:\n- ${stopAsk("s1", 1)}`;
     // Not foreign: another memory system did not write this, WE did. The
     // distinction is what keeps the canary's FOREIGN_MARKERS honest.
     expect(classifyBlock(ours)).not.toBe("foreign");
     expect(classifyBlock(ours)).toBe("ritual");
     // But it does not enter either: v2's own ask is not something that happened
-    // to v2, and the ask's durable record is `adapter.authorship.ask`.
+    // to v2, and the ask's durable record is `adapter.ask`.
     expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(false);
     // A bansai marker that is not at the start of the block is not a wrapper
     // match either — only the containment marker crosses a block boundary.
@@ -1419,7 +1454,7 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
 
   const OWNER = "We settled the storage split today: prose on disk, one small database.";
   const PEER = "v2 challenge effect has no live consumer; session c781252f sweep census attached.";
-  const RITUAL = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
+  const RITUAL = `Stop hook feedback:\n- ${stopAsk("s1", 1)}`;
   const ASSISTANT = "Recorded — the cache being rebuildable is what keeps the backup honest.";
 
   /** The five host shapes as real JSONL lines, in the order a session sees them. */
@@ -2495,9 +2530,8 @@ describe("credentials — the environment first, then the ONE file the config na
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + exit 2 on Stop", () => {
-  const R = (over: Partial<{ injection: string | null; authorshipAsk: string | null; ask: string | null }>) => ({
+  const R = (over: Partial<{ injection: string | null; ask: string | null }>) => ({
     injection: null,
-    authorshipAsk: null,
     ask: null,
     ...over,
   });
@@ -2511,9 +2545,9 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
     expect(hostDelivery("user-prompt-submit", R({ injection: "recall" }), {}).exitCode).toBe(0);
   });
 
-  test("a Stop with an ask BLOCKS: the asks go to stderr and the exit code is 2 (stdout reaches nobody on this host)", () => {
-    const d = hostDelivery("stop", R({ authorshipAsk: "Write what you learned.", ask: "Write the episode." }), {});
-    expect(d).toEqual({ stdout: "", stderr: "Write what you learned.\n\nWrite the episode.", exitCode: 2 });
+  test("a Stop with an ask BLOCKS: the ask goes to stderr and the exit code is 2 (stdout reaches nobody on this host)", () => {
+    const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {});
+    expect(d).toEqual({ stdout: "", stderr: "Write what you learned, and the episode.", exitCode: 2 });
   });
 
   test("a Stop with nothing to ask exits 0 and prints nothing", () => {
@@ -2521,37 +2555,49 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
   });
 
   test("the host's re-fired Stop (`stop_hook_active`) asks NOTHING — the anti-loop v1 carries for the same reason", () => {
-    const d = hostDelivery("stop", R({ authorshipAsk: "Write what you learned." }), { stop_hook_active: true });
+    const d = hostDelivery("stop", R({ ask: "Write what you learned." }), { stop_hook_active: true });
     expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the authorship ask is PACED — the host's Stop is every turn, the ask is not", () => {
-  test("first Stop asks; the next Stop on the same experience does not; enough new spans ask again", () => {
+describe("ONE ask on ONE pacer — the host's Stop is every turn, the ask is not", () => {
+  test("first Stop asks; the next Stop on the same experience does not; enough new substance asks again", () => {
     const { a } = adapter();
-    const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
+    const first = a.stop(input({ turns: BIG_TURNS }));
+    expect(first.ask).toBe(stopAsk("s1", 1));
     // The same session, one more small turn: uncovered > 0, but paced out.
-    const second = a.stop(input({ turns: [...TURNS, { role: "user", text: "And one more short line for the record." }] }));
-    expect(second.authorshipAsk).toBeNull();
+    const second = a.stop(input({ turns: [...(BIG_TURNS ?? []), { role: "user", text: "And one more short line for the record." }] }));
+    expect(second.ask).toBeNull();
     const rows = a.counterpart.store
-      .eventLog({ name: "adapter.authorship.ask", limit: 100 })
+      .eventLog({ name: "adapter.ask", limit: 100 })
       .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
-    expect(rows.map((r) => [r["asked"], r["paced"]])).toEqual([[true, false], [false, true]]);
-    // Eight or more new turns AND eight thousand new bytes since the ask: asked again.
+    expect(rows.map((r) => r["outcome"])).toEqual(["asked", "paced"]);
+    // Eight or more new turns AND eight thousand new bytes since the ask: asked
+    // again. AND, not or — one of the two alone leaves the ask paced out.
     const more = Array.from({ length: 10 }, (_, i) => ({
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
       text: `Turn ${i}: a genuinely new stretch of conversation, long enough to matter. ${"x".repeat(1_000)}`,
     }));
-    const third = a.stop(input({ turns: [...TURNS, ...more] }));
-    expect(third.authorshipAsk).toBe(authorshipAsk("s1"));
+    const third = a.stop(input({ turns: [...(BIG_TURNS ?? []), ...more] }));
+    // Still chapter 1: nothing was written, so nothing was numbered.
+    expect(third.ask).toBe(stopAsk("s1", 1));
   });
 
-  test("a different session is paced on its own — the first Stop there asks", () => {
+  test("the day's cap is shared, so a fresh session does not restart the allowance", () => {
+    // The other instance's diagnosis, in one test: "the cadence assumed a
+    // session equals a day". It does not — this host opens one per invocation.
     const { a } = adapter();
-    a.stop(input());
-    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(authorshipAsk("s2"));
+    for (let i = 0; i < 4; i += 1) {
+      expect(a.stop(input({ sessionId: `s-day-${String(i)}`, turns: BIG_TURNS })).ask).not.toBeNull();
+    }
+    const fifth = a.stop(input({ sessionId: "s-day-4", turns: BIG_TURNS }));
+    expect(fifth.ask).toBeNull();
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.ask", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows[rows.length - 1]?.["outcome"]).toBe("capped");
+    expect(rows[rows.length - 1]?.["reason"]).toBe("day-chapter-cap");
   });
 });
 
@@ -2583,14 +2629,14 @@ describe("the hooks record the live session for the tools to bind against", () =
 
   test("stop refreshes the clock BEFORE the ask that names the session goes out", () => {
     const { a } = adapter();
-    const stopped = a.stop(input());
+    const stopped = a.stop(input({ turns: BIG_TURNS }));
     const rec = readRecord("s1");
     // Created by Stop alone: a session already running when this shipped never
     // saw a SessionStart, and must still be bindable.
     expect(rec).not.toBeNull();
     expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
     // The ask names the id the registry just made live.
-    expect(stopped.authorshipAsk).toContain("s1");
+    expect(stopped.ask).toContain("s1");
   });
 
   test("a stop from a WORKTREE does not move the project out from under the server", () => {
@@ -2643,31 +2689,45 @@ describe("the hooks record the live session for the tools to bind against", () =
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the authorship ask names the session and the tool that takes it", () => {
-  test("the id is IN the ask — it is what the server binds itself with", () => {
-    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
-    expect(text).toContain("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+describe("the one ask names the session and BOTH tools that take it", () => {
+  test("the id is IN the ask, on both halves — it is what the server binds itself with", () => {
+    const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
+    expect(text.split("7c973b1c-d40a-47e5-92bb-8cdb1823a06d").length - 1).toBe(2);
     expect(text).toContain("session_end");
+    // The chapter door, which did not exist for the fortnight the ask named it.
+    expect(text).toContain("chapter tool");
   });
 
   test("`updates` is named as a FIELD, never as prose to write", () => {
     // Four notes on the live host arrived as "updates: mem_x. …" in their own
     // body text, unlinked, because the old ask said "say `updates: <id>`".
-    const text = authorshipAsk("s1");
+    const text = stopAsk("s1", 1);
     expect(text).toContain("FIELD");
     expect(text).not.toContain("say `updates:");
   });
 
+  test("it keeps the two sentences that sanction an honest no", () => {
+    const text = stopAsk("s1", 2);
+    expect(text).toContain("Nothing worth keeping is a real answer");
+    expect(text).toContain("a short true episode beats a manufactured deep one");
+  });
+
+  test("a later chapter names its NUMBER, and the number is the store's", () => {
+    expect(stopAsk("s1", 3)).toContain("Add chapter 3");
+    expect(stopAsk("s1", 1)).not.toContain("Add chapter");
+  });
+
   test("it stays short — a model reads this at every Stop that is due one", () => {
-    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
-    expect(text.split("\n").length).toBeLessThanOrEqual(8);
-    expect(text.length).toBeLessThan(600);
+    const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
+    expect(text.split("\n").length).toBeLessThanOrEqual(6);
+    // Shorter than the PAIR it replaces, and asked far less often.
+    expect(text.length).toBeLessThan(900);
   });
 
   test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {
     const d = hostDelivery(
       "stop",
-      { injection: "", authorshipAsk: authorshipAsk("s1"), ask: null },
+      { injection: "", ask: stopAsk("s1", 1) },
       { stop_hook_active: true },
     );
     expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });

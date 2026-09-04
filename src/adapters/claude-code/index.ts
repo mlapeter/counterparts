@@ -43,7 +43,7 @@ export {
 export type { CredentialLoad } from "./credentials.js";
 
 export {
-  authorshipAsk,
+  stopAsk,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   HOOKS,

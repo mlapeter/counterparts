@@ -35,10 +35,9 @@
  *   (parallel-run G4: the mute is evidenced, not asserted).
  */
 import {
-  AUTHORSHIP_ASK_EVENT,
+  ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   Counterpart,
-  EPISODE_ASK_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DELIVERED_EVENT,
@@ -100,6 +99,14 @@ export interface HookInput {
   readonly sentinelSeen?: string | null;
   /** Today's calendar date, for the temporal channel and the horizon lane. */
   readonly at?: string;
+  /**
+   * THE HOST'S RE-FIRE. A blocked Stop comes back with `stop_hook_active`, and
+   * that pass must ask nothing — v1's anti-loop, kept for the same reason. It is
+   * checked HERE, not only at delivery, so the re-fire also burns no pacing and
+   * no day-cap slot: a silent ask that still advanced the counters would spend
+   * the day's chapters on nobody.
+   */
+  readonly reFired?: boolean;
 }
 
 export interface HookResult {
@@ -113,14 +120,12 @@ export interface HookResult {
   readonly sentinel: string | null;
   readonly surfaced: readonly string[];
   readonly footnotes: readonly string[];
-  /** The episode ask, when a chapter is due. Never more than one per hook. */
-  readonly ask: string | null;
   /**
-   * The session-end AUTHORSHIP ask: the experiencer's invitation to write its
-   * own memories while it still has the pen. Null when this scope has nothing
-   * uncovered left to author.
+   * THE ask — memories and the chapter, one text, one pacer. Null when this Stop
+   * is not due one. There is exactly one field because there is exactly one ask:
+   * two fields is how the blocked moment grew back into two asks (§13 G3).
    */
-  readonly authorshipAsk: string | null;
+  readonly ask: string | null;
   readonly spansAppended: number;
   readonly spawn: SpawnOutcome | null;
   readonly observer: boolean;
@@ -152,38 +157,50 @@ export interface AdapterOptions {
 }
 
 /**
- * The session-end authorship ask — v2's FRONT DOOR, in words.
+ * THE ONE STOP ASK — v2's front door and its journal, in one text.
  *
  * The wording is advisory (remember G11 [A], CONTRACT §5 G9); that an ask exists
- * at a session-ending path is what is mechanized. It names the TOOL, because the
- * RETURN channel is a tool, not a hook: a hook can only put text into the
- * context, and the deposit comes back through `Counterpart.submitSessionEnd` —
- * reached, in this host, by the MCP adapter's `session_end`
- * (`mcp/CONTRACT.md`). Filed in `INTERFACE-GAPS.md` §7.
+ * at a session-ending path is what is mechanized. It names the TOOLS, because
+ * the RETURN channel is a tool, not a hook: a hook can only put text into the
+ * context, and the deposits come back through `Counterpart.submitSessionEnd`
+ * and `Counterpart.appendEpisode` — reached, in this host, by the MCP adapter's
+ * `session_end` and `chapter` (`mcp/CONTRACT.md`). Filed in
+ * `INTERFACE-GAPS.md` §7.
  *
- * Two corrections, both measured 2026-09-04 on the live host:
+ * **ONE ask, not two.** Behavioral-spec §13 G3 said it in v1's words — "the
+ * blocked moment carries a single ask; new features do not get to grow it back
+ * into two" — and v2 grew it back into two anyway: the authorship ask on its own
+ * turn/byte pacer and the episode ask on the chapter pacer, firing at different
+ * Stops. Measured 2026-09-04: about a dozen asks in a 13-turn evening. They are
+ * one text on one pacer here, and the pacer is the chapter's.
  *
- *   - **It names the session id and the tool.** The host's MCP servers are
+ * The other three corrections, all measured the same day:
+ *
+ *   - **It names the session id and both tools.** The host's MCP servers are
  *     launched from a static config and never learn which session they are
  *     serving, so the id has to travel in the ask — it is what the server binds
  *     itself with (`adapters/sessions.ts`, `mcp/server.ts#requireBoundSession`).
  *     Without it the model reached for `note` 34 times in one session and no
- *     session's dump ever landed.
+ *     session's dump ever landed. On the Stops where only the episode half
+ *     fired, the model got no id and no tool name at all.
  *   - **`updates` is a FIELD, and the ask says so.** The old wording said
  *     "say `updates: <id>`", and four notes duly arrived with `updates: mem_x.`
  *     as the first words of their prose — unlinked, because prose is not a
  *     field. It is a field on a `session_end` entry AND on `note`.
+ *   - **The chapter number is the store's.** It is one past what was WRITTEN,
+ *     never one past what was asked, so an unanswered ask does not silently
+ *     renumber the journal.
  *
  * Short on purpose: a model reads this at every Stop that is due one.
  */
-export function authorshipAsk(sessionId: string): string {
+export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    "Before this session closes: what did you LEARN here that is worth keeping?",
-    "Write it yourself — your own words, not a summary of the transcript. One idea",
-    "per memory, the way you would want to find it again. Hand them back with the",
-    `counterparts session_end tool, session: ${sessionId}.`,
-    "`updates` is a FIELD on an entry (and on note), never prose: set it to the id",
-    "of the memory that entry revises. Nothing worth keeping is a real answer.",
+    "Before this session closes, two things, both yours to write:",
+    `1. What did you LEARN here that is worth keeping? Your own words, one idea per memory, the way you would want to find it again. Hand them back with the counterparts session_end tool, session: ${sessionId}. \`updates\` is a FIELD on an entry (and on note), never prose: the id of the memory that entry revises.`,
+    chapter === 1
+      ? `2. Write this session's episode with the counterparts chapter tool, session: ${sessionId} — first person, your voice, any length: what happened and what mattered, how it felt, what you learned about them and about yourself, what is still open. For the next you, not as a report; append in the moment when something significant happens later.`
+      : `2. Add chapter ${String(chapter)} to this session's episode with the counterparts chapter tool, session: ${sessionId} — this stretch, in the moment, in your own voice. Not a recap of the earlier chapters.`,
+    "Nothing worth keeping is a real answer, and a short true episode beats a manufactured deep one.",
   ].join("\n");
 }
 
@@ -387,10 +404,9 @@ export class ClaudeCodeAdapter {
       // only the fallback for the day nobody got to (contract §4). The ask goes
       // out after the spans are durable, so a crash between the two costs a
       // dump, never a day.
-      const authorshipAsk = deliver ? this.askForAuthorship(input) : null;
-      const ask = deliver ? this.askForEpisode(input) : null;
+      const ask = deliver ? this.askAtStop(input) : null;
       const spawn = this.spawnWorker();
-      return { ...claimed, ask, authorshipAsk, spawn };
+      return { ...claimed, ask, spawn };
     });
   }
 
@@ -523,78 +539,63 @@ export class ClaudeCodeAdapter {
   }
 
   /**
-   * The authorship ask, raised only when there is something to author: spans
-   * this scope holds that no proposal has covered. `coverageReport` is a READ
-   * that measures rather than assumes (§2 G12), and it also puts the unaskable
-   * tail — the stretch after the last boundary that nobody can be asked about —
-   * on the record as a number instead of a hope.
+   * THE ONE ASK, ON ONE PACER, fail-open: an error in the ritual never costs the
+   * collection (§13 G5).
    *
-   * Fail-open, like the episode ask: collection never depends on the ritual.
+   * What changed on 2026-09-04, and why:
+   *
+   *   - **One pacer.** The authorship ask paced itself on turns-and-bytes since
+   *     its own last ask; the episode ask paced itself on the chapter rule. They
+   *     fired on different Stops, so the model was asked about a dozen times in
+   *     one 13-turn evening. `episodeAsk` is now the only pacer, and its verdict
+   *     decides whether this Stop says anything at all.
+   *   - **The coverage read stays, as a RECORD and not a gate.** It measures
+   *     rather than assumes (§2 G12) and it puts the unaskable tail on the
+   *     record as a number instead of a hope; what it must not do is add a
+   *     second condition to a single ask.
+   *   - **The re-fired Stop asks nothing and advances nothing.**
    */
-  private askForAuthorship(input: HookInput): string | null {
+  private askAtStop(input: HookInput): string | null {
     try {
-      const report = this.counterpart.spans.coverageReport(input.scope);
-      // PACED: the host's Stop is every turn, so "anything uncovered" would ask
-      // every turn. The last ask's span count is read out of the durable log
-      // (the hook process does not survive between turns), and the next ask
-      // waits for AUTHORSHIP_REASK_SPANS new spans — the episode ritual's own
-      // cadence. The first ask in a session is immediate.
+      // The host's re-fire of a blocked Stop. Nothing is evaluated: no pacing
+      // advance, no day-cap slot, no row — the previous pass already left one.
+      if (input.reFired === true) return null;
       const substance = substanceOf(input.turns ?? []);
-      const lastAsked = this.lastAuthorshipAsk(input.sessionId);
-      const due =
-        report.uncovered > 0 &&
-        (lastAsked === null ||
-          (substance.turns >= lastAsked.turns + TUNABLES.AUTHORSHIP_REASK_TURNS &&
-            substance.bytes >= lastAsked.bytes + TUNABLES.AUTHORSHIP_REASK_BYTES));
-      this.record(AUTHORSHIP_ASK_EVENT, input, {
-        asked: due,
-        paced: report.uncovered > 0 && !due,
+      const chapter = this.counterpart.episodeAsk(input.sessionId, substance);
+      const outcome = chapter.asked
+        ? "asked"
+        : chapter.verdict.reason === "day-chapter-cap"
+          ? "capped"
+          : "paced";
+      let coverage: { spans: number; covered: number; uncovered: number; unaskableSpans: number; unaskableBytes: number } | null =
+        null;
+      try {
+        coverage = this.counterpart.spans.coverageReport(input.scope);
+      } catch (err) {
+        this.emit("adapter.coverage.failed", { code: codeOf(err) });
+      }
+      this.record(ADAPTER_ASK_EVENT, input, {
+        asked: chapter.asked,
+        outcome,
+        reason: chapter.verdict.reason,
+        chapter: chapter.chapter,
         turns: substance.turns,
         bytes: substance.bytes,
-        spans: report.spans,
-        covered: report.covered,
-        uncovered: report.uncovered,
-        unaskableSpans: report.unaskableSpans,
-        unaskableBytes: report.unaskableBytes,
+        sinceTurns: chapter.verdict.sinceTurns,
+        sinceBytes: chapter.verdict.sinceBytes,
+        spans: coverage?.spans ?? null,
+        covered: coverage?.covered ?? null,
+        uncovered: coverage?.uncovered ?? null,
+        unaskableSpans: coverage?.unaskableSpans ?? null,
+        unaskableBytes: coverage?.unaskableBytes ?? null,
       });
-      // The ask NAMES this session: the id is what the MCP server binds itself
-      // with, so an ask that omitted it would be an invitation the model has no
-      // way to accept on this host.
-      return due ? authorshipAsk(input.sessionId) : null;
+      // The ask NAMES this session and its chapter: the id is what the MCP
+      // server binds itself with, so an ask that omitted it would be an
+      // invitation the model has no way to accept on this host — and the
+      // chapter number is the STORE's, one past what was written.
+      return chapter.asked ? stopAsk(input.sessionId, chapter.chapter) : null;
     } catch (err) {
-      this.emit("adapter.authorship.ask.failed", { code: codeOf(err) });
-      return null;
-    }
-  }
-
-  /** The substance at this session's last authorship ask, from the durable log; null if never asked. */
-  private lastAuthorshipAsk(sessionId: string): { turns: number; bytes: number } | null {
-    let last: { turns: number; bytes: number } | null = null;
-    for (const row of this.counterpart.store.eventLog({ name: AUTHORSHIP_ASK_EVENT, limit: 2000 })) {
-      try {
-        const p = JSON.parse(row.payload ?? "{}") as { session?: unknown; asked?: unknown; turns?: unknown; bytes?: unknown };
-        if (p.session === sessionId && p.asked === true && typeof p.turns === "number" && typeof p.bytes === "number") {
-          if (last === null || p.turns >= last.turns) last = { turns: p.turns, bytes: p.bytes };
-        }
-      } catch {
-        continue;
-      }
-    }
-    return last;
-  }
-
-  /** ONE ask, fail-open: an error in the ritual never costs the collection. */
-  private askForEpisode(input: HookInput): string | null {
-    try {
-      const chapter = this.counterpart.episodeAsk(input.sessionId, substanceOf(input.turns ?? []));
-      this.record(EPISODE_ASK_EVENT, input, {
-        asked: chapter.asked,
-        chapter: chapter.chapter,
-        reason: chapter.verdict.reason,
-      });
-      return chapter.ask;
-    } catch (err) {
-      this.emit("adapter.episode.ask.failed", { code: codeOf(err) });
+      this.emit("adapter.ask.failed", { code: codeOf(err) });
       return null;
     }
   }
@@ -703,7 +704,6 @@ export class ClaudeCodeAdapter {
       surfaced: [],
       footnotes: [],
       ask: null,
-      authorshipAsk: null,
       spansAppended: 0,
       spawn: null,
       observer: this.observer,

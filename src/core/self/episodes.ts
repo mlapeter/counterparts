@@ -147,7 +147,21 @@ export interface Substance {
 export interface EpisodeState {
   sessionId: string;
   episodeId: string | null;
+  /**
+   * Chapters the model ACTUALLY WROTE — headings in the episode, not asks.
+   *
+   * Measured 2026-09-04: this counted asks, so the hook's chapter number was
+   * the number of times it had asked and the model's was the number of times it
+   * had written. With no tool to write through, the two diverged inside one
+   * session (7 asks, 0 chapters) and the ask named a chapter nobody had
+   * authored. The ask now names `chapters + 1`, which is the next chapter that
+   * would exist, so the two sides agree by construction.
+   */
   chapters: number;
+  /** Asks COMMITTED (committed before the ask blocks). The pacer's own count. */
+  asks: number;
+  /** The ask index at the last append: how "is a new chapter open?" is decided. */
+  appendedAtAsk: number;
   /** Substance at the last COMMITTED ask (committed before the ask blocks). */
   askedAtTurns: number;
   askedAtBytes: number;
@@ -163,11 +177,23 @@ export function stateKey(sessionId: string): string {
   return `self.episode.${sessionId}`;
 }
 
+/**
+ * The per-LIVED-DAY ask counter's key. A day, not a session, because the host
+ * opens a session per invocation: v1's calibration ("a work day gets about
+ * three chapters", behavioral-spec §13 G1) is stated in days, and a per-session
+ * cap silently multiplies it by however many times the owner typed `claude`.
+ */
+export function dayKey(day: number): string {
+  return `self.episode.day.${String(day)}`;
+}
+
 export function freshEpisodeState(sessionId: string, day: number): EpisodeState {
   return {
     sessionId,
     episodeId: null,
     chapters: 0,
+    asks: 0,
+    appendedAtAsk: 0,
     askedAtTurns: 0,
     askedAtBytes: 0,
     lastDay: day,
@@ -189,10 +215,14 @@ export function loadEpisodeState(
     if (parsed === null || typeof parsed !== "object" || typeof parsed.chapters !== "number") {
       return { state: freshEpisodeState(sessionId, day), status: "unreadable" };
     }
-    return {
-      state: { ...freshEpisodeState(sessionId, day), ...parsed, sessionId },
-      status: "loaded",
-    };
+    const merged: EpisodeState = { ...freshEpisodeState(sessionId, day), ...parsed, sessionId };
+    // MIGRATION, one line each, because a live run's rows were written under the
+    // old meaning: `chapters` used to be the ASK count, so it carries over as
+    // `asks`, and a state with no episode has, by definition, no chapters
+    // written — which is exactly the divergence this split exists to end.
+    if (typeof parsed.asks !== "number") merged.asks = parsed.chapters;
+    if (merged.episodeId === null) merged.chapters = 0;
+    return { state: merged, status: "loaded" };
   } catch {
     return { state: freshEpisodeState(sessionId, day), status: "unreadable" };
   }
@@ -204,7 +234,7 @@ export type AskReason =
   | "due-first"
   | "due-substance"
   | "not-enough-substance"
-  | "chapter-cap"
+  | "day-chapter-cap"
   | "anonymous-session"
   | "observer";
 
@@ -223,10 +253,12 @@ export function askDue(
   state: EpisodeState,
   substance: Substance,
   t: SelfTunables,
-  opts: { observer: boolean },
+  opts: { observer: boolean; dayAsks?: number },
 ): AskVerdict {
   const sinceTurns = Math.max(0, substance.turns - state.askedAtTurns);
   const sinceBytes = Math.max(0, substance.bytes - state.askedAtBytes);
+  // The ask names the NEXT chapter that would exist — one past what was
+  // written, never one past what was asked.
   const chapter = state.chapters + 1;
   const no = (reason: AskReason): AskVerdict => ({
     due: false,
@@ -240,9 +272,10 @@ export function askDue(
   // instrument runs leave no episode.
   if (opts.observer) return no("observer");
   if (state.sessionId.trim().length === 0) return no("anonymous-session");
-  if (state.chapters >= t.MAX_CHAPTERS) return no("chapter-cap");
+  // The cap is the DAY's, shared across every session the day held.
+  if ((opts.dayAsks ?? 0) >= t.MAX_CHAPTERS_PER_DAY) return no("day-chapter-cap");
 
-  if (state.chapters === 0) {
+  if (state.asks === 0) {
     const paced =
       (substance.turns >= t.FIRST_ASK_TURNS && substance.bytes >= t.FIRST_ASK_BYTES) ||
       substance.bytes >= t.SOLO_ASK_BYTES;
@@ -250,7 +283,11 @@ export function askDue(
       ? { due: true, reason: "due-first", chapter, sinceTurns, sinceBytes }
       : no("not-enough-substance");
   }
-  const paced = sinceTurns >= t.REASK_TURNS || sinceBytes >= t.REASK_BYTES;
+  // AND, not OR — measured 2026-09-04. v1 re-asked on `reaskBytes` AND
+  // `reaskTurns`; v2 shipped an OR whose byte half was a third of v1's, and the
+  // model's own chapter-writing reply could satisfy it on its own. One evening
+  // of 13 owner turns drew about a dozen asks across the two pacers.
+  const paced = sinceTurns >= t.REASK_TURNS && sinceBytes >= t.REASK_BYTES;
   return paced
     ? { due: true, reason: "due-substance", chapter, sinceTurns, sinceBytes }
     : no("not-enough-substance");
@@ -292,9 +329,9 @@ export function chapterHeading(chapter: number, day: number): string {
  * **Appending twice inside one chapter is the doctrine's headline case**, not an
  * edge: "when something significant happens later, append to it in the moment"
  * (§13 G2 — v1's once-per-session ask missed the moment that mattered by 82
- * seconds). So the chapter HEADING is emitted only when the chapter number
- * actually advances past what the episode already records; a second append to the
- * same chapter continues the prose it is already part of.
+ * seconds). So a heading is emitted only when an ask is OPEN — one the last
+ * append has not answered yet; every further append inside that chapter
+ * continues the prose it is already part of, asked for or not.
  */
 export function appendChapter(
   store: Store,
@@ -302,7 +339,8 @@ export function appendChapter(
   text: string,
   opts: { day: number; title?: string; happenedOn?: string },
 ): { episodeId: string; chapter: number; created: boolean; heading: boolean } {
-  const chapter = state.chapters === 0 ? 1 : state.chapters;
+  const opens = state.episodeId === null || state.asks > state.appendedAtAsk;
+  const chapter = opens ? state.chapters + 1 : Math.max(1, state.chapters);
   const heading = chapterHeading(chapter, opts.day);
   const body = `${heading}\n\n${text.trim()}\n`;
 
@@ -326,13 +364,16 @@ export function appendChapter(
 
   const prior = store.readProse(state.episodeId);
   const recorded = typeof prior.meta["chapters"] === "number" ? prior.meta["chapters"] : 0;
-  const opensChapter = chapter > recorded;
+  // The episode's own record of itself has the last word: a heading is opened
+  // only if this chapter is genuinely past what the file already carries.
+  const opensChapter = opens && chapter > recorded;
+  const num = opensChapter ? chapter : Math.max(1, recorded);
   store.revise(state.episodeId, {
-    body: `${prior.body.trimEnd()}\n\n${opensChapter ? body : `${text.trim()}\n`}`,
-    meta: { sessionId: state.sessionId, chapters: Math.max(chapter, recorded) },
+    body: `${prior.body.trimEnd()}\n\n${opensChapter ? chapterHeading(num, opts.day) + `\n\n${text.trim()}\n` : `${text.trim()}\n`}`,
+    meta: { sessionId: state.sessionId, chapters: Math.max(num, recorded) },
     reason: opensChapter ? "episode-chapter" : "episode-append",
   });
-  return { episodeId: state.episodeId, chapter, created: false, heading: opensChapter };
+  return { episodeId: state.episodeId, chapter: num, created: false, heading: opensChapter };
 }
 
 // ── ingestion (§13 G6, G10, G11) ────────────────────────────────────────────

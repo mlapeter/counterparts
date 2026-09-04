@@ -203,15 +203,26 @@ function proseBodyOf(raw: string): string {
 
 /**
  * The durable records that mean V2 SPOKE into a session. `adapter.wake.injected`
- * and `adapter.recall` are the two injection channels; `adapter.episode.ask` is
- * the ritual. `adapter.wake.delivered` is deliberately absent — it records the
+ * and `adapter.recall` are the two injection channels; `adapter.ask` is the
+ * ritual — with `adapter.episode.ask`, the name it wrote under before the two
+ * asks became one (2026-09-04), kept so older days still count. `adapter.wake.delivered` is deliberately absent — it records the
  * ARRIVAL of the previous session's wake on this turn, not a delivery into this
  * session (scar §2.3: render and delivery are two events, and this list is
  * about the speaking end).
  */
+/**
+ * The ask's rows for a date, under the name it writes today AND the name it
+ * wrote under before the two asks became one. A rename that silently zeroed the
+ * ritual count would read as "v2 never asked", which is a claim, not a silence.
+ */
+function askRows(byName: Record<string, number>): number {
+  return (byName["adapter.ask"] ?? 0) + (byName["adapter.episode.ask"] ?? 0);
+}
+
 const DELIVERY_RECORDS: readonly string[] = [
   "adapter.wake.injected",
   "adapter.recall",
+  "adapter.ask",
   "adapter.episode.ask",
 ];
 
@@ -664,7 +675,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     : {
         wake: v2.byNameForDate["adapter.wake.injected"] ?? 0,
         recall: v2.byNameForDate["adapter.recall"] ?? 0,
-        ritual: v2.byNameForDate["adapter.episode.ask"] ?? 0,
+        ritual: askRows(v2.byNameForDate),
       };
 
   const v1Signal =
@@ -726,7 +737,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const v2StopBoundaries = (deliverHooks["stop"] ?? 0) + (v2.primacyByHook.standdown["stop"] ?? 0);
   // The episode ask only fires on a session-ending path, so its durable record
   // is second-hand boundary evidence where the primacy row is absent.
-  const v2AskBoundaries = v2.byNameForDate["adapter.episode.ask"] ?? 0;
+  const v2AskBoundaries = askRows(v2.byNameForDate);
   // And the boundary's own durable row (every session-ending path leaves one,
   // `session-end` and `pre-compact` included), so a day whose sessions never
   // passed through `stop` is still evidenced.

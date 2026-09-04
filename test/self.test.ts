@@ -868,21 +868,49 @@ describe("episodes", () => {
     expect(ask.ask).toBe(askText(1));
 
     // A brand-new instance — i.e. the next process — sees the advance.
+    // ASKS advance, chapters do NOT: an ask is not a chapter, and counting it as
+    // one is how the hook's number ran to 7 while the episode held none
+    // (measured 2026-09-04, the reason the two counters were split).
     const reborn = new Self({ store: s });
-    expect(reborn.episodeState("s1").chapters).toBe(1);
+    expect(reborn.episodeState("s1").asks).toBe(1);
+    expect(reborn.episodeState("s1").chapters).toBe(0);
     expect(reborn.askDue("s1", SUBSTANCE).reason).toBe("not-enough-substance");
     expect(s.getMeta(stateKey("s1"))).toBeDefined();
   });
 
-  test("later chapters need FURTHER substance, and stop at the cap", () => {
+  test("later chapters need FURTHER substance — turns AND bytes, the way v1 re-asked", () => {
     const s = store();
-    const self = new Self({ store: s, tunables: { MAX_CHAPTERS: 2 } });
+    const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
     expect(self.askDue("s1", { turns: 10, bytes: 6_500 }).reason).toBe("not-enough-substance");
+    // Bytes alone are NOT enough, and neither are turns alone: v2 shipped an OR
+    // whose byte half was a third of v1's, so the model's own chapter-writing
+    // reply could re-trigger it (2026-09-04, about a dozen asks in an evening).
+    expect(self.askDue("s1", { turns: 9, bytes: 60_000 }).reason).toBe("not-enough-substance");
+    expect(self.askDue("s1", { turns: 40, bytes: 6_500 }).reason).toBe("not-enough-substance");
     const second = self.openChapter("s1", { turns: 18, bytes: 15_000 });
     expect(second.verdict.reason).toBe("due-substance");
-    expect(second.chapter).toBe(2);
-    expect(self.askDue("s1", { turns: 40, bytes: 40_000 }).reason).toBe("chapter-cap");
+    // Chapter 1 has not been WRITTEN, so the next ask is still for chapter 1.
+    expect(second.chapter).toBe(1);
+    self.appendChapter("s1", "The first stretch, finally written down.");
+    expect(self.openChapter("s1", { turns: 40, bytes: 40_000 }).chapter).toBe(2);
+  });
+
+  test("the cap is the LIVED DAY's, shared across sessions — not one cap per session", () => {
+    // v1 calibrated the ritual in DAYS ("a work day gets about three chapters",
+    // behavioral-spec §13 G1) while this host opens a session per invocation, so
+    // a per-session cap of six was reached inside one evening conversation.
+    const s = store();
+    const self = new Self({ store: s, tunables: { MAX_CHAPTERS_PER_DAY: 2 } });
+    expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
+    // A SECOND session on the same lived day spends the same day's allowance.
+    expect(self.openChapter("s2", SUBSTANCE, 4).asked).toBe(true);
+    const capped = self.openChapter("s3", SUBSTANCE, 4);
+    expect(capped.asked).toBe(false);
+    expect(capped.verdict.reason).toBe("day-chapter-cap");
+    expect(self.dayAsks(4)).toBe(2);
+    // Tomorrow is a new day, and a new allowance.
+    expect(self.openChapter("s3", SUBSTANCE, 5).asked).toBe(true);
   });
 
   test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {

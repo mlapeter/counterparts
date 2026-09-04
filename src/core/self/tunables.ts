@@ -57,13 +57,24 @@ export interface SelfTunables {
   /** ...or bytes alone past this point, so a one-prompt agentic session still
    *  journals (§13 G1). CAL. */
   SOLO_ASK_BYTES: number;
-  /** Further substance since the last ask, in turns, before another chapter. CAL. */
+  /** Further substance since the last ask, in turns, before another chapter —
+   *  AND the byte threshold below, never or. CAL. */
   REASK_TURNS: number;
   /** Further substance since the last ask, in bytes, before another chapter. CAL. */
   REASK_BYTES: number;
-  /** Chapters one session may open. The orphanable-tail bound is measured
-   *  against this, never hidden (§13 known gap). CAL. */
-  MAX_CHAPTERS: number;
+  /**
+   * Chapters one LIVED DAY may open, across every session it holds. The
+   * orphanable-tail bound is measured against the re-ask pair, never hidden
+   * (§13 known gap). CAL.
+   *
+   * Per day, not per session: v1's calibration is stated in days — "a drive-by
+   * gets none, a conversation gets one, a work day gets about three"
+   * (behavioral-spec §13 G1) — while this host opens a session per invocation,
+   * so a per-session cap multiplies the day's asks by however many times the
+   * owner typed `claude`. Measured 2026-09-04: a per-session cap of 6 was
+   * reached inside ONE evening conversation.
+   */
+  MAX_CHAPTERS_PER_DAY: number;
   /** Lived days an episode may be re-ingested after its first ingest. The window
    *  CLOSES — a deliberate deviation from human reconsolidation (§13 G12). CAL. */
   REGROW_WINDOW_DAYS: number;
@@ -87,7 +98,7 @@ export const SELF_TUNABLES: SelfTunables = {
   SOLO_ASK_BYTES: 12_000,
   REASK_TURNS: 8,
   REASK_BYTES: 8_000,
-  MAX_CHAPTERS: 6,
+  MAX_CHAPTERS_PER_DAY: 4,
   REGROW_WINDOW_DAYS: 3,
 };
 
