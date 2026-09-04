@@ -898,6 +898,32 @@ describe("[M] guarantee 8 — a declared revision is never deduped into its targ
     expect(byHash.effect).toBeNull();
   });
 
+  test("guarantee 8b: a revision's SUCCESSOR and its challenger are never merged, either way", () => {
+    // The successor carries the challenger's own words (§5.6), so the hash is
+    // guaranteed to match and the declaration guard cannot see the pair — that
+    // declaration named the PREDECESSOR. Checked before hash and before cosine.
+    const v = dedupVerdict({
+      originalId: "mem_challenger",
+      declaredUpdates: null,
+      revisionSuccessorPair: true,
+      sameContentHash: true,
+      cosine: 1,
+    });
+    expect(v.verdict).toBe("leave-alone");
+    expect(v.reason).toBe("revision-successor-never-merged");
+    expect(v.effect).toBeNull();
+
+    // The flag is not a general dedup switch: absent or false, nothing changes.
+    expect(
+      dedupVerdict({
+        originalId: "orig",
+        declaredUpdates: null,
+        revisionSuccessorPair: false,
+        sameContentHash: true,
+      }).reason,
+    ).toBe("identical-content-hash");
+  });
+
   test("an ordinary near-duplicate merges as uses(orig) += 1", () => {
     const v = dedupVerdict({ originalId: "orig", declaredUpdates: null, cosine: 0.96 });
     expect(v.verdict).toBe("merge");

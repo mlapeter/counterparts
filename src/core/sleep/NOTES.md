@@ -202,3 +202,125 @@ being over budget.* That detector lives in `self/`, which owns the render and it
 lanes. `sleep/` reports its OWN budgets the same way — `skippedForBudget` counts
 candidates never reached, not items dropped from an output — so the same honesty
 applies on this side of the seam.
+
+## 12. Dedup ate a revision's successor — 2026-09-04
+
+**Symptom.** The demo seeder built the first store that ever crossed the pressure
+bar, and the `stories` view rendered the crossing as a disappearance:
+
+    it now says  "The migration Teodoro Whitlock merged cannot be rev…" [sch_…, archived: merged]
+    day 29  …  REVISED, becoming "…" [sch_…, archived: merged]
+
+The revised belief was superseded correctly and then, the same evening, archived
+out of existence as a belief: `schemas.beliefs(entity)` empty, the successor gone
+from every slice. Constitution 7 — "revisions keep their history; nothing
+bulk-wipes silently" — broken by a phase doing exactly what it was told.
+
+**Cause.** `schemas/index.ts#supersedeElement` mints the successor with
+`input.statement ?? store.readProse(challengerId).body`. That is the design: the
+statement that won the argument IS the new belief (§5.6), so successor and
+challenger are byte-identical BY CONSTRUCTION. `contentHashCandidates` groups on
+the body, the tie-break sorts by birth day and then by id — both born the same
+lived day, and `mem_` sorts before `sch_` — so the successor is always the
+candidate and the challenger always the original. `dedupVerdict`'s existing
+refusal, `declared-revision-never-merged`, compares the CANDIDATE's `updates:`
+declaration against the original's id; the successor declares nothing, and the
+challenger's declaration names the PREDECESSOR, which is archived and out of the
+live set. Nothing in the pass could see what the pair was. Both arms of the
+dispatch fire it: the belief path and the current-state replacement, plus
+`revision.ts`'s identity arm, which supersedes the same way.
+
+**Fix.** A second named refusal rather than a change to what a successor says —
+the contract wants the challenger's statement verbatim, so the body is not
+negotiable. `physics.dedupVerdict` gains `revisionSuccessorPair` and the verdict
+`revision-successor-never-merged`, checked before hash and before cosine (the
+hash is exactly what is guaranteed to match). `dedup.ts` supplies the fact from
+two columns — `source: "accommodation"`, written at exactly the two supersede
+sites that mint with lineage, and `origin_ref`, the challenger.
+
+The rule as shipped is **"an accommodation row is never the LOSING candidate of a
+same-hash merge"**, not merely the pair relation. The pair relation alone was the
+first draft and it is not enough — see the two doors below, both closed by the
+wider clause, both regression-tested. The wider clause is sound rather than a
+blanket exemption: a successor's body IS its challenger's body by construction
+(`schemas/index.ts:946`), so every same-hash group a successor belongs to is that
+challenger plus ordinary twins of the same sentence, and none of those is the
+thing the revision produced. The COSINE path is deliberately untouched — a merely
+similar row is an ordinary near-duplicate question, and the argument above does
+not hold for it. The guard is otherwise narrow: two ordinary memories with one
+body still merge, and a test says so.
+
+**The two doors the pair relation left open**, both found by the adversarial
+review, both closed here:
+
+1. **A twin born EARLIER takes the original's seat.** An ordinary memory that
+   already says what the challenger is about to say becomes the group's original.
+   The challenger and the successor then both pair against the TWIN, the relation
+   reads false against it, and **both archive** — so the element is left with no
+   live version at all: `currentState(entity) === []`. Strictly worse than the
+   finding this note opened with, which at least left the challenger standing.
+2. **Two challengers with one body, revising two elements on one day.** `sb`
+   pairs against `ca` rather than against its own `cb`; the relation is false;
+   `cb` and `sb` both archive and element *b* silently loses its revision while
+   element *a* keeps its own.
+
+The trigger for both is ordinary — the same sentence noted twice — not exotic.
+
+**What the fix deliberately does not protect in case 1: the challenger.** It is a
+plain memory saying what a plain memory already said, so it merges into the twin
+under the ordinary rule and credits it. Nothing about the revision is lost: the
+successor holds the words, the element holds the successor, and `origin_ref`
+still names the challenger, whose prose and id survive the archive.
+
+Same shape as the journal finding a day earlier (CONTRACT §5 G15), and worth
+naming as a class: **phases that walk "every row" were written when two identical
+bodies could only mean a duplicate.** Three constructions now make identical
+bodies on purpose — an episode and the memory ingested from it; a revised
+belief's successor and its challenger; a replaced now-fact's successor and its
+challenger — and each needed the pass to be told what it was looking at.
+
+**What this fix deliberately did NOT do.** CONTRACT §5 G7 already promises that
+nothing "in a live revision chain" is decayed, merged, or pruned, and a fresh
+successor is the head of one — so the shorter fix looks like handing dedup
+`prune.ts#inLiveRevisionChain`. It would not have worked as that predicate
+stands: a successor has no forwarding address, no standing pressure (the seed
+resets it) and no version rows of its own, so the predicate reads `false` for
+exactly the row this bug destroys, and dedup never consulted it in any case.
+Widening the predicate to "is the head of a chain still inside `H`" and reading
+it in dedup would be the general close of G7's wording; G9b's own rule reaches
+every case the finding and the review produced, so G7's paragraph in the CONTRACT
+now states what the predicate actually enforces rather than more.
+
+**Still open, and NOT fixed here — probe H (adversarial review, 2026-09-04).**
+An element and an ordinary memory can collide with **no revision anywhere**: an
+`addBelief` whose statement is X and a memory whose body is X, born the same
+lived day. No accommodation row is involved, so G9b does not apply; the tie-break
+puts `mem_` before `sch_` and the belief is archived `merged` into the memory.
+Kin of the migration case: migrated ELEMENTS were minted at the import day while
+migrated MEMORIES kept their v1 `birthDay`, so on the live store a migrated
+belief colliding with a memory body would already have lost — the memory is older
+on every such pair. Not chased here (constitution 15: named, not built), because
+the honest fix is the wider question of whether a `type: "schema"` row should
+ever be a dedup candidate at all — the same shape as G15's journal answer.
+
+**The owner's read-only check, for both this and the finding above:** look for
+`memory.merged` events whose `candidateId` starts with `sch_`. That one query
+answers "has an element ever been archived as a duplicate on this store", needs
+no writes, and does not depend on any claim made in this file.
+
+**What changes on a live store.** Only stores where a dedup pass runs while a
+revision's successor and its challenger are both live — in practice any cycle
+after a crossing, not merely the same evening, since the pair stays live and
+identical until something merges it. Nothing is repaired retroactively: a
+successor already archived `merged` stays archived (its prose and id survive, and
+its merge record names the original). Stores that never revise are untouched;
+genuine duplicates merge exactly as before.
+
+**UNVERIFIED, and do not repeat it as fact:** "the owner's live store has had 1
+revision declaration with 0 effect — zero `superseded_by`, zero
+`revision.pressure`" is a day-1 reading that master's day-2 watch list still owes
+a recount of, and this session cannot open that store. It is also the weakest
+possible claim to lean on here, because the CURRENT-STATE arm supersedes on ONE
+declaration with no bar to climb (PR #22 is live), so a successor may already
+exist without any pressure event to show for it. The read-only check that settles
+it: `memory.merged` events whose `candidateId` starts with `sch_`.

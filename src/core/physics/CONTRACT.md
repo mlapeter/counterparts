@@ -253,7 +253,14 @@ substrate confabulation [v1 §4.2 G9]. `τ_dup` is **calibration-required**: in 
 arbitrary same-corpus pairs sat at median cosine 0.576, so an intuited floor is inert (scar
 §2.8). **A memory that declares `updates:` is never deduplicated into its target** —
 otherwise a topically-close refutation merges into the belief it refutes and *reinforces*
-it: the one-way ratchet of scar §2.10, rebuilt by accident.
+it: the one-way ratchet of scar §2.10, rebuilt by accident. **Nor is a revision's
+SUCCESSOR ever the losing candidate of a same-hash merge**: the successor carries the
+challenger's own words (§5.6), so their bodies are identical by construction and the hash
+rule would archive one of them on the revision's own evening. The caller supplies the
+lineage; this module names the refusal. Both refusals are checked before hash and before
+cosine. *(8b added 2026-09-04, the first
+store that ever crossed the bar: the successor lost the id tie-break and the revised
+belief stopped being a belief.)*
 
 ### 5.8 Forgetting
 
@@ -289,6 +296,10 @@ low-strength memory is still present and still retrievable by a strong enough cu
 7. **[M]** Revision requires a declared `updates:` target. There is no inferred-revision
    path, and no arithmetic here edits a memory that was not named.
 8. **[M]** A declared revision is never merged into its target by dedup.
+    **8b. [M]** A revision's successor is never the losing candidate of a same-hash
+    merge, and never merges with its challenger in either direction — the lineage is a
+    store fact the caller supplies, the refusal is named
+    (`revision-successor-never-merged`), and it is checked before hash and cosine.
 9. **[M]** Superseded versions stay resolvable for `H` lived days; nothing here deletes one.
 10. **[M]** Prune is gated on all five conditions and is recorded; no model-reachable caller
     can invoke it.

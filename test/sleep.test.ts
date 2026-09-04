@@ -23,6 +23,8 @@ import { Store } from "../src/core/store/index.js";
 import type { PutInput, StoreEvent } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS, band, promotionEligibility, strength } from "../src/core/physics/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
+import { Schemas, TUNABLES as SCHEMA_TUNABLES } from "../src/core/schemas/index.js";
+import { applyRevision } from "../src/core/revision.js";
 import {
   CycleKilled,
   MARKER_UNSET,
@@ -1289,6 +1291,309 @@ describe("dedup leaves the journal alone", () => {
     expect(again.merged.length).toBe(1);
     expect([s.row(memoryId)?.archived, s.row(twin)?.archived]).toContain(1);
     expect(s.row(episodeId)?.archived).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * DEDUP LEAVES A REVISION'S SUCCESSOR ALONE.
+ *
+ * Found 2026-09-04 by the demo seeder, the first store that ever crossed the
+ * pressure bar. A revision mints the successor with the CHALLENGER'S WORDS —
+ * that is the design (`schemas/` §5.6: the new belief is the statement that
+ * won), so the two bodies are byte-identical BY CONSTRUCTION. Dedup then saw
+ * one content-hash group of two live rows, and the tie-break — birth day, then
+ * id, and `mem_` sorts before `sch_` — always made the successor the duplicate.
+ * `declared-revision-never-merged` cannot catch it: that declaration names the
+ * PREDECESSOR, and the successor has a fresh id. The `stories` view ended
+ * "REVISED, becoming ... [archived: merged]" and the revised belief left the
+ * store as a belief the same evening it was formed — constitution 7, "revisions
+ * keep their history; nothing bulk-wipes silently".
+ */
+describe("dedup leaves a revision's successor alone", () => {
+  /** The salience the schemas suite uses to get below-bar, below-bar, revised. */
+  const FORCE = 0.45;
+
+  function challengerFor(s: Store, opts: { day: number; body: string; updates: string }): string {
+    return s.put({
+      type: "memory",
+      kind: "person",
+      body: opts.body,
+      // Faithful to the minting seam: `mint.ts` writes the declaration into the
+      // challenger's prose meta. It names the PREDECESSOR, which is exactly why
+      // the existing guard misses the pair the revision then creates.
+      meta: { updates: opts.updates },
+      salience: { novelty: null, relevance: FORCE, emotional: FORCE, predictive: FORCE },
+      physics: { birthDay: opts.day, lastUsedDay: opts.day },
+    });
+  }
+
+  test("a belief revised under pressure keeps a LIVE successor through the same day's dedup", () => {
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = sc.addBelief({
+      entityId,
+      statement: "Ada prefers async review",
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+
+    // Three credited challenges on three lived days, each through the `updates:`
+    // door. Distinct bodies, so the challengers are not each other's duplicates
+    // and only the LAST one shares its words with the successor it makes.
+    const bodies = [
+      "Ada asked for a live walkthrough on Tuesday",
+      "Ada booked a second synchronous review slot",
+      "Ada asked for a live walkthrough instead",
+    ];
+    const reasons: string[] = [];
+    let challengerId = "";
+    let successorId: string | null = null;
+    for (const [i, body] of bodies.entries()) {
+      const day = i + 1;
+      challengerId = challengerFor(s, { day, body, updates: beliefId });
+      const out = applyRevision(
+        s,
+        sc,
+        { updates: beliefId, challengerId, day, method: "declared" },
+        {},
+      );
+      reasons.push(out.reason);
+      successorId = out.successorId ?? successorId;
+    }
+    expect(reasons).toEqual(["below-bar", "below-bar", "revised"]);
+    expect(successorId).not.toBeNull();
+    const successor = successorId as string;
+
+    // The bug's precondition, asserted rather than assumed: the successor and
+    // the challenger that carried the crossing say the SAME WORDS.
+    expect(s.read(successor).doc.body).toBe(s.read(challengerId).doc.body);
+
+    const out = runDedup(ctx(wrap(s), 3));
+
+    // Nothing merged, and the pass NAMES the refusal.
+    expect(out.merged).toEqual([]);
+    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(s.row(successor)?.archived).toBe(0);
+    expect(s.row(challengerId)?.archived).toBe(0);
+
+    // The revision's history is intact and readable: predecessor archived with
+    // its reason, successor live, the link between them resolvable.
+    expect(s.read(beliefId).archivedReason).toBe(SCHEMA_TUNABLES.REVISED_REASON);
+    expect(s.read(beliefId).supersededBy).toBe(successor);
+    expect(s.resolve(beliefId)).toBe(successor);
+
+    // ... and the successor is still a BELIEF: it reads out of the entity, and
+    // the story ends REVISED with a live successor rather than a merged one.
+    expect(sc.beliefs(entityId).map((b) => b.id)).toEqual([successor]);
+    const story = sc.story(beliefId);
+    expect(story.headId).toBe(successor);
+    expect(story.increments).toHaveLength(3);
+    expect(story.lineage.find((l) => l.reason === SCHEMA_TUNABLES.REVISED_REASON)?.successorId).toBe(
+      successor,
+    );
+
+    // Replay: a second pass over the same live pair finds the same refusal and
+    // still credits nothing (§5 G3).
+    const usesBefore = s.physicsOf(challengerId).uses;
+    const again = runDedup(ctx(wrap(s), 4));
+    expect(again.merged).toEqual([]);
+    expect(again.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(s.physicsOf(challengerId).uses).toBe(usesBefore);
+  });
+
+  test("the current-state arm too: a replaced now-fact keeps its live successor", () => {
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const stateId = sc.addCurrentState({
+      entityId,
+      statement: "Bansai is running as the live instance",
+      day: 0,
+      statedOn: "2026-08-01",
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+
+    // A now-fact flips on ONE clear correction — no bar to climb, so the
+    // identical-bodies pair exists from the first challenge.
+    const challengerId = challengerFor(s, {
+      day: 1,
+      body: "Bansai is muted; counterparts is primary",
+      updates: stateId,
+    });
+    const applied = applyRevision(
+      s,
+      sc,
+      { updates: stateId, challengerId, day: 1, method: "declared" },
+      {},
+    );
+    expect(applied.reason).toBe("replaced");
+    const successor = applied.successorId as string;
+    expect(s.read(successor).doc.body).toBe(s.read(challengerId).doc.body);
+
+    const out = runDedup(ctx(wrap(s), 1));
+    expect(out.merged).toEqual([]);
+    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(s.row(successor)?.archived).toBe(0);
+    expect(s.read(stateId).archivedReason).toBe(SCHEMA_TUNABLES.REPLACED_REASON);
+    expect(s.read(stateId).supersededBy).toBe(successor);
+    expect(sc.currentState(entityId).map((e) => e.id)).toEqual([successor]);
+  });
+
+  test("the guard is NARROW: two ordinary memories with one body still merge", () => {
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const stateId = sc.addCurrentState({
+      entityId,
+      statement: "Ada is reviewing asynchronously this quarter",
+      day: 0,
+      statedOn: "2026-08-01",
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const BODY = "Ada is reviewing live for the rest of the quarter";
+    const challengerId = challengerFor(s, { day: 1, body: BODY, updates: stateId });
+    const successor = applyRevision(
+      s,
+      sc,
+      { updates: stateId, challengerId, day: 1, method: "declared" },
+      {},
+    ).successorId as string;
+
+    // A third, ordinary memory saying exactly what the challenger said. It is
+    // nobody's revision successor, so it is an ordinary duplicate and merges —
+    // uses credited on the ORIGINAL, the duplicate archived (§5.7).
+    // An id that sorts LAST among the group's memories, so the tie-break's
+    // choice of original is the challenger and this test is not a coin flip.
+    const twin = put(s, { id: "mem_ffffffffffff", body: BODY, physics: { birthDay: 1, lastUsedDay: 1 } });
+    const usesBefore = s.physicsOf(challengerId).uses;
+
+    const out = runDedup(ctx(wrap(s), 1));
+    expect(out.merged.map((m) => m.candidateId)).toEqual([twin]);
+    expect(out.merged[0]?.originalId).toBe(challengerId);
+    expect(out.merged[0]?.reason).toBe("identical-content-hash");
+    expect(out.merged[0]?.usesDelta).toBe(1);
+    expect(s.physicsOf(challengerId).uses).toBe(usesBefore + 1);
+    expect(s.row(twin)?.archived).toBe(1);
+    // The successor pairs against the same group and is still left alone.
+    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(s.row(successor)?.archived).toBe(0);
+  });
+
+  test("a twin born EARLIER takes the original's seat — the successor still survives", () => {
+    // The pair relation alone is not enough. If an ordinary memory already says
+    // what the challenger is about to say, and was born first, the tie-break
+    // makes THAT row the group's original: the challenger and the successor both
+    // pair against the twin, the relation reads false against it, and both
+    // archive. The element is then left with NO live version at all — worse than
+    // the finding this suite opened with. The trigger is ordinary: the same
+    // sentence noted twice.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const stateId = sc.addCurrentState({
+      entityId,
+      statement: "Bansai is running as the live instance",
+      day: 0,
+      statedOn: "2026-08-01",
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+
+    const BODY = "Bansai is muted; counterparts is primary";
+    // Born a day BEFORE the challenger, so it is unambiguously the original.
+    const twin = put(s, { body: BODY, physics: { birthDay: 0, lastUsedDay: 0 } });
+    const challengerId = challengerFor(s, { day: 1, body: BODY, updates: stateId });
+    const successor = applyRevision(
+      s,
+      sc,
+      { updates: stateId, challengerId, day: 1, method: "declared" },
+      {},
+    ).successorId as string;
+
+    const out = runDedup(ctx(wrap(s), 1));
+
+    // The SUCCESSOR is what the revision produced, and it survives: an
+    // accommodation row can never be the losing candidate of a same-hash merge.
+    expect(s.row(successor)?.archived).toBe(0);
+    expect(sc.currentState(entityId).map((e) => e.id)).toEqual([successor]);
+    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+
+    // The CHALLENGER is a different question, and it is deliberately left to the
+    // ordinary rule: it is a plain memory that says what a plain memory already
+    // said, so it merges into the twin and credits it. Nothing about the
+    // revision is lost by that — the successor holds the words, the element
+    // holds the successor, and `origin_ref` still names the merged challenger,
+    // whose prose and id survive the archive.
+    expect(out.merged.map((m) => m.candidateId)).toEqual([challengerId]);
+    expect(out.merged[0]?.originalId).toBe(twin);
+    expect(s.row(challengerId)?.archived).toBe(1);
+    expect(s.row(challengerId)?.archived_reason).toBe(MERGE_ARCHIVE_REASON);
+  });
+
+  test("two challengers with ONE body revise two elements — both successors live", () => {
+    // The second door of the same edge. `sb` (b's successor) pairs against `ca`
+    // (a's challenger), not against its own `cb`, so the pair relation is false
+    // and — before the wider clause — `cb` and `sb` both archived: element b
+    // silently lost its revision while element a kept its own.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const mk = (statement: string): string =>
+      sc.addCurrentState({
+        entityId,
+        statement,
+        day: 0,
+        statedOn: "2026-08-01",
+        dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+      }).id as string;
+    const a = mk("Bansai runs the morning batch");
+    const b = mk("Bansai runs the evening batch");
+
+    // One sentence, noted twice on the same day, against two different rows.
+    const BODY = "Bansai runs nothing; the batches moved to counterparts";
+    const ca = challengerFor(s, { day: 1, body: BODY, updates: a });
+    const cb = challengerFor(s, { day: 1, body: BODY, updates: b });
+    const sa = applyRevision(s, sc, { updates: a, challengerId: ca, day: 1, method: "declared" }, {})
+      .successorId as string;
+    const sb = applyRevision(s, sc, { updates: b, challengerId: cb, day: 1, method: "declared" }, {})
+      .successorId as string;
+
+    runDedup(ctx(wrap(s), 1));
+
+    expect(s.row(sa)?.archived).toBe(0);
+    expect(s.row(sb)?.archived).toBe(0);
+    expect(sc.currentState(entityId).map((e) => e.id).sort()).toEqual([sa, sb].sort());
   });
 });
 

@@ -74,7 +74,7 @@ a real `sessionEnd` sleep cycle. Typical figures from one run:
 | current-state replaced | 1 (the fast half of revision) |
 | identity band / protected | 15 promoted at consolidation / 2 permanent |
 | journal chapters | 16 |
-| pruned / merged | 8 / 3 |
+| pruned / merged | 8 / 1 |
 | associative edges | 252 directed rows |
 | recall decisions | 14 |
 | intentions fired / pending | 6 / 2 |
@@ -150,10 +150,13 @@ These are findings about the system, not about the seeder, and none is fixed her
   `store.list()` with no `type` filter under the heading "The memories I hold",
   so a seeded store reports 159 in `browse` and 143 in `status`, which excludes
   the journal explicitly.
-- **A revised belief's successor is byte-identical to the memory that argued for
-  it**, so the next cycle's content-hash dedup merges one into the other and the
-  `stories` view ends "REVISED, becoming … [archived: merged]". Happens on both
-  the belief path and the current-state replacement path.
+- ~~**A revised belief's successor is byte-identical to the memory that argued
+  for it**, so the next cycle's content-hash dedup merges one into the other and
+  the `stories` view ends "REVISED, becoming … [archived: merged]". Happens on
+  both the belief path and the current-state replacement path.~~ **Fixed
+  2026-09-04** (`sleep/` CONTRACT §5 G9b, NOTES §12): dedup now refuses the pair
+  by name. This is what took the seeded `merged` count from 3 to 1 — two of
+  those three "duplicates" were the two revisions' successors.
 - **`recall.decision`'s durable `ref` is a session id**, and `activity` resolves
   every ref as a memory id, so each recall row reads
   `[no longer at this address] fern-030`.

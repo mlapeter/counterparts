@@ -116,10 +116,36 @@ and their records; the next session's briefing, written last; a per-cycle summar
    distinct record — "did not run", "ran and found nothing", and "failed" are three things
    (scar §2.4).
 7. **[M]** Nothing under audit or in a live revision chain is decayed, merged, or pruned.
+   **What the code enforces, stated exactly** (the wording above was wider than the
+   predicate, and 2026-09-04's dedup finding lived in the gap): PRUNE reads
+   `prune.ts#inLiveRevisionChain` — a row with a forwarding address, a row with standing
+   pressure, or a row whose version rows still point at a successor inside `H`. That
+   predicate reads FALSE for a fresh successor, which has none of the three, so it never
+   protected the head of a chain and dedup never consulted it at all. DEDUP's protection
+   of the head is G9b's, by its own rule, and after it the two known ways to lose a
+   successor to a merge are closed. **Still open under this wording:** an element whose
+   statement collides with an ordinary memory's body *with no revision anywhere* — G9b
+   does not apply, and the element merges into the memory (see NOTES §12, probe H).
 8. **[M]** Every prune is recorded — counts, kind, dates; never a body, never a content hash
    (scar §2.20) — and a failed record append means nothing moves.
 9. **[M]** A memory that declares `updates:` is never merged into its target (`physics/`
    §5.7) — otherwise a refutation reinforces the belief it refutes.
+   **9b. [M] A revision's SUCCESSOR is never the losing candidate of a same-hash merge**,
+   and never merges with the challenger it was minted from in either direction
+   (`physics/` §5.7 G8b; `dedup.ts` reads `source: "accommodation"` + `origin_ref` off the
+   row — the two supersede sites that mint with lineage, `schemas/index.ts` for both
+   element arms and `revision.ts` for the identity arm). The successor carries the
+   challenger's own words, so the two share a content hash BY CONSTRUCTION and G9 cannot
+   reach the pair — its declaration names the PREDECESSOR. The rule is "never the loser"
+   rather than a pair relation because a THIRD row with the same text takes the original's
+   seat and the pair reads false against it; an accommodation row can never legitimately
+   lose such a merge, since its body is its challenger's body and every same-hash group it
+   is in is that challenger plus twins of the same sentence. The cosine path is untouched:
+   a merely SIMILAR row is an ordinary near-duplicate question. *Found 2026-09-04 on the
+   first store that ever crossed the pressure bar: the successor lost the tie-break
+   (`mem_` before `sch_`), was archived `merged` on the revision's own evening, and the
+   revised belief stopped rendering as a belief — constitution 7. The same shape as G15's
+   journal finding: a phase written when identical bodies could only mean a duplicate.*
 10. **[M]** Observer sessions spawn no cycle at all — a cycle advances the clock, decays the
     store, and rewrites the briefing: *the instrument mutating what it measures* (scar E7).
 11. **[M]** A worker that cannot run — missing credential, unmet dependency, repeated

@@ -68,7 +68,14 @@ export type { ConsolidateResult, ConsolidationSkip } from "./consolidate.js";
 export { inLiveRevisionChain, pruneRecordKey, runPrune } from "./prune.js";
 export type { PruneResult } from "./prune.js";
 
-export { contentHashCandidates, declaredUpdates, mergeRecordKey, runDedup } from "./dedup.js";
+export {
+  contentHashCandidates,
+  declaredUpdates,
+  mergeRecordKey,
+  revisionSuccessorOf,
+  revisionSuccessorPair,
+  runDedup,
+} from "./dedup.js";
 export type { DedupCandidateInput, DedupCandidateSource, DedupPair, DedupResult } from "./dedup.js";
 
 export { runBriefing } from "./briefing.js";
