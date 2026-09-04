@@ -18,9 +18,9 @@ rewrite, the rewrite is a recommendation with a reason, not a ruling.*
 |---|---|
 | Commits | **183**, reachable from all 71 refs |
 | Refs | **41** branch refs (9 local heads, 32 `origin/*`) **+ 30 `refs/pull/N/head`** fetched read-only for this audit |
-| Unique blobs scanned | **1002** (970 reachable from refs + 32 reachable only from dangling objects) |
-| Bytes scanned | **28,013,797** (28.0 MB); 7 blobs skipped as binary (NUL-bearing), all `bun.lock`-adjacent text-with-BOM false positives re-checked by hand |
-| Working tree scanned separately | **246** tracked files, 4,241,647 bytes |
+| Unique blobs scanned | **1024** — every blob reachable from any ref, plus dangling objects. **0 skipped** (see §3.4) |
+| Bytes scanned | **28,536,962** (28.5 MB) |
+| Working tree scanned separately | **249** tracked files (246 + this audit's 3), 4,324,463 bytes, 0 skipped |
 | Commit messages + author/committer idents scanned | **183** commits |
 | GitHub side-channels checked | 30 PRs (titles + bodies), 0 issues |
 | Largest blob in the whole object store | 170 KB (`test/parallel.test.ts`) — no binaries, no bloat, nothing to strip for size |
@@ -40,11 +40,13 @@ suppression.
 |---|---|
 | Blobs with any detector hit | 554 |
 | Blobs with a non-keyword hit | 160 |
-| Total credential-shaped hits, all commits, all refs | **894** |
+| Total credential-shaped hits, all commits, all refs | **946** |
 | **True positives (a real credential)** | **0** |
-| False positives — synthetic test fixtures | 875 |
+| False positives — synthetic test fixtures | 873 |
+| False positives — **this audit document**, quoting the fixtures it classified in §3.2 | 52 |
 | False positives — identifiers in source (`const token = …`) | 16 |
 | False positives — `bun.lock` `sha512-` integrity hashes | 5 |
+| Separately: high-entropy runs — every one a file path or a git SHA | 316 |
 | Files ever committed and later deleted | 2, both ordinary source (`src/core/observe/CONTRACT.md`, `src/core/store/observer.ts`) — **no `.env`, no `credentials.env`, no `.npmrc`, no `.claude/settings*.json` was ever committed on any ref** |
 
 **De-personalization: 450 pattern hits across 77 tracked files in 10 classes, plus 12
@@ -154,6 +156,13 @@ git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'   # already done, 
 They contributed no blobs not already reachable — the merge commits kept them alive — but
 the scan covered them and the claim is therefore whole.
 
+**Side effect to know about:** that fetch left 30 `refs/remotes/origin/pr/*` remote-tracking
+refs in the shared `.git` of `~/counterparts`. They are read-only, they change nothing about
+`master` or any branch, and they make the post-flip re-scan (§7 step 8b) one command shorter
+— but they will show up in any `git for-each-ref` run from this repo. Remove them with
+`git for-each-ref --format='%(refname)' 'refs/remotes/origin/pr/*' | xargs -n1 git update-ref -d`
+if the clutter is unwanted.
+
 **Scope note on "published".** The flip exposes what GitHub holds. Nine local `refs/heads/*`
 (the agent worktree branches, `launch/w3-audit`, and three unpushed feature branches) and
 32 dangling objects exist only in this clone and **do not ship**. The scanner labels every
@@ -169,32 +178,38 @@ older revisions of the same test files.
 
 | detector / family | blobs | hits | where | verdict |
 |---|---|---|---|---|
-| `gate/model-provider-key` | 61 | 296 | `test/{claude-code,encode,mcp,parallel}.test.ts` | FALSE POSITIVE |
-| `entropy/unclassified` | 91 | 267 | docs + tests | FALSE POSITIVE |
-| `gate/assigned-credential` | 76 | 150 | 5 src files, 5 test files | FALSE POSITIVE |
-| `gate/aws-access-key-id` | 67 | 146 | 6 test files | FALSE POSITIVE |
-| `gate/github-token` | 25 | 90 | `test/{encode,mcp}.test.ts` | FALSE POSITIVE |
-| `gate/google-api-key` | 35 | 70 | `test/{claude-code,encode,schemas}.test.ts` | FALSE POSITIVE |
+| `entropy/unclassified` | 96 | 311 | docs + tests | FALSE POSITIVE — every one a `/`-bearing file path or a git SHA |
+| `gate/model-provider-key` | 64 | 307 | `test/{claude-code,encode,mcp,parallel}.test.ts` | FALSE POSITIVE |
+| `gate/assigned-credential` | 81 | 158 | 5 src files, 5 test files | FALSE POSITIVE |
+| `gate/aws-access-key-id` | 69 | 148 | 6 test files | FALSE POSITIVE |
+| `gate/github-token` | 28 | 98 | `test/{encode,mcp}.test.ts` | FALSE POSITIVE |
+| `gate/google-api-key` | 37 | 74 | `test/{claude-code,encode,schemas}.test.ts` | FALSE POSITIVE |
 | `gate/bearer-token` | 34 | 34 | `test/{claude-code,encode}.test.ts` | FALSE POSITIVE |
-| `extra/x:api-key-envvar` | 27 | 27 | `test/{claude-code,parallel}.test.ts` | FALSE POSITIVE |
+| `extra/x:api-key-envvar` | 29 | 33 | `test/{claude-code,parallel}.test.ts` | FALSE POSITIVE |
 | `gate/url-path-token` | 4 | 16 | `test/encode.test.ts` | FALSE POSITIVE |
+| `extra/x:begin-block` | 7 | 12 | `test/encode.test.ts` | FALSE POSITIVE |
 | `gate/gitlab-token` | 5 | 10 | `test/encode.test.ts` | FALSE POSITIVE |
 | `gate/npm-token` | 5 | 10 | `test/encode.test.ts` | FALSE POSITIVE |
 | `gate/slack-token` | 5 | 10 | `test/encode.test.ts` | FALSE POSITIVE |
 | `gate/stripe-key` | 5 | 10 | `test/encode.test.ts` | FALSE POSITIVE |
-| `extra/x:begin-block` | 5 | 10 | `test/encode.test.ts` | FALSE POSITIVE |
+| `gate/private-key-header` | 7 | 7 | `test/encode.test.ts` | FALSE POSITIVE |
+| `gate/jwt` | 7 | 7 | `test/encode.test.ts` | FALSE POSITIVE |
+| `gate/url-credentials` | 7 | 7 | `test/encode.test.ts` | FALSE POSITIVE |
 | `entropy/benign:sha512-integrity` | 1 | 5 | `bun.lock` | FALSE POSITIVE |
 | `gate/private-key-block` | 5 | 5 | `test/encode.test.ts` | FALSE POSITIVE |
-| `gate/private-key-header` | 5 | 5 | `test/encode.test.ts` | FALSE POSITIVE |
-| `gate/jwt` | 5 | 5 | `test/encode.test.ts` | FALSE POSITIVE |
-| `gate/url-credentials` | 5 | 5 | `test/encode.test.ts` | FALSE POSITIVE |
 | `extra/x:voyage-key` | 0 | 0 | — | — |
 | `extra/x:npmrc-auth` | 0 | 0 | — | — |
 | `extra/x:ssh-pubkey` | 0 | 0 | — | — |
 
 The "blobs" column is high because a fixture file is rewritten dozens of times across 183
 commits and each revision is its own blob. There are **19 distinct fixture strings** behind
-the 894 hits.
+all 946 credential-shaped hits.
+
+Note the paths under `extra/x:begin-block`, `gate/jwt`, `gate/url-credentials`,
+`gate/private-key-header`, `gate/github-token`, `gate/google-api-key` and
+`gate/model-provider-key`: **this audit document is one of them.** §3.2 quotes the fixture
+values in order to classify them, so the scanner flags the report. That is working as
+intended, and it is one more reason `docs/launch/repo-public-audit.md` is DROP (§5).
 
 ### 3.2 The distinct fixture values, and why each is not a credential
 
@@ -232,18 +247,40 @@ strings in earlier files.
 keys written into the store across 17 traces. The concern was whether the scar record
 quotes the leaked keys. It does not: the section names the shape (`AIza…`), the count, and
 the trace count, and the only `AIza`-shaped strings anywhere in the repo are the two
-counting-pattern fixtures above. `src/core/encode/secrets.ts:87` carries the family's
+counting-pattern fixtures above. `src/core/encode/secrets.ts:94` carries the family's
 regex, not a key. **Confirmed clean.**
 
-### 3.4 What the scan cannot tell you
+### 3.4 The one hole the scan had, and how it was closed
+
+The first run skipped **7 blobs as binary** and reported only the count. A skipped blob is
+exactly where a pasted binary credential or a stray database file would hide, so a summary
+number is not an answer. Each was opened:
+
+| blob | path | what it is |
+|---|---|---|
+| `b12bc8ad` | `tools/migrate/apply.ts` | `const ELEMENT_KEY_SEP = "\0";` — a **literal NUL byte** in a string, used as a composite-key separator |
+| `d39b12e6`, `5dd2b2b8`, `e7622aaa` | `tools/replay/corpus.ts` | `` h.update(`${e.path}\0${e.size}\0${e.sha256}\n`) `` — same, in a hash input |
+| `b5f2de3e`, `d7464507`, `346fc4a3` | `tools/replay/driver.ts` | `` const key = `${span.scope}\0${span.session}` `` — same |
+
+All seven are ordinary TypeScript, 1–3 NULs each, and every one decodes as clean UTF-8 once
+the NUL is removed. Later revisions escape the byte, which is why the working tree has none.
+**The `isBinary` heuristic was replaced** (`classify()` in `scan-history.ts`): NUL alone is
+no longer disqualifying — a blob is binary only when NULs are *dense* (> 1%) or the content
+does not decode as UTF-8 with them stripped. The scan was re-run: **0 blobs skipped, no new
+findings.** The totals in §1 are from that re-run.
+
+### 3.5 What the scan still cannot tell you
 
 - It scans **content**, not GitHub metadata. PR review comments, commit statuses and
-  workflow logs also become public at the flip; there are no Actions workflows in this repo
-  (`git ls-files` has no `.github/`), and the PR bodies were read separately (§4.4).
+  workflow logs also become public at the flip. There are no Actions workflows in this repo
+  (`git ls-files` has no `.github/`); PR bodies were pattern-scanned, not read (§4.4).
 - It cannot detect a credential that never had a recognizable shape (a bare word used as a
   password). The entropy sweep is the backstop and found nothing unexplained.
 - Dangling objects are local; if the owner's *other* clones hold different dangling
   objects, they still do not ship — only what GitHub holds does.
+- **It found no credentials; it is §6, not this section, that found the real problems.** A
+  pattern scan is the cheap half of this audit and it came back clean. Do not read a clean
+  §3 as a clean repo.
 
 ---
 
@@ -309,10 +346,17 @@ One more that is a judgment call rather than a defect:
 
 No "Co-Authored-By: Claude" or "Generated with Claude Code" trailer appears in any commit
 message on any ref — the project's own commit convention forbids them, and it held.
+Verified, not assumed: `grep -icE 'co-authored|generated with'` over all 183 messages
+returns 0. (A `-i 'claude'` grep returns 22, every one a `src/adapters/claude-code/…` path
+in a commit body.)
 
 ### 4.4 GitHub metadata (becomes public at the flip; not covered by any file scan)
 
-- **30 PRs, 0 issues.** All 30 PR bodies were read.
+- **30 PRs, 0 issues.** All 30 PR bodies were fetched (154 KB) and **pattern-scanned — not
+  read end to end.** §6 is the demonstration that patterns miss what reading catches, so
+  treat this as the weaker half of the audit. Under recommendation (B) it does not matter:
+  the PRs stay in the private repo. Under (A) they go public, and a read-through of the 30
+  bodies and their review comments belongs on the pre-flip list.
 - **17 PR bodies carry a "🤖 Generated with [Claude Code]" trailer.** Fine to ship if the
   owner is comfortable saying the work was agent-assisted — the README and the whole
   project premise say so anyway. Listed so it is a choice, not a surprise.
@@ -356,7 +400,7 @@ message on any ref — the project's own commit convention forbids them, and it 
 | `docs/BUILD-STATUS.md` | REWRITE **or** DROP | Honest and well-written, but 08-25 vintage and 22 merged PRs stale — the launch prompt itself says so. Shipping it invites a stranger to read a false inventory. Either date-stamp it hard at the top as a historical snapshot superseded by `LAUNCH-STATUS.md`, or leave it out. |
 | `docs/PARALLEL-RUN-STATUS.md` | **REWRITE** | The single best honesty artifact in the repo — a live parallel run against v1, recorded daily with real numbers — and it should ship. But **H6**: lines 10–11 and 59 give a session id, "the conversation room at `~`", and a precise overnight working window (22:08 → 04:41 UTC, 13 turns, a 4 h 07 m idle gap) for a named individual. Strip those; keep every count. |
 | `docs/live-verify-2026-08-25.md` | **REWRITE (required)** | **H-D / R1 / R2** — the only real session UUID and the only `-Users-mlapeter-` scratchpad path in the tracked tree. Two lines. Otherwise the best-disciplined document in the repo: written under an explicit no-memory-bodies rule and it verifies its own compliance. |
-| `docs/replay-review-2026-08-26.md` | **REWRITE (required)** | **H-C** — lines 47–55 publish a third-party PII inventory (38 emails, 6 phone numbers, "two are third-party staff personal numbers", a Cloudflare account id) and a live magic-login token finding. The gate gap it names is already closed (`secrets.ts:159` cites this review); the PII disclosure is not. Reduce to "PII families found; policy call OPEN". The owner-alias census at line 37 is his own call (§6.4). |
+| `docs/replay-review-2026-08-26.md` | **REWRITE (required)** | **H-C** — lines 47–55 publish a third-party PII inventory (38 emails, 6 phone numbers, "two are third-party staff personal numbers", a Cloudflare account id) and a live magic-login token finding. The gate gap it names is already closed (`secrets.ts:156` cites this review); the PII disclosure is not. Reduce to "PII families found; policy call OPEN". The owner-alias census at line 37 is his own call (§6.4). |
 | `docs/launch-prompt-2026-09-03.md` | **DROP** | 32 personal-scan hits, the most of any file after PARALLEL-RUN-STATUS. It is an *internal operating prompt*: it names the off-limits live stores and why, the API spend policy (`~$5`, `~$16–20`), the owner's model-seat economics ("conserve Fable tokens"), which agents run on which model, and the exact known-broken state of the install path. None of it is secret; all of it reads as backstage. A public repo that ships its own agent-orchestration prompt is making a choice — if the owner *wants* to make that choice (it is a genuinely interesting document and fits the project's radical-honesty posture) it is safe to ship after R-list. Default recommendation: keep it out of the public tree; it is not what a stranger came for. |
 | `docs/preflight-prompt-2026-09-03.md` | **DROP** | Same reasoning, plus it points at `~/bansai/docs/DECISIONS.md` — a file in a **private donor repo the public cannot read**, which is a dead link that also advertises a private repo. |
 
@@ -504,7 +548,7 @@ Renaming requires changing the persona, not the strings — line 726 asserts `e.
 No values are printed. But the paragraph publicly states that the owner's memory store holds
 two third parties' personal mobile numbers and a live magic-login token, and it is the kind
 of sentence that gets screenshotted. The *gate gap* it names has since been closed — the
-`url-path-token` family exists in `src/core/encode/secrets.ts:159` and cites this very
+`url-path-token` family exists in `src/core/encode/secrets.ts:156` and cites this very
 review — so the security signpost is stale; the PII disclosure is not. Reduce to "PII
 families found; policy call OPEN". **Entered at `fba4fc6`.**
 
@@ -630,8 +674,13 @@ not squashing, not `filter-repo`, not `push --force --mirror`.
 > # 1. Do the Step-1 rewrites and merge them to master FIRST.
 > # 2. Build the public tree from the cleaned tip, in a temp dir — never in ~/counterparts:
 > cd $(mktemp -d) && git clone ~/counterparts public-tree && cd public-tree
-> git checkout --orphan public && git rm -r --cached docs/launch docs/launch-prompt-2026-09-03.md docs/preflight-prompt-2026-09-03.md
+> git checkout --orphan public
+> rm -rf docs/launch docs/launch-prompt-2026-09-03.md docs/preflight-prompt-2026-09-03.md
+> #   ^ rm, NOT `git rm --cached`: --cached unstages but leaves the files on disk,
+> #     and the `git add -A` below would put them straight back in.
 > git add -A && git commit -m "Counterparts 0.1.0"
+> git branch -M main            # so the public default branch is not called "public"
+> ls -R | head -50 && git log --stat -1 | head -40   # LOOK at what is about to ship
 > # 3. Create a NEW repository under a NEW name and push only that branch.
 > #    Do NOT rename mlapeter/counterparts — see the hazard below.
 > gh repo create mlapeter/<new-name> --public --source=. --push

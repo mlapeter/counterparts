@@ -219,10 +219,36 @@ function lineOf(text: string, idx: number): number {
   return n;
 }
 
-function isBinary(b: Buffer): boolean {
-  const n = Math.min(b.length, 8192);
-  for (let i = 0; i < n; i++) if (b[i] === 0) return true;
-  return false;
+/**
+ * "Contains a NUL" is the usual binary heuristic and it is WRONG for an audit.
+ * Seven blobs in this repo's history are ordinary TypeScript that uses a literal
+ * NUL as a composite-key separator (`const ELEMENT_KEY_SEP = "\0"`,
+ * `` `${span.scope}\0${span.session}` ``) — later revisions escape it, which is
+ * why the working tree has none. Skipping those would have left seven unscanned
+ * blobs behind a number in a summary table, and an unscanned blob is exactly
+ * where a pasted binary credential hides.
+ *
+ * So: NUL is not disqualifying on its own. A blob is binary only when NULs are
+ * DENSE (> 1%, i.e. structural rather than incidental) or when the content does
+ * not decode as UTF-8 once the incidental NULs are removed. Everything else is
+ * scanned as text, NULs stripped to spaces so byte offsets stay honest.
+ */
+const NUL_DENSITY_LIMIT = 0.01;
+
+function classify(b: Buffer): { binary: boolean; text: string; nuls: number } {
+  const probe = b.subarray(0, Math.min(b.length, 8192));
+  let nuls = 0;
+  for (const byte of probe) if (byte === 0) nuls++;
+  if (nuls > 0 && nuls / probe.length > NUL_DENSITY_LIMIT) {
+    return { binary: true, text: "", nuls };
+  }
+  const text = (nuls === 0 ? b : Buffer.from(b.map((x) => (x === 0 ? 0x20 : x)))).toString("utf8");
+  // A lone U+FFFD is how invalid UTF-8 surfaces; a real binary is full of them.
+  const replacements = (text.match(/�/g) ?? []).length;
+  if (replacements > 0 && replacements / Math.max(text.length, 1) > NUL_DENSITY_LIMIT) {
+    return { binary: true, text: "", nuls };
+  }
+  return { binary: false, text, nuls };
 }
 
 function scanText(text: string): { hits: Hit[]; keywords: number } {
@@ -315,6 +341,13 @@ interface BlobReport {
 }
 
 const reports: BlobReport[] = [];
+/**
+ * A NUL-bearing blob is skipped by the text detectors — and a skipped blob is
+ * exactly where a pasted binary credential or a stray database file would hide,
+ * so the report NAMES every one instead of only counting them. An audit that
+ * says "7 skipped" and nothing else has a hole it cannot see.
+ */
+const skipped: Array<{ sha: string; paths: string[]; bytes: number }> = [];
 let scannedBlobs = 0;
 let scannedBytes = 0;
 let skippedBinary = 0;
@@ -325,11 +358,13 @@ if (worktreeMode) {
     const body = Buffer.from(await Bun.file(f).arrayBuffer());
     scannedBlobs++;
     scannedBytes += body.length;
-    if (isBinary(body)) {
+    const cls = classify(body);
+    if (cls.binary) {
       skippedBinary++;
+      skipped.push({ sha: "worktree", paths: [f], bytes: body.length });
       continue;
     }
-    const { hits, keywords } = scanText(body.toString("utf8"));
+    const { hits, keywords } = scanText(cls.text);
     if (hits.length > 0 || keywords > 0) {
       reports.push({ sha: "worktree", paths: [f], reachable: "worktree", bytes: body.length, hits, keywords });
     }
@@ -348,11 +383,13 @@ if (worktreeMode) {
     if (!got || got.type !== "blob") continue;
     scannedBlobs++;
     scannedBytes += got.body.length;
-    if (isBinary(got.body)) {
+    const cls = classify(got.body);
+    if (cls.binary) {
       skippedBinary++;
+      skipped.push({ sha: b.sha, paths: [...b.paths], bytes: got.body.length });
       continue;
     }
-    const { hits, keywords } = scanText(got.body.toString("utf8"));
+    const { hits, keywords } = scanText(cls.text);
     if (hits.length === 0 && keywords === 0) continue;
     reports.push({
       sha: b.sha,
@@ -384,6 +421,7 @@ console.log(
       scannedBlobs,
       scannedBytes,
       skippedBinary,
+      skipped,
       blobsWithFindings: reports.length,
       reports,
     },
