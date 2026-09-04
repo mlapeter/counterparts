@@ -159,3 +159,14 @@ matched twice by two different rules.
 **Recommendation for the coordinator:** `remember/` resolves *text to a candidate
 id* (its matching problem); this module resolves *an id through the supersede
 chain* (the store's problem). They compose in that order and must not be merged.
+
+**CLOSED 2026-09-04 — `src/core/revision.ts` (SEAMS item O) is the composition,
+in exactly that order.** The door hands the applier `resolved ?? declared`, and
+the applier walks it through `store.resolve()` before anything else; no second
+matcher was written, and `UPDATES_FLOOR` / `UPDATES_MARGIN` stayed where they
+are. The applier also carries the matcher's `method` through
+`mint.directionOf`, so the freeze seam and the pressure path read ONE verdict
+about what a declaration meant — a `content` match is a restatement and never
+becomes a challenge. Proof: `test/seams.test.ts` — "one apply per DECLARATION —
+an address that resolves to nothing is counted, not silent", "a CONFIRMATION is
+not a challenge — a matched restatement adds no pressure".
