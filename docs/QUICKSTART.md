@@ -9,8 +9,9 @@ itself and feeds the hook its own payload. It cannot run `git clone`,
 unverified.
 
 No API key required. The scripted version of this page — install, configure,
-hook, note, recall — runs end to end in about two seconds; the part that takes
-you time is §4, pasting two blocks into Claude Code's own configuration.
+hook, note, recall, the MCP round trip and the session write — is 33 checks and
+runs end to end in two to three seconds; the part that takes you time is §4,
+pasting two blocks into Claude Code's own configuration.
 
 ---
 
@@ -450,16 +451,20 @@ Read the `NOT chased` line before you confirm. On a memory that was taken as a
 note it says this — one line in the terminal, wrapped here:
 
 ```
-  NOT chased — spans/<scope>/jots.jsonl — the raw capture buffer still holds this
-  memory's words; a later backup copies them; export does not. Chasing it is a
-  core change, not yet written.
+  NOT chased — spans/be4b7f492c17/jots.jsonl — the raw capture buffer still holds
+  this memory's words; a later backup copies them; export does not. Chasing it is
+  a core change, not yet written.
 ```
+
+That directory name is a 12-hex key derived from the project the note was taken
+in, not the project's path; the command prints your real one.
 
 That is rough edge 6 in §10 below, stated by the command itself. A note is captured
 verbatim into the span buffer before it is minted, and `remove` reaches the
 prose, the database, the links and the cache but not that file. The report says
-so, the count lands in the durable removal record, and the id goes dark on the
-deny-list so nothing can quietly resurrect it. On a memory that never rode the
+so — the completion line counts it as `unchased` — and the id goes dark on the
+deny-list so nothing can quietly resurrect it. The durable removal record holds
+the four stages of the removal, not that count. On a memory that never rode the
 buffer the same line reads `spans: not applicable`, which is stated rather than
 omitted — a surface that goes silent when it is empty is how the residue stayed
 invisible in the first place.
@@ -543,7 +548,7 @@ repo on its PATH and checks, every time:
   question, comes back. It is its own step because a bug at store size one is
   invisible to every check that seeds two rows — which is how one survived to a
   stranger's first minute on 2026-09-04;
-- a `session_end` through a second `counterparts-mcp` process **binds lazily** to
+- a `session_end` through a separate `counterparts-mcp` process **binds lazily** to
   the session the hook registered, and mints the memory — the deliberate write
   path a real session uses, without a real session;
 - `rebrief` names the file its injection ceiling came from, falls back to the
@@ -604,12 +609,13 @@ rather than from a script.
    parallel-run knob and makes Counterparts stand down unless another file says
    it may speak. Do not copy it.
 6. **Removal does not reach the span buffer.** A note is captured verbatim into
-   `spans/<scope>/jots.jsonl` before it is minted, and `remove` chases the prose,
+   `spans/<12-hex key>/jots.jsonl` before it is minted, and `remove` chases the prose,
    the database, the links and the cache — not that file. So a removed note's
    words survive there; a backup taken afterwards copies them, and `export` does
    not. The command says so itself (§7): the plan and the completion report name
-   the file as unchased, and the count lands in the removal record. Chasing it is
-   a core change and is not written. **Reproduce it in three lines** — the marker
+   the file as unchased, and the completion line counts it. Nothing durable holds
+   that count — the removal record is the four stages. Chasing the buffer is a
+   core change and is not written. **Reproduce it in three lines** — the marker
    text is only there so `grep` has something to find:
 
    ```
@@ -618,10 +624,11 @@ rather than from a script.
    grep -rl ZQPROBE "$HOME/.counterparts/store"
    ```
 
-   The prose file is gone; `spans/<scope>/jots.jsonl` still answers.
+   The prose file is gone; the file under `spans/` still answers.
 7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
-   `INTERFACE-GAPS.md`** — 40 files, 0.44 MB, in a 2.2 MB package (measured
-   2026-09-04 on `npm pack --dry-run` plus the tarball's own listing; the
-   TypeScript sources are the bulk of the rest). Deliberate: those files are what
+   `INTERFACE-GAPS.md`** — 40 files, 0.45 MB, in a 2.2 MB package (measured
+   2026-09-04 on `npm pack --dry-run`, 742.2 kB packed over 168 files, plus the
+   tarball's own listing; the TypeScript sources are the bulk of the rest, and
+   the Markdown grows as the modules record what they learned). Deliberate: those files are what
    `src/` is documented by, and this page points at them. Delete `src/**/*.md`
    from your install if you would rather not carry them.

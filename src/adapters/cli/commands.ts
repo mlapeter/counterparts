@@ -641,8 +641,8 @@ function installCommand(
     // ambient half that never fires.
     io.out("");
     io.out(`  --dir moved the STORE only. The configuration stays at ${config.path}:`);
-    io.out("  that is the one path the hooks read, hardcoded, with no flag and no");
-    io.out(`  environment override. It points at your store with "dataDir": "${resolved}".`);
+    io.out("  that is the one path the hooks read for their configuration, hardcoded,");
+    io.out(`  and it points at your store with "dataDir": "${resolved}".`);
   }
   if (config.what === "kept" || creds.what === "kept") {
     io.out("  (an existing file is never rewritten — pass --force to replace it)");

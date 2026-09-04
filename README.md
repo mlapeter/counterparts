@@ -181,10 +181,11 @@ memory under Claude Code, running beside its predecessor so the two can be compa
 and the launch scoreboard — including the bugs found this week — is
 [`docs/LAUNCH-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/LAUNCH-STATUS.md).
 
-**The test suite, measured 2026-09-04 on commit `cbed76b` under bun 1.3.10:** `bun test` →
-**1,557 pass, 0 fail, nothing skipped**, over 20,600 assertions across 26 files, about
-20 s. (Three consecutive runs gave 20,605 / 20,613 / 20,626 assertions — a few tests
-assert once per row of data they generate — while the pass and fail counts did not move.)
+**The test suite, measured 2026-09-04 on commit `b29034c` under bun 1.3.10:** `bun test` →
+**1,572 pass, 0 fail, nothing skipped**, over 20,800 assertions across 26 files, about
+19 s. (Three consecutive runs on that commit gave 20,813 / 20,836 / 20,832 assertions — a
+few tests assert once per row of data they generate — while the pass and fail counts did
+not move.)
 No test touches a real store, and that is mechanized rather than promised:
 `test/preload.ts` runs before every test file, redirects `homedir()` to a fresh temporary
 directory for the whole run, clears `COUNTERPARTS_DATA_DIR`, and removes the directory on
@@ -222,11 +223,13 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
    Absent that, no client is built and no connection opens whatever keys are lying around.
 4. **Removal leaves one residue — and now says so, by name.** `remove` chases a memory out
    of the prose, the database, the links and the cache. It does not reach
-   `spans/<scope>/jots.jsonl`, the buffer that holds the raw capture, so a note's words can
+   the raw-capture buffer under `spans/` (a 12-hex key per project, not the path), so a
+   note's words can
    survive there; a later backup copies them, and `export` does not. Since 2026-09-04 the
-   dry run and the completion report name that file as unchased — with the count in the
-   durable removal record — instead of reporting `nothing`. Chasing it is a core change,
-   not yet written. Found and filed 2026-09-04.
+   dry run and the completion report name that file as unchased, and the completion line
+   counts it (`unchased: 1`) — instead of reporting `nothing`. That count is printed, not
+   stored: the durable removal record holds the removal's four stages, not the count.
+   Chasing the buffer is a core change, not yet written. Found and filed 2026-09-04.
 5. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and

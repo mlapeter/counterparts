@@ -525,7 +525,7 @@ ENDED=$(printf '%s\n' "$MCP_OUT" | grep '"id":2' || true)
 if printf '%s' "$ENDED" | grep -qE 'session-unknown|scope-mismatch|session-required|session-not-live'; then
   no "the lazy bind refused — the registry record was not usable" "$ENDED
 $(cat "$WORK/mcp3.err")"
-elif printf '%s' "$ENDED" | grep -q '"stored"'; then
+elif printf '%s' "$ENDED" | grep -q '"stored":true'; then
   ok
 else
   no "session_end did not report a deposit" "$ENDED

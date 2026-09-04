@@ -153,7 +153,7 @@ function fileHolds(path: string, needle: string): boolean {
  * THE SEVENTH SURFACE (LAUNCH-STATUS §I2, owner ruling: option A).
  *
  * A note taken through the MCP `note` tool or `counterparts note` is CAPTURED
- * first — `captureJot` appends the verbatim text to `spans/<scope>/jots.jsonl` —
+ * first — `captureJot` appends the verbatim text to `spans/<keyFor(scope)>/jots.jsonl` —
  * and minted second. The chase never reached that file, and `unchasable` was a
  * hardcoded `[]`, so `remove` reported `unchased: nothing` while the words were
  * still on disk, and a backup taken afterwards copied them. That is a silent

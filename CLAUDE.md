@@ -46,5 +46,6 @@ the run is proving, day by day) and `docs/LAUNCH-STATUS.md` (what is verified, w
 still open, and who owns it) — read those for current state, not this file. Module map:
 `docs/module-map.md`. Each `src/**/CONTRACT.md` states what the module keeps (with
 lineage), what it drops, and its guarantees; `NOTES.md` beside it records what the build
-learned, and `INTERFACE-GAPS.md` — in most modules; `physics/` and `store/` owe nothing
-yet — what it still owes.
+learned, and `INTERFACE-GAPS.md` — in every module but `physics/` and `store/`, which have
+none of their own (the open asks against `store/` sit in `recall/` §1 and `cli/` §4) —
+what it still owes.
