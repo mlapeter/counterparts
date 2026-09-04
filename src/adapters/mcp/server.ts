@@ -32,8 +32,16 @@
  */
 import type { Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { Band, Kind } from "../../core/types.js";
-import { deliberateRecall } from "./deliberate.js";
+import {
+  RECALL_BODY_CHARS,
+  RECALL_EXCERPT_CHARS,
+  RECALL_MAX_IDS,
+  RECALL_RESULT_CHARS,
+  boundMemories,
+  deliberateRecall,
+} from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
+import { TUNABLES } from "../../core/recall/index.js";
 import {
   ERROR_CODES,
   failure,
@@ -231,20 +239,27 @@ export class McpServer {
     if (this.observer) return this.standDown("recall");
     const handle = args["handle"];
     const question = args["question"];
+    const ids = args["ids"];
     if (handle !== undefined && typeof handle !== "string") {
       return this.refuse("recall", "handle-not-a-string", {});
     }
     if (question !== undefined && typeof question !== "string") {
       return this.refuse("recall", "question-not-a-string", {});
     }
+    if (ids !== undefined && (!Array.isArray(ids) || ids.some((v) => typeof v !== "string"))) {
+      return this.refuse("recall", "ids-not-a-string-array", {});
+    }
+    const askedIds = ((ids as string[] | undefined) ?? []).map((s) => s.trim()).filter((s) => s.length > 0);
     const result = deliberateRecall(
       this.counterpart,
       {
         ...(typeof handle === "string" ? { handle } : {}),
         ...(typeof question === "string" ? { question } : {}),
+        ...(askedIds.length > 0 ? { ids: askedIds } : {}),
       },
       { sessionId: this.session ?? "mcp", owner: this.owner },
     );
+    const payload = this.recallPayload(result);
     this.emit("mcp.recall", undefined, {
       path: result.path,
       reason: result.reason,
@@ -252,8 +267,12 @@ export class McpServer {
       considered: result.considered,
       storeSize: result.storeSize,
       owner: this.owner,
+      // Scar §2.4: a budget gets an event when it is APPROACHED, not only when
+      // it blows. The three overflowed calls of 2026-09-04 emitted nothing.
+      chars: payload["chars"] as number,
+      truncated: payload["truncated"] === true,
+      droppedForBudget: (payload["droppedForBudget"] as number | undefined) ?? 0,
     });
-    const payload = this.recallPayload(result);
     const bad =
       result.reason === "no-argument" ||
       result.reason === "both-arguments" ||
@@ -262,29 +281,48 @@ export class McpServer {
     return this.result(payload, bad);
   }
 
+  /**
+   * The payload, BOUNDED. A list answers "which memories" and ships excerpts;
+   * an address (`handle`, or `ids`) answers "what did it say" and ships as much
+   * body as the total budget allows. See `deliberate.ts`'s size constants for
+   * the measurement that set them.
+   */
   private recallPayload(result: DeliberateResult): Record<string, unknown> {
+    const byAddress = result.path === "handle";
+    const bounded = boundMemories(
+      result.memories,
+      byAddress ? RECALL_BODY_CHARS : RECALL_EXCERPT_CHARS,
+    );
     return {
       path: result.path,
       reason: result.reason,
       /** The two numbers §9.1 G3 exists for: a count here is never a top-K. */
       considered: result.considered,
+      /** `considered` is `MAX_CANDIDATES`, and saying so is the difference
+       *  between a bound and a census (§9.1 G3). */
+      consideredCap: TUNABLES.MAX_CANDIDATES,
       storeSize: result.storeSize,
-      returned: result.memories.length,
+      returned: bounded.memories.length,
+      chars: bounded.chars,
+      truncated: bounded.truncated,
+      ...(bounded.droppedForBudget > 0 ? { droppedForBudget: bounded.droppedForBudget } : {}),
+      ...(bounded.truncated || bounded.droppedForBudget > 0
+        ? {
+            budget: `Result bounded to ${RECALL_RESULT_CHARS} characters (${RECALL_EXCERPT_CHARS} per memory in a list, ${RECALL_BODY_CHARS} when asked for by id). Ask again with ids: [...] for up to ${RECALL_MAX_IDS} full bodies.`,
+          }
+        : {}),
       ...(result.ambiguous.length > 0 ? { ambiguous: [...result.ambiguous] } : {}),
+      ...(result.perId === undefined ? {} : { perId: result.perId.map((p) => ({ ...p })) }),
+      ...(result.reason === "ids-too-many"
+        ? { refused: `At most ${RECALL_MAX_IDS} ids per call. Effort is not enumeration.` }
+        : {}),
       ...(result.reason === "handle-confidential-withheld"
         ? {
             withheld:
               "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
           }
         : {}),
-      memories: result.memories.map((m) => ({
-        id: m.id,
-        tier: m.tier,
-        kind: m.kind,
-        title: m.title,
-        body: m.body,
-        ...(m.admittedUnder === undefined ? {} : { admittedUnder: m.admittedUnder }),
-      })),
+      memories: bounded.memories.map((m) => ({ ...m })),
       tiers: {
         vivid: "came clearly to mind",
         quiet: "quietly available — the ambient path would have footnoted this",

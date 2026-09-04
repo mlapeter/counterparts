@@ -40,8 +40,8 @@
 import type { Kind, MemoryPhysics } from "../types.js";
 import { sal, strength } from "../physics/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
-import { tokenize } from "../store/index.js";
-import { buildCues, tfFactor } from "./cues.js";
+import { rowToPhysics, tokenize } from "../store/index.js";
+import { buildCues } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables } from "./tunables.js";
 
@@ -113,6 +113,13 @@ export interface ActivationResult {
   /** True when a vector was supplied but the index answered nothing — the
    *  lexical-only degradation, recorded rather than silent. */
   readonly semanticDegraded: boolean;
+  /** Documents whose cue sum hit the per-document ceiling (`CUE_DOC_CAP`).
+   *  Reported, not recorded: it is the number `tools/recall-bench` reads to
+   *  tell "the cap did the work" from "normalization did the work". It is
+   *  deliberately NOT a `RecallDecision` field — that record's field list is a
+   *  hashed surface set the parallel run carries ratings across, and a new
+   *  column there would invalidate a live instrument mid-run. */
+  readonly capped: number;
 }
 
 /** A memory's confidentiality class, read from the prose payload's `meta`. */
@@ -152,10 +159,17 @@ export function activate(
   }
 
   const df = new Map<string, number>();
-  /** token -> (memoryId -> term frequency in that document). */
+  /**
+   * token -> (memoryId -> the token's LENGTH-NORMALIZED evidence in that
+   * document). The store applies the normalization before its own
+   * `ORDER BY … LIMIT`, so what arrives here is both scored and SELECTED
+   * length-fairly; re-ranking a raw-tf top-24 in this file would have left the
+   * long documents holding every slot (see `store/cache.ts#searchIndex`).
+   */
   const postings = new Map<string, Map<string, number>>();
+  const norm = { k1: t.CUE_TF_SATURATION, b: t.CUE_LENGTH_NORM };
   for (const tok of searchTokens) {
-    const hits = store.search(tok, t.PER_CUE_FETCH);
+    const hits = store.search(tok, t.PER_CUE_FETCH, norm);
     df.set(tok, hits.length);
     const byDoc = new Map<string, number>();
     for (const h of hits) byDoc.set(h.id, h.score);
@@ -176,15 +190,43 @@ export function activate(
   const cueScore = new Map<string, number>();
   const matchCount = new Map<string, number>();
   const unambiguousMatch = new Set<string>();
+  /** The single strongest cue each document received — the cap's yardstick. */
+  const bestCue = new Map<string, number>();
   for (const cue of cues) {
     const byDoc = postings.get(cue.token);
     if (byDoc === undefined) continue;
-    for (const [id, tf] of byDoc) {
-      const add = cue.weight * tfFactor(tf);
+    for (const [id, evidence] of byDoc) {
+      // `evidence` already carries the tf saturation AND the length
+      // normalization, applied by the index (`store/cache.ts#searchIndex`).
+      // Applying `tfFactor` again here would saturate a saturated number.
+      const add = cue.weight * evidence;
       if (add <= 0) continue;
       cueScore.set(id, (cueScore.get(id) ?? 0) + add);
+      bestCue.set(id, Math.max(bestCue.get(id) ?? 0, add));
       matchCount.set(id, (matchCount.get(id) ?? 0) + 1);
       if (!cue.ambiguous) unambiguousMatch.add(id);
+    }
+  }
+
+  // ── the per-document ceiling ────────────────────────────────────────────
+  // Length normalization damps how loudly ONE cue speaks for a long memory; it
+  // does not stop a memory that mentions everything from being touched by
+  // twenty cues at once. This is the second half of the same rule: a document's
+  // cue evidence may reach `CUE_DOC_CAP` times its own strongest single cue and
+  // no further. Three converging cues is corroboration; twenty is coverage, and
+  // coverage is a property of the document rather than of the turn.
+  //
+  // It is applied HERE, to the lexical sum only — before the temporal channel
+  // adds to the same map. A temporal cue is id-addressed and has no length, so
+  // capping it would be capping the calendar.
+  let capped = 0;
+  if (t.CUE_DOC_CAP > 0 && Number.isFinite(t.CUE_DOC_CAP)) {
+    for (const [id, sum] of cueScore) {
+      const ceiling = (bestCue.get(id) ?? 0) * t.CUE_DOC_CAP;
+      if (sum > ceiling) {
+        cueScore.set(id, ceiling);
+        capped += 1;
+      }
     }
   }
 
@@ -237,7 +279,33 @@ export function activate(
     }
   }
 
-  const candidates: Candidate[] = [];
+  // Two passes: SCORE from box 2, then READ the survivors' prose.
+  //
+  // Every number in the sort key — cue, semantic, arrival, hops — is available
+  // from the operational row alone. The prose body is not in that row, and is
+  // needed only for the confidentiality class and for whatever the renderer
+  // prints. So the ranking happens first and the FILE READS happen only for the
+  // candidates that survive `maxCandidates`.
+  //
+  // This is an equivalence, not a heuristic: same candidates, same order, same
+  // `skipped` count. It is here because length normalization widened the union
+  // of the token index's hits by an order of magnitude — the old scorer's nine
+  // hubs occupied most of every cue's top-`PER_CUE_FETCH`, so the union was
+  // small by ACCIDENT, and the accident was the bug. Reading a prose file for
+  // each of ~1,000 ids and discarding all but 24 measured ~600 ms of a 1200 ms
+  // budget on the live store; it is now 24 reads whatever the union's width.
+  interface Scored {
+    readonly id: string;
+    readonly physics: MemoryPhysics;
+    readonly strength: number;
+    readonly cue: number;
+    readonly temporal: number;
+    readonly semantic: number;
+    readonly arrival: number;
+    readonly hops: number;
+    readonly activation: number;
+  }
+  const scored: Scored[] = [];
   let skipped = 0;
   for (const id of ids) {
     if (denied.has(id)) {
@@ -252,21 +320,38 @@ export function activate(
       skipped += 1;
       continue;
     }
-    const read = store.read(id);
+    const physics = rowToPhysics(row);
     const cue = cueScore.get(id) ?? 0;
     const temporal = temporalScore.get(id) ?? 0;
     const semantic = semScore.get(id) ?? 0;
-    const s = strength(read.physics, input.day);
+    const s = strength(physics, input.day);
     const arrival = cue + semantic > 0 ? t.ARRIVAL_WEIGHT * s : 0;
     const hops = cue + semantic > 0 ? hopScore.get(id) ?? 0 : 0;
-    const activation = cue + semantic + arrival + hops;
+    scored.push({
+      id,
+      physics,
+      strength: s,
+      cue,
+      temporal,
+      semantic,
+      arrival,
+      hops,
+      activation: cue + semantic + arrival + hops,
+    });
+  }
+  scored.sort((a, b) => b.activation - a.activation || (a.id < b.id ? -1 : 1));
+
+  const candidates: Candidate[] = [];
+  for (const c of scored.slice(0, input.maxCandidates)) {
+    const { id, physics, cue, temporal, semantic, arrival, hops, activation } = c;
+    const doc = store.readProse(id);
     candidates.push({
       id,
-      kind: read.physics.kind,
-      doc: read.doc,
-      physics: read.physics,
-      strength: s,
-      sal: gatedSal(read.physics, input.selfFelt),
+      kind: physics.kind,
+      doc,
+      physics,
+      strength: c.strength,
+      sal: gatedSal(physics, input.selfFelt),
       cue,
       temporal,
       semantic,
@@ -284,16 +369,16 @@ export function activate(
       trains: unambiguousMatch.has(id) || semantic > 0 || temporal > 0,
       // §12 G5: temporal ALONE reaches the footnote tier at most.
       maxTier: temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced",
-      confidential: isConfidential(read.doc),
+      confidential: isConfidential(doc),
     });
   }
 
-  candidates.sort((a, b) => b.activation - a.activation || (a.id < b.id ? -1 : 1));
   return {
     cues,
-    candidates: candidates.slice(0, input.maxCandidates),
+    candidates,
     storeSize,
     skipped,
     semanticDegraded,
+    capped,
   };
 }

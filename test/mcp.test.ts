@@ -31,6 +31,10 @@ import {
   HARD_GATES,
   McpServer,
   PROTOCOL_VERSIONS,
+  RECALL_BODY_CHARS,
+  RECALL_EXCERPT_CHARS,
+  RECALL_MAX_IDS,
+  RECALL_RESULT_CHARS,
   TOOLS,
   TOOL_NAMES,
   encodeMessage,
@@ -42,6 +46,7 @@ import {
 } from "../src/adapters/mcp/index.js";
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
+import { TUNABLES } from "../src/core/recall/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const SESSION = "sess_mcp_1";
@@ -401,7 +406,11 @@ describe("recall — deliberate retrieval", () => {
 
     const byId = payload(await s.call("recall", { handle: id }));
     expect(byId["reason"]).toBe("expanded");
-    expect((byId["memories"] as { body: string }[])[0]?.body).toContain("sourdough");
+    // ADJUSTED 2026-09-04: the payload field is `excerpt`, not `body`. The old
+    // field shipped every body at full length and overflowed the host's
+    // tool-result ceiling on 3 of 3 real calls; the bound is the fix, and the
+    // rename is what makes "this may be less than the whole thing" visible.
+    expect((byId["memories"] as { excerpt: string }[])[0]?.excerpt).toContain("sourdough");
 
     const byTitle = payload(await s.call("recall", { handle: "sourdough starter" }));
     expect(byTitle["reason"]).toBe("expanded");
@@ -418,6 +427,101 @@ describe("recall — deliberate retrieval", () => {
     expect(payload(await s.call("recall", { handle: "x", question: "y" }))["reason"]).toBe(
       "both-arguments",
     );
+    // `ids` is a THIRD path, under the same rule.
+    expect(payload(await s.call("recall", { question: "y", ids: ["mem_x"] }))["reason"]).toBe(
+      "both-arguments",
+    );
+    expect(payload(await s.call("recall", { ids: "mem_x" }))["reason"]).toBe(
+      "ids-not-a-string-array",
+    );
+  });
+
+  test("the result is bounded: excerpts in a list, and it says when it cut something", async () => {
+    // MEASURED 2026-09-04: three real `recall` calls returned 7, 8 and 12 full
+    // bodies — 73,000 to 122,000 characters — and every one overflowed the
+    // host's tool-result ceiling. The bound is the fix; this is its floor.
+    const s = server();
+    seed(s.counterpart);
+    const long = "Sourdough notes. ".repeat(600); // ~10 KB, the shape of a hub
+    for (let i = 0; i < 6; i++) {
+      s.counterpart.store.put({
+        type: "memory",
+        kind: "skill",
+        title: `Sourdough ${i}`,
+        body: `${long} Entry ${i}: the sourdough starter died after neglect.`,
+      });
+    }
+    const result = payload(await s.call("recall", { question: "my sourdough starter died" }));
+    const memories = result["memories"] as { id: string; excerpt: string; bodyChars: number; truncated: boolean }[];
+    expect(memories.length).toBeGreaterThan(0);
+
+    // Every excerpt is bounded, the total is bounded, and the whole rendered
+    // result is comfortably under the ceiling the live calls blew through.
+    for (const m of memories) {
+      expect(m.excerpt.length).toBeLessThanOrEqual(RECALL_EXCERPT_CHARS);
+      expect(m.bodyChars).toBeGreaterThan(m.excerpt.length);
+      expect(m.truncated).toBe(true);
+    }
+    expect(result["chars"] as number).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
+    expect(JSON.stringify(result).length).toBeLessThan(RECALL_RESULT_CHARS + 4000);
+    // Truncation is STATED, never silent, and the budget names its own remedy.
+    expect(result["truncated"]).toBe(true);
+    expect(result["budget"] as string).toContain("ids");
+    // `considered` is a cap, and the payload says which one (§9.1 G3).
+    expect(result["consideredCap"]).toBe(TUNABLES.MAX_CANDIDATES);
+    expect(result["considered"] as number).toBeLessThanOrEqual(TUNABLES.MAX_CANDIDATES);
+  });
+
+  test("ids expands a few of those in full, capped, and refuses a fourth", async () => {
+    const s = server();
+    seed(s.counterpart);
+    const bodies = [
+      "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+      "The rye levain doubles in four hours at twenty-four degrees.",
+      "The banneton needs rice flour or the dough welds itself to the cloth.",
+      "The oven spring collapses when the score is too shallow.",
+    ];
+    const ids = bodies.map((body, i) =>
+      s.counterpart.store.put({ type: "memory", kind: "skill", title: `Bread ${i}`, body }),
+    );
+
+    const three = payload(await s.call("recall", { ids: ids.slice(0, 3) }));
+    expect(three["reason"]).toBe("expanded");
+    expect(three["path"]).toBe("handle");
+    const got = three["memories"] as { id: string; excerpt: string; truncated: boolean }[];
+    expect(got.map((m) => m.id).sort()).toEqual([...ids.slice(0, 3)].sort());
+    // FULL bodies on this path — that is what asking by id buys.
+    for (const m of got) expect(m.truncated).toBe(false);
+    expect(got.map((m) => m.excerpt).join("")).toContain("banneton");
+
+    // A fourth is a refusal by name, not a silent slice.
+    const four = payload(await s.call("recall", { ids }));
+    expect(four["reason"]).toBe("ids-too-many");
+    expect((four["memories"] as unknown[]).length).toBe(0);
+    expect(four["refused"] as string).toContain(String(RECALL_MAX_IDS));
+
+    // An unresolvable id is stated per id rather than folded into a total.
+    const mixed = payload(await s.call("recall", { ids: [ids[0] as string, "mem_notreal"] }));
+    expect(mixed["reason"]).toBe("expanded");
+    expect(mixed["perId"]).toEqual([
+      { id: ids[0] as string, reason: "expanded" },
+      { id: "mem_notreal", reason: "handle-unknown" },
+    ]);
+  });
+
+  test("even the id path stays under the wire budget", async () => {
+    const s = server();
+    seed(s.counterpart);
+    const huge = "Long-form migrated material. ".repeat(2000); // ~58 KB each
+    const ids = [0, 1, 2].map((i) =>
+      s.counterpart.store.put({ type: "memory", kind: "fact", title: `Hub ${i}`, body: `${huge} ${i}` }),
+    );
+    const result = payload(await s.call("recall", { ids }));
+    expect(result["chars"] as number).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
+    expect(result["truncated"]).toBe(true);
+    for (const m of result["memories"] as { excerpt: string }[]) {
+      expect(m.excerpt.length).toBeLessThanOrEqual(RECALL_BODY_CHARS);
+    }
   });
 
   test("a question answers in labeled tiers, and reports what it considered separately from what it returned", async () => {
@@ -431,11 +535,12 @@ describe("recall — deliberate retrieval", () => {
       salience: { relevance: 0.6, emotional: 0.2, predictive: 0.4 },
     });
     const result = payload(await s.call("recall", { question: "my sourdough starter died again" }));
-    const memories = result["memories"] as { tier: string; body: string }[];
+    const memories = result["memories"] as { tier: string; excerpt: string }[];
 
     expect(result["reason"]).toBe("answered");
     expect(memories.length).toBeGreaterThan(0);
-    expect(memories[0]?.body.length).toBeGreaterThan(0);
+    // ADJUSTED 2026-09-04: `body` -> `excerpt` (see the handle test above).
+    expect(memories[0]?.excerpt.length).toBeGreaterThan(0);
     expect(["vivid", "quiet", "dim"]).toContain(memories[0]?.tier as string);
     // §9.1 G3: considered is the candidate count, storeSize the denominator.
     // Neither is "how many I chose to show you".

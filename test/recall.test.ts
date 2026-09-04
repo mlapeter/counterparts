@@ -30,9 +30,11 @@ import {
   freshGateState,
   gate,
   SCALAR_REF,
+  activate,
   informativeness,
   render,
   stripBoilerplate,
+  withTunables,
 } from "../src/core/recall/index.js";
 import type { Candidate, CandidateVerdict, Verdict } from "../src/core/recall/index.js";
 
@@ -817,5 +819,135 @@ describe("structural guarantees", () => {
     });
     expect(verdictOf(after.decision.verdicts, id)).toBe("not-a-candidate");
     expect(after.decision.reason).toBe("no-candidates");
+  });
+});
+
+// ── the document side of §9 G4: length normalization and the ceiling ────────
+
+describe("cue length normalization", () => {
+  /**
+   * The bug this suite pins, measured 2026-09-04 on a copy of the live store:
+   * nine memories of 9–20 KB against a ~1.1 KB median came back as footnotes
+   * for every topic across two unrelated sessions, because the cue channel
+   * scored a document by raw summed term frequency and the token index handed
+   * back its top-`PER_CUE_FETCH` by the same number.
+   */
+  const PADDING =
+    "Assorted unrelated filler about tooling, calendars, invoices, plumbing, " +
+    "commuting, gardening, printers, receipts, upholstery and stationery. ";
+
+  test("the same cue, once each: a long document does not out-score a short one", () => {
+    const s = store();
+    seed(s);
+    const short = put(s, { body: "The zygomorphic orchid bloomed." });
+    const long = put(s, { body: `The zygomorphic orchid bloomed. ${PADDING.repeat(40)}` });
+
+    const hits = s.search("zygomorphic", 10);
+    const scoreOf = (id: string): number => hits.find((h) => h.id === id)?.score ?? 0;
+    // Both are found — normalization costs precision, never a hit.
+    expect(scoreOf(short)).toBeGreaterThan(0);
+    expect(scoreOf(long)).toBeGreaterThan(0);
+    // And the short one wins, which is the whole rule: one mention of a rare
+    // word in six tokens is better evidence than one in three thousand.
+    expect(scoreOf(short)).toBeGreaterThan(scoreOf(long));
+    // Without normalization the two are IDENTICAL — same tf — so the fetch
+    // order was decided by whatever else the document happened to contain.
+    const flat = s.search("zygomorphic", 10, { k1: 1, b: 0 });
+    const flatOf = (id: string): number => flat.find((h) => h.id === id)?.score ?? 0;
+    expect(flatOf(short)).toBeCloseTo(flatOf(long), 10);
+  });
+
+  test("equal DENSITY scores alike: the rule is proportionality, not a penalty on length", () => {
+    const s = store();
+    seed(s);
+    // The long document mentions the cue proportionally more often, so its
+    // evidence per token is the same. BM25's intent is exactly this — neither
+    // document should win for its size alone — and "equal" is the wrong bar:
+    // tf saturation deliberately keeps the longer one from scaling linearly.
+    const short = put(s, { body: `The zygomorphic orchid bloomed. ${PADDING.repeat(2)}` });
+    const long = put(s, {
+      body: `${"The zygomorphic orchid bloomed. ".repeat(8)}${PADDING.repeat(16)}`,
+    });
+    const hits = s.search("zygomorphic", 10);
+    const scoreOf = (id: string): number => hits.find((h) => h.id === id)?.score ?? 0;
+    const ratio = scoreOf(long) / scoreOf(short);
+    expect(ratio).toBeGreaterThan(0.5);
+    expect(ratio).toBeLessThan(2);
+  });
+
+  test("the per-document ceiling: coverage cannot beat corroboration", () => {
+    const s = store();
+    seed(s);
+    // A document that mentions EVERY cue once, and one that is about two of them.
+    const cues = ["zygomorphic", "brachiate", "quillon", "tessellate", "vermiculate", "opsimath"];
+    const hub = put(s, { body: `A catalogue: ${cues.join(", ")}. ${PADDING.repeat(4)}` });
+    const focused = put(s, { body: "Notes on zygomorphic and brachiate forms, at length." });
+    const text = cues.join(" ");
+    const input = { text, day: 0, selfFelt: false, maxCandidates: 24, storeSize: 24 };
+
+    const capped = activate(s, input, withTunables({ CUE_DOC_CAP: 2 }));
+    const uncapped = activate(s, input, withTunables({ CUE_DOC_CAP: Infinity }));
+    const cueOf = (r: typeof capped, id: string): number =>
+      r.candidates.find((c) => c.id === id)?.cue ?? 0;
+
+    // The ceiling binds the broad document and leaves the focused one alone.
+    expect(capped.capped).toBeGreaterThan(0);
+    expect(uncapped.capped).toBe(0);
+    expect(cueOf(capped, hub)).toBeGreaterThan(0);
+    expect(cueOf(capped, hub)).toBeLessThan(cueOf(uncapped, hub));
+    expect(cueOf(capped, focused)).toBeCloseTo(cueOf(uncapped, focused), 10);
+  });
+
+  test("the ceiling alone is not the fix — it is the second half of the rule", () => {
+    // Recorded because the sweep measured it: capping without normalizing made
+    // the live failure WORSE (hub hits 31 -> 52), since compressing the top of
+    // the distribution lowers the relative bar. This pins the arithmetic half:
+    // at b = 0 the long document still out-scores the short one.
+    const s = store();
+    seed(s);
+    const short = put(s, { body: "The zygomorphic orchid bloomed twice." });
+    const long = put(s, {
+      body: `${"The zygomorphic orchid bloomed twice. ".repeat(3)}${PADDING.repeat(40)}`,
+    });
+    const flat = s.search("zygomorphic", 10, { k1: 1, b: 0 });
+    const flatOf = (id: string): number => flat.find((h) => h.id === id)?.score ?? 0;
+    expect(flatOf(long)).toBeGreaterThan(flatOf(short));
+    const normed = s.search("zygomorphic", 10);
+    const normedOf = (id: string): number => normed.find((h) => h.id === id)?.score ?? 0;
+    expect(normedOf(short)).toBeGreaterThan(normedOf(long));
+  });
+
+  test("a hub stops out-ranking an on-point memory end to end", () => {
+    const s = store();
+    seed(s);
+    // The shape of the live failure in miniature: one long memory that mentions
+    // a bit of everything, and one short memory that is actually about the turn.
+    const hub = put(s, {
+      body:
+        `${"Digest entry: the zygomorphic orchid, again. ".repeat(3)}${PADDING.repeat(30)}`,
+    });
+    const onPoint = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const turn = "why did the zygomorphic orchid bloom";
+
+    const before = new Recall({
+      store: s,
+      owner: true,
+      tunables: { CUE_LENGTH_NORM: 0, CUE_DOC_CAP: Infinity },
+    }).build({ sessionId: "before", text: turn });
+    const after = new Recall({ store: s, owner: true }).build({ sessionId: "after", text: turn });
+
+    // The verdict list is not a ranking (the gate groups it), so compare the
+    // number the gate actually ranks on.
+    const act = (d: typeof before.decision, id: string): number =>
+      d.verdicts.find((v) => v.id === id)?.activation ?? 0;
+
+    // Before: the hub wins on sheer repetition inside a 600-token body.
+    expect(act(before.decision, hub)).toBeGreaterThan(act(before.decision, onPoint));
+    expect(before.decision.surfaced).toContain(hub);
+    // After: the short memory that is actually about the turn wins, and the hub
+    // does not merely lose the top slot — it stops being delivered at all.
+    expect(act(after.decision, onPoint)).toBeGreaterThan(act(after.decision, hub));
+    expect(after.decision.surfaced).toContain(onPoint);
+    expect([...after.decision.surfaced, ...after.decision.footnotes]).not.toContain(hub);
   });
 });

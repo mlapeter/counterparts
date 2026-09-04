@@ -29,6 +29,21 @@ export interface RecallTunables {
    *  [v1: 1 turn, decay 0.5] CAL. */
   CARRY_DECAY: number;
 
+  // ── the document side of §9 G4: length normalization + a per-doc ceiling ──
+  /** tf saturation for a cue's evidence in ONE document (BM25 k1). At `k1 = 1`
+   *  and `CUE_LENGTH_NORM = 0` this is exactly the previous `2·tf/(tf+1)`, which
+   *  is why it is 1: the change ships length normalization and nothing else. CAL. */
+  CUE_TF_SATURATION: number;
+  /** How much of a cue's evidence is normalized by document length (BM25 b).
+   *  0 = none (the measured bug); 1 = fully proportional to length. CAL. */
+  CUE_LENGTH_NORM: number;
+  /** Per-document ceiling on the cue channel, as a multiple of that document's
+   *  single strongest cue. Corroboration is real evidence; sheer coverage is
+   *  not. v1 capped the same quantity absolutely (`entityCueCap`); this is the
+   *  scale-free form, because v2's cue weights are smoothed idf rather than v1's
+   *  normalized similarities and an absolute number would not transfer. CAL. */
+  CUE_DOC_CAP: number;
+
   // ── channels ─────────────────────────────────────────────────────────────
   /** Weight on the embedding channel's contribution. CAL. */
   SEMANTIC_WEIGHT: number;
@@ -122,6 +137,35 @@ export const TUNABLES: RecallTunables = {
   PER_CUE_FETCH: 24,
   AMBIGUOUS_WEIGHT: 0.5,
   CARRY_DECAY: 0.5,
+
+  // MEASURED 2026-09-04 on a copy of the live store (15,421 indexed documents,
+  // mean 106 indexed tokens, max 3,184 — a 30x spread). Ambient recall returned
+  // the same nine memories of 9–20 KB for every topic across two unrelated
+  // sessions, judged 0-of-9 relevant by the instance that lived them, and 12 of
+  // 19 turns then read "all-gated" because those nine were spent.
+  //
+  // `tools/recall-bench` swept b ∈ {0, 0.5, 0.75, 1.0} x cap ∈ {inf, 3, 2} over
+  // the 13 prompts of that conversation. What the grid says, in order:
+  //   - b = 0 (no normalization) is the bug: 31 of 32 delivered items were hubs,
+  //     on 13 of 13 turns.
+  //   - THE CAP ALONE MAKES IT WORSE. At b = 0, cap = 3 took hub hits from 31 to
+  //     52 — capping the hubs' sums compresses the turn's variance, which lowers
+  //     the relative bar and admits MORE of them. The ceiling is the second half
+  //     of this rule and is not a substitute for the first.
+  //   - every b >= 0.5 takes hub hits to zero, at every cap. So b is chosen on
+  //     what it COSTS: at b = 1.0 the deliberate path loses a labeled positive
+  //     (`mem_8fb634c2783e`, the School-of-Life passage), and at cap = 2 it
+  //     loses the other one (`mem_0d42a06a737977c9`). b = 0.75 with cap = 3 keeps
+  //     all three labeled positives the lexical channel can reach — and cap = 3
+  //     is what RECOVERS one of them that b = 0.75 with no cap had lost.
+  // 0.75 is also BM25's own default, which is the reason to prefer it over the
+  // equally hub-free 0.5 it ties with: more headroom against the next hub.
+  // The bench measures the LEXICAL channel only (no embeddings on authored
+  // memories yet, no turn vector from the hook), so it is a floor, not a
+  // forecast. CAL.
+  CUE_TF_SATURATION: 1.0,
+  CUE_LENGTH_NORM: 0.75,
+  CUE_DOC_CAP: 3.0,
 
   SEMANTIC_WEIGHT: 1.0,
   SEMANTIC_SEED_FLOOR: 0.45,

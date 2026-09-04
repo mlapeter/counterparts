@@ -94,12 +94,54 @@ exactly what telemetry may not carry. Revisit if the retention review disagrees.
 un-inhibition) holds by construction: suppressed candidates are dropped, and slots fill
 from the ranked remainder. An empty slot stays quiet — nothing lowers a bar to fill one.
 
-## 8. Every tunable is CAL, inherited, not measured
+## 8. Every tunable is CAL, inherited, not measured — except four, now
 
 `tunables.ts` carries v1's live calibration as starting points, marked CAL. That is a
 record of what real use moved in v1's activation space, not a measurement of v2's — and
 v2's cue weights are a different scale entirely (smoothed idf, not v1's normalized
-similarities). Nothing here is calibrated until `tools/replay` says so (scar §2.8).
+similarities). Nothing here is calibrated until it is measured against v2's own corpus
+(scar §2.8).
+
+Four now are. `BUDGET_MS` was re-measured on day 0 of the parallel run, and
+`CUE_LENGTH_NORM` / `CUE_TF_SATURATION` / `CUE_DOC_CAP` on 2026-09-04 against a copy of
+the live store with `tools/recall-bench` — see the tunable's own comment for the grid.
+
+## 10. Length normalization lives in the INDEX, not in the scorer
+
+The obvious place to divide by document length is `activate.ts`, where the cue arithmetic
+already is. It would not have worked. `searchIndex` takes the top `PER_CUE_FETCH` rows
+**ordered by score**, so a scorer that normalizes after the fetch is re-ranking a set that
+raw term frequency already chose — and on the live store the nine longest documents held
+most of the slots for every cue. So the normalization is SQL, `Store.search` grew a `norm`
+argument, and `activate` multiplies the cue's rarity weight by whatever evidence the index
+reports. `tfFactor` is no longer applied there; applying it would saturate a saturated
+number.
+
+Two consequences to keep in mind when reading the code:
+
+- **The scale moved for short documents.** At `b = 0.75` a document of average length
+  scores exactly what it scored before, a long one scores less, and a SHORT one scores up
+  to ~1.6× more. The absolute floors (`FLOOR_GLOBAL`, `FLOOR_STRONG_BY_KIND`) are v1
+  inheritances measured against the old scale, so they now admit somewhat more. That is
+  CONTRACT §7 OQ5, deliberately unaddressed here.
+- **The candidate union got an order of magnitude wider**, because the hubs are no longer
+  occupying every cue's fetch. `activate` therefore ranks from box 2 and reads prose only
+  for the survivors — an equivalence, not a heuristic, and the reason the change is
+  latency-neutral (warm, 13 real prompts: 160 ms before, 168 ms after).
+
+## 11. The deliberate tool's result has a byte budget now, and it is the host's number
+
+The ambient path has had `BUDGET_BYTES` since day one because scar §2.18 says the
+injection ceiling is a host capability. The deliberate path had none, and on 2026-09-04
+three real `recall` calls returned 7, 8 and 12 full bodies — 73,000 to 122,000 characters
+— and all three overflowed the host's tool-result cap. An answer the host truncates is not
+a smaller answer; the model cannot tell it from "nothing came".
+
+So: a LIST answers *which memories* and ships 300-character excerpts; an ADDRESS (`handle`,
+or the new `ids`, capped at three) answers *what it said* and ships up to 4,000 characters
+each; the total is bounded at 12,000; and every cut is stated in the payload and in the
+`mcp.recall` event. `ids` routes each id through `expandHandle`, so the confidentiality
+boundary and the no-fuzzy-search rule are the same ones, not new copies.
 
 ## 9. The build/record split is a public seam
 

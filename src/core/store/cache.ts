@@ -10,8 +10,12 @@
 import type { Db } from "./db.js";
 import { openDb } from "./db.js";
 
-/** Bumped to 2 (2026-08-25, SEAMS item J): the `ranking` table joins box 3. */
-export const CACHE_SCHEMA_VERSION = 2;
+/**
+ * Bumped to 2 (2026-08-25, SEAMS item J): the `ranking` table joins box 3.
+ * Bumped to 3 (2026-09-04): `doc_lens` — the document length the cue channel
+ * needs to stop rewarding a memory for being long (see `LengthNorm` below).
+ */
+export const CACHE_SCHEMA_VERSION = 3;
 
 const DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS doc_tokens (
@@ -21,6 +25,18 @@ const DDL: readonly string[] = [
      PRIMARY KEY (memory_id, token)
    )`,
   `CREATE INDEX IF NOT EXISTS doc_tokens_token ON doc_tokens (token)`,
+  // Document length, in indexed tokens — SUM(tf) over the row's `doc_tokens`.
+  //
+  // It is DERIVED FROM `doc_tokens` AND NOTHING ELSE, which is the whole reason
+  // it is its own table rather than a column somewhere upstream: a cache that
+  // predates this version rebuilds its lengths with one `GROUP BY` over the
+  // index it already has (`backfillLengths` below) — no prose read, no embedder,
+  // and above all no `resetCache`, which would drop 13,868 vectors that cost a
+  // network call each to recompute.
+  `CREATE TABLE IF NOT EXISTS doc_lens (
+     memory_id TEXT PRIMARY KEY,
+     len       INTEGER NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS embeddings (
      memory_id TEXT PRIMARY KEY,
      dim       INTEGER NOT NULL,
@@ -50,7 +66,87 @@ const DDL: readonly string[] = [
    )`,
 ];
 
-const TABLES = ["doc_tokens", "embeddings", "cache_meta", "ranking"] as const;
+const TABLES = ["doc_tokens", "doc_lens", "embeddings", "cache_meta", "ranking"] as const;
+
+/**
+ * Length normalization for the token channel — the document side of §9 G4.
+ *
+ * Cue matching is already rarity-weighted on the CUE side: a token spanning the
+ * whole store is evidence of nothing, and that zero is what replaces the stop
+ * list. This is the same rule read from the other end of the edge: **a memory
+ * spanning every topic is specific evidence for none of them.** Before this,
+ * `searchIndex` scored a document by raw `SUM(tf)` and took the top `limit` by
+ * it, so the longest documents in the store won every cue — measured
+ * 2026-09-04 on the live store, where nine memories of 9–20 KB (against a
+ * ~1.1 KB median, ~106 indexed tokens) came back as footnotes for every topic
+ * across two unrelated sessions and were judged 0-of-9 relevant.
+ *
+ * The formula is BM25's, and it is chosen because it is the SMALLEST change
+ * that could work (constitution 15): the old score's saturating half,
+ * `2·tf/(tf+1)`, is exactly this expression at `b = 0, k1 = 1`. Turning `b` up
+ * adds length normalization and moves nothing else.
+ *
+ *   score(tok, doc) = tf·(k1+1) / ( tf + k1·( 1 − b + b·len/avgLen ) )
+ *
+ * The CAL home for these numbers — the calibration record, with how they were
+ * chosen — is `src/core/recall/tunables.ts` (`CUE_TF_SATURATION`,
+ * `CUE_LENGTH_NORM`). This default exists because `search()` has two callers
+ * that are not recall (`counterpart.ts`'s update-candidate lookup and the CLI's
+ * contamination scan), and a test asserts the two agree.
+ */
+export interface LengthNorm {
+  /** tf saturation (BM25 k1). 1.0 reproduces the previous `2·tf/(tf+1)`. */
+  readonly k1: number;
+  /** length normalization (BM25 b). 0 = none; 1 = fully proportional. */
+  readonly b: number;
+}
+
+export const DEFAULT_LENGTH_NORM: LengthNorm = { k1: 1, b: 0.75 };
+
+/**
+ * Mean document length, memoized per open database.
+ *
+ * A recall pass issues up to `MAX_CUES × 3` index probes, and re-deriving
+ * `AVG(len)` over 15k rows inside each of them is real time against a 1200 ms
+ * budget. Staleness is harmless by construction: this is a SMOOTHING CONSTANT,
+ * not truth — it moves by a fraction of a token when a memory is written, and
+ * every writer here invalidates it anyway. A second process's writes are not
+ * seen until this one reopens, which is the same tolerance box 3 already has.
+ */
+const avgLenMemo = new WeakMap<Db, number>();
+
+export function avgDocLen(db: Db): number {
+  const memo = avgLenMemo.get(db);
+  if (memo !== undefined) return memo;
+  const row = db.get<{ a: number | null }>("SELECT AVG(len) AS a FROM doc_lens");
+  const avg = row?.a !== null && row?.a !== undefined && row.a > 0 ? row.a : 1;
+  avgLenMemo.set(db, avg);
+  return avg;
+}
+
+function forgetAvgDocLen(db: Db): void {
+  avgLenMemo.delete(db);
+}
+
+/**
+ * The v2 → v3 migration, and the reason the length column is not a rebuild.
+ *
+ * Lengths are a pure function of `doc_tokens`, so an existing cache re-derives
+ * them with one aggregate — no prose read, no embedder, and no `resetCache`.
+ * That distinction is the whole point: `rebuildCache()` drops `embeddings`, and
+ * on a store whose embedder is not configured in the migrating process, those
+ * vectors do not come back. Returns the number of rows written.
+ */
+export function backfillLengths(db: Db): number {
+  const have = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_lens")?.n ?? 0;
+  if (have > 0) return 0;
+  db.run(
+    `INSERT OR REPLACE INTO doc_lens (memory_id, len)
+       SELECT memory_id, SUM(tf) FROM doc_tokens GROUP BY memory_id`,
+  );
+  forgetAvgDocLen(db);
+  return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_lens")?.n ?? 0;
+}
 
 export function openCache(path: string): Db {
   const db = openDb(path);
@@ -70,6 +166,10 @@ export function openCache(path: string): Db {
   if (existing !== String(CACHE_SCHEMA_VERSION)) {
     db.transaction(() => {
       for (const sql of DDL) db.exec(sql);
+      // The version bump and the lengths it promises land in ONE transaction:
+      // a cache stamped v3 with no lengths would score every document as if it
+      // were average, silently, which is the failure this version exists to end.
+      backfillLengths(db);
       db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION));
     });
   }
@@ -78,6 +178,7 @@ export function openCache(path: string): Db {
 
 /** Scoped to box 3 alone: drops only this file's tables, touches no canonical state. */
 export function resetCache(db: Db): void {
+  forgetAvgDocLen(db);
   db.transaction(() => {
     for (const t of TABLES) db.exec(`DROP TABLE IF EXISTS ${t}`);
     for (const sql of DDL) db.exec(sql);
@@ -95,11 +196,20 @@ export function tokenize(text: string): string[] {
 /** (Re)index one document. Idempotent: the doc's prior rows are replaced wholesale. */
 export function indexDoc(db: Db, id: string, text: string, vec?: readonly number[]): void {
   const counts = new Map<string, number>();
-  for (const tok of tokenize(text)) counts.set(tok, (counts.get(tok) ?? 0) + 1);
+  let len = 0;
+  for (const tok of tokenize(text)) {
+    counts.set(tok, (counts.get(tok) ?? 0) + 1);
+    len += 1;
+  }
+  forgetAvgDocLen(db);
   db.transaction(() => {
     db.run("DELETE FROM doc_tokens WHERE memory_id = ?", id);
     const ins = db.prepare("INSERT INTO doc_tokens (memory_id, token, tf) VALUES (?, ?, ?)");
     for (const [token, tf] of counts) ins.run(id, token, tf);
+    // A document with no indexable tokens has no length either: it leaves the
+    // table rather than dragging a zero through `AVG(len)`.
+    if (len > 0) db.run("INSERT OR REPLACE INTO doc_lens (memory_id, len) VALUES (?, ?)", id, len);
+    else db.run("DELETE FROM doc_lens WHERE memory_id = ?", id);
     if (vec !== undefined) {
       db.run(
         "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
@@ -116,17 +226,44 @@ export interface Hit {
   score: number;
 }
 
-/** Deterministic: score desc, then id asc — so "same cue, same order" is testable. */
-export function searchIndex(db: Db, cue: string, limit = 10): Hit[] {
+/**
+ * Deterministic: score desc, then id asc — so "same cue, same order" is testable.
+ *
+ * The normalization is applied **inside the SQL, before `ORDER BY … LIMIT`**,
+ * and that placement is the fix rather than a detail of it. Normalizing the
+ * score afterwards in the caller would have left the CANDIDATE SET chosen by
+ * raw `SUM(tf)`: the longest documents would still occupy all `limit` slots for
+ * every cue, and the caller would only have re-ranked a set that was already
+ * wrong.
+ *
+ * `LEFT JOIN` + `COALESCE`: a row whose length is not (yet) known is treated as
+ * average rather than dropped. Box 3 is rebuildable and partially-built states
+ * are ordinary; a missing length must cost precision, never a hit.
+ *
+ * `CAST(tf AS REAL)`: every operand here is otherwise an INTEGER, and integer
+ * division would truncate the whole score to 0 or 1.
+ */
+export function searchIndex(db: Db, cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM): Hit[] {
   const tokens = [...new Set(tokenize(cue))];
   if (tokens.length === 0) return [];
   const placeholders = tokens.map(() => "?").join(",");
+  const avg = avgDocLen(db);
   const rows = db.all<{ memory_id: string; score: number }>(
-    `SELECT memory_id, SUM(tf) AS score FROM doc_tokens
-      WHERE token IN (${placeholders})
-      GROUP BY memory_id
-      ORDER BY score DESC, memory_id ASC
+    `SELECT dt.memory_id AS memory_id,
+            SUM(CAST(dt.tf AS REAL) * ?
+                / (dt.tf + ? * (? + ? * COALESCE(dl.len, ?) / ?))) AS score
+       FROM doc_tokens dt
+       LEFT JOIN doc_lens dl ON dl.memory_id = dt.memory_id
+      WHERE dt.token IN (${placeholders})
+      GROUP BY dt.memory_id
+      ORDER BY score DESC, dt.memory_id ASC
       LIMIT ?`,
+    norm.k1 + 1,
+    norm.k1,
+    1 - norm.b,
+    norm.b,
+    avg,
+    avg,
     ...tokens,
     limit,
   );
