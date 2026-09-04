@@ -77,6 +77,28 @@ export const NO_EVENT_OF_ITS_OWN: Partial<Record<NodeKey, string>> = {
   self: "Identity and episodes are written through the store like anything else. The one name that ever reached the log from here is historical.",
 };
 
+/**
+ * THE THIRD ABSENCE WORD, and the reason there had to be one.
+ *
+ * `(none yet)` means asked, and the answer is zero. `(never run)` means never
+ * asked. Both were wrong for ENCODE, which rendered `(never run)` beside STORE's
+ * `143 memories held` on the same diagram — a flat contradiction to anyone who
+ * did not click it. The gate battery HAS run, on all 143; it simply writes a
+ * durable record on one of its two paths. The crash-sweep path records what it
+ * gated because nobody watched it happen. The authored path is gated in line,
+ * in front of the person who asked, and writes no `gate.chunk` row at all — a
+ * decision about the log, not a gap in the machinery, and one that replay §2a
+ * is where it would change.
+ *
+ * So: a node whose work is real but unrecorded says that, in its own words,
+ * rather than borrowing an absence word that means something else. Keyed
+ * separately from `NO_EVENT_OF_ITS_OWN` because encode DOES have an event name
+ * — the map that says "this node has no events" would be lying about it.
+ */
+export const UNLOGGED_PATH: Partial<Record<NodeKey, string>> = {
+  encode: "Every memory in the store came through this battery, and most of them left no record of it. Only the crash-sweep path writes a `gate.chunk` row — it gates text nobody was watching, so what it refused has to be recoverable afterwards. The authored path is gated in line, in front of the person who asked, and writes nothing durable. Not a gap: a decision about what the log is for, and the place it would change is replay §2a.",
+};
+
 export const FLOW_NODES: readonly FlowNode[] = [
   {
     key: "session",
