@@ -695,3 +695,63 @@ and the credentials are not.
 |---|---|
 | Round-1 cold-stranger critic, Voyage embeddings on the owner's key (unintended, see incident) | cents; count unknown (no usage logging) |
 | Everything else this session (agents, loops, seeder, reviews) | $0.00 — no interpreter or embedder call |
+
+## 2026-09-04, round 3 — the gauntlet ran; both centerpieces passed; the core fixes landed
+
+*Appended by the coordinator, evening. Master `35caa5f`; suite **1579 pass / 0 fail**, nothing
+skipped; install loop **33 / 33** in 2–3 s. Every merge below ran the suite on a preview of
+master + branch first.*
+
+### Scores — final for this session
+
+| Critic | Rounds | Score | Verdict |
+|---|---|---|---|
+| Cold-stranger (install + README) | 4 | 4 → 4.5 → 8.0 → **8.0** | Below the 8.5 bar by a half-point that no critic on this machine can close: the clone 401s until the repo flips, and the hooks / MCP / wake surface is verifiable only inside a real Claude Code session (QUICKSTART §9 says so). Command time to a working memory ≈ 60 s; the §7 capture reproduced character for character in rounds 3 and 4. |
+| Design-director (dashboard) | 2 | 6.5 → **8.5 PASS** | 0 console/page errors across the loop's 38 shots and the critic's own 68; worst contrast 4.97:1 (was 1.86); "the stories panel is now the best surface in the product". Round-3 polish in flight (note-refresh gap, date column, tap targets, overview tile count, README reshoot). |
+| Design-director (site) | 1 (+1 in flight) | **8.5 PASS** | 0 errors across 24 loads; all five owner ideas judged executed; polish round applied (fold gate, −23 % height, hamburger, copy buttons, Inter body). Confirming round 2 in flight. |
+| Claims auditor (README, QUICKSTART, CLAUDE.md) | 3 + delta | FAIL 9 → FAIL 4 → FAIL 2 → **delta FAIL 1 → fixed (#59)** | Every rewrite traced to code; the numbers (suite, loop, error strings, exit codes) reproduced on every pass; the pinned suite line reproduced on its commit. Site copy audit in flight. |
+
+### Merged since round 2
+
+| PR | What |
+|---|---|
+| #47 | W1 sync: nothing skipped; loop 26/26; docs stop calling the first-memory bug open; image URLs absolute |
+| #48 | **The web dashboard** (`counterparts-dashboard serve`, six pages, glow theme, visual loop) |
+| #49 | README images in `docs/images/` |
+| #50 | W1 round 4: the console's config rule stated once and printed; the claims audit's nine rewrites; `init` documented; `NOTHING CAME BACK` |
+| #51 | `docs/overnight-prompt-2026-09-04.md` |
+| #52 | W1 round 5: hook-environment sentence everywhere; the loop exercises the lazy `session_end` bind via a separate MCP process; `counterparts-dashboard --help` opens no store |
+| #53 | Removal names the span buffer it cannot reach, by looking (option A, owner-ruled) |
+| #54 | W2 round 2: the design director's nine, measured |
+| #55 | W1 round 6: unknown flags refused before any open; `note`/`recall` print `Store:`; `init --name` |
+| #56 | **CORE** — dedup never archives a revision's successor (owner-ruled fix-before-launch); class ANYTHING ELSE declared before merge; **owner runs `restart.ts --date 2026-09-05`** |
+| #57 | W1 round 7: the removal count is printed, not stored; CLAUDE.md names the asks against `store/` |
+| #58 | One store, one count: memories vs beliefs-and-entities on every surface; CLI bands from physics |
+| #59 | QUICKSTART's capture shows the `Store:` line (delta audit) |
+| #60 | Demo-seed determinism test gets a 30 s budget (8.2 s measured under load) |
+
+### Owner rulings since round 2
+
+Removal residue = **option A** (landed, #53; B filed for the overnight prompt). Dedup-eats-revised-belief = **fix before launch** (landed, #56). Wall-clock `learnedOn` = after launch, with a real two-clock design (lived days for physics, real dates for provenance) — overnight prompt workstream 1. Journal in recall = keep recallable, label as journal — overnight 2. df/storeSize edge — overnight 3. Bench — later, only at a finished point. **Awaiting the owner:** the site's lane labels (in/out vs "your lane / the AI's lane").
+
+### New findings since round 2
+
+- **I17 (core, pre-existing)** Schema elements (`sch_`) are ordinary dedup candidates and lose the same-day tie-break to a memory with the same body even with no revision anywhere; migrated elements were minted at the import day while migrated memories kept their v1 birth day, so such pairs on the live store would already be archived. Filed in `sleep/NOTES.md` §12. Read-only check: `memory.merged` events whose `candidateId` starts with `sch_`.
+- **I18 (dashboard)** `counterparts note` does not refresh an open flow page (refresh gated on durable events; a note writes none). W2 round 3.
+- **I19 (process)** A RESUMED agent whose isolated worktree was auto-cleaned runs in the live checkout: the delta auditor did `git checkout --detach origin/master` in `~/counterparts` (same commit, nothing changed, re-attached). Rule: spawn fresh with worktree isolation for anything that checks out or edits.
+- **I20 (test)** `test/demo-seed.test.ts`'s determinism test timed out under full-suite load (8.2 s vs 5 s default) — fixed (#60).
+
+### NEEDS-OWNER — current
+
+| # | Item | State |
+|---|---|---|
+| G16 | **Run the phase-clock restart for #56**: `~/.bun/bin/bun run tools/parallel/bin/restart.ts --run-dir ~/counterparts-parallel-run/2026-09-03 --date 2026-09-05 --phase P --v2-data-dir ~/.counterparts/store --reason "fix/revision-successor-survives: dedup no longer archives a revision's successor; G12 class anything-else; surfaceSet 800a9a9421cd969f unchanged"` — with no session open. Zero counted days lost. | open |
+| G17 | Read-only check for I17 on the live store (merge records with `sch_` losers). | open |
+| G18 | Site lane labels: in/out (builder) vs your/AI (ruling). | open |
+| G19 | Create the site's GitHub repo and Vercel project; point counterparts.ai at it (after the flip). | later |
+| G20 | The flip: `docs/launch/flip-checklist.md`, 12 steps, owner executes. | staged |
+| G21 | Fire `docs/overnight-prompt-2026-09-04.md` overnight; merge core in the morning. | staged |
+
+### Spend
+
+$0.00 this round. Cumulative: the round-1 critic's handful of Voyage calls (cents); nothing else.
