@@ -172,7 +172,17 @@ function verdictFor(
   };
 }
 
-/** All three author dimensions or nothing — a partial claim is not padded. */
+/**
+ * All three author dimensions or nothing — a partial claim is not padded.
+ *
+ * NAMED GAP (2026-09-04): the obvious source for `emotional` when the author
+ * gave none is the stated-emotion gate, and it cannot supply one.
+ * `encode/emotion.ts#gateEmotion` yields a `DurableFeeling` of `{type, subject}`
+ * — a feeling that SURVIVED, with no magnitude on it anywhere — so there is no
+ * number to read across, and manufacturing one from "a feeling was stated" is
+ * retro-typing emotion, which encode §3 forbids outright. Left open rather than
+ * approximated; the MCP adapter's contract carries the same gap as its §7.4.
+ */
 function dimensionsFrom(
   s: Partial<{ relevance: number; emotional: number; predictive: number }>,
 ): ClaimedDimensions | null {

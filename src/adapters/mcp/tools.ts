@@ -116,6 +116,16 @@ const NOTE: ToolSpec = {
       mechanizedBy: "src/core/encode/secrets.ts + src/core/encode/floor.ts#contentFloor",
     },
     {
+      claim:
+        "Claim nothing and this still counts as something: an unclaimed note gets an ordinary default floor, not zero. An explicit claim, however low, is kept as you wrote it.",
+      mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#clampSalienceAtSeam",
+    },
+    {
+      claim:
+        "You may score the three dimensions yourself — relevance, emotional, predictive — and they are stored exactly as you gave them, never rewritten to fit the floor. Novelty is not yours to claim: it is measured against what is already held.",
+      mechanizedBy: "src/core/remember/proposals.ts#submitProposal (novelty stripped; dims carried)",
+    },
+    {
       claim: "A stub is refused: a note has to say something.",
       mechanizedBy: "src/core/encode/floor.ts#contentFloor",
     },
@@ -152,7 +162,26 @@ const NOTE: ToolSpec = {
         type: "number",
         minimum: 0,
         maximum: 1,
-        description: "Optional floor on how strongly this is held, 0-1. A floor, never a ceiling.",
+        description:
+          "Optional floor on how strongly this is held, 0-1. A floor, never a ceiling. Omit it and an ordinary default floor applies; say a number and yours is kept.",
+      },
+      relevance: {
+        type: "number",
+        minimum: 0,
+        maximum: 1,
+        description: "Optional 0-1: how much this bears on what is being worked on.",
+      },
+      emotional: {
+        type: "number",
+        minimum: 0,
+        maximum: 1,
+        description: "Optional 0-1: how much feeling was attached to it.",
+      },
+      predictive: {
+        type: "number",
+        minimum: 0,
+        maximum: 1,
+        description: "Optional 0-1: how much it changes what you expect next time.",
       },
       kind: {
         type: "string",
@@ -304,6 +333,11 @@ const SESSION_END: ToolSpec = {
       mechanizedBy: "src/core/physics/index.ts#clampSalienceAtSeam",
     },
     {
+      claim:
+        "An entry that claims no salience gets an ordinary default floor rather than zero, and each entry may score relevance, emotional and predictive itself.",
+      mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#clampSalienceAtSeam",
+    },
+    {
       claim: "Credentials are redacted and empty entries are refused, per entry, without failing the batch.",
       mechanizedBy: "src/core/encode/secrets.ts + src/adapters/mcp/server.ts#sessionEndTool (per-entry isolation)",
     },
@@ -332,7 +366,31 @@ const SESSION_END: ToolSpec = {
               enum: ["self", "person", "entity", "skill", "place", "fact"],
             },
             title: { type: "string" },
-            salience: { type: "number", minimum: 0, maximum: 1 },
+            salience: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+              description:
+                "Optional floor, 0-1. Omit it and an ordinary default floor applies; say a number and yours is kept.",
+            },
+            relevance: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+              description: "Optional 0-1: how much this bears on what was being worked on.",
+            },
+            emotional: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+              description: "Optional 0-1: how much feeling was attached to it.",
+            },
+            predictive: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+              description: "Optional 0-1: how much it changes what you expect next time.",
+            },
             updates: {
               type: "string",
               description: "The id or handle of a memory this revises, if it revises one.",
