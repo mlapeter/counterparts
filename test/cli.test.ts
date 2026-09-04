@@ -22,11 +22,18 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { TUNABLES } from "../src/core/physics/index.js";
+import {
+  BRIEFING_KEY,
+  PREFACE_RESERVE_BYTES,
+  byteLength,
+  readSentinel,
+} from "../src/core/self/index.js";
+import { PHASES, markerKey } from "../src/core/sleep/index.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -726,6 +733,128 @@ describe("backfill-claims — the one-shot repair for rows minted before the flo
 });
 
 // ── stance ──────────────────────────────────────────────────────────────────
+
+describe("rebrief — the owner's out-of-band wake re-render", () => {
+  /** An identity element with an explicit encode date, so the wake can show it. */
+  function element(s: Store, body: string, learnedOn: string): string {
+    return s.put({
+      type: "memory",
+      kind: "self",
+      body,
+      band: "identity",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      physics: { promotedIdentity: true },
+      learnedOn,
+    });
+  }
+
+  /** Every sleep marker, so "no marker moved" is checkable rather than asserted. */
+  function markers(s: Store): Record<string, string | undefined> {
+    const out: Record<string, string | undefined> = {};
+    for (const phase of PHASES) out[phase] = s.getMeta(markerKey(phase));
+    return out;
+  }
+
+  test("republishes the bundle NOW, prints the lane counts and bytes, and moves no marker", async () => {
+    const s = store();
+    element(s, "The credential fix sits uncommitted pending review.", "2026-07-26");
+    element(s, "The parallel run started this morning.", "2026-09-04");
+    s.put({
+      type: "memory",
+      kind: "skill",
+      body: "I read the whole file before editing one line of it.",
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      learnedOn: "2026-08-14",
+    });
+    for (const phase of PHASES) s.setMeta(markerKey(phase), "7");
+    const before = markers(s);
+    const day = s.livedDay();
+    expect(s.getMeta(BRIEFING_KEY)).toBeUndefined();
+    s.close();
+
+    const c = consoleWith();
+    const code = await run(["rebrief", "--budget", "9000"], { io: c.io, env: { [ENV]: dir } });
+    const printed = text(c.out);
+
+    expect(code).toBe(EXIT.ok);
+    expect(printed).toContain("Re-rendered the wake bundle");
+    expect(printed).toContain("identity 2");
+    expect(printed).toContain("craft 1");
+    expect(printed).toContain("elements 3");
+    expect(printed).toContain("ceiling 9000 bytes (--budget)");
+    expect(printed).toContain("published");
+
+    const after = store({ observer: true });
+    const bundle = after.getMeta(BRIEFING_KEY) ?? "";
+    // The bundle is really there, and every element in it carries its date.
+    expect(bundle).toContain("- 2026-07-26 · The credential fix sits uncommitted pending review.");
+    expect(bundle).toContain("- 2026-09-04 · The parallel run started this morning.");
+    expect(bundle).toContain("- 2026-08-14 · I read the whole file before editing one line of it.");
+    expect(readSentinel(bundle).intact).toBe(true);
+    // The preface's room is reserved exactly as `sessionEnd` reserves it, so the
+    // first delivered line cannot blow the host's ceiling.
+    expect(byteLength(bundle)).toBeLessThanOrEqual(9000 - PREFACE_RESERVE_BYTES);
+    expect(printed).toContain(`bytes ${byteLength(bundle)}`);
+
+    // NOT a sleep cycle: no marker advanced, and the day did not move.
+    expect(markers(after)).toEqual(before);
+    expect(after.livedDay()).toBe(day);
+  });
+
+  test("without a ceiling it refuses and names both ways to give it one (§2.18)", async () => {
+    store().close();
+    const c = consoleWith();
+    const code = await run(["rebrief"], { io: c.io, env: { [ENV]: dir } });
+    expect(code).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("no injection ceiling");
+    expect(text(c.err)).toContain("--budget");
+    expect(text(c.err)).toContain("injectionBudgetBytes");
+    expect(store({ observer: true }).getMeta(BRIEFING_KEY)).toBeUndefined();
+  });
+
+  test("the host config BESIDE the store supplies the ceiling when no flag does", async () => {
+    // The deployed shape (measured 2026-09-03): the config cannot live INSIDE
+    // the data dir — the layout totality check refuses an unclassified file
+    // there — so it sits beside it and `dataDir` names the subdirectory.
+    const inner = join(dir, "store");
+    const s = Store.open({ dir: inner });
+    open.push(s);
+    element(s, "Something true about how I work.", "2026-08-01");
+    s.close();
+    const config = join(dir, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: inner, injectionBudgetBytes: 4096 }));
+
+    const c = consoleWith();
+    const code = await run(["rebrief", "--dir", inner], { io: c.io, env: { [ENV]: dir } });
+    expect(c.err).toEqual([]);
+    expect(code).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("ceiling 4096 bytes (");
+    expect(text(c.out)).toContain("claude-code.json");
+
+    const after = Store.open({ dir: inner, observer: true });
+    open.push(after);
+    expect(byteLength(after.getMeta(BRIEFING_KEY) ?? "")).toBeLessThanOrEqual(
+      4096 - PREFACE_RESERVE_BYTES,
+    );
+  });
+
+  test("under observer it refuses and publishes nothing — an instrument makes no content write", async () => {
+    const s = store();
+    element(s, "Something true about how I work.", "2026-08-01");
+    s.close();
+
+    const c = consoleWith();
+    const code = await run(["rebrief", "--budget", "9000", "--observer"], {
+      io: c.io,
+      env: { [ENV]: dir },
+    });
+    expect(code).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("observer stance");
+    expect(store({ observer: true }).getMeta(BRIEFING_KEY)).toBeUndefined();
+  });
+});
+
+// ── observer ────────────────────────────────────────────────────────────────
 
 describe("owner operations never run under observer", () => {
   test("every owner op refuses, and says which stance refused it", async () => {

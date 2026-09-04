@@ -41,6 +41,7 @@ import {
   byteLength,
   compose,
   counterKey,
+  datePrefix,
   decide,
   findIdentityCore,
   fixedPointTotal,
@@ -136,6 +137,33 @@ function hint(s: Store, body: string, relevance = 0.9): string {
     body,
     salience: { relevance, emotional: 0.8, predictive: 0.8 },
   });
+}
+
+/** An identity element with an explicit encode date — the age the wake shows. */
+function identityOn(s: Store, body: string, learnedOn: string, relevance = 0.8): string {
+  return s.put({
+    type: "memory",
+    kind: "self",
+    body,
+    band: "identity",
+    salience: { relevance, emotional: 0.5, predictive: 0.5 },
+    physics: { promotedIdentity: true },
+    learnedOn,
+  });
+}
+
+/** One ranked element standing in for a store row, for render-only tests. */
+function ranked(id: string): Ranked {
+  return {
+    id,
+    lane: "identity",
+    kind: "self",
+    band: "identity",
+    strength: 1,
+    protected: false,
+    bornDay: 0,
+    personScoped: false,
+  };
 }
 
 function statementLines(text: string): string[] {
@@ -497,6 +525,168 @@ describe("the wake briefing — the identity share", () => {
     }
     expect(out.sentinel).toContain(`elements=${total}`);
     expect(readSentinel(out.text).statedElements).toBe(total);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE DATE ON EVERY ELEMENT.
+ *
+ * Measured 2026-09-04 on the live parallel run: the stored bundle contained zero
+ * date strings, and two migrated elements — one learned 2026-07-26 ("the
+ * credential fix sits uncommitted pending review"), one from mid-August — were
+ * read as current facts and repeated to the owner as such. The delivery preface
+ * dates the WAKE; nothing dated the ELEMENTS.
+ */
+describe("the wake briefing — every element carries its date", () => {
+  /** The shape: `- YYYY-MM-DD · statement`, or with a differing content date. */
+  const DATED = /^- \d{4}-\d{2}-\d{2}( \(of \d{4}-\d{2}-\d{2}\))? · \S/;
+
+  test("every rendered element in every lane opens with its learned date", () => {
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "self",
+      body: "I care more about being understood than being agreed with.",
+      band: "identity",
+      salience: { relevance: 0.8, emotional: 0.5, predictive: 0.5 },
+      physics: { promotedIdentity: true },
+      learnedOn: "2026-07-26",
+    });
+    s.put({
+      type: "memory",
+      kind: "skill",
+      body: "I read the whole file before editing one line of it.",
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      learnedOn: "2026-08-14",
+    });
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "The question about the house move is still open.",
+      meta: { unresolved: true },
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      learnedOn: "2026-09-01",
+    });
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "The bus route changed and adds ten minutes.",
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      learnedOn: "2026-09-04",
+    });
+    const out = new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 });
+
+    expect(out.elements).toBe(4);
+    const lines = statementLines(out.text);
+    expect(lines.length).toBe(4);
+    for (const line of lines) expect(line).toMatch(DATED);
+    // The framing says once what the leading date is, so no element pays for
+    // the word "learned".
+    expect(FRAMING.context).toContain("learned");
+  });
+
+  test("an old element and a new one each show their OWN date — the misread, fixed", () => {
+    const s = store();
+    identityOn(s, "The credential fix sits uncommitted pending review.", "2026-07-26");
+    identityOn(s, "The parallel run started this morning.", "2026-09-04");
+    const out = new Self({ store: s }).build({ budgetBytes: 100_000, day: 1 });
+
+    const lines = statementLines(out.text);
+    expect(lines).toContain("- 2026-07-26 · The credential fix sits uncommitted pending review.");
+    expect(lines).toContain("- 2026-09-04 · The parallel run started this morning.");
+    // The element TEXT is untouched — the annotation lives outside it.
+    for (const line of lines) expect(line.endsWith(".")).toBe(true);
+  });
+
+  test("a content date that DIFFERS is named too, neutrally — the horizon's are future", () => {
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "The dentist appointment is on the fourteenth.",
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      learnedOn: "2026-09-01",
+      happenedOn: "2026-10-14",
+    });
+    // Same date twice is stated ONCE: the annotation is never noise.
+    s.put({
+      type: "memory",
+      kind: "fact",
+      body: "Today's standup moved to ten.",
+      salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
+      learnedOn: "2026-09-01",
+      happenedOn: "2026-09-01",
+    });
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 }).text);
+    expect(lines).toContain(
+      "- 2026-09-01 (of 2026-10-14) · The dentist appointment is on the fourteenth.",
+    );
+    expect(lines).toContain("- 2026-09-01 · Today's standup moved to ten.");
+  });
+
+  test("an UNDATED element renders with no prefix rather than an empty one", () => {
+    // A chased row reads `learned_on = ''`; blank is not a date, and inventing
+    // today's for it would be the exact lie the dates exist to prevent.
+    const resolve: Resolve = () => ({ statement: "A statement with no date.", learnedOn: "" });
+    const out = render(
+      { ...emptyLanes(), identity: [ranked("m1")] },
+      { budgetBytes: 100_000, day: 0 },
+      resolve,
+      SELF_TUNABLES,
+    );
+    expect(statementLines(out.text)).toEqual(["- A statement with no date."]);
+  });
+
+  test("the date is IN the byte accounting — 14 bytes at day precision, and the share holds", () => {
+    // What one element costs, exactly, and stated in the contract.
+    expect(byteLength(datePrefix({ statement: "x", learnedOn: "2026-07-26" }))).toBe(14);
+    expect(byteLength(datePrefix({ statement: "x" }))).toBe(0);
+
+    const s = store();
+    // The live store's own shape (the identity-share fixture above): ~1.1 KB
+    // identity elements against craft that can spend what the share leaves.
+    const LONG = "I hold this about myself and it has stayed true across many sessions of real work. ".repeat(13);
+    for (let i = 0; i < 24; i++) {
+      identityOn(s, `Identity element ${i}. ${LONG}`, "2026-07-26", 0.9 - i / 100);
+    }
+    for (let i = 0; i < 12; i++) {
+      s.put({
+        type: "memory",
+        kind: "skill",
+        body: `Craft element ${i}. ${"I work this way when the work is hard and the answer is not obvious. ".repeat(8)}`,
+        salience: { relevance: 1, emotional: 1, predictive: 1 },
+        learnedOn: "2026-08-14",
+      });
+    }
+    const self = new Self({ store: s });
+    const BUDGET = 9_000;
+    const out = self.build({ budgetBytes: BUDGET, day: 0 });
+
+    // The dated line is what the budget, the share and the sentinel all count.
+    expect(out.bytes).toBe(byteLength(out.text));
+    expect(out.bytes).toBeLessThanOrEqual(BUDGET);
+    expect(readSentinel(out.text).intact).toBe(true);
+    for (const line of statementLines(out.text)) expect(line).toMatch(DATED);
+    const identityBytes = statementLines(out.text)
+      .filter((l) => l.includes("Identity element"))
+      .reduce((n, l) => n + byteLength(`${l}\n`), 0);
+    expect(identityBytes).toBeLessThanOrEqual(identityShareBytes(BUDGET, SELF_TUNABLES));
+
+    // The SAME lanes composed with and without the dates differ by exactly 14
+    // bytes per element — plus whatever the two stated totals cost in digits.
+    // The annotation is accounted for, never absorbed.
+    const scanned = scanActive(s, 0);
+    const lanes = rankLanes(scanned, [], SELF_TUNABLES);
+    const map = new Map(
+      scanned.map((sc) => [sc.id, flatten(sc.doc.body.split(/\n\s*\n/)[0] ?? sc.doc.body)] as const),
+    );
+    const plain: Resolve = (id) => ({ statement: map.get(id) ?? id });
+    const dated: Resolve = (id) => ({ statement: map.get(id) ?? id, learnedOn: "2026-07-26" });
+    const withDates = compose(lanes, 0, dated);
+    const without = compose(lanes, 0, plain);
+    const digits = (String(withDates.bytes).length - String(without.bytes).length) * 2;
+    expect(withDates.bytes - without.bytes).toBe(14 * withDates.elements + digits);
   });
 });
 

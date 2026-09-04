@@ -26,13 +26,14 @@
  * `run()` returns an exit code and never calls `process.exit`, so every command
  * is testable against a temp dir with a faked console.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart } from "../../core/counterpart.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 import { TUNABLES } from "../../core/physics/index.js";
+import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
 import {
   LAYOUT,
   Store,
@@ -52,6 +53,7 @@ export const COMMANDS = [
   "remove",
   "verify",
   "backfill-claims",
+  "rebrief",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -63,6 +65,7 @@ export const OWNER_OPS: readonly Command[] = [
   "remove",
   "verify",
   "backfill-claims",
+  "rebrief",
 ];
 
 export const EXIT = {
@@ -98,6 +101,10 @@ export function usage(): string {
     "  verify              Rebuild the cache from canonical state and report.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
+    "  rebrief             Re-render and republish the wake bundle NOW, through the",
+    "                      boundary's own renderer. Advances no sleep marker and runs",
+    "                      no other sleep phase. --budget <bytes> overrides the host",
+    "                      ceiling read from <dir>/claude-code.json.",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
     "  --observer          Stand down: read-only, owner operations refuse.",
@@ -126,6 +133,7 @@ export function parse(argv: readonly string[]): Parsed {
       plaintext: { type: "boolean" },
       confirm: { type: "boolean" },
       apply: { type: "boolean" },
+      budget: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -197,6 +205,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
+      case "rebrief":
+        return rebriefCommand(dir, io, parsed.flags["budget"], now);
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -355,8 +365,9 @@ function initCommand(dir: string, io: Io): number {
   io.out("       command: bun run <repo>/src/adapters/claude-code/bin/hook.ts");
   io.out("  2. Register the MCP server so the Stop ask has a way back:");
   io.out("       command: bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id>");
-  io.out("  3. Write the adapter's configuration:");
-  io.out(`       ${join(resolved, "claude-code.json")}`);
+  io.out("  3. Write the adapter's configuration BESIDE the store, never inside it — the");
+  io.out("     layout check refuses an unclassified file in the data dir (§5 G11):");
+  io.out(`       ${join(resolved, "..", "claude-code.json")}`);
   io.out('       { "dataDir": "<this dir>", "injectionBudgetBytes": <your host\'s ceiling> }');
   io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
@@ -695,6 +706,114 @@ function backfillTargets(store: Store): { id: string; kind: string; dims: string
     });
   }
   return out;
+}
+
+// ── rebrief ─────────────────────────────────────────────────────────────────
+
+/**
+ * THE OWNER'S RE-RENDER.
+ *
+ * The wake bundle is composed once per lived day, at the boundary, and served
+ * unchanged to every session until the next one. That is a feature — cold start
+ * costs one meta read — right up until the render itself changes: the identity
+ * share merged mid-day on 2026-09-04 and could not reach a single session's wake
+ * until the following boundary, and an owner who wanted their wake regenerated
+ * had nothing to run. This is that lever.
+ *
+ * Three properties, all of them the console's usual ones:
+ *
+ *   - It goes through the SAME renderer the sleep step uses
+ *     (`core/briefing.ts#selfRenderer`, via `Counterpart.rebrief`) — a console
+ *     with a second renderer is a console that can publish a bundle the
+ *     boundary would never have composed.
+ *   - It refuses under observer via `OWNER_OPS`: republishing is a content
+ *     write, and an instrument makes none.
+ *   - It advances NO sleep marker and runs no other sleep phase. Decay,
+ *     consolidation, dedup and prune stay the boundary's work.
+ *
+ * The ceiling is the host's, never this file's (scar §2.18): `--budget`, else
+ * `injectionBudgetBytes` from the host config beside the store, else a refusal
+ * that names both.
+ */
+function rebriefCommand(
+  dir: string,
+  io: Io,
+  budgetFlag: string | boolean | undefined,
+  now: () => number,
+): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+  const ceiling = hostCeiling(dir, budgetFlag);
+  if (typeof ceiling === "string") {
+    io.err(ceiling);
+    return EXIT.refused;
+  }
+  const counterpart = openCounterpart(dir);
+  try {
+    // The horizon lane asks about a calendar date; the console's own clock is
+    // the only one in the room, and tests inject it.
+    const at = new Date(now()).toISOString().slice(0, 10);
+    const report = counterpart.rebrief({ budgetBytes: ceiling.bytes, at });
+    if (!report.rendered) {
+      io.err(`refused: the render declined (${report.reason}).`);
+      return EXIT.refused;
+    }
+    io.out(`Re-rendered the wake bundle for ${counterpart.store.dir}.`);
+    io.out(`  lived day ${report.day}, horizon asked about ${at}`);
+    io.out(
+      `  ceiling ${ceiling.bytes} bytes (${ceiling.source}); composed under ${report.composeBudget}` +
+        ` — the delivery preface reserves ${PREFACE_RESERVE_BYTES}`,
+    );
+    io.out(`  lanes: ${LANE_ORDER.map((l) => `${l} ${report.counts[l] ?? 0}`).join("  ")}`);
+    io.out(`  elements ${report.elements}, bytes ${report.bytes}`);
+    io.out(
+      report.published
+        ? "  published — the next session wakes on this bundle."
+        : "  NOT published: the store is in observer stance.",
+    );
+    io.out("  No sleep marker moved and no other sleep phase ran.");
+    return EXIT.ok;
+  } finally {
+    counterpart.close();
+  }
+}
+
+/** The host's reported injection ceiling, or the sentence explaining its absence. */
+function hostCeiling(
+  dir: string,
+  flag: string | boolean | undefined,
+): { bytes: number; source: string } | string {
+  if (typeof flag === "string" && flag.length > 0) {
+    const n = Number(flag);
+    if (!Number.isInteger(n) || n <= 0) {
+      return `refused: --budget takes a positive whole number of bytes, not '${flag}'.`;
+    }
+    return { bytes: n, source: "--budget" };
+  }
+  // BESIDE the store, never inside it: the layout totality check (§5 G11)
+  // refuses an unclassified file in the data dir, which is why the deployed
+  // config sits at `~/.counterparts/claude-code.json` with `dataDir` pointing
+  // at a subdirectory (measured 2026-09-03).
+  const path = join(dir, "..", "claude-code.json");
+  if (existsSync(path)) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+      const value = parsed["injectionBudgetBytes"];
+      if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+        return { bytes: value, source: path };
+      }
+    } catch {
+      /* an unreadable host config reports no ceiling — the refusal below says so */
+    }
+  }
+  // Scar §2.18: the ceiling is a host capability. There is no default anywhere
+  // in this package and this command does not become the place there is one.
+  return (
+    "refused: no injection ceiling. Pass --budget <bytes>, or set " +
+    `"injectionBudgetBytes" in ${path}. A briefing never invents one (scar §2.18).`
+  );
 }
 
 /** Exported for the caller-universality test: the console composes a brain the

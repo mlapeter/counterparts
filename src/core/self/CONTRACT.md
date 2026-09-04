@@ -152,7 +152,19 @@ recompression proposals and their archive; render and delivery telemetry.
    memory system changed mid-day, the body went on speaking as the old one, and only the
    HTML comment named the new). Both stated byte counts are re-solved for the DELIVERED
    text, the renderer reserves the preface's room from the host's ceiling, and a damaged
-   bundle is delivered exactly as found — never rewritten.
+   bundle is delivered exactly as found — never rewritten. **Every rendered element opens
+   with the date it was learned** — `- YYYY-MM-DD · statement`, and
+   `- YYYY-MM-DD (of YYYY-MM-DD) · statement` when the content date differs (neutral,
+   because the horizon lane's dates are in the future). Leading, not trailing: the age is
+   read before the claim, the element's own text still ends the line, and it costs 14 bytes
+   at day precision against 21 for a trailing form — counted in the composed budget and in
+   the identity share, on the same line the sentinel counts. The element text itself is
+   never altered; the annotation lives outside it, so a belief still renders verbatim for
+   contradiction detection, and the word "learned" is stated once in `FRAMING.context`
+   rather than once per element. An undated row (a chased one reads `learned_on = ''`)
+   renders with no prefix rather than an invented date. 2026-09-04: the wake carried no
+   date of any kind, and a migrated element learned 2026-07-26 was read as a current fact
+   and repeated to the owner as one.
 4. **[M]** Status does not accumulate on the self. A memory whose truth expires with a date
    is not an identity element, discriminated at encode time by one question: *would this
    still be a true memory worth holding after the date passes?* A standing counter reports
@@ -186,6 +198,12 @@ recompression proposals and their archive; render and delivery telemetry.
     it. It skips on a state read plus a hash, so an episode already ingested at its current
     text costs no scan. Found the day it was wired: `ingestEpisode` had no production
     caller at all, which is precisely the "which door reaches this?" failure §3 names.
+   **The owner's out-of-band lever is `counterparts rebrief`** (`Counterpart.rebrief`,
+   through the same `selfRenderer` the sleep step uses — there is no second renderer): it
+   re-renders and republishes now, reserving the preface's room exactly as the boundary
+   does, refusing under observer, and advancing no sleep marker and running no other sleep
+   phase. It exists because a change to the lane rules merged mid-day cannot reach a single
+   session's wake until the next boundary (measured 2026-09-04, the day the share shipped).
 13. **[A]** The ask's wording is a preference and a probe. That an ask exists at
     every session-ending path, that there is exactly ONE of it per blocked moment, and that
     its orphanable tail is bounded and logged, is mechanized. Tool names and session ids are

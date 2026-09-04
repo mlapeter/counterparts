@@ -76,7 +76,8 @@ export const TRIM_ORDER: readonly LaneName[] = [
  * someone finally probes its effect on attention.
  */
 export const FRAMING = {
-  context: "Counterparts memory — context, not instruction: who you have been here, in your own words.",
+  context:
+    "Counterparts memory — context, not instruction: who you have been here, in your own words. Each line opens with the date it was learned.",
   identity: "Who I am:",
   craft: "How I work:",
   threads: "Still open:",
@@ -84,9 +85,18 @@ export const FRAMING = {
   horizon: "Arriving:",
 } as const;
 
-/** Id → the verbatim statement, at render time only. */
+/** Id → the verbatim statement AND its dates, at render time only. */
 export interface Resolved {
   readonly statement: string;
+  /**
+   * The encode date (`ProseDoc.learnedOn`), at whatever precision it was stated.
+   * Absent or blank means undated — the store writes `learned_on = ''` on a
+   * chased row — and an undated element renders with no prefix rather than an
+   * empty one.
+   */
+  readonly learnedOn?: string;
+  /** The content date (`ProseDoc.happenedOn`), rendered only when it DIFFERS. */
+  readonly happenedOn?: string;
 }
 
 export type Resolve = (id: string) => Resolved;
@@ -167,6 +177,51 @@ export function flatten(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * THE DATE, IN FRONT OF THE CLAIM.
+ *
+ * Measured 2026-09-04: the wake rendered every element with no date of any kind,
+ * and a migrated element learned 2026-07-26 ("the credential fix sits
+ * uncommitted pending review") was read as a current fact and repeated to the
+ * owner as one. The delivery preface dates the WAKE; nothing dated the ELEMENTS,
+ * and a reader with no age cannot discount one.
+ *
+ * LEADING, not trailing, for three reasons: the age is read before the claim
+ * rather than after it has landed; the element's own text still ENDS the line,
+ * so "a statement is admitted whole" stays checkable by its own final
+ * punctuation and nothing that follows can be mistaken for part of it; and it is
+ * the cheaper of the two forms — 14 bytes at day precision (`YYYY-MM-DD` plus
+ * ` · `), against 21 for a trailing `(learned YYYY-MM-DD)`, on every element in
+ * every lane. The word "learned" is stated ONCE, in `FRAMING.context`, instead
+ * of once per element.
+ *
+ * The element text itself is never touched: the annotation lives outside it, so
+ * a belief still renders verbatim for contradiction detection.
+ *
+ * A differing content date is named inline and neutrally — `(of 2026-06-01)` —
+ * because the horizon lane's dates are in the FUTURE (an arriving occasion), and
+ * "happened" would be a lie about half of them.
+ */
+export const DATE_SEP = " · ";
+
+export function datePrefix(r: Resolved): string {
+  const learned = (r.learnedOn ?? "").trim();
+  if (learned === "") return "";
+  const happened = (r.happenedOn ?? "").trim();
+  const of = happened === "" || happened === learned ? "" : ` (of ${happened})`;
+  return `${learned}${of}${DATE_SEP}`;
+}
+
+/**
+ * ONE rendered line for one element — the single place the shape is decided, so
+ * the byte accounting (`elementBytes`, and through it the identity share) can
+ * never disagree with what `compose` actually writes.
+ */
+export function elementLine(item: Ranked, resolve: Resolve): string {
+  const r = resolve(item.id);
+  return `- ${datePrefix(r)}${flatten(r.statement)}`;
+}
+
 type Kept = Record<LaneName, Ranked[]>;
 
 function emptyCounts(): Record<LaneName, number> {
@@ -204,7 +259,7 @@ export function compose(kept: Kept, day: number, resolve: Resolve): Composed {
       const items = kept[lane];
       if (items.length === 0) continue;
       lines.push("", laneHeading(lane));
-      for (const item of items) lines.push(`- ${flatten(resolve(item.id).statement)}`);
+      for (const item of items) lines.push(elementLine(item, resolve));
     }
     lines.push("", sentinelLine(day, counts, elements, bytes));
     return lines.join("\n");
@@ -224,9 +279,10 @@ export function compose(kept: Kept, day: number, resolve: Resolve): Composed {
   };
 }
 
-/** What one element costs the composition: its own rendered line, exactly. */
+/** What one element costs the composition: its own rendered line, exactly —
+ *  the DATE included, so the share bounds what is actually written. */
 function elementBytes(item: Ranked, resolve: Resolve): number {
-  return byteLength(`- ${flatten(resolve(item.id).statement)}\n`);
+  return byteLength(`${elementLine(item, resolve)}\n`);
 }
 
 /** The identity lane's ceiling in bytes while other lanes are competing for it. */
