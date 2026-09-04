@@ -43,7 +43,7 @@ export {
 export type { CredentialLoad } from "./credentials.js";
 
 export {
-  AUTHORSHIP_ASK,
+  authorshipAsk,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   HOOKS,
@@ -75,11 +75,27 @@ export type {
   LiveEmbedderOptions,
 } from "./embed-client.js";
 
-export { DATA_DIR_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "./spawn.js";
+export { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "./spawn.js";
 export type { PlanInput, SpawnOutcome, SpawnPlan, SpawnRefusal, Spawner } from "./spawn.js";
 
-export { FOREIGN_MARKERS, classifyBlock, parseTranscript, readTranscript } from "./transcript.js";
-export type { TranscriptRead } from "./transcript.js";
+export {
+  BACKFILL_LIMIT,
+  LAG_PROMPT_BYTES,
+  LAG_REPLY_BYTES,
+  backfillVectors,
+  lagText,
+  laggedSemantic,
+} from "./vectors.js";
+export type { BackfillReport, LagReport } from "./vectors.js";
+
+export {
+  FOREIGN_MARKERS,
+  attributePeers,
+  classifyBlock,
+  parseTranscript,
+  readTranscript,
+} from "./transcript.js";
+export type { PeerAttribution, TranscriptRead } from "./transcript.js";
 
 export { AB_DIR_ENV, V2_OVERRIDE, abDir, assignmentHealth, assignmentPath, primacy, readAssignment } from "./primacy.js";
 export type { Assignment, AssignmentHealth, AssignmentState, Primacy, PrimacyReason } from "./primacy.js";

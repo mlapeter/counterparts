@@ -222,7 +222,16 @@ whichever side speaks. Hence primacy is single, explicit, and recorded, never em
   the run reuses v1's mechanism instead of inventing one.
 - **What counts as a day.** An **active day** is a lived day (scar E8) on which both
   systems reached at least one session boundary AND the day carried at least K
-  conversational turns, K committed in the run directory before day 1. Every other
+  conversational turns, K committed in the run directory before day 1. **Amended by
+  the build, 2026-09-04 (measured on day 1):** the muted side's boundary evidence is
+  graded, not required. v1's Stop hook logs no `ab.muted`, so a correctly muted v1
+  leaves session-start and prompt-submit mute rows and NO `session.end` — requiring one
+  classed every clean v2-primary day `thin`, the instrument reading the mute working as
+  the mute broken. That absence is now its own pre-declared value, `muted-consistent`
+  (§5 G13's fifth-value split), it requires v1's log to be present and carrying
+  `ab.muted` with no delivery of its own, and it is never folded into a pass. The
+  boundary half of `active` is therefore: the PRIMARY side reached a boundary and the
+  muted side is `pass` or `muted-consistent`. Every other
   lived day is recorded with a class and NOT counted toward a phase minimum:
   **thin** (below the floor), **contaminated** (the muted side delivered — G4),
   **mixed** (a session straddled the flip: a delivery event and a later `ab.muted` in

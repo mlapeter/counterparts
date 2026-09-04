@@ -20,17 +20,21 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  BOUNDARY_EVENT,
   Counterpart,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
+  SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { indexTextOf } from "../src/core/store/index.js";
+import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
+import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
-import { BOOTSTRAP } from "../src/core/self/index.js";
+import { BOOTSTRAP, BRIEFING_KEY } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
   API_KEY_ENV,
-  AUTHORSHIP_ASK,
+  authorshipAsk,
   CREDENTIAL_FILE_EVENT,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
@@ -47,6 +51,7 @@ import {
   abDir,
   assignmentHealth,
   assignmentPath,
+  attributePeers,
   capabilities,
   classifyBlock,
   createEmbedder,
@@ -59,6 +64,13 @@ import {
   openEmbedder,
   parseTranscript,
   permissionWarning,
+  SCOPE_ENV,
+  SESSION_ENV,
+  backfillVectors,
+  lagText,
+  laggedSemantic,
+  LAG_PROMPT_BYTES,
+  LAG_REPLY_BYTES,
   planSpawn,
   primacy,
   readAssignment,
@@ -144,6 +156,35 @@ function fakeSpawner(): { calls: SpawnPlan[]; spawner: (p: SpawnPlan) => { pid: 
       return { pid: 4242 };
     },
   };
+}
+
+/**
+ * THE CRASH, simulated the only way this host can produce one: the session hit a
+ * boundary and nobody ever came back. The worker's sweep reads a transcript only
+ * for a session with uncovered spans, no `session-end` boundary, and silence past
+ * `CRASH_STALE_MS` (`remember/spans.ts#crashedSessions`), so a test that wants the
+ * sweep to fire has to age the durable boundary record rather than delete a gate.
+ */
+function goQuiet(ms: number = REMEMBER.CRASH_STALE_MS + 60_000): void {
+  const root = join(dir, "spans");
+  for (const key of readdirSync(root, { withFileTypes: true })) {
+    if (!key.isDirectory()) continue;
+    const file = join(root, key.name, "boundaries.jsonl");
+    let raw: string;
+    try {
+      raw = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const aged = raw
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((line) => {
+        const record = JSON.parse(line) as { at: number };
+        return JSON.stringify({ ...record, at: record.at - ms });
+      });
+    writeFileSync(file, `${aged.join("\n")}\n`, "utf8");
+  }
 }
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
@@ -317,6 +358,52 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     // The sentinel states the bundle's own byte count, so truncation is
     // detectable from a preview alone (§1 G2, scar §2.3).
     expect(result.sentinel).toContain(`bytes=${result.bytes}`);
+  });
+
+  /**
+   * The delivery preface: the wake is composed at a boundary and served
+   * unchanged to every session until the next one, so the line that says WHICH
+   * SYSTEM, which lived day, today's date and how big the store is has to be
+   * composed here, at injection. On 2026-09-03 the system under this host
+   * changed mid-day and the body went on speaking as the old one.
+   */
+  test("the injection carries the delivery preface — composed at the hook, counted, inside the ceiling", async () => {
+    const { a } = adapter();
+    for (let i = 0; i < 6; i += 1) {
+      a.counterpart.store.put({
+        type: "memory",
+        kind: "self",
+        band: "identity",
+        body: `Something true about how I work, number ${i}, in enough words to spend bytes on.`,
+        salience: { novelty: null, relevance: 0.9, emotional: 0.6, predictive: 0.7 },
+        physics: { birthDay: 0, lastUsedDay: 0, promotedIdentity: true },
+      });
+    }
+    await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+
+    const result = a.sessionStart(input());
+    const lines = result.injection.split("\n");
+    expect(lines[0] ?? "").toContain("<!-- counterparts:wake ");
+    expect(lines[1] ?? "").toContain("Counterparts memory, day ");
+    expect(lines[1] ?? "").toContain("2026-01-02");
+    expect(lines[1] ?? "").toContain(" memories ");
+
+    // Counted: the hook's bytes, the sentinel's bytes and the text agree, and
+    // the whole thing still fits what the host said it can carry.
+    expect(result.bytes).toBe(Buffer.byteLength(result.injection, "utf8"));
+    expect(result.sentinel).toContain(`bytes=${result.bytes}`);
+    expect(lines[lines.length - 1] ?? "").toBe(result.sentinel as string);
+    expect(result.bytes).toBeLessThanOrEqual(BUDGET_BYTES);
+    expect(a.events("adapter.injection.overbudget").length).toBe(0);
+    expect(a.events("adapter.wake.injected")[0]?.data?.preface).toBe(true);
+
+    // Composed at DELIVERY: the published row carries no preface at all.
+    expect(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "").not.toContain("Counterparts memory, day ");
+
+    // And the delivered loop still closes, on the sentinel actually shipped.
+    a.userPromptSubmit(input({ prompt: "hello", sentinelSeen: result.sentinel }));
+    const delivered = a.events("adapter.wake.delivered");
+    expect(delivered[delivered.length - 1]?.data?.delivered).toBe(true);
   });
 
   test("the budget REPORTED BY THE HOST is what the briefing composes to", async () => {
@@ -543,7 +630,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
   test("stop raises the AUTHORSHIP ask while the experiencer still has the pen", async () => {
     const { a } = adapter();
     const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
     const measured = a.events("adapter.authorship.ask")[0]?.data;
     expect(measured?.uncovered).toBeGreaterThan(0);
     // The unaskable tail is MEASURED at the same moment, not assumed (§2 G12).
@@ -839,11 +926,76 @@ describe("interpret-client — streaming, stop_reason guarded, credential from e
 // The detached worker, end to end, with a faked model
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the runner — sweep then sleep, with the interpreter faked", () => {
+  test("every session-ending path CAPTURES, and the worker's sweep reads none of it until a session crashes", async () => {
+    // The ruling, end to end (2026-09-04): boundaries still capture at Stop,
+    // SessionEnd and pre-compaction — that capture is the compaction-amnesia
+    // backstop — and the worker still spawns for the flush and the cycle. What
+    // changed is that its SWEEP selects nothing unless a session crashed.
+    const { a, calls } = adapter();
+    const turnsFor = (tag: string): HookInput["turns"] => [
+      { role: "user", text: `A ${tag} conversation about how the backup set stays small enough to be honest about.` },
+      { role: "assistant", text: `Noted, in the ${tag} session: the cache is rebuildable, so nothing backs it up.` },
+    ];
+    for (const hook of SESSION_ENDING) {
+      const result = a.hook(hook as HookName, input({ sessionId: `s-${hook}`, turns: turnsFor(hook) }));
+      expect({ hook, ok: result.ok, appended: result.spansAppended > 0 }).toEqual({ hook, ok: true, appended: true });
+    }
+    // Stop and SessionEnd spawn the worker; that is unchanged and load-bearing.
+    expect(calls.length).toBe(2);
+    a.counterpart.close();
+    open.length = 0;
+
+    // The worker runs, and the interpreter is a tripwire: any model call fails
+    // this test. Nothing has crashed — every session's last boundary is seconds old.
+    const quiet = await runOnce({
+      config: config(),
+      today: "2026-01-02",
+      date: "2026-01-02",
+      fetch: async () => {
+        throw new Error("the sweep made a model call with nothing crashed");
+      },
+    });
+    expect({ ran: quiet.ran, swept: quiet.swept, minted: quiet.minted }).toEqual({
+      ran: true,
+      swept: 0,
+      minted: 0,
+    });
+
+    // Now the two sessions that never reached `session-end` go quiet. THOSE are
+    // crashed; the one that ended normally is not, and is not read.
+    goQuiet();
+    const swept = await runOnce({
+      config: config(),
+      today: "2026-01-03",
+      date: "2026-01-03",
+      fetch: async () =>
+        okResponse(
+          streamed('[{"content":"The cache is rebuildable from canonical files, which is why it never enters the backup set.","kind":"fact"}]'),
+        ),
+    });
+    expect(swept.swept).toBeGreaterThan(0);
+
+    // The gate's own durable row, both readings, so the daily can tell a quiet
+    // sweep from a broken one.
+    const after = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(after.counterpart);
+    const rows = after.counterpart.store
+      .eventLog({ name: SWEEP_GATE_EVENT, limit: 10 })
+      .map((row) => JSON.parse(row.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(2);
+    expect({ ran: rows[0]?.["ran"], skipped: rows[0]?.["skippedNotCrashed"] }).toEqual({ ran: 0, skipped: 1 });
+    expect(rows[1]?.["ran"]).toBe(1);
+    // Self-attributing: the row carries the calendar date the run belonged to,
+    // so a reader does not have to infer it from the lived-day column.
+    expect([rows[0]?.["date"], rows[1]?.["date"]]).toEqual(["2026-01-02", "2026-01-03"]);
+  });
+
   test("a run sweeps the captured spans, mints, and publishes a briefing the next wake reads", async () => {
     const { a } = adapter();
     a.stop(input());
     a.counterpart.close();
     open.length = 0;
+    goQuiet();
 
     const events: string[] = [];
     const report = await runOnce({
@@ -1201,7 +1353,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       );
       const parallelStop = a.stop(input());
       expect(pick(parallelStop)).toEqual(pick(plain.stop(input())));
-      expect(parallelStop.authorshipAsk).toBe(AUTHORSHIP_ASK);
+      expect(parallelStop.authorshipAsk).toBe(authorshipAsk("s1"));
 
       // The only difference: three deliver records, one per delivering hook.
       expect(a.events(PRIMACY_DELIVER_EVENT).map((e) => e.data?.hook)).toEqual([
@@ -1225,7 +1377,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     const stopped = a.stop(input());
     expect(a.events(PRIMACY_STANDDOWN_EVENT)).toEqual([]);
     expect(a.events(PRIMACY_DELIVER_EVENT)).toEqual([]);
-    expect(stopped.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(stopped.authorshipAsk).toBe(authorshipAsk("s1"));
     expect(a.counterpart.store.eventLog({ limit: 100 }).map((r) => r.name)).not.toContain(
       PRIMACY_STANDDOWN_EVENT,
     );
@@ -1377,18 +1529,179 @@ describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", (
     expect(enters({ role: "user", text, source: "injected" })).toBe(true);
   });
 
-  test("a Stop-hook wrapper WITHOUT a foreign marker is not foreign — v2's own asks arrive that way", () => {
-    const ours = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+  test("a Stop-hook wrapper WITHOUT a foreign marker is `ritual`, not foreign — and enters nothing", () => {
+    // The ask now carries the session id (`authorshipAsk`), which changes the
+    // TEXT and not the classification: `ritual` is decided by the host's
+    // wrapper, so the rule holds whatever the ask happens to say this turn.
+    const ours = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
+    // Not foreign: another memory system did not write this, WE did. The
+    // distinction is what keeps the canary's FOREIGN_MARKERS honest.
     expect(classifyBlock(ours)).not.toBe("foreign");
-    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(true);
+    expect(classifyBlock(ours)).toBe("ritual");
+    // But it does not enter either: v2's own ask is not something that happened
+    // to v2, and the ask's durable record is `adapter.authorship.ask`.
+    expect(enters({ role: "user", text: ours, source: classifyBlock(ours) })).toBe(false);
     // A bansai marker that is not at the start of the block is not a wrapper
     // match either — only the containment marker crosses a block boundary.
     expect(classifyBlock("we should ask whether [bansai] still runs here")).toBe("conversation");
+    // And the phrase MENTIONED mid-sentence is conversation about the mechanism.
+    expect(classifyBlock("the host returns a Stop hook feedback: block here")).toBe("conversation");
   });
 
   test("ordinary conversation is untouched by the new rule", () => {
     expect(classifyBlock("We settled the storage split today.")).toBe("conversation");
     expect(classifyBlock("")).toBe("conversation");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Peer speakers and the system's own ritual text — the two host shapes that
+// arrive user-role and are not the owner speaking (measured 2026-09-04)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the transcript reader attributes PEER messages and refuses its own RITUAL text", () => {
+  /** The host's wrapper, with the attribute set the v2.1.260 bundle carries. */
+  const wrapped = (
+    body: string,
+    attrs = 'from="uds:/tmp/cc-socks/30478.sock" from-name="mlapeter-41" from-mode="prompting"',
+  ) => `<cross-session-message ${attrs}>\n${body}\n</cross-session-message>`;
+
+  const OWNER = "We settled the storage split today: prose on disk, one small database.";
+  const PEER = "v2 challenge effect has no live consumer; session c781252f sweep census attached.";
+  const RITUAL = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
+  const ASSISTANT = "Recorded — the cache being rebuildable is what keeps the backup honest.";
+
+  /** The five host shapes as real JSONL lines, in the order a session sees them. */
+  const FIXTURE = [
+    JSON.stringify({ message: { role: "user", content: OWNER } }),
+    JSON.stringify({ message: { role: "user", content: wrapped(PEER) } }),
+    JSON.stringify({
+      message: {
+        role: "user",
+        content: `Have a look at this and tell me if it holds:\n${wrapped(PEER)}`,
+      },
+    }),
+    JSON.stringify({ message: { role: "user", content: RITUAL } }),
+    JSON.stringify({ message: { role: "assistant", content: [{ type: "text", text: ASSISTANT }] } }),
+  ].join("\n");
+
+  const LABEL = "[message from another Claude session, mlapeter-41]:";
+
+  test("five host shapes, five turns, and the speaker of each is on the record", () => {
+    const read = parseTranscript(FIXTURE);
+    // ONE BLOCK STAYS ONE TURN. The per-session cursor indexes into this list,
+    // so a reader that split a mixed block into two turns would re-slice a live
+    // session's uncaptured tail on the day it shipped.
+    expect(read.turns.length).toBe(5);
+    expect(read.turns.map((t) => t.source)).toEqual([
+      "conversation", // the owner, plainly
+      "injected", // nothing but a peer message: kept, but nobody HERE spoke
+      "conversation", // mixed: the owner did speak in this turn
+      "ritual", // v2's own ask, handed back by the host
+      "conversation", // the assistant
+    ]);
+    // The peer's words survive verbatim — they are real experience — but they
+    // arrive wearing the speaker's name, never the owner's.
+    expect(read.turns[1]?.text).toBe(`${LABEL} ${PEER}`);
+    expect(read.turns[2]?.text).toBe(`Have a look at this and tell me if it holds:\n${LABEL} ${PEER}`);
+    // The owner's own turn and the assistant's are untouched by any of this.
+    expect(read.turns[0]?.text).toBe(OWNER);
+    expect(read.turns[4]?.text).toBe(ASSISTANT);
+  });
+
+  test("the peer's words reach the span; the ritual text does not, and its exclusion is COUNTED", () => {
+    const read = parseTranscript(FIXTURE);
+    const { a } = adapter();
+    const result = a.stop(input({ turns: read.turns }));
+    expect(result.ok).toBe(true);
+
+    const texts = a.counterpart.spans.spans("proj").map((s) => s.text);
+    const conversation = texts.find((t) => t.includes(OWNER)) ?? "";
+    // Kept: the peer's finding is in the buffer, and both times behind the label.
+    expect(conversation).toContain(`${LABEL} ${PEER}`);
+    // Refused: v2's ask never becomes a memory of v2 having thought it.
+    for (const text of texts) {
+      expect(text).not.toContain("Stop hook feedback:");
+      expect(text).not.toContain("what did you LEARN here");
+    }
+
+    // SILENCE IS NOT HEALTH: the refusal is a number in the boundary record,
+    // not an absence. One turn excluded — the ritual one.
+    const boundary = a.events(BOUNDARY_EVENT).at(-1);
+    expect(boundary?.data["excluded"]).toBe(1);
+  });
+
+  test("a peer message never PACES a ritual, and a mixed turn paces on the owner's half", () => {
+    const read = parseTranscript(FIXTURE);
+    // `substanceOf` counts `conversation` only: the pure peer turn and the
+    // ritual turn are both out, the mixed turn is in (the owner did speak).
+    expect(substanceOf(read.turns).turns).toBe(3);
+    expect(substanceOf([read.turns[1]!]).turns).toBe(0);
+    expect(substanceOf([read.turns[3]!]).turns).toBe(0);
+  });
+
+  test("attribution falls back through the host's attribute set, and never to the owner", () => {
+    const named = (attrs: string) =>
+      attributePeers(`<cross-session-message ${attrs}>hi</cross-session-message>`).text;
+    expect(named('from-name="mlapeter-41" from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, mlapeter-41]: hi",
+    );
+    // No display name: the session id. An unattributed peer message is still
+    // not the owner, so there is always a label.
+    expect(named('from="uds:/tmp/cc-socks/1.sock" from-session="c781252f"')).toBe(
+      "[message from another Claude session, c781252f]: hi",
+    );
+    // `from` is NOT a fallback: it is a machine-local socket path, and it must
+    // not land in prose that outlives the socket. "unnamed" instead.
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).toBe(
+      "[message from another Claude session, unnamed]: hi",
+    );
+    expect(named('from="uds:/tmp/cc-socks/1.sock"')).not.toContain("cc-socks");
+    expect(named("")).toBe("[message from another Claude session, unnamed]: hi");
+    expect(named("from-name=''")).toBe("[message from another Claude session, unnamed]: hi");
+    // Two peers in one block are two labels, in order.
+    const two = attributePeers(
+      `<cross-session-message from-name="a">one</cross-session-message>\n<cross-session-message from-name="b">two</cross-session-message>`,
+    );
+    expect(two.peers).toBe(2);
+    expect(two.ownerText).toBe(false);
+    expect(two.text).toBe(
+      "[message from another Claude session, a]: one\n[message from another Claude session, b]: two",
+    );
+  });
+
+  test("a TRUNCATED wrapper is left alone rather than swallowing the rest of the block", () => {
+    // No closing tag: nothing is rewritten. The block still does not read as the
+    // owner speaking, because the `cross-session-` catch-all tags it `injected`.
+    const torn = '<cross-session-message from-name="mlapeter-41">half a mess';
+    expect(attributePeers(torn).peers).toBe(0);
+    expect(classifyBlock(torn)).toBe("injected");
+  });
+
+  test("the idle notice is plain text, not a wrapper — and is still not the owner", () => {
+    // Evidenced in the v2.1.260 bundle as a plain line, so it gets no rewrite;
+    // `injected` is the honest reading: host bookkeeping about a peer.
+    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" is idle now')).toBe("injected");
+    expect(classifyBlock('[Cross-session idle notice] "mlapeter-41" has exited')).toBe("injected");
+    // Any other wrapper the host adds under the same prefix reads the same way,
+    // rather than being guessed at.
+    expect(
+      classifyBlock("<cross-session-whatever-comes-next>x</cross-session-whatever-comes-next>"),
+    ).toBe("injected");
+  });
+
+  test("an ASSISTANT turn is never peer-rewritten — the host delivers peers user-role only", () => {
+    const raw = JSON.stringify({
+      message: { role: "assistant", content: [{ type: "text", text: `quoting ${wrapped("x")}` }] },
+    });
+    const read = parseTranscript(raw);
+    expect(read.turns[0]?.text).toContain("<cross-session-message");
+    expect(read.turns[0]?.source).toBe("injected");
+  });
+
+  test("v1's Stop-hook ask stays FOREIGN, not ritual — the canary's list still decides first", () => {
+    const theirs = "Stop hook feedback:\n- [bansai] Before this session closes, what did you learn?";
+    expect(classifyBlock(theirs)).toBe("foreign");
+    expect(enters({ role: "user", text: theirs, source: classifyBlock(theirs) })).toBe(false);
   });
 });
 
@@ -1867,6 +2180,7 @@ describe("novelty stops being null — the authored door measures prediction err
     a.stop(input());
     a.counterpart.close();
     open.length = 0;
+    goQuiet();
 
     const embedded: string[][] = [];
     const report = await runOnce({
@@ -2366,7 +2680,7 @@ describe("the authorship ask is PACED — the host's Stop is every turn, the ask
   test("first Stop asks; the next Stop on the same experience does not; enough new spans ask again", () => {
     const { a } = adapter();
     const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
     // The same session, one more small turn: uncovered > 0, but paced out.
     const second = a.stop(input({ turns: [...TURNS, { role: "user", text: "And one more short line for the record." }] }));
     expect(second.authorshipAsk).toBeNull();
@@ -2380,12 +2694,615 @@ describe("the authorship ask is PACED — the host's Stop is every turn, the ask
       text: `Turn ${i}: a genuinely new stretch of conversation, long enough to matter. ${"x".repeat(1_000)}`,
     }));
     const third = a.stop(input({ turns: [...TURNS, ...more] }));
-    expect(third.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(third.authorshipAsk).toBe(authorshipAsk("s1"));
   });
 
   test("a different session is paced on its own — the first Stop there asks", () => {
     const { a } = adapter();
     a.stop(input());
-    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(authorshipAsk("s2"));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE LIVE-SESSION REGISTRY, written here because the hooks are the only thing
+ * on this host that knows the session id.
+ *
+ * The MCP server this host launches is registered from a static configuration —
+ * command, args, env — so it never learns which session it is serving, and for
+ * the whole first run every dump was refused `no-bound-session`. These files are
+ * the note that closes that gap; `test/sessions.test.ts` tests the module, and
+ * what is tested HERE is that the hooks actually write it, at the right moments,
+ * with the right scope.
+ */
+describe("the hooks record the live session for the tools to bind against", () => {
+  const readRecord = (sessionId: string): SessionRecord | null => readSession(dir, sessionId);
+
+  test("session-start records the session with the hook's own cwd as its scope", () => {
+    const { a } = adapter();
+    a.sessionStart(input());
+    const rec = readRecord("s1");
+    expect(rec?.sessionId).toBe("s1");
+    expect(rec?.scope).toBe(canonicalScope("proj"));
+    expect(rec?.endedAt).toBeNull();
+    expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
+    expect(a.events("adapter.session.registry")[0]?.data).toEqual({ phase: "start", ok: true });
+  });
+
+  test("stop refreshes the clock BEFORE the ask that names the session goes out", () => {
+    const { a } = adapter();
+    const stopped = a.stop(input());
+    const rec = readRecord("s1");
+    // Created by Stop alone: a session already running when this shipped never
+    // saw a SessionStart, and must still be bindable.
+    expect(rec).not.toBeNull();
+    expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
+    // The ask names the id the registry just made live.
+    expect(stopped.authorshipAsk).toContain("s1");
+  });
+
+  test("a stop from a WORKTREE does not move the project out from under the server", () => {
+    const { a } = adapter();
+    a.sessionStart(input({ scope: "proj" }));
+    a.stop(input({ scope: "proj/.worktrees/wt" }));
+    expect(readRecord("s1")?.scope).toBe(canonicalScope("proj"));
+  });
+
+  test("session-end closes the session: no later dump may claim it", () => {
+    const { a } = adapter();
+    a.sessionStart(input());
+    a.sessionEnd(input());
+    const rec = readRecord("s1") as SessionRecord;
+    expect(rec.endedAt).not.toBeNull();
+    expect(isLive(rec, Date.now())).toBe(false);
+    expect(a.events("adapter.session.registry").map((e) => e.data?.["phase"])).toEqual([
+      "start",
+      "end",
+    ]);
+  });
+
+  test("an observer records nothing — an instrument has no session to write under", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Counterpart.open({ dir, owner: true }).close();
+    const { a } = adapter({ observer: true });
+    a.sessionStart(input());
+    a.stop(input());
+    a.sessionEnd(input());
+    expect(readRecord("s1")).toBeNull();
+    expect(a.events("adapter.session.registry")).toEqual([]);
+  });
+
+  test("a registry that cannot be written never costs the boundary (§5 G2)", () => {
+    const { a } = adapter();
+    // The registry path is a FILE: every write below fails at the filesystem.
+    writeFileSync(join(dir, "sessions"), "not a directory", "utf8");
+    try {
+      const stopped = a.stop(input());
+      expect(stopped.ok).toBe(true);
+      expect(stopped.spansAppended).toBeGreaterThan(0);
+      expect(a.events("adapter.session.registry")[0]?.data).toEqual({
+        phase: "boundary",
+        ok: false,
+      });
+    } finally {
+      rmSync(join(dir, "sessions"), { force: true });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the authorship ask names the session and the tool that takes it", () => {
+  test("the id is IN the ask — it is what the server binds itself with", () => {
+    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text).toContain("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text).toContain("session_end");
+  });
+
+  test("`updates` is named as a FIELD, never as prose to write", () => {
+    // Four notes on the live host arrived as "updates: mem_x. …" in their own
+    // body text, unlinked, because the old ask said "say `updates: <id>`".
+    const text = authorshipAsk("s1");
+    expect(text).toContain("FIELD");
+    expect(text).not.toContain("say `updates:");
+  });
+
+  test("it stays short — a model reads this at every Stop that is due one", () => {
+    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text.split("\n").length).toBeLessThanOrEqual(8);
+    expect(text.length).toBeLessThan(600);
+  });
+
+  test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {
+    const d = hostDelivery(
+      "stop",
+      { injection: "", authorshipAsk: authorshipAsk("s1"), ask: null },
+      { stop_hook_active: true },
+    );
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The semantic channel, wired: a LAGGED cue, and the backfill that feeds it
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE MEASURED FAILURE (2026-09-04, live store): `RecallTurn.vector` existed
+ * from `recall/`'s first commit and NEITHER live path set it — the hook built
+ * its turn without one, the MCP tool built its own — so 13,862 embeddings were
+ * consulted by nothing live, and 40 authored notes, 224 episodes and 288
+ * migrated memories had no vector at all.
+ *
+ * The ruling: do not embed on the hot path. Compute the cue after a turn, in the
+ * worker, and use it on the NEXT one. And rank it there too — `nearestTo` over a
+ * live-sized index measured 590-1040 ms, which the 1200 ms budget cannot pay.
+ *
+ * These tests hold both halves to it, and hold the prompt path to opening no
+ * socket at all.
+ */
+describe("the lagged semantic cue — computed after a turn, used on the next", () => {
+  /**
+   * A deterministic embedder over THREE topics. Not `vectorFor`: this block
+   * needs to assert WHICH memory the semantic channel reached, and a hash-shaped
+   * vector makes "the otter memory came back" an accident rather than a claim.
+   */
+  function topicEmbedder(): LiveEmbedder & { warmed: string[]; asked: string[] } {
+    const warmed: string[] = [];
+    const asked: string[] = [];
+    const cache = new Map<string, number[]>();
+    const vec = (t: string): number[] => {
+      const l = t.toLowerCase();
+      if (l.includes("otter")) return [1, 0, 0];
+      if (l.includes("kite")) return [0, 1, 0];
+      return [0, 0, 1];
+    };
+    return {
+      warmed,
+      asked,
+      model: "test-embed-1",
+      embed: (t: string) => cache.get(t) ?? null,
+      vector: async (t: string) => {
+        asked.push(t);
+        const v = vec(t);
+        cache.set(t, v);
+        return v;
+      },
+      warm: async (texts: readonly string[]) => {
+        for (const t of texts) {
+          warmed.push(t);
+          cache.set(t, vec(t));
+        }
+        return texts.length;
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+    };
+  }
+
+  /** An embedder that is switched on and answers NOTHING — a live client whose
+   *  every call refused, which is what a bad key looks like from up here. */
+  function deadEmbedder(): LiveEmbedder {
+    return {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0 }),
+    };
+  }
+
+  function brain(embedder: LiveEmbedder | null): Counterpart {
+    const c = Counterpart.open({
+      dir,
+      owner: true,
+      budgetBytes: BUDGET_BYTES,
+      ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
+    });
+    open.push(c);
+    return c;
+  }
+
+  /** Enough memories that the gate leaves the cold-start regime. */
+  function seed(c: Counterpart): { otter: string; kite: string } {
+    const otter = c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "The otter survey",
+      body: "The otter survey on the river counted eleven holts this spring.",
+    });
+    const kite = c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "The kite festival",
+      body: "The kite festival moved to the headland because of the wind.",
+    });
+    for (let i = 0; i < 18; i += 1) {
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `Filler memory number ${i}: an unremarkable fact about ordinary things.`,
+      });
+    }
+    return { otter, kite };
+  }
+
+  test("the worker leaves the cue; the NEXT turn uses it, and says where it came from", async () => {
+    const emb = topicEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    // Every memory gets its vector the guaranteed way: the backfill, not a
+    // deposit that happened to pay for one.
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+
+    // Turn 1 — the semantic channel is dark, and the record says so BY NAME
+    // rather than with the bare `semanticUsed: false` that told nobody anything.
+    const first = c.recallForTurn({ sessionId: "s-lag", text: "What did we settle about the river?" });
+    expect(first.decision.semanticUsed).toBe(false);
+    expect(first.decision.semanticSource).toBe("none");
+    expect(first.decision.turn).toBe(1);
+
+    // The turn is captured, then the worker runs — exactly the live order.
+    c.captureSpans({
+      session: "s-lag",
+      scope: "proj",
+      turns: [
+        { role: "user", text: "How many holts did the otter survey find?" },
+        { role: "assistant", text: "Eleven, on the river stretch." },
+      ],
+    });
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-lag",
+      scope: "proj",
+      embedder: emb,
+      hasCredential: true,
+    });
+    expect(lag.reason).toBe("ok");
+    expect(lag.stored).toBe(true);
+    expect(lag.hits).toBeGreaterThan(0);
+
+    // Turn 2 — a prompt with NO lexical overlap with the otter memory. Lexically
+    // it reaches nothing; the lagged cue is the only way in.
+    const second = c.recallForTurn({ sessionId: "s-lag", text: "And the count, remind me?" });
+    expect(second.decision.semanticUsed).toBe(true);
+    expect(second.decision.semanticSource).toBe("lagged");
+    expect(second.decision.semanticFromTurn).toBe(1);
+    expect(second.decision.verdicts.map((v) => v.id)).toContain(otter);
+  });
+
+  test("it expires after exactly ONE turn — the carried-cue rule, same reason", async () => {
+    const emb = topicEmbedder();
+    const c = brain(emb);
+    seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+
+    c.recallForTurn({ sessionId: "s-exp", text: "A first turn about the otter survey." });
+    c.captureSpans({
+      session: "s-exp",
+      scope: "proj",
+      turns: [
+        { role: "user", text: "How many holts did the otter survey find?" },
+        { role: "assistant", text: "Eleven." },
+      ],
+    });
+    await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-exp",
+      scope: "proj",
+      embedder: emb,
+      hasCredential: true,
+    });
+
+    // Turn 2 spends it.
+    expect(c.recallForTurn({ sessionId: "s-exp", text: "And the count?" }).decision.semanticSource).toBe(
+      "lagged",
+    );
+    // Turn 3 — no worker ran in between, so the cue is a turn too old. STALE, by
+    // name, never silently reused: a cue from two turns ago is a cue for a
+    // conversation that has moved.
+    const third = c.recallForTurn({ sessionId: "s-exp", text: "One more question." });
+    expect(third.decision.semanticSource).toBe("stale");
+    expect(third.decision.semanticUsed).toBe(false);
+    expect(third.decision.semanticFromTurn).toBe(1);
+  });
+
+  test("no credential ⇒ nothing is stored to use, and the next turn NAMES it", async () => {
+    const c = brain(topicEmbedder());
+    seed(c);
+    c.captureSpans({
+      session: "s-nokey",
+      scope: "proj",
+      turns: [{ role: "user", text: "Anything about the otter survey?" }],
+    });
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-nokey",
+      scope: "proj",
+      embedder: topicEmbedder(),
+      hasCredential: false,
+    });
+    expect(lag.reason).toBe("no-credentials");
+    expect(lag.hits).toBe(0);
+
+    const turn = c.recallForTurn({ sessionId: "s-nokey", text: "The count, again?" });
+    expect(turn.decision.semanticUsed).toBe(false);
+    // The whole point: a NAMED state, not a silence indistinguishable from a
+    // session nobody has spoken in (scar §2.4).
+    expect(turn.decision.semanticSource).toBe("no-credentials");
+  });
+
+  test("an embedder that answers nothing is `embed-failed`, and an absent one `embedder-off`", async () => {
+    const c = brain(null);
+    seed(c);
+    c.captureSpans({
+      session: "s-dead",
+      scope: "proj",
+      turns: [{ role: "user", text: "Anything about the kite festival?" }],
+    });
+    expect(
+      (await laggedSemantic({ counterpart: c, sessionId: "s-dead", scope: "proj", embedder: null, hasCredential: true }))
+        .reason,
+    ).toBe("embedder-off");
+    expect(
+      (
+        await laggedSemantic({
+          counterpart: c,
+          sessionId: "s-dead",
+          scope: "proj",
+          embedder: deadEmbedder(),
+          hasCredential: true,
+        })
+      ).reason,
+    ).toBe("embed-failed");
+    expect(c.recallForTurn({ sessionId: "s-dead", text: "Well?" }).decision.semanticSource).toBe(
+      "embed-failed",
+    );
+  });
+
+  test("a session with nothing captured is `no-text`, not a vector of the empty string", async () => {
+    const c = brain(topicEmbedder());
+    const emb = topicEmbedder();
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-silent",
+      scope: "proj",
+      embedder: emb,
+      hasCredential: true,
+    });
+    expect(lag.reason).toBe("no-text");
+    expect(emb.asked).toEqual([]);
+  });
+
+  test("the cue is BOUNDED and STRIPPED — the prompt leads, the reply is clipped (§9 G3)", () => {
+    const c = brain(topicEmbedder());
+    c.captureSpans({
+      session: "s-clip",
+      scope: "proj",
+      turns: [
+        {
+          role: "user",
+          text: `<system-reminder>host boilerplate</system-reminder>The otter question. ${"p".repeat(4_000)}`,
+        },
+        { role: "assistant", text: `The answer. ${"r".repeat(4_000)}` },
+      ],
+    });
+    const text = lagText(c, "s-clip", "proj");
+    expect(text).not.toContain("system-reminder");
+    expect(text.length).toBeLessThanOrEqual(LAG_PROMPT_BYTES + LAG_REPLY_BYTES + 2);
+    // The prompt LEADS: a cue that kept only the reply is a cue for the answer,
+    // not for what the conversation is about.
+    expect(text.startsWith("The otter question.")).toBe(true);
+  });
+
+  test("under OBSERVER nothing is written — the instrument leaves the world as it found it", async () => {
+    Counterpart.open({ dir }).close();
+    const c = Counterpart.open({ dir, observer: true });
+    open.push(c);
+    c.captureSpans({ session: "s-obs", scope: "proj", turns: [{ role: "user", text: "Otter?" }] });
+    const lag = await laggedSemantic({
+      counterpart: c,
+      sessionId: "s-obs",
+      scope: "proj",
+      embedder: topicEmbedder(),
+      hasCredential: true,
+    });
+    expect(lag.stored).toBe(false);
+    expect(c.store.gateRecords("s-obs")).toEqual([]);
+  });
+});
+
+describe("the embedding backfill — the guaranteed path to a vector", () => {
+  function counting(): LiveEmbedder & { warmed: string[] } {
+    const warmed: string[] = [];
+    const cache = new Map<string, number[]>();
+    return {
+      warmed,
+      model: "test-embed-1",
+      embed: (t: string) => cache.get(t) ?? null,
+      vector: async (t: string) => {
+        cache.set(t, vectorFor(t));
+        return vectorFor(t);
+      },
+      warm: async (texts: readonly string[]) => {
+        for (const t of texts) {
+          warmed.push(t);
+          cache.set(t, vectorFor(t));
+        }
+        return texts.length;
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+    };
+  }
+
+  function brain(embedder: LiveEmbedder | null): Counterpart {
+    const c = Counterpart.open({
+      dir,
+      owner: true,
+      ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
+    });
+    open.push(c);
+    return c;
+  }
+
+  test("first-person material first, oldest inside each group, capped at the limit", async () => {
+    const emb = counting();
+    const c = brain(emb);
+    // Ordinary swept material, born first — so a pure oldest-first order would
+    // take these and leave the authored notes blind for runs.
+    const swept = [0, 1, 2].map((i) =>
+      c.store.put({ type: "memory", kind: "fact", body: `A swept observation ${i}.`, source: "fallback" }),
+    );
+    const authored = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "Something I chose to write down myself.",
+      source: "authored",
+    });
+    const episode = c.store.put({ type: "episode", kind: "self", body: "A chapter of my own." });
+
+    const report = await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true, limit: 2 });
+    expect(report.reason).toBe("ran");
+    expect(report.attempted).toBe(2);
+    expect(report.embedded).toBe(2);
+    expect(report.failed).toBe(0);
+    // THE ORDER IS THE CLAIM: the authored note and the episode, not the three
+    // older swept ones.
+    const got = new Set(
+      c.store.nearestTo(vectorFor(indexTextOf("", "x")), 100).map((h) => h.id),
+    );
+    expect(got.has(authored)).toBe(true);
+    expect(got.has(episode)).toBe(true);
+    for (const id of swept) expect(got.has(id)).toBe(false);
+    // And the remainder is reported, so a coverage watch has a number that falls.
+    expect(report.remaining).toBe(3);
+
+    const rest = await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    expect(rest.embedded).toBe(3);
+    expect(rest.remaining).toBe(0);
+    expect((await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true })).reason).toBe(
+      "nothing-missing",
+    );
+  });
+
+  test("the counts are DURABLE — a coverage watch reads them out of the store tomorrow", async () => {
+    const emb = counting();
+    const c = brain(emb);
+    c.store.put({ type: "memory", kind: "fact", body: "One memory with no vector yet." });
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    const rows = c.store
+      .eventLog({ name: "adapter.embed.backfill", limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.["embedded"]).toBe(1);
+    expect(rows[0]?.["remaining"]).toBe(0);
+    expect(rows[0]?.["failed"]).toBe(0);
+  });
+
+  test("a warm that filled the WRONG key reports zero, never a success over an empty table", async () => {
+    // The seam that can silently break: `warm()` caches by whatever string it
+    // was handed, and `embedOne` looks up `indexTextOf(title, body)`. This
+    // embedder warms under a mangled key — every lookup misses.
+    const cache = new Map<string, number[]>();
+    const wrong: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: (t: string) => cache.get(t) ?? null,
+      vector: async () => null,
+      warm: async (texts: readonly string[]) => {
+        for (const t of texts) cache.set(`mangled:${t}`, vectorFor(t));
+        return texts.length;
+      },
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+    };
+    const c = brain(wrong);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory whose vector will be cached wrong." });
+    const report = await backfillVectors({ counterpart: c, embedder: wrong, hasCredential: true });
+    expect(report.attempted).toBe(1);
+    expect(report.embedded).toBe(0);
+    expect(report.failed).toBe(1);
+    expect(report.remaining).toBe(1);
+  });
+
+  test("it writes the VECTOR row and leaves `doc_tokens` untouched", async () => {
+    // The reason this is a test and not a comment: `indexDoc` would have been
+    // the obvious reuse, and it DELETEs and re-inserts every token row. The text
+    // has not changed, so that is 64 rewrites per Stop on the 263 MB index whose
+    // page-cache warming is exactly why `recall/`'s BUDGET_MS went 250 -> 1200.
+    // A backfill that made the cold recall slower would be self-defeating.
+    const emb = counting();
+    const c = brain(emb);
+    const id = c.store.put({ type: "memory", kind: "fact", body: "A memory with tokens already indexed." });
+    expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
+
+    await backfillVectors({ counterpart: c, embedder: emb, hasCredential: true });
+    // The lexical index still answers, and the vector row now exists.
+    expect(c.store.search("indexed", 5).map((h) => h.id)).toContain(id);
+    expect(c.store.nearestTo(vectorFor(indexTextOf("", "x")), 5).map((h) => h.id)).toContain(id);
+
+    // Greps for the CONSUMER, not the comment (scar §2.6's own method): the one
+    // write path the backfill uses must not be the token-rewriting one.
+    const src = readFileSync(fileURLToPath(new URL("../src/core/store/index.ts", import.meta.url)), "utf8");
+    const body = src.slice(src.indexOf("  embedOne(id: string)"));
+    const method = body.slice(0, body.indexOf("\n  }\n"));
+    expect(method).toContain("setEmbedding(");
+    expect(method).not.toContain("indexDoc(");
+  });
+
+  test("off, and refused, are two records — never one zero (scar §2.4)", async () => {
+    const c = brain(null);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory nobody will embed today." });
+    expect((await backfillVectors({ counterpart: c, embedder: null, hasCredential: true })).reason).toBe(
+      "embedder-off",
+    );
+    expect(
+      (await backfillVectors({ counterpart: c, embedder: counting(), hasCredential: false })).reason,
+    ).toBe("no-credentials");
+  });
+});
+
+describe("the prompt path opens NO socket — the ruling, mechanized", () => {
+  test("user-prompt-submit makes no network call, by either route", () => {
+    const realFetch = globalThis.fetch;
+    const calls: string[] = [];
+    (globalThis as { fetch: unknown }).fetch = (url: unknown): never => {
+      calls.push(String(url));
+      throw new Error("the prompt path opened a socket");
+    };
+    try {
+      const { calls: spawns, spawner } = fakeSpawner();
+      const a = openAdapter(config({ embedder: { enabled: true } }), {
+        command: "/bin/true",
+        args: ["runner"],
+        spawner,
+        // The OTHER route: the adapter's own injected fetch. A hook that reached
+        // it would fail here rather than pass quietly.
+        embedFetch: () => {
+          throw new Error("the prompt path opened a socket");
+        },
+      });
+      open.push(a.counterpart);
+      const out = a.userPromptSubmit(input({ prompt: "Anything about the storage split?" }));
+      expect(out.ok).toBe(true);
+      expect(calls).toEqual([]);
+      expect(spawns.length).toBe(0);
+    } finally {
+      (globalThis as { fetch: unknown }).fetch = realFetch;
+    }
+  });
+
+  test("Stop pins the session and scope onto the worker, so the cue has an owner", () => {
+    const { a, calls } = adapter();
+    a.stop(input());
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.env[SESSION_ENV]).toBe("s1");
+    expect(calls[0]?.env[SCOPE_ENV]).toBe("proj");
+  });
+
+  test("the recall row records WHERE the semantic input came from", () => {
+    const { a } = adapter();
+    a.userPromptSubmit(input({ prompt: "Anything about the storage split?" }));
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.recall", limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.["semantic"]).toBe("none");
   });
 });

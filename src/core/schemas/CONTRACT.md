@@ -96,6 +96,20 @@ name/alias resolution; birth and death telemetry.
 1. **[M] No model-facing operation edits a belief.** There is no such verb. Revision is
    `physics/` §5.6 applied to a declared `updates:`; a belief's text changes only as the
    result of that arithmetic, and the prior text is retained.
+   **1b. [M] A resolved `updates:` does what its TARGET allows, and the dispatch is the
+   engine's** (owner ruling 2026-09-04; wired at `src/core/revision.ts`, SEAMS item O).
+   A **belief** and an **identity element** accumulate PRESSURE and are superseded only
+   past the bar. A **current-state** row — a "now" fact — is REPLACED immediately with
+   lineage (`replaceCurrentState`), because world-state flips on one clear correction
+   (§4.3) and a stale status has no reason to climb a bar. An **entity** row and any
+   **ordinary memory** are LINKED and nothing else (`meta.updates` already records the
+   relation). A **protected** element refuses every one of those paths. Authored
+   declarations count for more than swept ones through the PHYSICS alone — a fallback
+   challenger's claim was already cut at the minting seam — and no second weighting
+   exists here. A CONFIRMATION (the engine matched a restatement rather than an author
+   addressing an id) enters none of it. Found as a gap on 2026-09-04: the pressure
+   accumulator had no live caller, and the running store held zero pressure, zero
+   `superseded_by` and zero `revision.pressure` events for its whole life.
 2. **[M] Birth requires the name to occur in the source as a whole name**, by the same
    whole-word function preselection uses — a schema whose name the source never said is a
    hallucinated entity.

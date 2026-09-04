@@ -39,7 +39,7 @@
  */
 import type { Kind, MemoryPhysics } from "../types.js";
 import { sal, strength } from "../physics/index.js";
-import type { ProseDoc, Store } from "../store/index.js";
+import type { Hit, ProseDoc, Store } from "../store/index.js";
 import { tokenize } from "../store/index.js";
 import { buildCues, tfFactor } from "./cues.js";
 import type { Cue } from "./cues.js";
@@ -82,6 +82,10 @@ export interface Candidate {
 export interface ActivationInput {
   readonly text: string;
   readonly vector?: readonly number[] | undefined;
+  /** A ranking somebody else already computed — the lagged semantic cue the
+   *  worker resolved one turn ago (`session.ts`). Supplied hits REPLACE the
+   *  `nearestTo` scan; an empty array is "nothing was near", which degrades. */
+  readonly hits?: readonly Hit[] | undefined;
   readonly carried?: readonly string[] | undefined;
   readonly aliases?: ReadonlyMap<string, readonly string[]> | undefined;
   /** Temporal cues from `prospective.arrivals()`: memory id and cue weight.
@@ -199,14 +203,26 @@ export function activate(
     cueScore.set(t0.id, (cueScore.get(t0.id) ?? 0) + t0.weight);
   }
 
-  // ── the embedding channel: an INPUT vector, never a fetched one ──────────
+  // ── the embedding channel: an INPUT, never a fetched one ────────────────
+  //
+  // TWO ways in, one scoring rule. `vector` is the caller's own embedding and
+  // this pass ranks it (the deliberate ask, which has no latency budget);
+  // `hits` is a ranking somebody else already did — the detached worker, one
+  // turn ago (`session.ts`, the lagged semantic cue), because the RANK is what
+  // costs 600-1000 ms on a live-sized index, not the arithmetic below. Supplied
+  // hits win: a caller that has both meant the resolved one.
   const semScore = new Map<string, number>();
   let semanticDegraded = false;
-  if (input.vector !== undefined && input.vector.length > 0) {
-    const hits = store.nearestTo(input.vector, t.SEMANTIC_TOP_M);
-    if (hits.length === 0) semanticDegraded = true;
+  const ranked: readonly Hit[] | null =
+    input.hits !== undefined
+      ? input.hits
+      : input.vector !== undefined && input.vector.length > 0
+        ? store.nearestTo(input.vector, t.SEMANTIC_TOP_M)
+        : null;
+  if (ranked !== null) {
+    if (ranked.length === 0) semanticDegraded = true;
     const floor = t.SEMANTIC_SEED_FLOOR;
-    for (const h of hits) {
+    for (const h of ranked.slice(0, t.SEMANTIC_TOP_M)) {
       if (h.score < floor) continue;
       const scaled = floor >= 1 ? h.score : (h.score - floor) / (1 - floor);
       semScore.set(h.id, t.SEMANTIC_WEIGHT * scaled);

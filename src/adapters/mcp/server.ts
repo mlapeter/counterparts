@@ -14,10 +14,22 @@
  *   1. **The bound session.** `session_end` is the return channel for ONE
  *      session's authorship ask (`claude-code/INTERFACE-GAPS.md` §7). A server
  *      launched for session A may not accept session B's dump, and a server
- *      launched with no session may not accept anyone's — "unbound" is a
- *      refusal, not a wildcard. A host that lets a model pick the session id it
- *      writes under has handed the model the ability to write into another
- *      session's day.
+ *      bound to nothing may not accept a bare claim — "unbound" is a refusal,
+ *      not a wildcard. A host that lets a model pick the session id it writes
+ *      under has handed the model the ability to write into another session's
+ *      day.
+ *
+ *      **The lazy bind, added 2026-09-04.** Measured on the live host: Claude
+ *      Code registers an MCP server from a STATIC config (command, args, env),
+ *      so `--session` never arrives and every dump for the whole run was
+ *      refused `no-bound-session`. So a server launched without one may bind
+ *      ONCE, from the model's claim, and only when the claim is CORROBORATED by
+ *      host state the model cannot write: `adapters/sessions.ts`'s registry,
+ *      written by the hooks, must hold that id, it must be live, and its scope
+ *      must be this server's scope. The first valid claim binds for the
+ *      process's lifetime; a second, different id is refused exactly as it
+ *      always was. The explicit `--session` path is unchanged and still wins:
+ *      a server told which session it is never consults the registry.
  *   2. **Stand-down over the wire** (§5 G5, scar E7/§2.4). Under observer every
  *      tool returns a result that SAYS it stood down, plus telemetry. A silent
  *      no-op would be indistinguishable from a broken server, which is the
@@ -31,8 +43,10 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import type { Counterpart, DepositResult } from "../../core/counterpart.js";
+import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
+import { SESSION_TTL_MS, isLive, readSession, sameScope } from "../sessions.js";
 import { deliberateRecall } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
 import {
@@ -57,14 +71,50 @@ export interface McpEvent {
 
 export interface McpServerOptions {
   counterpart: Counterpart;
-  /** The ONE session this server may deposit under. Absent ⇒ `session_end` refuses. */
+  /**
+   * The ONE session this server may deposit under, when the host can say so at
+   * launch. Absent ⇒ the lazy bind (`requireBoundSession`) is the only way in.
+   */
   session?: string;
-  /** The project/scope this session belongs to. Defaults to the store's dir. */
+  /**
+   * The project this server's sessions belong to. Defaults to `process.cwd()`,
+   * which is MEASURED to be the project directory on this host: `lsof` on four
+   * running servers, 2026-09-04, showed each one's cwd was the directory its
+   * session ran in. The store's dir is the last resort, and it is a bad scope —
+   * every memory authored through this server carried the store path as
+   * `origin_scope` for the whole run because it was the only default.
+   */
   scope?: string;
   /** Is this the owner's own session? Withholding is the safe direction. */
   owner?: boolean;
+  /**
+   * The embedder, for ONE purpose: embedding a deliberate question in line.
+   *
+   * The ruling of 2026-09-04 splits the two paths — the ambient hot path may not
+   * embed (it has a 1200 ms budget and a person mid-sentence), the deliberate
+   * ask may (someone typed a question and is waiting). This is that half.
+   *
+   * The server never sees a credential: the ENTRY POINT loads the file the
+   * package's own config names and hands over an opened embedder or null
+   * (`bin/serve.ts`), exactly as `bin/hook.ts` does for the hook adapter. Null
+   * degrades the ask to lexical-only and the result SAYS so.
+   */
+  embedder?: QuestionEmbedder | null;
+  /**
+   * Where the hooks' live-session registry lives. Defaults to the store's own
+   * data dir — the one path both adapters resolve independently and agree on.
+   */
+  registryDir?: string;
+  /** **CAL.** Liveness window for a lazily-bound claim (`adapters/sessions.ts`). */
+  sessionTtlMs?: number;
   onEvent?: (e: McpEvent) => void;
   now?: () => number;
+}
+
+/** The narrow face of `claude-code/embed-client.ts`'s `LiveEmbedder` this
+ *  adapter needs — structural, so `mcp/` imports no other adapter. */
+export interface QuestionEmbedder {
+  vector(text: string): Promise<number[] | null>;
 }
 
 /** MCP's tool-result shape. A refusal is a RESULT, never a JSON-RPC error. */
@@ -76,29 +126,83 @@ export interface ToolResult {
 
 const EVENT_RING = 200;
 
+/**
+ * The scope default, in order: what the host said, then this process's working
+ * directory, then — only if there is no cwd to be had — the store's own dir.
+ *
+ * The last resort is a bad answer and is kept only because a server with no
+ * scope at all cannot deposit: from 2026-09-03 it was the ONLY answer, so every
+ * memory authored through this server was stamped with the store path instead of
+ * the project. `process.cwd()` can throw (a deleted working directory), which is
+ * the one case the fallback is actually for.
+ */
+export function resolveScope(
+  declared: string | undefined,
+  storeDir: string,
+): { scope: string; source: ScopeSource } {
+  if (declared !== undefined && declared.length > 0) return { scope: declared, source: "flag" };
+  try {
+    const cwd = process.cwd();
+    if (cwd.length > 0) return { scope: cwd, source: "cwd" };
+  } catch {
+    /* no working directory — fall through to the store's own dir */
+  }
+  return { scope: storeDir, source: "store" };
+}
+
+/** How this server learned which project it is serving. Reported at startup. */
+export type ScopeSource = "flag" | "cwd" | "store";
+
 export class McpServer {
   readonly counterpart: Counterpart;
-  readonly session: string | null;
+  /** The session the HOST named at launch, if it could. Never changes. */
+  readonly launchedSession: string | null;
   readonly scope: string;
+  readonly scopeSource: ScopeSource;
   readonly owner: boolean;
   /** One predicate, one definition: the store's (observer-mode G7). */
   readonly observer: boolean;
 
+  private readonly embedder: QuestionEmbedder | null;
+  private readonly registryDir: string;
+  private readonly sessionTtlMs: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
   private readonly nowFn: () => number;
   private readonly ring: McpEvent[] = [];
   private initialized = false;
+  /** The lazy bind's result: null until a claim is corroborated, then frozen. */
+  private lazySession: string | null = null;
 
   constructor(opts: McpServerOptions) {
     this.counterpart = opts.counterpart;
-    this.session = opts.session !== undefined && opts.session.length > 0 ? opts.session : null;
-    this.scope = opts.scope ?? opts.counterpart.store.dir;
+    this.launchedSession =
+      opts.session !== undefined && opts.session.length > 0 ? opts.session : null;
+    const scope = resolveScope(opts.scope, opts.counterpart.store.dir);
+    this.scope = scope.scope;
+    this.scopeSource = scope.source;
+    this.registryDir = opts.registryDir ?? opts.counterpart.store.dir;
+    this.sessionTtlMs = opts.sessionTtlMs ?? SESSION_TTL_MS;
     this.observer = opts.counterpart.observer;
     // An observer is a non-owner regardless of what the host claimed
     // (observer-mode G7): an instrument reading somebody's store is not them.
     this.owner = opts.owner === true && !this.observer;
+    // An instrument opens no sockets, whatever the host handed it (scar E7).
+    this.embedder = this.observer ? null : opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
+    // LAST in the constructor — `emit` needs `nowFn`. A scope nobody chose is
+    // the bug this run measured, so which default won is on the record from the
+    // first event rather than inferable only from the memories it stamped.
+    this.emit("mcp.scope", undefined, {
+      scope: this.scope,
+      source: this.scopeSource,
+      boundSession: this.launchedSession !== null,
+    });
+  }
+
+  /** The session this server may deposit under: the host's, else the bound claim. */
+  get session(): string | null {
+    return this.launchedSession ?? this.lazySession;
   }
 
   events(name?: string): McpEvent[] {
@@ -179,7 +283,7 @@ export class McpServer {
       case "note":
         return this.noteTool(args);
       case "recall":
-        return this.recallTool(args);
+        return await this.recallTool(args);
       case "status":
         return this.statusTool();
       case "session_end":
@@ -223,6 +327,13 @@ export class McpServer {
     const draft: Record<string, unknown> = { content: text };
     if (typeof args["kind"] === "string") draft["kind"] = args["kind"];
     if (typeof args["title"] === "string") draft["title"] = args["title"];
+    // `updates` travels as a FIELD, exactly as it does on a `session_end` entry
+    // (added 2026-09-04: the Stop ask told the model to write `updates: <id>`
+    // and this tool had nowhere to put it, so four notes landed as prose with no
+    // link). The declaration is resolved downstream — `remember/updates.ts`
+    // validates it, `mint.ts` writes the RESOLVED id — and one that resolves to
+    // nothing lands unlinked rather than refusing the note.
+    if (typeof args["updates"] === "string") draft["updates"] = args["updates"];
     if (salience !== undefined) draft["claimed"] = salience;
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
 
@@ -235,7 +346,7 @@ export class McpServer {
   }
 
   /** `recall` — the deeper look. Writes nothing; see `deliberate.ts`. */
-  private recallTool(args: Record<string, unknown>): ToolResult {
+  private async recallTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
     const handle = args["handle"];
     const question = args["question"];
@@ -245,17 +356,28 @@ export class McpServer {
     if (question !== undefined && typeof question !== "string") {
       return this.refuse("recall", "question-not-a-string", {});
     }
+    // IN LINE, and only for a question: the handle path is an exact address and
+    // embedding it would buy nothing but a round trip. A refusal is a NAME, not
+    // a narrower answer — `deliberateRecall` degrades to lexical and says which.
+    const asked = typeof question === "string" && question.trim().length > 0;
+    const embedded = asked ? await this.embedQuestion(question) : { vector: null, semantic: "none" as SemanticSource };
     const result = deliberateRecall(
       this.counterpart,
       {
         ...(typeof handle === "string" ? { handle } : {}),
         ...(typeof question === "string" ? { question } : {}),
       },
-      { sessionId: this.session ?? "mcp", owner: this.owner },
+      {
+        sessionId: this.session ?? "mcp",
+        owner: this.owner,
+        vector: embedded.vector,
+        semantic: embedded.semantic,
+      },
     );
     this.emit("mcp.recall", undefined, {
       path: result.path,
       reason: result.reason,
+      semantic: result.semantic,
       returned: result.memories.length,
       considered: result.considered,
       storeSize: result.storeSize,
@@ -270,10 +392,32 @@ export class McpServer {
     return this.result(payload, bad);
   }
 
+  /**
+   * One embedding call, and every way it can decline, by name. The credential
+   * itself never appears here — `openEmbedder` was handed one at the entry point
+   * and this file only ever sees vectors or null.
+   */
+  private async embedQuestion(
+    question: string,
+  ): Promise<{ vector: number[] | null; semantic: SemanticSource }> {
+    if (this.embedder === null) return { vector: null, semantic: "embedder-off" };
+    try {
+      const vector = await this.embedder.vector(question);
+      return vector === null || vector.length === 0
+        ? { vector: null, semantic: "embed-failed" }
+        : { vector, semantic: "in-line" };
+    } catch {
+      return { vector: null, semantic: "embed-failed" };
+    }
+  }
+
   private recallPayload(result: DeliberateResult): Record<string, unknown> {
     return {
       path: result.path,
       reason: result.reason,
+      /** Said out loud, never inferred from a thinner answer: when the semantic
+       *  channel could not run, the asker is told which channel answered. */
+      semantic: result.semantic,
       /** The two numbers §9.1 G3 exists for: a count here is never a top-K. */
       considered: result.considered,
       storeSize: result.storeSize,
@@ -475,23 +619,73 @@ export class McpServer {
   }
 
   /**
-   * The bound-session refusal. Unbound is a REFUSAL, not a wildcard: a server
-   * launched without a session has no day to write into, and accepting one the
-   * model names would let it write into somebody else's.
+   * The bound-session refusal, and the ONE way a server binds itself.
+   *
+   * Three states, in order:
+   *
+   *   1. **The host said so at launch** (`--session`). Unchanged and preferred:
+   *      the registry is never consulted, and a claim for another id is refused.
+   *   2. **Already bound** — by launch or by an earlier claim. The bind is for
+   *      the process's lifetime, so a second, DIFFERENT id is refused with the
+   *      reason that says why.
+   *   3. **Unbound.** The claim must name an id (never inferred — see the
+   *      CONTRACT's residual risk: two live sessions in one directory are
+   *      distinguishable only by the id the ask named), and that id must be in
+   *      the hooks' registry, live, and in THIS server's scope. Every refusal
+   *      says which of the four it was, because a model that cannot tell
+   *      "unknown id" from "wrong project" cannot do anything about either.
    */
   private requireBoundSession(claimed: unknown): ToolResult | null {
-    if (this.session === null) {
-      this.emit("mcp.session.unbound", undefined, {});
-      return this.refuse("session_end", "no-bound-session", {
-        detail: "This server was launched without a session; there is no day to write into.",
+    const bound = this.session;
+    if (bound !== null) {
+      if (claimed !== undefined && claimed !== bound) {
+        this.emit("mcp.session.mismatch", undefined, {
+          bound: true,
+          source: this.launchedSession !== null ? "launch" : "registry",
+        });
+        return this.refuse("session_end", "session-mismatch", {
+          detail:
+            "This server is already bound to a different session, for the life of the process. A dump belongs to the session that lived it.",
+        });
+      }
+      return null;
+    }
+
+    if (typeof claimed !== "string" || claimed.length === 0) {
+      this.emit("mcp.session.unbound", undefined, { reason: "no-claim" });
+      return this.refuse("session_end", "session-required", {
+        detail:
+          "This server was launched without a session. Pass `session` — the session id the end-of-session ask named — and it will bind to it.",
       });
     }
-    if (claimed !== undefined && claimed !== this.session) {
-      this.emit("mcp.session.mismatch", undefined, { bound: true });
-      return this.refuse("session_end", "session-mismatch", {
-        detail: "This server is bound to a different session. A dump belongs to the session that lived it.",
+
+    const record = readSession(this.registryDir, claimed);
+    if (record === null) {
+      this.emit("mcp.session.unbound", undefined, { reason: "unknown" });
+      return this.refuse("session_end", "session-unknown", {
+        detail:
+          "No live session by that id has been recorded by this host's hooks. Use the id the end-of-session ask named, exactly.",
       });
     }
+    if (!isLive(record, this.nowFn(), this.sessionTtlMs)) {
+      this.emit("mcp.session.unbound", undefined, {
+        reason: record.endedAt === null ? "stale" : "ended",
+      });
+      return this.refuse("session_end", "session-not-live", {
+        detail:
+          "That session has ended or has been silent too long to still be writing its own day. Its memories belong to the sweep now.",
+      });
+    }
+    if (!sameScope(record.scope, this.scope)) {
+      this.emit("mcp.session.unbound", undefined, { reason: "scope-mismatch" });
+      return this.refuse("session_end", "scope-mismatch", {
+        detail:
+          "That session is running in a different project than this server. A dump belongs to the project that lived it.",
+      });
+    }
+
+    this.lazySession = claimed;
+    this.emit("mcp.session.bound", claimed, { source: "registry", scope: this.scope });
     return null;
   }
 

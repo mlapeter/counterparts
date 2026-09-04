@@ -46,9 +46,11 @@ export const GATE_STATE_VERSION = 1;
 
 /** The `gate_session.kind` vocabulary this module owns. `window` is
  *  `prospective/`'s (INTERFACE-GAPS.md §3) and is deliberately not read here. */
-export const GATE_KINDS = ["surfaced", "credited", "scalar"] as const;
+export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic"] as const;
 /** The one `scalar` row: the fields that are not per-memory. */
 export const SCALAR_REF = "state";
+/** The one `semantic` row: last turn's embedding cue, resolved to neighbours. */
+export const SEMANTIC_REF = "lag";
 
 /** What a memory got, the turn it got it, and whether it may ever train. */
 export interface SurfaceRecord {
@@ -214,4 +216,182 @@ export function saveGateState(store: Store, state: GateState, max: number): void
     });
   }
   store.setGateRecords(rows);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The LAGGED SEMANTIC CUE — per-session, one turn old, on the same table
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Why this exists, and why it holds NEIGHBOURS rather than a vector.
+ *
+ * `Turn.vector` has been an input since this module was written and NEITHER live
+ * path ever set it: the hook built its turn without one and the deliberate tool
+ * built its own. Measured on the live store 2026-09-04 — 13,862 embeddings that
+ * nothing live consulted, and a semantic channel that existed only in tests and
+ * in the sweep's card preselection.
+ *
+ * The obvious fix — embed the prompt on the way in — is the one v1 shipped
+ * (`~/bansai/hooks/surface.ts:82-88`: "a cold cache calls Voyage and the latency
+ * race covers it"), and it is how "no second LLM call" quietly became untrue
+ * there. It is also unaffordable here: every hook is a fresh process that
+ * already spends 700-1000 ms cold against a 1200 ms budget, and `recall.build`
+ * is a synchronous pass with checkpoints, not a race — an overrun does not
+ * degrade the channel, it aborts the turn.
+ *
+ * **OWNER RULING (2026-09-04): do not embed on the hot path.** Compute the cue
+ * after the turn, in the detached worker, and use it on the NEXT turn — exactly
+ * the one-turn lag `carriedCues` already runs on.
+ *
+ * **And resolve it in the worker too.** Measured here, hermetically, at the live
+ * store's size: `Store.nearestTo` over 13,862 stored vectors costs 590-1040 ms,
+ * because `cache.nearest` reads and `JSON.parse`s every row. Carrying the raw
+ * 1024-float vector across the lag would have moved the embedding call off the
+ * hot path and left the SCAN on it — the same abort, one layer down. So the
+ * worker embeds AND ranks, and what crosses the lag is the top-M `{id, score}`
+ * slice the activation pass would have computed: ~200 bytes, already the shape
+ * `activate()` consumes. (A deliberate deviation from "carry the vector": the
+ * vector is not kept, because nothing on the hot path could afford to use it —
+ * constitution line 15.)
+ *
+ * **Expiry: exactly one turn**, the same rule and for the same reason as
+ * `carriedCues`. The row stamps the session's SERVED turn count at the moment it
+ * was written; it is usable only while that number is still the served count,
+ * i.e. on the very next turn. A second turn without a fresh row reads `stale`.
+ * Retention beyond that is `Store.pruneGateSessions()`, which sweeps this row
+ * with the rest of the session's.
+ *
+ * **A failure is a NAMED STATE, never silence** (scar §2.4). The worker writes
+ * this row on every run, including the runs where it could not embed, so "the
+ * embedder has no credential" is a word in the decision record rather than an
+ * absence indistinguishable from "nothing was near".
+ */
+export const SEMANTIC_STATE_VERSION = 1;
+
+/** One neighbour, as `Store.nearestTo` returns it. Ids and scores; no bodies. */
+export interface SemanticHit {
+  id: string;
+  score: number;
+}
+
+/** What the WORKER managed. `ok` is the only one that yields a usable cue. */
+export type SemanticReason =
+  | "ok"
+  | "embedder-off"
+  | "no-credentials"
+  | "no-text"
+  | "embed-failed";
+
+/**
+ * How this turn's semantic channel got its input — a closed vocabulary, so
+ * "the channel was dark" always says WHY.
+ *
+ *   `none`        nothing was offered and no lag row exists (a core caller, or
+ *                 the first turn of a session).
+ *   `lagged`      a fresh row from the immediately preceding turn was used.
+ *   `in-line`     the caller embedded THIS text now (the deliberate ask, which
+ *                 has no latency budget and is allowed to pay for a round trip).
+ *   `stale`       a row exists but is older than one turn.
+ *   `unreadable`  a row exists and did not parse (a reset is countable).
+ *   the four `SemanticReason` failures — what the worker said it could not do.
+ */
+export type SemanticSource =
+  | "none"
+  | "lagged"
+  | "in-line"
+  | "stale"
+  | "unreadable"
+  | Exclude<SemanticReason, "ok">;
+
+interface SemanticPayload {
+  v: number;
+  turn: number;
+  reason: SemanticReason;
+  /** The embedding generation these hits were ranked under. Never a credential. */
+  model: string | null;
+  dim: number;
+  hits: SemanticHit[];
+}
+
+export interface SemanticInput {
+  sessionId: string;
+  /** The session's SERVED turn count when this cue was computed. */
+  turn: number;
+  lastDay: number;
+  reason: SemanticReason;
+  model?: string | null;
+  dim?: number;
+  hits?: readonly SemanticHit[];
+}
+
+export interface SemanticLoad {
+  source: SemanticSource;
+  /** Present only when `source === "lagged"`. Empty is a real answer: the
+   *  worker embedded fine and the index held nothing near (degraded). */
+  hits: readonly SemanticHit[] | null;
+  /** The turn the cue was computed from, when there was a row at all. */
+  fromTurn: number | null;
+  model: string | null;
+}
+
+/** Write the lag row. Refuses under observer at the store seam, like every
+ *  other gate write — an instrument leaves the world as it found it. */
+export function saveSessionSemantic(store: Store, input: SemanticInput): void {
+  const payload: SemanticPayload = {
+    v: SEMANTIC_STATE_VERSION,
+    turn: input.turn,
+    reason: input.reason,
+    model: input.model ?? null,
+    dim: input.dim ?? 0,
+    hits: [...(input.hits ?? [])],
+  };
+  store.setGateRecords([
+    {
+      sessionId: input.sessionId,
+      kind: "semantic",
+      ref: SEMANTIC_REF,
+      turn: input.turn,
+      lastDay: input.lastDay,
+      value: JSON.stringify(payload),
+    },
+  ]);
+}
+
+/**
+ * Read the lag row and judge it against the session's own served-turn count —
+ * both come out of ONE `gateRecords` read, so freshness is decided against the
+ * same snapshot the row was found in.
+ */
+export function loadSessionSemantic(store: Store, sessionId: string): SemanticLoad {
+  const rows = store.gateRecords(sessionId);
+  const row = rows.find((r) => r.kind === "semantic" && r.ref === SEMANTIC_REF);
+  if (row === undefined) return { source: "none", hits: null, fromTurn: null, model: null };
+  const served = rows.find((r) => r.kind === "scalar" && r.ref === SCALAR_REF)?.turn ?? 0;
+
+  let payload: SemanticPayload;
+  try {
+    const parsed = JSON.parse(row.value ?? "") as Partial<SemanticPayload>;
+    if (parsed === null || typeof parsed !== "object" || parsed.v !== SEMANTIC_STATE_VERSION) {
+      return { source: "unreadable", hits: null, fromTurn: null, model: null };
+    }
+    payload = {
+      v: SEMANTIC_STATE_VERSION,
+      turn: typeof parsed.turn === "number" ? parsed.turn : row.turn,
+      reason: (parsed.reason ?? "embed-failed") as SemanticReason,
+      model: parsed.model ?? null,
+      dim: parsed.dim ?? 0,
+      hits: Array.isArray(parsed.hits) ? parsed.hits : [],
+    };
+  } catch {
+    return { source: "unreadable", hits: null, fromTurn: null, model: null };
+  }
+
+  const base = { fromTurn: payload.turn, model: payload.model };
+  // The worker's own refusal outranks staleness: "there was no credential" is
+  // the more useful sentence, and it is true whatever turn it happened on.
+  if (payload.reason !== "ok") return { source: payload.reason, hits: null, ...base };
+  // ONE TURN, exactly as `carriedCues` expires: the cue must have been computed
+  // after the last turn this session served.
+  if (payload.turn !== served) return { source: "stale", hits: null, ...base };
+  return { source: "lagged", hits: payload.hits, ...base };
 }

@@ -140,6 +140,20 @@ needs a *thing to refuse*, which an ordinary memory would not give it. The secon
 option remains more brain-faithful and cheaper to clean up; if current-state rows
 turn out never to be re-read, that is the evidence to switch on.
 
+**And what happens when a current-state row is CONTRADICTED** (owner ruling
+2026-09-04, `replaceCurrentState`, SEAMS item O): it is replaced immediately,
+with lineage, and no pressure is accumulated. Two things this build decided that
+the ruling did not say:
+
+- **The successor's `statedOn` is the replacing day, not the target's.** A
+  replaced status is a status as of the day that replaced it; carrying the old
+  date forward would make a fresh correction read as stale, which is the exact
+  failure the timestamp exists to prevent.
+- **The versions row says `replaced-by-declaration`, not
+  `revised-by-pressure`.** They are different crossings and a reader of the
+  lineage must be able to tell a climbed bar from a fact that simply changed
+  (scar §2.4). Both strings live in `tunables.ts`, one spelling each.
+
 The refusal itself — `status-on-identity-refused` — is the ~72 KB lesson
 mechanized. It refuses on the *identity schema*, not on "status-shaped text",
 because a text classifier here would be a second, softer gate with no admission

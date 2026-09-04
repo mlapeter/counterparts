@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart, GATE_CHUNK_FIELDS } from "../src/core/counterpart.js";
+import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -42,6 +43,7 @@ let priorEnv: string | undefined;
 const open: Counterpart[] = [];
 
 beforeEach(() => {
+  offsetMs = 0;
   priorEnv = process.env[ENV];
   dir = mkdtempSync(join(tmpdir(), "counterparts-gate-"));
   process.env[ENV] = dir;
@@ -60,8 +62,22 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * THE TEST CLOCK, an OFFSET on the real one. The crash fallback's eligibility is
+ * a fact about time — a session is crashed when it has gone silent past
+ * `CRASH_STALE_MS` with no `session-end` boundary — so a test that wants a sweep
+ * makes its session GO QUIET. Setting the window to zero instead would delete the
+ * gate the fixture exists to exercise.
+ */
+let offsetMs = 0;
+
+/** The session stopped and nobody ever came back: this host's only crash signal. */
+function goQuiet(): void {
+  offsetMs += REMEMBER_TUNABLES.CRASH_STALE_MS + 60_000;
+}
+
 function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, ...opts });
+  const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
   open.push(c);
   return c;
 }
@@ -93,6 +109,7 @@ async function sweepOnce(
 ): Promise<void> {
   c.captureSpans({ session, scope: "proj", turns: TURNS });
   c.boundary({ session, scope: "proj", kind: "stop" });
+  goQuiet();
   await c.sweepFallback({ interpret: interpreter(proposals) });
 }
 
@@ -337,6 +354,7 @@ describe("the log stays telemetry: no text, one row per crossing, nothing under 
       ],
     });
     c.boundary({ session: "s2", scope: "proj", kind: "stop" });
+    goQuiet();
     await c.sweepFallback({ interpret: interpreter([GOOD]) });
 
     const rows = records(c);
@@ -376,6 +394,7 @@ describe("the sweep's index cards — prompt and gate see the same world", () =>
   function captureCardSession(c: Counterpart): void {
     c.captureSpans({ session: "s1", scope: "proj", turns: CARD_TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
   }
 
   function seedEntity(c: Counterpart): { entityId: string; beliefId: string } {
@@ -491,6 +510,7 @@ describe("the sweep's index cards — prompt and gate see the same world", () =>
     const prompts: string[] = [];
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
     await c.sweepFallback({
       interpret: async (chunk: SweepChunk) => {
         prompts.push(chunk.prompt);

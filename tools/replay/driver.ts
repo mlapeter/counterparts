@@ -233,7 +233,10 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
         excluded += result.excluded;
       }
       // Every session-ending path is a boundary, and the sweep only looks at
-      // spans past one: without this, every day reports NO_ENDED_SESSION.
+      // spans past one: without this, every day reports NO_CRASHED_SESSION.
+      // `stop`, never `session-end` — a corpus session that ended normally
+      // would be excluded from the sweep by the crash gate (see `crashStaleMs`
+      // below), and this harness's whole job is to drive the sweep path.
       brain.boundary({ session, scope, kind: "stop" });
       boundaries += 1;
     }
@@ -244,6 +247,13 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
       date,
       sweep: {
         interpret: opts.interpret,
+        // THE ONE LEGITIMATE OVERRIDE of the crash gate (2026-09-04). Live, a
+        // session must go silent for `CRASH_STALE_MS` before the fallback may
+        // read it; in a replay every session in the corpus died months ago and
+        // no author is coming back for it, so the window is zero here and
+        // NOWHERE else. The other two clauses still hold: a corpus session that
+        // recorded a `session-end` boundary is still never swept.
+        crashStaleMs: 0,
         ...(opts.minBytes === undefined ? {} : { minBytes: opts.minBytes }),
         ...(opts.chunkBytes === undefined ? {} : { chunkBytes: opts.chunkBytes }),
       },

@@ -14,7 +14,10 @@
  *    A belief's text changes only as the result of `physics.applyChallenge`
  *    arithmetic on a DECLARED `updates:`, and the prior text is retained by
  *    `store.supersede` (§5 G1, and the accommodation guardrail preserved by
- *    construction).
+ *    construction). `replaceCurrentState` is not an exception to that rule: it
+ *    writes a SUCCESSOR from the challenging memory's own prose, on a row that
+ *    is a "now" fact rather than a belief, and the prior row is retained the
+ *    same way. No verb here takes new text for an EXISTING row.
  * 2. **Birth is by mention, death is by decay.** A newly-named entity becomes a
  *    stub immediately — an explicit, logged creation event, no gate and no
  *    proposal queue (owner decision 2026-08-25). A stub that never accumulates
@@ -75,6 +78,8 @@ import type {
   PlacementOutcome,
   PlacementReason,
   PressureIncrement,
+  ReplacementOutcome,
+  ReplacementReason,
   RevisionOutcome,
   RevisionReason,
   SchemaEvent,
@@ -101,6 +106,7 @@ export const PUBLIC_SURFACE = [
   "addBelief",
   "addCurrentState",
   "challengeBelief",
+  "replaceCurrentState",
   "fadeSweep",
   // reads
   "entity",
@@ -817,37 +823,155 @@ export class Schemas {
     input: ChallengeInput,
     challenger: MemoryPhysics,
   ): string {
-    const statement = (input.statement ?? this.store.readProse(input.challengerId).body).trim();
     const entityId = rec.entityId ?? "";
-    const seed = successorSeed(this.store.physicsOf(targetId));
-    const successorId = this.store.supersede(
+    const successorId = this.supersedeElement({
       targetId,
-      {
-        type: "schema",
-        kind: row.kind,
-        body: statement,
-        meta: {
-          role: "belief",
-          entityId,
-          revisedFrom: targetId,
-          groundedIn: [input.challengerId],
-        },
-        // The evidence that carried the revision sets the successor's salience:
-        // a belief is as strongly held as what made it (NOTES §3).
-        salience: challenger.salience,
-        physics: { birthDay: input.day, lastUsedDay: input.day, ...seed },
-        // The channel vocabulary's fifth member finally has its writer (PR-2
-        // review should-fix 1): an accommodation successor is the engine
-        // revising under pressure, and its provenance is the challenger.
-        source: "accommodation",
-        origin: { ref: input.challengerId },
+      row,
+      role: "belief",
+      entityId,
+      input,
+      challenger,
+      reason: TUNABLES.REVISED_REASON,
+      indexRec: { role: "belief", entityId },
+    });
+    this.emit("schema.belief.revised", successorId, {
+      predecessorId: targetId,
+      entityId,
+      day: input.day,
+    });
+    return successorId;
+  }
+
+  /**
+   * A CURRENT-STATE row is a "now" fact, and the owner's ruling (2026-09-04) is
+   * that a resolved `updates:` against one REPLACES it, immediately, with
+   * lineage — no pressure to accumulate. That is not a second revision rule; it
+   * is §4.3's own ("world-state should flip on one clear correction") applied to
+   * the row type that IS world state. Pressure on a status already known stale
+   * would only keep the stale line rendering into slices while the correction
+   * waited for a bar it has no reason to climb.
+   *
+   * Everything else about the crossing is the belief path's — shared, not
+   * copied: the same supersede, the same lineage, the same retarget callback,
+   * the same `memory.superseded` record. The successor is stamped with a NEW
+   * `statedOn`, because a replaced status is a status as of the day that
+   * replaced it.
+   */
+  replaceCurrentState(input: ChallengeInput): ReplacementOutcome {
+    const refuse = (reason: ReplacementReason, targetId: string | null): ReplacementOutcome => {
+      this.emit("schema.state.replace.refused", targetId ?? undefined, {
+        reason,
+        challengerId: input.challengerId,
+        day: input.day,
+      });
+      return { ok: false, reason, targetId, retargeted: false, successorId: null };
+    };
+
+    if (input.updates.trim().length === 0) return refuse("no-declared-target", null);
+    let targetId: string;
+    try {
+      targetId = this.store.resolve(input.updates);
+    } catch {
+      return refuse("target-unresolvable", null);
+    }
+    const retargeted = targetId !== input.updates;
+    if (retargeted) {
+      this.emit("schema.revision.retargeted", targetId, {
+        declared: input.updates,
+        day: input.day,
+      });
+    }
+
+    const rec = this.meta.get(targetId);
+    if (rec === undefined || rec.role !== "current-state") {
+      return refuse("target-not-current-state", targetId);
+    }
+    const row = this.store.row(targetId);
+    if (row === undefined) return refuse("target-unresolvable", targetId);
+    if (row.archived === 1) return refuse("target-archived", targetId);
+    // Protected refuses EVERY revision path, the replace path included (§5 G11).
+    if (this.store.physicsOf(targetId).protected) {
+      return refuse("protected-refuses-revision", targetId);
+    }
+    if (this.store.row(input.challengerId) === undefined) {
+      return refuse("challenger-unknown", targetId);
+    }
+
+    const challenger = this.store.physicsOf(input.challengerId);
+    const entityId = rec.entityId ?? "";
+    const statedOn = today();
+    const successorId = this.supersedeElement({
+      targetId,
+      row,
+      role: "current-state",
+      entityId,
+      input,
+      challenger,
+      reason: TUNABLES.REPLACED_REASON,
+      meta: { statedOn, statedOnDay: input.day },
+      happenedOn: statedOn,
+      indexRec: { role: "current-state", entityId, statedOn, statedOnDay: input.day },
+    });
+    this.emit("schema.state.replaced", successorId, {
+      predecessorId: targetId,
+      entityId,
+      day: input.day,
+      statedOn,
+    });
+    return { ok: true, reason: "replaced", targetId, retargeted, successorId };
+  }
+
+  /**
+   * The one supersede flow both element paths cross. Written once because the
+   * half that is easy to forget is not the `store.supersede` call — it is
+   * everything after it: the successor carries the target's `entityId` and its
+   * ROLE (miss that and the revised element silently detaches from its schema —
+   * it stops appearing in slices and in its own story, and nothing else fails),
+   * it is registered in the in-memory index, its edges are retargeted, and the
+   * crossing is recorded.
+   */
+  private supersedeElement(spec: {
+    targetId: string;
+    row: MemoryRow;
+    role: SchemaRole;
+    entityId: string;
+    input: ChallengeInput;
+    challenger: MemoryPhysics;
+    reason: string;
+    meta?: Record<string, unknown>;
+    happenedOn?: string;
+    indexRec: MetaRecord;
+  }): string {
+    const { targetId, input } = spec;
+    const statement = (input.statement ?? this.store.readProse(input.challengerId).body).trim();
+    const seed = successorSeed(this.store.physicsOf(targetId));
+    const put: PutInput = {
+      type: "schema",
+      kind: spec.row.kind,
+      body: statement,
+      meta: {
+        role: spec.role,
+        entityId: spec.entityId,
+        revisedFrom: targetId,
+        groundedIn: [input.challengerId],
+        ...(spec.meta ?? {}),
       },
-      "revised-by-pressure",
-    );
-    this.remember(successorId, { role: "belief", entityId });
+      // The evidence that carried the revision sets the successor's salience:
+      // an element is as strongly held as what made it (NOTES §3).
+      salience: spec.challenger.salience,
+      physics: { birthDay: input.day, lastUsedDay: input.day, ...seed },
+      // The channel vocabulary's fifth member finally has its writer (PR-2
+      // review should-fix 1): an accommodation successor is the engine
+      // revising under pressure, and its provenance is the challenger.
+      source: "accommodation",
+      origin: { ref: input.challengerId },
+    };
+    if (spec.happenedOn !== undefined) put.happenedOn = spec.happenedOn;
+    const successorId = this.store.supersede(targetId, put, spec.reason);
+    this.remember(successorId, spec.indexRec);
     // SEAMS item E, in the same flow as the supersede: the successor inherits the
     // old head's live edges. A retarget that THROWS must not undo a revision that
-    // already landed — the belief is superseded either way, and a cold successor
+    // already landed — the element is superseded either way, and a cold successor
     // is a recoverable loss where a half-applied revision is not.
     if (this.retarget !== undefined) {
       try {
@@ -866,11 +990,6 @@ export class Schemas {
       successorId,
       day: record.day,
       resolvableUntilDay: record.resolvableUntilDay,
-    });
-    this.emit("schema.belief.revised", successorId, {
-      predecessorId: targetId,
-      entityId,
-      day: input.day,
     });
     return successorId;
   }
