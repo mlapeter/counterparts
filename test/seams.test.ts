@@ -19,8 +19,17 @@ import { Store, WRITE_METHODS } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility } from "../src/core/physics/index.js";
 import { MEMORY_SOURCES } from "../src/core/types.js";
 import type { MemoryPhysics } from "../src/core/types.js";
-import { SpanBuffer, WRITE_SITES, submitProposal, sweep } from "../src/core/remember/index.js";
-import type { Proposal, Span } from "../src/core/remember/index.js";
+import {
+  SpanBuffer,
+  TUNABLES as REMEMBER_TUNABLES,
+  WRITE_SITES,
+  submitProposal,
+  sweep,
+} from "../src/core/remember/index.js";
+import type { InterpretFn, Proposal, Span, SweepChunk } from "../src/core/remember/index.js";
+import { Counterpart } from "../src/core/counterpart.js";
+import { applyRevision } from "../src/core/revision.js";
+import { Dashboard, stripAnsi } from "../src/adapters/dashboard/index.js";
 import { batteryGate, episodeGate } from "../src/core/bridge.js";
 import { UPDATES_META_KEY, directionOf, mintProposal } from "../src/core/mint.js";
 import { SCALAR_REF, loadGateState, saveGateState } from "../src/core/recall/index.js";
@@ -1826,5 +1835,577 @@ describe("mint-source doctrine — who wrote it is recorded, and a reteller's cl
     const row = s.row(minted.id);
     expect(row?.claimed).toBe(0.5);
     expect(s.readProse(minted.id).meta["claimedRaw"]).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// O. THE REVISION SEAM HAS A CALLER — a declared `updates:` lands, by target
+//
+// The gap, measured 2026-09-04 on the live store: the surprise pipeline
+// dissented and the dissent went nowhere. The sweep declared a revision against
+// a shown card; `remember/` resolved it; `mint.ts` wrote `doc.meta["updates"]`
+// and routed the claim through the freeze seam — and then nothing. Store-wide,
+// for the store's whole life: zero rows with pressure, zero
+// `last_challenged_day`, zero `superseded_by`, zero `versions` rows, zero
+// `revision.pressure` events. `self/freeze.ts` called the revision path "the
+// caller's next stop"; the caller did not exist. `src/core/revision.ts` is it,
+// and every mint door calls it.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("O. a declared updates: reaches the engine — by door, and by target kind", () => {
+  const brains: Counterpart[] = [];
+
+  afterEach(() => {
+    for (const c of brains.splice(0)) {
+      try {
+        c.close();
+      } catch {
+        /* already closed */
+      }
+    }
+  });
+
+  /**
+   * THE TEST CLOCK, an offset on the real one. The sweep is a crash fallback in
+   * fact since 2026-09-04: it reads a transcript only for a session that holds
+   * uncovered spans, recorded no `session-end` boundary, and has gone silent past
+   * `CRASH_STALE_MS`. A fixture that wants a swept chunk therefore has to let its
+   * session GO QUIET — the honest crash, rather than a window set to zero.
+   */
+  let offsetMs = 0;
+
+  function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
+    const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
+    brains.push(c);
+    return c;
+  }
+
+  /** Spans are identified by CONTENT hash, so a second day of the same words is
+   *  a span the buffer has already consumed. The nonce is what makes a
+   *  multi-day fixture a multi-day fixture. */
+  function turns(nonce: string): { role: "user" | "assistant"; text: string }[] {
+    return [
+      {
+        role: "user",
+        text: `We went through the review habit on ${nonce} and it did not match what I had written down about how she likes to work.`,
+      },
+      {
+        role: "assistant",
+        text: `Noted — the standing note says async review, and ${nonce} was the opposite of that in every detail.`,
+      },
+      {
+        role: "user",
+        text: `Right. Write down what actually happened on ${nonce} rather than what the old note claims, because the old note is the thing being corrected.`,
+      },
+    ];
+  }
+
+  function interpreter(proposals: readonly unknown[]): InterpretFn {
+    return async (_chunk: SweepChunk) => ({ proposals, stopReason: "end_turn" });
+  }
+
+  /** One boundary and one swept chunk, on the store's current lived day. The
+   *  session stops and never comes back, which is what the crash gate reads as a
+   *  crash — the only state in which a sweep may spend a model call. */
+  async function sweptChunk(c: Counterpart, proposals: readonly unknown[]): Promise<void> {
+    const session = `s${c.store.livedDay()}`;
+    c.captureSpans({ session, scope: "proj", turns: turns(session) });
+    c.boundary({ session, scope: "proj", kind: "stop" });
+    offsetMs += REMEMBER_TUNABLES.CRASH_STALE_MS + 60_000;
+    await c.sweepFallback({ interpret: interpreter(proposals) });
+  }
+
+  /** A person entity with one belief on it — `person` inertia is 0.8, so the
+   *  slow-kind daily force cap makes "~3 lived days" a bound, not a hope. */
+  function personBelief(c: Counterpart): { entityId: string; beliefId: string } {
+    const entityId = c.schemas.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "seed",
+      day: c.store.livedDay(),
+    }).id as string;
+    const beliefId = c.schemas.addBelief({
+      entityId,
+      statement: "Ada prefers async review",
+      day: c.store.livedDay(),
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    return { entityId, beliefId };
+  }
+
+  const CHALLENGE =
+    "Ada booked a live screen share and talked the whole change through instead of leaving review comments.";
+
+  /**
+   * A challenger with real salience. Force is `strength(challenger) x
+   * sal(challenger)` (physics §5.6), so a draft with no dimensions and no claim
+   * pushes with EXACTLY ZERO — a credited challenge that moves the pressure
+   * field by nothing. The fixture states its salience for that reason.
+   */
+  function challenge(updates: string, content: string = CHALLENGE): Record<string, unknown> {
+    return {
+      content,
+      kind: "person",
+      updates,
+      claimed: 1,
+      salience: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    };
+  }
+
+  function revisions(c: Counterpart): Record<string, unknown>[] {
+    return c.events("counterpart.revision").map((e) => (e.data ?? {}) as Record<string, unknown>);
+  }
+
+  // ── the belief path, through the sweep ───────────────────────────────────
+  test("a SWEPT declaration adds pressure to a belief — the increment is durable", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    const day = c.store.livedDay();
+
+    await sweptChunk(c, [challenge(beliefId)]);
+
+    const p = c.store.physicsOf(beliefId);
+    expect(p.pressure).toBeGreaterThan(0);
+    expect(p.lastChallengedDay).toBe(day);
+    // Durable, not ringed: the number and the story of how it got there both
+    // survive the process (constitution 16, SEAMS K).
+    const log = c.store.eventLog({ name: "revision.pressure" });
+    expect(log).toHaveLength(1);
+    expect(log[0]?.ref).toBe(beliefId);
+    expect(revisions(c)).toEqual([
+      expect.objectContaining({
+        door: "sweep",
+        path: "belief",
+        reason: "below-bar",
+        credited: true,
+      }),
+    ]);
+  });
+
+  test("the LINK alone is what the gap looked like — meta.updates without a mover", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    // The mint door's OTHER half still runs and always did: the resolved id is
+    // written to prose meta, exactly as it was on the night the store recorded
+    // zero pressure. That is what made the gap invisible — the link looked like
+    // an effect. It is not one; only the applier moves anything.
+    await sweptChunk(c, [challenge(beliefId)]);
+    const minted = c.events("counterpart.sweep.minted")[0]?.ref as string;
+    expect(c.store.readProse(minted).meta[UPDATES_META_KEY]).toBe(beliefId);
+
+    const bare = store();
+    const only = bare.put({
+      type: "memory",
+      kind: "person",
+      body: CHALLENGE,
+      meta: { [UPDATES_META_KEY]: "sch_whatever" },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    expect(bare.physicsOf(only).pressure).toBe(0);
+  });
+
+  test("one credited challenge per target per lived day, whatever the chunk says", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    await sweptChunk(c, [
+      challenge(beliefId),
+      challenge(
+        beliefId,
+        "Ada asked for the walkthrough a second time in the same afternoon, which is not how the note reads.",
+      ),
+    ]);
+
+    // Two declarations, two applies — and only one of them may move the row.
+    const applied = revisions(c);
+    expect(applied).toHaveLength(2);
+    expect(applied.map((r) => r["reason"])).toEqual(["below-bar", "already-challenged-today"]);
+    expect(c.store.eventLog({ name: "revision.pressure" })).toHaveLength(1);
+  });
+
+  test("pressure crosses the bar and the belief is SUPERSEDED, with lineage", async () => {
+    const c = brain();
+    const { entityId, beliefId } = personBelief(c);
+    for (const date of ["2026-08-02", "2026-08-03", "2026-08-04"]) {
+      c.store.advanceClock(date);
+      await sweptChunk(c, [challenge(beliefId, `${CHALLENGE} (${date})`)]);
+      if (c.store.row(beliefId)?.superseded_by !== null) break;
+    }
+
+    const successorId = c.store.row(beliefId)?.superseded_by as string;
+    expect(typeof successorId).toBe("string");
+    expect(c.store.resolve(beliefId)).toBe(successorId);
+    expect(c.store.versions(beliefId).map((v) => v.reason)).toContain("revised-by-pressure");
+    // The successor stays attached to its schema — miss that and the revised
+    // belief silently detaches and nothing else fails.
+    expect(c.schemas.element(successorId)?.entityId).toBe(entityId);
+    expect(c.schemas.beliefs(entityId).map((b) => b.id)).toEqual([successorId]);
+    expect(revisions(c).some((r) => r["verdict"] === "revise")).toBe(true);
+  });
+
+  // ── the doors differ, through the PHYSICS and not a second weighting ──────
+  test("an AUTHORED declaration carries more force than a SWEPT one on the same belief", async () => {
+    const c = brain();
+    // An `entity`-kind belief: iota 0.5 is below the slow-kind threshold, so the
+    // daily force cap does not flatten the two channels into one number.
+    const entityId = c.schemas.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the live instance",
+      chunkRef: "seed",
+      day: c.store.livedDay(),
+    }).id as string;
+    const beliefId = c.schemas.addBelief({
+      entityId,
+      statement: "Bansai is the live instance and stays primary",
+      day: c.store.livedDay(),
+      dimensions: { relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+    }).id as string;
+
+    const dims = { relevance: 0.3, emotional: 0.3, predictive: 0.3 };
+    const body =
+      "Counterparts took over as primary this evening and bansai is muted for the parallel run.";
+    await sweptChunk(c, [
+      { content: body, kind: "fact", updates: beliefId, claimed: 1, salience: dims },
+    ]);
+    c.store.advanceClock("2026-08-02");
+    await c.submitSessionEnd(
+      {
+        content: `${body} Confirmed again the next morning, with the hooks answering.`,
+        kind: "fact",
+        updates: beliefId,
+        claimed: 1,
+        salience: dims,
+      },
+      { session: "s2", scope: "proj" },
+    );
+
+    const forces = c.store
+      .eventLog({ name: "revision.pressure" })
+      .map((row) => JSON.parse(row.payload ?? "{}") as { force: number; challengerId: string });
+    expect(forces).toHaveLength(2);
+    const swept = forces[0] as { force: number; challengerId: string };
+    const authored = forces[1] as { force: number; challengerId: string };
+    expect(authored.force).toBeGreaterThan(swept.force);
+    // And the reason is the one that ALREADY existed: the reteller's claim was
+    // cut at the minting seam, so a sweep pushes less hard arithmetically.
+    // Nothing in the revision path re-weights a channel (owner ruling).
+    expect(c.store.row(swept.challengerId)?.claimed).toBe(PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING);
+    expect(c.store.row(authored.challengerId)?.claimed).toBe(1);
+  });
+
+  test("the NOTE door applies a declaration too — every door, not just the sweep", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    const out = await c.submitJot(
+      challenge(beliefId),
+      { session: "s1", scope: "proj" },
+    );
+    expect(out.deposited).toBe(true);
+    expect(c.store.physicsOf(beliefId).pressure).toBeGreaterThan(0);
+    expect(revisions(c)).toEqual([
+      expect.objectContaining({ door: "jot", path: "belief", credited: true }),
+    ]);
+  });
+
+  // ── the identity path: same arithmetic, no schema ─────────────────────────
+  test("an IDENTITY element takes pressure on the same arithmetic and the same event", async () => {
+    const c = brain();
+    // The store's own notion of identity — the band column and the promotion
+    // flag, both written by the counted crossing in `sleep/consolidate.ts`.
+    const identityId = c.store.put({
+      type: "memory",
+      kind: "self",
+      body: "I work best by writing the plan down before touching anything.",
+      salience: { novelty: null, relevance: 0.2, emotional: 0.2, predictive: 0.2 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    c.store.updatePhysics(identityId, { promotedIdentity: true });
+    c.store.setBand(identityId, "identity", 0);
+
+    await c.submitSessionEnd(
+      {
+        content:
+          "I skipped the written plan today and worked straight through the change, and it went better than planning would have.",
+        kind: "self",
+        updates: identityId,
+        claimed: 1,
+      },
+      { session: "s1", scope: "proj" },
+    );
+
+    expect(revisions(c)).toEqual([
+      expect.objectContaining({ path: "identity", credited: true, verdict: "revise" }),
+    ]);
+    // The SAME durable event shape, so the dashboard's story reads it unchanged.
+    const log = c.store.eventLog({ name: "revision.pressure" });
+    expect(log).toHaveLength(1);
+    expect(log[0]?.ref).toBe(identityId);
+    expect(Object.keys(JSON.parse(log[0]?.payload as string)).sort()).toEqual([
+      "bar",
+      "challengerId",
+      "day",
+      "force",
+      "pressureAfter",
+      "targetId",
+    ]);
+
+    const successorId = c.store.row(identityId)?.superseded_by as string;
+    expect(typeof successorId).toBe("string");
+    expect(c.store.versions(identityId).map((v) => v.reason)).toContain("revised-by-pressure");
+    // Identity is entered by INHERITING it through a declared revision, and the
+    // successor is a memory — no entity, no role, no schema it was never part of.
+    expect(c.store.row(successorId)?.type).toBe("memory");
+    expect(c.store.row(successorId)?.band).toBe("identity");
+    expect(c.store.physicsOf(successorId).promotedIdentity).toBe(true);
+    expect(c.store.readProse(successorId).meta["entityId"]).toBeUndefined();
+    expect(c.store.readProse(successorId).meta["role"]).toBeUndefined();
+    expect(c.schemas.element(successorId)).toBeUndefined();
+
+    // The claim the shared event shape is FOR: the story view does not care
+    // which arm moved the row. An identity element has no entity, and the
+    // renderer says so rather than failing on a schema-only assumption.
+    c.close();
+    brains.length = 0;
+    const d = Dashboard.open({ dir });
+    try {
+      const text = stripAnsi(d.stories({ id: identityId }));
+      expect(text).toContain("REVISED");
+      expect(text).toContain("no entity named");
+    } finally {
+      d.close();
+    }
+  });
+
+  test("the increment reaches the DASHBOARD's story view, unchanged", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    await sweptChunk(c, [challenge(beliefId)]);
+    c.close();
+    brains.length = 0;
+
+    const d = Dashboard.open({ dir });
+    try {
+      const text = stripAnsi(d.stories({ id: beliefId }));
+      expect(text).toContain("Every credited challenge, in the order it landed");
+      expect(text).toContain("challenged by");
+      expect(text).toContain("held");
+    } finally {
+      d.close();
+    }
+  });
+
+  // ── the fast half: a "now" fact flips on one clear correction ─────────────
+  test("a CURRENT-STATE row is REPLACED immediately, with a versions row and no pressure", async () => {
+    const c = brain();
+    const entityId = c.schemas.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the live instance",
+      chunkRef: "seed",
+      day: c.store.livedDay(),
+    }).id as string;
+    const stateId = c.schemas.addCurrentState({
+      entityId,
+      statement: "Bansai is running as the live instance",
+      day: c.store.livedDay(),
+    }).id as string;
+
+    await c.submitSessionEnd(
+      {
+        content: "Bansai is muted from tonight and counterparts answers the hooks instead.",
+        kind: "entity",
+        updates: stateId,
+      },
+      { session: "s1", scope: "proj" },
+    );
+
+    expect(revisions(c)).toEqual([
+      expect.objectContaining({ path: "current-state", reason: "replaced", verdict: "replace" }),
+    ]);
+    const successorId = c.store.row(stateId)?.superseded_by as string;
+    expect(typeof successorId).toBe("string");
+    expect(c.store.versions(stateId).map((v) => v.reason)).toEqual(["replaced-by-declaration"]);
+    expect(c.schemas.currentState(entityId).map((s) => s.id)).toEqual([successorId]);
+    // No bar was climbed, because a stale "now" fact has no reason to climb one.
+    expect(c.store.physicsOf(stateId).pressure).toBe(0);
+    expect(c.store.eventLog({ name: "revision.pressure" })).toEqual([]);
+  });
+
+  // ── everything else: the link IS the effect ───────────────────────────────
+  test("an ORDINARY memory is LINKED and nothing else — no supersede, no pressure", async () => {
+    const c = brain();
+    const targetId = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The cache is rebuildable, so it never enters the backup set.",
+      salience: { novelty: null, relevance: 0.6, emotional: 0.5, predictive: 0.5 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    const out = await c.submitSessionEnd(
+      {
+        content:
+          "The cache is rebuildable from the canonical files, which is why the backup set stays small.",
+        kind: "fact",
+        updates: targetId,
+      },
+      { session: "s1", scope: "proj" },
+    );
+
+    expect(revisions(c)).toEqual([
+      expect.objectContaining({ path: "link-only", reason: "linked-only" }),
+    ]);
+    // The link already exists, and it is the whole effect (owner ruling).
+    expect(c.store.readProse(out.memoryId as string).meta[UPDATES_META_KEY]).toBe(targetId);
+    expect(c.store.row(targetId)?.superseded_by).toBeNull();
+    expect(c.store.physicsOf(targetId).pressure).toBe(0);
+  });
+
+  test("an ENTITY is not a claim: a declaration against one links and stops", async () => {
+    const c = brain();
+    const { entityId } = personBelief(c);
+    await c.submitSessionEnd(
+      challenge(entityId),
+      { session: "s1", scope: "proj" },
+    );
+    expect(revisions(c)).toEqual([
+      expect.objectContaining({ path: "link-only", reason: "target-is-an-entity" }),
+    ]);
+    // No model, on any path, can kill or rewrite an entity (schemas §5 G7).
+    expect(c.store.row(entityId)?.superseded_by).toBeNull();
+    expect(c.store.physicsOf(entityId).pressure).toBe(0);
+  });
+
+  test("a PROTECTED element refuses the declaration, from every door", async () => {
+    const c = brain();
+    const { entityId } = personBelief(c);
+    const protectedId = c.schemas.addBelief({
+      entityId,
+      statement: "Ada is the owner of this store, and that never gets revised away",
+      day: c.store.livedDay(),
+      protected: true,
+      dimensions: { relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+    }).id as string;
+
+    await c.submitSessionEnd(
+      challenge(protectedId),
+      { session: "s1", scope: "proj" },
+    );
+    await sweptChunk(c, [challenge(protectedId)]);
+
+    expect(revisions(c).map((r) => r["reason"])).toEqual([
+      "protected-refuses-revision",
+      "protected-refuses-revision",
+    ]);
+    // Checked BEFORE the arithmetic: permanence that quietly accumulates a case
+    // against itself is a different, worse guarantee (schemas NOTES §10).
+    expect(c.store.physicsOf(protectedId).pressure).toBe(0);
+    expect(c.store.physicsOf(protectedId).lastChallengedDay).toBeNull();
+    expect(c.store.row(protectedId)?.superseded_by).toBeNull();
+  });
+
+  // ── the effect list and the applies agree ────────────────────────────────
+  test("one apply per DECLARATION — an address that resolves to nothing is counted, not silent", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    await sweptChunk(c, [
+      challenge(beliefId),
+      {
+        // A confabulated address, and content that resembles nothing this store
+        // holds — so the content fallback finds no candidate either.
+        content:
+          "The garage door opener needs a fresh battery before winter, and the receipt is in the envelope.",
+        kind: "fact",
+        updates: "mem_deadbeefdead",
+        claimed: 1,
+        salience: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+      },
+    ]);
+    // encode emits ONE `revision.challenge` effect per accepted proposal whose
+    // declaration was non-null, BEFORE resolution — so the applies stand one for
+    // one with the effects, whatever the declaration turned out to name.
+    expect(c.events("remember.updates.resolved")).toHaveLength(2);
+    expect(revisions(c)).toHaveLength(2);
+    expect(revisions(c)[0]?.["path"]).toBe("belief");
+    expect(revisions(c)[1]?.["reason"]).toBe("target-unresolvable");
+  });
+
+  test("a FULLY GATED chunk moves nothing — no effect, and therefore no apply", async () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    await sweptChunk(c, [
+      { content: "placeholder", kind: "fact", updates: beliefId },
+      { content: "TBD", kind: "fact", updates: beliefId },
+    ]);
+    expect(c.events("counterpart.sweep.chunk")[0]?.data?.["fullyGated"]).toBe(true);
+    expect(revisions(c)).toEqual([]);
+    expect(c.store.physicsOf(beliefId).pressure).toBe(0);
+    expect(c.store.eventLog({ name: "revision.pressure" })).toEqual([]);
+  });
+
+  test("an OBSERVER moves nothing, at the door and at the applier itself", async () => {
+    const live = brain();
+    const { beliefId } = personBelief(live);
+    const challengerId = live.store.put({
+      type: "memory",
+      kind: "person",
+      body: CHALLENGE,
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    live.close();
+    brains.length = 0;
+
+    const c = brain({ observer: true });
+    await c.submitSessionEnd(
+      challenge(beliefId),
+      { session: "s1", scope: "proj" },
+    );
+    await sweptChunk(c, [challenge(beliefId)]);
+    expect(revisions(c)).toEqual([]);
+
+    // The second lock, on its own terms: an instrument that somehow reached the
+    // applier still leaves the world as it found it, and SAYS so rather than
+    // letting the store's write guard throw inside a deposit (scar E7).
+    const out = applyRevision(
+      c.store,
+      c.schemas,
+      { updates: beliefId, challengerId, day: c.store.livedDay(), method: "declared" },
+      {},
+    );
+    expect({ path: out.path, reason: out.reason, moved: out.moved }).toEqual({
+      path: "none",
+      reason: "observer",
+      moved: false,
+    });
+    expect(c.store.physicsOf(beliefId).pressure).toBe(0);
+  });
+
+  test("a CONFIRMATION is not a challenge — a matched restatement adds no pressure", () => {
+    const c = brain();
+    const { beliefId } = personBelief(c);
+    const challengerId = c.store.put({
+      type: "memory",
+      kind: "person",
+      body: "Ada prefers async review, still.",
+      salience: { novelty: null, relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+
+    // The direction is READ OFF the matcher's own verdict, through the same
+    // function the freeze seam uses — the two must not disagree (SEAMS N).
+    for (const method of ["content", "content+hint"]) {
+      expect(directionOf(method)).toBe("confirm");
+      const out = applyRevision(
+        c.store,
+        c.schemas,
+        { updates: beliefId, challengerId, day: c.store.livedDay(), method },
+        {},
+      );
+      expect(out.reason).toBe("confirmation-not-a-challenge");
+    }
+    expect(directionOf("declared")).toBe("soften");
+    // Saying the same thing again must never push a belief toward being
+    // superseded by its own paraphrase (scar §2.10).
+    expect(c.store.physicsOf(beliefId).pressure).toBe(0);
+    expect(c.store.row(beliefId)?.superseded_by).toBeNull();
   });
 });
