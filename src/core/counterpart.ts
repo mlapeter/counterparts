@@ -108,6 +108,21 @@ export type GateChunkField = (typeof GATE_CHUNK_FIELDS)[number];
 export const RECALL_DECISION_EVENT = "recall.decision";
 
 /**
+ * THE SWEEP GATE'S OWN RECORD — one row per `sweepFallback()` call, whether the
+ * sweep read anything or nothing.
+ *
+ * The sweep is now a crash fallback in fact and not only in the CONTRACT
+ * (`remember/fallback.ts`, owner ruling 2026-09-04), which means its ordinary
+ * state is SILENCE. Silence must never masquerade as health (constitution 16):
+ * without this row, "no sweeps today" is indistinguishable from a worker that
+ * never started, a credential that never loaded, or a gate that refuses
+ * everything. So the run says how many scopes it looked at, how many held a
+ * crashed session, how many it skipped for `NO_CRASHED_SESSION`, and what it
+ * swept and minted when it did run.
+ */
+export const SWEEP_GATE_EVENT = "sweep.gate";
+
+/**
  * The durable events an ADAPTER may write, and the whole list of them.
  *
  * A mild tension with constitution line 5 (the core knows nothing about any
@@ -259,6 +274,10 @@ export interface SweepEntry {
   chunkBytes?: number;
   minBytes?: number;
   staleClaimMs?: number;
+  /** How long a session must be SILENT before the fallback may call it crashed
+   *  (`TUNABLES.CRASH_STALE_MS`). The replay harness overrides it, because a
+   *  corpus of finished days is a corpus of sessions nobody will come back to. */
+  crashStaleMs?: number;
 }
 
 export interface SessionEndInput {
@@ -988,11 +1007,53 @@ export class Counterpart {
       ...(entry.chunkBytes === undefined ? {} : { chunkBytes: entry.chunkBytes }),
       ...(entry.minBytes === undefined ? {} : { minBytes: entry.minBytes }),
       ...(entry.staleClaimMs === undefined ? {} : { staleClaimMs: entry.staleClaimMs }),
+      ...(entry.crashStaleMs === undefined ? {} : { crashStaleMs: entry.crashStaleMs }),
     };
-    if (entry.scope !== undefined) {
-      return [await sweep(this.spans, { ...options, scope: entry.scope })];
+    const reports =
+      entry.scope !== undefined
+        ? [await sweep(this.spans, { ...options, scope: entry.scope })]
+        : await sweepAll(this.spans, options);
+    this.recordSweepGate(reports);
+    return reports;
+  }
+
+  /**
+   * ONE durable row per sweep run, so a silent sweep is EVIDENCED silence.
+   *
+   * The gate's ordinary answer is "nothing crashed", and a mechanism whose
+   * healthy state is doing nothing is exactly the mechanism whose failure is
+   * invisible. `ran` versus `skipped` is the whole reading: `skipped == scopes`
+   * with `ran: 0` is a healthy quiet day; no row at all on a day the worker was
+   * spawned is a broken worker.
+   *
+   * Guarded the way `recordDecision` is — a lock lost to a concurrent process
+   * must cost the ROW, never the sweep — and an observer writes nothing.
+   */
+  private recordSweepGate(reports: readonly SweepReport[]): void {
+    if (this.observer) return;
+    const ran = reports.filter((r) => r.ran).length;
+    const skipped = reports.filter((r) => r.reason === "NO_CRASHED_SESSION").length;
+    const payload = {
+      scopes: reports.length,
+      ran,
+      skippedNotCrashed: skipped,
+      // Every other refusal in one number: below-min claims, empty buffers, a
+      // failed restore. Nonzero here with `ran: 0` is NOT a quiet day.
+      otherRefusals: reports.length - ran - skipped,
+      swept: reports.reduce((n, r) => n + r.spansSwept, 0),
+      minted: reports.reduce((n, r) => n + r.proposals, 0),
+      restored: reports.reduce((n, r) => n + r.spansRestored, 0),
+      quarantined: reports.reduce((n, r) => n + r.spansQuarantined, 0),
+      crashStaleMs: this.spans.crashStaleMs,
+    };
+    let durable = true;
+    try {
+      this.store.appendEvent({ name: SWEEP_GATE_EVENT, day: this.store.livedDay(), payload });
+    } catch (err) {
+      durable = false;
+      this.emit("counterpart.sweep.gate.failed", undefined, { code: errCode(err) });
     }
-    return sweepAll(this.spans, options);
+    this.emit("counterpart.sweep.gate", undefined, { ...payload, durable });
   }
 
   /**

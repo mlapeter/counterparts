@@ -131,6 +131,24 @@ charter).
 2. **What is the honest bound on the orphanable tail** — the stretch after the last
    session-ending event nobody can ask about — in this host specifically? v1 bounded it by
    its re-ask threshold and logged it, which is the right shape; the number is host-local.
-3. **Which host event, if any, means "crashed"?** Crash-fallback interpretation is the only
-   remaining transcript-reading path, and it needs a trigger that is not merely "no
-   end-of-session write happened," since that also describes an ordinary abrupt exit.
+3. ~~**Which host event, if any, means "crashed"?**~~ **ANSWERED 2026-09-04 (owner
+   ruling).** *No host event does* — and that is the answer, not a gap. This host has no
+   crash signal: an abrupt exit, a killed terminal and an ordinary close all leave the
+   same trace. So "crashed" is defined on the boundary record instead, and the definition
+   is host-agnostic enough to live in the core (`remember/spans.ts#crashedSessions`):
+
+   > A session is CRASHED when it holds uncovered spans, has recorded **no `session-end`
+   > boundary**, and has had **no boundary activity for `CRASH_STALE_MS`** (60 minutes,
+   > CAL).
+
+   Two consequences this adapter owns. First, `session-end` is now load-bearing beyond
+   its ask: it is the host's own statement that the author got the pen, and a session
+   carrying one is never swept, however much trailing material it left. Second,
+   `pre-compact` is **not** a crash. It was the closest thing to a named catastrophe and
+   it is still wired — but what answers compaction is the unconditional *capture* at that
+   boundary, not a model call; the sweep follows only if that session then goes silent.
+
+   The hook path is unchanged by this: boundaries still capture at all three paths and
+   the worker still spawns at Stop and SessionEnd for the Hebbian flush and the sleep
+   cycle. Only the worker's sweep step is gated, and its skip is a durable `sweep.gate`
+   row so a quiet sweep is distinguishable from a dead one.

@@ -34,6 +34,7 @@ import {
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
   RECALL_DELIVERED_EVENT,
+  SWEEP_GATE_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
@@ -80,6 +81,7 @@ export type DurableEventName =
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
   | typeof RECALL_DECISION_EVENT
+  | typeof SWEEP_GATE_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -106,6 +108,7 @@ export const DURABLE_EVENTS = {
   "memory.merged": "a duplicate was merged into its original",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief took a credited challenge",
+  "sweep.gate": "the crash fallback ran its gate (scopes looked at, scopes skipped as nothing-crashed, spans swept)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

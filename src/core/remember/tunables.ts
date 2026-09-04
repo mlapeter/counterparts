@@ -19,6 +19,30 @@ export const TUNABLES = {
   /** Hashes retained in the consumed ledger (dedup layer 2's tail). Bounded on
    *  purpose: it is telemetry-grade bookkeeping, not canonical memory. */
   CONSUMED_LEDGER_MAX: 2000,
+  /** CAL. How long a session must go SILENT — no boundary of any kind — before
+   *  the fallback may call it crashed and read its transcript. It is the third
+   *  clause of the crash definition (uncovered spans ∧ no `session-end`
+   *  boundary ∧ this window), and it has nothing to do with `STALE_CLAIM_MS`:
+   *  that one ages a CLAIM FILE against a worker's watchdog, this one ages a
+   *  SESSION against its author. `validateWatchdog()` is untouched by it.
+   *
+   *  Shipped enabled at 60 minutes, and the honest question is what being wrong
+   *  costs in each direction. TOO SHORT re-creates the bug this gate exists to
+   *  kill: a live session that pauses — the owner at lunch, a long build, a
+   *  human thinking — is read as crashed, and the sweep paraphrases turns whose
+   *  author is still holding the pen (measured 2026-09-04: 13 chunks, 61
+   *  sweep-minted memories beside 34 authored notes in one evening, twins that
+   *  TAU_DUP 0.95 can never merge). TOO LONG costs only DELAY: a genuinely
+   *  crashed session's spans wait in the buffer for the next worker run past
+   *  the window — nothing is lost, because nothing is dropped. An asymmetric
+   *  cost gets the generous number. 60 minutes is longer than any inter-turn
+   *  gap observed in the parallel run's transcripts and short enough that a
+   *  crash is recovered the same day.
+   *
+   *  The measurement that would calibrate it (CAL, owed): count sessions swept
+   *  under this rule that LATER received an authored deposit. A nonzero count
+   *  is the window being too short. */
+  CRASH_STALE_MS: 60 * 60_000,
   /** Target bytes per fallback chunk. Chunking is per-chunk failure isolation
    *  (scar E1), not a token budget — the budget belongs to whoever injects the
    *  interpret function. */

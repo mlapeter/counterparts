@@ -227,6 +227,9 @@ export interface BufferOptions extends Stance {
   day?: () => number;
   minClaimBytes?: number;
   staleClaimMs?: number;
+  /** How long a session must be silent before the fallback may call it crashed
+   *  (TUNABLES.CRASH_STALE_MS). Nothing to do with `staleClaimMs`. */
+  crashStaleMs?: number;
   consumedLedgerMax?: number;
   maxSpanFailures?: number;
   onEvent?: (event: RememberEvent) => void;
@@ -242,6 +245,7 @@ export class SpanBuffer {
   readonly observer: boolean;
   readonly minClaimBytes: number;
   readonly staleClaimMs: number;
+  readonly crashStaleMs: number;
   readonly consumedLedgerMax: number;
   readonly maxSpanFailures: number;
   private readonly nowFn: () => number;
@@ -255,6 +259,7 @@ export class SpanBuffer {
     this.observer = isObserver(opts);
     this.minClaimBytes = opts.minClaimBytes ?? TUNABLES.MIN_CLAIM_BYTES;
     this.staleClaimMs = opts.staleClaimMs ?? TUNABLES.STALE_CLAIM_MS;
+    this.crashStaleMs = opts.crashStaleMs ?? TUNABLES.CRASH_STALE_MS;
     this.consumedLedgerMax = opts.consumedLedgerMax ?? TUNABLES.CONSUMED_LEDGER_MAX;
     this.maxSpanFailures = opts.maxSpanFailures ?? TUNABLES.MAX_SPAN_FAILURES;
     this.nowFn = opts.now ?? (() => Date.now());
@@ -567,10 +572,89 @@ export class SpanBuffer {
     return this.readLines<BoundaryRecord>(this.path(scope, "boundaries.jsonl"));
   }
 
-  /** Sessions that have hit a session-ending boundary — the fallback's eligibility
-   *  test. A session still running has an author who may yet get the pen. */
-  endedSessions(scope: string): Set<string> {
-    return new Set(this.boundaries(scope).map((b) => b.session));
+  /**
+   * THE MECHANICAL DEFINITION OF "CRASHED" (owner ruling 2026-09-04, adapter
+   * CONTRACT open question 3). A session is crashed when all three hold:
+   *
+   *   1. it has recorded NO `session-end` boundary — an author who reached the
+   *      host's own end-of-session path got the pen, and what it chose not to
+   *      write is forgotten by design (constitution 3);
+   *   2. it has had NO boundary activity for `crashStaleMs` — silence is the
+   *      only crash signal this host offers, since an abrupt exit looks exactly
+   *      like an ordinary one at the hook seam;
+   *   3. it holds uncovered spans — the third clause, checked by
+   *      `crashedPending()` below, because a session that crashed months ago
+   *      and was already swept must not keep the sweep claiming forever.
+   *
+   * A session with no boundary at all is not here either: nothing has ended, and
+   * its author may still get the pen. Note what falls out of (1): a
+   * `pre-compaction` boundary is NOT a session end, so a session that compacted
+   * and then went silent past the window IS crashed — the compaction-amnesia
+   * case is recovered by the silence, never by the compaction event itself.
+   */
+  crashedSessions(scope: string, opts: { staleMs?: number } = {}): Set<string> {
+    const staleMs = opts.staleMs ?? this.crashStaleMs;
+    const now = this.nowFn();
+    const lastAt = new Map<string, number>();
+    const endedNormally = new Set<string>();
+    for (const b of this.boundaries(scope)) {
+      if (typeof b.session !== "string") continue;
+      const at = typeof b.at === "number" ? b.at : 0;
+      lastAt.set(b.session, Math.max(lastAt.get(b.session) ?? 0, at));
+      if (b.kind === "session-end") endedNormally.add(b.session);
+    }
+    const crashed = new Set<string>();
+    for (const [session, at] of lastAt) {
+      if (endedNormally.has(session)) continue;
+      if (now - at >= staleMs) crashed.add(session);
+    }
+    return crashed;
+  }
+
+  /**
+   * The sweep's eligibility test, answered BEFORE any claim: which sessions are
+   * crashed, how many spans they left behind, and how many of those nobody
+   * authored.
+   *
+   * Pre-claim on purpose. A scope with nothing crashed must cost no rename, no
+   * restore and no consume — and, more importantly, its record must read
+   * "nothing crashed" rather than "claimed and found nothing already authored",
+   * or the daily cannot tell a quiet sweep from a broken one (constitution 16).
+   *
+   * TWO NUMBERS, because they gate two different things. `spans` decides whether
+   * the sweep looks at this scope at all; `uncovered` is what a model call would
+   * ever be spent on. A crashed session whose spans were ALL authored is still
+   * worth claiming — it retires them without a call (the `NOTHING_UNCLAIMED`
+   * path) — and if it were not claimed, its spans would sit in the buffer for
+   * good.
+   *
+   * Spans held in CLAIM FILES count: a worker that died mid-arc left its spans
+   * there, and `claim()` merges those back in past the staleness window. Without
+   * them, a crashed run's orphans could be stranded by this very gate.
+   */
+  crashedPending(scope: string, opts: { staleMs?: number } = {}): {
+    sessions: Set<string>;
+    spans: number;
+    uncovered: number;
+  } {
+    const sessions = this.crashedSessions(scope, opts);
+    if (sessions.size === 0) return { sessions, spans: 0, uncovered: 0 };
+    const covered = this.coveredHashes(scope);
+    const seen = new Set<string>();
+    let spans = 0;
+    let uncovered = 0;
+    const consider = (span: Span): void => {
+      if (!sessions.has(span.session)) return;
+      if (seen.has(span.hash)) return;
+      seen.add(span.hash);
+      spans += 1;
+      if (!covered.has(span.hash)) uncovered += 1;
+    };
+    for (const span of this.spans(scope)) consider(span);
+    for (const file of this.claimFiles(scope)) {
+      for (const span of this.readSpans(file)) consider(span);
+    }
+    return { sessions, spans, uncovered };
   }
 
   coverage(scope: string): CoverageMark[] {

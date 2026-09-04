@@ -17,7 +17,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart, surfaceSetFields } from "../src/core/counterpart.js";
+import { Counterpart, SWEEP_GATE_EVENT, surfaceSetFields } from "../src/core/counterpart.js";
+import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP } from "../src/core/self/index.js";
 import { Store } from "../src/core/store/index.js";
@@ -35,6 +36,7 @@ const open: Counterpart[] = [];
 
 beforeEach(() => {
   priorEnv = process.env[ENV];
+  offsetMs = 0;
   dir = mkdtempSync(join(tmpdir(), "counterparts-root-"));
   process.env[ENV] = dir;
 });
@@ -52,8 +54,22 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+/**
+ * THE TEST CLOCK, an OFFSET on the real one. The crash fallback's eligibility is
+ * a fact about time — a session is crashed when it has gone silent past
+ * `CRASH_STALE_MS` with no `session-end` boundary — so a test that wants a sweep
+ * makes its session GO QUIET. Setting the window to zero instead would delete the
+ * gate the fixture exists to exercise.
+ */
+let offsetMs = 0;
+
+/** The session stopped and nobody ever came back: this host's only crash signal. */
+function goQuiet(): void {
+  offsetMs += REMEMBER_TUNABLES.CRASH_STALE_MS + 60_000;
+}
+
 function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, ...opts });
+  const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
   open.push(c);
   return c;
 }
@@ -624,6 +640,7 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
     const c = brain();
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "pre-compaction" });
+    goQuiet();
 
     const reports = await c.sweepFallback({
       interpret: interpreter([
@@ -645,6 +662,7 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
     const c = brain();
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
 
     await c.sweepFallback({
       // Every proposal is a stub: the content floor refuses all of them.
@@ -660,6 +678,7 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
     const c = brain();
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
 
     const reports = await c.sweepFallback({
       interpret: interpreter([{ content: "A perfectly good memory that arrived inside a truncated response.", kind: "fact" }], "max_tokens"),
@@ -687,6 +706,7 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
 
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
     await c.sweepFallback({
       interpret: interpreter([
         {
@@ -736,7 +756,8 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
     const c = brain();
     c.wake(BUDGET_BYTES);
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
-    c.boundary({ session: "s1", scope: "proj", kind: "session-end" });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
 
     const report = await c.sessionEnd({
       date: "2026-01-02",
@@ -754,6 +775,183 @@ describe("the crash fallback — an injected InterpretFn, gated a chunk at a tim
     // The cycle saw it: the memory exists and the briefing rendered after it.
     expect(c.store.list({ type: "memory" }).length).toBe(1);
     expect(c.wake(BUDGET_BYTES).text).toContain("any editor");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE CRASH GATE — the sweep is a fallback, never the primary mechanism
+// (owner ruling 2026-09-04). A session is crashed when it holds uncovered spans,
+// has recorded NO `session-end` boundary, and has had no boundary activity for
+// CRASH_STALE_MS. Nothing else is ever read by a model.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the crash gate — only a crashed session's transcript is ever read", () => {
+  /** Counts model calls, because the whole point of the gate is not making them. */
+  function counting(calls: { n: number }): InterpretFn {
+    return async (_chunk: SweepChunk) => {
+      calls.n += 1;
+      return {
+        proposals: [
+          {
+            content: "The cache is rebuildable from canonical files, which is why it never enters the backup set.",
+            kind: "fact",
+          },
+        ],
+        stopReason: "end_turn",
+      };
+    };
+  }
+
+  function gateRows(c: Counterpart): Record<string, unknown>[] {
+    return c.store
+      .eventLog({ name: SWEEP_GATE_EVENT, limit: 100 })
+      .map((row) => JSON.parse(row.payload ?? "{}") as Record<string, unknown>);
+  }
+
+  test("STOP with uncovered spans sweeps NOTHING — the author still has the pen", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+
+    const calls = { n: 0 };
+    const reports = await c.sweepFallback({ interpret: counting(calls) });
+    expect(reports.map((r) => ({ ran: r.ran, reason: r.reason }))).toEqual([
+      { ran: false, reason: "NO_CRASHED_SESSION" },
+    ]);
+    expect(calls.n).toBe(0);
+    expect(c.store.list({ type: "memory" })).toEqual([]);
+    // The spans are still there: withheld from the sweep, never dropped.
+    expect(c.spans.spans("proj").length).toBeGreaterThan(0);
+  });
+
+  test("SESSION-END captures, and sweeps nothing — now or ever (the named cost)", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    const captured = c.spans.spans("proj").length;
+    c.boundary({ session: "s1", scope: "proj", kind: "session-end" });
+    expect(captured).toBeGreaterThan(0);
+
+    const calls = { n: 0 };
+    expect((await c.sweepFallback({ interpret: counting(calls) }))[0]?.reason).toBe("NO_CRASHED_SESSION");
+    // And still not after the session goes quiet: a session that reached the
+    // host's own end-of-session path GOT the pen. What it chose not to write is
+    // forgotten by design (constitution 3), not recovered by a paraphrase.
+    goQuiet();
+    expect((await c.sweepFallback({ interpret: counting(calls) }))[0]?.reason).toBe("NO_CRASHED_SESSION");
+    expect(calls.n).toBe(0);
+    expect(c.spans.spans("proj").length).toBe(captured);
+  });
+
+  test("PRE-COMPACTION captures and sweeps nothing — the backstop is the capture, not the call", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "pre-compaction" });
+    const calls = { n: 0 };
+    expect((await c.sweepFallback({ interpret: counting(calls) }))[0]?.reason).toBe("NO_CRASHED_SESSION");
+    expect(calls.n).toBe(0);
+
+    // A compaction is NOT a session end, though: if the session never comes back,
+    // the silence makes it crashed and the spans are recovered.
+    goQuiet();
+    const after = await c.sweepFallback({ interpret: counting(calls) });
+    expect({ ran: after[0]?.ran, reason: after[0]?.reason }).toEqual({ ran: true, reason: "SWEPT" });
+    expect(calls.n).toBe(1);
+  });
+
+  test("a session quiet past the window with no session-end is swept ONCE, and then covered", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
+
+    const calls = { n: 0 };
+    const first = await c.sweepFallback({ interpret: counting(calls) });
+    expect({ ran: first[0]?.ran, reason: first[0]?.reason, proposals: first[0]?.proposals }).toEqual({
+      ran: true,
+      reason: "SWEPT",
+      proposals: 1,
+    });
+    expect(c.store.list({ type: "memory" }).length).toBe(1);
+
+    // ONCE. The spans were consumed, so the next worker run — same crashed
+    // session, same boundary record — spends nothing.
+    const second = await c.sweepFallback({ interpret: counting(calls) });
+    expect(second.map((r) => r.reason)).toEqual(["NOTHING_TO_SWEEP"]);
+    expect(calls.n).toBe(1);
+    expect(c.store.list({ type: "memory" }).length).toBe(1);
+  });
+
+  test("a session that ended NORMALLY is never swept, even with uncovered trailing spans", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "session-end" });
+    // The trailing stretch: turns after the session-end boundary, uncovered.
+    c.captureSpans({
+      session: "s1",
+      scope: "proj",
+      turns: [
+        ...TURNS,
+        { role: "user", text: "One more thought after the ritual: the backup set is the honest part." },
+      ],
+    });
+    const trailing = c.spans.coverageReport("proj");
+    expect(trailing.uncovered).toBeGreaterThan(0);
+
+    goQuiet();
+    const calls = { n: 0 };
+    const reports = await c.sweepFallback({ interpret: counting(calls) });
+    expect(reports.map((r) => r.reason)).toEqual(["NO_CRASHED_SESSION"]);
+    expect(calls.n).toBe(0);
+    // The KNOWN COST, asserted rather than assumed: those turns are never
+    // encoded by anyone. They are still readable in the buffer.
+    expect(c.spans.coverageReport("proj").uncovered).toBe(trailing.uncovered);
+  });
+
+  test("the SKIP is a durable, countable record — silence that says it is silence", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+
+    const calls = { n: 0 };
+    await c.sweepFallback({ interpret: counting(calls) });
+    const quiet = gateRows(c);
+    expect(quiet.length).toBe(1);
+    expect({ scopes: quiet[0]?.["scopes"], ran: quiet[0]?.["ran"], skipped: quiet[0]?.["skippedNotCrashed"] }).toEqual({
+      scopes: 1,
+      ran: 0,
+      skipped: 1,
+    });
+    expect(quiet[0]?.["crashStaleMs"]).toBe(REMEMBER_TUNABLES.CRASH_STALE_MS);
+    // The ring carries the same reading, per scope, with its own reason.
+    expect(c.events("remember.sweep.skipped")[0]?.data?.reason).toBe("NO_CRASHED_SESSION");
+
+    // And a run that DID sweep is a different row — "silent" and "worked" are
+    // never the same record (constitution 16, scar §2.4).
+    goQuiet();
+    await c.sweepFallback({ interpret: counting(calls) });
+    const rows = gateRows(c);
+    expect(rows.length).toBe(2);
+    expect({ ran: rows[1]?.["ran"], skipped: rows[1]?.["skippedNotCrashed"], minted: rows[1]?.["minted"] }).toEqual({
+      ran: 1,
+      skipped: 0,
+      minted: 1,
+    });
+  });
+
+  test("an OBSERVER writes no gate row at all", async () => {
+    // A store that already exists, and a crashed session inside it, so "no row"
+    // is a stand-down rather than an empty store with nothing to record.
+    const writable = brain();
+    writable.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    writable.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
+    writable.close();
+
+    const probe = brain({ observer: true });
+    const calls = { n: 0 };
+    const reports = await probe.sweepFallback({ interpret: counting(calls) });
+    expect(reports.every((r) => !r.ran)).toBe(true);
+    expect(gateRows(probe)).toEqual([]);
+    expect(calls.n).toBe(0);
   });
 });
 
