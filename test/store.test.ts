@@ -1045,7 +1045,13 @@ describe("layout", () => {
       });
     }
     expect(s.backupSet().sort()).toEqual(["operational.sqlite", "prose", "spans", "versions"]);
-    expect(LAYOUT.filter((e) => !e.backup).map((e) => e.name).sort()).toEqual(["cache", "tmp"]);
+    // The three rebuildable/ephemeral families: box 3, the write staging area,
+    // and the adapters' live-session registry (`adapters/sessions.ts`).
+    expect(LAYOUT.filter((e) => !e.backup).map((e) => e.name).sort()).toEqual([
+      "cache",
+      "sessions",
+      "tmp",
+    ]);
     s.assertLayout();
   });
 

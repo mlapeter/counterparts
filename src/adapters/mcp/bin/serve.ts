@@ -7,9 +7,20 @@
  *   bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id> --scope <dir>
  *
  * Everything host-specific arrives as an ARGUMENT or a named environment
- * variable, and the session id is one of them: this server deposits under
- * exactly one session (`server.ts`, refusal 1), so which session it is has to be
- * decided at launch by the host, not at call time by the model.
+ * variable, and the session id is one of them when the host can supply it: this
+ * server deposits under exactly one session (`server.ts`, refusal 1), and being
+ * TOLD which one at launch is still the preferred path.
+ *
+ * **Measured 2026-09-04:** Claude Code cannot use that path. Its MCP servers are
+ * registered from a static configuration — command, args, env — with no per-
+ * session substitution, so neither `--session` nor `COUNTERPARTS_SESSION` ever
+ * arrives, and for the whole first run every dump was refused `no-bound-session`.
+ * The flags below are unchanged and still win; a launch without them now falls
+ * through to `server.ts`'s lazy bind against `adapters/sessions.ts`'s registry.
+ *
+ * `--dir` is here for the same reason `hook.ts` pins the data dir onto its
+ * child: the registry is found under the data dir, so the two sides have to
+ * resolve the SAME one. Absent, both fall back to `dataDir()` and agree anyway.
  *
  * Nothing in this file is a memory rule; all of it is host trivia (§5 G8).
  */
@@ -34,6 +45,7 @@ export const CONFIG_PATH = join(homedir(), ".counterparts", "claude-code.json");
 export const ENV = {
   session: "COUNTERPARTS_SESSION",
   scope: "COUNTERPARTS_SCOPE",
+  dir: "COUNTERPARTS_DATA_DIR",
   owner: "COUNTERPARTS_OWNER",
   observer: "COUNTERPARTS_OBSERVER",
 } as const;
@@ -41,6 +53,7 @@ export const ENV = {
 export interface LaunchOptions {
   session?: string;
   scope?: string;
+  dir?: string;
   owner: boolean;
   observer: boolean;
 }
@@ -55,6 +68,7 @@ export function launchOptions(
     options: {
       session: { type: "string" },
       scope: { type: "string" },
+      dir: { type: "string" },
       owner: { type: "boolean" },
       observer: { type: "boolean" },
     },
@@ -64,9 +78,11 @@ export function launchOptions(
     values[name] === true || env[ENV[name]] === "1" || env[ENV[name]] === "true";
   const session = (values["session"] as string | undefined) ?? env[ENV.session];
   const scope = (values["scope"] as string | undefined) ?? env[ENV.scope];
+  const dir = (values["dir"] as string | undefined) ?? env[ENV.dir];
   return {
     ...(session === undefined || session.length === 0 ? {} : { session }),
     ...(scope === undefined || scope.length === 0 ? {} : { scope }),
+    ...(dir === undefined || dir.length === 0 ? {} : { dir }),
     owner: flag("owner"),
     observer: flag("observer"),
   };

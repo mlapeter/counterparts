@@ -48,6 +48,9 @@ import {
 import type { AdapterDurableEventName } from "../../core/counterpart.js";
 import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
 
+import { pruneSessions, recordSession } from "../sessions.js";
+import type { SessionPhase } from "../sessions.js";
+
 import { capabilities, interpretSeat } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
@@ -152,18 +155,37 @@ export interface AdapterOptions {
  * The session-end authorship ask — v2's FRONT DOOR, in words.
  *
  * The wording is advisory (remember G11 [A], CONTRACT §5 G9); that an ask exists
- * at a session-ending path is what is mechanized. It names `bansai_note`'s
- * successor rather than a shape, because the RETURN channel is a tool, not a
- * hook: a hook can only put text into the context, and the deposit comes back
- * through `Counterpart.submitSessionEnd` — reached, in this host, by the MCP
- * adapter's tool (`mcp/CONTRACT.md`). Filed in `INTERFACE-GAPS.md` §7.
+ * at a session-ending path is what is mechanized. It names the TOOL, because the
+ * RETURN channel is a tool, not a hook: a hook can only put text into the
+ * context, and the deposit comes back through `Counterpart.submitSessionEnd` —
+ * reached, in this host, by the MCP adapter's `session_end`
+ * (`mcp/CONTRACT.md`). Filed in `INTERFACE-GAPS.md` §7.
+ *
+ * Two corrections, both measured 2026-09-04 on the live host:
+ *
+ *   - **It names the session id and the tool.** The host's MCP servers are
+ *     launched from a static config and never learn which session they are
+ *     serving, so the id has to travel in the ask — it is what the server binds
+ *     itself with (`adapters/sessions.ts`, `mcp/server.ts#requireBoundSession`).
+ *     Without it the model reached for `note` 34 times in one session and no
+ *     session's dump ever landed.
+ *   - **`updates` is a FIELD, and the ask says so.** The old wording said
+ *     "say `updates: <id>`", and four notes duly arrived with `updates: mem_x.`
+ *     as the first words of their prose — unlinked, because prose is not a
+ *     field. It is a field on a `session_end` entry AND on `note`.
+ *
+ * Short on purpose: a model reads this at every Stop that is due one.
  */
-export const AUTHORSHIP_ASK = [
-  "Before this session closes: what did you LEARN here that is worth keeping?",
-  "Write it yourself — your own words, not a summary of the transcript. One idea",
-  "per memory, the way you would want to find it again. Say `updates: <id>` when",
-  "a memory revises one you were shown. Nothing is worth keeping is a real answer.",
-].join("\n");
+export function authorshipAsk(sessionId: string): string {
+  return [
+    "Before this session closes: what did you LEARN here that is worth keeping?",
+    "Write it yourself — your own words, not a summary of the transcript. One idea",
+    "per memory, the way you would want to find it again. Hand them back with the",
+    `counterparts session_end tool, session: ${sessionId}.`,
+    "`updates` is a FIELD on an entry (and on note), never prose: set it to the id",
+    "of the memory that entry revises. Nothing worth keeping is a real answer.",
+  ].join("\n");
+}
 
 const EVENT_RING = 500;
 
@@ -224,6 +246,10 @@ export class ClaudeCodeAdapter {
    */
   sessionStart(input: HookInput): HookResult {
     return this.guard("session-start", input, (out) => {
+      // BEFORE the delivery verdict, because the registry is not delivery: a
+      // muted shadow still lives a session, and the tool that writes its dump
+      // still has to be able to find out that the session is real.
+      this.noteSession("start", input);
       // FIRST, before anything is read or composed: is this ours to deliver?
       // A stand-down sets no delivery expectation, because there is no render
       // for the next hook to check — recording one would put a false negative
@@ -351,6 +377,11 @@ export class ClaudeCodeAdapter {
   stop(input: HookInput): HookResult {
     return this.guard("stop", input, (out) => {
       const claimed = this.claim("stop", input, out);
+      // The clock the lazy bind reads, refreshed BEFORE the ask that names this
+      // session id goes out: the id has to be live by the time the model reads
+      // it, and a session already running when this shipped never saw a
+      // SessionStart write — so this is also where it first becomes bindable.
+      this.noteSession("boundary", input);
       // The boundary is UNCONDITIONAL — the shadow encodes the same days v1
       // encodes, and a parallel run that stopped capturing would be comparing
       // nothing (parallel-run G5: encode-only, and honest). What the stand-down
@@ -373,6 +404,10 @@ export class ClaudeCodeAdapter {
   sessionEnd(input: HookInput): HookResult {
     return this.guard("session-end", input, (out) => {
       const claimed = this.claim("session-end", input, out);
+      // One tiny rename, inside the 1.5 s this event's hooks share. It closes
+      // the session to any later claim: a dump arriving after this is the
+      // sweep's job, not the experiencer's.
+      this.noteSession("end", input);
       this.noteTail(input);
       return { ...claimed, spawn: this.spawnWorker(input) };
     });
@@ -528,7 +563,10 @@ export class ClaudeCodeAdapter {
         unaskableSpans: report.unaskableSpans,
         unaskableBytes: report.unaskableBytes,
       });
-      return due ? AUTHORSHIP_ASK : null;
+      // The ask NAMES this session: the id is what the MCP server binds itself
+      // with, so an ask that omitted it would be an invitation the model has no
+      // way to accept on this host.
+      return due ? authorshipAsk(input.sessionId) : null;
     } catch (err) {
       this.emit("adapter.authorship.ask.failed", { code: codeOf(err) });
       return null;
@@ -564,6 +602,44 @@ export class ClaudeCodeAdapter {
     } catch (err) {
       this.emit("adapter.episode.ask.failed", { code: codeOf(err) });
       return null;
+    }
+  }
+
+  /**
+   * THE LIVE-SESSION REGISTRY (`adapters/sessions.ts`), written here because the
+   * hooks are the only thing on this host that knows the session id.
+   *
+   * Host state, not memory: an id, a scope, three timestamps, no content. It is
+   * what lets the MCP server — which this host launches from a static config
+   * that carries no session — bind itself to the session the ask named, and
+   * refuse anything else. Ring-only telemetry: this fires at every Stop, and a
+   * durable row per turn to say "the file was written" is not evidence anyone
+   * needs.
+   *
+   * Under observer NOTHING is recorded (the tools stand down anyway), and every
+   * failure is silent by construction: `recordSession` returns null rather than
+   * throwing, because a hook may not fail the host (§5 G2).
+   */
+  private noteSession(phase: SessionPhase, input: HookInput): void {
+    if (this.observer) return;
+    if (input.sessionId.length === 0) return;
+    // The STORE's dir, not the config's: it is the one that went through
+    // `assertSafeDataDir`, and it is the same value the MCP server resolves on
+    // its own side. Reading the raw config here could put the registry in a
+    // sibling directory the tool never looks in, over a trailing slash.
+    const dir = this.counterpart.store.dir;
+    const record = recordSession(dir, {
+      sessionId: input.sessionId,
+      scope: input.scope,
+      phase,
+      at: this.nowFn(),
+    });
+    this.emit("adapter.session.registry", { phase, ok: record !== null });
+    // Bounded growth, once per session rather than once per turn — and never on
+    // the SessionEnd path, whose hooks share 1.5 s between them.
+    if (phase === "start") {
+      const pruned = pruneSessions(dir, this.nowFn());
+      if (pruned > 0) this.emit("adapter.session.registry.pruned", { removed: pruned });
     }
   }
 

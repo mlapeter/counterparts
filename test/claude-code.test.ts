@@ -26,12 +26,14 @@ import {
   PRIMACY_STANDDOWN_EVENT,
 } from "../src/core/counterpart.js";
 import { indexTextOf } from "../src/core/store/index.js";
+import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
+import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
 import { BOOTSTRAP } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
   API_KEY_ENV,
-  AUTHORSHIP_ASK,
+  authorshipAsk,
   CREDENTIAL_FILE_EVENT,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
@@ -552,7 +554,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
   test("stop raises the AUTHORSHIP ask while the experiencer still has the pen", async () => {
     const { a } = adapter();
     const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
     const measured = a.events("adapter.authorship.ask")[0]?.data;
     expect(measured?.uncovered).toBeGreaterThan(0);
     // The unaskable tail is MEASURED at the same moment, not assumed (§2 G12).
@@ -1210,7 +1212,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       );
       const parallelStop = a.stop(input());
       expect(pick(parallelStop)).toEqual(pick(plain.stop(input())));
-      expect(parallelStop.authorshipAsk).toBe(AUTHORSHIP_ASK);
+      expect(parallelStop.authorshipAsk).toBe(authorshipAsk("s1"));
 
       // The only difference: three deliver records, one per delivering hook.
       expect(a.events(PRIMACY_DELIVER_EVENT).map((e) => e.data?.hook)).toEqual([
@@ -1234,7 +1236,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     const stopped = a.stop(input());
     expect(a.events(PRIMACY_STANDDOWN_EVENT)).toEqual([]);
     expect(a.events(PRIMACY_DELIVER_EVENT)).toEqual([]);
-    expect(stopped.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(stopped.authorshipAsk).toBe(authorshipAsk("s1"));
     expect(a.counterpart.store.eventLog({ limit: 100 }).map((r) => r.name)).not.toContain(
       PRIMACY_STANDDOWN_EVENT,
     );
@@ -1387,7 +1389,10 @@ describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", (
   });
 
   test("a Stop-hook wrapper WITHOUT a foreign marker is `ritual`, not foreign — and enters nothing", () => {
-    const ours = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+    // The ask now carries the session id (`authorshipAsk`), which changes the
+    // TEXT and not the classification: `ritual` is decided by the host's
+    // wrapper, so the rule holds whatever the ask happens to say this turn.
+    const ours = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
     // Not foreign: another memory system did not write this, WE did. The
     // distinction is what keeps the canary's FOREIGN_MARKERS honest.
     expect(classifyBlock(ours)).not.toBe("foreign");
@@ -1421,7 +1426,7 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
 
   const OWNER = "We settled the storage split today: prose on disk, one small database.";
   const PEER = "v2 challenge effect has no live consumer; session c781252f sweep census attached.";
-  const RITUAL = `Stop hook feedback:\n- ${AUTHORSHIP_ASK}`;
+  const RITUAL = `Stop hook feedback:\n- ${authorshipAsk("s1")}`;
   const ASSISTANT = "Recorded — the cache being rebuildable is what keeps the backup honest.";
 
   /** The five host shapes as real JSONL lines, in the order a session sees them. */
@@ -2533,7 +2538,7 @@ describe("the authorship ask is PACED — the host's Stop is every turn, the ask
   test("first Stop asks; the next Stop on the same experience does not; enough new spans ask again", () => {
     const { a } = adapter();
     const first = a.stop(input());
-    expect(first.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(first.authorshipAsk).toBe(authorshipAsk("s1"));
     // The same session, one more small turn: uncovered > 0, but paced out.
     const second = a.stop(input({ turns: [...TURNS, { role: "user", text: "And one more short line for the record." }] }));
     expect(second.authorshipAsk).toBeNull();
@@ -2547,13 +2552,132 @@ describe("the authorship ask is PACED — the host's Stop is every turn, the ask
       text: `Turn ${i}: a genuinely new stretch of conversation, long enough to matter. ${"x".repeat(1_000)}`,
     }));
     const third = a.stop(input({ turns: [...TURNS, ...more] }));
-    expect(third.authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(third.authorshipAsk).toBe(authorshipAsk("s1"));
   });
 
   test("a different session is paced on its own — the first Stop there asks", () => {
     const { a } = adapter();
     a.stop(input());
-    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(AUTHORSHIP_ASK);
+    expect(a.stop(input({ sessionId: "s2" })).authorshipAsk).toBe(authorshipAsk("s2"));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE LIVE-SESSION REGISTRY, written here because the hooks are the only thing
+ * on this host that knows the session id.
+ *
+ * The MCP server this host launches is registered from a static configuration —
+ * command, args, env — so it never learns which session it is serving, and for
+ * the whole first run every dump was refused `no-bound-session`. These files are
+ * the note that closes that gap; `test/sessions.test.ts` tests the module, and
+ * what is tested HERE is that the hooks actually write it, at the right moments,
+ * with the right scope.
+ */
+describe("the hooks record the live session for the tools to bind against", () => {
+  const readRecord = (sessionId: string): SessionRecord | null => readSession(dir, sessionId);
+
+  test("session-start records the session with the hook's own cwd as its scope", () => {
+    const { a } = adapter();
+    a.sessionStart(input());
+    const rec = readRecord("s1");
+    expect(rec?.sessionId).toBe("s1");
+    expect(rec?.scope).toBe(canonicalScope("proj"));
+    expect(rec?.endedAt).toBeNull();
+    expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
+    expect(a.events("adapter.session.registry")[0]?.data).toEqual({ phase: "start", ok: true });
+  });
+
+  test("stop refreshes the clock BEFORE the ask that names the session goes out", () => {
+    const { a } = adapter();
+    const stopped = a.stop(input());
+    const rec = readRecord("s1");
+    // Created by Stop alone: a session already running when this shipped never
+    // saw a SessionStart, and must still be bindable.
+    expect(rec).not.toBeNull();
+    expect(isLive(rec as SessionRecord, Date.now())).toBe(true);
+    // The ask names the id the registry just made live.
+    expect(stopped.authorshipAsk).toContain("s1");
+  });
+
+  test("a stop from a WORKTREE does not move the project out from under the server", () => {
+    const { a } = adapter();
+    a.sessionStart(input({ scope: "proj" }));
+    a.stop(input({ scope: "proj/.worktrees/wt" }));
+    expect(readRecord("s1")?.scope).toBe(canonicalScope("proj"));
+  });
+
+  test("session-end closes the session: no later dump may claim it", () => {
+    const { a } = adapter();
+    a.sessionStart(input());
+    a.sessionEnd(input());
+    const rec = readRecord("s1") as SessionRecord;
+    expect(rec.endedAt).not.toBeNull();
+    expect(isLive(rec, Date.now())).toBe(false);
+    expect(a.events("adapter.session.registry").map((e) => e.data?.["phase"])).toEqual([
+      "start",
+      "end",
+    ]);
+  });
+
+  test("an observer records nothing — an instrument has no session to write under", () => {
+    // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
+    Counterpart.open({ dir, owner: true }).close();
+    const { a } = adapter({ observer: true });
+    a.sessionStart(input());
+    a.stop(input());
+    a.sessionEnd(input());
+    expect(readRecord("s1")).toBeNull();
+    expect(a.events("adapter.session.registry")).toEqual([]);
+  });
+
+  test("a registry that cannot be written never costs the boundary (§5 G2)", () => {
+    const { a } = adapter();
+    // The registry path is a FILE: every write below fails at the filesystem.
+    writeFileSync(join(dir, "sessions"), "not a directory", "utf8");
+    try {
+      const stopped = a.stop(input());
+      expect(stopped.ok).toBe(true);
+      expect(stopped.spansAppended).toBeGreaterThan(0);
+      expect(a.events("adapter.session.registry")[0]?.data).toEqual({
+        phase: "boundary",
+        ok: false,
+      });
+    } finally {
+      rmSync(join(dir, "sessions"), { force: true });
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the authorship ask names the session and the tool that takes it", () => {
+  test("the id is IN the ask — it is what the server binds itself with", () => {
+    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text).toContain("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text).toContain("session_end");
+  });
+
+  test("`updates` is named as a FIELD, never as prose to write", () => {
+    // Four notes on the live host arrived as "updates: mem_x. …" in their own
+    // body text, unlinked, because the old ask said "say `updates: <id>`".
+    const text = authorshipAsk("s1");
+    expect(text).toContain("FIELD");
+    expect(text).not.toContain("say `updates:");
+  });
+
+  test("it stays short — a model reads this at every Stop that is due one", () => {
+    const text = authorshipAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d");
+    expect(text.split("\n").length).toBeLessThanOrEqual(8);
+    expect(text.length).toBeLessThan(600);
+  });
+
+  test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {
+    const d = hostDelivery(
+      "stop",
+      { injection: "", authorshipAsk: authorshipAsk("s1"), ask: null },
+      { stop_hook_active: true },
+    );
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
 });
 

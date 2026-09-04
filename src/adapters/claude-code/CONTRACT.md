@@ -150,7 +150,25 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     reach a span, and a block that is only a peer message does not pace a ritual. Without
     this the fallback sweep mints another instance's findings as things the owner said in
     conversation — the failure this guarantee is named after.
-13. **[M] The prompt path opens no socket, and the semantic cue is LAGGED.** The
+13. **[M] The live session is recorded where this host's TOOLS can find it.** SessionStart
+    writes `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary), Stop
+    refreshes the clock — creating the record when it is missing — and SessionEnd closes
+    it. The writes are atomic (temp + rename), tiny, and silent on failure, because a hook
+    may not fail the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists
+    because this host launches its MCP servers from a static configuration and cannot tell
+    them which session they serve: without this note `session_end` refuses every dump —
+    measured for the whole of the first run — and the authored front door is shut. The
+    scope is set once, by SessionStart, so a later hook cannot move the project out from
+    under a server that already matched it. An observer records nothing.
+14. **[M] The authorship ask names the session id and the tool that takes it**, and says
+    `updates` is a FIELD rather than prose. The wording is advisory; the two facts it
+    carries are mechanized elsewhere — the id is what the MCP server binds itself with,
+    and the field is what `remember/updates.ts` resolves. The old wording ("say
+    `updates: <id>`") produced four notes whose declaration landed as the first words of
+    their own prose, unlinked. The ask's text is the same text G11 refuses when the host
+    hands it back — it is delivered by the hook and recorded by
+    `adapter.authorship.ask`, never by its transcript copy.
+15. **[M] The prompt path opens no socket, and the semantic cue is LAGGED.** The
     embedding a turn's recall consults is computed by the detached worker AFTER the
     previous turn and read out of per-session gate state on the next one — the same
     one-turn lag carried cues already run on (owner ruling, 2026-09-04). Measured on the
@@ -162,7 +180,7 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     reappear. **The RANKING travels with the cue, not the vector**: `Store.nearestTo`
     over a live-sized index measured 590-1040 ms, so carrying a vector would have moved
     the network call off the hot path and left the scan on it.
-14. **[M] The worker gives vectors to memories that have none, at a bounded rate.** Up
+16. **[M] The worker gives vectors to memories that have none, at a bounded rate.** Up
     to `BACKFILL_LIMIT` (64) per run, first-person material first — what the experiencer
     authored and its own episodes, then everything else oldest-first — with
     `{embedded, remaining, failed}` written durably (`adapter.embed.backfill`) so the
@@ -170,7 +188,7 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     stderr. The authored door still warms its own vector when a `vectors` socket is
     wired; this is the GUARANTEED path, because a memory that predates the embedder, or
     arrived by migration, has nothing and no future deposit comes back for it.
-15. **[M] The deliberate ask MAY embed in line, and says which channel answered.** The
+17. **[M] The deliberate ask MAY embed in line, and says which channel answered.** The
     MCP entry point loads the same 0600 credentials file the hook entry point names and
     hands the server an opened embedder or null; the server never sees a key. A missing
     one degrades the ask to lexical-only and the result carries `semantic:
