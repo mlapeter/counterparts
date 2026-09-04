@@ -34,6 +34,7 @@ import {
   readSentinel,
 } from "../src/core/self/index.js";
 import { PHASES, markerKey } from "../src/core/sleep/index.js";
+import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
 import { openCache, setEmbedding } from "../src/core/store/cache.js";
@@ -42,6 +43,9 @@ import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
   CONFIG_FILE,
+  COMMANDS,
+  COMMAND_FLAGS,
+  COMMON_FLAGS,
   CREDENTIALS_FILE,
   EXIT,
   HOOK_SCRIPT,
@@ -54,6 +58,7 @@ import {
   openCounterpart,
   runCommand,
   settingsBlock,
+  unknownFlag,
   assertSafeTarget,
   decryptBundle,
   run,
@@ -256,6 +261,49 @@ describe("init", () => {
     expect(code).toBe(EXIT.refused);
     expect(text(c.err)).toContain("DATA_DIR_FORBIDDEN");
     expect(existsSync(forbidden)).toBe(false);
+  });
+
+  test("--name seeds the identity core, through the same door install uses", async () => {
+    // §3 routes second and scratch stores to `init` and then says the identity
+    // core has no default anywhere — so an `init` that could not seed one left
+    // the documented path unable to produce the thing the page says matters.
+    const named = join(outside, "named-store");
+    const c = consoleWith();
+    expect(await run(["init", "--dir", named, "--name", "Ada Lovelace"], { io: c.io })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("identity core seeded for Ada Lovelace");
+
+    const brain = openCounterpart(named);
+    open.push(brain);
+    const coreId = findIdentityCore(brain.store);
+    expect(coreId).not.toBe(null);
+    expect(brain.store.readProse(coreId as string).meta["name"]).toBe("Ada Lovelace");
+    brain.close();
+
+    // ENSURE, not create: a second init with the same name mints no second core.
+    const again = consoleWith();
+    expect(await run(["init", "--dir", named, "--name", "Ada Lovelace"], { io: again.io })).toBe(
+      EXIT.ok,
+    );
+    const after = openCounterpart(named);
+    open.push(after);
+    expect(findIdentityCore(after.store)).toBe(coreId);
+    after.close();
+  });
+
+  test("without --name it says the store has no identity core and how to seed one", async () => {
+    const bare = join(outside, "bare-store");
+    const c = consoleWith();
+    expect(await run(["init", "--dir", bare], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("no identity core");
+    expect(printed).toContain("--name");
+
+    const brain = openCounterpart(bare);
+    open.push(brain);
+    expect(findIdentityCore(brain.store)).toBe(null);
+    brain.close();
   });
 
   test("is idempotent: a second init reports the store it found", async () => {
@@ -1227,7 +1275,10 @@ describe("owner operations never run under observer", () => {
     store().close();
     for (const command of OWNER_OPS) {
       const c = consoleWith();
-      const code = await run([command, "--observer", "--out", outside, "x"], {
+      // Only flags every command declares: the stance refusal precedes each
+      // command's own arguments, and since 2026-09-04 an undeclared flag is
+      // itself a refusal, so passing `--out` to `note` would test that instead.
+      const code = await run([command, "--observer", "x"], {
         io: c.io,
         env: { [ENV]: dir },
       });
@@ -1390,6 +1441,83 @@ describe("usage", () => {
   });
 });
 
+// ── unknown flags ───────────────────────────────────────────────────────────
+
+/**
+ * A flag the command does not take is a refusal, before anything opens.
+ *
+ * The measured failure (cold-stranger review, 2026-09-04):
+ * `counterparts note "…" --dirr <store2>` printed `Remembered mem_… — minted.`
+ * and store2 stayed empty — the note went to the DEFAULT store, which on a real
+ * machine is the owner's live memory, and nothing in the output named it. The
+ * parser runs `strict: false` because a strict parse throws, and a throw is a
+ * stack trace on the owner's terminal; the price was silence.
+ */
+describe("unknown flags", () => {
+  test("every command refuses a flag it does not declare, and names the nearest one", async () => {
+    for (const command of COMMANDS) {
+      const c = consoleWith();
+      const code = await run([command, "--dirr", dir], { io: c.io, env: { [ENV]: dir } });
+      expect(code).toBe(EXIT.refused);
+      const said = text(c.err);
+      expect(said).toContain("unknown flag --dirr");
+      expect(said).toContain("did you mean --dir?");
+      // It says what this command DOES take, so the reader is not sent to --help.
+      expect(said).toContain("--dir");
+      expect(said).toContain("Nothing was opened and nothing was written.");
+    }
+  });
+
+  test("the refusal happens before any store is opened or created", async () => {
+    const untouched = join(outside, "never-opened");
+    mkdirSync(untouched, { recursive: true });
+    const before = readdirSync(untouched);
+    for (const argv of [
+      ["note", "a memory", "--dirr", untouched],
+      ["install", "--budget", "9000", "--nmae", "Ada"],
+      ["init", "--dir", untouched, "--bugdet", "9000"],
+      ["status", "--totally-bogus-flag"],
+      ["remove", "mem_x", "--confrim"],
+    ]) {
+      const c = consoleWith();
+      expect(await run(argv, { io: c.io, env: {}, home: join(outside, "flag-home") })).toBe(
+        EXIT.refused,
+      );
+      expect(text(c.err)).toContain("unknown flag");
+    }
+    // Byte-identical: no store minted, no config written, nothing touched.
+    expect(readdirSync(untouched)).toEqual(before);
+    expect(existsSync(join(outside, "flag-home"))).toBe(false);
+  });
+
+  test("a flag that wants a value and gets none is refused, not read as absent", () => {
+    // `strict: false` turns a trailing `--dir` into the BOOLEAN true, which every
+    // reader in this file treats as "not given" — the same silence one step on.
+    expect(unknownFlag("status", ["status", "--dir"])).toContain("--dir needs a value");
+    expect(unknownFlag("note", ["note", "x", "--title"])).toContain("--title needs a value");
+    expect(unknownFlag("rebrief", ["rebrief", "--budget", "--observer"])).toContain(
+      "--budget needs a value",
+    );
+    // `--flag=value` supplies its own value, and a boolean switch needs none.
+    expect(unknownFlag("status", ["status", "--dir=/tmp/x"])).toBe(null);
+    expect(unknownFlag("recall", ["recall", "q", "--json"])).toBe(null);
+  });
+
+  test("each command's declared set is exactly what its usage promises", () => {
+    // Totality: a flag added to `parse` and forgotten here would be refused at
+    // runtime, so the table is the contract and this walks it.
+    for (const command of COMMANDS) {
+      const allowed = [...COMMON_FLAGS, ...(COMMAND_FLAGS[command] ?? [])];
+      for (const flag of allowed) {
+        expect(unknownFlag(command, [command, `--${flag}=x`])).toBe(null);
+      }
+    }
+    // And a flag one command owns is not silently available to another.
+    expect(unknownFlag("status", ["status", "--confirm"])).toContain("unknown flag --confirm");
+    expect(unknownFlag("note", ["note", "x", "--rebuild"])).toContain("unknown flag --rebuild");
+  });
+});
+
 // ── note / recall ───────────────────────────────────────────────────────────
 
 /**
@@ -1440,6 +1568,25 @@ describe("note and recall", () => {
     const c = consoleWith();
     expect(await run(["recall", "what espresso machine?", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Rancilio Silvia");
+  });
+
+  test("both name the store they wrote to or read from, first line", async () => {
+    // The other half of the silent-write fix: even with the flags right, a
+    // command whose destination is invisible cannot be checked by the person
+    // running it. `status` has always led with `Store:`; these two did not.
+    store().close();
+    const w = consoleWith();
+    await run(["note", "A memory that says where it went.", "--dir", dir], { io: w.io });
+    expect(w.out[0]).toBe(`Store: ${dir}`);
+
+    const r = consoleWith();
+    await run(["recall", "where did it go?", "--dir", dir], { io: r.io });
+    expect(r.out[0]).toBe(`Store: ${dir}`);
+
+    // --json is a machine surface: the payload must still parse on its own.
+    const j = consoleWith();
+    await run(["recall", "where did it go?", "--dir", dir, "--json"], { io: j.io });
+    expect(() => JSON.parse(text(j.out))).not.toThrow();
   });
 
   test("note takes the SAME two doors the MCP tool does: the span is captured, then claimed", async () => {

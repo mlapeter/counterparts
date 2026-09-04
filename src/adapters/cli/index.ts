@@ -9,6 +9,9 @@
  */
 export {
   COMMANDS,
+  COMMAND_FLAGS,
+  COMMON_FLAGS,
+  unknownFlag,
   EXIT,
   OWNER_OPS,
   openCounterpart,

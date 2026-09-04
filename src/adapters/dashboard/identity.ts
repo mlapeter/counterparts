@@ -20,6 +20,7 @@ import type { Style } from "./ansi.js";
 import { NONE, columns, heading, indent, meter, num, plural, stack, subheading, table } from "./layout.js";
 import { resolveRef } from "./resolve.js";
 import type { DashboardSource } from "./source.js";
+import { findIdentityCore } from "../../core/self/index.js";
 import type { EnumeratedElement } from "../../core/self/index.js";
 import { DEFAULT_WIDTH } from "./layout.js";
 
@@ -65,14 +66,58 @@ export function renderIdentity(src: DashboardSource, opts: IdentityOptions = {})
     "The first is what repetition and salience earned and physics can still move; " +
     "the second is ink no revision path reaches, including a revision that would be right.";
 
+  // THE CORE ITSELF, named or absent. Until 2026-09-04 this view rendered
+  // identically for a store whose identity core had been seeded and one whose
+  // had not — both show an empty band on day 0 — so a stranger who ran `init`
+  // instead of `install` had no way to find out that the thing the memory is
+  // ABOUT did not exist. The read is `self/`'s own finder plus one prose read,
+  // and it writes nothing (§14.1 G8).
+  const core = coreLine(src, style);
+
   return stack(
     heading("What I am made of", style),
     opening,
+    core,
     columns(left, right, { width }),
     `${subheading("Both permanent AND constitutive — the strictest class", style)}\n${indent(both)}`,
     `${subheading("Permanent, but outside the identity band", style)}\n${indent(outside)}`,
     unenumerableBlock(src, e.identity, style),
   );
+}
+
+/**
+ * One line naming the identity core, or its absence.
+ *
+ * The core is a `schema`/`self` row carrying `role: "entity"` in its meta
+ * (`self/identity.ts#findIdentityCore`), minted by `ensureIdentityCore` from a
+ * name the owner supplied — `install --name`, `init --name`, or `identity.name`
+ * in the host config. There is no default for it anywhere, which is exactly why
+ * its absence has to be legible rather than inferred from an empty band.
+ */
+function coreLine(src: DashboardSource, style: Style): string {
+  const id = findIdentityCore(src.store);
+  if (id === null) {
+    return (
+      `${style.warn("No identity core yet")} — nothing says who this memory is about. ` +
+      'Seed one with `counterparts install --name "<you>"` or `counterparts init --name "<you>"`; ' +
+      "there is no default for it anywhere."
+    );
+  }
+  let name = "(unnamed)";
+  let born: number | null = null;
+  try {
+    const doc = src.store.readProse(id);
+    const fromMeta = doc.meta["name"];
+    name = typeof fromMeta === "string" && fromMeta.length > 0 ? fromMeta : (doc.title ?? name);
+  } catch {
+    /* a core whose prose has gone is still a core; the id below says so */
+  }
+  try {
+    born = src.store.physicsOf(id).birthDay;
+  } catch {
+    born = null;
+  }
+  return `Identity core: seeded as ${name}${born === null ? "" : ` on day ${String(born)}`} (${id}).`;
 }
 
 /**

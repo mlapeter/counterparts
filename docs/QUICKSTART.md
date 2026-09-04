@@ -98,6 +98,32 @@ Those four paths are stable; the live host has pointed at them since 2026-09-03.
 counterparts install --budget 9000 --name "Your Name"
 ```
 
+That is the command you want the first time. Before you run it, one paragraph on
+the other one, because the difference is not recoverable by guessing.
+
+### `install` or `init` — which one
+
+```
+counterparts init --dir /somewhere/else/store --name "Your Name"
+```
+
+`init` makes **just a store**: a data dir, an identity core if you name one, and
+a printout of the same install steps. It writes nothing under `~/.counterparts/`,
+no configuration and no credentials file, and it touches no host settings.
+
+Use `install` for your first, real memory — it is the cold start, it owns
+`~/.counterparts/`, and it is the only one that produces a config the hooks will
+read. Use `init` for a second store, a scratch store, or a store on another disk
+that you only want to reach from the console and the dashboard. A store made by
+`init` has no host wiring at all: the hooks will not see it, because they read
+one hardcoded configuration path and nothing else.
+
+Both take `--name`, and both mean the same thing by it. `counterparts status` on
+a directory with no store points you at `init`, which is the right answer for the
+case you are usually in when you see that message.
+
+### What `install` writes
+
 Replace `Your Name` with yours. It seeds the identity core — the thing the memory
 is *about* — and there is no default for it anywhere. It does not produce visible
 output on day 0: a fresh store has lived no boundary, so the identity lane has
@@ -164,27 +190,6 @@ you sent the store, and says so in its output when you use `--dir`.
 
 The one `--dir` it refuses is `~/.counterparts` itself, which would put the config
 inside the data dir. It says so instead of creating a store that will not open.
-
-### `install` or `init` — which one
-
-```
-counterparts init --dir /somewhere/else/store
-```
-
-`init` makes **just a store**: a data dir, and a printout of the same install
-steps. It writes nothing under `~/.counterparts/`, no configuration and no
-credentials file, and it touches no host settings.
-
-Use `install` for your first, real memory — it is the cold start, it owns
-`~/.counterparts/`, and it is the only one that produces a config the hooks will
-read. Use `init` for a second store, a scratch store, or a store on another disk
-that you only want to reach from the console and the dashboard. A store made by
-`init` has no host wiring at all: the hooks will not see it, because they read
-one hardcoded configuration path and nothing else.
-
-`counterparts status` on a directory with no store points you at `init` — that is
-the store-only path, and it is correct for the case you are usually in when you
-see that message.
 
 ### The `injectionBudgetBytes` number
 
