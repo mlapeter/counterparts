@@ -2855,6 +2855,15 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     expect(text).not.toContain("say `updates:");
   });
 
+  test("salience is named as the author's to set, with the default said out loud", () => {
+    // An unclaimed authored memory takes a modest default floor, below the
+    // semantic band (`physics/`, 2026-09-04), and the author's claim is the only
+    // channel by which lived testimony outranks what a sweep noticed.
+    const text = stopAsk("s1", 1);
+    expect(text).toContain("`salience` (0-1)");
+    expect(text).toContain("modest default");
+  });
+
   test("it keeps the two sentences that sanction an honest no", () => {
     const text = stopAsk("s1", 2);
     expect(text).toContain("Nothing worth keeping is a real answer");
@@ -2869,8 +2878,9 @@ describe("the one ask names the session and BOTH tools that take it", () => {
   test("it stays short — a model reads this at every Stop that is due one", () => {
     const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
     expect(text.split("\n").length).toBeLessThanOrEqual(6);
-    // Shorter than the PAIR it replaces, and asked far less often.
-    expect(text.length).toBeLessThan(900);
+    // Shorter than the PAIR it replaces (~1,080 bytes across two texts), and
+    // asked far less often — the point of the budget is the blocked moment.
+    expect(text.length).toBeLessThan(1_050);
   });
 
   test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {

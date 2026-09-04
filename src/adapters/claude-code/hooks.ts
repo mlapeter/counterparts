@@ -190,15 +190,20 @@ export interface AdapterOptions {
  *   - **The chapter number is the store's.** It is one past what was WRITTEN,
  *     never one past what was asked, so an unanswered ask does not silently
  *     renumber the journal.
+ *   - **It says salience is the author's to set.** An unclaimed authored memory
+ *     takes a modest default floor, deliberately below the semantic band
+ *     (`physics/`, 2026-09-04), and the author's own claim is the only channel
+ *     by which lived testimony outranks something a sweep noticed — the sweep's
+ *     claim is capped where the author's is not.
  *
  * Short on purpose: a model reads this at every Stop that is due one.
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
     "Before this session closes, two things, both yours to write:",
-    `1. What did you LEARN here that is worth keeping? Your own words, one idea per memory, the way you would want to find it again. Hand them back with the counterparts session_end tool, session: ${sessionId}. \`updates\` is a FIELD on an entry (and on note), never prose: the id of the memory that entry revises.`,
+    `1. What did you LEARN here that is worth keeping? Your own words, one idea per memory, the way you would want to find it again. Hand them back with the counterparts session_end tool, session: ${sessionId}. \`updates\` is a FIELD on an entry (and on note), never prose: the id of the memory that entry revises. Set \`salience\` (0-1) on anything that should last: unset entries take a modest default, and your claim is the only way what you lived outranks what a sweep noticed.`,
     chapter === 1
-      ? `2. Write this session's episode with the counterparts chapter tool, session: ${sessionId} — first person, your voice, any length: what happened and what mattered, how it felt, what you learned about them and about yourself, what is still open. For the next you, not as a report; append in the moment when something significant happens later.`
+      ? `2. Write this session's episode with the counterparts chapter tool, session: ${sessionId} — first person, your voice, any length: what happened and what mattered, how it felt, what you learned about them and about yourself, what is still open. For the next you, not a report; append in the moment when something happens later.`
       : `2. Add chapter ${String(chapter)} to this session's episode with the counterparts chapter tool, session: ${sessionId} — this stretch, in the moment, in your own voice. Not a recap of the earlier chapters.`,
     "Nothing worth keeping is a real answer, and a short true episode beats a manufactured deep one.",
   ].join("\n");

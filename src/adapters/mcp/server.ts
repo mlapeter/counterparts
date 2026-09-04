@@ -12,7 +12,8 @@
  * **The three refusals that live HERE**, because no core module can know them:
  *
  *   1. **The bound session.** `session_end` is the return channel for ONE
- *      session's authorship ask (`claude-code/INTERFACE-GAPS.md` §7). A server
+ *      session's Stop ask (`claude-code/INTERFACE-GAPS.md` §7). `chapter` binds
+ *      by the same rules, through the same one code path. A server
  *      launched for session A may not accept session B's dump, and a server
  *      bound to nothing may not accept a bare claim — "unbound" is a refusal,
  *      not a wildcard. A host that lets a model pick the session id it writes
@@ -545,7 +546,7 @@ export class McpServer {
   }
 
   /**
-   * `session_end` — the authorship ask's return channel.
+   * `session_end` — the MEMORIES half of the Stop ask's return channel.
    *
    * Per-entry failure isolation (scar E1): one refused entry announces itself
    * and its siblings still land. A single bad item failing the whole dump is

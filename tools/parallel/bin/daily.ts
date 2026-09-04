@@ -219,7 +219,7 @@ function main(argv: readonly string[]): number {
     // takes them from there rather than from a second copy — the same
     // one-recognizer-list rule `FOREIGN_MARKERS` follows. Without probes this
     // direction would print 0/0, which reads clean when it means unmeasured.
-    // The probe unit is a LINE, and the authorship ask now carries the session
+    // The probe unit is a LINE, and the Stop ask now carries the session
     // id on two of its lines (`hooks.ts#stopAsk`): those lines are
     // session-specific and will not match, the rest are the recognizer.
     v2Ritual: [stopAsk("<session>", 1)],

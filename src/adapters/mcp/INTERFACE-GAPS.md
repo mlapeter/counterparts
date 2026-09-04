@@ -54,12 +54,16 @@ inherit the wiring rather than adding to it:
 |---|---|---|
 | `note` tool | `bridge.batteryGate()` (per proposal) | `Counterpart.submitJot` → `deposit()` |
 | `session_end` tool | `bridge.batteryGate()` (per proposal) | `Counterpart.submitSessionEnd` → `deposit()` |
+| `chapter` tool | `episodeGate()` at the seam, then `self/`'s own on the same text | `Counterpart.appendEpisode` → `Self.appendChapter` |
 | `recall` tool | n/a — reads only, asserted byte-identical | `test/mcp.test.ts` |
 | `status` tool | n/a — reads only, asserted byte-identical | `test/mcp.test.ts` |
 
 **Nothing new is unguarded.** The proof is the same shape as the claude-code
 totality test: a credential submitted through `note` is redacted, and one that is
-nothing but a credential is refused as `empty-after-redaction`.
+nothing but a credential is refused as `empty-after-redaction`. The journal is on
+the table for the reason the caller-universality test found it in the first place:
+a chapter is canonical prose, so it is an ingestion entrance, and a credential
+written into one landed durably before that gate existed.
 
 ## 4. `note`'s span linkage depends on a hash the buffer returns positionally
 
@@ -134,8 +138,9 @@ and (2) is the owner's, not this build's.
 
 ## 8. The session id has to travel through the MODEL, and that is the host's shape
 
-**What exists.** `session_end` is bound to one session, and `bin/serve.ts` accepts
-`--session` / `COUNTERPARTS_SESSION` so a host can say which at launch.
+**What exists.** `session_end` and `chapter` are bound to one session — the same bind,
+one code path — and `bin/serve.ts` accepts `--session` / `COUNTERPARTS_SESSION` so a
+host can say which at launch.
 
 **What is missing.** This host cannot. Claude Code registers MCP servers from a
 static configuration — command, args, env — with no per-session substitution, and

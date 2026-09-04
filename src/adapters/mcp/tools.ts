@@ -294,9 +294,9 @@ const STATUS: ToolSpec = {
 const SESSION_END: ToolSpec = {
   name: "session_end",
   summary:
-    "The return channel for the end-of-session authorship ask: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen.",
+    "The MEMORIES half of the Stop ask's return channel: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen. The other half is `chapter`.",
   admission:
-    "Call it once, when the session's boundary ask arrives, with one entry per thing that will still be true next week.",
+    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week.",
   negativeExamples: [
     "Do NOT call it mid-session because something interesting happened — that is `note`.",
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else.",

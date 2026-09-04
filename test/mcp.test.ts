@@ -807,7 +807,7 @@ describe("status — the census", () => {
 
 // ── session_end ─────────────────────────────────────────────────────────────
 
-describe("session_end — the authorship ask's return channel", () => {
+describe("session_end — the memories half of the Stop ask's return channel", () => {
   test("the dump lands as authored memory, one entry at a time", async () => {
     const s = server();
     const result = payload(
