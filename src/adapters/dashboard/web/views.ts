@@ -45,7 +45,7 @@ import { FLOW_EDGES, FLOW_NODES, NO_EVENT_OF_ITS_OWN, eventsOfNode, findNode } f
 import type { NodeKey } from "./flow.js";
 import { narrate } from "./narrate.js";
 import type { NarratedEvent } from "./narrate.js";
-import { WITHHELD, gistOfDoc, reveal } from "./reveal.js";
+import { WITHHELD, gistOfDoc, reveal, revealHere } from "./reveal.js";
 
 /** How many rows a feed hands back unless asked otherwise. */
 export const FEED_LIMIT = 40;
@@ -230,8 +230,13 @@ export interface ContestedRow {
   readonly id: string;
   readonly headId: string | null;
   readonly about: string;
+  /** What it said at its own address, shown around the point it diverges. */
   readonly began: string;
+  /** What it says now, shown around the same point. */
   readonly now: string;
+  /** Both, whole — for a tooltip and for anyone who wants the sentence. */
+  readonly beganFull: string;
+  readonly nowFull: string;
   readonly pressure: number;
   readonly bar: number;
   readonly fraction: number;
@@ -431,8 +436,18 @@ function contestedRows(src: DashboardSource): ContestedRow[] {
     } catch {
       continue;
     }
-    const began = reveal(store, rootId, 90);
-    const now = reveal(store, story.headId, 90);
+    // UNFOLLOWED for the origin. `reveal` walks the supersede chain, so both
+    // ends resolved to the SAME row and the page rendered "it began as X" and
+    // "it now says X" as byte-identical strings — the one surface whose whole
+    // job is to show a change showed none. The retained prose at the original
+    // address is what "it began as" means, and `stories.ts` reads it the same
+    // way for the same reason.
+    const began = revealHere(store, rootId, FULL);
+    const now = reveal(store, story.headId, FULL);
+    const [beganShown, nowShown] = divergentPair(
+      began.text ?? began.label,
+      now.text ?? now.label,
+    );
     let about = NONE;
     try {
       const entityId = store.readProse(story.headId).meta["entityId"];
@@ -447,8 +462,10 @@ function contestedRows(src: DashboardSource): ContestedRow[] {
       id: rootId,
       headId: story.headId,
       about,
-      began: began.text ?? began.label,
-      now: now.text ?? now.label,
+      began: beganShown,
+      now: nowShown,
+      beganFull: began.text ?? began.label,
+      nowFull: now.text ?? now.label,
       pressure: story.pressure,
       bar: story.bar,
       fraction: story.bar > 0 ? Math.min(1.4, story.pressure / story.bar) : 0,
@@ -458,6 +475,42 @@ function contestedRows(src: DashboardSource): ContestedRow[] {
     });
   }
   return out.sort((a, b) => b.fraction - a.fraction || (a.id < b.id ? -1 : 1));
+}
+
+/** Wide enough that a statement is read whole before anything is cut. */
+const FULL = 400;
+
+/** `text`, cut to `width`, ending in an ellipsis so a cut is visible as one. */
+function clipTo(text: string, width: number): string {
+  return text.length <= width ? text : `${text.slice(0, width - 1).trimEnd()}…`;
+}
+
+/**
+ * TWO VERSIONS OF ONE STATEMENT, SHOWN AROUND THE POINT THEY DIVERGE.
+ *
+ * A revision usually keeps most of its sentence — that is what makes it a
+ * revision rather than a new belief — so truncating both from character zero
+ * shows the identical prefix twice and cuts the change off the end. The window
+ * starts a little before the first character that differs, on a word boundary,
+ * with a leading ellipsis when it is not the start of the sentence.
+ *
+ * Two strings that really are identical come back identical; the caller decides
+ * what to say about that (a belief whose successor says the same thing is a
+ * fact worth reading, not a bug to hide).
+ */
+export function divergentPair(a: string, b: string, width = 150): [string, string] {
+  if (a === b) return [clipTo(a, width), clipTo(b, width)];
+  let i = 0;
+  const shared = Math.min(a.length, b.length);
+  while (i < shared && a[i] === b[i]) i += 1;
+  let start = i;
+  while (start > 0 && !/\s/.test(a[start - 1] ?? "")) start -= 1;
+  // Enough lead-in that the changed clause has a subject, never so much that
+  // the window is spent on text both versions share.
+  const lead = Math.min(start, Math.floor(width / 3));
+  const from = start - lead;
+  const head = from > 0 ? "…" : "";
+  return [`${head}${clipTo(a.slice(from), width)}`, `${head}${clipTo(b.slice(from), width)}`];
 }
 
 function chapters(src: DashboardSource, limit: number): ChapterRow[] {
@@ -646,7 +699,19 @@ export interface MemoryDetail {
   readonly title: string;
   readonly text: string;
   readonly confidential: boolean;
+  /** The absolute path — what an editor needs, and what the copy button hands
+   *  over (constitution line 6: the owner reads the store itself). */
   readonly prosePath: string;
+  /**
+   * The same file, said RELATIVE to the store — `prose/memories/mem_….md`.
+   *
+   * The absolute form is 150 characters of somebody's tmpdir and it was the
+   * whole subtitle of the memory modal, which means it was in every screenshot
+   * of the best surface in the product. What identifies a memory's file is its
+   * place inside the store, and the machine it happens to be sitting on is not
+   * part of that.
+   */
+  readonly prosePathShort: string;
   readonly kind: Kind;
   readonly band: Band;
   readonly recordedBand: string;
@@ -687,6 +752,7 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     text: "",
     confidential: false,
     prosePath: "",
+    prosePathShort: "",
     kind: "fact" as Kind,
     band: "episodic" as Band,
     recordedBand: "—",
@@ -752,6 +818,7 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     text: g.confidential ? WITHHELD : doc.body.trim(),
     confidential: g.confidential,
     prosePath: row?.prose_path ?? "—",
+    prosePathShort: relativeToStore(store.dir, row?.prose_path ?? ""),
     kind: physics.kind,
     band: band(physics, day),
     recordedBand: `${row?.band ?? "—"} (set day ${row?.band_day ?? "—"})`,
@@ -797,6 +864,13 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     })),
     absence: null,
   };
+}
+
+/** Strip the store's own directory off the front of a path inside it. */
+export function relativeToStore(dir: string, path: string): string {
+  if (path.length === 0) return "—";
+  const root = dir.replace(/\/+$/, "");
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 
 function barFor(src: DashboardSource, id: string): number | null {
@@ -877,7 +951,12 @@ export interface StoryBeat {
   readonly pressureAfter: number;
   readonly bar: number;
   readonly fraction: number;
+  /** One clause, in prose. Never an id: an id in a sentence is a leak. */
   readonly verdict: string;
+  /** What it became, when it became something — as words, resolved now. */
+  readonly became: string | null;
+  /** The successor's address, for a link. Kept OUT of `verdict`. */
+  readonly becameId: string | null;
   readonly crossed: boolean;
 }
 
@@ -1022,17 +1101,24 @@ function storyViews(src: DashboardSource): StoryView[] {
     } catch {
       return { ...row, beats: [], beatsAbsent: NONE };
     }
+
     const beats: StoryBeat[] = story.increments
       .slice()
       .sort((a, b) => a.day - b.day)
       .map((inc) => {
         const crossed = inc.pressureAfter >= inc.bar;
         const step = story.lineage.find((l) => l.id === inc.targetId && l.successorId !== null);
+        const successorId = crossed ? (step?.successorId ?? null) : null;
+        const became = successorId === null ? null : reveal(store, successorId, 96).text;
+        // The verdict is a CLAUSE, and the numbers it is about are already in
+        // their own fields: "0.598 of 0.470" beside the word REVISED read as a
+        // numerator larger than its denominator with nothing saying that is
+        // exactly what clearing a bar looks like.
         const verdict = crossed
           ? step === undefined || step.successorId === null
-            ? "crossed the bar — but I find no supersession recorded"
-            : `REVISED, becoming ${reveal(store, step.successorId, 72).label}`
-          : "held";
+            ? "it cleared the bar — but I find no supersession recorded"
+            : "it cleared the bar, and I changed my mind"
+          : "under the bar — held";
         const c = reveal(store, inc.challengerId, 72);
         return {
           day: inc.day,
@@ -1042,6 +1128,8 @@ function storyViews(src: DashboardSource): StoryView[] {
           bar: inc.bar,
           fraction: inc.bar > 0 ? Math.min(1.3, inc.pressureAfter / inc.bar) : 0,
           verdict,
+          became,
+          becameId: successorId,
           crossed,
         };
       });

@@ -49,7 +49,14 @@ import {
   router,
   startDashboard,
 } from "../src/adapters/dashboard/web/server.js";
-import { activityView, healthView, mindView, wakeLanes } from "../src/adapters/dashboard/web/views.js";
+import {
+  activityView,
+  divergentPair,
+  healthView,
+  mindView,
+  relativeToStore,
+  wakeLanes,
+} from "../src/adapters/dashboard/web/views.js";
 import { parseServe, serve } from "../src/adapters/dashboard/bin/dashboard.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
@@ -678,6 +685,54 @@ describe("what the page withholds", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the shapes the page draws with", () => {
+  test("two versions of one statement are shown around where they diverge", () => {
+    const a = "Ada prefers async review, and will say so if you ask her about it directly.";
+    const b = "Ada prefers a live walkthrough, and will say so if you ask her about it directly.";
+    const [began, now] = divergentPair(a, b, 40);
+    // The point of the whole exercise: the two ends must not render identical.
+    expect(began).not.toBe(now);
+    // Both windows start at the same place, and it is near the change — not at
+    // character zero, which would spend the width on the shared prefix.
+    expect(began.startsWith("…")).toBe(began.startsWith("…"));
+    expect(began).toContain("async");
+    expect(now).toContain("live walkthrough");
+    // A trim is visible as a trim, at both ends.
+    expect(began.endsWith("…")).toBe(true);
+  });
+
+  test("identical statements come back identical — that is a fact, not a bug", () => {
+    const [x, y] = divergentPair("the same sentence", "the same sentence", 40);
+    expect(x).toBe(y);
+    expect(x).toBe("the same sentence");
+  });
+
+  test("a prose path is said relative to the store it lives in", () => {
+    expect(relativeToStore("/tmp/store", "/tmp/store/prose/memories/mem_a.md")).toBe(
+      "prose/memories/mem_a.md",
+    );
+    // A trailing slash on the dir is the store's business, not the caller's.
+    expect(relativeToStore("/tmp/store/", "/tmp/store/prose/x.md")).toBe("prose/x.md");
+    // A path that is NOT inside the store is left alone rather than mangled.
+    expect(relativeToStore("/tmp/store", "/elsewhere/x.md")).toBe("/elsewhere/x.md");
+    expect(relativeToStore("/tmp/store", "")).toBe("—");
+  });
+
+  test("the modal is handed BOTH forms: the short one to show, the full one to copy", () => {
+    const d = open(richDir);
+    try {
+      const first = (get(d.src, "/api/memories").json["points"] as { id: string }[])[0];
+      const detail = get(d.src, `/api/memory?id=${first?.id ?? ""}`).json;
+      const short = String(detail["prosePathShort"]);
+      // The subtitle of the best surface in the product used to be 150
+      // characters of somebody's tmpdir, in every screenshot of it.
+      expect(short.startsWith("/")).toBe(false);
+      expect(short).toContain("prose/");
+      expect(String(detail["prosePath"]).endsWith(short)).toBe(true);
+    } finally {
+      d.close();
+    }
+  });
+
   test("the wake briefing splits at the lane headings `self/` itself writes", () => {
     const lanes = wakeLanes(
       [
@@ -745,13 +800,29 @@ describe("the shapes the page draws with", () => {
         expect(s.now.length).toBeGreaterThan(0);
         for (const beat of s.beats) {
           expect(beat.challenger.length).toBeGreaterThan(0);
-          expect(["held", "crossed the bar — but I find no supersession recorded"]).toContain(
-            beat.crossed ? "held" : beat.verdict,
-          );
+          // The verdict is a CLAUSE, in prose. Never an id: an id inside a
+          // sentence written for a human is the leak this field was rewritten
+          // to close.
+          expect(beat.verdict).not.toMatch(/\b(?:mem|sch|epi)_[0-9a-f]+/);
+          expect(beat.verdict.length).toBeGreaterThan(8);
         }
       }
       // At least one belief in the demo store actually changed its mind.
-      expect(stories.some((s) => s.revised)).toBe(true);
+      const revised = stories.filter((s) => s.revised);
+      expect(revised.length).toBeGreaterThan(0);
+      // AND THE PAGE SHOWS THE CHANGE. Both ends used to resolve through the
+      // supersede chain to the same row and truncate identically, so the one
+      // surface whose job is to show a revision showed two identical strings.
+      for (const s of revised) {
+        expect(s.began).not.toBe(s.now);
+        expect(s.beganFull).not.toBe(s.nowFull);
+        // What it became is carried as words beside the beat, not spliced into
+        // the sentence as an address.
+        const crossed = s.beats.filter((b) => b.crossed);
+        for (const b of crossed) {
+          if (b.became !== null) expect(b.became).not.toMatch(/^(?:mem|sch|epi)_/);
+        }
+      }
     } finally {
       d.close();
     }

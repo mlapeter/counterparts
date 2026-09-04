@@ -74,14 +74,17 @@ function s(t: Told, key: string): string | null {
 /** The event's own subject, quoted. Resolved now; withheld if confidential. */
 function subject(t: Told, id?: string | null): string {
   const target = id ?? t.row.ref;
-  const r = reveal(t.store, target, 60);
+  // 84, not 60. This string is the brain page's ticker — the one sentence the
+  // poster is judged on — and 60 was cutting it mid-word ("Cotter Street
+  // Clinic, t…"). A feed row wraps; a truncation does not un-truncate.
+  const r = reveal(t.store, target, 84);
   if (r.text !== null) return `“${r.text}”`;
   return r.label;
 }
 
 /** The same, at THIS address rather than at the end of the forwarding chain. */
 function subjectHere(t: Told): string {
-  const r = revealHere(t.store, t.row.ref, 60);
+  const r = revealHere(t.store, t.row.ref, 84);
   return r.text === null ? r.label : `“${r.text}”`;
 }
 
@@ -101,7 +104,7 @@ function idsIn(t: Told, key: string): string[] {
 
 /** "X", "X and Y", "X, Y and 3 more" — a list a person reads, not a JSON array. */
 function nameSome(t: Told, ids: readonly string[], cap = 2): string {
-  const named = ids.slice(0, cap).map((id) => `“${shortOf(t.store, id, 46)}”`);
+  const named = ids.slice(0, cap).map((id) => `“${shortOf(t.store, id, 62)}”`);
   const rest = ids.length - named.length;
   const head = named.length === 2 ? `${named[0]} and ${named[1]}` : (named[0] ?? "");
   if (rest <= 0) return head;

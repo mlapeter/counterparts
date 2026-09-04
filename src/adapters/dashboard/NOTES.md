@@ -83,6 +83,75 @@ import keeps that exactly, and the test pins the binding by name so it cannot
 widen into a write. It also joins the enumerated network-verb list in
 `test/claude-code.test.ts`, with the inbound-only claim asserted beside it.
 
+## The web view, second pass — 2026-09-04, after a design review
+
+A design director scored the first pass **6.5/10** against a ship bar of 8.5,
+with measurements rather than taste. The console-error bar passed cleanly; what
+held it back was presentation of content the same review called better than any
+dev-tool dashboard it had judged. Nine findings were acted on, and four of them
+turned out to be *bugs* rather than styling:
+
+**The one that mattered most.** "How I changed my mind" rendered `it began as X…`
+and `it now says X…` as byte-identical strings — the one surface whose whole job
+is to show a change showed none. The cause was not truncation: `contestedRows`
+resolved BOTH ends with `reveal`, which walks the supersede chain, so both
+resolved to the same row. The origin is now read with `revealHere` (unfollowed),
+which is what `stories.ts` had been doing all along and for exactly this reason.
+On top of that, `divergentPair` shows both versions around the point they
+DIVERGE rather than from character zero, because a revision usually keeps most
+of its sentence — truncating from the start spends the width on the shared
+prefix and cuts the change off the end.
+
+**A filesystem path was in every screenshot.** The header chip rendered the data
+dir's absolute path and the memory modal's subtitle was 150 characters of
+somebody's tmpdir. The chip is now the store's NAME with the path in `title=`;
+the modal shows the path relative to the store, with the absolute one behind a
+copy button. What identifies a memory's file is its place inside the store; the
+machine it is sitting on is not part of that.
+
+**Contrast was a measured failure, not a dark-theme choice.** `--faint` (the
+per-memory metadata row — the line constitution 16 is actually about) measured
+**1.86:1**, and `--dim` (the narration lede, the nav, the legends, the table
+headers) measured **3.35:1**. They are now **4.97:1** and **6.36:1**, with
+`--ink` unchanged at 11.8:1, so the hierarchy survives as a real three-step ramp
+and only the floor moved. AA is 4.5.
+
+**The page scrolled sideways at 390** on two of five pages — the task's
+never-allowed case. Grid items default to `min-width:auto`, so a seven-column
+table refused to shrink and `.tablewrap{overflow-x:auto}` never engaged; the
+emulator then widened the layout viewport to 448 to swallow it, which is why
+`scrollLeft` looked innocent. One line: `.cols>*,.cols-wide>*{min-width:0}`.
+
+**And a UA-stylesheet trap worth remembering.** `[hidden]{display:none}` loses
+to any selector carrying an id, so `#flowcv{display:block}` kept the canvas on
+screen after `hidden` was set and the new mobile flow list rendered below an
+invisible blank box. `[hidden]{display:none!important}` is now declared once.
+
+### What the loop learned to measure
+
+The two findings above were found by a human reading pixel values, and neither
+should ever have to be found that way again. `tools/visual-loop` now computes
+WCAG contrast in the page against the background an ancestor actually paints,
+records the layout viewport every request actually got, shoots 1024×768 (where
+the flow diagram's silent clipping and colliding edge labels lived and nowhere
+else), and — because two of this page's claims cannot be checked from a still —
+**causes one real event**: it deposits a memory through the real door of its own
+temp store, waits for a comet to be in flight, photographs it, and asserts the
+flow node's counter moved. The counters had been fetched once at boot, so a page
+left open reported yesterday.
+
+### Two things deliberately not done
+
+- **The all-monospace type system.** One proportional face for prose against
+  mono for data would lift every page at once, and the review names it as the
+  reason a 9 is not available. It is also the change with the widest blast
+  radius, and it is not what stands between this and shipping.
+- **The health page's identifier wall.** `adapter.wake.injected`, `gate.chunk`,
+  `sweep.gate` — 24 dotted names across two tables that partly repeat each
+  other. The honest fix is to lead each row with the plain-English gloss it
+  already carries in its third column and merge the two tables; that is a
+  restructuring, not a patch, and it is filed rather than half-done.
+
 ## OQ2 — which views ship during the parallel run?
 
 The contract asked what the minimum is "beyond status + revision stories". Answer:
