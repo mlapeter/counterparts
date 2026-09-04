@@ -309,12 +309,29 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
     // BOTH endpoints live in config.ts, where an owner can read the whole egress
     // surface of this package on one page — that is the property, not "one".
     expect(endpoints).toEqual(["adapters/claude-code/config.ts"]);
-    // And exactly two files resolve a network verb, both named. The list is the
-    // point: a third one appearing is a review event, not a merge.
+    // And exactly three files resolve a network verb, all named. The list is the
+    // point: a fourth one appearing is a review event, not a merge.
+    //
+    // THE THIRD ENTRY IS INBOUND, AND THAT DIFFERENCE IS THE WHOLE REVIEW.
+    // `adapters/dashboard/web/server.ts` imports `node:http` to LISTEN on
+    // 127.0.0.1 — it opens no connection, resolves no host, and sends nothing
+    // anywhere; `createServer`/`listen` are the only two verbs it uses. It was
+    // reviewed on exactly the terms this comment block asked for (owner ruling
+    // 2026-09-04, the local web dashboard), and it is added here rather than
+    // excluded by a pattern, so the next reader still has to read it.
     expect(callers.sort()).toEqual([
       "adapters/claude-code/embed-client.ts",
       "adapters/claude-code/interpret-client.ts",
+      "adapters/dashboard/web/server.ts",
     ]);
+    // The inbound claim, mechanized: the server never calls an outbound verb.
+    const server = readFileSync(join(SRC, "adapters/dashboard/web/server.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/.*$/gm, " ");
+    expect(/\bfetch\s*\(/.test(server)).toBe(false);
+    expect(/\.request\s*\(|\.connect\s*\(|https?:\/\/(?!127\.0\.0\.1|localhost)/.test(server)).toBe(
+      false,
+    );
   });
 
   test("every session-ending host event is wired, and each maps to a boundary kind", () => {

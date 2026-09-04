@@ -26,6 +26,63 @@ well as text, and none of them are in the five views. The view functions know
 nothing about a terminal; a web adapter would reuse the data-shaping and replace
 only the last step. Nothing here is a fork in the road.
 
+## OQ1, revisited — 2026-09-04: **both. The web view is built.**
+
+The revision condition the entry above named — *the moment the owner wants to
+click* — arrived, and it arrived for exactly the reason it predicted: a memory
+graph, a strength curve over lived days, a belief's pressure against its bar.
+The owner ruled for a local web view (2026-09-04) and it is in `web/`.
+
+**Nothing in the terminal answer's reasoning is discarded**, because each of its
+three grounds was a claim about how to keep a guarantee cheap, not a claim about
+pixels:
+
+1. *"A view that returns a string is a pure function of the store."* So is
+   `router(url, host, source)`: it takes an already-opened observer source,
+   returns a plain `{status, headers, body}`, and binds no socket. The
+   byte-identical assertion is the same loop, over endpoints instead of over
+   views (`test/dashboard-web.test.ts`). The property did not get harder to
+   prove; it got a second shape.
+2. *"Zero new surface — a server, a port, a lifetime, and a decision about who
+   may reach it."* All four are now answered rather than avoided: `node:http`
+   (not `Bun.serve`, so Node is not foreclosed), 127.0.0.1 only, the process's
+   own lifetime, and a Host-header allowlist checked before any view is
+   computed. Amendment 15 says complexity is *earned*; this is the moment it
+   was, and the four answers are the price.
+3. *"It is where the owner already is."* Still true, and the five terminal views
+   are untouched. `bin/dashboard.ts serve` is a sixth subcommand beside them,
+   not a replacement for them.
+
+**What the web shape added that the terminal shape did not have.** Two things,
+and both are rules the terminal views should probably adopt:
+
+- **Confidential rows are withheld** (`web/reveal.ts`). `recall/activate.ts`
+  has a predicate the surfacing gate uses; the terminal views resolve straight
+  through it. On a screen that gets screenshotted, that is the one surface in
+  the system where the rule would not hold. The row still renders — id, band,
+  strength, its dot on the chart — and only the sentence is gone, because a
+  memory whose *existence* the owner cannot see would be the worse failure.
+- **Refs are resolved BY EVENT NAME.** `recall.decision` carries a session id in
+  its `ref`, and the terminal feed puts it through the memory resolver and
+  prints `[no longer at this address]` beside a turn that went perfectly well.
+  A false absence is worse than no line. Filed against the terminal view.
+
+**What is genuinely new, rather than the same data in colour.** The flow page:
+Counterparts' own architecture drawn from a node registry, with each node's
+brain analog AND where that analogy deliberately breaks, and an event→node map
+declared `satisfies Record<DurableEventName, NodeKey>` — the fourth totality
+axis, in the same shape as the other three. A durable event the core learns to
+write now fails `tsc` until someone has decided which part of the machine it
+belongs to.
+
+**One exception was opened, narrowly.** `web/server.ts` is the only file in this
+directory that may import `node:fs` — `readFileSync`, for two static HTML pages
+that ship beside it — and `node:http`. The directory-wide ban mechanizes "there
+is no dashboard state file because nothing here can open one"; a read-only
+import keeps that exactly, and the test pins the binding by name so it cannot
+widen into a write. It also joins the enumerated network-verb list in
+`test/claude-code.test.ts`, with the inbound-only claim asserted beside it.
+
 ## OQ2 — which views ship during the parallel run?
 
 The contract asked what the minimum is "beyond status + revision stories". Answer:
