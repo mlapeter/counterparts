@@ -181,10 +181,11 @@ memory under Claude Code, running beside its predecessor so the two can be compa
 and the launch scoreboard — including the bugs found this week — is
 [`docs/LAUNCH-STATUS.md`](https://github.com/mlapeter/counterparts/blob/master/docs/LAUNCH-STATUS.md).
 
-**The test suite, measured 2026-09-04 on commit `cbed76b` under bun 1.3.10:** `bun test` →
-**1,557 pass, 0 fail, nothing skipped**, over 20,600 assertions across 26 files, about
-20 s. (Three consecutive runs gave 20,605 / 20,613 / 20,626 assertions — a few tests
-assert once per row of data they generate — while the pass and fail counts did not move.)
+**The test suite, measured 2026-09-04 on commit `b29034c` under bun 1.3.10:** `bun test` →
+**1,572 pass, 0 fail, nothing skipped**, over 20,800 assertions across 26 files, about
+19 s. (Three consecutive runs on that commit gave 20,813 / 20,836 / 20,832 assertions — a
+few tests assert once per row of data they generate — while the pass and fail counts did
+not move.)
 No test touches a real store, and that is mechanized rather than promised:
 `test/preload.ts` runs before every test file, redirects `homedir()` to a fresh temporary
 directory for the whole run, clears `COUNTERPARTS_DATA_DIR`, and removes the directory on
