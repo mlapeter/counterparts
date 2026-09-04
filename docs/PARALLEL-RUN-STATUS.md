@@ -5,6 +5,94 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-04, day 1: the first conversation reviewed, ten fixes merged and LIVE
+
+**Day 1 is the review day.** The owner's first real conversation on counterparts (session
+`c781252f`, the conversation room at `~`, 2026-09-03 22:08 UTC to 2026-09-04 04:41 UTC,
+13 owner turns) was reviewed from three sources: the store read-only, the transcript on
+disk, and the instance that lived it (asked six questions over cross-session messaging;
+it answered with counts). Verdict: **the plumbing held and identity carried; retrieval,
+authorship and revision did not.** Numbers, all from rows:
+
+| Measure for that session | Value |
+|---|---|
+| Wake | 8,859 B, 8 identity elements, every other lane 0; framed as counterparts only in the HTML comment |
+| Recall footnotes delivered / judged relevant by the instance | 9 / 0 — the same nine 9–20 KB migrated memories (store median 1.1 KB) surfaced for every topic, in two unrelated sessions |
+| Recall latency, first to last turn | 455 → 995 ms against the 1,200 ms budget; one abort at turn 1 |
+| Stop asks | about a dozen in 13 turns (two independent pacers alternating) |
+| Notes stored / refused / with `updates:` as prose | 34 / 0 / 4 (no field existed; targets untouched) |
+| Sweep chunks / proposals / refused | 13 / 64 / 0 — ran after nearly every Stop, 61 memories, roughly half paraphrase twins of the notes |
+| Episodes written | 0 — no session bound, AND no tool on this host called `appendChapter` |
+| Revision declarations / with any effect | 1 / 0 — `challengeBelief` had callers only in tests |
+| Bansai deliveries while muted | 0; cross-encoding v2→v1 15 and 24 verbatim lines, ratios 0.0125 / 0.020, under the 0.1 bar |
+
+**Root causes found under those numbers** (each now a named memory in the store and a
+PR below): neither live recall path attached a turn vector, so 13,862 embeddings were
+consulted by nothing; the lexical scorer had no length normalization and the token cache
+no document length; only the sweep warmed embeddings (all 40 authored notes and all 224
+episodes unembedded); the sweep ran at every Stop against a contract that says *only*
+when the experiencer never got the pen; the MCP server is launched from static config
+with no session id and defaulted its scope to the store directory; the wake is rendered
+once at sleep and served identically all day; `updates:` had a field on `session_end`
+only; every authored memory had zero computed salience (sal = max(mean dims, claimed),
+and most notes arrive unclaimed); the daily still read `primacy: v1` from `run.json`
+and could not see a muted bansai's boundaries.
+
+**Owner rulings (2026-09-04, plain):** the sweep is a crash fallback only — not Stop,
+not session end, not compaction; `updates` by target: beliefs and identity elements take
+pressure, current-state replaces with lineage, plain memories link only; the phase clock
+restarts when the recall and wake fixes land; no embedding on the hot path (one-turn
+lag); `run.json` stamped primacy v2 / phase P at 14:57 UTC with a backup beside it.
+Fixes are grounded in `CONSTITUTION.md` and the module CONTRACTs, with bansai as a
+reference point, not a template.
+
+**Merged 2026-09-04, in this order, each verified on master (suite 1239 → 1411, tsc
+clean), and LIVE at once because the hooks run this checkout:**
+
+| PR | What |
+|---|---|
+| #17 | Peer sessions' messages attributed to their sender in spans; Stop-hook asks are `ritual` and enter nothing, counted as excluded |
+| #19 | Live-session registry under `<dataDir>/sessions/` (TTL 4 h), lazy binding of `session_end` to a registered live session in the same scope, server scope defaults to `process.cwd()`, `updates` field on `note`, the ask names the session id and the tool |
+| #21 | Daily refuses on a primacy disagreement, grades a muted v1's missing boundaries as `muted-consistent`, names the four not-durable watches, `bin/restart.ts` for the phase clock |
+| #20 | `IDENTITY_SHARE` 0.5 by whole elements; a delivery-time preface (system, lived day, date, store size) composed in the SessionStart hook with its room reserved once; threads stay dark: zero migrated memories carry `unresolved` |
+| #22 | `core/revision.ts`: a resolved `updates:` reaches the engine from every door — belief → `challengeBelief` pressure; current-state → immediate supersede with lineage; identity-band memory → pressure + supersede; other memory → link only; four telemetry records, nothing throws |
+| #18 | Sweep only for crashed sessions: uncovered spans, no session-end boundary, `CRASH_STALE_MS` 12 h silent (calibrated on the 4 h 07 m idle gap in the first conversation); captures unchanged at Stop / SessionEnd / pre-compaction; `sweep.gate` durable record so a quiet sweep is a receipt, not silence |
+| #23 | Semantic channel: the worker embeds the turn AND ranks (the nearest scan costs 590–1,040 ms at 13.8K JSON-text vectors), passing top hits to the next turn; the recall tool embeds in line under a 15 s budget; embedding backfill 64/run, authored and episodes first |
+| #24 | `AUTHORED_DEFAULT_CLAIM` 0.25 for unclaimed authored memories (0.25 + CONS_BONUS < THETA_SEM, so the default alone never reaches the semantic band; v1's F5 scar closed as arithmetic); per-dimension fields on `note`/`session_end`; `backfill-claims` CLI (dry run by default; 20 live rows qualify; **owner runs `--apply`**) |
+| #26 | ONE ask on ONE pacer (first at 6 turns and 4,000 B or 12,000 B alone; re-ask 8 turns AND 8,000 B; cap 4 per lived day, shared across sessions), naming the session and both tools; the `chapter` MCP tool — the first door on this host that reaches `appendChapter`; dedup no longer merges an ingested memory into its own episode |
+| #27 | `isJournal()`: decay, prune, consolidate and dedup skip episode rows with a named skip; the census no longer counts a chapter as a memory born today |
+| #25 | Recall length normalization (BM25 in the SQL before `ORDER BY … LIMIT`; CUE_LENGTH_NORM 0.5 one-sided, CUE_DOC_CAP 3.0), per-document cap, `SNR_GLOBAL` 1.2 → 1.6, `MAX_SURFACED` 2 → 1, the `tools/recall-bench/` operator bench, tool output capped with `ids` expansion. Bench on the 13 real prompts (store copy, lexical channel): hub deliveries 31 → **0**, turns with a hub 13/13 → 0/13, ambient should-surface 0 → 1, deliberate 1 → 3, recurrence 78% → 37%, tool result 73K → 6.7K chars. **Not met:** loud surfacings 3/13 turns → **13/13** (one item each), delivered per turn 2.5 → 4.8. Cause: v2's absolute floors are v1's 0–1 numbers against an activation that sums idf × evidence to 13–48 per turn, so they have never fired and only the relative bar gates loud; a cue-poor turn's thin background clears it easiest (scar §2.8). A store-scaled floor meets every target on the bench but blinds small stores; follow-up PR `fix/recall-loud-tier` in flight (`recall/CONTRACT.md` §7 OQ5 carries the sweep tables). |
+
+**Facts the day taught that are not PRs:** MCP servers keep the code they were launched
+with — every session open across a merge has the old doors until it restarts (this
+session's own ask named `session_end` and the old server refused it). The vector cache is
+177.5 MB of JSON-text vectors (~12.7 KB each vs 4 KB as float32) and `indexDoc`
+rewrites a document's token rows on every index call — the growth watch and the recall
+latency are the same fact from two sides; still owed. A Stop boundary's scope follows the
+hook's cwd, so a session that `cd`s records span scopes in worktree paths. Three
+merges conflicted, one semantically with no git conflict (the revision PR's sweep tests
+assumed sweep-at-Stop); the dry-run integration in a scratch worktree found it.
+
+**Open rulings for the owner:** an authored `updates:` that resolves only by content plus
+the author's hint is classed a *confirmation* and takes no pressure (standing SEAMS N
+doctrine; the ruling's most ambiguous corner); an unclaimed note (0.25) does not outrank a
+typical swept memory (~0.55 from interpreter dims) — closing that is a swept-side change,
+not a bigger default; the 224 migrated episodes are now permanent by construction.
+
+**Day-2 watches (added to the list above):** `sweep.gate` per day (`ran: 0,
+skippedNotCrashed == scopes` is health; no row on a day the worker spawned is not);
+session-end boundaries per ended session; `adapter.embed.backfill` remaining → 0; the
+loud-tier rate after #25's retune; `salience.defaulted` vs claimed counts (from prose
+meta); `adapter.ask` outcomes per day against the cap of 4; episode files appearing under
+`prose/episodes/` from sessions started after the merges; `meta["updates"]` links and
+`revision.pressure` rows now that the wire exists; scope churn from `cd`.
+
+**The phase clock:** restarted 2026-09-04 16:41 UTC with `bin/restart.ts`, first counting
+day **2026-09-05** (`run.json` `phaseRestart`, `restarts.jsonl`; surface set
+`800a9a9421cd969f`; the day-0 record kept as history). Day 1 of the counted phase is the
+first full day on the merged code. The daily for 2026-09-04 should still be run tomorrow
+morning as the review day's record.
+
 ## State — 2026-09-03, evening: STARTED
 
 **The run is live.** Day 0 closed READY on every preflight row at 21:01 UTC; the flip
