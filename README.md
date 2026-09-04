@@ -37,12 +37,14 @@ and runs them directly — there is no build step and no `dist/`. **Node is unte
 store uses Node's built-in `node:sqlite`, which needs Node 22.5+ behind a flag and 23.4+
 by default; nobody has run this package under any Node, so it claims nothing there.
 
-**No API keys are required.** With none, everything works except two things: recall runs
-on its text channel alone rather than also matching by meaning, and the crash-recovery
-path that reconstructs a session the AI never got to write up cannot run. An embedding key
-buys the meaning-based half of recall — and it is off by default even when a key is
-present, because embedding means sending memory text to a third party, which should be a
-decision rather than something a stray environment variable switches on.
+**No API keys are required.** With none, two things are off. Recall runs on its text
+channel alone rather than also matching by meaning; an embedding key buys the other half —
+and it stays off by default even when a key is present, because embedding means sending
+memory text to a third party, which should be a decision rather than something a stray
+environment variable switches on. And the crash-recovery path — the one that reconstructs
+a session that ended before the AI could write it up — cannot run; when it does run, it
+sends that captured conversation to a model provider. Both are the only two ways anything
+here leaves your machine, and both are yours to turn on.
 
 **Counterparts is not on npm yet.** The name is reserved and nothing has been pushed to
 it. Until it is, you build the package yourself:
@@ -56,9 +58,11 @@ bun add -g "$PWD"/counterparts-*.tgz
 
 That last path has to be absolute — a relative one fails with a confusing error.
 
-That puts four executables on your PATH: `counterparts` (your console),
-`counterparts-hook`, `counterparts-mcp`, and `counterparts-dashboard`. Then create the
-store:
+That installs four executables — `counterparts` (your console), `counterparts-hook`,
+`counterparts-mcp` and `counterparts-dashboard` — into bun's global bin directory. Check
+that directory is on your PATH before going on: run `counterparts --help`, and if it says
+*command not found*, QUICKSTART §2 has the one-line fix. A fresh bun install does not
+always do this for you. Then create the store:
 
 ```
 counterparts install --budget 9000 --name "Your Name"
@@ -132,17 +136,18 @@ generated from a list of stated privileges, each naming the file that enforces i
 | `session_end` | Hand back what this session taught, as memories, in the AI's own words. |
 | `chapter` | Write this stretch of the session into the AI's own first-person journal, at any length. |
 
-**Your console** — `counterparts <command>`. `status` and `recall` are read-only; the rest
-write. `install`, `init`, `note`, `export` (encrypted under a passphrase, or explicitly
-`--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run unless you
-pass `--confirm`, and it asks a human before it acts), `verify`, `backfill-claims`,
-`rebrief`. `--observer` makes the console stand down: everything is read-only and the
-commands that would write refuse instead.
+**Your console** — `counterparts <command>`. Read-only: `status`, `recall`, and `verify`
+(a census of the search cache against the real state; `--rebuild` is what rebuilds it).
+The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
+explicitly `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run
+unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`, and
+`rebrief`. Pass `--observer` to any of them and the console stands down: everything is
+read-only, and the commands that would write refuse instead.
 
 **The dashboard** — `counterparts-dashboard <view>`, five views today, in your terminal:
 `status` (the brain at a glance), `browse` (memories by strength), `stories` (per contested
-belief, the pressure log as a story), `identity`, and `activity`. It reads in a stand-down
-mode and writes nothing, ever. A local **web** dashboard is in progress and is not merged
+belief, the pressure log as a story), `identity`, and `activity`. It is read-only and
+writes nothing, ever. A local **web** dashboard is in progress and is not merged
 as this is written; the screenshots above come from it.
 
 ---
@@ -167,7 +172,8 @@ all five events, the MCP server registers and its tools are used daily, the brie
 reaches the model, and both `backup` and the import of the author's previous-generation
 memory ran against the real store.
 **Verified only against temporary stores**: `export` in all three modes, `remove` end to
-end, and the console's and dashboard's behaviour on a missing store. **Not verified at
+end (which is also where the residue in rough edge 5 was found), and the console's and
+dashboard's behaviour on a missing store. **Not verified at
 all**: anything under Node, and — until you do it — a stranger installing from the
 documentation on a machine with no copy of this repository.
 
@@ -189,7 +195,11 @@ documentation on a machine with no copy of this repository.
 4. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
    `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
    Absent that, no client is built and no connection opens whatever keys are lying around.
-5. **Node.** See above. `package.json` names bun and does not claim Node.
+5. **Removal leaves one residue.** `remove` chases a memory out of the prose, the
+   database, the links and the cache, and reports what it chased. It does not yet reach
+   the buffer that holds the raw captured conversation, so a removed memory's words can
+   survive there. Found and filed 2026-09-04; the fix is not written as this is stated.
+6. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and
 no comparison table, because nobody has run one, and a number nobody ran is the thing this
