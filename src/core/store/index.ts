@@ -125,6 +125,20 @@ export interface StoreOptions extends Stance {
   retentionDays?: number;
   /** Optional; without it, embeddings are declared un-recomputed at rebuild. */
   embed?: Embedder;
+  /**
+   * THE PROVENANCE CLOCK (LAUNCH-STATUS §I7, `NOTES.md` 2026-09-05).
+   *
+   * The session's wall clock, injected. Everything this store records about
+   * WHEN IN THE WORLD something happened — `learnedOn`, event `at`, a version's
+   * `archived_at`, a removal record's `at` — reads THIS and never the ambient
+   * `Date.now`. The PHYSICS clock is a different clock and stays where it is:
+   * `livedDay()` counts days the owner actually lived, advanced by
+   * `advanceClock()`, and no wall-clock instant moves it.
+   *
+   * Defaults to `Date.now`, so a host that injects nothing behaves exactly as
+   * before. A seeder, a replay harness and a migration pass one.
+   */
+  now?: () => number;
   onEvent?: (event: StoreEvent) => void;
 }
 
@@ -341,6 +355,8 @@ export class Store {
   private readonly ops: Db;
   private readonly cache: Db;
   private readonly embed: Embedder | undefined;
+  /** The provenance clock (§I7). The ONE `Date.now` in this file is its default. */
+  private readonly nowFn: () => number;
   private readonly onEvent: ((e: StoreEvent) => void) | undefined;
   private readonly ring: StoreEvent[] = [];
 
@@ -353,6 +369,7 @@ export class Store {
     this.observer = isObserver(opts);
     this.retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
     this.embed = opts.embed;
+    this.nowFn = opts.now ?? Date.now;
     this.onEvent = opts.onEvent;
 
     // AN INSTRUMENT WRITES NOTHING AT OPEN when there is a store to read.
@@ -450,12 +467,34 @@ export class Store {
     ref?: string,
     data?: Record<string, string | number | boolean | null>,
   ): void {
-    const event: StoreEvent = { at: Date.now(), name };
+    const event: StoreEvent = { at: this.nowFn(), name };
     if (ref !== undefined) event.ref = ref;
     if (data !== undefined) event.data = data;
     this.ring.push(event);
     if (this.ring.length > EVENT_RING) this.ring.shift();
     this.onEvent?.(event);
+  }
+
+  /**
+   * The provenance clock's instant, and the calendar date it falls on.
+   *
+   * TWO CLOCKS, and this is the second one. `livedDay()` above is the physics
+   * clock — how much EXPERIENCE has passed, which is what decay and
+   * consolidation run on. These two say WHEN IN THE WORLD, which is what a
+   * memory's provenance is made of. A caller that wants "the date this store
+   * thinks it is" asks here rather than reading the ambient clock, so a seeded,
+   * replayed or migrated store dates its rows by the run it is replaying.
+   *
+   * UTC, like every other date this codebase writes (the hooks' own
+   * `new Date().toISOString().slice(0, 10)`, `sleep/cycle.ts#todayDate`). Local
+   * dating is a separate question with a separate answer; see NOTES 2026-09-05.
+   */
+  now(): number {
+    return this.nowFn();
+  }
+
+  today(): string {
+    return dateOf(this.nowFn());
   }
 
   /** Copies, ordered oldest first. Optionally filtered by name. */
@@ -530,7 +569,7 @@ export class Store {
         version.seq,
         patch.reason ?? "revise",
         this.livedDay(),
-        Date.now(),
+        this.nowFn(),
         version.path,
         version.hash,
       );
@@ -572,7 +611,7 @@ export class Store {
         row.revision + 1,
         reason,
         this.livedDay(),
-        Date.now(),
+        this.nowFn(),
         row.prose_path,
         row.content_hash,
         created.doc.id,
@@ -834,7 +873,7 @@ export class Store {
       this.ops.run(
         `INSERT OR IGNORE INTO events (at, day, name, ref, dedup_key, payload)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        Date.now(),
+        this.nowFn(),
         input.day,
         input.name,
         input.ref ?? null,
@@ -982,7 +1021,7 @@ export class Store {
         "INSERT INTO removal_record (memory_id, stage, at, actor, reason) VALUES (?, ?, ?, ?, ?)",
         note.memoryId,
         note.stage,
-        Date.now(),
+        this.nowFn(),
         note.actor,
         note.reason ?? null,
       );
@@ -1413,7 +1452,7 @@ export class Store {
     const doc: ProseDoc = {
       id,
       type: input.type,
-      learnedOn: input.learnedOn ?? today(),
+      learnedOn: input.learnedOn ?? this.today(),
       bornDay: input.physics?.birthDay ?? day,
       meta,
       body: input.body,
@@ -1501,8 +1540,28 @@ export function newId(type: ProseType): string {
   return `${ID_PREFIX[type]}_${randomBytes(6).toString("hex")}`;
 }
 
+/**
+ * The calendar date an INSTANT falls on — the provenance clock's only arithmetic.
+ *
+ * UTC by deliberate choice, not by accident: every other date in this codebase is
+ * written with the same `toISOString().slice(0, 10)` (the hook that supplies
+ * `advanceClock`'s date, `sleep/cycle.ts#todayDate`, the embedder's seat rotation),
+ * so a local-dating provenance clock would put provenance and physics on two
+ * different calendars. Moving all of them to local dating is a real, separate
+ * question, filed in `NOTES.md` 2026-09-05 with its evidence.
+ *
+ * NOT `physics/clock.ts#dayKey`. That function shifts by the BOUNDARY HOUR, which
+ * is a physics idea — "which lived day does this activity belong to" — and a
+ * memory taken at 01:30 was taken on the 14th no matter which lived day it counts
+ * toward. Provenance does not get the boundary shift.
+ */
+export function dateOf(at: number): string {
+  return new Date(at).toISOString().slice(0, 10);
+}
+
+/** The ambient date. Adapters and defaults only — a store reads `store.today()`. */
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateOf(Date.now());
 }
 
 /** True when a data dir has already been initialized (used by adapters, not writes). */

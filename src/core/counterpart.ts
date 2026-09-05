@@ -616,6 +616,11 @@ export class Counterpart {
 
     this.store = Store.open({
       observer: this.observer,
+      // THE PROVENANCE CLOCK, handed down (§I7). One clock per session, and the
+      // store is the thing that writes dates — so it gets the same function the
+      // recall, self, prospective and span-buffer halves already got, and a
+      // seeded or replayed brain stops stamping the run day on every row.
+      now: this.nowFn,
       ...(opts.dir === undefined ? {} : { dir: opts.dir }),
       ...(opts.embed === undefined ? {} : { embed: opts.embed }),
       ...(opts.retentionDays === undefined ? {} : { retentionDays: opts.retentionDays }),

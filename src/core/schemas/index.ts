@@ -48,7 +48,7 @@ import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
 import { containsSecret, redactSecrets } from "../encode/secrets.js";
 import { occursAsWholeWord } from "../encode/words.js";
-import { Store, hashText, readProseFile, today } from "../store/index.js";
+import { Store, hashText, readProseFile } from "../store/index.js";
 import type { MemoryRow, PutInput } from "../store/index.js";
 import type { Band, Kind, Salience } from "../types.js";
 import { AliasIndex, collision, handleKey } from "./aliases.js";
@@ -535,7 +535,9 @@ export class Schemas {
       this.emit("schema.placement.refused", input.entityId, { reason: "statement-empty" });
       return { ok: false, reason: "statement-empty", id: null, belongsOn: null };
     }
-    const statedOn = input.statedOn ?? today();
+    // The STORE's clock, not the ambient one (§I7): a current state placed
+    // during a seeded or replayed run is stated on that run's date.
+    const statedOn = input.statedOn ?? this.store.today();
     const id = this.mintElement({
       role: "current-state",
       entityId: input.entityId,
@@ -899,7 +901,9 @@ export class Schemas {
 
     const challenger = this.store.physicsOf(input.challengerId);
     const entityId = rec.entityId ?? "";
-    const statedOn = today();
+    // The store's clock, not the ambient one (§I7) — same rule as the placement
+    // path above, and the two must not disagree about what day it is.
+    const statedOn = this.store.today();
     const successorId = this.supersedeElement({
       targetId,
       row,
