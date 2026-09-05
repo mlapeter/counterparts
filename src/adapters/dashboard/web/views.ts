@@ -1377,12 +1377,15 @@ function nodeState(src: DashboardSource, key: NodeKey, count: number, memories: 
       // writes. What the door actually did is the count that came through it.
       return memories === 0 ? (day === 0 ? NEVER : NONE) : `${memories} came through`;
     case "encode":
-      // NEITHER ABSENCE WORD IS TRUE HERE once anything is in the store. The
-      // battery ran on every one of them; the authored path writes no
-      // `gate.chunk` row (see UNLOGGED_PATH). `(never run)` beside STORE's
-      // `143 memories held` was a contradiction on the face of the diagram.
+      // NEITHER ABSENCE WORD IS TRUE HERE once anything is in the store: the
+      // battery ran on every one of those memories. `(never run)` beside
+      // STORE's `143 memories held` was a contradiction on the face of the
+      // diagram. Both doors record now (`gate.chunk`, `gate.deposit`), so the
+      // ordinary answer is a count — but a store holding memories that PREDATE
+      // the gate log, or that were seeded around the door, still has none, and
+      // that state gets its own sentence rather than a zero.
       if (count > 0) return `${count} recorded`;
-      if (memories > 0) return `${memories} passed · no gate record yet`;
+      if (memories > 0) return `${memories} passed · no gate record for them`;
       return day === 0 ? NEVER : NONE;
     default:
       return count === 0 ? NEVER : `${count} recorded`;

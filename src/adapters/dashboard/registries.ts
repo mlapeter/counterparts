@@ -32,6 +32,7 @@ import {
   EMBED_BACKFILL_EVENT,
   EPISODE_ASK_EVENT,
   GATE_CHUNK_EVENT,
+  GATE_DEPOSIT_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
@@ -87,6 +88,7 @@ export type DurableEventName =
   | MergeRecord["event"]
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
+  | typeof GATE_DEPOSIT_EVENT
   | typeof RECALL_DECISION_EVENT
   | typeof SWEEP_GATE_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -121,6 +123,7 @@ export const DURABLE_EVENTS = {
   "band.promoted": "a memory crossed into the identity band",
   "band.transition": "a memory changed bands (the symmetry counter's food)",
   "gate.chunk": "a swept chunk met the gate battery",
+  "gate.deposit": "an authored deposit met the gate battery (which gates acted, and what they refused)",
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",

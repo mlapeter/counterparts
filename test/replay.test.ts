@@ -687,6 +687,7 @@ const EMPTY_OBSERVATION: ReplayObservation = {
   sweeps: [],
   chunks: [],
   gateRecords: [],
+  depositRecords: [],
   bandTransitions: [],
   symmetry: [],
   events: [],

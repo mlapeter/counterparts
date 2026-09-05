@@ -117,15 +117,27 @@ export const METRICS: readonly MetricSpec[] = [
     grading: {
       kind: "range",
       range: { lo: 0, hi: 0.9 },
-      note: "WIDE, and the reason is beside it: v1's secrets fires rode on the EPISODE surface — 483 of 737 fires were on episode text — which a raw-span replay does not exercise at all (see `gate.episodeSurfaceShare`). A low secrets share here is a corpus fact before it is a regression, and a zero is legitimate: a corpus with no credential shapes in it fires no secrets gate. What the metric really grades is that the mix EXISTS — the per-gate distribution is recoverable from a replayed store, which it was not before `gate.chunk`. VOCABULARY (review F7): these are FIRES — gates ACTING (redact, hedge, feeling-kill, drop) — not refusals. v2's battery refuses a proposal only three ways (secret-in-name, empty-after-redaction, content floor); alias/precision/emotion degrade and accept by design. Refusals live in `gate.chunkBlockRate`; the id predates the split and is kept for record stability.",
+      note: "WIDE, and the reason is beside it: v1's secrets fires rode on the EPISODE surface — 483 of 737 fires were on episode text — which a raw-span replay does not exercise at all (see `gate.episodeSurfaceShare`). A low secrets share here is a corpus fact before it is a regression, and a zero is legitimate: a corpus with no credential shapes in it fires no secrets gate. What the metric really grades is that the mix EXISTS — the per-gate distribution is recoverable from a replayed store, which it was not before `gate.chunk`. VOCABULARY (review F7): these are FIRES — gates ACTING (redact, hedge, feeling-kill, drop) — not refusals. v2's battery refuses a proposal only three ways (secret-in-name, empty-after-redaction, content floor); alias/precision/emotion degrade and accept by design. Refusals live in `gate.chunkBlockRate`; the id predates the split and is kept for record stability. SCOPE (2026-09-05): counted over BOTH gate record kinds — `gate.chunk` for a swept chunk and `gate.deposit` for an authored one — now that the authored door records what its battery did (INTERFACE-GAPS §2a). Before that it was the sweep path only, which on an authoring corpus was the smaller half.",
     },
     compute: (o) => {
       // The battery's OWN count of an acting gate: it writes one `gate.<name>`
-      // event per gate that fired or rejected, and the record relays those.
+      // event per gate that fired or rejected, and both records relay those.
+      //
+      // BOTH DOORS, since 2026-09-05 (INTERFACE-GAPS §2a). One battery gates a
+      // swept chunk and an authored deposit alike, and a mix computed over the
+      // crash-sweep path alone was half a distribution presented as the whole
+      // one — on a corpus that mostly authors, it was the smaller half. The two
+      // record kinds are summed and not averaged because a fire is a fire; what
+      // they must NOT share is a denominator that means different things, which
+      // is why only this metric reads across (the preselection metrics stay on
+      // `gateRecords`, where a shown-count was actually measured).
       let secrets = 0;
       let total = 0;
-      for (const g of o.gateRecords) {
-        for (const [gate, n] of Object.entries(g.fires)) {
+      for (const fires of [
+        ...o.gateRecords.map((g) => g.fires),
+        ...o.depositRecords.map((d) => d.fires),
+      ]) {
+        for (const [gate, n] of Object.entries(fires)) {
           total += n;
           if (gate === "secrets") secrets += n;
         }

@@ -154,6 +154,27 @@ export const NARRATORS = {
       `A swept chunk met the gate battery — ${proposals} proposals looked at, ${accepted} kept.`,
     );
   },
+  "gate.deposit": (t) => {
+    const accepted = n(t, "accepted") === 1;
+    const gates = Array.isArray(t.p["gates"]) ? (t.p["gates"] as { gate?: unknown; status?: unknown }[]) : [];
+    const acted = gates
+      .filter((g) => g.status !== "clear" && g.status !== "not-invoked")
+      .map((g) => String(g.gate));
+    if (!accepted) {
+      // The refusing gate BY NAME — the fact this whole record exists for. The
+      // old in-process event had it too; what it did not have was durability.
+      const blocked = Array.isArray(t.p["blockedBy"]) ? (t.p["blockedBy"] as unknown[]) : [];
+      const why = blocked.length > 0 ? blocked.map(String).join(", ") : "no reason recorded";
+      const by = acted.length > 0 ? acted.join(", ") : "the battery";
+      return amber(`I tried to write something down and the ${by} gate refused it — ${why}.`);
+    }
+    if (acted.length === 0) {
+      return calm("I wrote something down and every gate was clear.");
+    }
+    return calm(
+      `I wrote something down; the ${acted.join(", ")} gate acted on it first, and it was kept.`,
+    );
+  },
   "sweep.gate": (t) => {
     const scopes = n(t, "scopes") ?? 0;
     const ran = n(t, "ran") ?? 0;
@@ -309,9 +330,10 @@ export const NARRATED_NAMES: readonly string[] = Object.keys(NARRATORS);
  * the memory resolver prints `[no longer at this address]` beside a turn that
  * went perfectly well — a FALSE absence, which is worse than no line at all in a
  * project whose whole absence discipline is about telling "never happened" from
- * "gone". Three names carry something else: a surfacing decision is keyed by the
- * SESSION it happened in, a chunk gate by the CHUNK's content key, and the sweep
- * gate by nothing at all.
+ * "gone". Four names carry something else: a surfacing decision is keyed by the
+ * SESSION it happened in, a chunk gate by the CHUNK's content key, an authored
+ * gate by the redacted DRAFT's content hash, and the sweep gate by nothing at
+ * all.
  *
  * EXHAUSTIVE BY TYPE, like every other registry here: a durable event added to
  * the core fails `tsc` until someone has said what its `ref` is, rather than
@@ -332,12 +354,17 @@ export const REF_KIND = {
   "band.promoted": "memory",
   "band.transition": "memory",
   "gate.chunk": "chunk",
+  // A content address for the REDACTED draft, not a memory id: a refused
+  // deposit has no memory to point at, and resolving this through the memory
+  // resolver would print `[no longer at this address]` beside a gate that
+  // worked perfectly. The minted id, when there is one, is in the payload.
+  "gate.deposit": "proposal",
   "memory.merged": "memory",
   "memory.pruned": "memory",
   "recall.decision": "session",
   "revision.pressure": "memory",
   "sweep.gate": "none",
-} as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "none">;
+} as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
 
 function subjectOf(store: Store, row: EventRow): string | null {
   if (row.ref === null) return null;
@@ -346,6 +373,8 @@ function subjectOf(store: Store, row: EventRow): string | null {
       return `session ${row.ref}`;
     case "chunk":
       return `swept chunk ${row.ref}`;
+    case "proposal":
+      return `authored draft ${row.ref}`;
     case "none":
       // A name this file has never heard of, carrying a ref. Print the raw
       // address rather than guessing at what it points to.
