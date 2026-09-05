@@ -1187,6 +1187,9 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     expect(code).toBe(EXIT.ok);
     const out = text(c.out);
     expect(out).toContain("Beliefs and current-state rows archived as duplicates: 1");
+    // WHICH STORE, before the list. `--dir` is optional and the default is the
+    // owner's live memory; this is the command G23 asks them to type `--apply` at.
+    expect(out).toContain(`Store: ${dir}`);
     expect(out).toContain(ids.beliefId);
     expect(out).toContain("Ada");
     expect(out).toContain("lived day 0");
@@ -1228,6 +1231,14 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     expect(payload["originalId"]).toBe(ids.memoryId);
     expect(payload["usesDelta"]).toBe(1);
     expect(payload["mergedOnDay"]).toBe(0);
+    // IDS AND NUMBERS ONLY (§5 G10). The console prints the statement and the
+    // entity's name so the owner can decide; the DURABLE record carries neither,
+    // and this is the assertion that keeps those two facts apart.
+    expect(Object.keys(payload).sort()).toEqual(
+      ["candidateId", "day", "event", "mergedOnDay", "originalId", "usesDelta"],
+    );
+    expect(logged[0]?.payload ?? "").not.toContain("Ada");
+    expect(logged[0]?.payload ?? "").not.toContain("async review");
 
     // Constitution 7: the repair erases no history. The merge record and the
     // merge event are both exactly where they were.
@@ -1328,6 +1339,81 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     const before = s.eventLog({ name: "memory.unmerged" }).length;
     expect(unarchiveMerged(s, live).noop).toBe(true);
     expect(s.eventLog({ name: "memory.unmerged" }).length).toBe(before);
+  });
+
+  test("a restored belief is FINDABLE again, even when the archive deindexed it", async () => {
+    // The cross-PR hazard, made a test rather than a hope. `archive()` leaves
+    // box 3 alone on master today, but PR #64 (`overnight/df-live-rows`) adds
+    // `deindexDoc` to it so document frequency is counted over live rows —
+    // and then a restore that touched only box 2 would put back a row that is
+    // live, listed in `beliefs(entity)`, and invisible to lexical recall, with
+    // no cheap repair (a rebuild without an embedder drops every vector).
+    //
+    // #64 is not on this branch, so the deindex is simulated the way #64 does
+    // it — the id's rows leave `doc_tokens` and `doc_lens` — and the restore
+    // has to put them back either way.
+    const s = store();
+    const ids = poison(s);
+    s.close();
+
+    const box3 = openDb(paths.cache(dir));
+    const tokensFor = (id: string): number =>
+      box3.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_tokens WHERE memory_id = ?", id)?.n ?? 0;
+    const indexedWhileLive = tokensFor(ids.beliefId);
+    expect(indexedWhileLive).toBeGreaterThan(0);
+    box3.run("DELETE FROM doc_tokens WHERE memory_id = ?", ids.beliefId);
+    box3.run("DELETE FROM doc_lens WHERE memory_id = ?", ids.beliefId);
+    expect(tokensFor(ids.beliefId)).toBe(0);
+    box3.close();
+
+    expect(
+      await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+
+    const after = store({ observer: true });
+    // Box 3 holds the row's tokens again, and exactly as many as it did.
+    const reopened = openDb(paths.cache(dir));
+    expect(
+      reopened.get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM doc_tokens WHERE memory_id = ?",
+        ids.beliefId,
+      )?.n ?? 0,
+    ).toBe(indexedWhileLive);
+    reopened.close();
+    // The property, not the table: the cue finds it.
+    expect(after.search("walkthrough async review").map((h) => h.id)).toContain(ids.beliefId);
+    after.close();
+
+    // And through the door the owner actually uses.
+    const r = consoleWith();
+    expect(await run(["recall", "what does Ada prefer for review?", "--dir", dir], { io: r.io })).toBe(
+      EXIT.ok,
+    );
+    expect(text(r.out)).toContain("prefers async review");
+  });
+
+  test("the restore never touches an embedding it cannot recompute", () => {
+    // A repair that made a paid embedding call, or dropped a vector nothing in
+    // this process can recompute, would be a worse bug than the one it fixes.
+    // `reindexLexical` hands `indexDoc` no vector, and `indexDoc` writes the
+    // `embeddings` table only when it is handed one.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "A memory with a vector of its own." });
+    const cache = openCache(paths.cache(dir));
+    setEmbedding(cache, id, [0.5, 0.25, 0.125]);
+    cache.close();
+    s.archive(id, "merged");
+
+    unarchiveMerged(s, id);
+
+    const box3 = openDb(paths.cache(dir));
+    const row = box3.get<{ dim: number; vec: string }>(
+      "SELECT dim, vec FROM embeddings WHERE memory_id = ?",
+      id,
+    );
+    box3.close();
+    expect(row?.dim).toBe(3);
+    expect(JSON.parse(row?.vec ?? "[]")).toEqual([0.5, 0.25, 0.125]);
   });
 
   test("a belief restored and later revised is not offered again — the run stays green", async () => {

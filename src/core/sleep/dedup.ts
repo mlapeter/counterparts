@@ -37,9 +37,12 @@
  * claim about NOTES. Probe H, found by the adversarial review on 2026-09-04:
  * an `addBelief` with statement X and a memory with body X, born the same day,
  * no revision anywhere — the belief lost the tie-break and stopped being a
- * belief. Migration makes the pair likely rather than exotic: migrated elements
- * were minted at the import day while migrated memories kept their v1 birth
- * day. G9b is NOT made redundant by this: `revision.ts`'s identity arm mints
+ * belief. Migration settles the DIRECTION of that loss and not its frequency:
+ * migrated elements were minted at the import day while migrated memories kept
+ * their v1 birth day, so on any such pair the memory is never younger and the
+ * element always loses — but a pair needs two distinct v1 items whose gated
+ * text is byte-identical, and how often that happened is unknown until the
+ * owner's dry run counts it. G9b is NOT made redundant by this: `revision.ts`'s identity arm mints
  * its successor as `type: "memory"`, and only G9b stands between that row and
  * the challenger whose words it carries.
  *

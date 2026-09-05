@@ -111,7 +111,10 @@ by reference only.
    every other reason, a superseded row, a removed id and an unknown id, each by its own
    error code. It crosses the same stance check, appends a latched `memory.unmerged`
    record in the same transaction, and erases nothing: the merge record and the
-   `memory.merged` event stay where they are (constitution 7).*
+   `memory.merged` event stay where they are (constitution 7). It is also the one
+   owner-op that touches box 3 — `OwnerOpAccess.reindexLexical`, the LEXICAL half only,
+   so a restored row is findable again once `archive()` starts deindexing (PR #64) while
+   its embedding is neither recomputed at cost nor dropped.*
 3. **[M] No structured mutable state is hand-serialized by more than one writer.** A test
    enumerates every mutable non-prose path in the data directory and fails on any that is
    neither transactional nor provably single-writer (scar §2.1).

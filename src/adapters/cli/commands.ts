@@ -1564,10 +1564,12 @@ interface MergedBelief {
  * ordinary memory whose body is X — no revision anywhere — formed a same-hash
  * group, `mem_` sorted before `sch_` in the tie-break, and the ELEMENT was
  * archived `merged`. `beliefs(entity)` then read empty: the store had stopped
- * believing something nobody retracted. On a migrated store the collision is
- * likely rather than exotic, because `tools/migrate/apply.ts` minted every
- * element at the import day while migrated memories kept their v1 birth day, so
- * the memory is older on every such pair.
+ * believing something nobody retracted. On a migrated store the DIRECTION of
+ * that loss is certain — `tools/migrate/apply.ts` minted every element at the
+ * import day while migrated memories kept their v1 birth day, so the memory is
+ * never younger and the element always loses — and the COUNT is unknown, since
+ * a collision needs two distinct v1 items whose gated text is byte-identical.
+ * This command is the thing that measures it.
  *
  * Stopping the bug does not undo it. This finds what it already took and puts
  * it back, through the owner-op seam's `unarchiveMerged` — the one door that
@@ -1582,12 +1584,17 @@ interface MergedBelief {
  *
  * **What it prints, and the tension in printing it.** `backfill-claims` says
  * "IDS AND NUMBERS ONLY — a repair report is not a place to print bodies", and
- * this one prints the first 60 characters of each statement. The difference is
- * what the owner has to decide: a claim restored to the store is a claim the
- * system will state in a briefing, and "restore sch_198628843ffb?" is not a
- * question anyone can answer. This runs on the owner's own terminal, on the
- * owner's own store, at the owner's own keystroke — the same reader who could
- * open the prose file. Recorded rather than assumed (see `cli/NOTES.md`).
+ * this one prints TWO things that are not ids: the first 60 characters of each
+ * statement, and the ENTITY'S NAME. A person's name is author content as
+ * squarely as a statement is, and both are the same deliberate deviation. The
+ * difference is what the owner has to decide: a claim restored to the store is
+ * a claim the system will state in a briefing, and "restore sch_198628843ffb?"
+ * is not a question anyone can answer — nor is it answerable without knowing
+ * whose belief it is. This runs on the owner's own terminal, on the owner's own
+ * store, at the owner's own keystroke — the same reader who could open the
+ * prose file. **The durable record stays ids and numbers only**
+ * (`memory.unmerged` carries no text at all, §5 G10): the deviation is
+ * console-only. Recorded rather than assumed (see `cli/NOTES.md`).
  *
  * **What it does not touch: the `uses` the merge credited.** The original kept
  * `+1` and keeps it. Taking it back would rewrite a physics count whose band
@@ -1613,6 +1620,12 @@ function repairMergedBeliefsCommand(dir: string, io: Io, apply: boolean): number
   }
 
   const open = targets.filter((t) => t.archived);
+  // WHICH STORE. `--dir` is optional and the default resolves to the owner's
+  // live memory, and this is a command whose next step is `--apply`: a repair
+  // that did not say what it was about to repair is the 2026-09-04 `--dirr`
+  // lesson pointed at the owner's own hands. `status`, `note` and `recall`
+  // print this line; `backfill-claims` does not, and should.
+  io.out(`Store: ${dir}`);
   io.out(`Beliefs and current-state rows archived as duplicates: ${open.length}`);
   if (targets.length > open.length) {
     io.out(`Already restored (a merge record with a live row): ${targets.length - open.length}`);

@@ -167,9 +167,11 @@ and their records; the next session's briefing, written last; a per-cycle summar
    2026-09-04 and closed 2026-09-05: an `addBelief` with statement X and a memory with
    body X, born the same lived day, no revision anywhere. G9b could not apply, `mem_`
    sorted before `sch_`, and the belief was archived `merged` — `beliefs(entity)` empty,
-   constitution 7 again. Migration made it likely rather than exotic:
-   `tools/migrate/apply.ts` minted every element at the import day while migrated
-   memories kept their v1 birth day, so the memory is older on every such pair. The
+   constitution 7 again. Migration settles the DIRECTION of the loss and not its
+   frequency: `tools/migrate/apply.ts` minted every element at the import day while
+   migrated memories kept their v1 birth day, so on any such pair the memory is never
+   younger and the element always loses — but a pair needs two distinct v1 items whose
+   gated text is byte-identical, so the count is unknown and only a scan can give it. The
    repair for stores that already lost one is `counterparts repair-merged-beliefs`
    (`cli/` §5, `store/owner-op-seam.ts#unarchiveMerged`).*
 10. **[M]** Observer sessions spawn no cycle at all — a cycle advances the clock, decays the

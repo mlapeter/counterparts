@@ -428,10 +428,12 @@ export function isJournal(row: MemoryRow): boolean {
  * whose statement is X and an ordinary memory whose body is X, born the same
  * lived day, with no revision anywhere. G9b cannot reach it — no accommodation
  * row is involved — and `mem_` sorts before `sch_`, so the belief was archived
- * `merged` and `beliefs(entity)` read empty. On the live store the pair is
- * likely rather than exotic: `tools/migrate/apply.ts` minted every migrated
- * element at the IMPORT day while migrated memories kept their v1 birth day, so
- * the memory is older on every such collision and wins without the tie-break.
+ * `merged` and `beliefs(entity)` read empty. On a migrated store the DIRECTION
+ * of the loss is certain and its COUNT is not: `tools/migrate/apply.ts` minted
+ * every migrated element at the IMPORT day while migrated memories kept their
+ * v1 birth day, so the memory is never younger and the element always loses —
+ * but a collision needs two distinct v1 items whose gated text is
+ * byte-identical, and only a scan of the store can say how many there are.
  */
 export function isSchemaRow(row: MemoryRow): boolean {
   return row.type === "schema";

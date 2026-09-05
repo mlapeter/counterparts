@@ -398,6 +398,23 @@ its merge record intact. The repair is a separate, owner-run tool:
 `counterparts repair-merged-beliefs --dry-run`, and `--apply` if the owner
 chooses (`cli/NOTES.md` §5).
 
+**Two things the adversarial review measured that belong here rather than in a
+PR comment.**
+
+1. **The cosine arm has never fired on the live store.** `Counterpart.sessionEnd`
+   calls `runCycle({store, render, …})` with no `candidates`
+   (`core/counterpart.ts:1114`), so `runDedup`'s `source` is `undefined` and only
+   the content-hash arm has ever run in production. The cosine test in this
+   suite is a guard against future wiring, not a description of something that
+   has already happened — worth saying plainly, because it makes the live
+   exposure smaller than the tests' coverage suggests, and a reader who assumed
+   otherwise would over-read the finding in either direction.
+2. **`skipped["schema"]` now counts every live element, every night.** On a
+   migrated store that is a number in the thousands, and it means "nothing
+   happened" — the same shape as the journal skip. It is a census of what the
+   phase stood down, not an alarm, and nobody should read a cycle report as if
+   a big number there were a problem.
+
 **The class, for G12:** anything else. Not "telemetry-only and provably
 identical" — the surface-set hash is unchanged (`800a9a9421cd969f` on master and
 on this branch) because it hashes FIELD NAMES on three record shapes and no

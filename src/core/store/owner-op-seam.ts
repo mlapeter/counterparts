@@ -82,6 +82,14 @@ export interface OwnerOpAccess {
   ownerMutate<T>(site: OwnerOpSite, fn: (db: Db) => T): T;
   rawRow(id: string): MemoryRow | undefined;
   isDenied(id: string): boolean;
+  /**
+   * Re-index ONE row's tokens from its own prose, leaving its embedding alone.
+   * The seam's only route to box 3, and deliberately the lexical half only —
+   * a restore must never make a paid embedding call and must never drop a
+   * vector nothing here could recompute. See `store/index.ts`'s grant for why
+   * a restore has to touch box 3 at all.
+   */
+  reindexLexical(id: string): void;
 }
 
 const GRANTS = new WeakMap<object, OwnerOpAccess>();
@@ -293,9 +301,21 @@ export interface UnmergeReport {
  * would put two live versions in one revision chain); an archive reason that
  * is not the merge's.
  *
- * `archive()` never touched box 3 — no deindex, no vector drop — so a restored
- * row is retrievable again with no rebuild. What the restore does NOT do is
- * erase the merge: the `sleep.merged.<id>` meta record and the `memory.merged`
+ * **Box 3 is re-indexed, and the reason is a moving target.** On master as this
+ * was written, `archive()` left box 3 alone — no deindex, no vector drop — so a
+ * restore needed nothing. That stops being true the moment `archive()` starts
+ * DEINDEXING, which PR #64 (`overnight/df-live-rows`) adds so document frequency
+ * is counted over live rows; whichever of the two lands second would otherwise
+ * leave this door restoring a row that is live, listed in `beliefs(entity)`, and
+ * invisible to lexical recall. So the restore calls `access.reindexLexical`
+ * unconditionally: on today's master that rewrites the same `doc_tokens` rows
+ * the id already had, and after #64 it is the only thing standing between the
+ * repair and a half-restored belief. The EMBEDDING is untouched in both worlds —
+ * `indexDoc` writes a vector only when handed one, and it is not handed one —
+ * because a repair that made a paid embedding call, or dropped a vector nothing
+ * here can recompute, would be a worse bug than the one it is fixing.
+ *
+ * What the restore does NOT do is erase the merge: the `sleep.merged.<id>` meta record and the `memory.merged`
  * event both stay exactly where they are, and `memory.unmerged` is appended
  * beside them. Constitution 7: the history is the point, and a repair that
  * tidied away the evidence of the bug would be the same class of mistake as
@@ -316,7 +336,7 @@ export function unarchiveMerged(store: Store, id: string): UnmergeReport {
     throw new StoreError("UNMERGE_NOT_A_MERGE", { id, reason: row.archived_reason });
   }
 
-  return access.ownerMutate("unarchiveMerged", (db) => {
+  const report = access.ownerMutate("unarchiveMerged", (db) => {
     const noop = row.archived === 0;
     const merge = db.get<{ day: number; payload: string | null }>(
       `SELECT day, payload FROM events
@@ -352,6 +372,15 @@ export function unarchiveMerged(store: Store, id: string): UnmergeReport {
     });
     return { id, record, noop };
   });
+
+  // Box 2 first, box 3 after the commit — the same order `Store.put`,
+  // `revise` and `supersede` use (`index.ts`: `this.mutate(...)` then
+  // `indexOne`). Box 3 is the rebuildable box; indexing inside box 2's
+  // transaction would be the one write in the system that inverted that order,
+  // and a re-index that ran and then rolled back would leave the index ahead of
+  // the row rather than behind it.
+  if (!report.noop) access.reindexLexical(id);
+  return report;
 }
 
 /** Ids and numbers out of the merge record's JSON, or nulls. Never throws. */

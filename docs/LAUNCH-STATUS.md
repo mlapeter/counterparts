@@ -774,7 +774,7 @@ Branch `overnight/schema-not-dedup`. **Not merged; core, so the owner merges.**
   test pins that case. None of PR #56's five tests were removed; each keeps every
   invariant assertion and only its reason line moved to `skipped.schema`.
 - **Failing-test-first:** five new tests failed on master (same body, migration shape,
-  cosine path, the narrowness guard, two beliefs) and pass after. Suite **1,600 / 0**,
+  cosine path, the narrowness guard, two beliefs) and pass after. Suite **1,603 / 0**,
   `tsc` clean.
 - **The repair exists**, because stopping the bug does not undo it:
   `counterparts repair-merged-beliefs`, dry run by default, over the union of
@@ -789,8 +789,11 @@ Branch `overnight/schema-not-dedup`. **Not merged; core, so the owner merges.**
   no field moved. That is not "identical": an element that would have been archived stays
   live, one fewer `sleep.merged.<id>` is written, and recall, the wake and every schema
   slice see a belief where they would have seen nothing. The day-1 record says nothing
-  about schema/memory collisions and migration makes them likely, so "no live row is
-  affected" is not a claim this session can make.
+  about schema/memory collisions, and migration settles the DIRECTION of the loss (elements
+  at the import day, migrated memories keeping their v1 birth day, so the element always
+  loses) and not its FREQUENCY — a pair needs two distinct v1 items whose gated text is
+  byte-identical. The direction is certain; the count is unknown, and only G17's dry run
+  can say. "No live row is affected" is not a claim this session can make.
 
 ### NEEDS-OWNER — workstream 11
 
