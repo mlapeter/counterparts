@@ -805,3 +805,99 @@ Branch `overnight/schema-not-dedup`. **Not merged; core, so the owner merges.**
 | G22 | Merge `overnight/schema-not-dedup` (core). Record the G12 class **anything else** in `docs/PARALLEL-RUN-STATUS.md` before merging — a proposed entry is drafted there under 2026-09-05, for the owner to confirm or amend. | open |
 | G23 | After merging, and only if G17's dry run listed anything: `counterparts repair-merged-beliefs --apply --dir ~/.counterparts/store`, with no session open. It restores each belief to live and appends one `memory.unmerged` record per row; a second run does nothing. Owner-only. | open |
 | G24 | The phase clock: this is an anything-else class like #56's, so the same restart applies. Whether it needs its OWN restart or rides #56's (G16, same night, same surface-set hash) is the owner's call — the session that made the change may not run `restart.ts`. | open |
+
+## Overnight, 2026-09-05 — the after-launch workstreams, on branches; core waits for the owner
+
+*Appended by the coordinator at the end of the night. Nothing below is merged to `src/core/`.
+Every core PR carries an adversarial review as a PR comment (all nine verdicts: MERGE WITH
+CHANGES, every change applied and re-verified by its builder), its surface-set hash on master
+and branch, and its carry-forward class. Master at the start of the night: `7fe3e9f`, suite
+1586 / 0. Master now: `a49bca5` (#73 merged tonight), suite 1593 / 0, install loop 36 / 36,
+visual loop 51 / 0. Eleven workstreams; eleven landed on branches; nothing blocked.*
+
+### The morning rule for merging core
+
+Read the nine review comments. Then merge EITHER the pre-integrated batch (branch
+`overnight/core-batch`, a draft PR marked owner-only) OR the individual PRs in the landing order
+below — never both. Then run **one** `restart.ts`, after the merge and before the daily, because
+#65 moves the surface-set hash (a fourth hashed component, `gate.deposit`) and the preflight
+compares `run.json`'s hash to the build. Every PR's class is ANYTHING ELSE; one restart covers
+the batch. Zero counted days are lost if the restart is dated 2026-09-05 and runs before that day
+is recorded.
+
+```
+~/.bun/bin/bun run tools/parallel/bin/restart.ts \
+  --run-dir ~/counterparts-parallel-run/2026-09-03 \
+  --date 2026-09-05 --phase P --v2-data-dir ~/.counterparts/store \
+  --reason "overnight core batch #64-#72: surfaceSet 800a9a9421cd969f -> c3af0bef00209ba6 (#65 gate.deposit); class anything-else"
+```
+
+### The PRs
+
+| PR | Workstream | What | Class | Review verdict → fix round | Hash on branch |
+|---|---|---|---|---|---|
+| #64 | 3 df vs storeSize | deindex on archive/supersede; `verify --prune-index`; census "indexed but not live" | anything else | MERGE WITH CHANGES → applied (`c3877c9`; blurb round `4a94611` on master `a49bca5`) | `800a9a9421cd969f` |
+| #65 | 6 replay §2a | durable `gate.deposit` per authored deposit (28 ids-only fields); registries total; replay refusal mix over both kinds | anything else (hash moved by design) | MERGE WITH CHANGES → applied (`6cdb542`; the feeling word is author text and left the record) | **`c3af0bef00209ba6`** |
+| #66 | 5 float32 vectors | cache v4 float32 BLOBs; `migrate-cache` dry-run first; 175 → 62 MB, scan 450 → 50 ms | anything else (Δscore ≤ 1.5e-9 vs an absolute semantic floor) | MERGE WITH CHANGES → applied (`dc4233e`; the stranded VACUUM, read-only dry run; blurb round `5090fce`) | `800a9a9421cd969f` |
+| #67 | 1 two clocks | `StoreOptions.now`; provenance dates from the deposit instant; seeder dates real; `repair-dates` dry-run | anything else (reviewer's call; rides the batch restart) | MERGE WITH CHANGES → applied (`69e5505`; re-run guards, the histogram, the unheld dates; blurb round `6c2ca7d`) | `800a9a9421cd969f` |
+| #68 | 4 span chase | `origin.spanHash` in prose meta; owner-strike seam; `spans` chased; `remember/` G14 draft | anything else (one new durable field) | MERGE WITH CHANGES → applied (`9a2eac7`; six findings; blurb round `2a41191`, loop 39 steps) | `800a9a9421cd969f` |
+| #69 | 11 beliefs not dedup candidates | `isSchemaRow` excludes elements from dedup; `repair-merged-beliefs` dry-run/apply via `unarchiveMerged` | anything else | MERGE WITH CHANGES → applied (`6c815f6`; re-index on restore, three records; blurb round `6fcb16b`) | `800a9a9421cd969f` |
+| #70 | 2 journal labelled | journal rows recallable, labelled `journal` on every surface; horizon lane no longer lists chapters | anything else (third class; content moves) | MERGE WITH CHANGES → applied (`c5568f7`; horizon lane filters journal rows in `prospective/derive.ts`) | `800a9a9421cd969f` |
+| #71 | 9 day-0 wake | a day-0 store wakes with furniture, not a claim ("No identity has formed here yet" guarded by the empty lane); sentinel intact | anything else (rides the batch restart; hash unchanged, wake content moves) | MERGE WITH CHANGES → applied (`5dcbf79`; coreName computed once on the untrimmed lane; `flatten(name)`) | `800a9a9421cd969f` |
+| #72 | 10 one config rule | `--config` on hook, MCP server, dashboard, CLI; one resolver; session record names the config; loop 37 steps | adapter (hook.ts) — **owner merges** | MERGE WITH CHANGES → applied (`cc4e50d`; a NAMED config that is missing, not JSON, or mistyped refuses; an absent default stays ordinary; the worker pin no longer trips it; blurb round `66cde70`, loop 41 steps) | `800a9a9421cd969f` |
+| #73 | 7 dashboard leftovers | overview tile refreshes on the first event; `serve` refuses the env var alone; both consoles exit 1 on a missing store, stderr only; `COMMAND_BLURB` exhaustive (help and parser held together by a type) | adapter/docs — **merged tonight as `a49bca5`** (preview: tsc clean, suite 1593 / 0, loop 36 / 36, visual loop 51 shots / 0 findings) | MERGE WITH CHANGES → applied (`15b9349`); landed first so every later PR that adds a command or flag could add its blurb line against it | `800a9a9421cd969f` |
+| site `7bf8754` | 8 ecosystem page | `/ecosystem`: the landscape explorer and mechanism deck from mikelapeter.com/lab/memory, components kept and restyled into the site's idiom (type as shape, one hue one meaning); 47 / 47 rows sourced; the build refuses an unsourced row; three new shoot gates | site only (unpushed) | shoot clean on the final build; no design critic (owner deferred visual dial-in) | — |
+
+### New findings overnight
+
+- **I21 (core, process)** Nothing refuses an implicit default data dir: a caller that omits `dir` and has no `COUNTERPARTS_DATA_DIR` opens `~/.counterparts/store`. An agent did exactly that (read-only, nine titles printed to its own terminal, no write, no egress). Proposed guard `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` — G25.
+- **I22 (core)** `prose_path` is stored absolute, so a copied store reads and deletes the source's prose — G26.
+- **I23 (core)** `pruneEvents` has no caller — G27.
+- **I24 (core, informational)** `self/identity.ts#enumerate()` has no type filter; closed today only because no writer gives an episode the identity band or the protected flag (`recall/NOTES.md` #13).
+- **I25 (fixed in #70)** The horizon lane listed a chapter's date as "Arriving": a lived day rendered as prospective. Filtered in `prospective/derive.ts` — label where the reader can discount, filter where the frame itself would be a lie.
+- **I26 (fixed in #72)** An absolute `--config` naming a missing, non-JSON or mistyped file fell through to the default store instead of refusing.
+- **I27 (fixed in #71)** The day-0 name guard was evaluated at two seams on two different values; a name with newlines could forge a wake bullet.
+
+### Corrections to earlier entries (appended, not edited)
+
+- An earlier entry (this file at `a49bca5`, lines 154-155) records exit **0** for both consoles on an empty store. As of #73 both exit **1**, stderr only, remedy naming the passed `--dir`; "nothing minted" still holds (re-verified by the #73 reviewer). `runReport` exits 1 for every `StoreError`, not only a missing store.
+- The overnight prompt's "hash unchanged ⇒ class identical" reasoning was wrong and three reviewers said so independently: `surface.ts` hashes field NAMES, so an unchanged hash is evidence the record's shape did not move, never that no value did. Every core PR tonight is class ANYTHING ELSE and rides one restart.
+
+### Read-only checks for the owner, all dry runs, all on the live store, none run by the session
+
+| Check | Command | Tells you |
+|---|---|---|
+| Merged beliefs (I17) | `counterparts repair-merged-beliefs --dry-run --dir ~/.counterparts/store` (after #69 merges) | how many beliefs the same-day tie-break archived as duplicates; `--apply` restores them |
+| Dead index rows (I13) | `counterparts verify --dir ~/.counterparts/store` (after #64 merges) | the "indexed but not live" count; `--prune-index` repairs |
+| Migrated dates (I7) | `counterparts repair-dates --dir ~/.counterparts/store` (after #67 merges) | proposed true dates by confidence for the 12,334 import-day rows; `--apply --confidence <tier>` |
+| Vector cache (debt) | `counterparts migrate-cache --dir ~/.counterparts/store` (after #66 merges) | rows, bytes now, bytes after; `--apply` converts in place |
+
+### Landing order — why it matters now
+
+`COMMAND_BLURB` (#73) is exhaustive, so #64, #66, #67, #68, #69 and #72 each carry a blurb round merged against `a49bca5`. #71 and #72 append install-loop steps at the same seam of `run.sh`; #68 and #71 both own QUICKSTART's step count. Merging the eight open PRs one at a time therefore conflicts from the second one on. The pre-integrated batch (branch `overnight/core-batch`, opened as a draft PR after this entry — owner-only, never merged by the session) merges them in this order with the three seams resolved and every gate re-run: **#72 → #64 → #65 → #66 → #67 → #68 → #69 → #70 → #71**. The eight individual PRs stay open as the review record; reject one and the batch is rebuilt in the morning.
+
+### NEEDS-OWNER — the morning
+
+| # | Item | State |
+|---|---|---|
+| G22 | **Read the nine review comments**, then merge EITHER the batch PR OR the individual PRs in the landing order above. Never both. | open |
+| G23 | **Then ONE restart**, before the daily: `~/.bun/bin/bun run tools/parallel/bin/restart.ts --run-dir ~/counterparts-parallel-run/2026-09-03 --date 2026-09-05 --phase P --v2-data-dir ~/.counterparts/store --reason "overnight core batch #64-#72: surfaceSet 800a9a9421cd969f -> c3af0bef00209ba6 (#65 gate.deposit); class anything-else"` — with no session open. Zero counted days lost if it runs before 2026-09-05 is recorded. Supersedes G16 (the #56 restart), which the owner already ran on 2026-09-04. | open |
+| G24 | The four read-only dry runs (table above), after the merge. `repair-merged-beliefs --dry-run` answers G17 directly. | open |
+| G25 | **I21** — `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`: should the library refuse an implicit default dir when the env var is unset? Tonight's agents ran with the var exported everywhere; one earlier agent opened the live store read-only by passing the wrong option name. Core change; owner's call. | open |
+| G26 | **I22** — `prose_path` is stored ABSOLUTE: a copied store reads and deletes the SOURCE's prose. Backups as a revert lever are unsafe until this is relative; the recall-bench README's `cp -R` advice is hazardous. Core change; owner's call. | open |
+| G27 | `pruneEvents` has no caller; the events table grows without bound. Wire it into sleep or drop it. Core; owner's call. | open |
+| G28 | Site: push `~/counterparts-site` `main` (unpushed, ~40 commits), create the GitHub repo and the Vercel project (G19). Kill the dev server on 3111 when done looking. | open |
+| G29 | Site: `content/status.ts` mis-attributes four true status lines to the README's "Status, honestly" section. One-line header fix. | open |
+| G30 | Hero polish round (owner: "dial in the details later"). | later |
+
+### The site
+
+Hero rebuilt to the owner's ruling (two vertical Tron light ribbons, yours and your counterpart's,
+mostly parallel, twisting at conversations; "your counterpart", never "the AI" as a tool) — see
+`~/counterparts-site/review/round-4/`. Design director rounds: 8.5 → 9.0 before the hero change;
+the ribbons hero is unreviewed by a critic (owner: "good enough for now, dial in details later").
+Claims audit of the site: FAIL 1 → fixed; demo regenerated at master. The ecosystem page landed overnight (row above); `/ecosystem` is indexed and in the sitemap. The dev server on port 3111 was left running for the owner (`npx next dev -p 3111` in `~/counterparts-site`; kill it when done). Site finding: `content/status.ts` calls all seven status lines "verbatim from README 'Status, honestly'" while four are sourced to `package.json`, the licence and the install section — true, mis-attributed.
+
+### Spend
+
+$0.00 overnight.
