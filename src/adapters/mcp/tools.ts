@@ -249,6 +249,11 @@ const RECALL: ToolSpec = {
       mechanizedBy: "src/core/recall/activate.ts#isConfidential + gate verdict confidential-withheld",
     },
     {
+      claim:
+        "A chapter of the journal can come back here — it is a first-person account and may rightly come to mind — and every one that does is marked `journal: true`. That row is the account a memory was made from, not a memory: it is outside decay, dedup and the prune, and it is not a claim about the world the way a memory is.",
+      mechanizedBy: "src/adapters/mcp/deliberate.ts#JOURNAL_GLOSS (ProseDoc.type === episode)",
+    },
+    {
       claim: "Under observer stance it stands down over the wire and says so.",
       mechanizedBy: "src/adapters/mcp/server.ts#standDown",
     },

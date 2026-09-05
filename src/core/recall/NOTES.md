@@ -248,3 +248,51 @@ collision the default rather than the exception; (b) `df` counts indexed rows in
 reachable (an archived sibling, a superseded head) and re-zeroes a rare token — revise the
 first memory on a fresh store and it goes dark again. Both want a decision about what the
 denominator IS, which is a bigger question than this bug.
+
+## 13. A chapter is delivered, and says it is a chapter — 2026-09-04
+
+Owner ruling, `docs/LAUNCH-STATUS.md` §I14: keep chapters RECALLABLE, label them journal in
+every result. Both halves matter. The filter was the obvious fix and is the wrong one — a
+chapter about the lighthouse conversation may rightly come to mind, and a question answered
+worse is not a safer answer. What was actually wrong is that an `epi_` row arrived from
+recall wearing a memory's clothes: note #12 above measured one coming back `quiet` on a
+question and footnoted on the ambient path, with nothing on the row or the line to say that
+it is the first-person ACCOUNT a memory was made from, that it sits outside every sleep
+phase (`sleep/types.ts#isJournal`), and that the physics printed beside it is recorded and
+never acted on.
+
+**The label is data plus one word, and it is nothing else.** No candidate is added or
+removed, no score moves, no ordering changes, and the surfacing decision record does not
+grow a field — `surfaceSetHash()` is `800a9a9421cd969f` before and after, which is what
+makes this a rendering change under parallel §5 G12 rather than a surface-set move. The
+three doors:
+
+- `render.ts` — `Resolved.journal` and `FRAMING.journal` (`"Journal:"`), in front of the
+  content in BOTH tiers, and outside `clip()`. The label is what tells a reader the line is
+  not a memory, so it can never be the part the byte budget eats; a line that does not fit
+  is dropped whole by the trim order, where that decision belongs.
+- `mcp/deliberate.ts` — `journal: boolean` on `Recalled` and `BoundedMemory`, glossed once
+  in the payload (`JOURNAL_GLOSS`) so the flag is not a bare boolean the reader has to
+  guess at, and claimed in the tool description (`tools.ts`) where the calling model reads
+  it. `kind` stays PHYSICS kind: a chapter is usually `kind: "self"`, which is exactly the
+  ambiguity the boolean resolves rather than overwrites.
+- `cli/commands.ts` — `[journal]` beside the tier, with its own legend line.
+
+**The predicate is `ProseDoc.type === "episode"`**, the same field `isJournal` reads off the
+row. Read at render time from the doc that is already in hand, so nothing was added to
+`Candidate`, `CandidateVerdict` or the decision record to carry it — which is the whole
+reason the hash does not move. The model is the dashboard's, which has flagged the row in
+prose since #33 (`dashboard/web/views.ts`, `MemoryDetail.journal`); this is the same
+sentence at the doors that had not learned it.
+
+**The wake needed no change, and the test says why.** `self/identity.ts#scanActive` lists
+`type: "memory"` and nothing else, so a chapter cannot reach a lane however it is shaped —
+identity band, promoted, `unresolved`, skill-kind, maximum salience. `test/self.test.ts`
+builds one of each and asserts no `epi_` id in any lane and no chapter text in the render.
+That test proves a property rather than a change, and it is the tripwire for the day that
+one filter moves.
+
+**The one value-level delta, named.** A labelled line is 9 bytes longer ("Journal: "), so a
+turn that delivers a chapter AND lands within 9 bytes of `BUDGET_BYTES` trims one more item
+than it used to. That is recorded in `trimmed` like any other trim. Measured on the
+fixture: the same turn renders 225 bytes before and 234 after.

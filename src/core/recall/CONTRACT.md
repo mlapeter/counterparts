@@ -106,6 +106,14 @@ reply actually used reconsolidates, where in humans every retrieval does.
   a miss merely leaves weak credit. [v1 §9.2]
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate, still-open probe question. [v1 §9 G17]
+- **A chapter is recallable and is LABELED, at every door.** An `epi_` row is the
+  first-person account a memory was made from, not a memory: it sits outside every sleep
+  phase (`sleep/types.ts#isJournal`) and the physics beside it is recorded, never acted on.
+  It may rightly come to mind, so nothing filters it — and every result carrying one says
+  what it is: `FRAMING.journal` in front of the rendered line in both tiers,
+  `journal: true` on the deliberate row, `[journal]` in the console. Owner ruling
+  2026-09-04 (LAUNCH-STATUS §I14); a v2 addition, and a LABEL — it changes nothing about
+  what is recallable, scored or ranked, and adds no field to the decision record.
 
 ## 4. Drops / simplifies
 

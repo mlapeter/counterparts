@@ -34,6 +34,21 @@ export const FRAMING = {
   affect: "Something here carries weight.",
   surfacedHeader: "Came to mind:",
   footnoteHeader: "Quietly available (ignorable):",
+  /**
+   * ONE WORD, IN FRONT OF A CHAPTER (owner ruling, 2026-09-04 — LAUNCH-STATUS
+   * §I14). A journal entry is the first-person ACCOUNT a memory was made from,
+   * not a memory: it sits outside every sleep phase (`sleep/types.ts#isJournal`)
+   * and the dashboard has said so in prose since #33, while recall delivered
+   * `epi_` rows unmarked in both tiers. The ruling keeps them recallable — a
+   * chapter about the lighthouse conversation may rightly come to mind — and
+   * makes them say what they are.
+   *
+   * It is a LABEL, never a filter: nothing about what is recallable, ranked or
+   * gated moves. And it goes in front of the text rather than after it, for the
+   * same reason the wake's date does (`self/briefing.ts#datePrefix`): what
+   * qualifies a claim has to be read before the claim, not after it has landed.
+   */
+  journal: "Journal:",
 } as const;
 
 export type Lane = "footnote" | "surfaced" | "affect";
@@ -48,6 +63,10 @@ export const TRIM_ORDER: readonly Lane[] = ["footnote", "surfaced", "affect"];
 export interface Resolved {
   readonly title: string;
   readonly gist: string;
+  /** True when the row is a journal entry (`ProseDoc.type === "episode"`), which
+   *  renders with `FRAMING.journal` in front of it. Absent reads as false, so a
+   *  resolver that predates the label marks nothing. */
+  readonly journal?: boolean;
 }
 
 /** Id -> text, at render time. */
@@ -105,6 +124,17 @@ export function clip(text: string, maxBytes: number): string {
   return `${out.trimEnd()}${ell}`;
 }
 
+/**
+ * The one-word prefix, OUTSIDE the clip. The label is what tells a reader the
+ * line is not a memory, so it can never be the part that the byte budget eats:
+ * clipping runs on the content and the label is added afterwards. A line that
+ * did not fit is dropped whole by the trim order, which is where that decision
+ * belongs.
+ */
+function label(r: Resolved): string {
+  return r.journal === true ? `${FRAMING.journal} ` : "";
+}
+
 function openMarker(turn: number): string {
   return `<!-- counterparts:recall t=${turn} -->`;
 }
@@ -135,12 +165,18 @@ function compose(
   if (affect) lines.push(FRAMING.affect);
   if (surfaced.length > 0) {
     lines.push("", FRAMING.surfacedHeader);
-    for (const id of surfaced) lines.push(`- ${clip(resolve(id).gist, input.gistBytes)}`);
+    for (const id of surfaced) {
+      const r = resolve(id);
+      lines.push(`- ${label(r)}${clip(r.gist, input.gistBytes)}`);
+    }
   }
   if (footnotes.length > 0) {
     lines.push("", FRAMING.footnoteHeader);
     // Pointers with short titles, NEVER bodies (§9 OUTPUTS).
-    for (const id of footnotes) lines.push(`- ${clip(resolve(id).title, input.titleBytes)} [${id}]`);
+    for (const id of footnotes) {
+      const r = resolve(id);
+      lines.push(`- ${label(r)}${clip(r.title, input.titleBytes)} [${id}]`);
+    }
   }
   const body = lines.join("\n");
   // Fixed point: the sentinel states the total byte count, and stating it changes

@@ -49,6 +49,7 @@ import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import { SESSION_TTL_MS, isLive, readSession, sameScope } from "../sessions.js";
 import {
+  JOURNAL_GLOSS,
   RECALL_BODY_CHARS,
   RECALL_EXCERPT_CHARS,
   RECALL_MAX_IDS,
@@ -490,6 +491,10 @@ export class McpServer {
           }
         : {}),
       memories: bounded.memories.map((m) => ({ ...m })),
+      /** The label the ruling of 2026-09-04 put on every delivered chapter,
+       *  glossed once here so `journal: true` on a row is not a bare boolean the
+       *  reader has to guess the meaning of (`deliberate.ts#JOURNAL_GLOSS`). */
+      journal: JOURNAL_GLOSS,
       tiers: {
         vivid: "came clearly to mind",
         quiet: "quietly available — the ambient path would have footnoted this",

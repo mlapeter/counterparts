@@ -960,7 +960,11 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     }
     for (const m of result.memories) {
       io.out("");
-      io.out(`  ${m.id}  [${m.tier}] ${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
+      // THE JOURNAL SAYS SO (owner ruling, 2026-09-04 — LAUNCH-STATUS §I14). A
+      // chapter stays recallable and is never presented as a memory; the word
+      // rides in front of the kind, where the tier already is.
+      const journal = m.journal ? "[journal] " : "";
+      io.out(`  ${m.id}  [${m.tier}] ${journal}${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
       for (const line of m.body.split("\n")) io.out(`    ${line}`);
     }
     // THE TIER LEGEND, and it is not decoration. `answered` means the question
@@ -981,6 +985,11 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     }
     if (!tiers.has("vivid")) {
       io.out("  Nothing here came back vividly, so treat these as leads rather than answers.");
+    }
+    if (result.memories.some((m) => m.journal)) {
+      io.out(
+        "  journal = a chapter, the first-person account a memory was made from — not a memory, and outside decay and the prune.",
+      );
     }
     return EXIT.ok;
   } finally {
