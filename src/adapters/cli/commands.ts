@@ -48,13 +48,19 @@ import { isJournal } from "../../core/sleep/index.js";
 import { openDb } from "../../core/store/db.js";
 import type { Db } from "../../core/store/db.js";
 import {
+  ID_PREFIX,
   LAYOUT,
   Store,
   dataDir,
   isWithin,
   paths,
+  readProseFile,
   storeExists,
 } from "../../core/store/index.js";
+// The owner-op seam's REPAIR half — the one door that un-archives, and only for
+// the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
+// this is the directory the caller-universality test allows to reach that file.
+import { MERGED_ARCHIVE_REASON, unarchiveMerged } from "../../core/store/owner-op-seam.js";
 import type { Band, Kind } from "../../core/types.js";
 // The MCP adapter's deliberate-recall dispatcher, imported rather than
 // re-implemented: a console with its own question path would be a second set of
@@ -86,6 +92,7 @@ export const COMMANDS = [
   "remove",
   "verify",
   "backfill-claims",
+  "repair-merged-beliefs",
   "rebrief",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -102,6 +109,10 @@ export const OWNER_OPS: readonly Command[] = [
   "remove",
   "verify",
   "backfill-claims",
+  // A repair is a write, and `--dry-run` does not change that: an instrument
+  // that has stood down refuses the COMMAND, not just the write, so the owner
+  // never gets a plan from a console that could not have carried it out.
+  "repair-merged-beliefs",
   "rebrief",
 ];
 
@@ -162,6 +173,10 @@ export function usage(): string {
     "                      embedder to recompute, unless --drop-vectors is passed.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
+    "  repair-merged-beliefs",
+    "                      Find beliefs and current-state rows the nightly dedup",
+    "                      pass archived as duplicates of an ordinary memory, and",
+    "                      put them back. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
@@ -223,6 +238,10 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   remove: ["confirm", "reason"],
   verify: ["rebuild", "drop-vectors"],
   "backfill-claims": ["apply"],
+  // `--dry-run` is declared and does NOTHING: dry run is already the default,
+  // and the owner's own runbook line spells it out. A flag that names the
+  // behavior you are getting must not be refused as unknown.
+  "repair-merged-beliefs": ["apply", "dry-run"],
   rebrief: ["budget"],
 };
 
@@ -428,6 +447,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
+      case "repair-merged-beliefs":
+        return repairMergedBeliefsCommand(dir, io, parsed.flags["apply"] === true);
       case "rebrief":
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home);
     }
@@ -1509,6 +1530,228 @@ function backfillTargets(store: Store): { id: string; kind: string; dims: string
     });
   }
   return out;
+}
+
+// ── repair-merged-beliefs ───────────────────────────────────────────────────
+
+/** How much of a statement a repair report prints. */
+const STATEMENT_PREVIEW = 60;
+
+interface MergedBelief {
+  readonly id: string;
+  /** The entity the element hangs off, and its name when the entity is readable. */
+  readonly entityId: string | null;
+  readonly entityName: string | null;
+  /** First 60 characters of the statement, on one line. */
+  readonly statement: string;
+  /** The memory it was merged into, from the durable merge record. */
+  readonly originalId: string | null;
+  readonly originalPreview: string | null;
+  /** The lived day the merge was recorded on. */
+  readonly mergedOnDay: number | null;
+  /** True when the row is archived right now (false = already repaired). */
+  readonly archived: boolean;
+}
+
+/**
+ * THE REPAIR FOR PROBE H — beliefs the nightly dedup pass ate.
+ *
+ * The bug (`sleep/NOTES.md` §12, fixed the same night): a `type: "schema"` row
+ * was an ordinary dedup candidate. An element whose statement is X and an
+ * ordinary memory whose body is X — no revision anywhere — formed a same-hash
+ * group, `mem_` sorted before `sch_` in the tie-break, and the ELEMENT was
+ * archived `merged`. `beliefs(entity)` then read empty: the store had stopped
+ * believing something nobody retracted. On a migrated store the collision is
+ * likely rather than exotic, because `tools/migrate/apply.ts` minted every
+ * element at the import day while migrated memories kept their v1 birth day, so
+ * the memory is older on every such pair.
+ *
+ * Stopping the bug does not undo it. This finds what it already took and puts
+ * it back, through the owner-op seam's `unarchiveMerged` — the one door that
+ * un-archives, and only for `archived_reason: "merged"`.
+ *
+ * Two sources are unioned, because either can be the surviving evidence: the
+ * `memory.merged` events whose `candidateId` is a `sch_` id (the owner's
+ * read-only check, and the one that still reads true after the retention window
+ * trims nothing), and the archived schema rows whose reason is the merge (which
+ * survives even if the event log has rolled). Ids the owner removed are skipped
+ * — the deny-list answers before this tool does.
+ *
+ * **What it prints, and the tension in printing it.** `backfill-claims` says
+ * "IDS AND NUMBERS ONLY — a repair report is not a place to print bodies", and
+ * this one prints the first 60 characters of each statement. The difference is
+ * what the owner has to decide: a claim restored to the store is a claim the
+ * system will state in a briefing, and "restore sch_198628843ffb?" is not a
+ * question anyone can answer. This runs on the owner's own terminal, on the
+ * owner's own store, at the owner's own keystroke — the same reader who could
+ * open the prose file. Recorded rather than assumed (see `cli/NOTES.md`).
+ *
+ * **What it does not touch: the `uses` the merge credited.** The original kept
+ * `+1` and keeps it. Taking it back would rewrite a physics count whose band
+ * may already have been materialized and whose crossing may already be a
+ * durable `band.transition` row, to undo one use. The number is written into
+ * the `memory.unmerged` record instead, so the credit is auditable rather than
+ * silently reversed — and the merge record itself is left exactly where it is
+ * (constitution 7: the history is the point).
+ */
+function repairMergedBeliefsCommand(dir: string, io: Io, apply: boolean): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+
+  // The plan is made read-only, as every plan here is (scar E5).
+  const planning = Store.open({ dir, observer: true });
+  let targets: MergedBelief[];
+  try {
+    targets = mergedBeliefs(planning);
+  } finally {
+    planning.close();
+  }
+
+  const open = targets.filter((t) => t.archived);
+  io.out(`Beliefs and current-state rows archived as duplicates: ${open.length}`);
+  if (targets.length > open.length) {
+    io.out(`Already restored (a merge record with a live row): ${targets.length - open.length}`);
+  }
+  for (const t of targets) {
+    const where = t.entityName === null ? (t.entityId ?? "no entity") : t.entityName;
+    const day = t.mergedOnDay === null ? "day unrecorded" : `lived day ${t.mergedOnDay}`;
+    io.out(`  ${t.id}  ${where}  ${day}${t.archived ? "" : "  [already live]"}`);
+    io.out(`    "${t.statement}"`);
+    io.out(
+      t.originalId === null
+        ? "    merged into an original the log no longer names"
+        : `    merged into ${t.originalId}${t.originalPreview === null ? "" : `  "${t.originalPreview}"`}`,
+    );
+  }
+
+  if (!apply) {
+    io.out("");
+    io.out(
+      open.length === 0
+        ? "Dry run. Nothing to repair on this store."
+        : "Dry run. Nothing has changed. Re-run with --apply to put these back.",
+    );
+    return EXIT.ok;
+  }
+  if (open.length === 0) {
+    io.out("");
+    io.out("Nothing to do.");
+    return EXIT.ok;
+  }
+
+  const store = Store.open({ dir });
+  let restored = 0;
+  const failures: string[] = [];
+  try {
+    // RE-CHECK under the writing store: the plan was made against a store that
+    // may have moved, and the seam refuses anything that is no longer a merge.
+    for (const target of mergedBeliefs(store)) {
+      if (!target.archived) continue;
+      try {
+        const report = unarchiveMerged(store, target.id);
+        if (!report.noop) restored += 1;
+      } catch (err) {
+        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+      }
+    }
+  } finally {
+    store.close();
+  }
+
+  io.out("");
+  io.out(`Put ${restored} elements back. The uses each merge credited stand, and are recorded.`);
+  for (const failure of failures) io.err(`  FAILED ${failure}`);
+  return failures.length === 0 ? EXIT.ok : EXIT.failed;
+}
+
+/** Archived schema rows the merge took, and the merge records that name them. */
+function mergedBeliefs(store: Store): MergedBelief[] {
+  const denied = new Set(store.deniedIds());
+  const ids = new Set<string>();
+  const schemaPrefix = `${ID_PREFIX["schema"]}_`;
+  for (const id of store.list({ type: "schema", archived: true })) {
+    const row = store.row(id);
+    if (row === undefined || denied.has(id)) continue;
+    if (row.archived_reason === MERGED_ARCHIVE_REASON) ids.add(id);
+  }
+  for (const event of store.eventLog({ name: "memory.merged" })) {
+    if (event.ref === null || !event.ref.startsWith(schemaPrefix) || denied.has(event.ref)) continue;
+    if (store.row(event.ref) !== undefined) ids.add(event.ref);
+  }
+
+  const out: MergedBelief[] = [];
+  for (const id of [...ids].sort()) {
+    const row = store.row(id);
+    if (row === undefined) continue;
+    // Prose read DIRECTLY, the way `schemas/index.ts#load` reads it: the
+    // store's archived-read telemetry answers "did anyone look at archived
+    // CONTENT", and a repair plan is a look at the address, not at the memory.
+    let doc: { body: string; meta: Record<string, unknown> } | null = null;
+    try {
+      doc = readProseFile(row.prose_path, id);
+    } catch {
+      doc = null;
+    }
+    const entityId = typeof doc?.meta["entityId"] === "string" ? doc.meta["entityId"] : null;
+    const merge = mergeRecordOf(store, id);
+    out.push({
+      id,
+      entityId,
+      entityName: entityId === null ? null : entityNameOf(store, entityId),
+      statement: doc === null ? "(prose unreadable)" : oneLine(doc.body, STATEMENT_PREVIEW),
+      originalId: merge.originalId,
+      originalPreview:
+        merge.originalId === null ? null : previewOf(store, merge.originalId, STATEMENT_PREVIEW),
+      mergedOnDay: merge.day,
+      archived: row.archived === 1,
+    });
+  }
+  return out;
+}
+
+/** The last `memory.merged` record naming this id, in ids and numbers. */
+function mergeRecordOf(store: Store, id: string): { originalId: string | null; day: number | null } {
+  const rows = store.eventLog({ name: "memory.merged", ref: id });
+  const last = rows[rows.length - 1];
+  if (last === undefined || last.payload === null) return { originalId: null, day: null };
+  try {
+    const parsed = JSON.parse(last.payload) as Record<string, unknown>;
+    return {
+      originalId: typeof parsed["originalId"] === "string" ? parsed["originalId"] : null,
+      day: last.day,
+    };
+  } catch {
+    return { originalId: null, day: last.day };
+  }
+}
+
+function entityNameOf(store: Store, entityId: string): string | null {
+  const row = store.row(entityId);
+  if (row === undefined) return null;
+  try {
+    const name = readProseFile(row.prose_path, entityId).meta["name"];
+    return typeof name === "string" && name.length > 0 ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+function previewOf(store: Store, id: string, max: number): string | null {
+  const row = store.row(id);
+  if (row === undefined) return null;
+  try {
+    return oneLine(readProseFile(row.prose_path, id).body, max);
+  } catch {
+    return null;
+  }
+}
+
+/** One line, at most `max` characters, with an ellipsis when it was cut. */
+function oneLine(body: string, max: number): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max)}…`;
 }
 
 // ── rebrief ─────────────────────────────────────────────────────────────────

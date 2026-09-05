@@ -33,6 +33,9 @@ import {
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
+// The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
+// the seam's copy of it is pinned equal rather than hoped equal.
+import { MERGE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
 
 const STORE_SRC = fileURLToPath(new URL("../src/core/store/", import.meta.url));
 
@@ -286,15 +289,36 @@ describe("no deletion surface (contract §5 G2, §16 G1)", () => {
       string,
       unknown
     >;
-    // Pinned by name, so a fourth export cannot appear here quietly. `grantOwnerOps`
-    // is the capability handed over by Store's constructor; `chaseRemoved` is the
-    // box-2 chase; `REMOVED_REASON` is the word a neutralized row carries.
+    // Pinned by name, so a further export cannot appear here quietly.
+    // `grantOwnerOps` is the capability handed over by Store's constructor;
+    // `chaseRemoved` is the box-2 chase; `REMOVED_REASON` is the word a
+    // neutralized row carries. Added 2026-09-05: `unarchiveMerged` is the one
+    // repair on this seam — it puts back a row the dedup pass archived as a
+    // duplicate and refuses every OTHER archive reason by name, which is what
+    // keeps it from being the general resurrection verb the store does not
+    // have; `MERGED_ARCHIVE_REASON` is the one reason it undoes and
+    // `UNMERGE_EVENT` the durable name it appends.
     expect(Object.keys(mod).filter((k) => k !== "default").sort()).toEqual([
+      "MERGED_ARCHIVE_REASON",
       "REMOVED_REASON",
+      "UNMERGE_EVENT",
       "chaseRemoved",
       "grantOwnerOps",
+      "unarchiveMerged",
     ]);
     expect(typeof mod["chaseRemoved"]).toBe("function");
+    expect(typeof mod["unarchiveMerged"]).toBe("function");
+  });
+
+  test("the seam's merge reason is the word `sleep/` actually writes", async () => {
+    // `store/` sits below `sleep/` and must not import it, so the reason is
+    // spelled twice. This is the pin that stops a rename from making the
+    // repair door match nothing at all.
+    const mod = (await import(pathToFileURL(join(STORE_SRC, SEAM)).href)) as Record<
+      string,
+      unknown
+    >;
+    expect(mod["MERGED_ARCHIVE_REASON"]).toBe(MERGE_ARCHIVE_REASON);
   });
 
   test("the chase is not reachable from the store's own surface", async () => {

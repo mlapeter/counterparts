@@ -434,9 +434,10 @@ export class Store {
     return this.ops.transaction(fn);
   }
 
-  /** `chaseRemoved` is not a Store method — it is the owner-op seam's, and it
-   *  crosses the same stance check, which is why the site name is spelled here. */
-  private assertWritable(site: WriteMethod | "chaseRemoved"): void {
+  /** `chaseRemoved` and `unarchiveMerged` are not Store methods — they are the
+   *  owner-op seam's, and they cross the same stance check, which is why their
+   *  site names are spelled here. */
+  private assertWritable(site: WriteMethod | "chaseRemoved" | "unarchiveMerged"): void {
     if (this.observer) {
       // Telemetry is the deliberate exception: a stood-down instrument must be
       // distinguishable from a broken hook (observer-mode.md G5/G6, scar §2.4).
