@@ -343,6 +343,22 @@ describe("the console", () => {
     expect(bad.out.join("\n")).not.toContain("budget");
   });
 
+  test("a stale COUNTERPARTS_CONFIG does not refuse a command that reads none", async () => {
+    // The guard fires on the two commands that read or write a configuration.
+    // A refusal on `note` — which takes its store from `--dir` and touches no
+    // config at all — is a guard people learn to unset rather than to read.
+    const store = join(work, "store");
+    const seed = consoleWith();
+    expect(await run(["init", "--dir", store], { io: seed.io, env: {} })).toBe(0);
+    const c = consoleWith();
+    const code = await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", store], {
+      io: c.io,
+      env: { [CONFIG_ENV]: "relative.json" },
+    });
+    expect(code).toBe(0);
+    expect(c.err.join("\n")).not.toContain("ABSOLUTE");
+  });
+
   test("a command that reads no configuration does not take the flag", async () => {
     const c = consoleWith();
     const code = await run(["note", "hello", "--dir", join(work, "store"), CONFIG_FLAG, "/a/b.json"], {
@@ -373,6 +389,23 @@ describe("install", () => {
     expect(printed).not.toContain(CONFIG_ENV);
     expect(hookCommand()).not.toContain(CONFIG_FLAG);
     expect(mcpCommand(join(home, ".counterparts", "store"))).not.toContain(CONFIG_ENV);
+  });
+
+  test("--config spelling out the DEFAULT path is the default install, flagless", async () => {
+    // "Non-default" is a fact about the PATH, not about how it was named. A
+    // hooks block carrying `--config <the default>` — under a sentence saying
+    // the config is NOT at the default — would be false twice over.
+    const home = join(work, "home");
+    const c = consoleWith();
+    const code = await run(
+      ["install", "--budget", "9000", CONFIG_FLAG, join(home, ".counterparts", "claude-code.json")],
+      { io: c.io, env: {}, home },
+    );
+    expect(code).toBe(0);
+    const printed = c.out.join("\n");
+    expect(printed).not.toContain(CONFIG_FLAG);
+    expect(printed).not.toContain("because it is NOT at");
+    expect(existsSync(join(home, ".counterparts", "store", "operational.sqlite"))).toBe(true);
   });
 
   test("--config moves the config, the credentials and the default store, and is PRINTED", async () => {

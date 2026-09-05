@@ -28,7 +28,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart } from "../../core/counterpart.js";
@@ -402,14 +402,22 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
 
   // WHICH HOST CONFIGURATION THIS INVOCATION MEANS — resolved once, by the same
   // rule the hook, the worker and the MCP server use (`adapters/config-path.ts`),
-  // and refused rather than guessed. Only `install` and `rebrief` read or write
-  // one; every other command here touches no configuration at all.
-  const named = resolveConfigPath(
-    typeof parsed.flags["config"] === "string" ? [`--config=${parsed.flags["config"]}`] : [],
-    env,
-    opts.home ?? homedir(),
-  );
-  if (named.refusal !== null) {
+  // and refused rather than guessed.
+  //
+  // ONLY for the two commands that read or write one. `note`, `recall`, `status`
+  // and the rest touch no configuration at all, and a stale
+  // `COUNTERPARTS_CONFIG` in somebody's shell must not refuse a command that
+  // would never have looked at it — a guard that fires on the innocent case is
+  // one people learn to unset rather than to read.
+  const readsConfig = command === "install" || command === "rebrief";
+  const named = readsConfig
+    ? resolveConfigPath(
+        typeof parsed.flags["config"] === "string" ? [`--config=${parsed.flags["config"]}`] : [],
+        env,
+        opts.home ?? homedir(),
+      )
+    : undefined;
+  if (named !== undefined && named.refusal !== null) {
     io.err(named.refusal);
     return EXIT.refused;
   }
@@ -652,14 +660,19 @@ function installCommand(
   named?: ConfigChoice,
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
-  // A NAMED configuration moves the whole base — config, credentials, and the
-  // default store beneath it (`install.ts#installLayout`). Absent, everything
-  // below is byte for byte what it was before the flag existed.
-  const custom = named !== undefined && named.source !== "default" ? named.path : undefined;
-  const layout =
-    home === undefined
-      ? installLayout(dirFlag, env, homedir(), custom)
-      : installLayout(dirFlag, env, home, custom);
+  // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
+  // credentials, and the default store beneath it (`install.ts#installLayout`).
+  // The test is the PATH, not how it was named: `--config` spelling out the
+  // default path is the default install, and printing a flag for it (with a
+  // sentence saying it is "NOT at" the path it is at) would be false.
+  const home_ = home ?? homedir();
+  const custom =
+    named !== undefined &&
+    named.source !== "default" &&
+    resolve(named.path) !== defaultConfigPath(home_)
+      ? named.path
+      : undefined;
+  const layout = installLayout(dirFlag, env, home_, custom);
   // Before a single directory: a store that would hold its own configuration is
   // a store that never opens again.
   const refusal = layoutRefusal(layout);
@@ -782,7 +795,7 @@ function installCommand(
   // default path IS the rule (`adapters/config-path.ts`).
   if (custom !== undefined) {
     io.out(`  Both lines carry this install's configuration, because it is NOT at`);
-    io.out(`  ${defaultConfigPath(home ?? homedir())} — the path all four entry points`);
+    io.out(`  ${defaultConfigPath(home_)} — the path all four entry points`);
     io.out(`  read when nobody says otherwise. The hook takes it as ${CONFIG_FLAG} <path>; the`);
     io.out(`  server takes it as ${CONFIG_ENV}, because this host launches MCP servers`);
     io.out("  from a static registration with no command line to write into.");

@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { Counterpart } from "../../../core/counterpart.js";
 import { dataDir } from "../../../core/store/index.js";
 
-import { defaultConfigPath, resolveConfigPath } from "../../config-path.js";
+import { configLine, defaultConfigPath, resolveConfigPath } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 
 import { loadConfig } from "../config.js";
@@ -304,7 +304,7 @@ async function main(): Promise<void> {
   // ignored); run by hand it is the line that says which file answered. The
   // record for a detached run is the pin itself — `COUNTERPARTS_CONFIG` in the
   // environment the spawner wrote — and the session record the parent left.
-  process.stderr.write(`[counterparts] worker config: ${choice.path} (${choice.source})\n`);
+  process.stderr.write(`[counterparts] worker config: ${configLine(choice)}\n`);
   // No ring here — the worker has no adapter — so the permission warning is a
   // stderr line and nothing else. Warned, never refused (§4).
   const warning = permissionWarning(config.credentialsFile, credentials);

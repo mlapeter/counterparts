@@ -603,7 +603,7 @@ RPC=$(
 MCP_OUT=$(printf '%s\n' "$RPC" |
   COUNTERPARTS_DATA_DIR="$SECOND_STORE" COUNTERPARTS_CONFIG="$SECOND_CONFIG" counterparts-mcp 2>"$WORK/mcp-config.err")
 if printf '%s' "$MCP_OUT" | grep -q '"serverInfo"' &&
-   grep -q "config: $SECOND_CONFIG (COUNTERPARTS_CONFIG)" "$WORK/mcp-config.err"; then
+   grep -q "config: $SECOND_CONFIG (named by COUNTERPARTS_CONFIG)" "$WORK/mcp-config.err"; then
   ok
 else
   no "the server did not start on the named config, or did not name it" "$MCP_OUT

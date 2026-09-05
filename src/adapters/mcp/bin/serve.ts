@@ -29,7 +29,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { defaultConfigPath, resolveConfigPath } from "../../config-path.js";
+import { configLine, defaultConfigPath, resolveConfigPath } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 import { loadConfig } from "../../claude-code/config.js";
 import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
@@ -174,7 +174,7 @@ async function main(): Promise<void> {
   // point's "which file answered": printed at every launch, before a byte of
   // protocol, because a server reading a configuration nobody named is exactly
   // how a scratch run came to embed on the owner's key (2026-09-04).
-  process.stderr.write(`[counterparts] config: ${choice.path} (${choice.source})\n`);
+  process.stderr.write(`[counterparts] config: ${configLine(choice)}\n`);
   const warning = permissionWarning(credentialsFile, credentials);
   // stderr, never stdout: stdout is the JSON-RPC wire. Warned, never refused.
   if (warning !== null) process.stderr.write(`${warning}\n`);
