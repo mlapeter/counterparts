@@ -171,7 +171,7 @@ And a local **web** dashboard: `counterparts-dashboard serve --dir <store> [--po
 bound to 127.0.0.1 only, default port 4747 — an overview, memories, mind, flow and health,
 plus a `/brain` view. The screenshots above come from it. `--dir` is not optional:
 without it, `serve` refuses rather than opening the default store, and names the store
-it would have opened. Pass `--yes` if you meant the default.
+it would have opened. Pass `--default-store` if you meant the default.
 
 ---
 

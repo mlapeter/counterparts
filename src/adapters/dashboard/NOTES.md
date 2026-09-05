@@ -432,3 +432,43 @@ collision at 1024; the letterboxed canvas at 1024x768; the event modal's raw
 the heatmap's row labels, which are still a third list of raw dotted names —
 the merged table above is where their glosses live now, and the heatmap has no
 room for a sentence per row.
+
+## 2026-09-05 — `--yes` means one thing, so `serve` takes `--default-store`
+
+**The rule.** `--yes` means exactly one thing everywhere in this package: "skip an
+interactive confirmation." It never means "use the default store." Owner ruling,
+2026-09-05, after the console caught two of its own commands disagreeing about the
+flag (cli NOTES, same date; LAUNCH-STATUS G31).
+
+**Why the rename.** `serve --yes` was the last flag with the second meaning. The
+fourth pass (above) made the default store opt-in by name, and the name it chose was
+the console's confirmation-skipper. That reads fine on this binary alone — it is
+read-only, and "yes, I mean it" is a fair gloss — and wrongly across the package,
+where the same token on `migrate-cache --apply --yes` skips a typed `yes` and still
+demands `--dir`. A flag that puts a whole store on a socket should say WHICH store,
+so it is `--default-store`: the noun, not the assent. `serve` has no confirmation to
+skip, so `--yes` did not stay behind as a no-op; it is an unknown flag. Nothing is
+published, so nothing needed a deprecation.
+
+**Where it is enforced.** `parseServe` reads `--default-store` (and `=true`);
+`serveRefusal` gates on it, and both of its sentences — the env-var case and the
+default case — name it as the way through. `unknownFlag` is new and bin-wide:
+`parseArgv` collected every `--flag` into a map and read the ones it knew, so an
+undeclared flag was silently dropped — the same silence the console closed on
+2026-09-04. Two allowlists in the bin, one per subcommand; checked after help and
+before the store is resolved; one line, in this binary's refusal shape (`Refused: …
+Nothing was opened.`), listing what the subcommand takes. `serve()` prints it to
+stderr and returns 1 before the server module is loaded; `runReport` returns it as a
+refusal and the entry point spends it as stderr, exit 1. The views' half is the one
+deliberate behaviour change beyond the rename: `status --dirr <path>` used to render
+the default store without a word about the flag.
+
+**Tests** (`test/dashboard-web.test.ts`): `serve --yes` refused as unknown — alone,
+as `--yes=true`, and beside `--dir` — with `COUNTERPARTS_DATA_DIR` at an empty scratch
+dir that stays empty; `serve --default-store` with the variable at a missing store
+refused BY THAT DIR'S NAME, so the variable was read past the gate; and a spawned
+`serve --default-store` against the seeded scratch store — explicit env carrying
+preload's temp `HOME`, read until `ctrl-c to stop.`, then killed — the shape
+preload.ts names as safe for a spawned child. The install loop's `serve` step asserts
+both refusals under its `perl alarm`, in the same step, so the step count QUICKSTART
+quotes did not move.

@@ -809,7 +809,7 @@ rather than from a script.
    store from `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that
    variable with the live store's path in it and `serve` puts a whole memory on a
    socket in a browser — that choice is made in the command or not at all.
-   `--yes` means the default (and reads the variable) if you want it.
+   `--default-store` means the default (and reads the variable) if you want it.
    WHICH CONFIGURATION: one rule for all four — `--config <absolute path>`, else
    `COUNTERPARTS_CONFIG`, else the default. The asymmetry that is left is the
    hook's: it is the one entry point with no `--dir`, so pointing it at another

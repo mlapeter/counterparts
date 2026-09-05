@@ -867,14 +867,24 @@ step "the web dashboard REFUSES to open the default store without --dir"
 # was bound. The alarm is the point of the perl wrapper: if the refusal ever
 # regresses, the server starts and never returns, and a hanging loop is a loop
 # nobody reads. With the alarm, a regression fails this step in ten seconds.
+# The way through is `--default-store`, and it is the ONLY flag that means it:
+# `--yes` means "skip an interactive confirmation" everywhere in this package
+# (owner ruling 2026-09-05), `serve` has none to skip, so `serve --yes` is an
+# unknown flag — refused before the store is resolved, under the same alarm.
 OUT=$(perl -e 'alarm 10; exec @ARGV or exit 127' counterparts-dashboard serve 2>&1)
 CODE=$?
+YES_OUT=$(perl -e 'alarm 10; exec @ARGV or exit 127' counterparts-dashboard serve --yes 2>&1)
+YES_CODE=$?
 if [ "$CODE" = "1" ] &&
    printf '%s' "$OUT" | grep -q "Refused" &&
-   printf '%s' "$OUT" | grep -q -- "--yes"; then
+   printf '%s' "$OUT" | grep -q -- "--default-store" &&
+   ! printf '%s' "$OUT" | grep -q -- "--yes" &&
+   [ "$YES_CODE" = "1" ] &&
+   printf '%s' "$YES_OUT" | grep -q -- "unknown flag --yes"; then
   ok
 else
-  no "a stray 'serve' was not refused (exit $CODE)" "$OUT"
+  no "a stray 'serve' was not refused, or 'serve --yes' was not refused as unknown (exit $CODE / $YES_CODE)" "$OUT
+$YES_OUT"
 fi
 
 step "counterparts status on a MISSING store exits non-zero and offers the right --dir"
