@@ -149,9 +149,13 @@ recompression proposals and their archive; render and delivery telemetry.
    2026-09-04: 385 bytes, `elements=0`, four empty lanes and the owner's name nowhere in
    it). It is furniture and not an element: the counts and `elements` do not move, it
    carries no date because it has none, and it invents no content — it says who the memory
-   is for and how the lane fills, and nothing else. The lookup that finds the name is
-   guarded by the empty lane, so a store with one identity element neither pays for it nor
-   renders it (NOTES §11).
+   is for and how the lane fills, and nothing else — and the name is FLATTENED, like every
+   other string that reaches the bundle, because it is the only user-supplied one this
+   module renders. **The empty lane guards BOTH seams**: the lookup, on the ranked lane,
+   and the render, on the lane as it ARRIVED at `render` — never on the post-trim copy, so
+   a store whose identity elements the budget trimmed away can never assert that it has
+   none. A store with one identity element neither pays for the lookup nor renders the
+   line (NOTES §11).
 3. **[M]** Header and sentinel each state true counts and bytes. Because both state a number
    that composing them changes, composition iterates to a fixed point. A delivery-side event
    exists, not only a render-side one. **The delivered bundle carries a preface composed at

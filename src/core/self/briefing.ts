@@ -116,9 +116,21 @@ export const FRAMING = {
  * `FRAMING.context` promises every such line opens with the date it was learned,
  * which this line has none of. It is furniture, so `counts.identity` stays 0 and
  * the header and sentinel still read `elements=0`.
+ *
+ * **The name is FLATTENED, like every other string that reaches the bundle.**
+ * `flatten` is what makes "a statement is a line here" true (see its own note),
+ * and the name is the only user-supplied string this module renders — so it is
+ * held to the same rule, at the one place the line is built. Adversarial review
+ * of PR #71: a name carrying newlines injected lines into the delivered wake,
+ * including a forged `- <date> <claim>` bullet that reads as a resolved
+ * statement and that the dashboard's lane splitter then filed under a heading
+ * the store had no rows for. Not a privilege boundary — the name is the owner's
+ * own, and the sentinel still verified — but the "furniture, not an element"
+ * property is exactly what a second line defeats, and a prose file the owner is
+ * promised they may hand-edit (constitution 6) is a paste accident away.
  */
 export function identityCoreLine(name: string): string {
-  return `This memory is for ${name}. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.`;
+  return `This memory is for ${flatten(name)}. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.`;
 }
 
 /** Id → the verbatim statement AND its dates, at render time only. */
@@ -421,13 +433,14 @@ function offerLeftover(
   composed: Composed,
   req: BriefingRequest,
   resolve: Resolve,
+  coreName: string | undefined,
 ): Composed {
   let current = composed;
   while (held.length > 0) {
     const next = held[0];
     if (next === undefined) break;
     kept.identity.push(next);
-    const candidate = compose(kept, req.day, resolve, req.coreName);
+    const candidate = compose(kept, req.day, resolve, coreName);
     if (candidate.bytes > req.budgetBytes) {
       kept.identity.pop();
       break;
@@ -466,6 +479,20 @@ export function render(
     horizon: [...lanes.horizon],
   };
   const trimmed: TrimEvent[] = [];
+  // THE DAY-0 GUARD, DECIDED ONCE, HERE — on the lane as it ARRIVED.
+  //
+  // Adversarial review of PR #71: gating the lookup on the ranked lane and the
+  // render on the post-trim copy is two predicates, and the trim loop pops from
+  // `kept.identity` last but it does pop. A day-30 store with two real identity
+  // beliefs and a 400-byte ceiling trimmed both and then asserted "No identity
+  // has formed here yet" — identity amnesia printed over a store that has
+  // identity, which is this module's own worst failure (scar §2.3). Unreachable
+  // through `Self`, which never sets `coreName` on a non-empty lane; reachable
+  // by any caller of this exported function, and the CONTRACT's "guarded by the
+  // empty lane" has to be true at the seam that renders, not only at the seam
+  // that looks the name up. A store that HAS identity says nothing about not
+  // having it, whatever the budget did to the lane.
+  const coreName = lanes.identity.length === 0 ? req.coreName : undefined;
   // THE SHARE, applied BEFORE the trim order rather than inside it: identity
   // trims last by policy, so by the time the trim loop could bound identity
   // every other lane is already gone. Held-back elements are not trimmed —
@@ -473,7 +500,7 @@ export function render(
   const held = withheldForShare(kept, req.budgetBytes, resolve, t);
 
   for (;;) {
-    const c = compose(kept, req.day, resolve, req.coreName);
+    const c = compose(kept, req.day, resolve, coreName);
     const fits = c.bytes <= req.budgetBytes;
     let cut: TrimEvent | null = null;
     if (!fits) {
@@ -492,7 +519,7 @@ export function render(
       // would make the share decide the opposite of what it was set for. When
       // the other lanes are all present and the budget is still not spent, the
       // held-back identity elements take it back, in rank order, whole.
-      const composed = trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve) : c;
+      const composed = trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName) : c;
       return {
         ...composed,
         budgetBytes: req.budgetBytes,

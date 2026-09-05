@@ -298,3 +298,26 @@ ranking, and only when `lanes.identity.length === 0`. A store with even one iden
 never makes the lookup and never renders the line. That guard is also the live-store argument
 in the PR's G12 declaration: the owner's store has lived many boundaries and carries eight or
 more identity elements, so neither the lookup nor the branch is reachable there.
+
+**Two defects the adversarial review found, and the shape of both.** Neither was reachable
+through `Self`; both were reachable through this module's exported API, which is the same
+thing one refactor later.
+
+- **The guard existed at one seam and the contract claimed two.** `Self.build` gated the
+  name LOOKUP on the ranked lane; `compose` gated the RENDER on the post-trim, mutated
+  copy, and `render` forwarded `coreName` into every iteration of the trim loop. The loop
+  pops from `kept.identity` last, but it pops: two real identity beliefs and a 400-byte
+  ceiling produced a day-30 wake asserting *"No identity has formed here yet"* — identity
+  amnesia printed over a store that has identity, which is the failure this module's own
+  header quotes (scar §2.3). The guard is now computed ONCE, in `render`, on the lane as
+  it arrived, and forwarded from there. *A predicate evaluated at two seams on two
+  different values is not a guard; it is a coincidence that has been holding.*
+- **The name was the one string in the module that skipped `flatten`.** Every statement is
+  flattened because "a statement is a line here"; the name — the only user-supplied string
+  this module renders, and new with this change — was interpolated raw, so newlines in it
+  injected lines into the delivered wake, a forged `- <date> <claim>` bullet among them
+  that the dashboard's splitter then filed under a lane heading the store had no rows for.
+  The sentinel still verified and the name is the owner's own, so this is an invariant
+  defect and not a privilege boundary — but constitution 6 promises the prose is
+  hand-editable, and a paste accident is the whole distance to it. `flatten(name)`, inside
+  `identityCoreLine`, where the line is built.
