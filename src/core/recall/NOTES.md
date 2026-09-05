@@ -263,9 +263,10 @@ never acted on.
 
 **The label is data plus one word, and it is nothing else.** No candidate is added or
 removed, no score moves, no ordering changes, and the surfacing decision record does not
-grow a field — `surfaceSetHash()` is `800a9a9421cd969f` before and after, which is what
-makes this a rendering change under parallel §5 G12 rather than a surface-set move. The
-three doors:
+grow a field — `surfaceSetHash()` is `800a9a9421cd969f` before and after. That hash covers
+field NAMES only, so it is evidence that the record's SHAPE did not move and not evidence
+that no value did: `bytes` moves on every turn that delivers a chapter, and `surfaced` /
+`footnotes` move on a budget-tight one (see the delta at the end). The three doors:
 
 - `render.ts` — `Resolved.journal` and `FRAMING.journal` (`"Journal:"`), in front of the
   content in BOTH tiers, and outside `clip()`. The label is what tells a reader the line is
@@ -285,12 +286,36 @@ reason the hash does not move. The model is the dashboard's, which has flagged t
 prose since #33 (`dashboard/web/views.ts`, `MemoryDetail.journal`); this is the same
 sentence at the doors that had not learned it.
 
-**The wake needed no change, and the test says why.** `self/identity.ts#scanActive` lists
-`type: "memory"` and nothing else, so a chapter cannot reach a lane however it is shaped —
+**The wake has TWO doors, and the first draft of this note only found one.** The scanned
+lanes come from `self/identity.ts#scanActive`, which lists `type: "memory"` and nothing
+else, so a chapter cannot reach identity, craft, threads or hints however it is shaped —
 identity band, promoted, `unresolved`, skill-kind, maximum salience. `test/self.test.ts`
-builds one of each and asserts no `epi_` id in any lane and no chapter text in the render.
-That test proves a property rather than a change, and it is the tripwire for the day that
-one filter moves.
+builds one of each and asserts none arrives. That much was true, and it is the tripwire for
+the day that one filter moves.
+
+**The horizon lane is the other door, and it was OPEN.** Found by the adversarial review of
+PR #70. `req.horizon` never goes through `scanActive`: `briefing.ts#selfRenderer` fills it
+from `prospective.horizon()`, which walks `store.list({ archived: false })` — every row
+type — and `derive()` excluded only `kind: "skill"`. So a chapter carrying a content date
+rendered in the wake as a thing about to happen. Reproduced end to end, with `at` inside the
+chapter's own window, on a hermetic store: `Arriving: - 2026-09-05 (of 2026-09-10) · ## the
+lighthouse conversation`. It is reachable on the live store — 224 migrated episodes carry
+`happenedOn` and `learnedOn`, are `kind: "self"`, and were given a claimed salience floor —
+and #67's `repair-dates` would widen it.
+
+**And the fix there is a FILTER, not a label**, which is the one place in this branch where
+the ruling's "label, don't filter" does not apply: a chapter's date is the day it was
+LIVED, so "Arriving" is a category error about it no matter what word sits in front of the
+line. `DerivableMemory.journal` and a `"journal"` `DeriveReason` refuse it in the predicate
+rather than at one caller — `derive` has seven call sites in `prospective/index.ts`, and a
+filter at one of them is a rule that holds where somebody remembered it. Tested at the
+predicate (`test/prospective.test.ts`, including the negative control: the same row with
+the flag off IS prospective) and end to end through the real composition root
+(`test/seams.test.ts`).
+
+**Still open, filed rather than fixed.** `self/identity.ts#enumerate()` has no type filter
+either. It is closed today only because no writer gives an episode the identity band or the
+protected flag — which is a fact about the writers, not a property of the enumeration.
 
 **The one value-level delta, named.** A labelled line is 9 bytes longer ("Journal: "), so a
 turn that delivers a chapter AND lands within 9 bytes of `BUDGET_BYTES` trims one more item

@@ -842,6 +842,9 @@ export class Prospective {
         salience: read.physics.salience,
         archived: read.archived,
         learnedOn: read.doc.learnedOn === "" ? null : read.doc.learnedOn,
+        // The same field `sleep/types.ts#isJournal` reads off the row, taken
+        // from the doc already in hand. See `DerivableMemory.journal`.
+        journal: read.doc.type === "episode",
       },
       doc: read.doc,
       dates: dates.filter((d) => (seen.has(d.date) ? false : (seen.add(d.date), true))),

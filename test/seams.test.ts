@@ -45,7 +45,7 @@ import {
 } from "../src/core/mint.js";
 import { SCALAR_REF, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import { Associate } from "../src/core/associate/index.js";
-import { Prospective } from "../src/core/prospective/index.js";
+import { EVENT_DATE_META, Prospective } from "../src/core/prospective/index.js";
 import { Recall, TUNABLES as RECALL_TUNABLES, freshGateState, gate, withTunables } from "../src/core/recall/index.js";
 
 /**
@@ -1192,6 +1192,46 @@ describe("SEAMS G — the cycle's last content write is self.boundary(), budget 
     expect(s.getMeta(BRIEFING_KEY)).toBeUndefined();
     // The phase still RAN — "ran and found nothing" is not "did not run" (§5 G6).
     expect(phaseReport(report, "briefing").status).toBe("ran");
+  });
+
+  test("a DATED CHAPTER never arrives on the horizon — the wake's second door (I14)", () => {
+    // FOUND BY ADVERSARIAL REVIEW of PR #70, and the finding is not a label, it
+    // is a category error. `Self.build` has TWO sources: `scanActive`, which
+    // lists `type: "memory"` and can never yield a chapter, and `req.horizon`,
+    // which never goes through `scanActive` at all. Nothing on that path had a
+    // type filter — `Prospective.arrivals` walks `list({ archived: false })` and
+    // `derive` excluded only `kind: "skill"` — so a chapter with a content date
+    // rendered under "Arriving:", as a thing about to happen. It is the account
+    // of a day that is already LIVED: no label makes "Arriving" true of it.
+    //
+    // Reachable on the owner's store: 224 migrated episodes are live, they carry
+    // `happenedOn` and `learnedOn`, they are `kind: "self"`, and the migration
+    // gave them a claimed salience floor.
+    const s = seeded();
+    s.put({
+      type: "episode",
+      kind: "self",
+      title: "The lighthouse conversation",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point.",
+      learnedOn: "2026-09-05",
+      meta: { [EVENT_DATE_META]: "2026-09-10" },
+      salience: { relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      source: "episode",
+    });
+    const prospective = new Prospective({ store: s });
+    // The horizon source itself refuses it — the fix is upstream of the render,
+    // because the render cannot tell an arriving occasion from a lived day.
+    // `at` is the chapter's own content date, so the window is OPEN — the probe
+    // has to be inside it, or it proves only that a closed window stays closed.
+    const ids = prospective.horizon({ at: "2026-09-10", day: 0 }).items.map((i) => i.memoryId);
+    expect(ids.some((id) => id.startsWith("epi_"))).toBe(false);
+    // And end to end, through the real composition root.
+    const renderer = selfRenderer(new Self({ store: s }), { prospective, at: "2026-09-10" });
+    runCycle({ store: s, date: "2026-09-10", budgetBytes: 9000, render: renderer });
+    const published = s.getMeta(BRIEFING_KEY) ?? "";
+    expect(published.length).toBeGreaterThan(0);
+    expect(published).not.toContain("lighthouse");
+    expect(published).not.toContain("epi_");
   });
 
   test("the horizon lane's source is prospective, and an observer renders nothing", () => {

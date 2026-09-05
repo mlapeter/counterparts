@@ -958,13 +958,21 @@ describe("identity ordering and enumeration", () => {
     expect(out.text).not.toContain("- Mike");
   });
 
-  test("the wake never lists a CHAPTER as an element, however the chapter is shaped (I14)", () => {
-    // The ruling of 2026-09-04 labels a chapter wherever recall delivers one.
-    // The wake is the door where the answer is stronger than a label: a chapter
-    // cannot reach it at all, because `identity.ts#scanActive` lists
-    // `type: "memory"` and nothing else. That is one filter, in one line, and
-    // this test is the tripwire for the day it moves — so the fixture is built
-    // to qualify for EVERY lane if the type filter were gone.
+  test("no chapter reaches a SCANNED lane, however the chapter is shaped (I14)", () => {
+    // `Self.build` has TWO sources and this test covers ONE of them.
+    //
+    // The scanned lanes — identity, craft, threads, hints — come from
+    // `identity.ts#scanActive`, which lists `type: "memory"` and nothing else,
+    // so no chapter can reach them however it is shaped. That is one filter, in
+    // one line, and this is the tripwire for the day it moves.
+    //
+    // THE HORIZON LANE IS THE OTHER SOURCE, and it never goes through
+    // `scanActive` at all. The first version of this test called that "the wake
+    // can never list a chapter", which was FALSE: a dated chapter arrived under
+    // "Arriving:" until `prospective/derive.ts` learned to refuse a journal row
+    // (adversarial review of PR #70). That door is tested where it lives —
+    // `test/prospective.test.ts` at the predicate, `test/seams.test.ts` end to
+    // end through the real composition root.
     const s = store();
     identity(s, "A real identity statement that belongs in the lane.");
     craft(s, "A real craft statement about how the work gets done.");

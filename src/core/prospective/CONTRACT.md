@@ -26,7 +26,12 @@ clothes. **Hold debts, lose deadlines.**
   when the window passes: no cleanup pass, no second source of truth, nothing for decay to
   special-case. Afterwards it is simply an ordinary dated memory.
 - **Eligibility excludes what can never tactfully arrive**: task-state (structurally),
-  archived memories, skill memories, undated "someday" references, year-only precision.
+  archived memories, skill memories, undated "someday" references, year-only precision,
+  and — a v2 addition, 2026-09-04 — **the journal**. A chapter's content date is the day
+  it was LIVED, so "arriving" is a category error about it and no label repairs that; the
+  refusal is `DerivableMemory.journal` in the predicate rather than at any one of
+  `derive`'s seven call sites. Found by adversarial review when a dated chapter rendered
+  in the wake's horizon lane as a thing about to happen.
   **A missing encode date fails conservatively.** [v1] §12 G3.
 - **Precision is carried by the date's own format**, never rounded, and the ramp differs by
   precision — a stated month *means* early month more than the 29th. [v1] §12 G4.
