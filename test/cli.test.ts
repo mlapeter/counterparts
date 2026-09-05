@@ -1106,9 +1106,28 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(printed).toContain("float32 BLOB: 0");
     expect(printed).toContain("Sample:");
     expect(printed).toContain("largest coordinate change in this row:");
-    expect(printed).toContain("Dry run. Nothing has changed.");
-    // Not a byte: a dry run that opened box 3 for writing would be no dry run.
+    expect(printed).toContain("Dry run. No vector was changed.");
+    // Not a byte — this cache is already stamped v4, so the open writes nothing.
     expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+  });
+
+  test("on a v3-stamped cache the dry run says which single row the OPEN moved", async () => {
+    // The almost-true this exists to refuse: `openCache` brings an out-of-date
+    // box 3 to the current schema, which is one `cache_meta` row — so on the
+    // store this command will actually be run against, a flat "nothing has
+    // changed" would be false. The vectors are still untouched, and that is
+    // the claim the command is allowed to make.
+    seedJsonStore();
+    const aged = openDb(paths.cache(dir));
+    aged.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '3')");
+    aged.close();
+
+    const c = consoleWith();
+    expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("stamped its schema version v3 → v4");
+    expect(printed).toContain("no vector moved");
     expect(shapes()).toEqual({ blob: 0, text: 2 });
   });
 

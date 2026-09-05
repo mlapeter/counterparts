@@ -1315,7 +1315,10 @@ function humanBytes(n: number): string {
  *   1. **Dry run by default.** It prints what it would convert — counts, bytes
  *      held now, bytes after, the file's own size — and one SAMPLE row decoded
  *      both ways, so "the conversion reads the same numbers back" is something
- *      the owner sees rather than something this text asserts.
+ *      the owner sees rather than something this text asserts. It says "no
+ *      VECTOR was changed" rather than "nothing", because opening an
+ *      out-of-date box 3 stamps its schema-version row exactly as any
+ *      `Store.open` does — and that one row is reported when it moves.
  *   2. **Transactional per batch, and therefore resumable.** One transaction per
  *      `--batch` rows, not one over the whole table: box 3 is the file the
  *      Stop-hook worker writes into, `BUSY_TIMEOUT_MS` is five seconds, and a
@@ -1361,11 +1364,35 @@ function migrateCacheCommand(
   })();
 
   const sizeBefore = statSync(path).size;
+  // Read the stamped version BEFORE `openCache`, which brings an out-of-date
+  // cache up to the current schema — one `cache_meta` row, exactly as any
+  // `Store.open` does. That is the ONE thing a dry run here writes, and a
+  // "nothing has changed" that quietly wrote it would be the kind of
+  // almost-true this console is not allowed (§5 G9).
+  const stampedBefore = (() => {
+    let probe: Db | undefined;
+    try {
+      probe = openDb(path);
+      return probe.get<{ value: string }>(
+        "SELECT value FROM cache_meta WHERE key = 'schemaVersion'",
+      )?.value ?? null;
+    } catch {
+      return null;
+    } finally {
+      probe?.close();
+    }
+  })();
   const db = openCache(path);
   try {
     const census = vectorFormats(db);
     io.out(`Store: ${dir}`);
     io.out(`Cache: ${path}  (${humanBytes(sizeBefore)}, schema v${CACHE_SCHEMA_VERSION})`);
+    if (stampedBefore !== String(CACHE_SCHEMA_VERSION)) {
+      io.out(
+        `  (opening box 3 stamped its schema version ${stampedBefore === null ? "unset" : `v${stampedBefore}`} → ` +
+          `v${CACHE_SCHEMA_VERSION} — what any open does; no vector moved)`,
+      );
+    }
     io.out(
       `Vectors: ${census.total}   float32 BLOB: ${census.float32}   JSON text: ${census.jsonText}` +
         (census.other > 0 ? `   unreadable: ${census.other}` : ""),
@@ -1418,7 +1445,7 @@ function migrateCacheCommand(
 
     if (!apply) {
       io.out("");
-      io.out(`Dry run. Nothing has changed. Re-run with --apply to convert (batches of ${batch}).`);
+      io.out(`Dry run. No vector was changed. Re-run with --apply to convert (batches of ${batch}).`);
       return EXIT.ok;
     }
 
