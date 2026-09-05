@@ -7,15 +7,19 @@
  * way. The simplest thing that answers a cue identically on both is 40 lines of
  * tokenizer (constitution line 15 — machinery is earned, not anticipated).
  */
-import type { Db } from "./db.js";
+import type { Db, SqlValue } from "./db.js";
 import { openDb } from "./db.js";
 
 /**
  * Bumped to 2 (2026-08-25, SEAMS item J): the `ranking` table joins box 3.
  * Bumped to 3 (2026-09-04): `doc_lens` — the document length the cue channel
  * needs to stop rewarding a memory for being long (see `LengthNorm` below).
+ * Bumped to 4 (2026-09-05): embeddings are written as a float32 BLOB rather
+ * than JSON text (see `encodeVector`). The bump changes what a WRITE produces;
+ * reads stay tolerant of both shapes, and `counterparts migrate-cache`
+ * converts the rows already on disk.
  */
-export const CACHE_SCHEMA_VERSION = 3;
+export const CACHE_SCHEMA_VERSION = 4;
 
 const DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS doc_tokens (
@@ -37,10 +41,16 @@ const DDL: readonly string[] = [
      memory_id TEXT PRIMARY KEY,
      len       INTEGER NOT NULL
    )`,
+  // `vec` is a float32 BLOB: `dim` little-endian IEEE-754 singles, `dim * 4`
+  // bytes (v4, 2026-09-05). It was JSON text through v3, and the declared type
+  // here is AFFINITY, not a constraint — a v3 cache whose table says `TEXT`
+  // stores a bound BLOB as a BLOB (SQLite's TEXT affinity keeps NULL/TEXT/BLOB
+  // storage classes unchanged), so the write side needs no table rewrite and
+  // the read side decodes whichever shape a row actually holds.
   `CREATE TABLE IF NOT EXISTS embeddings (
      memory_id TEXT PRIMARY KEY,
      dim       INTEGER NOT NULL,
-     vec       TEXT NOT NULL
+     vec       BLOB NOT NULL
    )`,
   `CREATE TABLE IF NOT EXISTS cache_meta (
      key   TEXT PRIMARY KEY,
@@ -204,13 +214,150 @@ export function openCache(path: string): Db {
   return db;
 }
 
-/** Scoped to box 3 alone: drops only this file's tables, touches no canonical state. */
-export function resetCache(db: Db): void {
+/**
+ * Scoped to box 3 alone: drops only this file's tables, touches no canonical state.
+ *
+ * `keepEmbeddings` spares exactly one table, and it exists because "rebuildable"
+ * is not the same claim for all four. `doc_tokens`, `doc_lens` and `ranking` are
+ * recomputed from state this process already holds; `embeddings` are recomputed
+ * from a PAID NETWORK CALL, one per row, and a console with no embedder wired
+ * cannot put them back at all (`adapters/cli/NOTES.md`, 2026-09-04 — a bare
+ * `verify` would have dropped ~13,700 of them). The table is left in place
+ * rather than read out and rewritten, so nothing has to fit in memory.
+ */
+export function resetCache(db: Db, opts: { keepEmbeddings?: boolean } = {}): void {
+  const drop = opts.keepEmbeddings === true ? TABLES.filter((t) => t !== "embeddings") : TABLES;
   forgetAvgDocLen(db);
   db.transaction(() => {
-    for (const t of TABLES) db.exec(`DROP TABLE IF EXISTS ${t}`);
+    for (const t of drop) db.exec(`DROP TABLE IF EXISTS ${t}`);
     for (const sql of DDL) db.exec(sql);
     db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION));
+  });
+}
+
+// ── vectors: the wire shape of box 3's embeddings ────────────────────────────
+
+/**
+ * A vector as box 3 stores it since v4: **`dim` little-endian float32s**, not
+ * JSON text.
+ *
+ * The measurement that motivated it (`docs/LAUNCH-STATUS.md` §E-W1(4), and the
+ * synthetic re-measurement in this module's NOTES): at 1,024 dimensions a JSON
+ * row is ~12.7 KB against 4 KB of float32, and `nearest()` — a full scan that
+ * `JSON.parse`d every row — cost 590–1,040 ms on the live store's ~13.9K
+ * vectors. Nothing about that is the parser being slow; it is the SCAN reading
+ * three times the bytes and then allocating a 1,024-element `number[]` per row
+ * to throw away.
+ *
+ * **float32 is not a lossy choice for an embedding, it is the embedder's own
+ * precision.** Every provider this adapter speaks to computes and serves single
+ * precision; JSON text was storing float64 room that never held float64
+ * information. What float32 IS lossy about is a value that arrived as a
+ * float64 which is not exactly representable as a float32 — a re-serialized
+ * vector, a hand-written test fixture — and there the round trip moves the
+ * value by at most one float32 ulp (~1e-7 relative). `nearest` accumulates in
+ * float64 either way, so for a vector whose values are already float32-exact
+ * (`Math.fround(x) === x`) the scores are BIT-IDENTICAL before and after; that
+ * is the property `test/store.test.ts` pins, and the general case is pinned as
+ * same-order, ≤1e-6 score movement.
+ */
+export function encodeVector(vec: readonly number[]): Uint8Array {
+  const f = new Float32Array(vec.length);
+  for (let i = 0; i < vec.length; i++) f[i] = vec[i] ?? 0;
+  return new Uint8Array(f.buffer, f.byteOffset, f.byteLength);
+}
+
+/**
+ * Read a stored vector back in whatever shape the row holds — float32 BLOB
+ * (v4) or JSON text (v3 and earlier).
+ *
+ * Tolerating both is deliberate and is what makes the migration safe rather
+ * than a flag day: a cache mid-`migrate-cache` (or one written by a v4 process
+ * and last converted by nothing) is MIXED, and a reader that assumed one shape
+ * would turn an unconverted row into either a crash or a silent zero-similarity
+ * lie. The cost is one `typeof` per row.
+ *
+ * The BLOB arm returns a `Float32Array` VIEW where it can — no per-row copy of
+ * 1,024 numbers, which is most of what the old scan spent. Two cases force a
+ * copy: a driver that hands back a pooled buffer at an unaligned `byteOffset`
+ * (node:sqlite's `Buffer`s do this), and a byte length that is not a multiple
+ * of four, which is a corrupt row rather than a vector.
+ */
+export function decodeVector(raw: SqlValue): Float32Array | number[] {
+  if (typeof raw === "string") return JSON.parse(raw) as number[];
+  if (raw instanceof Uint8Array) {
+    const n = raw.byteLength >>> 2;
+    if (n === 0) return [];
+    if (raw.byteOffset % 4 === 0) return new Float32Array(raw.buffer, raw.byteOffset, n);
+    const copy = new Uint8Array(raw); // fresh buffer, byteOffset 0
+    return new Float32Array(copy.buffer, 0, n);
+  }
+  return [];
+}
+
+/** How many vectors box 3 holds, in each of the two shapes. Cheap: a grouped count. */
+export interface VectorFormatCensus {
+  readonly total: number;
+  /** v4 rows: `dim` little-endian float32s. */
+  readonly float32: number;
+  /** v3 rows: `JSON.stringify(vec)`. What `migrate-cache` converts. */
+  readonly jsonText: number;
+  /** Neither — a corrupt row. Named rather than folded into a total. */
+  readonly other: number;
+  /** `SUM(LENGTH(vec))` over each shape, in bytes. */
+  readonly float32Bytes: number;
+  readonly jsonTextBytes: number;
+}
+
+export function vectorFormats(db: Db): VectorFormatCensus {
+  const rows = db.all<{ t: string; n: number; b: number | null }>(
+    "SELECT typeof(vec) AS t, COUNT(*) AS n, SUM(LENGTH(vec)) AS b FROM embeddings GROUP BY typeof(vec)",
+  );
+  let float32 = 0;
+  let jsonText = 0;
+  let other = 0;
+  let float32Bytes = 0;
+  let jsonTextBytes = 0;
+  for (const r of rows) {
+    const bytes = r.b ?? 0;
+    if (r.t === "blob") {
+      float32 += r.n;
+      float32Bytes += bytes;
+    } else if (r.t === "text") {
+      jsonText += r.n;
+      jsonTextBytes += bytes;
+    } else other += r.n;
+  }
+  return { total: float32 + jsonText + other, float32, jsonText, other, float32Bytes, jsonTextBytes };
+}
+
+/**
+ * Convert up to `batch` JSON-text vectors to float32 BLOBs, in ONE transaction,
+ * and report how many moved. Zero means there is nothing left to convert.
+ *
+ * Batched rather than one statement because this runs on a 177 MB file the
+ * Stop-hook worker also writes to: a single transaction over 13.9K rows holds
+ * box 3's write lock for the whole rewrite, and `BUSY_TIMEOUT_MS` is five
+ * seconds. Idempotent by its WHERE clause — a converted row is not selected —
+ * so an interrupted run resumes by being run again, and a finished one is a
+ * no-op.
+ */
+export function convertVectorBatch(db: Db, batch = 500): number {
+  const rows = db.all<{ memory_id: string; vec: SqlValue }>(
+    "SELECT memory_id, vec FROM embeddings WHERE typeof(vec) = 'text' ORDER BY memory_id LIMIT ?",
+    batch,
+  );
+  if (rows.length === 0) return 0;
+  return db.transaction(() => {
+    const upd = db.prepare("UPDATE embeddings SET dim = ?, vec = ? WHERE memory_id = ?");
+    let n = 0;
+    for (const row of rows) {
+      const vec = decodeVector(row.vec);
+      const arr = Array.from(vec);
+      upd.run(arr.length, encodeVector(arr), row.memory_id);
+      n += 1;
+    }
+    return n;
   });
 }
 
@@ -243,7 +390,7 @@ export function indexDoc(db: Db, id: string, text: string, vec?: readonly number
         "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
         id,
         vec.length,
-        JSON.stringify(vec),
+        encodeVector(vec),
       );
     }
   });
@@ -265,8 +412,13 @@ export function setEmbedding(db: Db, id: string, vec: readonly number[]): void {
     "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
     id,
     vec.length,
-    JSON.stringify(vec),
+    encodeVector(vec),
   );
+}
+
+/** How many vectors box 3 holds. The count `unembeddedCount()` is NOT. */
+export function embeddingCount(db: Db): number {
+  return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings")?.n ?? 0;
 }
 
 export interface Hit {
@@ -361,10 +513,10 @@ export function docFrequency(db: Db, tokens: readonly string[]): Map<string, num
 }
 
 export function nearest(db: Db, vec: readonly number[], limit = 10): Hit[] {
-  const rows = db.all<{ memory_id: string; vec: string }>("SELECT memory_id, vec FROM embeddings");
+  const rows = db.all<{ memory_id: string; vec: SqlValue }>("SELECT memory_id, vec FROM embeddings");
   const hits: Hit[] = [];
   for (const row of rows) {
-    const other = JSON.parse(row.vec) as number[];
+    const other = decodeVector(row.vec);
     hits.push({ id: row.memory_id, score: cosine(vec, other) });
   }
   hits.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -377,18 +529,27 @@ export function nearest(db: Db, vec: readonly number[], limit = 10): Hit[] {
  * ordering, no second definition of "nearest" to drift from the first.
  */
 export function nearestVectors(db: Db, vec: readonly number[], limit = 10): number[][] {
-  const rows = db.all<{ memory_id: string; vec: string }>("SELECT memory_id, vec FROM embeddings");
-  const scored: { id: string; score: number; vec: number[] }[] = [];
+  const rows = db.all<{ memory_id: string; vec: SqlValue }>("SELECT memory_id, vec FROM embeddings");
+  const scored: { id: string; score: number; vec: Float32Array | number[] }[] = [];
   for (const row of rows) {
-    const other = JSON.parse(row.vec) as number[];
+    const other = decodeVector(row.vec);
     if (other.length === 0) continue;
     scored.push({ id: row.memory_id, score: cosine(vec, other), vec: other });
   }
   scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return scored.slice(0, limit).map((s) => s.vec);
+  // `Array.from` only on the `limit` survivors: the caller's contract is
+  // `number[][]`, and materializing the whole scan to satisfy it would give
+  // back exactly the per-row allocation the BLOB read exists to avoid.
+  return scored.slice(0, limit).map((s) => (Array.isArray(s.vec) ? s.vec : Array.from(s.vec)));
 }
 
-export function cosine(a: readonly number[], b: readonly number[]): number {
+/**
+ * `ArrayLike<number>` rather than `readonly number[]`: since v4 the stored side
+ * arrives as a `Float32Array` view over the row's bytes, and widening the
+ * parameter is what lets the scan score it WITHOUT copying it into an array
+ * first. The arithmetic is unchanged and still accumulates in float64.
+ */
+export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
   const n = Math.min(a.length, b.length);
   let dot = 0;
   let na = 0;

@@ -26,7 +26,7 @@
  * `run()` returns an exit code and never calls `process.exit`, so every command
  * is testable against a temp dir with a faked console.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -46,15 +46,24 @@ import { isJournal } from "../../core/sleep/index.js";
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
 import { openDb } from "../../core/store/db.js";
-import type { Db } from "../../core/store/db.js";
+import type { Db, SqlValue } from "../../core/store/db.js";
+// Box 3's own door for the vector migration: `openCache` stamps the schema
+// version, `vectorFormats` counts the two shapes, `convertVectorBatch` is the
+// one transactional step. The conversion arithmetic lives in `store/cache.ts`
+// beside the readers it must agree with, never in a second copy here.
+import { convertVectorBatch, openCache, vectorFormats } from "../../core/store/cache.js";
 import {
+  CACHE_SCHEMA_VERSION,
   LAYOUT,
   Store,
   dataDir,
+  decodeVector,
+  encodeVector,
   isWithin,
   paths,
   storeExists,
 } from "../../core/store/index.js";
+import type { VectorFormatCensus } from "../../core/store/index.js";
 import type { Band, Kind } from "../../core/types.js";
 // The MCP adapter's deliberate-recall dispatcher, imported rather than
 // re-implemented: a console with its own question path would be a second set of
@@ -85,6 +94,7 @@ export const COMMANDS = [
   "backup",
   "remove",
   "verify",
+  "migrate-cache",
   "backfill-claims",
   "rebrief",
 ] as const;
@@ -101,6 +111,9 @@ export const OWNER_OPS: readonly Command[] = [
   "backup",
   "remove",
   "verify",
+  // Box 3 is rebuildable, and rewriting it is still a WRITE: an instrument does
+  // not migrate the store it is reading.
+  "migrate-cache",
   "backfill-claims",
   "rebrief",
 ];
@@ -159,7 +172,11 @@ export function usage(): string {
     "  verify              Census of the cache against canonical state. Read-only.",
     "                      --rebuild drops and rebuilds the cache instead; it refuses",
     "                      while the cache holds embeddings this console has no",
-    "                      embedder to recompute, unless --drop-vectors is passed.",
+    "                      embedder to recompute, unless --drop-vectors is passed —",
+    "                      or --keep-vectors, which re-indexes the text side and",
+    "                      leaves every vector where it is.",
+    "  migrate-cache       Convert the cache's vectors from JSON text to float32",
+    "                      BLOBs, in place. Dry run unless --apply. --batch <n>.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
@@ -221,7 +238,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   export: ["out", "passphrase", "plaintext"],
   backup: ["out"],
   remove: ["confirm", "reason"],
-  verify: ["rebuild", "drop-vectors"],
+  verify: ["rebuild", "drop-vectors", "keep-vectors"],
+  "migrate-cache": ["apply", "batch"],
   "backfill-claims": ["apply"],
   rebrief: ["budget"],
 };
@@ -238,6 +256,7 @@ const VALUED_FLAGS: readonly string[] = [
   "salience",
   "id",
   "budget",
+  "batch",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -321,6 +340,8 @@ export function parse(argv: readonly string[]): Parsed {
       // `strict: false`, which does not make an undeclared boolean reliable.
       rebuild: { type: "boolean" },
       "drop-vectors": { type: "boolean" },
+      "keep-vectors": { type: "boolean" },
+      batch: { type: "string" },
       budget: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
@@ -420,6 +441,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return recallCommand(dir, io, parsed);
       case "verify":
         return verifyCommand(dir, io, parsed.flags);
+      case "migrate-cache":
+        return migrateCacheCommand(dir, io, parsed.flags);
       case "backup":
         return await backupCommand(dir, io, parsed.flags["out"], now);
       case "export":
@@ -1014,6 +1037,13 @@ interface CacheCensus {
     readonly ranking: number;
     /** The distinct ids the token index holds, for the set diff below. */
     readonly indexed: readonly string[];
+    /**
+     * Which SHAPE the vectors are in — float32 BLOB (v4) or JSON text (v3).
+     * A census that counted them without saying which would not answer the one
+     * question `migrate-cache` exists for, and a MIXED cache (an interrupted
+     * migration) has to be visible: readers tolerate it, but it is not done.
+     */
+    readonly vectors: VectorFormatCensus;
   } | null;
   readonly why: string | null;
 }
@@ -1038,6 +1068,7 @@ function censusCache(dir: string): CacheCensus {
         indexed: handle
           .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
           .map((r) => r.memory_id),
+        vectors: vectorFormats(handle),
       },
     };
   } catch (err) {
@@ -1045,6 +1076,23 @@ function censusCache(dir: string): CacheCensus {
   } finally {
     db?.close();
   }
+}
+
+/**
+ * One line naming the shape box 3's vectors are in, and — when it is mixed —
+ * what to run. An empty table is neither format and says so.
+ */
+function vectorFormatLine(v: VectorFormatCensus): string {
+  if (v.total === 0) return "none held";
+  const parts: string[] = [];
+  if (v.float32 > 0) parts.push(`${v.float32} float32 BLOB (v4)`);
+  if (v.jsonText > 0) parts.push(`${v.jsonText} JSON text (v3)`);
+  if (v.other > 0) parts.push(`${v.other} unreadable`);
+  const tail =
+    v.jsonText > 0
+      ? " — 'counterparts migrate-cache' converts them in place (dry run by default)"
+      : "";
+  return `${parts.join(", ")}${tail}`;
 }
 
 /**
@@ -1062,19 +1110,28 @@ function censusCache(dir: string): CacheCensus {
  *
  * So the destructive half now needs `--rebuild`, and even then it refuses while
  * box 3 holds vectors nothing here can recompute, unless `--drop-vectors` says
- * out loud that losing them is the intent. Refuse-unless-flag is the
- * ADAPTER-level answer; preserving the vectors across a rebuild would take a
- * core change (`rebuildCache({ keepVectors })`), and that is filed in NOTES
- * rather than smuggled in here.
+ * out loud that losing them is the intent.
+ *
+ * **2026-09-05: the third door.** Refuse-unless-flag was the adapter-level
+ * answer while preserving the vectors needed a core change; that change now
+ * exists (`Store.rebuildCache({ keepVectors })`), so `--keep-vectors` rebuilds
+ * the text index and leaves `embeddings` in place. The refusals stay exactly as
+ * they were and now name it, because the safe option being available is not a
+ * reason to make the destructive one quieter.
  */
 function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  return flags["rebuild"] === true
-    ? verifyRebuild(dir, io, flags["drop-vectors"] === true)
-    : verifyCensus(dir, io);
+  if (flags["rebuild"] !== true) return verifyCensus(dir, io);
+  // Both at once is a command line that contradicts itself, and guessing which
+  // half the owner meant is the one thing a guard like this may not do.
+  if (flags["drop-vectors"] === true && flags["keep-vectors"] === true) {
+    io.err("refused: --drop-vectors and --keep-vectors say opposite things about the same rows.");
+    return EXIT.refused;
+  }
+  return verifyRebuild(dir, io, flags["drop-vectors"] === true, flags["keep-vectors"] === true);
 }
 
 /**
@@ -1138,6 +1195,7 @@ function verifyCensus(dir: string, io: Io): number {
       `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
   );
   io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
+  io.out(`  vector format: ${vectorFormatLine(cache.counts.vectors)}`);
   if (missing.length === 0 && orphans.length === 0) {
     io.out("The cache covers every canonical row and holds nothing else.");
     return EXIT.ok;
@@ -1158,8 +1216,35 @@ function verifyCensus(dir: string, io: Io): number {
  * The vector count is taken BEFORE a writable store is opened, so the refusal
  * path never constructs one.
  */
-function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
+function verifyRebuild(dir: string, io: Io, dropVectors: boolean, keepVectors: boolean): number {
   const cache = censusCache(dir);
+  // `--keep-vectors` re-indexes the text side and leaves `embeddings` alone
+  // (`Store.rebuildCache({ keepVectors })`, the core follow-up this console
+  // filed in NOTES on 2026-09-04 and could not do adapter-side). Nothing is at
+  // risk, so neither guard below applies — and an unreadable census is no
+  // longer a reason to refuse, because the count it could not take was only
+  // ever the count of what would be LOST.
+  if (keepVectors) {
+    const store = Store.open({ dir });
+    try {
+      const canonical = store.list().length;
+      const report = store.rebuildCache({ keepVectors: true });
+      io.out(`Canonical rows: ${canonical}`);
+      io.out(`Re-indexed: ${report.indexed}`);
+      io.out(`Skipped as removed (deny-list): ${report.skippedDenied}`);
+      io.out(`Vectors kept: ${report.keptVectors}   dropped as no longer canonical: ${report.droppedVectors}`);
+      io.out(`Not recomputed: ${report.unrecomputed}`);
+      const accounted = report.indexed + report.skippedDenied;
+      if (accounted !== canonical) {
+        io.err(`MISMATCH: ${canonical} canonical rows, ${accounted} accounted for.`);
+        return EXIT.failed;
+      }
+      io.out("Every canonical row is accounted for.");
+      return EXIT.ok;
+    } finally {
+      store.close();
+    }
+  }
   // FAIL CLOSED. A count that could not be taken is not a count of zero: box 3
   // is the file the Stop-hook worker writes vectors into, so "database is
   // locked" after the busy timeout is an ordinary outcome here — and a guard
@@ -1167,7 +1252,7 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
   // a guard. An ABSENT cache is different and stays fine: there is nothing to lose.
   if (cache.present && cache.counts === null && !dropVectors) {
     io.err(
-      `Refusing: box 3 exists but could not be read (${cache.why ?? "no reason given"}), so this console cannot tell how many embeddings --rebuild would drop — retry, or pass --drop-vectors to proceed anyway.`,
+      `Refusing: box 3 exists but could not be read (${cache.why ?? "no reason given"}), so this console cannot tell how many embeddings --rebuild would drop — retry, pass --keep-vectors to rebuild the text index and keep them, or --drop-vectors to proceed anyway.`,
     );
     return EXIT.refused;
   }
@@ -1175,7 +1260,7 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
   const vectors = `${held} ${held === 1 ? "embedding" : "embeddings"}`;
   if (held > 0 && !dropVectors) {
     io.err(
-      `Refusing: --rebuild drops box 3 and this console has no embedder, so the ${vectors} it holds would be gone and each one costs a paid network call to recompute — pass --drop-vectors if losing them is what you mean.`,
+      `Refusing: --rebuild drops box 3 and this console has no embedder, so the ${vectors} it holds would be gone and each one costs a paid network call to recompute — pass --keep-vectors to rebuild the text index and keep them, or --drop-vectors if losing them is what you mean.`,
     );
     return EXIT.refused;
   }
@@ -1200,6 +1285,166 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
     return EXIT.ok;
   } finally {
     store.close();
+  }
+}
+
+// ── migrate-cache ───────────────────────────────────────────────────────────
+
+/** Bytes, in the units an owner reads. Box 3 is measured in hundreds of MB. */
+function humanBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/**
+ * `migrate-cache` — convert box 3's vectors from JSON text to float32 BLOBs,
+ * IN PLACE.
+ *
+ * **Why this is a command and not `verify --rebuild`.** A rebuild recomputes;
+ * the thing that would have to recompute here is an EMBEDDER, and this console
+ * wires none — so `--rebuild` as the migration means "delete ~13,700 vectors
+ * that cost a paid network call each and hope something puts them back"
+ * (`cli/NOTES.md`, 2026-09-04). The information needed to write the new shape
+ * is already in the old one. Converting is a read and a write of the same
+ * numbers, so the migration is a conversion.
+ *
+ * Four properties, each one a rule this console already has:
+ *
+ *   1. **Dry run by default.** It prints what it would convert — counts, bytes
+ *      held now, bytes after, the file's own size — and one SAMPLE row decoded
+ *      both ways, so "the conversion reads the same numbers back" is something
+ *      the owner sees rather than something this text asserts.
+ *   2. **Transactional per batch, and therefore resumable.** One transaction per
+ *      `--batch` rows, not one over the whole table: box 3 is the file the
+ *      Stop-hook worker writes into, `BUSY_TIMEOUT_MS` is five seconds, and a
+ *      single transaction over 13.9K rows would hold the write lock for the
+ *      whole rewrite. An interrupted run leaves a MIXED cache, which every
+ *      reader already tolerates (`cache.ts#decodeVector`), and re-running
+ *      finishes it.
+ *   3. **Idempotent, and it refuses rather than pretending.** The batch selects
+ *      on `typeof(vec) = 'text'`, so a converted row is never touched twice;
+ *      `--apply` on a store with nothing left to convert exits REFUSED with the
+ *      counts, because "I did nothing" and "I converted your store" must not
+ *      look the same on a terminal.
+ *   4. **It never opens a `Store`.** Box 3 only, through `openCache` (the same
+ *      door the store uses, so the schema-version row is stamped by the code
+ *      that owns it), gated on the file EXISTING so the command cannot mint the
+ *      box it migrates.
+ *
+ * `VACUUM` at the end is the point of the exercise: the `UPDATE`s free pages
+ * inside the file without shrinking it, and the debt being paid is 177.5 MB.
+ */
+function migrateCacheCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+  const path = paths.cache(dir);
+  if (!existsSync(path)) {
+    io.err(
+      `no cache at ${path} — box 3 has never been built here, so there are no vectors to convert.`,
+    );
+    return EXIT.failed;
+  }
+  const apply = flags["apply"] === true;
+  const batch = (() => {
+    const raw = flags["batch"];
+    if (typeof raw !== "string") return 500;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 500;
+  })();
+
+  const sizeBefore = statSync(path).size;
+  const db = openCache(path);
+  try {
+    const census = vectorFormats(db);
+    io.out(`Store: ${dir}`);
+    io.out(`Cache: ${path}  (${humanBytes(sizeBefore)}, schema v${CACHE_SCHEMA_VERSION})`);
+    io.out(
+      `Vectors: ${census.total}   float32 BLOB: ${census.float32}   JSON text: ${census.jsonText}` +
+        (census.other > 0 ? `   unreadable: ${census.other}` : ""),
+    );
+    io.out(
+      `  bytes in vec: JSON text ${humanBytes(census.jsonTextBytes)}, ` +
+        `float32 ${humanBytes(census.float32Bytes)}`,
+    );
+
+    if (census.jsonText === 0) {
+      io.out("");
+      if (apply) {
+        io.err(
+          `Refusing: box 3 holds no JSON-text vectors — it is already float32. Nothing was written.`,
+        );
+        return EXIT.refused;
+      }
+      io.out("Already converted. Nothing to do.");
+      return EXIT.ok;
+    }
+
+    // The projection is arithmetic on the rows themselves, not an average: a
+    // store whose vectors are not all the same width would make a mean lie.
+    const projected =
+      db.get<{ b: number | null }>(
+        "SELECT SUM(dim) * 4 AS b FROM embeddings WHERE typeof(vec) = 'text'",
+      )?.b ?? 0;
+    io.out(
+      `  after conversion those ${census.jsonText} rows hold ${humanBytes(projected)} ` +
+        `(${census.jsonTextBytes > 0 ? (census.jsonTextBytes / Math.max(projected, 1)).toFixed(1) : "?"}× smaller)`,
+    );
+
+    // ONE sample row, decoded both ways. Vectors are not prose, so printing a
+    // few of a memory's coordinates discloses nothing a census does not.
+    const sample = db.get<{ memory_id: string; dim: number; vec: SqlValue }>(
+      "SELECT memory_id, dim, vec FROM embeddings WHERE typeof(vec) = 'text' ORDER BY memory_id LIMIT 1",
+    );
+    if (sample !== undefined) {
+      const asIs = Array.from(decodeVector(sample.vec));
+      const converted = Array.from(decodeVector(encodeVector(asIs)));
+      const drift = asIs.reduce((m, v, i) => Math.max(m, Math.abs(v - (converted[i] ?? 0))), 0);
+      const show = (v: readonly number[]): string =>
+        v.slice(0, 4).map((x) => x.toPrecision(9)).join(", ");
+      io.out("");
+      io.out(`Sample: ${sample.memory_id}  dim ${sample.dim}  (${String(sample.vec).length} chars of JSON)`);
+      io.out(`  now:   [${show(asIs)}, …]`);
+      io.out(`  after: [${show(converted)}, …]`);
+      io.out(`  largest coordinate change in this row: ${drift.toExponential(3)}`);
+    }
+
+    if (!apply) {
+      io.out("");
+      io.out(`Dry run. Nothing has changed. Re-run with --apply to convert (batches of ${batch}).`);
+      return EXIT.ok;
+    }
+
+    let converted = 0;
+    let batches = 0;
+    for (;;) {
+      const n = convertVectorBatch(db, batch);
+      if (n === 0) break;
+      converted += n;
+      batches += 1;
+    }
+    io.out("");
+    io.out(`Converted ${converted} vectors in ${batches} ${batches === 1 ? "batch" : "batches"}.`);
+    const after = vectorFormats(db);
+    io.out(`Vectors now: float32 BLOB ${after.float32}, JSON text ${after.jsonText}`);
+    // Free pages are not free space until the file is rewritten, and the whole
+    // debt this pays is file size. VACUUM runs outside any transaction.
+    db.exec("VACUUM");
+    const sizeAfter = statSync(path).size;
+    io.out(
+      `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
+        `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
+    );
+    return after.jsonText === 0 ? EXIT.ok : EXIT.failed;
+  } finally {
+    db.close();
   }
 }
 

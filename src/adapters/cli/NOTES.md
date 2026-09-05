@@ -175,6 +175,35 @@ and taking it off the list is stance semantics — threading the stance into the
 command so `--rebuild` alone refuses — which is a separate decision, not a
 safety fix. Left open deliberately.
 
+## 2026-09-05 — `migrate-cache`, and the two follow-ups above are closed
+
+`counterparts migrate-cache` converts box 3's vectors from JSON text to float32 BLOBs in
+place — dry run by default, `--apply` to convert, one transaction per `--batch` (500),
+`VACUUM` at the end. The design and the measurements live in `src/core/store/NOTES.md`
+(2026-09-05); what belongs here is why it is a COMMAND and not a flag on `verify`.
+
+**A rebuild recomputes; this recovers.** The entry above ends with "preserving the vectors
+across a rebuild is a CORE change" and files two follow-ups. Both now exist, so the
+console has three doors instead of two:
+
+- `verify --rebuild` — unchanged, and still refuses while box 3 holds vectors it cannot
+  recompute. The refusals now NAME the safe option; they did not get quieter.
+- `verify --rebuild --keep-vectors` — `Store.rebuildCache({ keepVectors })`. Re-indexes
+  the text side, keeps every vector whose memory is still canonical, drops the ones that
+  are not. Passing it together with `--drop-vectors` is refused rather than guessed at.
+- `migrate-cache` — the format conversion, which is neither of those: it neither drops nor
+  recomputes, it re-writes the same numbers in the shape they should have been in.
+
+The census learned the shape too (`vector format: N float32 BLOB (v4), M JSON text (v3)`),
+because a partly-converted cache is a real state — every reader tolerates it — and one
+that nothing named would sit there unfinished. `Store.embeddingCount()` exists now as
+well; the census still opens `cache.sqlite` directly, because that read is gated on the
+FILE existing and a `Store` constructor cannot promise not to mint the box being
+inspected.
+
+`migrate-cache` is on `OWNER_OPS`: box 3 is rebuildable, and rewriting it is still a
+write.
+
 ## Verified live? No
 
 Every test runs against a temp store. Per CLAUDE.md's definition of done this is

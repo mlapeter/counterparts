@@ -57,6 +57,7 @@ import type { ProseDoc, ProseType, Staged } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
   docFrequency,
+  embeddingCount,
   indexDoc,
   nearest,
   nearestVectors,
@@ -83,8 +84,19 @@ export type {
   TombstoneRow,
 } from "./operational.js";
 export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, rowToPhysics } from "./operational.js";
-export { tokenize, cosine, CACHE_SCHEMA_VERSION, DEFAULT_LENGTH_NORM, backfillLengths, avgDocLen } from "./cache.js";
-export type { Hit, LengthNorm } from "./cache.js";
+export {
+  tokenize,
+  cosine,
+  CACHE_SCHEMA_VERSION,
+  DEFAULT_LENGTH_NORM,
+  backfillLengths,
+  avgDocLen,
+  convertVectorBatch,
+  decodeVector,
+  encodeVector,
+  vectorFormats,
+} from "./cache.js";
+export type { Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
 // The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
 // does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
 // directory the caller-universality test allows (§16 G1–G2).
@@ -173,6 +185,26 @@ export interface RebuildReport {
   unrecomputed: number;
   /** Contract §5 G8: what rebuild cannot recompute is DECLARED, with owner + repair. */
   declared: { what: string; owner: string; repair: string }[];
+  /** Vectors kept across the rebuild (`keepVectors`), and vectors dropped as
+   *  no longer canonical — removed ids and orphans. Both zero by default. */
+  keptVectors: number;
+  droppedVectors: number;
+}
+
+export interface RebuildOptions {
+  /**
+   * Re-index the TOKEN side without dropping `embeddings`.
+   *
+   * Off by default, because the default is the older and louder claim: box 3 is
+   * rebuildable and a rebuild rebuilds it. It exists because that claim prices
+   * the four tables the same when they are not — a vector costs a paid network
+   * call and a console with no embedder cannot replace one at any price
+   * (`adapters/cli/NOTES.md`, 2026-09-04, the follow-up filed by PR #43's
+   * review). With it on, a vector whose memory is still canonical survives, a
+   * vector for a removed or orphaned id is deleted, and a row whose embedder
+   * misses keeps the vector it had instead of counting as `unrecomputed`.
+   */
+  keepVectors?: boolean;
 }
 
 export interface EdgeInput {
@@ -997,9 +1029,19 @@ export class Store {
    * Box 3 only. Deleting the cache file and calling this must lose nothing
    * canonical; what cannot be recomputed is declared and counted (§5 G8).
    */
-  rebuildCache(): RebuildReport {
+  rebuildCache(opts: RebuildOptions = {}): RebuildReport {
     this.assertWritable("rebuildCache");
-    resetCache(this.cache);
+    const keepVectors = opts.keepVectors === true;
+    // Read the surviving vector ids BEFORE the reset, so "kept" is a count and
+    // not an assumption, and so the sweep below knows what it is sweeping.
+    const heldVectors = keepVectors
+      ? new Set(
+          this.cache
+            .all<{ memory_id: string }>("SELECT memory_id FROM embeddings")
+            .map((r) => r.memory_id),
+        )
+      : new Set<string>();
+    resetCache(this.cache, { keepEmbeddings: keepVectors });
     const denied = new Set(this.deniedIds());
     const rows = this.ops.all<MemoryRow>("SELECT * FROM memories ORDER BY id");
     let indexed = 0;
@@ -1020,15 +1062,44 @@ export class Store {
       if (vec !== null) indexDoc(this.cache, row.id, text, vec);
       else {
         indexDoc(this.cache, row.id, text);
-        unrecomputed += 1;
+        // A miss is only a LOSS when there was nothing there to keep. Under
+        // `keepVectors` the row's existing vector is still in the table, so
+        // counting it un-recomputed would report a gap box 3 does not have.
+        if (!(keepVectors && heldVectors.has(row.id))) unrecomputed += 1;
       }
       indexed += 1;
+    }
+    // Vectors whose memory is no longer canonical do NOT survive a rebuild —
+    // `keepVectors` preserves the cache, it does not resurrect a removed
+    // memory's trace (§16 G12) or keep an orphan the set diff would then report
+    // forever. Deleted here rather than skipped, because the plain rebuild
+    // drops them by dropping the table and the two paths must agree.
+    let droppedVectors = 0;
+    let keptVectors = 0;
+    if (keepVectors && heldVectors.size > 0) {
+      const canonical = new Set(rows.map((r) => r.id));
+      const del = this.cache.prepare("DELETE FROM embeddings WHERE memory_id = ?");
+      this.cache.transaction(() => {
+        for (const id of heldVectors) {
+          if (!canonical.has(id) || denied.has(id)) {
+            del.run(id);
+            droppedVectors += 1;
+          } else keptVectors += 1;
+        }
+      });
     }
     // Declared when there is no embedder at all, AND when a configured one
     // could not answer for some rows — both are "box 3 does not hold what a
     // vector channel would need", and a silent partial is the worse of the two.
+    //
+    // `keepVectors` is the third way to have nothing to declare, and it is the
+    // reason this is not simply "is there an embedder": a rebuild that kept
+    // every vector it started with is not missing them, whatever this process
+    // could or could not have recomputed. Without the extra arm a
+    // `verify --rebuild --keep-vectors` that lost nothing would still print a
+    // repair instruction for a gap box 3 does not have.
     const declared =
-      this.embed !== undefined && unrecomputed === 0
+      unrecomputed === 0 && (this.embed !== undefined || keepVectors)
         ? []
         : [
             {
@@ -1037,11 +1108,20 @@ export class Store {
               repair: "Store.open({ embed }) then rebuildCache()",
             },
           ];
-    const report: RebuildReport = { indexed, skippedDenied, unrecomputed, declared };
+    const report: RebuildReport = {
+      indexed,
+      skippedDenied,
+      unrecomputed,
+      declared,
+      keptVectors,
+      droppedVectors,
+    };
     this.emit("cache.rebuild", undefined, {
       indexed,
       skippedDenied,
       unrecomputed,
+      keptVectors,
+      droppedVectors,
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
     return report;
@@ -1128,6 +1208,26 @@ export class Store {
    *  watch needs, and the number that must fall run over run. */
   unembeddedCount(): number {
     return this.missingVectors(Number.MAX_SAFE_INTEGER).length;
+  }
+
+  /**
+   * How many vectors box 3 HOLDS — the numerator, and a different number from
+   * `unembeddedCount()`.
+   *
+   * Filed as a core follow-up by PR #43's review (`adapters/cli/NOTES.md`,
+   * 2026-09-04): the console needed "how many embeddings would `--rebuild`
+   * destroy" before it could refuse, `unembeddedCount()` is the coverage
+   * denominator instead, and with no read API for the count the CLI reached
+   * past the Store into `cache.sqlite` with its own `openDb`. It still does for
+   * the census — that read is deliberately gated on the FILE existing, so it
+   * cannot mint the box it inspects, which a Store constructor cannot promise —
+   * but a caller that already holds an open Store now has the number here.
+   *
+   * Counts every vector, including one held for an archived or superseded row:
+   * this is what box 3 contains, not what a live coverage ratio would want.
+   */
+  embeddingCount(): number {
+    return embeddingCount(this.cache);
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────
