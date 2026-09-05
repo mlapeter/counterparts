@@ -1784,11 +1784,15 @@ describe("install", () => {
     expect(code).toBe(EXIT.ok);
     expect(existsSync(paths.operational(store))).toBe(true);
 
-    // THE ONE PATH THE HOOKS READ. `claude-code/bin/hook.ts` and `bin/runner.ts`
-    // both hardcode `join(homedir(), ".counterparts", "claude-code.json")` with
-    // no flag and no environment override, and every hook exits 0 — so a config
-    // written anywhere else is an ambient half that never fires and never says
-    // why. `--dir` therefore moves the STORE and only the store.
+    // THE PATH THE HOOKS READ WHEN NOTHING NAMES ANOTHER.
+    // `claude-code/bin/hook.ts` and `bin/runner.ts` resolve
+    // `join(homedir(), ".counterparts", "claude-code.json")` unless `--config` or
+    // `COUNTERPARTS_CONFIG` says otherwise (`adapters/config-path.ts`), and a
+    // hook that finds no config stands down at exit 0 — so a config written
+    // somewhere else with NOTHING POINTING AT IT is an ambient half that never
+    // fires and never says why. `--dir` therefore moves the STORE and only the
+    // store; moving the configuration is `--config`'s job, tested in
+    // `test/config-rule.test.ts`.
     const config = join(home, ".counterparts", CONFIG_FILE);
     expect(existsSync(config)).toBe(true);
     expect(existsSync(join(store, CONFIG_FILE))).toBe(false);

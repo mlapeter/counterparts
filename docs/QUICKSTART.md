@@ -640,6 +640,12 @@ repo on its PATH and checks, every time:
 - a `session_end` through a separate `counterparts-mcp` process **binds lazily** to
   the session the hook registered, and mints the memory — the deliberate write
   path a real session uses, without a real session;
+- the **one config rule** (§3) at the two entry points that could not be checked
+  before it existed: `counterparts-hook --config <a second config>` works on the
+  store that file names, records it in the session file, and leaves the default
+  store untouched; `COUNTERPARTS_CONFIG` launches `counterparts-mcp` on a named
+  configuration; and a relative path refuses at both — the hook by standing down
+  at exit 0, the server by not starting;
 - `rebrief` names the file its injection ceiling came from, falls back to the
   hooks' config for a store that has none beside it, and refuses — listing every
   path it tried — when nothing supplies one;
@@ -660,7 +666,7 @@ The fifth host behaviour — `session_end` binding to a live session **through t
 registry**, since the server is never told a session id — the loop now does
 exercise, end to end: the hook writes `sessions/<id>.json`, a separate
 `counterparts-mcp` process is given only the data dir and the scope, and its
-`session_end` binds to that record and mints the memory (loop step 23; the
+`session_end` binds to that record and mints the memory (loop step 27; the
 refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
 step fails on). What is still unverified is the same thing as above: that this
 happens inside a real Claude Code session, where the id comes from the host
