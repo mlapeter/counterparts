@@ -262,6 +262,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   remove: "The loud removal. Dry run unless --confirm.",
   verify: "Census of the cache against canonical state. Read-only unless --rebuild.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
+  "repair-dates":
+    "Give MIGRATED memories carrying the import day their true `learned` date, read off evidence each row already holds — an engram-era id that is a millisecond timestamp, a v1 date field, a session reference, a source path. Counts by confidence and the proposed dates by count. Dry run unless --apply.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
 
@@ -301,6 +303,11 @@ const FLAG_HELP: Record<string, string> = {
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   apply: "actually do it — without this, it is a dry run",
+  "dry-run": "say the default out loud: plan and print, change nothing",
+  confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
+  "import-day": "YYYY-MM-DD — the day the import ran, instead of the one the store recorded or shows",
+  sample: "how many proposed rows to print (default 20)",
+  yes: "aim --apply at the DEFAULT store on purpose, where --dir would otherwise be required",
 };
 
 /**
