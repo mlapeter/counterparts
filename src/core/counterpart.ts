@@ -800,6 +800,11 @@ export class Counterpart {
 
     this.store = Store.open({
       observer: this.observer,
+      // THE PROVENANCE CLOCK, handed down (§I7). One clock per session, and the
+      // store is the thing that writes dates — so it gets the same function the
+      // recall, self, prospective and span-buffer halves already got, and a
+      // seeded or replayed brain stops stamping the run day on every row.
+      now: this.nowFn,
       ...(opts.dir === undefined ? {} : { dir: opts.dir }),
       ...(opts.embed === undefined ? {} : { embed: opts.embed }),
       ...(opts.retentionDays === undefined ? {} : { retentionDays: opts.retentionDays }),
@@ -1298,7 +1303,14 @@ export class Counterpart {
     const cycle = runCycle({
       store: this.store,
       render,
-      ...(input.date === undefined ? {} : { date: input.date }),
+      // The PHYSICS date key, and the host's to supply — every live entry point
+      // passes one (`hook.ts`, `runner.ts`, the demo seeder, the replay driver).
+      // When one does not, the fallback is THIS SESSION'S clock rather than
+      // `sleep/cycle.ts#todayDate()`'s ambient read: a boundary is the one place
+      // the two clocks touch, and a seeded run whose caller forgot the date would
+      // otherwise advance the lived-day clock with a date from a different year
+      // than everything the same run wrote (§I7).
+      date: input.date ?? this.store.today(),
       ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
       onEvent: (e) => this.relay("sleep", e),
     });

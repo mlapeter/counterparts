@@ -87,6 +87,8 @@ import {
   writeOnce,
 } from "./install.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
+import { repairDates } from "./repair-dates.js";
+import type { Confidence } from "./repair-dates.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
@@ -101,6 +103,7 @@ export const COMMANDS = [
   "verify",
   "migrate-cache",
   "backfill-claims",
+  "repair-dates",
   "rebrief",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -120,6 +123,7 @@ export const OWNER_OPS: readonly Command[] = [
   // not migrate the store it is reading.
   "migrate-cache",
   "backfill-claims",
+  "repair-dates",
   "rebrief",
 ];
 
@@ -192,6 +196,16 @@ export function usage(): string {
     "                      asks unless --yes. --batch <n>.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
+    "  repair-dates        Propose true `learned` dates for MIGRATED memories that",
+    "                      carry the import day, read off engram-era ids (millisecond",
+    "                      timestamps), v1 date fields, session references and source",
+    "                      paths. Prints counts by confidence and a sample of 20.",
+    "                      Dry run unless --apply. --confidence high|medium|low sets",
+    "                      the floor for what --apply writes (default high);",
+    "                      --import-day <date> overrides the recorded/measured one;",
+    "                      --sample <n> changes the sample size. --apply on the",
+    "                      DEFAULT store needs --dir or --yes: this is the one",
+    "                      owner op that rewrites thousands of canonical documents.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
@@ -260,6 +274,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
+  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample", "yes"],
   // `--config` belongs to the two commands that READ or WRITE a host
   // configuration, and to no others. Declaring it everywhere would say the
   // console takes it for `note` or `recall`, which read no config at all — the
@@ -289,6 +304,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   "migrate-cache":
     "Convert the cache's vectors from JSON text to float32 BLOBs, in place, and compact the file. Dry run — read-only — unless --apply.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
+  "repair-dates":
+    "Give MIGRATED memories carrying the import day their true `learned` date, read off evidence each row already holds — an engram-era id that is a millisecond timestamp, a v1 date field, a session reference, a source path. Counts by confidence and the proposed dates by count. Dry run unless --apply.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
 
@@ -333,7 +350,11 @@ const FLAG_HELP: Record<string, string> = {
   config:
     "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it",
   batch: "rows per transaction while converting (default 500)",
-  yes: "skip the typed confirmation; --dir is still required",
+  "dry-run": "say the default out loud: plan and print, change nothing",
+  confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
+  "import-day": "YYYY-MM-DD — the day the import ran, instead of the one the store recorded or shows",
+  sample: "how many proposed rows to print (default 20)",
+  yes: "skip the confirmation — migrate-cache still requires --dir; repair-dates may then aim --apply at the DEFAULT store, where --dir would otherwise be required",
 };
 
 /**
@@ -382,6 +403,9 @@ const VALUED_FLAGS: readonly string[] = [
   "id",
   "budget",
   "batch",
+  "confidence",
+  "import-day",
+  "sample",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -473,6 +497,15 @@ export function parse(argv: readonly string[]): Parsed {
       yes: { type: "boolean" },
       budget: { type: "string" },
       config: { type: "string" },
+      // `repair-dates`' three. `dry-run` is a declared boolean rather than a
+      // `strict: false` accident so that `--apply --dry-run` is a refusal the
+      // command can see, and the two string flags are declared for the same
+      // reason `budget` is: an undeclared valued flag arrives as `true`.
+      // (`yes` is declared once, above, for migrate-cache and repair-dates both.)
+      "dry-run": { type: "boolean" },
+      confidence: { type: "string" },
+      "import-day": { type: "string" },
+      sample: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -621,6 +654,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
+      case "repair-dates":
+        return repairDatesCommand(dir, io, parsed.flags, parsed.flags["dir"] === undefined);
       case "rebrief":
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
     }
@@ -2201,6 +2236,63 @@ function backfillTargets(store: Store): { id: string; kind: string; dims: string
     });
   }
   return out;
+}
+
+// ── repair-dates ────────────────────────────────────────────────────────────
+
+/**
+ * The migrated rows' dates, proposed from what the rows themselves carry.
+ *
+ * The console's half is thin on purpose: parse three flags, refuse a bad one by
+ * name, and hand off to `repair-dates.ts`, where the evidence rules and their
+ * reasons live. `--dry-run` is accepted and is the DEFAULT — it exists so the
+ * safe call can be spelled out loud rather than only implied by the absence of
+ * `--apply` — and passing both is a refusal, not a silent winner.
+ */
+function repairDatesCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+  defaultedDir: boolean,
+): number {
+  const apply = flags["apply"] === true;
+  if (apply && flags["dry-run"] === true) {
+    io.err("repair-dates: --apply and --dry-run contradict each other; pass one");
+    return EXIT.usage;
+  }
+  // THE ONE OWNER OP THAT REWRITES THOUSANDS OF CANONICAL DOCUMENTS. A dry run on
+  // the defaulted store is read-only and stays unguarded (it is how the owner
+  // looks); an APPLY that nobody aimed asks to be aimed (review §4).
+  if (apply && defaultedDir && flags["yes"] !== true) {
+    io.err(`repair-dates: --apply on the default store (${dir}) needs --dir <path> or --yes.`);
+    io.err("This rewrites the date on every migrated memory the evidence reaches. Nothing has changed.");
+    return EXIT.refused;
+  }
+  const raw = typeof flags["confidence"] === "string" ? flags["confidence"] : "high";
+  if (raw !== "high" && raw !== "medium" && raw !== "low") {
+    io.err(`repair-dates: --confidence must be high, medium or low (got ${raw})`);
+    return EXIT.usage;
+  }
+  const confidence: Confidence = raw;
+  const importDay = typeof flags["import-day"] === "string" ? flags["import-day"] : undefined;
+  if (importDay !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(importDay)) {
+    io.err(`repair-dates: --import-day must be YYYY-MM-DD (got ${importDay})`);
+    return EXIT.usage;
+  }
+  const sampleRaw = typeof flags["sample"] === "string" ? Number(flags["sample"]) : undefined;
+  if (sampleRaw !== undefined && (!Number.isInteger(sampleRaw) || sampleRaw < 0)) {
+    io.err(`repair-dates: --sample must be a non-negative whole number`);
+    return EXIT.usage;
+  }
+  const report = repairDates(dir, io, {
+    apply,
+    minConfidence: confidence,
+    ...(importDay === undefined ? {} : { importDay }),
+    ...(sampleRaw === undefined ? {} : { sample: sampleRaw }),
+  });
+  if (report === null) return EXIT.failed;
+  if (report.refused !== null) return EXIT.refused;
+  return report.failures.length === 0 ? EXIT.ok : EXIT.failed;
 }
 
 // ── rebrief ─────────────────────────────────────────────────────────────────

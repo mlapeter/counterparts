@@ -651,6 +651,76 @@ describe("the wake briefing — every element carries its date", () => {
     expect(lines.some((l) => l.startsWith("- 2026-09-03 ·"))).toBe(false);
   });
 
+  test("a migrated element REPAIRED at high confidence drops the bound", () => {
+    // `counterparts repair-dates --apply` writes `meta.dateRepaired` when it
+    // recovers a date from the row's own strongest evidence — the v1 document's
+    // `created` field, or an engram-era id that is a millisecond timestamp. The
+    // row now says which of the two it is, so the date is a claim again and the
+    // hedge would be false modesty (PR #67 review 5).
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "self",
+      body: "The credential incident took a Saturday to unpick.",
+      band: "identity",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      physics: { promotedIdentity: true },
+      learnedOn: "2024-07-26",
+      source: "migrated",
+      meta: {
+        dateRepaired: { confidence: "high", how: "id-timestamp", from: "migratedFrom#id", previous: "2026-09-03" },
+      },
+    });
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+    expect(lines).toContain("- 2024-07-26 · The credential incident took a Saturday to unpick.");
+    for (const line of lines) expect(line.startsWith("- by ")).toBe(false);
+  });
+
+  test("a repair at MEDIUM or LOW keeps the bound — those tiers are still 'no later than'", () => {
+    for (const confidence of ["medium", "low"]) {
+      const s = store();
+      s.put({
+        type: "memory",
+        kind: "self",
+        body: "The rota argument came back a third time.",
+        band: "identity",
+        salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+        physics: { promotedIdentity: true },
+        learnedOn: "2025-02-11",
+        source: "migrated",
+        meta: { dateRepaired: { confidence, how: "session-timestamp", from: "sessionRef" } },
+      });
+      const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+      expect(`${confidence}: ${lines[0]}`).toBe(
+        `${confidence}: - by 2025-02-11 · The rota argument came back a third time.`,
+      );
+    }
+  });
+
+  test("a MALFORMED repair marker renders the bound — the shape check fails closed", () => {
+    const s = store();
+    s.put({
+      type: "memory",
+      kind: "self",
+      body: "A row whose marker is a bare string, not the record the repair writes.",
+      band: "identity",
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      physics: { promotedIdentity: true },
+      learnedOn: "2024-07-26",
+      source: "migrated",
+      meta: { dateRepaired: "high" },
+    });
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+    expect(lines[0]?.startsWith("- by 2024-07-26 · ")).toBe(true);
+  });
+
+  test("a NON-migrated row carrying the marker is unaffected — it was never bounded", () => {
+    const s = store();
+    identityOn(s, "Something this system learned for itself.", "2026-09-04");
+    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+    expect(lines).toContain("- 2026-09-04 · Something this system learned for itself.");
+  });
+
   test("a migrated element carrying a REAL content date renders it plainly", () => {
     // `happened_on` is evidence about the thing itself and survived the import
     // unaltered. Hedging real evidence would make "by" mean nothing.

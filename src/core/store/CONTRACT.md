@@ -45,7 +45,10 @@ ended up with canonical state spread across a prose store plus half a dozen side
 - **Per-item persistence isolation** — one item that fails to serialize is logged and
   skipped; the rest persist. [v1] §16 G6.
 - **Three dates, deliberately distinct**: when it happened (at stated precision, never
-  rounded), when it was learned, which lived day it was born on. [v1] §4.2.
+  rounded), when it was learned, which lived day it was born on. [v1] §4.2. The first
+  two come from the session's INJECTED clock (`StoreOptions.now`), the third from the
+  physics clock (`advanceClock` / `livedDay`) — two clocks, never one (`NOTES.md`
+  2026-09-05).
 - **One content-address function**, so a raw span, a run record, and a rejected proposal
   join on the same key. [v1] §17.1.
 
