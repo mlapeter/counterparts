@@ -124,9 +124,12 @@ export function helpText(): string {
     "The web view:",
     "  serve --dir <path> [--port <n>]     the local dashboard, on 127.0.0.1 only",
     `                                      (default port ${SERVE_DEFAULT_PORT}, or ${SERVE_PORT_ENV})`,
-    "  serve --yes                         open the DEFAULT store instead. Without --dir",
-    "                                      or --yes, 'serve' refuses: on a machine with an",
-    "                                      install the default is the owner's live memory.",
+    "  serve --default-store               open the DEFAULT store instead. Without --dir",
+    "                                      or --default-store, 'serve' refuses: on a machine",
+    "                                      with an install the default is the owner's live",
+    "                                      memory.",
+    "",
+    "A flag a subcommand does not take is refused before anything is opened.",
     "",
     "It reads in observer mode and writes nothing, ever.",
   ];
@@ -142,8 +145,46 @@ export interface ServeArgs {
   readonly serve: boolean;
   readonly dir: string | undefined;
   readonly port: number | undefined;
-  /** `--yes`: I meant the default store. The only way past the refusal below. */
-  readonly yes: boolean;
+  /** `--default-store`: I meant the default store. The only way past the refusal
+   *  below. It is not `--yes` — that flag means "skip an interactive confirmation"
+   *  everywhere in this package and nothing else (owner ruling 2026-09-05), and
+   *  `serve` has no confirmation to skip. The flag that puts a whole store on a
+   *  socket says which store. */
+  readonly defaultStore: boolean;
+}
+
+/**
+ * THE FLAGS EACH SUBCOMMAND TAKES, and the one sentence anything else gets.
+ *
+ * `parseArgv` collects every `--flag` into a map and reads the ones it knows,
+ * so a flag nobody declared was silently dropped — the silence the console
+ * closed on 2026-09-04 (`cli/commands.ts#unknownFlag`, where `--dirr` sent a
+ * note to the default store without a word). The case that closed it here was
+ * `serve --yes`: on this binary it meant "open the DEFAULT store", one package
+ * over it meant "skip the typed confirmation", and the owner ruled on
+ * 2026-09-05 that `--yes` means only the second, everywhere. The dashboard's
+ * flag is `--default-store` now, and `--yes` is not kept as a no-op: a
+ * silently-dropped flag IS a no-op, and one that used to mean "aim here" is the
+ * worst kind. Checked after help and before anything opens. One line, like
+ * every refusal this binary prints; the list is what the reader needs to find
+ * the flag they meant.
+ */
+const VIEW_FLAGS: readonly string[] = [
+  "dir", "id", "limit", "band", "kind", "name", "archived", "width", "colour", "no-colour", "help", "h",
+];
+const SERVE_FLAGS: readonly string[] = ["dir", "port", "default-store", "help", "h"];
+
+export function unknownFlag(argv: readonly string[]): string | null {
+  const serve = (argv[0] ?? "") === "serve";
+  const allowed = serve ? SERVE_FLAGS : VIEW_FLAGS;
+  for (const token of argv) {
+    if (!token.startsWith("--") || token === "--") continue;
+    const name = token.slice(2).split("=", 2)[0] ?? "";
+    if (name.length === 0 || allowed.includes(name)) continue;
+    const takes = allowed.filter((f) => f !== "h").map((f) => `--${f}`).join(" ");
+    return `Refused: unknown flag --${name}. ${serve ? "'serve' takes" : "The views take"} ${takes}. Nothing was opened.`;
+  }
+  return null;
 }
 
 /** `serve` is parsed separately from the five views because it is not one: it
@@ -158,7 +199,7 @@ export function parseServe(argv: readonly string[]): ServeArgs {
     serve,
     dir: parsed.dir,
     ...(port === undefined ? { port: undefined } : { port }),
-    yes: argv.includes("--yes") || argv.includes("--yes=true"),
+    defaultStore: argv.includes("--default-store") || argv.includes("--default-store=true"),
   };
 }
 
@@ -190,12 +231,12 @@ export function serveRefusal(
   args: ServeArgs,
   env: Record<string, string | undefined> = process.env,
 ): string | null {
-  if (args.dir !== undefined || args.yes) return null;
+  if (args.dir !== undefined || args.defaultStore) return null;
   const fromEnv = env[DATA_DIR_ENV];
   if (typeof fromEnv === "string" && fromEnv.length > 0) {
     return (
       `Refused: 'serve' does not take the store from ${DATA_DIR_ENV} (${fromEnv}). ` +
-      "Pass --dir <path> to name one, or --yes to accept that variable. " +
+      "Pass --dir <path> to name one, or --default-store to accept that variable. " +
       "It is the variable QUICKSTART tells you to export with your live memory in it, and 'serve' " +
       "puts a whole store on a socket — so that choice is made in the command. Nothing was opened."
     );
@@ -203,7 +244,7 @@ export function serveRefusal(
   return (
     `Refused: 'serve' with no --dir would open ${targetDirOf(args)}, which is the default store — ` +
     "on a machine with an install, that is the owner's live memory. " +
-    "Pass --dir <path> to name a store, or --yes to mean the default. Nothing was opened."
+    "Pass --dir <path> to name a store, or --default-store to mean the default. Nothing was opened."
   );
 }
 
@@ -223,6 +264,14 @@ function flagValue(argv: readonly string[], name: string): string | undefined {
  * "which store am I looking at" is never a guess.
  */
 export async function serve(argv: readonly string[]): Promise<number> {
+  // FIRST, before the store is even resolved: a flag `serve` does not take is a
+  // command line that does not mean what it says — and `--yes` is the one a
+  // reader of the old docs will type.
+  const badFlag = unknownFlag(argv);
+  if (badFlag !== null) {
+    process.stderr.write(`${badFlag}\n`);
+    return 1;
+  }
   const args = parseServe(argv);
   // BEFORE the server module is even loaded, let alone a store opened.
   const refusal = serveRefusal(args);
@@ -246,10 +295,10 @@ export async function serve(argv: readonly string[]): Promise<number> {
         // look the same as a `serve` aimed on purpose (constitution 16: the
         // system shows its workings). It is a read-only view either way; this
         // line is so a stray start is visible rather than merely harmless.
-        // Only reachable with `--yes`, which is the owner saying he meant it —
-        // and it still says which store that was.
+        // Only reachable with `--default-store`, which is the owner saying he
+        // meant it — and it still says which store that was.
         ...(dir === undefined
-          ? [`(--yes, so this is the DEFAULT store — ${DATA_DIR_ENV} or ~/.counterparts/store)`]
+          ? [`(--default-store, so this is the DEFAULT store — ${DATA_DIR_ENV} or ~/.counterparts/store)`]
           : []),
         "observer mode: it strengthens nothing, deposits nothing, and writes no file of its own.",
         "ctrl-c to stop.",
@@ -346,6 +395,11 @@ function targetDir(parsed: Parsed): string {
 export function runReport(argv: readonly string[]): { text: string; refused: boolean } {
   const parsed = parseArgv(argv);
   if (parsed.view === "help") return { text: helpText(), refused: false };
+  // Help first, then this, then the store — the console's order. A view asked
+  // for with a flag it does not take is a refusal, not a render of whatever
+  // store the parser fell back to.
+  const badFlag = unknownFlag(argv);
+  if (badFlag !== null) return { text: badFlag, refused: true };
   const refusal = (err: unknown): { text: string; refused: boolean } => ({
     text: describeStoreError(err as StoreError, targetDir(parsed), parsed.dir !== undefined),
     refused: true,
