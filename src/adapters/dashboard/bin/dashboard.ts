@@ -176,9 +176,30 @@ export function parseServe(argv: readonly string[]): ServeArgs {
  * the defensive read of the default — `dataDir()` itself throws when the
  * environment points inside v1's live store, and a refusal that throws while
  * naming what it refused is the same bug one frame down.
+ *
+ * TWO SENTENCES, BECAUSE THERE ARE TWO CASES AND ONLY ONE OF THEM IS KNOWN.
+ * `~/.counterparts/store` on a machine with an install IS the owner's live
+ * memory — that is what the layout means. `COUNTERPARTS_DATA_DIR` is whatever
+ * somebody exported, and an adversarial review pointed this at a scratch demo
+ * store and got a refusal asserting it was live memory. The refusal still
+ * refuses — QUICKSTART §7 tells the reader to export that variable with the
+ * live store in it, so honouring it would put the hole straight back — but it
+ * says why without claiming what it cannot check.
  */
-export function serveRefusal(args: ServeArgs): string | null {
+export function serveRefusal(
+  args: ServeArgs,
+  env: Record<string, string | undefined> = process.env,
+): string | null {
   if (args.dir !== undefined || args.yes) return null;
+  const fromEnv = env[DATA_DIR_ENV];
+  if (typeof fromEnv === "string" && fromEnv.length > 0) {
+    return (
+      `Refused: 'serve' does not take the store from ${DATA_DIR_ENV} (${fromEnv}). ` +
+      "Pass --dir <path> to name one, or --yes to accept that variable. " +
+      "It is the variable QUICKSTART tells you to export with your live memory in it, and 'serve' " +
+      "puts a whole store on a socket — so that choice is made in the command. Nothing was opened."
+    );
+  }
   return (
     `Refused: 'serve' with no --dir would open ${targetDirOf(args)}, which is the default store — ` +
     "on a machine with an install, that is the owner's live memory. " +

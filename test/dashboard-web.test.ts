@@ -37,6 +37,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { DATA_DIR_ENV } from "../src/core/store/index.js";
 import { FRAMING, LANE_ORDER } from "../src/core/self/index.js";
 import { isJournal } from "../src/core/sleep/index.js";
 import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/adapters/dashboard/index.js";
@@ -1146,20 +1147,40 @@ describe("starting the thing", () => {
    * accidentally be right about.
    */
   test("`serve` with no --dir refuses, names the store it would have opened, and opens nothing", async () => {
-    const refusal = serveRefusal(parseServe(["serve"]));
-    expect(refusal).not.toBeNull();
-    expect(String(refusal)).toContain("Refused");
-    expect(String(refusal)).toContain("default store");
-    expect(String(refusal)).toContain("--yes");
+    // The environment is passed in rather than read, so this asserts about the
+    // sentence rather than about the machine the suite happens to run on.
+    const refusal = String(serveRefusal(parseServe(["serve"]), {}));
+    expect(refusal).toContain("Refused");
+    expect(refusal).toContain("default store");
+    expect(refusal).toContain("--yes");
     // It NAMES the directory it would have opened, whatever that resolves to
     // on this machine — the whole point of the sentence.
-    expect(String(refusal).length).toBeGreaterThan(80);
+    expect(refusal.length).toBeGreaterThan(80);
     // One line, like every other refusal this binary prints.
-    expect(String(refusal).includes("\n")).toBe(false);
+    expect(refusal.includes("\n")).toBe(false);
+
+    // AND IT DOES NOT CLAIM WHAT IT CANNOT CHECK. `~/.counterparts/store` on a
+    // machine with an install IS the live memory; `COUNTERPARTS_DATA_DIR` is
+    // whatever somebody exported, and an adversarial review pointed this at a
+    // scratch demo store and got a refusal calling it live memory. It still
+    // refuses — the variable is the one QUICKSTART §7 says to export — but the
+    // sentence says why instead of asserting whose memory it is.
+    const fromEnv = String(
+      serveRefusal(parseServe(["serve"]), { [DATA_DIR_ENV]: "/tmp/some-scratch-store" }),
+    );
+    expect(fromEnv).toContain("Refused");
+    expect(fromEnv).toContain(DATA_DIR_ENV);
+    expect(fromEnv).toContain("/tmp/some-scratch-store");
+    expect(fromEnv).toContain("--yes");
+    expect(fromEnv.includes("\n")).toBe(false);
+    expect(fromEnv).not.toContain("that is the owner's live memory");
 
     // Named on purpose, either way, and nothing is refused.
-    expect(serveRefusal(parseServe(["serve", "--dir", "/tmp/x"]))).toBeNull();
-    expect(serveRefusal(parseServe(["serve", "--yes"]))).toBeNull();
+    expect(serveRefusal(parseServe(["serve", "--dir", "/tmp/x"]), {})).toBeNull();
+    expect(serveRefusal(parseServe(["serve", "--yes"]), {})).toBeNull();
+    expect(
+      serveRefusal(parseServe(["serve", "--yes"]), { [DATA_DIR_ENV]: "/tmp/some-scratch-store" }),
+    ).toBeNull();
 
     // And the whole command exits 1 without touching a store or a socket.
     const said: string[] = [];

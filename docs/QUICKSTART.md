@@ -609,8 +609,14 @@ rather than from a script.
 
 ## 10. Known rough edges
 
-1. **Three entry points, two ways to name the store.** `counterparts` and
-   `counterparts-dashboard` read `--dir` or `COUNTERPARTS_DATA_DIR`;
+1. **Three entry points, two ways to name the store — and one deliberate
+   exception.** `counterparts` and `counterparts-dashboard`'s **views** read
+   `--dir` or `COUNTERPARTS_DATA_DIR`. `counterparts-dashboard serve` is the
+   exception: it takes `--dir` and **refuses** to take the store from
+   `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that variable
+   with the live store's path in it and `serve` puts a whole memory on a socket
+   in a browser — that choice is made in the command or not at all. `--yes`
+   means the default (and reads the variable) if you want it.
    `counterparts-mcp` reads `--dir` or `COUNTERPARTS_DATA_DIR`;
    `counterparts-hook` and its worker take **no flag**; they read `dataDir` out of
    `~/.counterparts/claude-code.json`, which `install` always writes, and fall

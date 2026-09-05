@@ -371,6 +371,18 @@ loop asserts it on the INSTALLED binary under a `perl alarm` — because the
 failure mode of a regression here is a server that starts and never returns,
 and a hanging loop is a loop nobody reads.
 
+**And the refusal says two different things, because it knows two different
+amounts.** `~/.counterparts/store` on a machine with an install IS the owner's
+live memory — that is what the layout means, and the sentence may say so.
+`COUNTERPARTS_DATA_DIR` is whatever somebody exported: an adversarial review
+pointed `serve` at a scratch demo store through that variable and got a refusal
+asserting it was live memory, which was simply false about that directory. It
+still refuses on the variable — QUICKSTART §7 instructs the reader to export it
+with the live store's path in it, so honouring it would put the hole straight
+back — but it now names the variable and says why the choice is made in the
+command, rather than claiming whose memory is at the other end. A refusal that
+overstates its case teaches the reader to discount the next one.
+
 **A view of a store that is not there is a refusal, not a render.** Both
 consoles said the right sentence and exited 0, so a script wrapping either one
 sailed past a mistyped `--dir`. `runReport` carries the second half of the
