@@ -1330,11 +1330,14 @@ async function removeCommand(
   // "Nothing has changed" line — a disclosure under the last line of a dry run
   // is a disclosure a reader has already stopped reading (cold-stranger round 3,
   // C3). `not applicable` is stated too: the silence is what made the residue
-  // undiscoverable outside the README (LAUNCH-STATUS §I2).
+  // undiscoverable outside the README (LAUNCH-STATUS §I2). `held` is a CHASE
+  // now, not a confession; only `unknown` still says NOT chased.
   io.out(
-    plan.spans.state === "not-applicable"
-      ? `  ${plan.spans.line}`
-      : `  NOT chased — ${plan.spans.line}`,
+    plan.spans.state === "held"
+      ? `  chased — ${plan.spans.line}`
+      : plan.spans.state === "unknown"
+        ? `  NOT chased — ${plan.spans.line}`
+        : `  ${plan.spans.line}`,
   );
   for (const name of plan.unchasable) {
     if (name === plan.spans.line) continue; // said once, on its own line above

@@ -33,6 +33,7 @@ import {
   sweep,
 } from "../src/core/remember/index.js";
 import type { InterpretFn, Proposal, Span, SweepChunk } from "../src/core/remember/index.js";
+import { strikeSpans } from "../src/core/remember/owner-strike-seam.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { applyRevision } from "../src/core/revision.js";
 import { Dashboard, stripAnsi } from "../src/adapters/dashboard/index.js";
@@ -438,6 +439,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
     o.consume(fake);
     o.restore(fake);
     o.noteFailures("seams", [fakeSpan("seams")], "THREW");
+    strikeSpans(o, { scope: "seams", hashes: ["deadbeef"] });
     await sweep(o, { scope: "seams", interpret: async () => ({ proposals: [] }) });
     const rememberSites = new Set(
       o.events("remember.observer.standdown").map((e) => String(e.data?.site)),

@@ -145,8 +145,16 @@ export interface PutInput {
    *  writes NULL — "unrecorded" — never a defaulted claim of authorship. */
   source?: MemorySource;
   /** Light provenance: ids only, never text (F9, owner ruling 2026-08-29).
-   *  Mirrored into the prose doc's meta so the document is self-describing. */
-  origin?: { session?: string; scope?: string; ref?: string };
+   *  Mirrored into the prose doc's meta so the document is self-describing.
+   *
+   *  `spanHash` is the buffer's own hash of the span this memory WAS — a jot's
+   *  own words — and it is here so removal can chase that line by identity
+   *  rather than by re-deriving it from the body (cli/INTERFACE-GAPS §9). It
+   *  lives in the prose meta and NOWHERE ELSE on purpose: a hash of low-entropy
+   *  content is brute-forceable (§16 G9), and the prose document is the one
+   *  carrier a removal destroys, so the pointer dies with the thing it points
+   *  at instead of outliving it in a box-2 column. */
+  origin?: { session?: string; scope?: string; ref?: string; spanHash?: string };
 }
 
 export interface StoredMemory {
@@ -1408,6 +1416,7 @@ export class Store {
       if (input.origin.session !== undefined) origin["session"] = input.origin.session;
       if (input.origin.scope !== undefined) origin["scope"] = input.origin.scope;
       if (input.origin.ref !== undefined) origin["ref"] = input.origin.ref;
+      if (input.origin.spanHash !== undefined) origin["spanHash"] = input.origin.spanHash;
       if (Object.keys(origin).length > 0) meta["origin"] = origin;
     }
     const doc: ProseDoc = {

@@ -747,7 +747,7 @@ describe("remove — the loud removal", () => {
  * The probe is §I2's own: a marker string, and a grep of the store afterwards,
  * so the test asserts the RESIDUE as well as the report about it.
  */
-describe("remove — the span buffer is named, never implied", () => {
+describe("remove — the span buffer is CHASED, and what it cannot reach it names", () => {
   const MARKER = "ZQRESIDUEPROBE the culvert gate key is kept under the third fence post.";
 
   /** Store-relative paths of every file holding `needle`. Ids and paths, no text. */
@@ -770,44 +770,112 @@ describe("remove — the span buffer is named, never implied", () => {
     return /mem_[0-9a-f]+/.exec(line)?.[0] ?? "";
   }
 
-  test("a note that rode the buffer is named unchased — in the dry run, the report and the record", async () => {
-    store().close();
+  /**
+   * The MCP `note` tool's own two steps (`adapters/mcp/server.ts:337-362`), which
+   * is exactly what `counterparts note` runs: `captureJot` FIRST — the verbatim
+   * text into `spans/<key>/jots.jsonl` — then `submitJot` carrying that span's
+   * hash as `ownSpanHash`. This is the door that made the residue.
+   */
+  async function noteThroughTheJotDoor(text: string): Promise<string> {
     const w = consoleWith();
-    expect(await run(["note", MARKER, "--dir", dir], { io: w.io })).toBe(EXIT.ok);
-    const id = idFrom(w.out);
+    expect(await run(["note", text, "--dir", dir], { io: w.io })).toBe(EXIT.ok);
+    return idFrom(w.out);
+  }
+
+  test("the words a note rode in on are struck out of the buffer, and a later backup has none of them", async () => {
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
     expect(id).toMatch(/^mem_/);
     // The residue itself, before anything is removed: the prose AND the buffer.
     const seeded = grepStore(dir, "ZQRESIDUEPROBE");
     expect(seeded.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
+    expect(seeded.some((p) => p.startsWith("prose/"))).toBe(true);
 
-    // The DRY RUN says it, and says it above the closing line — a disclosure
-    // under "Nothing has changed" is one the reader has already stopped reading.
+    // The DRY RUN counts it as a surface to chase, and says so above the closing
+    // line — a disclosure under "Nothing has changed" is one the reader has
+    // already stopped reading.
     const plan = consoleWith();
     expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
     const planned = text(plan.out);
-    expect(planned).toContain("NOT chased — spans/");
-    expect(planned).toContain("the raw capture buffer still holds this memory's words");
-    expect(planned).toContain("Chasing it is a core change, not yet written.");
-    expect(planned.indexOf("NOT chased")).toBeLessThan(planned.indexOf("Dry run. Nothing has changed."));
+    expect(planned).toContain("chase spans: 1");
+    expect(planned).toContain("chased — spans/");
+    expect(planned).toContain("the removal strikes them out of it");
+    expect(planned.indexOf("chased — spans/")).toBeLessThan(
+      planned.indexOf("Dry run. Nothing has changed."),
+    );
     // §16 G15 still holds: the report names a file, never a word of its contents.
     expect(planned).not.toContain("culvert gate key");
+    // A dry run strikes nothing.
+    expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.startsWith("spans/"))).toBe(true);
 
-    // The REAL removal says the same thing, and the completion LINE counts it.
-    // Printed, not stored: the durable `removal_record` is four stage rows with
-    // no count, which is why the assertion below is on the console's output.
+    // THE REAL REMOVAL. The buffer is in `chased` with a count, `unchased` is
+    // empty, and the completion event says so.
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
-    expect(printed).toContain(
-      "unchased (dark via the deny-list, never silently dropped): spans/",
-    );
-    expect(printed).toContain("jots.jsonl — the raw capture buffer still holds this memory's words");
-    expect(printed).toContain('"unchased":1');
+    expect(printed).toContain("spans(1 line in 1 file)");
+    expect(printed).toContain("consumed.jsonl so nothing re-captures them");
+    expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+    expect(printed).toContain('"unchased":0');
+    expect(printed).not.toContain("culvert gate key");
 
-    // And the report is TRUE: the prose is gone, the buffer line is not.
-    const left = grepStore(dir, "ZQRESIDUEPROBE");
-    expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
-    expect(left.some((p) => p.startsWith("spans/"))).toBe(true);
+    // AND THE REPORT IS TRUE. This is LAUNCH-STATUS §I2's own grep, and the
+    // whole point of the workstream: nothing under the data dir answers.
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+
+    // The blast radius the finding measured: a snapshot taken AFTER the removal
+    // used to carry the words. It does not now.
+    const out = join(outside, "after-removal");
+    const b = consoleWith();
+    expect(await run(["backup", "--dir", dir, "--out", out], { io: b.io })).toBe(EXIT.ok);
+    expect(grepStore(out, "ZQRESIDUEPROBE")).toEqual([]);
+  });
+
+  test("the durable strike record carries counts and no content, and the hash is kept so nothing re-captures it", async () => {
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: consoleWith([id]).io })).toBe(
+      EXIT.ok,
+    );
+
+    const scopes = readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n));
+    expect(scopes.length).toBe(1);
+    const scopeDir = join(dir, "spans", scopes[0] as string);
+
+    const strikes = readFileSync(join(scopeDir, "strikes.jsonl"), "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(strikes.length).toBe(1);
+    expect(strikes[0]?.["struck"]).toBe(1);
+    expect(strikes[0]?.["by"]).toBe("owner");
+    // §16 G9: a record of a destruction carries no hash of what it destroyed.
+    expect(Object.keys(strikes[0] ?? {}).sort()).toEqual(
+      ["at", "by", "day", "files", "ledgered", "struck"],
+    );
+
+    // The terminal ledger holds the hash, which is what stops the words being
+    // re-admitted by a re-capture, a restore, or a crashed run's orphan merge.
+    const consumed = readFileSync(join(scopeDir, "consumed.jsonl"), "utf8");
+    expect(consumed.trim().length).toBeGreaterThan(0);
+    expect(consumed).not.toContain("culvert gate key");
+  });
+
+  test("a note taken TWICE loses only the removed one — the strike is not a truncation", async () => {
+    store().close();
+    const keeper = "ZQKEEPER the north gate is padlocked and the key hangs in the tack room.";
+    const doomedId = await noteThroughTheJotDoor(MARKER);
+    await noteThroughTheJotDoor(keeper);
+
+    expect(
+      await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
+    ).toBe(EXIT.ok);
+
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+    // The other note's capture is untouched: in the buffer AND in its prose.
+    const kept = grepStore(dir, "ZQKEEPER");
+    expect(kept.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
+    expect(kept.some((p) => p.startsWith("prose/"))).toBe(true);
   });
 
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
@@ -832,12 +900,42 @@ describe("remove — the span buffer is named, never implied", () => {
     expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
     expect(text(plan.out)).toContain("spans: not applicable");
     expect(text(plan.out)).toContain("a 'fallback' memory is not captured as a jot");
+    expect(text(plan.out)).toContain("chase spans: 0");
 
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
     expect(printed).toContain('"unchased":0');
+    // And the other note's capture is still there — a removal that struck an
+    // unrelated scope's buffer would be the worst failure this seam can have.
+    expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.startsWith("spans/"))).toBe(true);
+  });
+
+  test("the honest line survives for the one state left blind: prose gone, no hash recorded", async () => {
+    store().close();
+    expect(await run(["note", MARKER, "--dir", dir], { io: consoleWith().io })).toBe(EXIT.ok);
+
+    // A row minted before provenance existed: `source` NULL, no origin at all,
+    // and its prose file removed underneath the store. There is nothing left to
+    // address the buffer with, and the console says exactly that.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "A pre-provenance memory." });
+    const prose = s.row(id)?.prose_path ?? "";
+    s.close();
+    rmSync(prose, { force: true });
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    expect(planned).toContain("NOT chased — spans/");
+    expect(planned).toContain("no span hash was recorded");
+    expect(planned).toContain("a later backup would copy it");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("unchased (dark via the deny-list, never silently dropped): spans/");
+    expect(text(c.out)).toContain('"unchased":1');
   });
 });
 
@@ -1398,6 +1496,43 @@ describe("the destruction path is importable from this directory only", () => {
     walk(root);
     // §16 G2 again, for the half that landed on 2026-08-25.
     expect(offenders).toEqual([]);
+  });
+
+  test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
+    // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
+    // Two files in `src/` may reach `remember/owner-strike-seam.ts`:
+    // `remember/spans.ts`, which HANDS OVER the capability in its constructor
+    // and never calls the strike, and `adapters/cli/removal.ts`, the one
+    // implementation of the destruction path. A `Counterpart` — which the MCP
+    // server holds, and a model talks to — holds a `SpanBuffer` and reaches
+    // nothing (§16 G2, and `store/owner-op-seam.ts`'s own reasoning).
+    const root = join(import.meta.dir, "..", "src");
+    const offenders: string[] = [];
+    const walk = (path: string): void => {
+      for (const name of readdirSync(path)) {
+        const full = join(path, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!name.endsWith(".ts")) continue;
+        const body = readFileSync(full, "utf8");
+        for (const line of body.split("\n")) {
+          if (!/from\s+"[^"]*owner-strike-seam\.js"/.test(line)) continue;
+          if (/^\s*(?:import|export)\s+type\b/.test(line)) continue;
+          if (full.includes(join("adapters", "cli"))) continue;
+          if (full.endsWith(join("core", "remember", "spans.ts"))) continue;
+          offenders.push(`${full}: ${line.trim()}`);
+        }
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+  });
+
+  test("the strike is not re-exported from remember's index either", () => {
+    const index = readFileSync(join(import.meta.dir, "..", "src/core/remember/index.ts"), "utf8");
+    expect(index).not.toContain("owner-strike-seam");
   });
 
   test("the destruction path is not even re-exported from the adapter's index", () => {

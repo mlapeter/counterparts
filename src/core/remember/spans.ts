@@ -46,6 +46,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
 
+import { grantSpanStrike } from "./owner-strike-seam.js";
 import { hashText } from "../store/prose.js";
 import { dataDir } from "../store/paths.js";
 import { isObserver } from "../observer.js";
@@ -144,6 +145,12 @@ export const WRITE_SITES = [
   "proposal",
   "sweep",
   "failure",
+  // The OWNER's strike. It is a write site like any other — an instrument that
+  // has stood down may not destroy a span any more than it may append one
+  // (observer-mode G3) — and it is reachable only by importing
+  // `owner-strike-seam.ts`, never by holding a `SpanBuffer` (§5 G2's shape,
+  // borrowed from `store/owner-op-seam.ts`).
+  "strike",
 ] as const;
 export type WriteSite = (typeof WRITE_SITES)[number];
 
@@ -280,6 +287,23 @@ export class SpanBuffer {
     this.nowFn = opts.now ?? (() => Date.now());
     this.dayFn = opts.day ?? (() => 0);
     this.onEvent = opts.onEvent;
+    // The destruction capability, handed over at construction the way `Store`
+    // hands `owner-op-seam.ts` its own: holding a buffer does not let you strike
+    // a span; importing the seam does, and a test pins who may import it.
+    grantSpanStrike(this, {
+      observer: this.observer,
+      scopes: () => this.scopes(),
+      scopeDir: (scope) => this.scopeDir(scope),
+      path: (scope, name) => this.path(scope, name),
+      claimFiles: (scope) => this.claimFiles(scope),
+      streamPath: (scope, kind) => this.streamPath(scope, kind),
+      ensureScope: (scope) => this.ensureScope(scope),
+      readLines: (file) => this.readLines(file),
+      mutate: (site, fn) => this.mutate(site, fn),
+      emit: (name, ref, data) => this.emit(name, ref, data),
+      now: () => this.nowFn(),
+      day: () => this.dayFn(),
+    });
   }
 
   now(): number {
