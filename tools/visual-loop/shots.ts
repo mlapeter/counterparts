@@ -189,9 +189,12 @@ async function shoot(
 ): Promise<void> {
   for (const viewport of [DESKTOP, LAPTOP, PHONE]) {
     const label = `${viewport.width}x${viewport.height}`;
-    // The phone pass is a layout check on the app page only; the poster is a
-    // desktop artefact and a 390-wide hologram proves nothing.
-    const pages: string[] = viewport === PHONE ? [...TABS] : [...TABS, "brain"];
+    // The poster IS a desktop artefact — but it has a header, two links and a
+    // ticker, and until 2026-09-05 none of them had ever been photographed on a
+    // phone, because the phone pass skipped the page entirely. A shot nobody
+    // takes is a surface nobody checks (design review, 2026-09-04). The
+    // hologram itself proves nothing at 390; its chrome does.
+    const pages: string[] = [...TABS, "brain"];
     const context = await browser.newContext({ viewport, deviceScaleFactor: 2 });
     const page = await context.newPage();
     wire(page, store, findings);
@@ -235,8 +238,10 @@ async function shoot(
       }
 
       // The brain view is a full-bleed canvas with its own fixed chrome; the
-      // text probes below are about the dashboard's reading surfaces.
-      if (name !== "brain") {
+      // text probes below are about the dashboard's reading surfaces — except
+      // on a phone, where the poster's own header is exactly the surface in
+      // question and its two links are tap targets like any other.
+      if (name !== "brain" || viewport === PHONE) {
         const probe = (await page.evaluate(PROBE)) as Omit<Measured, "store" | "page" | "viewport">;
         measures.push({ store, page: name, viewport: label, ...probe });
         if (probe.scrollWidth > probe.innerWidth + 1) {
@@ -440,6 +445,25 @@ async function liveEvent(
     // console's own two calls, in its own order (`noteCommand`), with no
     // embedder and no interpreter, so it spends nothing.
     const noteBefore = { remember: await stateOf("remember"), store: await stateOf("store") };
+    // AND THE PAGE THE DASHBOARD OPENS ON. The flow diagram was made live and
+    // the overview was not: its tiles, its band bars and its identity panel
+    // were painted once at boot and never again, so `memories held` on the
+    // first screen of the product stayed frozen while the flow tab beside it
+    // moved. Read off the DOM, not out of a payload — a page that never
+    // repaints would still answer the payload correctly.
+    const tileOf = async (label: string): Promise<string> =>
+      (await page.evaluate(
+        `window.tileValue ? window.tileValue(${JSON.stringify(label)}) : ""`,
+      )) as string;
+    const tileBefore = await tileOf("memories held");
+    if (tileBefore === "") {
+      findings.push({
+        store: "rich",
+        page: "overview @ note",
+        kind: "stale",
+        text: "the 'memories held' tile could not be read from the open page — the staleness check would prove nothing",
+      });
+    }
     const jot = Counterpart.open({ dir, owner: true });
     let minted: string | null = null;
     try {
@@ -490,6 +514,23 @@ async function liveEvent(
           kind: "stale",
           text: "a note deposited a memory and no particle ever flew — the diagram showed nothing arriving",
         });
+      }
+      // The overview repaint is a SECOND request behind `/api/meta`, so give it
+      // a few ticks of the 4s poll rather than one fixed sleep.
+      let tileAfter = await tileOf("memories held");
+      for (let waited = 0; waited < 14_000 && tileAfter === tileBefore; waited += 250) {
+        await page.waitForTimeout(250);
+        tileAfter = await tileOf("memories held");
+      }
+      if (tileBefore !== "" && tileAfter === tileBefore) {
+        findings.push({
+          store: "rich",
+          page: "overview @ note",
+          kind: "stale",
+          text: `the overview's 'memories held' tile still reads "${tileAfter}" after a note deposited a memory — the first screen of the product is reporting a number the server no longer agrees with`,
+        });
+      } else {
+        process.stdout.write(`  memories held tile: "${tileBefore}" → "${tileAfter}"\n`);
       }
     }
   } finally {

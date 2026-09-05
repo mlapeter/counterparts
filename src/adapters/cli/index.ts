@@ -9,8 +9,10 @@
  */
 export {
   COMMANDS,
+  COMMAND_BLURB,
   COMMAND_FLAGS,
   COMMON_FLAGS,
+  commandHelp,
   unknownFlag,
   EXIT,
   OWNER_OPS,
