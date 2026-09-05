@@ -118,6 +118,25 @@ describe("the physics clock is a different clock", () => {
     expect(s.readProse(id).learnedOn).toBe(dateOf(PINNED + 40 * DAY_MS));
   });
 
+  /**
+   * The one line where the two clocks touch. `sleep/cycle.ts` defaults the
+   * cycle's calendar date when a caller omits it, and that default used to be an
+   * ambient `Date.now()` read — so a seeded or replayed run whose caller forgot
+   * the date advanced the LIVED-DAY clock with a date from a different year than
+   * everything else the same run wrote. The fallback is now this session's clock.
+   * Every live entry point passes `date` explicitly, so nothing live moves.
+   */
+  test("a boundary with no date given advances the physics clock by the session's date", async () => {
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => PINNED });
+    open.push(c);
+    await c.sessionEnd();
+    expect(c.store.getMeta("lastActiveDate")).toBe(PINNED_DATE);
+    expect(c.store.livedDay()).toBe(1);
+    // An explicit date still wins — it is the host's key, not the store's.
+    await c.sessionEnd({ date: "2025-03-20" });
+    expect(c.store.getMeta("lastActiveDate")).toBe("2025-03-20");
+  });
+
   test("advancing the physics clock does not date a memory", () => {
     const s = store(() => PINNED);
     s.advanceClock("2020-01-01");
