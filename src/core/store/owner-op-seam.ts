@@ -57,6 +57,13 @@ export interface OwnerRemovalOutcome {
   /** Ids only — printing matches would re-leak what is being erased (§16 G15). */
   chased: string[];
   unchased: string[];
+  /**
+   * Surfaces the removal deliberately does NOT take, in their own words. A
+   * third category on purpose: `unchased` means "could not", and reporting a
+   * conversation turn the removal is leaving on principle as a failure is a
+   * different lie from the silence §16 G15 forbids, not a smaller one.
+   */
+  leftAlone: string[];
   notes: RemovalNote[];
 }
 

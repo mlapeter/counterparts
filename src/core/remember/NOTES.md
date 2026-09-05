@@ -240,10 +240,30 @@ reason; it excludes nobody. What excludes:
    lands in a FRESH file at that path and is untouched; a read-filter-write-over
    would have lost it on the old inode. Ordering inside a stream shuffles by at
    most one batch, which `spans()` re-sorts on `at` anyway.
-3. **The fold-back.** A `.striking` file left by a crashed strike is read
-   through the same predicate and merged (deduped by hash) before the next
-   strike runs, so a crash strands nothing. The suffix is deliberately not
-   `.jsonl`: `claimFiles()` must not see an aside as an ordinary orphan.
+3. **The fold-back, and the order that makes it true.** A `.striking` file left
+   by a crashed strike is folded home before anything else happens — appended to
+   its stream (deduped by hash), **fsync'd, and only then removed**. The first
+   draft read it into an array, removed it, and wrote the array back afterwards,
+   so the survivors lived in RAM across a rename and a full re-read; a crash
+   there lost them, and this paragraph's earlier claim that "a crash strands
+   nothing" was false (review F2). It is true now, in the direction that
+   matters: a crash before the fsync leaves the aside whole and the next fold
+   repeats, deduped; loss is not on the table, bounded duplication is.
+
+   The review asked for temp → fsync → *rename over the original*. Not taken,
+   and the reason is the aside itself: renaming over the live path clobbers a
+   turn a hook appended in the meantime, which is the exact race the aside
+   exists to survive. Append-then-fsync buys the same crash property without
+   buying that one back.
+
+   The fold runs **unconditionally, per scope, before the strike decides it has
+   anything to do** (review F3). Survivors in an aside belong to nobody's
+   removal; a scope repaired only by the removal that happens to name them is a
+   scope repaired by luck. The suffix is deliberately not `.jsonl`:
+   `claimFiles()` must not see an aside as an ordinary orphan — and the console's
+   residue walk now looks for `*.jsonl.striking` by name, because an aside it
+   could not see was a "not applicable" printed over words that were on disk
+   (review F1).
 
 **What it does NOT defend against, said plainly.** A worker that has already read
 `claim.spans` into memory will finish its arc and may mint a memory from a span
@@ -252,14 +272,28 @@ it does not stop a NEW id being minted from the same words in that window. The
 window is the length of one model call, the strike is owner-invoked and rare, and
 closing it properly means a lock the module does not have. Named, not fixed.
 
-**A predicate may only ever take a JOT.** The hash names one span; the content
-predicate names a SHAPE, and the only shape it is allowed to name is a jot —
-the memory's own words, deposited as themselves. A conversation span is many
-turns joined together, belongs to no single memory, and striking one because a
-memory's body appears inside it would destroy material nobody named. The rule
-lives in `matches()` here AND in the console's plan count, so a caller cannot
-forget it and the plan's number is the number the strike takes. Lines left that
-way are counted and printed by the console as `spans echo`.
+**A predicate may only ever take a JOT — and the console may only ever hand it
+an exact line, inside one scope.** Two rules, in two places, because they are
+two different mistakes.
+
+*Here:* the hash names one span; a predicate names a SHAPE, and the only shape
+it is allowed to name is a jot. A conversation span is many turns joined
+together, belongs to no single memory, and striking one because a memory's body
+appears inside it destroys material nobody named. `matches()` enforces it, so no
+caller can get round it.
+
+*In the console:* the predicate it builds is **full-text equality after trim,
+never a substring**, and it is only ever built when the memory's `origin_scope`
+is recorded. Review F4 measured what the substring version did: removing "buy
+milk" from a MIGRATED row — and `tools/migrate/apply.ts` writes `origin: { ref }`
+with no scope at all, so that is the shape of every imported row — struck a jot
+reading "buy milk and call the vet" in one project and an unrelated "buy milk"
+in another, and ledgered both their hashes. With no scope the console now
+REFUSES the content chase, prints the candidate files and counts, and leaves the
+decision with the owner (`--strike-by-content-across-scopes`).
+
+Lines left by either rule are counted and printed by the console as `spans
+echo`, on their own line — not as `unchased`, which is about failure.
 
 **Files it rewrites:** `buffer.jsonl`, `jots.jsonl`, `assistant.jsonl`,
 `quarantine.jsonl`, and every `claims/*.jsonl`. Those are the five that carry

@@ -212,6 +212,14 @@ mint has always stored the proposal id in `origin_ref`, so a memory minted long
 before this branch is addressable by its `own: true` marks. The content
 predicate stays as the third fallback, for a row with neither.
 
+**The content fallback is FENCED, after the adversarial review (F4).** It is
+full-text equality on a jot, never a substring, and only inside the memory's
+recorded `origin_scope`. A row with no scope — which is every row
+`tools/migrate/apply.ts` imported, since it writes `origin: { ref }` alone — is
+NOT chased by content; the console lists the jot lines that would have matched,
+by file and count, and stops. `--strike-by-content-across-scopes` performs it on
+the owner's explicit say-so, and even then takes only an exact line.
+
 **Still open, and deliberately:** the second, smaller ask below — a durable box-2
 event for the removal's counts — is not taken. And one window is named rather
 than closed: a worker that has already read `claim.spans` into memory finishes

@@ -22,7 +22,7 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -907,6 +907,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // (the blind-spot test below): the buffer is addressed by identity here.
     expect(text(plan.out)).toContain("chase spans: 1");
     expect(text(plan.out)).toContain("chased — spans/");
+    expect(text(plan.out)).toContain("matched by the span hash its mint recorded");
 
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
@@ -950,8 +951,12 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(planned).toContain("chase spans: 1");
     expect(planned).toContain("1 line of conversation under spans/");
     expect(planned).toContain("transcript, not this memory's own capture, and left alone");
-    // Said ONCE in the plan: the sentence above carries it, so the generic
-    // "CANNOT chase … the id goes dark instead" line does not repeat it.
+    // Matched BY WHAT, said out loud — the two chases are not equally strong.
+    expect(planned).toContain("matched by the span hash its mint recorded");
+    // The echo is LEFT, which is neither a chase nor a failure, and it never
+    // appears under "CANNOT chase … the id goes dark instead" — a conversation
+    // turn has no id and no tombstone.
+    expect(planned).toContain("LEFT on purpose — spans echo:");
     expect(planned).not.toContain("CANNOT chase spans echo");
 
     const c = consoleWith([id]);
@@ -959,9 +964,11 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const printed = text(c.out);
     // The plan said 1, the strike took 1.
     expect(printed).toContain("spans(1 line in 1 file)");
-    // And the leftover is COUNTED, by name, rather than passed over in silence.
-    expect(printed).toContain("spans echo (1 line of conversation quoting these words");
-    expect(printed).toContain('"unchased":1');
+    // And the leftover is COUNTED, by name, on its own line — not filed under
+    // "unchased (dark via the deny-list…)", which is about failure.
+    expect(printed).toContain("left on purpose (not a failure");
+    expect(printed).toContain("spans echo: 1 line of conversation");
+    expect(printed).toContain('"unchased":0');
 
     const left = grepStore(dir, "ZQRESIDUEPROBE");
     expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
@@ -1010,8 +1017,8 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     expect(text(c.out)).not.toContain("spans(1 line");
-    expect(text(c.out)).toContain("spans echo (1 line of conversation quoting these words");
-    expect(text(c.out)).toContain('"unchased":2');
+    expect(text(c.out)).toContain("spans echo: 1 line of conversation");
+    expect(text(c.out)).toContain('"unchased":1');
     // THE POINT: the conversation is untouched.
     expect(grepStore(dir, "ZQFALLBACK").some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
     expect(grepStore(dir, "ZQFALLBACK").some((p) => p.startsWith("prose/"))).toBe(false);
@@ -1050,6 +1057,156 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // And the other note's capture is still there — a removal that struck an
     // unrelated scope's buffer would be the worst failure this seam can have.
     expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.startsWith("spans/"))).toBe(true);
+  });
+
+  test("removing a migrated row does NOT reach into other projects' jots — it lists them and refuses", async () => {
+    // REVIEW F4, and the reason it blocks the live store: `tools/migrate/apply.ts`
+    // writes `origin: { ref }` and NOTHING else, so every one of ~12,000 migrated
+    // rows has no scope and no span hash. The only chase left is by content — and
+    // a content chase with no scope visits every project on the machine.
+    // Measured before the fix: removing "buy milk" destroyed two unrelated jots
+    // in two unrelated projects and ledgered both their hashes.
+    store().close();
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureJot({ session: "a", scope: "/Users/test/project-a", text: "ZQMILK buy milk" });
+      counterpart.captureJot({
+        session: "b",
+        scope: "/Users/test/project-b",
+        text: "ZQMILK buy milk and call the vet about the spaniel",
+      });
+    } finally {
+      counterpart.close();
+    }
+
+    const s = store();
+    const id = s.put({
+      type: "memory",
+      kind: "fact",
+      body: "ZQMILK buy milk",
+      source: "migrated",
+      origin: { ref: "v1_trace_00891" },
+    });
+    s.close();
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    expect(planned).toContain("NOT chased — spans/");
+    expect(planned).toContain("would have to visit EVERY project on this machine");
+    expect(planned).toContain("--strike-by-content-across-scopes");
+    // The candidate is NAMED — file and count — and its words are not printed.
+    expect(planned).toMatch(/1 jot line whose whole text is this memory's body would have matched, in spans\/[0-9a-f]{12}\/jots\.jsonl \(1\)/);
+    expect(planned).not.toContain("call the vet");
+    // The longer jot is not even a candidate: exact-line equality, not substring.
+    expect(planned).toContain("(1)");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // NOTHING was struck, and BOTH other projects' jots are exactly as they were.
+    expect(text(c.out)).not.toContain("spans(");
+    expect(text(c.out)).toContain('"unchased":1');
+    const left = grepStore(dir, "ZQMILK");
+    expect(left.filter((p) => p.startsWith("spans/")).length).toBe(2);
+    // And no hash was ledgered on their behalf.
+    for (const scope of readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n))) {
+      expect(existsSync(join(dir, "spans", scope, "consumed.jsonl"))).toBe(false);
+    }
+  });
+
+  test("--strike-by-content-across-scopes performs it, and STILL only takes the exact jot", async () => {
+    store().close();
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureJot({ session: "a", scope: "/Users/test/project-a", text: "ZQMILK buy milk" });
+      counterpart.captureJot({
+        session: "b",
+        scope: "/Users/test/project-b",
+        text: "ZQMILK buy milk and call the vet about the spaniel",
+      });
+    } finally {
+      counterpart.close();
+    }
+    const s = store();
+    const id = s.put({
+      type: "memory",
+      kind: "fact",
+      body: "ZQMILK buy milk",
+      source: "migrated",
+      origin: { ref: "v1_trace_00891" },
+    });
+    s.close();
+
+    const plan = consoleWith();
+    expect(
+      await run(["remove", id, "--strike-by-content-across-scopes", "--dir", dir], { io: plan.io }),
+    ).toBe(EXIT.ok);
+    expect(text(plan.out)).toContain("chase spans: 1");
+    expect(text(plan.out)).toContain("matched by content across every scope, on your say-so");
+
+    const c = consoleWith([id]);
+    expect(
+      await run(["remove", id, "--confirm", "--strike-by-content-across-scopes", "--dir", dir], {
+        io: c.io,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("spans(1 line in 1 file)");
+    // The one whose WHOLE text was the body is gone; the one that merely
+    // contains the words — somebody else's memory — is untouched.
+    const left = grepStore(dir, "ZQMILK").filter((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"));
+    expect(left.length).toBe(1);
+    expect(readFileSync(join(dir, left[0] as string), "utf8")).toContain("call the vet");
+  });
+
+  test("a crashed strike's .striking aside is SEEN by the plan and folded back by the next one", async () => {
+    // REVIEW F1 + F2 + F3. An aside is a crashed strike's survivors: invisible
+    // to `claimFiles()`, invisible to the sweep, and — before the fix —
+    // invisible to the residue walk, so a second `remove` said "not applicable"
+    // while the words sat on disk and `backup` copied them.
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
+    const scope = readdirSync(join(dir, "spans")).find((n) => /^[0-9a-f]{12}$/.test(n)) as string;
+    const jots = join(dir, "spans", scope, "jots.jsonl");
+    // Stage the crash: the rename landed, the append-back never did.
+    renameSync(jots, `${jots}.striking`);
+    expect(existsSync(jots)).toBe(false);
+    expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.endsWith(".striking"))).toBe(true);
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    // SEEN, not "not applicable".
+    expect(text(plan.out)).toContain("chase spans: 1");
+    expect(text(plan.out)).toContain(".striking");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // The aside is gone, the words are gone, and nothing is stranded.
+    expect(existsSync(`${jots}.striking`)).toBe(false);
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+  });
+
+  test("an unrelated strike RECOVERS a stranded aside — repair is not gated on having something to strike", async () => {
+    // REVIEW F3. The survivors in an aside belong to nobody's removal, so
+    // folding them back must not wait for a removal that happens to match them.
+    store().close();
+    const keeper = "ZQKEEPER the north gate is padlocked and the key hangs in the tack room.";
+    await noteThroughTheJotDoor(keeper);
+    const doomedId = await noteThroughTheJotDoor(MARKER);
+    const scope = readdirSync(join(dir, "spans")).find((n) => /^[0-9a-f]{12}$/.test(n)) as string;
+    const jots = join(dir, "spans", scope, "jots.jsonl");
+
+    // A crashed strike left BOTH notes' captures in an aside.
+    renameSync(jots, `${jots}.striking`);
+
+    expect(
+      await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
+    ).toBe(EXIT.ok);
+
+    // The doomed one is gone; the OTHER note's capture came home to the live
+    // stream, where the buffer can see it again.
+    expect(existsSync(`${jots}.striking`)).toBe(false);
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+    expect(readFileSync(jots, "utf8")).toContain("ZQKEEPER");
   });
 
   test("the honest line survives for the one state left blind: prose gone, no hash recorded", async () => {

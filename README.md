@@ -230,11 +230,15 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
    2026-09-04, a removed note's words stayed on disk and a later backup copied them.
    The buffer is a chased surface now, counted in the plan and in the report, and the
    struck span's hash is kept in the buffer's own ledger so the same words cannot be
-   re-captured. Two things it names rather than takes, both counted on the report: a
-   conversation turn that merely QUOTES the note — transcript, many turns joined,
-   belonging to no single memory, so a `grep` of the store can still answer while the
-   memory itself is gone — and a memory whose prose is already gone AND whose mint
-   recorded no span hash, which has nothing left to address the buffer with.
+   re-captured. Three things it names rather than takes, each on its own line: a
+   conversation turn that merely QUOTES the note (transcript, many turns joined,
+   belonging to no single memory — and **nothing prunes the buffer today**, so a `grep`
+   of the store can still answer while the memory itself is gone); a memory whose prose
+   is already gone AND whose mint recorded no span hash, which has nothing left to
+   address the buffer with; and a memory whose provenance records no scope — every row
+   imported from a previous generation — where a chase by text would have to visit every
+   project on the machine, so the command lists what it would have matched and stops
+   unless you pass `--strike-by-content-across-scopes`.
 5. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and

@@ -464,16 +464,41 @@ else
 fi
 
 step "remove --confirm REFUSES without an interactive prompt, and nothing moves"
-BEFORE=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
-OUT=$(counterparts remove "$DOOMED" --confirm --dir "$FIRSTSTORE" 2>&1)
-RC=$?
-AFTER=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
-if [ "$RC" -ne 0 ] &&
-   printf '%s' "$OUT" | grep -q "interactive confirmation" &&
-   [ "$BEFORE" = "$AFTER" ]; then
-  ok
+# Its OWN note and its own id: a step that borrows the previous step's variable
+# reports a false pass when that step failed before setting it.
+OUT=$(counterparts note "A second note, taken so this step owns the id it removes." --dir "$FIRSTSTORE" 2>&1)
+TARGET=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
+if [ -z "$TARGET" ]; then
+  no "the note printed no id to remove" "$OUT"
 else
-  no "a non-interactive --confirm did not refuse cleanly (rc=$RC)" "$OUT"
+  BEFORE=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
+  OUT=$(counterparts remove "$TARGET" --confirm --dir "$FIRSTSTORE" 2>&1)
+  RC=$?
+  AFTER=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
+  if [ "$RC" -ne 0 ] &&
+     printf '%s' "$OUT" | grep -q "interactive confirmation" &&
+     [ "$BEFORE" = "$AFTER" ]; then
+    ok
+  else
+    no "a non-interactive --confirm did not refuse cleanly (rc=$RC)" "$OUT"
+  fi
+fi
+
+step "the plan says WHAT it matched by, and refuses a content chase it cannot scope"
+# The two disclosures the adversarial review made blocking: the plan names the
+# evidence it is acting on, and a memory with no recorded scope is NOT chased by
+# content across every project on the machine.
+MATCHED_BY="matched by the span hash its mint recorded"
+REFUSAL="would have to visit EVERY project on this machine"
+if ! doc_check "$MATCHED_BY"; then
+  no "QUICKSTART does not quote the line that says what the chase matched by"
+elif ! doc_check "--strike-by-content-across-scopes"; then
+  no "QUICKSTART does not name the flag the refusal points at"
+elif [ -z "$DOOMED" ]; then
+  no "no id from the earlier note"
+else
+  PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
+  if printf '%s' "$PLAN" | grep -qF "$MATCHED_BY"; then ok; else no "the plan did not say what it matched by" "$PLAN"; fi
 fi
 
 # ── 4. the SessionStart hook ────────────────────────────────────────────────

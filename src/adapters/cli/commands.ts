@@ -220,7 +220,12 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   recall: ["id", "json"],
   export: ["out", "passphrase", "plaintext"],
   backup: ["out"],
-  remove: ["confirm", "reason"],
+  // `strike-by-content-across-scopes` is the one chase this console refuses by
+  // default: a row whose provenance recorded no scope (every migrated row) can
+  // only be chased in the buffer by matching its body, and matching a body
+  // across every project on the machine is how one removal reaches into work
+  // nobody named. The dry run lists what it WOULD match; this flag performs it.
+  remove: ["confirm", "reason", "strike-by-content-across-scopes"],
   verify: ["rebuild", "drop-vectors"],
   "backfill-claims": ["apply"],
   rebrief: ["budget"],
@@ -1311,11 +1316,13 @@ async function removeCommand(
     return EXIT.failed;
   }
 
+  const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
+
   // THE PLAN, made read-only and with no lock held (scar E5).
   const planning = Store.open({ dir, observer: true });
   let plan;
   try {
-    plan = planRemoval(planning, targetId);
+    plan = planRemoval(planning, targetId, { crossScopeContent });
   } finally {
     planning.close();
   }
@@ -1341,14 +1348,12 @@ async function removeCommand(
   );
   for (const name of plan.unchasable) {
     if (name === plan.spans.line) continue; // said once, on its own line above
-    // The echo is not a failure to reach something — it is conversation this
-    // removal is LEAVING, and the sentence above already said so in full. It
-    // stays in `unchasable` so the completion report counts it; printing it
-    // here as "CANNOT chase … the id goes dark instead" would be nonsense about
-    // a turn that has no id.
-    if (name.startsWith("spans echo (")) continue;
     io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
   }
+  // LEFT ON PURPOSE, which is neither a chase nor a failure (review F6). The
+  // spans sentence above already carries the count; this line is what the
+  // completion report will repeat, so the two read the same.
+  for (const name of plan.leftAlone) io.out(`  LEFT on purpose — ${name}`);
   // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
   // thing being removed.
   io.out(`  other memories whose text overlaps (ids only): ${plan.contamination.length}`);
@@ -1373,7 +1378,7 @@ async function removeCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
-    const replan = planRemoval(store, targetId);
+    const replan = planRemoval(store, targetId, { crossScopeContent });
     if (!replan.valid) {
       io.err(`refused after re-plan: ${replan.reason}. Nothing has changed.`);
       return EXIT.refused;
@@ -1386,12 +1391,13 @@ async function removeCommand(
         reason: typeof flags["reason"] === "string" ? flags["reason"] : "owner request",
         requestedAt: now(),
       },
-      { onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
+      { crossScopeContent, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
     );
     io.out("");
     io.out(`Removed ${targetId}.`);
     io.out(`  chased: ${outcome.chased.join(", ") || "nothing"}`);
     io.out(`  unchased (dark via the deny-list, never silently dropped): ${outcome.unchased.join(", ") || "nothing"}`);
+    io.out(`  left on purpose (not a failure — this removal was never entitled to it): ${outcome.leftAlone.join(", ") || "nothing"}`);
     io.out(`  removal record: ${outcome.notes.length} stages appended`);
     return EXIT.ok;
   } catch (err) {

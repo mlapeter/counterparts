@@ -472,8 +472,14 @@ says this — one line in the terminal, wrapped here:
 ```
   chase spans: 1
   chased — spans/be4b7f492c17/jots.jsonl — the raw capture buffer holds this
-  memory's words; the removal strikes them out of it.
+  memory's words (matched by the span hash its mint recorded);
+  the removal strikes them out of it.
 ```
+
+The parenthesis is not decoration. There are two ways this command can find your
+words, and they are not equally strong: `matched by the span hash its mint
+recorded` is identity, and `matched by content` is a jot whose whole text is this
+memory's body. Read which one you are about to run before you confirm.
 
 That directory name is a 12-hex key derived from the project the note was taken
 in, not the project's path; the command prints your real one.
@@ -489,18 +495,41 @@ words, and the id goes dark on the deny-list so nothing can quietly resurrect th
 memory. Take a backup afterwards and grep it: the note's own capture is gone.
 
 **What it deliberately does not take, and says so.** If you asked for the note in
-conversation, the turn you said it in is also in the buffer, waiting to be
-interpreted — a conversation span is many turns joined together, it belongs to no
-single memory, and striking it because one memory quotes it would destroy
-material you never named. So it is left, and the command counts it:
+conversation, the turn you said it in is also in the buffer — a conversation span
+is many turns joined together, it belongs to no single memory, and striking it
+because one memory quotes it would destroy material you never named. So it is
+left, on its own line, which is neither `chased` nor `unchased`:
 
 ```
-  spans echo (1 line of conversation quoting these words — transcript, not this
-  memory's capture; left on purpose, and the sweep drains it)
+  LEFT on purpose — spans echo: 1 line of conversation quoting these words —
+  transcript, not this memory's capture. Left on purpose. Nothing prunes the
+  buffer today, so it stays there.
 ```
 
-That is why a `grep` of the whole store can still answer after a removal. The
-memory is gone; the transcript of having said it has not been interpreted yet.
+Read that last clause literally. **Nothing prunes `buffer.jsonl` for a session
+that ended normally** — the crash-fallback sweep only claims sessions that went
+silent without a session-end boundary — so a conversation turn quoting a removed
+memory stays on disk indefinitely, and a `grep` of the whole store will keep
+answering. The memory is gone; the transcript of having said it is not, and
+nothing today will take it. (Filed as `src/core/remember/INTERFACE-GAPS.md` §10.)
+
+**The one chase this command refuses to make on its own.** A memory whose
+provenance recorded no scope — every row imported from a previous generation
+looks like this — can only be found in the buffer by matching its text, and
+matching text with no scope means visiting every project on the machine. So it
+does not. It tells you what it would have matched, by file and count, and stops:
+
+```
+  NOT chased — spans/ — this memory's provenance records no scope and no span
+  hash, so a chase by content would have to visit EVERY project on this machine.
+  NOT done: 1 jot line whose whole text is this memory's body would have
+  matched, in spans/8c1e4a90b21f/jots.jsonl (1). Look, then re-run with
+  --strike-by-content-across-scopes if they are yours to remove …
+```
+
+Look at the file it names before you pass that flag. Even with it, only a jot
+whose **whole text** is the memory's body is taken — a longer note that merely
+mentions the same words is somebody else's memory and is never touched.
 
 On a memory that never rode the buffer the same `spans` line reads `spans: not
 applicable`, which is stated rather than omitted — a surface that goes silent

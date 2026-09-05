@@ -204,9 +204,13 @@ used?"); telemetry by reference.
     allowed to import it. It rewrites each text-bearing stream WITHOUT the struck lines,
     by the same rename-aside choreography a claim uses, after recording the struck hashes
     in the terminal ledger — so a re-capture, a restore and an orphan merge all refuse to
-    re-admit them. It records counts and never a hash or a word (§16 G9). One window is
-    NAMED rather than closed: a worker already holding a claim in memory finishes its arc
-    (NOTES §14).
+    re-admit them. **Nothing is ever RAM-only across a destructive step**: survivors sit
+    on disk in the aside until a durable append has landed, and a crashed strike's aside
+    is folded home unconditionally by the next one, whatever that one was asked to do.
+    **A predicate may only ever take a jot** — a conversation span is many turns joined
+    and belongs to no single memory. It records counts and never a hash or a word
+    (§16 G9). One window is NAMED rather than closed: a worker already holding a claim in
+    memory finishes its arc (NOTES §14).
 
 ## 6. Scars honored
 

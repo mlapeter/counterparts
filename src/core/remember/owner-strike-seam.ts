@@ -49,7 +49,17 @@
  * record is the rule here too: a hash of low-entropy content is brute-forceable,
  * so the durable trace of a destruction must not carry one.
  */
-import { appendFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeSync,
+} from "node:fs";
 import { basename } from "node:path";
 
 import type { Span, SpanKind, WriteSite } from "./spans.js";
@@ -110,7 +120,7 @@ export interface StrikeRequest {
 
 /** What one strike touched. Counts and file names — never contents (§16 G9). */
 export interface StrikeReport {
-  readonly reason: "STRUCK" | "NOTHING" | "OBSERVER" | "IO_FAILED";
+  readonly reason: "STRUCK" | "RECOVERED" | "NOTHING" | "OBSERVER" | "IO_FAILED";
   /** Lines removed, across every file and every scope. */
   readonly struck: number;
   /** Per file, scope-relative: `<12-hex key>/jots.jsonl`. */
@@ -121,8 +131,8 @@ export interface StrikeReport {
   readonly ledgered: number;
   /** True when a claim file was one of the files rewritten (see the note below). */
   readonly touchedClaim: boolean;
-  /** True when the terminal ledger already held every hash — a repeated strike. */
-  readonly alreadyLedgered: boolean;
+  /** Asides from a CRASHED earlier strike, folded back before this one ran. */
+  readonly recovered: number;
 }
 
 /** The streams that carry TEXT. Everything else under a scope is hashes and counts. */
@@ -135,7 +145,7 @@ const EMPTY: StrikeReport = {
   scopes: 0,
   ledgered: 0,
   touchedClaim: false,
-  alreadyLedgered: false,
+  recovered: 0,
 };
 
 /**
@@ -181,7 +191,7 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
   let struck = 0;
   let ledgered = 0;
   let touchedClaim = false;
-  let alreadyLedgered = true;
+  let recovered = 0;
   let failed = false;
   let observed = false;
 
@@ -193,15 +203,28 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
       ...access.claimFiles(scope),
     ];
 
-    // The hashes this scope is about to lose, read BEFORE anything moves.
+    // 0. RECOVERY, FIRST AND UNCONDITIONALLY (review F3). A `.striking` aside is
+    //    a crashed strike's survivors, sitting off every path the buffer reads:
+    //    the sweep cannot see them, `claimFiles()` cannot see them, and the
+    //    console's residue walk used to miss them too. Folding them back is not
+    //    this strike's business, which is exactly why it must not be gated on
+    //    this strike having something to do — a scope repaired only by the
+    //    removal that happens to name it is a scope repaired by luck.
+    for (const file of targets) {
+      const back = access.mutate("strike", () => foldAside(file));
+      if (back.ok) recovered += back.value;
+      else if (back.reason === "OBSERVER") observed = true;
+      else failed = true;
+    }
+
+    // The hashes this scope is about to lose, read BEFORE anything moves. The
+    // asides are gone by now — folded into their streams above — so this one
+    // walk sees everything.
     const doomed = new Set<string>();
     for (const file of targets) {
       for (const span of access.readLines<Span>(file)) {
         if (typeof span.hash === "string" && matches(span)) doomed.add(span.hash);
       }
-    }
-    // A crashed strike's aside counts too — its lines are still on disk.
-    for (const file of targets) {
       for (const span of access.readLines<Span>(`${file}.striking`)) {
         if (typeof span.hash === "string" && matches(span)) doomed.add(span.hash);
       }
@@ -234,7 +257,6 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
       continue;
     }
     ledgered += ledger.value;
-    if (ledger.value > 0) alreadyLedgered = false;
 
     // 2. THE REWRITE, one file at a time. Counted PER SCOPE as well as across
     //    them: a scope's record must carry that scope's numbers, or an
@@ -280,7 +302,9 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
       ? "IO_FAILED"
       : struck > 0 || ledgered > 0
         ? "STRUCK"
-        : "NOTHING";
+        : recovered > 0
+          ? "RECOVERED"
+          : "NOTHING";
 
   if (reason !== "NOTHING") {
     // The durable record's twin on the ring. Counts only, here too.
@@ -291,18 +315,11 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
       scopes: scopes.length,
       ledgered,
       touchedClaim,
+      recovered,
     });
   }
 
-  return {
-    reason,
-    struck,
-    files,
-    scopes: scopes.length,
-    ledgered,
-    touchedClaim,
-    alreadyLedgered: alreadyLedgered && struck > 0,
-  };
+  return { reason, struck, files, scopes: scopes.length, ledgered, touchedClaim, recovered };
 }
 
 // ── internals ───────────────────────────────────────────────────────────────
@@ -316,6 +333,65 @@ function relName(access: SpanStrikeAccess, scope: string, file: string): string 
 }
 
 /**
+ * Fold a crashed strike's aside back into its stream, DURABLY, and return how
+ * many lines came home.
+ *
+ * Review finding F2: the first draft read the aside into an array, removed it,
+ * and only then wrote the array back — so between those two moments the
+ * survivors existed in RAM and nowhere else, and NOTES' claim that "a crash
+ * strands nothing" was false. The order here is the one that makes it true:
+ *
+ *   append (deduped against what the stream already holds) → **fsync** →
+ *   remove the aside
+ *
+ * A crash before the fsync leaves the aside whole and the next fold repeats,
+ * deduped. A crash after it leaves duplicates in neither place, because the
+ * append landed first. Bounded duplication is this module's accepted failure;
+ * loss is not (spec §2 G6, scar E6).
+ *
+ * The review asked for temp → fsync → **rename over the original**. That is not
+ * taken, and the reason is the aside itself: a rename over the live path would
+ * clobber a turn appended by a hook in the meantime, which is the exact race
+ * the rename-aside choreography exists to survive. Append-then-fsync buys the
+ * same crash property without buying that one back.
+ */
+function foldAside(file: string): number {
+  const aside = `${file}.striking`;
+  if (!existsSync(aside)) return 0;
+  const held = new Set<string>();
+  for (const line of lines(file)) {
+    const span = parse(line);
+    if (span !== null) held.add(span.hash);
+  }
+  const back: string[] = [];
+  for (const line of lines(aside)) {
+    const span = parse(line);
+    // An unparseable line comes home too: this module destroys what it was
+    // asked to destroy and nothing else, and a line it cannot read is not
+    // something it can claim to have identified.
+    if (span !== null) {
+      if (held.has(span.hash)) continue;
+      held.add(span.hash);
+    }
+    back.push(line);
+  }
+  if (back.length > 0) appendDurably(file, `${back.join("\n")}\n`);
+  rmSync(aside, { force: true });
+  return back.length;
+}
+
+/** Append and make it survive the power going out, before anything is removed. */
+function appendDurably(file: string, text: string): void {
+  const fd = openSync(file, "a");
+  try {
+    writeSync(fd, text);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
  * One file, rewritten WITHOUT the matching lines. Returns how many went.
  *
  * The aside is the point: `renameSync` is atomic, so an append racing this
@@ -323,6 +399,10 @@ function relName(access: SpanStrikeAccess, scope: string, file: string): string 
  * The survivors are then appended back to that path — after the racing append,
  * which reorders by at most one batch and loses nothing. Ordering inside a
  * stream is `at`-sorted on read (`spans()`), so the shuffle is invisible.
+ *
+ * Nothing here is ever RAM-only across a destructive step: the survivors are on
+ * disk in the aside from the rename until the durable append has landed, and
+ * the aside is removed only after that (review F2).
  */
 function rewrite(
   access: SpanStrikeAccess,
@@ -331,52 +411,30 @@ function rewrite(
 ): number {
   const aside = `${file}.striking`;
 
-  // A previous crash's aside, folded back in first — through the same filter, so
-  // a struck line never returns, and deduped so a half-finished append-back does
-  // not double a survivor.
-  const carried: string[] = [];
-  const carriedHashes = new Set<string>();
-  let struck = 0;
-  if (existsSync(aside)) {
-    for (const line of lines(aside)) {
-      const span = parse(line);
-      if (span === null) {
-        carried.push(line);
-        continue;
-      }
-      if (matches(span)) {
-        struck += 1;
-        continue;
-      }
-      if (carriedHashes.has(span.hash)) continue;
-      carriedHashes.add(span.hash);
-      carried.push(line);
-    }
-    rmSync(aside, { force: true });
-  }
+  // A previous crash's aside comes home first, durably and unfiltered. It is
+  // then re-read below with everything else, so a struck line does not survive
+  // by having been in an aside — it is simply struck on this pass instead.
+  foldAside(file);
 
-  if (!existsSync(file)) {
-    if (carried.length > 0) appendFileSync(file, `${carried.join("\n")}\n`, "utf8");
-    return struck;
-  }
+  if (!existsSync(file)) return 0;
 
   // Nothing to do is nothing to do: a rename-and-restore of an untouched file
   // would churn every stream in the scope on every strike.
-  const before = lines(file);
-  const hits = before.filter((line) => {
+  const hits = lines(file).filter((line) => {
     const span = parse(line);
     return span !== null && matches(span);
   }).length;
-  if (hits === 0 && carried.length === 0) return struck;
+  if (hits === 0) return 0;
 
   // ONE rename, not two. A `file -> tmp -> aside` pair leaves a third name on
-  // disk if it crashes between them, and that name is one the fold-back above
-  // never looks for and `claimFiles()` never sees — survivors stranded off
-  // every path, with the struck text still beside them. The aside was removed
-  // above, so renaming straight onto it is safe and the window is closed.
+  // disk if it crashes between them, and that name is one nothing looks for —
+  // survivors stranded off every path, with the struck text still beside them.
+  // The aside was folded and removed above, so renaming straight onto it is
+  // safe and the window is closed.
   renameSync(file, aside);
-  const keep: string[] = [...carried];
-  const seen = new Set(carriedHashes);
+  const keep: string[] = [];
+  const seen = new Set<string>();
+  let struck = 0;
   for (const line of lines(aside)) {
     const span = parse(line);
     if (span === null) {
@@ -391,7 +449,10 @@ function rewrite(
     seen.add(span.hash);
     keep.push(line);
   }
-  if (keep.length > 0) appendFileSync(file, `${keep.join("\n")}\n`, "utf8");
+  // Durable BEFORE the aside goes: a crash here leaves the aside whole and the
+  // next strike (or the recovery pass at the top of `strikeSpans`) folds it
+  // back, deduped against whatever did land.
+  if (keep.length > 0) appendDurably(file, `${keep.join("\n")}\n`);
   rmSync(aside, { force: true });
   return struck;
 }

@@ -92,6 +92,13 @@ export interface RemovalPlan {
   readonly spanChase: SpanChase;
   /** Surfaces this implementation cannot reach — named, never implied. */
   readonly unchasable: readonly string[];
+  /**
+   * Lines this removal LEAVES on purpose, said in their own words. Not
+   * `unchasable`: nothing failed, and filing them under "dark via the deny-list"
+   * described a conversation turn as though it had an id and a tombstone
+   * (review F6).
+   */
+  readonly leftAlone: readonly string[];
 }
 
 /**
@@ -117,6 +124,22 @@ export interface SpanSurface {
    * and disclosed rather than passed over in silence (§16 G15).
    */
   readonly echoes: number;
+  /**
+   * HOW the memory's own line was identified — printed, because the two are not
+   * equally strong and a reader deciding whether to confirm deserves to know
+   * which one is about to run (review F4). `hash` is the identity the mint
+   * recorded. `content` is a jot whose FULL text equals the doomed body.
+   */
+  readonly matchedBy: "hash" | "content" | "none";
+  /**
+   * The scope-unknown content case, refused rather than performed (review F4).
+   * A migrated row carries `origin: { ref }` and NO scope, so a content chase
+   * would have to visit every project on the machine. These are the jot lines
+   * that would have matched, named as files and counts — no text, no strike —
+   * so the owner can look and decide. `--strike-by-content-across-scopes`
+   * performs it.
+   */
+  readonly candidates: readonly { readonly file: string; readonly lines: number }[];
   /** The whole sentence the console prints, and the `unchasable` entry when it is one. */
   readonly line: string;
 }
@@ -131,10 +154,23 @@ export interface SpanSurface {
 export interface SpanChase {
   readonly scope: string | null;
   readonly hashes: readonly string[];
+  /** True when the strike will match on the body. EXACT-LINE equality on a jot,
+   *  never a substring, and never outside `scope` unless the owner passed
+   *  `--strike-by-content-across-scopes` (review F4). */
   readonly byContent: boolean;
 }
 
-export interface RemovalOptions {
+/** What `planRemoval` was told the owner asked for. */
+export interface PlanOptions {
+  /**
+   * The owner's explicit say-so for the one chase this console refuses by
+   * default: matching a body across EVERY scope on the machine, for a row whose
+   * provenance never recorded which project it came from.
+   */
+  crossScopeContent?: boolean;
+}
+
+export interface RemovalOptions extends PlanOptions {
   /** Wall-clock, not lived days: a week away must still be a week of second
    *  thoughts (§16's note on the released ceremony). */
   now?: () => number;
@@ -152,7 +188,17 @@ const MEMORY_BEARING = new Set(["memory", "episode", "schema"]);
 const SPANS_BLIND =
   "this removal did not reach it, and a later backup would copy it (export would not).";
 
-/** Every `*.jsonl` under a directory — the live streams and the claims beside them. */
+/**
+ * Every `*.jsonl` under a directory — the live streams and the claims beside
+ * them — AND every `*.jsonl.striking` aside (review F1).
+ *
+ * An aside is a crashed strike's survivors, and it sits off every path the
+ * buffer itself reads. Missing it here meant a later `remove` reported "not
+ * applicable" while the words were on disk and `backup` copied them — the
+ * silent partial success this whole surface exists to prevent. The strike's own
+ * recovery pass folds any aside back before it runs, so naming it here is not
+ * a promise the chase cannot keep.
+ */
 function jsonlUnder(root: string): string[] {
   if (!existsSync(root)) return [];
   const out: string[] = [];
@@ -160,7 +206,7 @@ function jsonlUnder(root: string): string[] {
     for (const name of readdirSync(at).sort()) {
       const full = join(at, name);
       if (statSync(full).isDirectory()) walk(full);
-      else if (name.endsWith(".jsonl")) out.push(full);
+      else if (name.endsWith(".jsonl") || name.endsWith(".jsonl.striking")) out.push(full);
     }
   };
   walk(root);
@@ -201,11 +247,15 @@ function spanLinesIn(
       if (typeof record.hash === "string" && hashes.has(record.hash)) byHash += 1;
       else if (needle !== null && record.text.includes(needle)) {
         // A text match is only ever this MEMORY's own line when the span is a
-        // jot — the words deposited as themselves. Anything else is the
-        // conversation they were said in, which belongs to no single memory
-        // (`SpanSurface.echoes`). A record with no `kind` counts as an echo:
-        // the conservative direction is the one that destroys nothing.
-        if (record.kind === "jot") byTextJot += 1;
+        // JOT — the words deposited as themselves — and when its WHOLE text is
+        // the body, not merely a stretch containing it. Substring matching is
+        // what turned removing "buy milk" into the destruction of two unrelated
+        // jots in two unrelated projects (review F4): a jot reading "buy milk
+        // and call the vet" contains the doomed words and is somebody else's
+        // memory. Everything short of full equality is an echo, and a record
+        // with no `kind` is an echo too — the conservative direction is the one
+        // that destroys nothing.
+        if (record.kind === "jot" && record.text.trim() === needle) byTextJot += 1;
         else byTextOther += 1;
       }
     } catch {
@@ -305,6 +355,7 @@ export function spanResidue(
   targetId: string,
   body: string,
   hashes: readonly string[] = [],
+  opts: PlanOptions = {},
 ): SpanSurface {
   const row = store.row(targetId);
   const source = typeof row?.source === "string" && row.source.length > 0 ? row.source : null;
@@ -315,41 +366,57 @@ export function spanResidue(
   const rel = (path: string): string => relative(store.dir, path);
   const named = scope === null ? "spans/" : `${rel(scopeDir)}/`;
 
+  const none = (state: SpanState, line: string, extra: Partial<SpanSurface> = {}): SpanSurface => ({
+    surface: "spans",
+    state,
+    path: null,
+    count: 0,
+    echoes: 0,
+    matchedBy: "none",
+    candidates: [],
+    line,
+    ...extra,
+  });
+
   if (files.length === 0) {
-    return {
-      surface: "spans",
-      state: "not-applicable",
-      path: null,
-      count: 0,
-      echoes: 0,
-      line: `spans: not applicable — there is no capture buffer at ${named} for this memory, so nothing of it rode one.`,
-    };
+    return none(
+      "not-applicable",
+      `spans: not applicable — there is no capture buffer at ${named} for this memory, so nothing of it rode one.`,
+    );
   }
 
   const needle = body.trim().length > 0 ? body.trim() : null;
   const keys = new Set(hashes);
 
-  // ONE pass over the buffer, and TWO numbers out of it.
+  // THE CONTENT CHASE IS SCOPED (review F4). A hash names one span anywhere; a
+  // BODY names a shape, and a shape matched across every project on the machine
+  // is how removing one memory reaches into another person's work. Migrated rows
+  // are exactly this case — `tools/migrate/apply.ts` writes `origin: { ref }`
+  // with no scope at all — so this is not a hypothetical about a rare row, it is
+  // the shape of ~12,000 of them. Without a recorded scope the console REFUSES
+  // to strike by content and lists what it would have matched instead.
+  const contentAllowed = keys.size === 0 && needle !== null;
+  const contentScoped = contentAllowed && (scope !== null || opts.crossScopeContent === true);
+
+  // ONE pass over the buffer, three numbers out of it.
   //
-  //   `count`  — lines the strike will take. By hash when the mint recorded
-  //              one; by content only when it did not, and then only for a
-  //              JOT, because a content match on a conversation span is the
-  //              memory's words quoted inside somebody's turn.
-  //   `echoes` — every other line that carries these words. LEFT, because a
-  //              conversation span is many turns joined and belongs to no
-  //              single memory — and SAID, because a grep will find it and a
-  //              report that did not mention it would be the silent partial
-  //              success §16 G15 forbids.
-  //
-  // Both clauses mirror `matches()` in the strike seam exactly, so the plan's
-  // number is the number the report prints.
+  //   `count`      — lines the strike will take.
+  //   `echoes`     — other lines carrying these words: the conversation they
+  //                  were said in, or a longer jot that quotes them. LEFT,
+  //                  because they belong to no single memory — and SAID,
+  //                  because a grep will find them (§16 G15).
+  //   `candidates` — the scope-unknown content case: jot lines whose whole text
+  //                  IS the body, somewhere on this machine. Named, not struck.
   let count = 0;
   let echoes = 0;
   let first: string | null = null;
+  const candidates: { file: string; lines: number }[] = [];
   for (const file of files) {
     const hits = spanLinesIn(file, keys, needle);
-    const mine = keys.size > 0 ? hits.byHash : hits.byTextJot;
+    const exact = keys.size > 0 ? 0 : hits.byTextJot;
+    const mine = keys.size > 0 ? hits.byHash : contentScoped ? hits.byTextJot : 0;
     echoes += keys.size > 0 ? hits.byTextJot + hits.byTextOther : hits.byTextOther;
+    if (!contentScoped && exact > 0) candidates.push({ file: rel(file), lines: exact });
     if (mine === 0) continue;
     count += mine;
     if (first === null) first = rel(file);
@@ -359,75 +426,84 @@ export function spanResidue(
   const echoNote =
     echoes === 0
       ? ""
-      : ` ${echoes} line${echoes === 1 ? "" : "s"} of conversation under ${named} quote${echoes === 1 ? "s" : ""} these words — transcript, not this memory's own capture, and left alone.`;
+      : ` ${echoes} line${echoes === 1 ? "" : "s"} of conversation under ${named} quote${echoes === 1 ? "s" : ""} these words — transcript, not this memory's own capture, and left alone; nothing prunes the buffer today, so ${echoes === 1 ? "it stays" : "they stay"} there.`;
 
   if (first !== null) {
     const where = count === 1 ? first : `${first} (and ${count - 1} more line${count === 2 ? "" : "s"})`;
+    const how =
+      keys.size > 0
+        ? "matched by the span hash its mint recorded"
+        : opts.crossScopeContent === true && scope === null
+          ? "matched by content across every scope, on your say-so (--strike-by-content-across-scopes)"
+          : "matched by content — a jot whose whole text is this memory's body";
     return {
       surface: "spans",
       state: "held",
       path: first,
       count,
       echoes,
-      line: `${where} — the raw capture buffer holds this memory's words; the removal strikes them out of it.${echoNote}`,
+      matchedBy: keys.size > 0 ? "hash" : "content",
+      candidates: [],
+      line: `${where} — the raw capture buffer holds this memory's words (${how}); the removal strikes them out of it.${echoNote}`,
+    };
+  }
+
+  // The refusal, and what it is refusing: named files and counts, never a word
+  // of what is in them (§16 G15). The owner can look, and can override.
+  if (candidates.length > 0) {
+    const total = candidates.reduce((n, c) => n + c.lines, 0);
+    const where = candidates.map((c) => `${c.file} (${c.lines})`).join(", ");
+    return {
+      surface: "spans",
+      state: "unknown",
+      path: named,
+      count: 0,
+      echoes,
+      matchedBy: "none",
+      candidates,
+      line: `${named} — this memory's provenance records no scope and no span hash, so a chase by content would have to visit EVERY project on this machine. NOT done: ${total} jot line${total === 1 ? "" : "s"} whose whole text is this memory's body would have matched, in ${where}. Look, then re-run with --strike-by-content-across-scopes if they are yours to remove; until then ${SPANS_BLIND}${echoNote}`,
     };
   }
 
   if (needle === null && keys.size === 0) {
-    return {
-      surface: "spans",
-      state: "unknown",
-      path: named,
-      count: 0,
-      echoes,
-      line: `${named} — the prose is already gone and no span hash was recorded, so this console cannot tell whether the words rode the buffer; if they did, ${SPANS_BLIND}${echoNote}`,
-    };
+    return none(
+      "unknown",
+      `${named} — the prose is already gone and no span hash was recorded, so this console cannot tell whether the words rode the buffer; if they did, ${SPANS_BLIND}${echoNote}`,
+      { echoes, path: named },
+    );
   }
 
-  // Searched — by hash where there was one, by content where there was not —
+  // Searched — by hash where there was one, by content where that was allowed —
   // and this memory's own line is not there. Whether that settles it depends on
   // how the memory was minted.
   if (keys.size > 0) {
-    return {
-      surface: "spans",
-      state: "not-applicable",
-      path: null,
-      count: 0,
-      echoes,
-      line:
-        echoes === 0
-          ? `spans: not applicable — this memory's own span is named in its provenance, and no line under ${named} still carries it.`
-          : `spans: not applicable — this memory's own capture is already gone from ${named}.${echoNote}`,
-    };
+    return none(
+      "not-applicable",
+      echoes === 0
+        ? `spans: not applicable — this memory's own span is named in its provenance, and no line under ${named} still carries it.`
+        : `spans: not applicable — this memory's own capture is already gone from ${named}.${echoNote}`,
+      { echoes },
+    );
   }
   if (source === "authored") {
-    return {
-      surface: "spans",
-      state: "unknown",
-      path: named,
-      count: 0,
-      echoes,
-      line: `${named} — this memory came through the jot door, so its words rode the buffer; no jot there matches them now, and this console cannot prove the capture is gone; if one survives, ${SPANS_BLIND}${echoNote}`,
-    };
+    return none(
+      "unknown",
+      `${named} — this memory came through the jot door, so its words rode the buffer; no jot there matches them now, and this console cannot prove the capture is gone; if one survives, ${SPANS_BLIND}${echoNote}`,
+      { echoes, path: named },
+    );
   }
   if (source === null) {
-    return {
-      surface: "spans",
-      state: "unknown",
-      path: named,
-      count: 0,
-      echoes,
-      line: `${named} — unknown whether the words rode the buffer: this memory's provenance was never recorded, and a buffer exists; if a jot is there, ${SPANS_BLIND}${echoNote}`,
-    };
+    return none(
+      "unknown",
+      `${named} — unknown whether the words rode the buffer: this memory's provenance was never recorded, and a buffer exists; if a jot is there, ${SPANS_BLIND}${echoNote}`,
+      { echoes, path: named },
+    );
   }
-  return {
-    surface: "spans",
-    state: "not-applicable",
-    path: null,
-    count: 0,
-    echoes,
-    line: `spans: not applicable — a '${source}' memory is not captured as a jot, and no jot under ${named} holds its words.${echoNote}`,
-  };
+  return none(
+    "not-applicable",
+    `spans: not applicable — a '${source}' memory is not captured as a jot, and no jot under ${named} holds its words.${echoNote}`,
+    { echoes },
+  );
 }
 
 /**
@@ -436,7 +512,11 @@ export function spanResidue(
  * prompt and safe to run again after one (scar §2.13's re-plan-under-the-lock
  * rule; E5's never-hold-a-lock-across-a-human-prompt rule).
  */
-export function planRemoval(store: Store, targetId: string): RemovalPlan {
+export function planRemoval(
+  store: Store,
+  targetId: string,
+  opts: PlanOptions = {},
+): RemovalPlan {
   const none = (reason: RemovalPlan["reason"]): RemovalPlan => ({
     targetId,
     valid: false,
@@ -451,10 +531,13 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
       path: null,
       count: 0,
       echoes: 0,
+      matchedBy: "none",
+      candidates: [],
       line: "spans: not applicable — there is nothing here to have ridden the buffer.",
     },
     spanChase: { scope: null, hashes: [], byContent: false },
     unchasable: [],
+    leftAlone: [],
   });
 
   const row = store.row(targetId);
@@ -488,7 +571,7 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
   // Read WITH the rest (§16 G13): the buffer is searched for this memory's span
   // before anything is chased, because after the chase there is nothing left to
   // search for. Counts and states come out; not one line of what it read.
-  const spans = spanResidue(store, targetId, body, chase.hashes);
+  const spans = spanResidue(store, targetId, body, chase.hashes, opts);
 
   return {
     targetId,
@@ -515,25 +598,30 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
       scope: chase.scope,
       hashes: chase.hashes,
       // A content match is what the strike falls back to when the mint recorded
-      // no hash. It is only offered when there IS a body to match on.
-      byContent: chase.hashes.length === 0 && body.trim().length > 0,
+      // no hash. Only when there IS a body to match on, and only when the scope
+      // is recorded — or the owner has said, in so many words, that a chase
+      // across every project on the machine is what they want (review F4).
+      byContent:
+        chase.hashes.length === 0 &&
+        body.trim().length > 0 &&
+        (chase.scope !== null || opts.crossScopeContent === true),
     },
     // Empty of CHASE failures until run time (the box-2 chase landed 2026-08-25,
     // INTERFACE-GAPS §1; the span chase 2026-09-05) — and no longer holding the
     // `held` case, which is chased. `unknown` stays: a surface this console
     // cannot rule out is exactly what §16 G15's "no silent partial success"
     // says a plan must name here rather than let the report say `nothing`.
-    // Two different things can be true at once, and both are named: the buffer
-    // could not be ruled out (`unknown`), and conversation lines quote these
-    // words and are being left (`echoes`). Neither is allowed to hide the other.
-    unchasable: [
-      ...(spans.state === "unknown" ? [spans.line] : []),
-      ...(spans.echoes > 0
+    // A surface this console could not rule out. NOT the echo, which is not a
+    // failure to reach anything — see `leftAlone` (review F6).
+    unchasable: spans.state === "unknown" ? [spans.line] : [],
+    // What is deliberately not taken. The wording is the plan's, so the dry run
+    // and the completion report say the same thing about the same lines.
+    leftAlone:
+      spans.echoes > 0
         ? [
-            `spans echo (${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture; left on purpose, and the sweep drains it)`,
+            `spans echo: ${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture. Left on purpose. Nothing prunes the buffer today, so ${spans.echoes === 1 ? "it stays" : "they stay"} there.`,
           ]
-        : []),
-    ],
+        : [],
   };
 }
 
@@ -563,7 +651,9 @@ export function ownerRemoval(
     emit("cli.removal.stage", { stage, target: request.targetId });
   };
 
-  const plan = planRemoval(store, request.targetId);
+  const plan = planRemoval(store, request.targetId, {
+    ...(opts.crossScopeContent === undefined ? {} : { crossScopeContent: opts.crossScopeContent }),
+  });
   if (!plan.valid) {
     // Nothing is recorded for a target that was never removable: a record here
     // would put an id on the deny-list on the strength of a typo.
@@ -593,6 +683,7 @@ export function ownerRemoval(
 
   const chased: string[] = [];
   const unchased: string[] = [...plan.unchasable];
+  const leftAlone: string[] = [...plan.leftAlone];
 
   // 5. CHASE. THE SPAN BUFFER FIRST, because it is the only surface whose key
   //    the later steps destroy: `chaseRemoved` blanks the row's `origin_ref`
@@ -609,8 +700,12 @@ export function ownerRemoval(
       const report = strikeSpans(buffer, {
         scope: plan.spanChase.scope,
         hashes: plan.spanChase.hashes,
+        // EXACT-LINE EQUALITY, never a substring (review F4). A jot whose whole
+        // text is this memory's body IS this memory; a jot that merely contains
+        // the words is a different memory that mentions them, and striking it
+        // is a destruction nobody asked for.
         ...(plan.spanChase.byContent && doomedBody.length > 0
-          ? { predicate: (text: string): boolean => text.includes(doomedBody) }
+          ? { predicate: (text: string): boolean => text.trim() === doomedBody }
           : {}),
       });
       if (report.reason === "STRUCK") {
@@ -628,11 +723,22 @@ export function ownerRemoval(
           ledgered: report.ledgered,
           byHash: plan.spanChase.hashes.length > 0,
         });
+        if (report.recovered > 0) {
+          chased.push(`spans recovered(${report.recovered} line${report.recovered === 1 ? "" : "s"} folded back out of a crashed strike's aside)`);
+        }
       } else {
-        unchased.push(`spans (${report.reason}) — ${plan.spans.line}`);
+        // The failure arm gets its OWN sentence. Reusing the plan's line here
+        // printed "the removal strikes them out of it" underneath a strike that
+        // did not happen — the report contradicting itself in the one place it
+        // must not (review, note-only).
+        unchased.push(
+          `spans (${report.reason}) — the strike did not run; ${plan.spans.path ?? "the capture buffer"} still holds this memory's words, and ${SPANS_BLIND}`,
+        );
       }
     } catch {
-      unchased.push(`spans (threw) — ${plan.spans.line}`);
+      unchased.push(
+        `spans (threw) — the strike did not run; ${plan.spans.path ?? "the capture buffer"} still holds this memory's words, and ${SPANS_BLIND}`,
+      );
     }
   }
 
@@ -697,7 +803,7 @@ export function ownerRemoval(
     contamination: plan.contamination.length,
   });
 
-  return { chased, unchased, notes };
+  return { chased, unchased, leftAlone, notes };
 }
 
 /**

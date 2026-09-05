@@ -179,6 +179,42 @@ The chase landed as `src/core/remember/owner-strike-seam.ts`, called from
   the fixture: `captureSpans` a turn holding the marker, then `note`, then
   remove, and assert the plan's count equals the strike's.
 
+**What the adversarial review (2026-09-05) changed, because none of it was
+caught by the suite:**
+
+- **F4, the one that would have reached the live store.** The content fallback
+  was `text.includes(body)` with `scope: null` visiting every scope. Measured by
+  the reviewer: removing "buy milk" destroyed two unrelated jots in two
+  unrelated projects and ledgered both hashes. Live-reachable because
+  `tools/migrate/apply.ts` writes `origin: { ref }` and nothing else, so all
+  ~12,000 imported rows have no scope and no span hash — the exact shape that
+  falls through to the fallback. Now: **full-text equality on a jot after trim,
+  never a substring**, and **only inside the memory's recorded `origin_scope`**.
+  With no scope the console REFUSES, prints the candidate files and line counts
+  (no text), and points at `--strike-by-content-across-scopes`, which is the
+  owner saying it in so many words. The dry run also states which evidence it is
+  acting on — `matched by the span hash its mint recorded` vs `matched by
+  content` — because the two are not equally strong and the reader is about to
+  type an id back.
+- **F1, the invisible aside.** `jsonlUnder()` collected `*.jsonl` only, so a
+  crashed strike's `jots.jsonl.striking` was invisible to the residue walk and a
+  later `remove` printed "not applicable" over words that were on disk and that
+  `backup` would copy. The walk names `*.jsonl.striking` now, and the strike's
+  own recovery pass folds any aside home before it runs, so naming it is not a
+  promise the chase cannot keep.
+- **F6, the third category.** The echo was filed under `unchased (dark via the
+  deny-list…)`, which describes a conversation turn as though it had an id and a
+  tombstone. It has its own `leftAlone` list and its own line now, in the plan
+  and in the completion report, in the same words: *left on purpose — not a
+  failure, this removal was never entitled to it.*
+- **F5, a claim that was simply false.** The printed line said the sweep drains
+  the echo. It does not: `crashedSessions()` excludes any session that ended
+  normally and nothing else prunes `buffer.jsonl`, so the echo is permanent.
+  Said as such, everywhere, and filed as `remember/INTERFACE-GAPS.md` §9.
+- **The failure arm** reused the plan's success sentence, so a strike that threw
+  printed "the removal strikes them out of it" underneath a strike that had not.
+  It has its own wording.
+
 **Verified:** `test/cli.test.ts` runs §I2's own repro end to end — note through
 the jot door, remove, `grep -r` the whole data dir (nothing), `backup` and grep
 that (nothing) — plus the two-notes case proving the strike is a rewrite and not
