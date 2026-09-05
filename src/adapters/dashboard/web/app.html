@@ -163,6 +163,13 @@ tbody tr.click:hover{background:var(--hover)}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td.dimtd{color:var(--dim)}
 .tablewrap{overflow-x:auto}
+/* The durable-record table: English on top, the identifier under it. Two
+   columns rather than three, so it survives a phone without a scroller. */
+td .lead{color:var(--ink);line-height:1.5}
+td .ident{color:var(--faint);font-size:9.5px;letter-spacing:.5px;margin-top:4px;
+  display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+td .ident .hostmark{color:var(--teal);text-transform:uppercase;letter-spacing:1px;font-size:8.5px}
+td .ident .notemark{color:var(--faint)}
 
 .chart{padding:12px 14px 6px;position:relative}
 .chart canvas{width:100%;display:block}
@@ -334,8 +341,6 @@ td.dimtd{color:var(--dim)}
         <div class="legend" id="con-legend"></div>
         <h2>Strength, distributed <small>— how many memories sit at each depth</small></h2>
         <div class="card chart"><canvas id="hist" height="170"></canvas></div>
-        <h2>Graph hubs <small>— what the most is wired to, by summed edge weight</small></h2>
-        <div class="card rows" id="hubs"></div>
       </div>
       <div>
         <h2>Band composition</h2>
@@ -348,6 +353,14 @@ td.dimtd{color:var(--dim)}
           stability, so a higher number erodes faster. <b style="color:var(--dim);font-weight:400">ι</b> is
           revision inertia: the fraction of the memory's own strength a challenge must out-sum to land.
         </p>
+        <!-- GRAPH HUBS lives here, under the kinds table, and not under the
+             histogram in the left column: the left column was two charts and
+             this list while the right was two short panels, so a reader at
+             mid-scroll had roughly 850×750 of empty column beside the graph
+             (design review, 2026-09-04, ranked #6). The list is the tallest
+             thing that can move, so it is the one that moves. -->
+        <h2>Graph hubs <small>— what the most is wired to, by summed edge weight</small></h2>
+        <div class="card rows" id="hubs"></div>
       </div>
     </div>
   </section>
@@ -418,10 +431,11 @@ td.dimtd{color:var(--dim)}
         <div class="card rows" id="h-removals"></div>
       </div>
       <div>
-        <h2>What a host told me <small>— adapter events: counts, bytes, reasons; never text</small></h2>
-        <div class="card tablewrap" id="h-adapters"></div>
-        <h2>Everything I can record durably, and how often I have</h2>
-        <div class="card tablewrap" id="h-volume"></div>
+        <h2>Everything I can record durably <small>— what each record means, and how often I have made one</small></h2>
+        <div class="card tablewrap" id="h-records"></div>
+        <p class="foot">What has actually happened is listed first; everything below the last count has
+          never been recorded. A row marked <b style="color:var(--teal);font-weight:400">host</b> is one
+          an adapter wrote — counts, bytes and reasons; never text.</p>
       </div>
     </div>
     <h2>Lived day × event <small>— the last three weeks of the log</small></h2>
@@ -562,6 +576,21 @@ let OVERVIEW = null;
 async function renderOverview() {
   let d;
   try { d = await api("/api/overview"); } catch (e) { return fail("The overview", e); }
+  paintOverview(d, true);
+}
+
+/**
+ * Draw the overview from a payload. Called once at boot with the feed, and
+ * again from the poll WITHOUT it whenever the store moved.
+ *
+ * The feed is the one panel the poll owns: it prepends flashed rows as events
+ * arrive, and a repaint from `/api/overview` underneath that would wipe them
+ * mid-flash. So the refresh path passes `withFeed = false` — except while the
+ * feed is still showing its absence line, where there is nothing to wipe and
+ * everything to gain (a store's first event should not need a reload to
+ * appear).
+ */
+function paintOverview(d, withFeed) {
   OVERVIEW = d;
   $("ov-opening").textContent = d.opening;
 
@@ -580,17 +609,27 @@ async function renderOverview() {
     '<div class="gloss">' + esc(b.note) + "</div>"
   ).join("") + '<p class="foot">' + esc(d.bandNote) + "</p>";
 
-  renderFeed($("ov-feed"), d.feed, d);
-  $("ov-feednote").textContent =
-    "Payloads are ids, counts and bytes — never a memory's words, and never a turn of yours. " +
-    "The names above are resolved at the moment this page was drawn.";
+  if (withFeed) {
+    renderFeed($("ov-feed"), d.feed, d);
+    $("ov-feednote").textContent =
+      "Payloads are ids, counts and bytes — never a memory's words, and never a turn of yours. " +
+      "The names above are resolved at the moment this page was drawn.";
+  }
 
   $("ov-identity").innerHTML = d.identityAbsent
     ? absenceLine(d.identityAbsent, "nothing has become constitutive")
     : d.identity.map((el) =>
         '<div class="r click" onclick="openMemory(\'' + el.id + '\')">' + said(el.text, el.confidential) +
-        '<div class="meta"><span class="k">' + esc(el.kind) + "</span><span>strength " + n2(el.strength) +
-        "</span>" + livedSpan(el) + "</div></div>"
+        '<div class="meta"><span class="k">' + esc(el.kind) + "</span>" +
+        // NOT `strength 1.00`. Every element in this band is at 1.00 by
+        // construction, so the field said one thing fifteen times down the
+        // panel in the README's first image. The day it crossed is the fact
+        // that varies — and where the store never recorded a crossing, this
+        // says nothing rather than repeating a tautology or inventing a day.
+        (el.promotedDay === null
+          ? (el.strength < 1 ? "<span>strength " + n2(el.strength) + "</span>" : "")
+          : "<span>promoted day " + el.promotedDay + "</span>") +
+        livedSpan(el) + "</div></div>"
       ).join("");
 
   $("ov-protected").innerHTML = d.guardedAbsent
@@ -1218,6 +1257,20 @@ window.flowState = (key) => {
   const node = FLOW && FLOW.nodes.find((n) => n.key === key);
   return node ? node.state : "";
 };
+/** One overview tile's number, READ OFF THE PAGE rather than out of a variable,
+ *  for the same reason: the flow diagram's counters were proved live while the
+ *  tiles beside them were not, and a harness that asked the payload would have
+ *  believed a page that never repainted. */
+window.tileValue = (label) => {
+  for (const tile of document.querySelectorAll("#ov-tiles .tile")) {
+    const l = tile.querySelector(".l");
+    if (l && l.textContent === label) {
+      const n = tile.querySelector(".n");
+      return n ? n.textContent : "";
+    }
+  }
+  return "";
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // health
@@ -1256,20 +1309,17 @@ async function renderHealth() {
         "</span><span>by " + esc(r.actor) + "</span><span>" + esc(r.reason || "no reason recorded") +
         "</span></div></div>").join("");
 
-  $("h-adapters").innerHTML =
-    "<table><thead><tr><th>event</th><th class='num'>kept</th><th>what it carries</th></tr></thead><tbody>" +
-    d.adapters.map((a) =>
-      "<tr><td>" + esc(a.name) + "</td>" +
-      "<td class='num" + (a.absent ? " dimtd" : "") + "'>" + (a.absent ? esc(a.absent) : a.count) + "</td>" +
-      "<td class='dimtd'>" + esc(a.note) + "</td></tr>"
-    ).join("") + "</tbody></table>";
-
-  $("h-volume").innerHTML =
-    "<table><thead><tr><th>event</th><th class='num'>kept</th><th>what it records</th></tr></thead><tbody>" +
-    d.volume.map((v) =>
-      "<tr><td>" + esc(v.name) + "</td>" +
-      "<td class='num" + (v.absent ? " dimtd" : "") + "'>" + (v.absent ? esc(v.absent) : v.count) + "</td>" +
-      "<td class='dimtd'>" + esc(v.description) + "</td></tr>"
+  // ONE table where there were two, and the English leads. The dotted name is
+  // still on the page — it is what the owner greps the log for — but on the
+  // second line, in the type an identifier deserves.
+  $("h-records").innerHTML =
+    "<table><thead><tr><th>what it records</th><th class='num'>kept</th></tr></thead><tbody>" +
+    d.records.map((r) =>
+      "<tr><td><div class='lead'>" + esc(r.gloss) + "</div>" +
+      "<div class='ident'>" + esc(r.name) +
+      (r.adapter ? "<span class='hostmark'>host</span>" : "") +
+      (r.note ? "<span class='notemark'>" + esc(r.note) + "</span>" : "") + "</div></td>" +
+      "<td class='num" + (r.absent ? " dimtd" : "") + "'>" + (r.absent ? esc(r.absent) : r.count) + "</td></tr>"
     ).join("") + "</tbody></table>";
 
   const hm = d.heatmap;
@@ -1531,15 +1581,34 @@ async function poll() {
   }
 }
 
-/** What a new event changes, re-read. Only the counters — the pages themselves
- *  are not rebuilt under the reader's cursor. The poll has already asked for
- *  `/api/meta`, so it hands it over rather than making the request twice. */
+/**
+ * What a change to the store changes, re-read. The poll has already asked for
+ * `/api/meta`, so it hands it over rather than making the request twice.
+ *
+ * THE FLOW PAGE WAS NOT THE ONLY PAGE COUNTING. The first fix for the stale
+ * `143 came through` refreshed the flow diagram and stopped there, so the
+ * OVERVIEW — the page the dashboard opens on, the one in the README's first
+ * image — kept its boot-time tiles: `memories held`, `lived days`, the band
+ * bars, the identity panel, all frozen at whatever they were when the tab was
+ * opened, while the flow tab beside it moved. Same bug, one page over. Both
+ * pages are re-read here, from the one signal that catches a deposit with no
+ * durable event of its own.
+ */
 async function refreshCounters(meta) {
   try {
     const m = meta ?? (await api("/api/meta"));
     $("clock").textContent = "day " + m.day;
     fingerprint = { rows: m.rows, day: m.day };
   } catch (e) { /* the next poll retries */ }
+  if (loaded.overview) {
+    try {
+      const fresh = await api("/api/overview");
+      // The feed belongs to the poll (see `paintOverview`), unless it is still
+      // the absence line — in which case there is nothing of the poll's to lose.
+      const feedEl = $("ov-feed");
+      paintOverview(fresh, !!(feedEl && feedEl.querySelector(".empty")));
+    } catch (e) { /* the next poll retries */ }
+  }
   if (!loaded.flow) return;
   try {
     const fresh = await api("/api/flow?limit=24");
