@@ -175,6 +175,64 @@ and taking it off the list is stance semantics — threading the stance into the
 command so `--rebuild` alone refuses — which is a separate decision, not a
 safety fix. Left open deliberately.
 
+## 2026-09-05 — `repair-merged-beliefs`, and the first un-archive the store has
+
+The console gained its tenth owner operation. It exists because a core fix landed
+the same night (`sleep/NOTES.md` §13: a `type: "schema"` row is no longer a
+dedup candidate) and **stopping a bug does not undo it**. On a store that ran a
+cycle before that fix, a belief whose statement matched an ordinary memory's
+body was archived `merged` and stopped being a belief. Migration makes that
+likely rather than exotic: migrated elements were minted at the import day while
+migrated memories kept their v1 birth day, so the memory is older on every such
+pair.
+
+**Two sources, unioned, because either can be the surviving evidence.** The
+`memory.merged` events whose `candidateId` is a `sch_` id — the owner's own
+read-only check, filed as G17 — and the archived schema rows whose
+`archived_reason` is the merge, which still reads true after the event log has
+rolled. Removed ids are skipped: the deny-list answers before this tool does.
+
+**It prints statements, and `backfill-claims` says not to.** That command's
+header says "IDS AND NUMBERS ONLY — a repair report is not a place to print
+bodies", and this one prints the first 60 characters of each statement. The
+tension is real and the resolution is the decision being asked for: a claim
+restored to the store is a claim the system will state in a briefing, and
+"restore `sch_198628843ffb`?" is not a question a person can answer. This runs
+on the owner's own terminal, at the owner's own keystroke, against the owner's
+own store — the same reader who could open the prose file beside it. Ids-only
+would have been safer and useless. Named here so a later reader sees a choice
+rather than an inconsistency.
+
+**The core door it needed did not exist, and is the smallest one that works.**
+`Store` has no `unarchive` and must not grow one: the prune, the revision and
+the removal all archive, and each is archived for a reason a repair tool has no
+business reversing. `store/owner-op-seam.ts#unarchiveMerged` accepts
+`archived_reason: "merged"` and refuses everything else by its own error code —
+`UNMERGE_NOT_A_MERGE`, `UNMERGE_SUPERSEDED`, `REMOVED`, `ID_UNKNOWN` — crosses
+the same observer stance check every write crosses, and appends a latched
+`memory.unmerged` record inside the same transaction, so a second `--apply`
+writes nothing at all. The seam's export list grew from three names to six and
+`test/store.test.ts` pins the new list, which is the point of pinning it.
+
+**The `uses` the merge credited is left standing.** Reversing it would rewrite a
+physics count whose band may already have been materialized and whose crossing
+may already be a durable `band.transition` row, in order to undo a single use on
+a memory that really was looked at that evening. The delta goes into the
+`memory.unmerged` record instead, so the credit is auditable rather than
+silently reversed. The merge record and the `memory.merged` event are both left
+exactly where they are — constitution 7: a repair that tidied away the evidence
+of the bug would be the same class of mistake as the bug.
+
+**`--dry-run` is a declared flag that does nothing.** Dry run is already the
+default. It is declared because the owner's runbook line spells it out, and a
+console that refuses `--dry-run` as an unknown flag on a command that IS a dry
+run is the 2026-09-04 `--dirr` lesson pointed at the owner's own hands.
+
+**Never run against the live store by this build's authors.** Every test uses a
+temp store; the one demonstration of `--apply` was on a copy of a deliberately
+poisoned scratch store. The owner runs the read-only
+`counterparts repair-merged-beliefs --dry-run --dir ~/.counterparts/store`.
+
 ## Verified live? No
 
 Every test runs against a temp store. Per CLAUDE.md's definition of done this is

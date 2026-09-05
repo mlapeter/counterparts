@@ -123,9 +123,10 @@ and their records; the next session's briefing, written last; a per-cycle summar
    predicate reads FALSE for a fresh successor, which has none of the three, so it never
    protected the head of a chain and dedup never consulted it at all. DEDUP's protection
    of the head is G9b's, by its own rule, and after it the two known ways to lose a
-   successor to a merge are closed. **Still open under this wording:** an element whose
-   statement collides with an ordinary memory's body *with no revision anywhere* — G9b
-   does not apply, and the element merges into the memory (see NOTES §12, probe H).
+   successor to a merge are closed. *The gap this paragraph named on 2026-09-04 — an
+   element whose statement collides with an ordinary memory's body with no revision
+   anywhere, which G9b cannot reach — is closed by **9c** below (2026-09-05). Nothing is
+   open under this wording today.*
 8. **[M]** Every prune is recorded — counts, kind, dates; never a body, never a content hash
    (scar §2.20) — and a failed record append means nothing moves.
 9. **[M]** A memory that declares `updates:` is never merged into its target (`physics/`
@@ -146,6 +147,31 @@ and their records; the next session's briefing, written last; a per-cycle summar
    (`mem_` before `sch_`), was archived `merged` on the revision's own evening, and the
    revised belief stopped rendering as a belief — constitution 7. The same shape as G15's
    journal finding: a phase written when identical bodies could only mean a duplicate.*
+   **G9b IS STILL LOAD-BEARING under 9c**, and not belt-and-braces: `schemas/index.ts`
+   mints element successors as `type: "schema"` (which 9c now covers), but
+   `revision.ts`'s IDENTITY arm mints its successor as `type: "memory"`, and for that row
+   G9b is the only rule between it and the challenger whose words it carries. A test
+   pins exactly that case.
+   **9c. [M] A `type: "schema"` row is never a dedup candidate, in either direction, on
+   either path** (`types.ts#isSchemaRow`, read where `runDedup` builds the live set, so
+   `contentHashCandidates` and any injected cosine source are covered by construction
+   rather than one at a time; an injected source that hands one over anyway is named
+   `schema` in the skip map, not `already-archived`). A belief or a current-state row is
+   a standing claim with its own machinery for changing — `schemas/` §5.6 (a belief moves
+   only when a challenger's force beats its inertia, and the old version is kept with
+   lineage), §5 G1 (no operation edits a belief), §5 G4 (near collisions refuse LOUDLY
+   rather than merging) — and "these two say the same thing, so they are one thing" is a
+   claim about NOTES. Duplicates among elements are a `schemas/` question and are
+   deliberately not answered here. The exclusion is narrow: two ordinary memories with
+   one body still merge, and a test says so. *Probe H, found by the adversarial review
+   2026-09-04 and closed 2026-09-05: an `addBelief` with statement X and a memory with
+   body X, born the same lived day, no revision anywhere. G9b could not apply, `mem_`
+   sorted before `sch_`, and the belief was archived `merged` — `beliefs(entity)` empty,
+   constitution 7 again. Migration made it likely rather than exotic:
+   `tools/migrate/apply.ts` minted every element at the import day while migrated
+   memories kept their v1 birth day, so the memory is older on every such pair. The
+   repair for stores that already lost one is `counterparts repair-merged-beliefs`
+   (`cli/` §5, `store/owner-op-seam.ts#unarchiveMerged`).*
 10. **[M]** Observer sessions spawn no cycle at all — a cycle advances the clock, decays the
     store, and rewrites the briefing: *the instrument mutating what it measures* (scar E7).
 11. **[M]** A worker that cannot run — missing credential, unmet dependency, repeated

@@ -1921,7 +1921,9 @@ describe("sleep leaves the journal alone", () => {
     expect(report.pruned.map((p) => p.id)).toContain(ingested);
 
     // Every phase counted the skip rather than passing over it in silence.
-    for (const phase of ["decay", "prune", "consolidate"] as const) {
+    // DEDUP included since 2026-09-05: G15 says "a named skip in each phase",
+    // and until then dedup was the one arm that excluded the journal silently.
+    for (const phase of ["decay", "prune", "consolidate", "dedup"] as const) {
       expect(phaseReport(report, phase).skipped["journal"]).toBe(1);
     }
   });

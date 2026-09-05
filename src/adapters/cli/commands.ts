@@ -1537,6 +1537,9 @@ function backfillTargets(store: Store): { id: string; kind: string; dims: string
 /** How much of a statement a repair report prints. */
 const STATEMENT_PREVIEW = 60;
 
+/** How far back the merge log is read. `eventLog`'s own default is 500. */
+const MERGE_LOG_CEILING = 100_000;
+
 interface MergedBelief {
   readonly id: string;
   /** The entity the element hangs off, and its name when the entity is readable. */
@@ -1676,9 +1679,22 @@ function mergedBeliefs(store: Store): MergedBelief[] {
     if (row === undefined || denied.has(id)) continue;
     if (row.archived_reason === MERGED_ARCHIVE_REASON) ids.add(id);
   }
-  for (const event of store.eventLog({ name: "memory.merged" })) {
+  // `eventLog` defaults to 500 rows; a store with more merges than that would
+  // silently shorten this list, so the ceiling is named rather than inherited.
+  // The ARCHIVED rows above are found by `list`, which has no cap — this pass
+  // adds the ones already restored, and the reason it exists at all is that a
+  // merge record can outlive the archive it describes.
+  for (const event of store.eventLog({ name: "memory.merged", limit: MERGE_LOG_CEILING })) {
     if (event.ref === null || !event.ref.startsWith(schemaPrefix) || denied.has(event.ref)) continue;
-    if (store.row(event.ref) !== undefined) ids.add(event.ref);
+    const row = store.row(event.ref);
+    if (row === undefined) continue;
+    // ARCHIVED FOR A DIFFERENT REASON IS NOT THIS TOOL'S BUSINESS. A belief
+    // restored last month and legitimately revised since is archived `revised`
+    // with a successor; listing it as an open target would make the next
+    // `--apply` refuse it with `UNMERGE_SUPERSEDED` and exit FAILED on a store
+    // where nothing is wrong.
+    if (row.archived === 1 && row.archived_reason !== MERGED_ARCHIVE_REASON) continue;
+    ids.add(event.ref);
   }
 
   const out: MergedBelief[] = [];

@@ -333,9 +333,14 @@ export function unarchiveMerged(store: Store, id: string): UnmergeReport {
       mergedOnDay: merge?.day ?? null,
       usesDelta: payload.usesDelta,
     };
-    if (!noop) {
-      db.run("UPDATE memories SET archived = 0, archived_reason = NULL WHERE id = ?", id);
-    }
+    // ALREADY LIVE: say so, and write NOTHING. A `memory.unmerged` row appended
+    // here would read "the owner put this back" about a restore that never
+    // happened — a durable lie in the one log the owner is asked to trust. The
+    // CLI's own loop skips live rows, and that is not a substitute for this
+    // door being honest by itself.
+    if (noop) return { id, record, noop };
+
+    db.run("UPDATE memories SET archived = 0, archived_reason = NULL WHERE id = ?", id);
     // Recorded inside the same transaction, and latched on the id, so a second
     // `--apply` over the same store writes nothing at all (§5 G3).
     store.appendEvent({

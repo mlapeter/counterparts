@@ -74,6 +74,7 @@ import { chaseRemoved, unarchiveMerged } from "../src/core/store/owner-op-seam.j
 // The schemas module, to build (and then read back) the thing the repair is
 // about: a belief that stopped being a belief.
 import { Schemas } from "../src/core/schemas/index.js";
+import { applyRevision } from "../src/core/revision.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -1319,6 +1320,49 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     expect(report.record.originalId).toBeNull();
     expect(report.record.usesDelta).toBeNull();
     expect(original).not.toBe(duplicate);
+
+    // A LIVE row is a no-op that records NOTHING. A `memory.unmerged` row here
+    // would read "the owner put this back" about a restore that never
+    // happened, and the door has to be honest without the CLI's help.
+    const live = s.put({ type: "memory", kind: "fact", body: "A memory nobody merged." });
+    const before = s.eventLog({ name: "memory.unmerged" }).length;
+    expect(unarchiveMerged(s, live).noop).toBe(true);
+    expect(s.eventLog({ name: "memory.unmerged" }).length).toBe(before);
+  });
+
+  test("a belief restored and later revised is not offered again — the run stays green", async () => {
+    // The sequence the owner hits by running this twice across weeks: merged,
+    // restored, then legitimately revised (archived `revised`, with a
+    // successor). Listing it as an open target would make the seam refuse with
+    // UNMERGE_SUPERSEDED and the whole run exit FAILED on a store where
+    // nothing is wrong.
+    const s = store();
+    const ids = poison(s);
+    s.close();
+    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+
+    const writable = store();
+    const sc = Schemas.open({ store: writable });
+    const challengerId = writable.put({
+      type: "memory",
+      kind: "person",
+      body: "Ada asked for a live walkthrough instead",
+      meta: { updates: ids.beliefId },
+      salience: { novelty: null, relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      physics: { birthDay: 1, lastUsedDay: 1 },
+    });
+    for (const day of [1, 2, 3]) {
+      applyRevision(writable, sc, { updates: ids.beliefId, challengerId, day, method: "declared" }, {});
+    }
+    expect(writable.row(ids.beliefId)?.superseded_by).not.toBeNull();
+    writable.close();
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.err)).not.toContain("FAILED");
+    expect(text(c.out)).not.toContain(ids.beliefId);
   });
 
   test("an instrument may not unarchive either — the seam crosses the same stance check", () => {

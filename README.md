@@ -160,8 +160,8 @@ a census of the search cache against the real state, and `--rebuild` is what reb
 which is why `verify` counts as a write and refuses under `--observer` even without the
 flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
 explicitly `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run
-unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`, and
-`rebrief`. Pass `--observer` to any of them and the console stands down: everything is
+unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`,
+`repair-merged-beliefs` (a dry run unless you pass `--apply`), and `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
 read-only, and the commands that would write refuse instead.
 
 **The dashboard** — `counterparts-dashboard`, read-only, writing nothing, ever. Five views
