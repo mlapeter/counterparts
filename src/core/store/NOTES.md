@@ -184,3 +184,114 @@ One line in `dataDir()`, one replaced assertion. The live host is unaffected: it
 names `dataDir` explicitly and the MCP registration sets `COUNTERPARTS_DATA_DIR`, so no
 live code path consulted the default. `FORBIDDEN_ROOT_NAMES` is unchanged; the
 recall-bench and parallel tools still refuse the whole base dir by name.
+
+## 2026-09-05 — the two clocks: lived days for physics, real dates for provenance
+
+*The design behind LAUNCH-STATUS §I7 and the owner's ruling of 2026-09-04: "we do
+lived days for good reason (if we don't chat for a few weeks we don't want everything
+to fade) but we also need to use actual dates/clock times, so we should have a
+solution that works and understands both."*
+
+### The brain analog
+
+**An episodic memory carries a "when" that is separate from its consolidation age.**
+The hippocampus time-stamps an experience — the temporal context that lets you say
+"that was the Tuesday before the trip" — and that stamp is CONTENT: it can be recalled,
+it can be wrong, it can be corrected without changing anything about how strong the
+memory is. Consolidation age is a different variable entirely, and it is the one that
+governs forgetting: how much has happened since, how many times the trace was
+reactivated, how far systems consolidation has carried it out of the hippocampus. Two
+weeks in a coma and two weeks of living are the same fourteen calendar days and are
+not the same amount of consolidation.
+
+v2 had the second and was faking the first. `physics/clock.ts` is a careful,
+well-defended lived-day clock — engram scar E8, "a week away must not decay a week's
+worth". Provenance had no clock at all: `store.put` defaulted `learnedOn` to a
+module-level `today()` that read the ambient `Date.now()`, `appendEvent` and the
+version rows stamped `Date.now()` inline, and `Store.open` took no clock to be given
+one. So the "when" was not a stamp on the experience, it was a stamp on the WRITE —
+and every path where those two differ produced a row that says a thing that is not
+true. Three of them, all measured:
+
+- the demo store: 156 of 172 rows read the day the seeder ran; every one of the wake's
+  26 lines opened `2026-09-05 ·`;
+- a replay of a corpus from months ago: every row dated the day the harness ran;
+- the v1 import: 12,334 of 14,529 migrated memories carry the import day
+  (`docs/PARALLEL-RUN-STATUS.md`, 2026-09-04), which is why #29/#30 had to render a
+  migrated element as an upper bound, `by 2026-09-03 ·`, rather than as a claim.
+
+### The model
+
+**Two clocks, named, with a fixed division of fields.**
+
+| | PHYSICS CLOCK | PROVENANCE CLOCK |
+|---|---|---|
+| what it measures | how much experience has passed | when in the world |
+| where it lives | `livedDay()` / `advanceClock(date)` / `physics/clock.ts` | `StoreOptions.now`, `Store.now()`, `Store.today()` |
+| who moves it | the host, once per lived day | the session, continuously |
+| what reads it | decay, consolidation, dedup's tie-break, banding, pruning, `bornDay`, `bandDay`, `lastUsedDay` | `learnedOn`, `happenedOn`, the event log's `at`, a version's `archived_at`, a removal record's `at`, the in-process event ring |
+| what a week away does | nothing — days not lived do not advance it | seven days pass, because they did |
+
+The provenance clock is INJECTED and defaults to `Date.now`, so a host that gives it
+nothing behaves exactly as it did before this entry existed. The seeder gives it the
+story's day, the replay driver gives it the corpus day, and a migration would give it
+the day the row was actually learned. There is now exactly one `Date.now()` call left
+in `store/index.ts` — inside the module-level `today()` the adapters still use — and
+`test/two-clocks.test.ts` counts it.
+
+**The mint path takes the PROPOSAL'S instant, not the write's.** `mintProposal` dates a
+memory `dateOf(proposal.at)`: the moment the author deposited, read off the span
+buffer's injected clock. The row is written later — at a boundary, possibly the next
+morning, possibly during a replay of a corpus from a year ago — and a memory is dated
+by when it was learned. On the crash-fallback path the proposal's `at` is the
+boundary's own `nowFn()`, which makes a swept memory dated the day it was INTERPRETED.
+That is the honest default and it is named rather than assumed: the spans it read
+carry their own instants, and deriving a `happenedOn` from them is DELIBERATELY not
+done here, because `prospective/` reads `happenedOn` as a content date and would begin
+arming windows off a field the interpreter never claimed. Filed, not forgotten.
+
+### Four decisions, with the reason each was taken
+
+1. **UTC, not local.** `dateOf(at)` is `toISOString().slice(0, 10)`, the same
+   arithmetic `today()` always used, and the same arithmetic every other date in this
+   codebase is written with: the hook that supplies `advanceClock`'s date
+   (`bin/hook.ts:101`), the worker (`bin/runner.ts:177`), `sleep/cycle.ts#todayDate`,
+   the embedder's seat rotation. Provenance dating locally while the physics clock is
+   keyed UTC would put the two calendars a few hours out of step for anyone west of
+   Greenwich and make a row's `learnedOn` disagree with the lived day it was born on.
+   **Moving ALL of them to local dating is a real question and it is filed, not
+   decided here**: it is a one-line change per site and a behaviour change on the live
+   store, and it wants its own carry-forward declaration.
+2. **Not `physics/clock.ts#dayKey`.** `dayKey` shifts by `BOUNDARY_HOUR` so that a
+   lived evening running past midnight counts as one day. That is a PHYSICS idea — it
+   answers "which lived day does this activity belong to". A memory taken at 01:30 was
+   taken on the 14th whatever lived day it counts toward, so provenance does not get
+   the boundary shift. The two functions stay in two files for that reason.
+3. **`revise` is the door for a date correction.** `store.revise` learned
+   `learnedOn` / `happenedOn`, writing the prose frontmatter and the column in one
+   transaction. A date correction is a revision: `revise` archives the prior document
+   first, so the wrong date stays readable in `versions/` (constitution 7 — revisions
+   keep their history, nothing is silently overwritten). This also closes
+   `prospective/INTERFACE-GAPS.md` §4, which asked for exactly `happenedOn?: string` in
+   the patch so a reschedule could complete in one call.
+4. **The physics date key stays the host's.** `sleep/cycle.ts#todayDate()` still exists
+   and still reads the ambient clock; every live entry point passes `date` explicitly,
+   so it is only a fallback. What changed is which fallback: `Counterpart.sessionEnd`
+   now defaults `date` to `this.store.today()`, so a caller who forgets the date
+   advances the lived-day clock with THIS SESSION'S date rather than with a date from a
+   different year than everything the same run wrote. A boundary is the one place the
+   two clocks touch, and that is the only line where they do.
+
+### What this does not fix, on purpose
+
+- **Rows already written.** Nothing here is retroactive. The 12,334 migrated rows still
+  carry the import day until the owner runs `counterparts repair-dates --apply`, which
+  proposes true dates from what the rows themselves carry (engram-era ids that are
+  millisecond timestamps, v1 `created` fields, session references, source paths) and
+  writes nothing on a dry run. Its known ceiling: migrated ELEMENTS carry no v1 id —
+  `tools/migrate/apply.ts#writeElement` does not pass `el.v1Id` into the element's meta
+  — so every `sch_` row lands in the `none` bucket and is left exactly as it is. The
+  count will show it; this is the reason.
+- **`happenedOn` from spans.** See above. `prospective/` reads it; deriving it would
+  arm windows nobody claimed.
+- **Local dating.** Decision 1.

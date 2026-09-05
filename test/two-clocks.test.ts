@@ -160,6 +160,59 @@ describe("the mint path never reads the ambient clock", () => {
     expect(c.store.readProse(second.memoryId ?? "").learnedOn).toBe(dateOf(PINNED + DAY_MS));
   });
 
+  /**
+   * THE PATH THAT MATTERS MOST. The crash fallback writes rows on a LATER day
+   * than the spans it read — a session that died on Tuesday is swept at
+   * Wednesday's boundary — so it is the mint path where a wrong clock does the
+   * most damage. The proposal it builds carries `nowFn()`, so a swept memory is
+   * dated the day it was INTERPRETED. The spans' own instants are the candidate
+   * `happenedOn` and are deliberately not derived; see NOTES 2026-09-05.
+   */
+  test("the crash fallback dates its memories by the session's clock too", async () => {
+    let at = PINNED;
+    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => at });
+    open.push(c);
+    c.captureSpans({
+      session: "s1",
+      scope: "proj",
+      turns: [
+        {
+          role: "user",
+          text: "We settled the storage split today: canonical prose on disk, one small operational database, and a cache nobody backs up.",
+        },
+        {
+          role: "assistant",
+          text: "Recorded. The cache being rebuildable is what makes the backup set small enough to be honest about.",
+        },
+        {
+          role: "user",
+          text: "Right, and the reason it matters is that a backup you cannot verify is a backup you do not have.",
+        },
+      ],
+    });
+    c.boundary({ session: "s1", scope: "proj", kind: "pre-compaction" });
+    // The session goes quiet, and the boundary that sweeps it happens the NEXT
+    // day — the exact straddle a wall clock read at write time would get wrong.
+    at += DAY_MS;
+    const reports = await c.sweepFallback({
+      interpret: async () => ({
+        proposals: [
+          {
+            content:
+              "The cache is rebuildable from canonical files, which is why it never enters the backup set.",
+            kind: "fact",
+          },
+        ],
+        stopReason: "end_turn",
+      }),
+    });
+    expect(reports.some((r) => r.ran)).toBe(true);
+    const minted = c.events("counterpart.sweep.minted");
+    expect(minted).toHaveLength(1);
+    const id = String(minted[0]?.ref ?? "");
+    expect(c.store.readProse(id).learnedOn).toBe(dateOf(PINNED + DAY_MS));
+  });
+
   test("no `Date.now()` survives in the mint path", async () => {
     // The totality half: `mint.ts` and the store's write sites route through the
     // injected clock. Read the sources rather than trusting the tests above.
