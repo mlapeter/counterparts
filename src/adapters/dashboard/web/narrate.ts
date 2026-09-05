@@ -139,6 +139,16 @@ export const NARRATORS = {
     calm(
       `${subject(t, s(t, "candidateId"))} was the same thing I already held; I merged it into ${subject(t, s(t, "originalId"))}.`,
     ),
+  "memory.unmerged": (t) => {
+    const original = s(t, "originalId");
+    // NOTABLE, not calm: a repair is the owner reaching in, and the one line
+    // that must not read as routine housekeeping.
+    return notable(
+      original === null
+        ? `The owner put ${subject(t, s(t, "candidateId"))} back: a merge had archived it, and it should never have been a duplicate.`
+        : `The owner put ${subject(t, s(t, "candidateId"))} back — a merge had folded it into ${subject(t, original)}, and it should never have been a duplicate. The use that merge credited stands.`,
+    );
+  },
 
   // ── the doors ──────────────────────────────────────────────────────────────
   "gate.chunk": (t) => {
@@ -370,6 +380,7 @@ export const REF_KIND = {
   // worked perfectly. The minted id, when there is one, is in the payload.
   "gate.deposit": "proposal",
   "memory.merged": "memory",
+  "memory.unmerged": "memory",
   "memory.pruned": "memory",
   "recall.decision": "session",
   "revision.pressure": "memory",

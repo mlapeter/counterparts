@@ -328,6 +328,97 @@ had.**
    because the pages are fragmented rather than free, and a probe that reads zero where the
    answer is 59% is worse than no probe.
 
+## 2026-09-05 — `repair-merged-beliefs`, and the first un-archive the store has
+
+The console gained its tenth owner operation. It exists because a core fix landed
+the same night (`sleep/NOTES.md` §14: a `type: "schema"` row is no longer a
+dedup candidate) and **stopping a bug does not undo it**. On a store that ran a
+cycle before that fix, a belief whose statement matched an ordinary memory's
+body was archived `merged` and stopped being a belief. Migration settles the
+DIRECTION of that loss and not its frequency: migrated elements were minted at
+the import day while migrated memories kept their v1 birth day, so the memory is
+never younger and the element always loses — but a pair needs two distinct v1
+items whose gated text is byte-identical, and nothing in the code says how often
+that happened. **This command is the measurement**, which is why its dry run is
+the answer to G17 rather than an adjective in a document.
+
+**Two sources, unioned, because either can be the surviving evidence.** The
+`memory.merged` events whose `candidateId` is a `sch_` id — the owner's own
+read-only check, filed as G17 — and the archived schema rows whose
+`archived_reason` is the merge, which still reads true after the event log has
+rolled. Removed ids are skipped: the deny-list answers before this tool does.
+
+**It prints statements AND entity names, and `backfill-claims` says not to.**
+That command's header says "IDS AND NUMBERS ONLY — a repair report is not a
+place to print bodies", and this one prints two things that are not ids: the
+first 60 characters of each statement, and **the entity's name** — the line
+reads `sch_0dc7784034fc  Ada  lived day 0`. A person's name is author content as
+squarely as a statement is, and it is named here so a later reader finds a
+choice made twice rather than an unnamed second deviation.
+
+Both are the same decision, and it is the one the command exists to enable: a
+claim restored to the store is a claim the system will state in a briefing, and
+"restore `sch_198628843ffb`?" is not a question a person can answer. Without the
+entity the owner cannot tell which Ada, or whether the belief belongs to a
+person still in their life. This runs on the owner's own terminal, at the
+owner's own keystroke, against the owner's own store — the same reader who could
+open the prose file beside it. Ids-only would have been safer and useless.
+
+**The durable record stays ids and numbers only**, and that is the line that
+actually matters: `memory.unmerged` carries `{event, day, candidateId,
+originalId, mergedOnDay, usesDelta}` and no text of any kind (§5 G10). The
+deviation is console-only — one printed line, at the moment of a decision, and
+nothing written down.
+
+**The core door it needed did not exist, and is the smallest one that works.**
+`Store` has no `unarchive` and must not grow one: the prune, the revision and
+the removal all archive, and each is archived for a reason a repair tool has no
+business reversing. `store/owner-op-seam.ts#unarchiveMerged` accepts
+`archived_reason: "merged"` and refuses everything else by its own error code —
+`UNMERGE_NOT_A_MERGE`, `UNMERGE_SUPERSEDED`, `REMOVED`, `ID_UNKNOWN` — crosses
+the same observer stance check every write crosses, and appends a latched
+`memory.unmerged` record inside the same transaction, so a second `--apply`
+writes nothing at all. The seam's export list grew from three names to six and
+`test/store.test.ts` pins the new list, which is the point of pinning it.
+
+**It re-indexes box 3, and the reason is a moving target.** `archive()` leaves
+box 3 alone on master as this was written, so a restored row was findable with
+no extra work. PR #64 (`overnight/df-live-rows`) adds `deindexDoc` to `archive()`
+so document frequency is counted over live rows — and then whichever of the two
+lands second would leave this command restoring a belief that is live, listed in
+`beliefs(entity)`, and **invisible to lexical recall**, with no cheap way back
+(a cache rebuild without an embedder drops every vector on the store). Measured
+by the adversarial review at `doc_tokens` 7 → 0 on archive → 0 after `--apply`.
+So the seam re-indexes on restore, through the narrowest grant member that could
+do it (`OwnerOpAccess.reindexLexical`) — the LEXICAL half only, because a repair
+that made a paid embedding call, or dropped a vector nothing here can recompute,
+would be worse than the bug. The test simulates #64's deindex and would fail
+without the call; it also asserts the embedding survives untouched.
+
+**It prints which store it opened**, before the list. `--dir` is optional and the
+default resolves to `~/.counterparts/store`, and this is the command the owner is
+asked to type `--apply` at. `status`, `note` and `recall` print `Store: <dir>`;
+`backfill-claims` does not, and should.
+
+**The `uses` the merge credited is left standing.** Reversing it would rewrite a
+physics count whose band may already have been materialized and whose crossing
+may already be a durable `band.transition` row, in order to undo a single use on
+a memory that really was looked at that evening. The delta goes into the
+`memory.unmerged` record instead, so the credit is auditable rather than
+silently reversed. The merge record and the `memory.merged` event are both left
+exactly where they are — constitution 7: a repair that tidied away the evidence
+of the bug would be the same class of mistake as the bug.
+
+**`--dry-run` is a declared flag that does nothing.** Dry run is already the
+default. It is declared because the owner's runbook line spells it out, and a
+console that refuses `--dry-run` as an unknown flag on a command that IS a dry
+run is the 2026-09-04 `--dirr` lesson pointed at the owner's own hands.
+
+**Never run against the live store by this build's authors.** Every test uses a
+temp store; the one demonstration of `--apply` was on a copy of a deliberately
+poisoned scratch store. The owner runs the read-only
+`counterparts repair-merged-beliefs --dry-run --dir ~/.counterparts/store`.
+
 ## Verified live? No
 
 Every test runs against a temp store. Per CLAUDE.md's definition of done this is

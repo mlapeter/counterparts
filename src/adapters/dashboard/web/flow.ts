@@ -335,6 +335,8 @@ export const EVENT_NODE = {
   "band.transition": "sleep",
   "memory.pruned": "sleep",
   "memory.merged": "sleep",
+  // The repair is the owner's, but the row it puts back is the store's.
+  "memory.unmerged": "store",
   // The gate battery, wherever it runs: the chunk record is the encode door's.
   "gate.chunk": "encode",
   // Both gate doors light the SAME node. The battery is one battery; which door

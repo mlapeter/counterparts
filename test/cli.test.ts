@@ -37,7 +37,13 @@ import { PHASES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
-import { convertVectorBatch, indexDoc, openCache, setEmbedding } from "../src/core/store/cache.js";
+import {
+  convertVectorBatch,
+  decodeVector,
+  indexDoc,
+  openCache,
+  setEmbedding,
+} from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -72,7 +78,11 @@ import { ownerRemoval, planRemoval, verifyRemoval } from "../src/adapters/cli/re
 // The box-2 half of the destruction path. Imported HERE for the same reason
 // `removal.ts` is: this is the directory allowed to reach it, and the
 // caller-universality test below pins that nothing else does.
-import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { chaseRemoved, unarchiveMerged } from "../src/core/store/owner-op-seam.js";
+// The schemas module, to build (and then read back) the thing the repair is
+// about: a belief that stopped being a belief.
+import { Schemas } from "../src/core/schemas/index.js";
+import { applyRevision } from "../src/core/revision.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -1855,6 +1865,366 @@ describe("backfill-claims — the one-shot repair for rows minted before the flo
     expect(await run(["backfill-claims", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Authored memories with no claimed salience: 0");
     expect(fingerprint(dir)).toBe(mid);
+  });
+});
+
+// ── repair-merged-beliefs ───────────────────────────────────────────────────
+
+/**
+ * THE REPAIR FOR PROBE H, and the owner-op door under it.
+ *
+ * The bug is fixed in `sleep/dedup.ts` as of the same night — a `type:
+ * "schema"` row is no longer a dedup candidate at all — so this store cannot be
+ * poisoned by running a real cycle any more. `merge()` below therefore does
+ * exactly the four writes the pass used to do, in the same order, and the
+ * fixture is the bug's OUTPUT rather than its mechanism. That is the honest
+ * shape for a repair test: what has to be undone is the state, not the code
+ * path that produced it.
+ */
+describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
+  const STATEMENT = "Ada prefers async review over a live walkthrough";
+
+  /** `sleep/dedup.ts`'s merge, by hand: record, event, credit, archive. */
+  function merge(s: Store, candidateId: string, originalId: string, day: number): void {
+    const record = {
+      event: "memory.merged",
+      day,
+      candidateId,
+      originalId,
+      reason: "identical-content-hash",
+      usesDelta: 1,
+    };
+    s.setMeta(`sleep.merged.${candidateId}`, JSON.stringify(record));
+    s.appendEvent({
+      name: "memory.merged",
+      day,
+      ref: candidateId,
+      dedupKey: `sleep.merged.${candidateId}`,
+      payload: { ...record },
+    });
+    const p = s.physicsOf(originalId);
+    s.updatePhysics(originalId, { uses: p.uses + 1 });
+    s.archive(candidateId, "merged");
+  }
+
+  /** A belief eaten by a memory that says the same sentence. */
+  // `beforeMerge` runs once the belief is live and before the merge archives
+  // it — the one moment a test can measure "while live" now that `archive()`
+  // deindexes for real (#64, on this tree).
+  function poison(
+    s: Store,
+    beforeMerge?: (beliefId: string) => void,
+  ): { entityId: string; beliefId: string; memoryId: string } {
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: STATEMENT,
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = sc.addBelief({
+      entityId,
+      statement: STATEMENT,
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const memoryId = s.put({
+      type: "memory",
+      kind: "person",
+      body: STATEMENT,
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    beforeMerge?.(beliefId);
+    merge(s, beliefId, memoryId, 0);
+    return { entityId, beliefId, memoryId };
+  }
+
+  test("the dry run names the belief, the entity, the memory and the day — and writes nothing", async () => {
+    const s = store();
+    const ids = poison(s);
+    const before = fingerprint(dir);
+    s.close();
+
+    const c = consoleWith();
+    const code = await run(["repair-merged-beliefs", "--dry-run"], { io: c.io, env: { [ENV]: dir } });
+    expect(code).toBe(EXIT.ok);
+    const out = text(c.out);
+    expect(out).toContain("Beliefs and current-state rows archived as duplicates: 1");
+    // WHICH STORE, before the list. `--dir` is optional and the default is the
+    // owner's live memory; this is the command G23 asks them to type `--apply` at.
+    expect(out).toContain(`Store: ${dir}`);
+    expect(out).toContain(ids.beliefId);
+    expect(out).toContain("Ada");
+    expect(out).toContain("lived day 0");
+    expect(out).toContain(ids.memoryId);
+    expect(out).toContain(STATEMENT);
+    expect(out).toContain("Dry run. Nothing has changed.");
+    // Dry run is the default too, `--dry-run` or not.
+    expect(fingerprint(dir)).toBe(before);
+    const plain = consoleWith();
+    expect(await run(["repair-merged-beliefs"], { io: plain.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(fingerprint(dir)).toBe(before);
+  });
+
+  test("--apply restores the belief, records the unmerge, and leaves the credit standing", async () => {
+    const s = store();
+    const ids = poison(s);
+    const usesAfterMerge = s.physicsOf(ids.memoryId).uses;
+    s.close();
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("Put 1 elements back.");
+
+    const after = store({ observer: true });
+    expect(after.row(ids.beliefId)?.archived).toBe(0);
+    expect(after.row(ids.beliefId)?.archived_reason).toBeNull();
+    // It is a BELIEF again, which is the thing that was actually lost.
+    const sc = Schemas.open({ store: after });
+    expect(sc.beliefs(ids.entityId).map((b) => b.id)).toEqual([ids.beliefId]);
+
+    // The credit STANDS, and the record says so rather than the code hoping so.
+    expect(after.physicsOf(ids.memoryId).uses).toBe(usesAfterMerge);
+    const logged = after.eventLog({ name: "memory.unmerged" });
+    expect(logged.length).toBe(1);
+    expect(logged[0]?.ref).toBe(ids.beliefId);
+    const payload = JSON.parse(logged[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload["originalId"]).toBe(ids.memoryId);
+    expect(payload["usesDelta"]).toBe(1);
+    expect(payload["mergedOnDay"]).toBe(0);
+    // IDS AND NUMBERS ONLY (§5 G10). The console prints the statement and the
+    // entity's name so the owner can decide; the DURABLE record carries neither,
+    // and this is the assertion that keeps those two facts apart.
+    expect(Object.keys(payload).sort()).toEqual(
+      ["candidateId", "day", "event", "mergedOnDay", "originalId", "usesDelta"],
+    );
+    expect(logged[0]?.payload ?? "").not.toContain("Ada");
+    expect(logged[0]?.payload ?? "").not.toContain("async review");
+
+    // Constitution 7: the repair erases no history. The merge record and the
+    // merge event are both exactly where they were.
+    expect(after.getMeta(`sleep.merged.${ids.beliefId}`)).toContain(ids.memoryId);
+    expect(after.eventLog({ name: "memory.merged" }).length).toBe(1);
+  });
+
+  test("a second --apply changes nothing and appends no second record", async () => {
+    const s = store();
+    poison(s);
+    s.close();
+    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+    const mid = fingerprint(dir);
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("Beliefs and current-state rows archived as duplicates: 0");
+    expect(text(c.out)).toContain("[already live]");
+    expect(fingerprint(dir)).toBe(mid);
+    const after = store({ observer: true });
+    expect(after.eventLog({ name: "memory.unmerged" }).length).toBe(1);
+  });
+
+  test("a store with nothing to repair says so, and an absent store is not created", async () => {
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "An ordinary memory nobody merged." });
+    s.close();
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Beliefs and current-state rows archived as duplicates: 0");
+    expect(text(c.out)).toContain("Dry run. Nothing to repair on this store.");
+
+    const missing = join(outside, "no-store-for-repair");
+    const c2 = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--dir", missing], { io: c2.io, env: {} })).toBe(
+      EXIT.failed,
+    );
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  test("the repair is an owner operation: an instrument refuses it, plan and all", async () => {
+    const s = store();
+    poison(s);
+    const before = fingerprint(dir);
+    s.close();
+    const c = consoleWith();
+    expect(
+      await run(["repair-merged-beliefs", "--observer"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("owner operation");
+    expect(fingerprint(dir)).toBe(before);
+  });
+
+  test("the door undoes ONE archive reason and refuses every other by name", () => {
+    // The reason this is not a general `unarchive`: a prune, a revision and a
+    // removal are all archived, and each is archived for a reason a repair
+    // tool has no business reversing.
+    const s = store();
+    const pruned = s.put({ type: "memory", kind: "fact", body: "A memory let go at the floor." });
+    s.archive(pruned, "pruned");
+    expect(() => unarchiveMerged(s, pruned)).toThrow(/UNMERGE_NOT_A_MERGE/);
+    expect(s.row(pruned)?.archived).toBe(1);
+
+    // A superseded row: restoring it would put two live versions in one chain.
+    const target = s.put({ type: "memory", kind: "fact", body: "A belief about the weather." });
+    s.supersede(
+      target,
+      { type: "memory", kind: "fact", body: "A better belief about the weather." },
+      "revised-by-pressure",
+    );
+    expect(() => unarchiveMerged(s, target)).toThrow(/UNMERGE_SUPERSEDED/);
+
+    expect(() => unarchiveMerged(s, "mem_000000000000")).toThrow(/ID_UNKNOWN/);
+
+    // And a merge is restored — the one case it accepts.
+    const original = s.put({ type: "memory", kind: "fact", body: "One sentence, noted twice." });
+    const duplicate = s.put({
+      id: "mem_ffffffffffff",
+      type: "memory",
+      kind: "fact",
+      body: "One sentence, noted twice.",
+    });
+    s.archive(duplicate, "merged");
+    const report = unarchiveMerged(s, duplicate);
+    expect(report.noop).toBe(false);
+    expect(s.row(duplicate)?.archived).toBe(0);
+    // No merge event existed, so the record says so instead of inventing one.
+    expect(report.record.originalId).toBeNull();
+    expect(report.record.usesDelta).toBeNull();
+    expect(original).not.toBe(duplicate);
+
+    // A LIVE row is a no-op that records NOTHING. A `memory.unmerged` row here
+    // would read "the owner put this back" about a restore that never
+    // happened, and the door has to be honest without the CLI's help.
+    const live = s.put({ type: "memory", kind: "fact", body: "A memory nobody merged." });
+    const before = s.eventLog({ name: "memory.unmerged" }).length;
+    expect(unarchiveMerged(s, live).noop).toBe(true);
+    expect(s.eventLog({ name: "memory.unmerged" }).length).toBe(before);
+  });
+
+  test("a restored belief is FINDABLE again, even when the archive deindexed it", async () => {
+    // The cross-PR hazard, made a test rather than a hope. `archive()` leaves
+    // box 3 alone on master today, but PR #64 (`overnight/df-live-rows`) adds
+    // `deindexDoc` to it so document frequency is counted over live rows —
+    // and then a restore that touched only box 2 would put back a row that is
+    // live, listed in `beliefs(entity)`, and invisible to lexical recall, with
+    // no cheap repair (a rebuild without an embedder drops every vector).
+    //
+    // On the batch tree #64 IS merged, so the deindex is no longer simulated:
+    // the live count is taken before the merge archives the belief, and the
+    // zero after it is asserted rather than produced by hand.
+    const tokensFor = (id: string): number => {
+      const box3 = openDb(paths.cache(dir));
+      try {
+        return (
+          box3.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_tokens WHERE memory_id = ?", id)?.n ??
+          0
+        );
+      } finally {
+        box3.close();
+      }
+    };
+    const s = store();
+    let indexedWhileLive = 0;
+    const ids = poison(s, (beliefId) => {
+      indexedWhileLive = tokensFor(beliefId);
+    });
+    s.close();
+    expect(indexedWhileLive).toBeGreaterThan(0);
+    // The archive took the rows out of the text index (I13) — the hazard is real.
+    expect(tokensFor(ids.beliefId)).toBe(0);
+
+    expect(
+      await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+
+    const after = store({ observer: true });
+    // Box 3 holds the row's tokens again, and exactly as many as it did.
+    expect(tokensFor(ids.beliefId)).toBe(indexedWhileLive);
+    // The property, not the table: the cue finds it.
+    expect(after.search("walkthrough async review").map((h) => h.id)).toContain(ids.beliefId);
+    after.close();
+
+    // And through the door the owner actually uses.
+    const r = consoleWith();
+    expect(await run(["recall", "what does Ada prefer for review?", "--dir", dir], { io: r.io })).toBe(
+      EXIT.ok,
+    );
+    expect(text(r.out)).toContain("prefers async review");
+  });
+
+  test("the restore never touches an embedding it cannot recompute", () => {
+    // A repair that made a paid embedding call, or dropped a vector nothing in
+    // this process can recompute, would be a worse bug than the one it fixes.
+    // `reindexLexical` hands `indexDoc` no vector, and `indexDoc` writes the
+    // `embeddings` table only when it is handed one.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "A memory with a vector of its own." });
+    const cache = openCache(paths.cache(dir));
+    setEmbedding(cache, id, [0.5, 0.25, 0.125]);
+    cache.close();
+    s.archive(id, "merged");
+
+    unarchiveMerged(s, id);
+
+    const box3 = openDb(paths.cache(dir));
+    const row = box3.get<{ dim: number; vec: string | Uint8Array }>(
+      "SELECT dim, vec FROM embeddings WHERE memory_id = ?",
+      id,
+    );
+    box3.close();
+    expect(row?.dim).toBe(3);
+    // Read through the cache's own decoder: box 3 stores float32 BLOBs (#66,
+    // on this tree), and these three values are float32-exact.
+    expect(Array.from(decodeVector(row?.vec ?? "[]"))).toEqual([0.5, 0.25, 0.125]);
+  });
+
+  test("a belief restored and later revised is not offered again — the run stays green", async () => {
+    // The sequence the owner hits by running this twice across weeks: merged,
+    // restored, then legitimately revised (archived `revised`, with a
+    // successor). Listing it as an open target would make the seam refuse with
+    // UNMERGE_SUPERSEDED and the whole run exit FAILED on a store where
+    // nothing is wrong.
+    const s = store();
+    const ids = poison(s);
+    s.close();
+    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+
+    const writable = store();
+    const sc = Schemas.open({ store: writable });
+    const challengerId = writable.put({
+      type: "memory",
+      kind: "person",
+      body: "Ada asked for a live walkthrough instead",
+      meta: { updates: ids.beliefId },
+      salience: { novelty: null, relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      physics: { birthDay: 1, lastUsedDay: 1 },
+    });
+    for (const day of [1, 2, 3]) {
+      applyRevision(writable, sc, { updates: ids.beliefId, challengerId, day, method: "declared" }, {});
+    }
+    expect(writable.row(ids.beliefId)?.superseded_by).not.toBeNull();
+    writable.close();
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.err)).not.toContain("FAILED");
+    expect(text(c.out)).not.toContain(ids.beliefId);
+  });
+
+  test("an instrument may not unarchive either — the seam crosses the same stance check", () => {
+    const writable = store();
+    const id = writable.put({ type: "memory", kind: "fact", body: "A merged duplicate." });
+    writable.archive(id, "merged");
+    writable.close();
+    const reader = store({ observer: true });
+    expect(() => unarchiveMerged(reader, id)).toThrow(/OBSERVER_REFUSED/);
+    expect(reader.row(id)?.archived).toBe(1);
   });
 });
 

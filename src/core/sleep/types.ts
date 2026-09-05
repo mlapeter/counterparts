@@ -408,6 +408,37 @@ export function isJournal(row: MemoryRow): boolean {
   return row.type === "episode";
 }
 
+/**
+ * A SCHEMA ROW IS NOT A DUPLICATE CANDIDATE — read by `dedup.ts`, and by
+ * nothing else.
+ *
+ * Deliberately NOT the shape of `isJournal`, which every phase reads. Elements
+ * fade, take pressure, cross bands and are revised: they belong to decay,
+ * consolidate and prune exactly as memories do. The one phase they do not
+ * belong to is dedup, because "these two say the same thing, so they are one
+ * thing" is a claim about NOTES, and an element is a standing claim with its
+ * own machinery for changing — `schemas/` §5.6 (a belief changes only when a
+ * challenger's force beats its inertia, and the old version is kept with
+ * lineage), §5 G1 (no operation edits a belief), §5 G4 (near collisions refuse
+ * LOUDLY rather than merging). Duplicates among beliefs are that module's
+ * question; a sleep phase archiving one is generalization by blending, which
+ * constitution line 12 and the schemas contract both refuse by name.
+ *
+ * Probe H, filed on 2026-09-04 (NOTES §12) and closed here: an `addBelief`
+ * whose statement is X and an ordinary memory whose body is X, born the same
+ * lived day, with no revision anywhere. G9b cannot reach it — no accommodation
+ * row is involved — and `mem_` sorts before `sch_`, so the belief was archived
+ * `merged` and `beliefs(entity)` read empty. On a migrated store the DIRECTION
+ * of the loss is certain and its COUNT is not: `tools/migrate/apply.ts` minted
+ * every migrated element at the IMPORT day while migrated memories kept their
+ * v1 birth day, so the memory is never younger and the element always loses —
+ * but a collision needs two distinct v1 items whose gated text is
+ * byte-identical, and only a scan of the store can say how many there are.
+ */
+export function isSchemaRow(row: MemoryRow): boolean {
+  return row.type === "schema";
+}
+
 export function countSkip(out: PhaseOutcome, reason: string, n = 1): void {
   out.skipped[reason] = (out.skipped[reason] ?? 0) + n;
 }

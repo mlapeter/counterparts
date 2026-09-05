@@ -291,7 +291,10 @@ it in dedup would be the general close of G7's wording; G9b's own rule reaches
 every case the finding and the review produced, so G7's paragraph in the CONTRACT
 now states what the predicate actually enforces rather than more.
 
-**Still open, and NOT fixed here — probe H (adversarial review, 2026-09-04).**
+**CLOSED 2026-09-05 — probe H (adversarial review, 2026-09-04).** The paragraph
+below is kept as written, because it is the filing that led to §14. Read it as
+history: the answer it asks for — "whether a `type: "schema"` row should ever be
+a dedup candidate at all" — is yes-it-should-not, and §14 is the fix.
 An element and an ordinary memory can collide with **no revision anywhere**: an
 `addBelief` whose statement is X and a memory whose body is X, born the same
 lived day. No accommodation row is involved, so G9b does not apply; the tie-break
@@ -365,3 +368,99 @@ opposite risk profile from the record that surfaced it. Constitution line 7's
 "nothing bulk-wipes silently" points the same way: the first run of this would
 delete months of rows in one pass, and it should be a decision someone made on
 purpose, with a count printed first.
+
+## 14. Beliefs are not dedup candidates — 2026-09-05
+
+**The finding, restated as a question rather than a bug.** §12 above closed two
+ways a REVISION could lose its successor to a merge, and filed probe H as the
+third: an element and an ordinary memory colliding with no revision anywhere.
+The honest fix was named there and not built ("constitution 15: named, not
+built") because it is not a patch to the tie-break — it is a question about what
+the dedup pass is *for*. The owner answered it in one sentence: beliefs and
+memories are different kinds of things, and the duplicate-merger should compare
+notes with notes.
+
+**The rule as shipped: (a), the wide one.** A `type: "schema"` row is not a
+dedup candidate at all. `types.ts#isSchemaRow` is read in `runDedup` where the
+LIVE SET is built, so `contentHashCandidates` and any injected cosine source
+both receive a `liveIds` with no element in it. The alternative on the table was
+(b) — compare schema rows only with schema rows on the same entity — and it was
+rejected on contract grounds rather than taste:
+
+- `schemas/` §2 and constitution line 12: **named deviation.** "Beliefs never
+  blend into each other. Generalization is only ever an explicit,
+  provenance-carrying revision." A merge is exactly a blend with a `uses`
+  credit and no provenance.
+- `schemas/` §5 G4: **near collisions refuse LOUDLY rather than merging.** Two
+  beliefs saying one thing is a schemas-module question with a schemas-module
+  answer — refuse and say so — and a sleep phase archiving one at 2am is the
+  opposite of loud.
+- `schemas/` §5 G1: **no operation edits a belief.** Rule (b) would have made
+  the nightly pass the exception.
+- And empirically: `tools/migrate/apply.ts#writeElement` already de-duplicates
+  same-entity elements at import time, by `entity + role + statement`. The pair
+  rule (b) would police is not arriving through this door.
+
+Both alternatives were tested rather than argued: "two beliefs with one body are
+left to `schemas/`, not merged here" is the test that would pass under (b) too
+if it asserted a merge, and asserts the refusal instead.
+
+**Why (a) is narrow even though it sounds wide.** Elements still fade, still
+take pressure, still cross bands, still get pruned. This is not `isJournal` —
+that predicate is read by four phases and takes the journal out of forgetting
+altogether. `isSchemaRow` is read by ONE phase, and its doc comment says so, so
+the next reader does not generalize it into an exemption nobody granted.
+
+**G9b is not made redundant, and this is the fact that decided the shape of the
+change.** `schemas/index.ts:955` mints element successors with `type: "schema"`,
+which (a) covers. `revision.ts:387` mints the IDENTITY arm's successor with
+`type: "memory"` — an ordinary `mem_` row carrying `source: "accommodation"` —
+and (a) does not reach it. Without G9b, an identity element revised under three
+days of pressure would still lose its successor to the challenger. There is now
+a test at exactly that case, and it is the one that would fail if someone
+decided G9b had become dead code. The five PR #56 tests keep every invariant
+assertion; only their `leftAlone` reason line moved to `skipped.schema`, with
+the reason written beside it.
+
+**Two honesty repairs made in the same loop.** The journal exclusion in this
+phase was SILENT while CONTRACT §5 G15 claims "counted as a named skip in each
+phase" — decay, prune and consolidate counted it and dedup did not. It counts
+now. And a pair handed over by an injected source naming a stood-down row used
+to be counted `already-archived`, which is false for a live belief; it is named
+`schema` or `journal`.
+
+**What changes on a live store, and it is not nothing.** Any cycle where an
+element and an ordinary memory share a body. Migration makes that likely: every
+migrated element was minted at the import day while migrated memories kept their
+v1 birth day, so the memory is older on every such pair and wins without even
+needing the `mem_` < `sch_` tie-break. Nothing is repaired by the fix itself —
+an element already archived `merged` stays archived, with its prose, its id and
+its merge record intact. The repair is a separate, owner-run tool:
+`counterparts repair-merged-beliefs --dry-run`, and `--apply` if the owner
+chooses (`cli/NOTES.md` §5).
+
+**Two things the adversarial review measured that belong here rather than in a
+PR comment.**
+
+1. **The cosine arm has never fired on the live store.** `Counterpart.sessionEnd`
+   calls `runCycle({store, render, …})` with no `candidates`
+   (`core/counterpart.ts:1114`), so `runDedup`'s `source` is `undefined` and only
+   the content-hash arm has ever run in production. The cosine test in this
+   suite is a guard against future wiring, not a description of something that
+   has already happened — worth saying plainly, because it makes the live
+   exposure smaller than the tests' coverage suggests, and a reader who assumed
+   otherwise would over-read the finding in either direction.
+2. **`skipped["schema"]` now counts every live element, every night.** On a
+   migrated store that is a number in the thousands, and it means "nothing
+   happened" — the same shape as the journal skip. It is a census of what the
+   phase stood down, not an alarm, and nobody should read a cycle report as if
+   a big number there were a problem.
+
+**The class, for G12:** anything else. Not "telemetry-only and provably
+identical" — the surface-set hash is unchanged (`800a9a9421cd969f` on master and
+on this branch) because it hashes FIELD NAMES on three record shapes and no
+field moved, but what the store HOLDS moves: an element that would have been
+archived stays live, one fewer `sleep.merged.<id>` is written, and recall, the
+wake and every schema slice see a belief where they would have seen nothing.
+The day-1 record says nothing either way about schema/memory collisions, so
+"no live row is affected" is not a claim this session can make.

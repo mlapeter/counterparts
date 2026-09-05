@@ -482,6 +482,28 @@ export class Store {
       },
       rawRow: (id) => this.row(id),
       isDenied: (id) => this.isDenied(id),
+      // The narrowest possible route to box 3, and the LEXICAL half only: it
+      // rewrites `doc_tokens` / `doc_lens` for one id from that id's own prose,
+      // and leaves the `embeddings` row exactly where it is (`indexDoc` writes a
+      // vector only when it is HANDED one, and it is not handed one here). A
+      // restore must never make a paid embedding call, and it must never drop a
+      // vector it cannot recompute.
+      //
+      // It exists because `archive()` is on its way to DEINDEXING (PR #64,
+      // `overnight/df-live-rows`, counts document frequency over live rows by
+      // removing archived rows from the index). Without this, whichever of the
+      // two lands second leaves `unarchiveMerged` restoring a row that is live,
+      // listed in `beliefs(entity)`, and invisible to lexical recall — with no
+      // cheap repair, since a cache rebuild without an embedder drops every
+      // vector on the store. Harmless on a master where `archive()` still
+      // leaves the index alone: re-indexing an already-indexed row from its own
+      // prose is a write of the same rows.
+      reindexLexical: (id) => {
+        const row = this.row(id);
+        if (row === undefined) return;
+        const doc = readProseFile(row.prose_path, id);
+        indexDoc(this.cache, doc.id, indexText(doc));
+      },
     });
     this.assertLayout();
   }
@@ -507,9 +529,10 @@ export class Store {
     return this.ops.transaction(fn);
   }
 
-  /** `chaseRemoved` is not a Store method — it is the owner-op seam's, and it
-   *  crosses the same stance check, which is why the site name is spelled here. */
-  private assertWritable(site: WriteMethod | "chaseRemoved"): void {
+  /** `chaseRemoved` and `unarchiveMerged` are not Store methods — they are the
+   *  owner-op seam's, and they cross the same stance check, which is why their
+   *  site names are spelled here. */
+  private assertWritable(site: WriteMethod | "chaseRemoved" | "unarchiveMerged"): void {
     if (this.observer) {
       // Telemetry is the deliberate exception: a stood-down instrument must be
       // distinguishable from a broken hook (observer-mode.md G5/G6, scar §2.4).

@@ -101,9 +101,9 @@ by reference only.
    caller-universality test pins who may import it — **no model-reachable path may**
    (scar §2.6, earned-mechanism #14).
    *Correction (2026-08-25, when the box-2 chase landed — BUILD-STATUS gap 3): the ban
-   is now total over the module EXCEPT `owner-op-seam.ts`, which exports exactly three
-   names (`chaseRemoved`, `grantOwnerOps`, `REMOVED_REASON`), pinned by name in
-   `test/store.test.ts`. The seam had to become the place removal actually happens,
+   is now total over the module EXCEPT `owner-op-seam.ts`, whose export list is pinned by
+   name in `test/store.test.ts` — on 2026-08-25 that was three names (`chaseRemoved`,
+   `grantOwnerOps`, `REMOVED_REASON`). The seam had to become the place removal actually happens,
    because a removal that could not reach the `memories`/`edges`/`prospective` rows was
    "anything can be removed loudly" with a footnote. Nothing weakened: `Store` itself
    still carries no such method (the prototype test is unchanged and total), the chase
@@ -111,6 +111,19 @@ by reference only.
    read, it crosses the same observer stance check every write crosses, and a second
    caller-universality test pins who may VALUE-import the seam — `adapters/cli/` and
    nobody else.*
+   *Second correction (2026-09-05, the probe-H repair — `sleep/NOTES.md` §12): the seam
+   gained `unarchiveMerged` (with `MERGED_ARCHIVE_REASON` and `UNMERGE_EVENT`), the one
+   REPAIR on this path. It is here rather than on `Store` for the same reason the chase
+   is: a general `unarchive` would reverse the prune, the revision and the removal along
+   with the merge, and every one of those is archived for a reason a repair tool has no
+   business undoing. This door undoes exactly `archived_reason: "merged"` and refuses
+   every other reason, a superseded row, a removed id and an unknown id, each by its own
+   error code. It crosses the same stance check, appends a latched `memory.unmerged`
+   record in the same transaction, and erases nothing: the merge record and the
+   `memory.merged` event stay where they are (constitution 7). It is also the one
+   owner-op that touches box 3 — `OwnerOpAccess.reindexLexical`, the LEXICAL half only,
+   so a restored row is findable again once `archive()` starts deindexing (PR #64) while
+   its embedding is neither recomputed at cost nor dropped.*
 3. **[M] No structured mutable state is hand-serialized by more than one writer.** A test
    enumerates every mutable non-prose path in the data directory and fails on any that is
    neither transactional nor provably single-writer (scar §2.1).

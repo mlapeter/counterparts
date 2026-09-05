@@ -736,7 +736,7 @@ Removal residue = **option A** (landed, #53; B filed for the overnight prompt). 
 
 ### New findings since round 2
 
-- **I17 (core, pre-existing)** Schema elements (`sch_`) are ordinary dedup candidates and lose the same-day tie-break to a memory with the same body even with no revision anywhere; migrated elements were minted at the import day while migrated memories kept their v1 birth day, so such pairs on the live store would already be archived. Filed in `sleep/NOTES.md` §12. Read-only check: `memory.merged` events whose `candidateId` starts with `sch_`.
+- **I17 (core, pre-existing — FIXED on branch `overnight/schema-not-dedup`, 2026-09-05; see that entry)** Schema elements (`sch_`) are ordinary dedup candidates and lose the same-day tie-break to a memory with the same body even with no revision anywhere; migrated elements were minted at the import day while migrated memories kept their v1 birth day, so such pairs on the live store would already be archived. Filed in `sleep/NOTES.md` §12. Read-only check: `memory.merged` events whose `candidateId` starts with `sch_`.
 - **I18 (dashboard)** `counterparts note` does not refresh an open flow page (refresh gated on durable events; a note writes none). W2 round 3.
 - **I19 (process)** A RESUMED agent whose isolated worktree was auto-cleaned runs in the live checkout: the delta auditor did `git checkout --detach origin/master` in `~/counterparts` (same commit, nothing changed, re-attached). Rule: spawn fresh with worktree isolation for anything that checks out or edits.
 - **I20 (test)** `test/demo-seed.test.ts`'s determinism test timed out under full-suite load (8.2 s vs 5 s default) — fixed (#60).
@@ -746,7 +746,7 @@ Removal residue = **option A** (landed, #53; B filed for the overnight prompt). 
 | # | Item | State |
 |---|---|---|
 | G16 | **Run the phase-clock restart for #56**: `~/.bun/bin/bun run tools/parallel/bin/restart.ts --run-dir ~/counterparts-parallel-run/2026-09-03 --date 2026-09-05 --phase P --v2-data-dir ~/.counterparts/store --reason "fix/revision-successor-survives: dedup no longer archives a revision's successor; G12 class anything-else; surfaceSet 800a9a9421cd969f unchanged"` — with no session open. Zero counted days lost. | open |
-| G17 | Read-only check for I17 on the live store (merge records with `sch_` losers). | open |
+| G17 | Read-only check for I17 on the live store (merge records with `sch_` losers). **Now a command:** `counterparts repair-merged-beliefs --dry-run` — see the 2026-09-05 entry. | open |
 | G18 | Site lane labels: in/out (builder) vs your/AI (ruling). | open |
 | G19 | Create the site's GitHub repo and Vercel project; point counterparts.ai at it (after the flip). | later |
 | G20 | The flip: `docs/launch/flip-checklist.md`, 12 steps, owner executes. | staged |
@@ -755,3 +755,53 @@ Removal residue = **option A** (landed, #53; B filed for the overnight prompt). 
 ### Spend
 
 $0.00 this round. Cumulative: the round-1 critic's handful of Voyage calls (cents); nothing else.
+
+## overnight, 2026-09-05 — workstream 11: beliefs are not dedup candidates (I17 / G17)
+
+Branch `overnight/schema-not-dedup`. **Not merged; core, so the owner merges.**
+
+- **I17 is fixed.** A `type: "schema"` row is no longer a dedup candidate at all —
+  rule (a), taken over (b) "schema-with-schema on the same entity" on contract grounds:
+  `schemas/` §2 and constitution 12 (beliefs never blend; generalization is only an
+  explicit provenance-carrying revision), §5 G4 (near collisions refuse LOUDLY rather
+  than merging), §5 G1 (no operation edits a belief), and `migrate/apply.ts#writeElement`
+  already de-duplicates same-entity elements at import. `sleep/` CONTRACT gains **G9c**;
+  G7's "still open" paragraph is closed; `sleep/NOTES.md` §14 records it and §12's probe
+  H is marked closed. Physics is unchanged — `dedupVerdict` did not move, because
+  candidates are the phase's job and never physics'.
+- **G9b (PR #56) stays load-bearing, not belt-and-braces.** `revision.ts`'s identity arm
+  mints its successor as `type: "memory"`, so the schema rule does not reach it. A new
+  test pins that case. None of PR #56's five tests were removed; each keeps every
+  invariant assertion and only its reason line moved to `skipped.schema`.
+- **Failing-test-first:** five new tests failed on master (same body, migration shape,
+  cosine path, the narrowness guard, two beliefs) and pass after. Measured on the merged
+  tree (master `a49bca5` merged into the branch): suite **1,610 / 0**, `tsc` clean,
+  install loop **36/36**.
+- **The repair exists**, because stopping the bug does not undo it:
+  `counterparts repair-merged-beliefs`, dry run by default, over the union of
+  `memory.merged` events with a `sch_` candidate and archived schema rows whose reason is
+  the merge. The core door it needed did not exist and was built as the smallest one that
+  works: `store/owner-op-seam.ts#unarchiveMerged` accepts `archived_reason: "merged"` and
+  refuses every other reason, a superseded row, a removed id and an unknown id, each by
+  its own error code. The `uses` each merge credited is LEFT STANDING and recorded in the
+  `memory.unmerged` record rather than silently reversed.
+- **G12 class: ANYTHING ELSE.** Surface-set hash `800a9a9421cd969f` on master (`7fe3e9f`)
+  and on the branch — unchanged, and still `800a9a9421cd969f` on master `a49bca5` and on
+  the branch with that merged in. Unchanged because it hashes field NAMES on three record
+  shapes and no field moved. That is not "identical": an element that would have been archived stays
+  live, one fewer `sleep.merged.<id>` is written, and recall, the wake and every schema
+  slice see a belief where they would have seen nothing. The day-1 record says nothing
+  about schema/memory collisions, and migration settles the DIRECTION of the loss (elements
+  at the import day, migrated memories keeping their v1 birth day, so the element always
+  loses) and not its FREQUENCY — a pair needs two distinct v1 items whose gated text is
+  byte-identical. The direction is certain; the count is unknown, and only G17's dry run
+  can say. "No live row is affected" is not a claim this session can make.
+
+### NEEDS-OWNER — workstream 11
+
+| # | Item | State |
+|---|---|---|
+| G17 | **Now runnable, and read-only:** `counterparts repair-merged-beliefs --dry-run --dir ~/.counterparts/store` answers I17's question on the live store — it prints every belief a merge archived, with the entity, the statement's first 60 characters, the memory it went into and the lived day. It writes nothing. The owner runs it; no agent has, or may. | open |
+| G22 | Merge `overnight/schema-not-dedup` (core). Record the G12 class **anything else** in `docs/PARALLEL-RUN-STATUS.md` before merging — a proposed entry is drafted there under 2026-09-05, for the owner to confirm or amend. | open |
+| G23 | After merging, and only if G17's dry run listed anything: `counterparts repair-merged-beliefs --apply --dir ~/.counterparts/store`, with no session open. It restores each belief to live and appends one `memory.unmerged` record per row; a second run does nothing. Owner-only. | open |
+| G24 | The phase clock: this is an anything-else class like #56's, so the same restart applies. Whether it needs its OWN restart or rides #56's (G16, same night, same surface-set hash) is the owner's call — the session that made the change may not run `restart.ts`. | open |

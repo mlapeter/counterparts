@@ -23,6 +23,9 @@ import { TUNABLES as PHYSICS } from "../../core/physics/index.js";
 import type { PromotionCrossing, PruneRecord } from "../../core/physics/index.js";
 import { PHASES } from "../../core/sleep/index.js";
 import type { MergeRecord, Phase } from "../../core/sleep/index.js";
+// A TYPE import, erased at runtime: the caller-universality test's own rule
+// (`test/cli.test.ts`) is that a type import reaches no function on that seam.
+import type { UnmergeRecord } from "../../core/store/owner-op-seam.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import {
@@ -87,6 +90,7 @@ export type DurableEventName =
   | PromotionCrossing["event"]
   | PruneRecord["event"]
   | MergeRecord["event"]
+  | UnmergeRecord["event"]
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
   | typeof GATE_DEPOSIT_EVENT
@@ -127,6 +131,7 @@ export const DURABLE_EVENTS = {
   "gate.deposit": "an authored deposit met the gate battery (which gates acted, and what they refused)",
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
+  "memory.unmerged": "the owner put back a row a merge had archived (repair-merged-beliefs)",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief or an identity element took a credited challenge",
   "sweep.gate": "the crash fallback ran its gate (scopes looked at, scopes skipped as nothing-crashed, spans swept)",
