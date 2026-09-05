@@ -1089,8 +1089,8 @@ export class Store {
    * This is I13's migration, and it exists for the same reason `backfillLengths`
    * does: the repair is a pure function of state box 3 and box 2 already hold,
    * so it must not be paid for with `rebuildCache`, which begins with
-   * `resetCache` and drops every embedding — 13,868 of them on the store this
-   * was written against, one paid network call each. `counterparts verify
+   * `resetCache` and drops every embedding — roughly 13.9K of them on the store
+   * this was written against, one paid network call each. `counterparts verify
    * --rebuild` refuses outright for that reason unless the owner passes
    * `--drop-vectors`, so a rebuild is not a repair anyone can actually run here.
    *

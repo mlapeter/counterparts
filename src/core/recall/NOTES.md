@@ -291,6 +291,26 @@ that put length normalization inside the SQL before `ORDER BY … LIMIT`: re-ran
 set is not choosing a right one. `test/recall.test.ts` pins it ("a dead row does not
 occupy a candidate slot in the index either").
 
+**…and it is closed on the LEXICAL channel only. The semantic half is OPEN.** The first
+draft of this entry, and of `deindexDoc`'s docblock, said that nothing reads a dead row's
+vector and that no reader could tell. Both were false, and an adversarial review measured
+it: `cache.ts#nearest` does `SELECT memory_id, vec FROM embeddings` with **no filter**,
+`activate.ts` takes that ranking as `SEMANTIC_TOP_M` candidates, and only then discards
+the archived or superseded row — after it has spent the slot. Measured on the branch:
+after a `supersede`, `store.nearestTo(v, 10)` returned the **dead row first of three**.
+This is not a regression (master had it on both channels; this change is strictly better
+on one) and it is reachable in production, not theoretical — the lagged worker
+(`adapters/claude-code/vectors.ts` → `counterpart.ts` → `recall/session.ts`) is the door
+the semantic channel reaches the owner's store through today. What is true, stated
+narrowly: **nothing can be DELIVERED from a dead row, and its vector can still displace a
+live neighbour from the semantic slate.**
+
+**FOLLOW-UP, filed not built:** filter inside `Store.nearestTo` — over-fetch and drop the
+non-live against box 2, the same shape the lexical half just got — and the same for
+`nearestVectors`, which is the novelty context slice and shares the scan. Not done here
+because it widens a core diff the night before a merge, and because it wants the
+over-fetch factor measured rather than guessed.
+
 **What it changes, arithmetically.** `storeSize` does not move, so `floorUnit` —
 `informativeness(1, storeSize)` — is bit-identical at every size and **no floor and no
 tier was retuned.** Only `df` moves, from `k + a` to `k`, where `k` is the live rows
@@ -301,6 +321,7 @@ holding the token and `a` the dead ones. Weight of that token, before → after:
 | 1 | 1 | 1 | 0 | 0.4055 | +0.4055 — the reported case; dark → cueable |
 | 2 | 1 | 1 | 0 | 0.4055 | +0.4055 (journal + note, the note revised) |
 | 2 | 2 | 1 | 0 | 0 | 0 — §12's "left alone" case, still left alone |
+| 3 | 1 | 1 | 0.2231 | 0.6931 | +0.4700 |
 | 100 | 1 | 1 | 3.2387 | 3.9220 | +0.6833 |
 | 100 | 10 | 2 | 1.5404 | 1.7047 | +0.1643 |
 | 14,000 | 1 | 1 | 8.1607 | 8.8537 | +0.6931 |
@@ -324,7 +345,9 @@ be run from here, and unlike §12 this change cannot be argued bit-identical at 
 
 **The fix is PROSPECTIVE, so it ships with its own migration.** `archive` and `supersede`
 keep the invariant from here on; the rows that went dark before this change are still in
-the index. `rebuildCache` would clear them and drop 13,868 paid vectors on the way — and
+the index. `rebuildCache` would clear them and drop every paid vector box 3 holds on the
+way — ~13.9K on the owner's store, and master records that figure two ways (13,862 and
+13,868), which is the claims auditor's to settle rather than this note's — and
 `counterparts verify --rebuild` refuses outright while box 3 holds any, so a rebuild is not
 a repair the owner of a real store can actually run. So the migration is
 `Store.pruneDeadIndex()` / `counterparts verify --prune-index`: it diffs box 3's indexed
@@ -334,18 +357,43 @@ derivable and a `resetCache` would have cost the vectors. It is NOT run at open 
 instrument writes nothing at open, and a write at open takes the write lock — so the owner
 runs it by name, once.
 
-**Left alone, deliberately.** `embeddings`. A vector cost a paid network call, nothing
-reads a dead row's vector (`activate` skips the hit before scoring), and box 3's float
-layout is being rewritten in the same night's work. So `deindexDoc` drops tokens and
-lengths only. `rebuildCache` does not carry a dead row's vector forward, because a rebuild
-reproduces the live index — the one asymmetry, named here rather than hidden: an archived
-row keeps its vector until the next rebuild, and no reader can tell.
+**Left alone, deliberately, and with the reason corrected.** `embeddings`. A vector cost a
+paid network call and box 3's float layout is being rewritten in the same night's work, so
+`deindexDoc` drops tokens and lengths only. The reason first written here — "nothing reads
+a dead row's vector" — was **wrong**, and the paragraph above records what the measurement
+found instead. Two further tables this rule does not reach, both inert rather than wrong:
+`ranking` keeps the dead row (keyed by id, read per-id by callers that already iterate live
+rows), and `rebuildCache` does not carry a dead row's vector forward, because a rebuild
+reproduces the live index — an archived row keeps its vector until the next rebuild.
 
-**Two adapter surfaces lose their archived hits**, and this is a real cost, not a
-rounding: `cli/removal.ts`'s contamination scan (`store.search(body, 20)`) and the
-dashboard's search view no longer return archived rows. The removal probe's largest
-residue surface is unaffected — the archived VERSION files under `versions/` were never
-indexed at all — but a removed memory's archived sibling will no longer be listed as
-contamination. Filed for the owner rather than worked around: the honest repair is a
-residue scan that reads canonical prose, not the recall index, which is a different piece
-of work from this one.
+**THREE index readers lose their archived hits**, and this is a real cost, not a rounding.
+
+1. `cli/removal.ts`'s contamination scan (`store.search(body, 20)`). The removal probe's
+   largest residue surface is unaffected — the archived VERSION files under `versions/`
+   were never indexed at all — but a removed memory's archived sibling will no longer be
+   listed as contamination. The honest repair is a residue scan that reads canonical prose
+   rather than the recall index; filed, not worked around.
+2. The dashboard's **search view** (`web/views.ts`). Note the seam this opens: the
+   dashboard still reports *"archived: N — held, not gone"* from `store.list`, while its
+   search box can no longer reach those rows. No UI control offers archived results, so
+   the loss is silent rather than a lie — but the two panels now disagree about what
+   "held" means, and that is worth one line of copy.
+3. **`counterpart.ts`'s `updates:` content-match candidate source** — `store.search(query
+   .content, query.limit)`, with no archived filter of its own in `remember/updates.ts`. A
+   declared `updates:` can therefore no longer content-match an archived or superseded row.
+   It cuts both ways and both ways are small: a plain ARCHIVED match was already a dead end
+   (`revision.ts` refuses it as `target-archived`), so losing it is an improvement; a
+   SUPERSEDED head used to `resolve` forward to its live successor, so a declaration that
+   quoted the old wording was retargeted and now has to match the new wording instead. It
+   is a live behaviour change on the REVISION path either way, and belongs inside the G12
+   argument rather than beside it.
+
+**Named, not fixed** (from the same review, none blocking): two predicates state one
+invariant — `rebuildCache` reads `archived = 1 || superseded_by IS NOT NULL` while
+`pruneDeadIndex` and `recall/index.ts` read `archived = 0` alone; equivalent today because
+`supersede` writes both and nothing else writes either, but that is scar §2.6's shape and
+wants one helper. `archive` now does box-3 work between the box-2 commit and its event, so
+a throw in `deindexDoc` loses the `store.archive` event for a row that IS archived — the
+house pattern from `put`/`supersede`, widened to a method that did not have it. And
+`verify --rebuild --prune-index` together lets rebuild win silently where a one-line
+refusal would be clearer.

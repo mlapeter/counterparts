@@ -287,16 +287,36 @@ export function setEmbedding(db: Db, id: string, vec: readonly number[]): void {
  * matches the question. That is NOTES §12's N=1 re-zeroing, restored by an
  * ordinary revision (LAUNCH-STATUS I13).
  *
- * It also stops a dead row from spending a slot: `searchIndex` takes the top
- * `limit` per cue, and a row `activate` will discard was still winning one of
- * them. Narrowing the candidate SET is the same failure length normalization
- * was moved into the SQL to avoid.
+ * It also stops a dead row from spending a slot ON THE LEXICAL CHANNEL:
+ * `searchIndex` takes the top `limit` per cue, and a row `activate` will
+ * discard was still winning one of them. Narrowing the candidate SET is the
+ * same failure length normalization was moved into the SQL to avoid.
  *
- * **`embeddings` is deliberately left alone.** A vector cost a paid network
- * call and nothing reads a dead row's vector anyway (`activate` skips the hit),
- * so deleting it here would spend money to gain nothing. `rebuildCache` does
- * not carry it forward — a rebuild reproduces the LIVE index — and that
- * asymmetry is named in `recall/NOTES.md` rather than hidden.
+ * **`embeddings` is left alone, and the semantic half of that same slot problem
+ * is therefore still OPEN.** A vector cost a paid network call, so deleting it
+ * here would spend money — but the first draft of this docblock justified that
+ * with "nothing reads a dead row's vector", and an adversarial review measured
+ * the opposite: `nearest` (below) scans `embeddings` with no filter, and
+ * `activate.ts`'s semantic channel takes that ranking as `SEMANTIC_TOP_M`
+ * candidates before discarding the dead one. After a `supersede`, `nearestTo`
+ * returned the dead row FIRST of three. So what is true is narrower: nothing
+ * can be DELIVERED from a dead row, and its vector can still displace a live
+ * neighbour from the semantic slate. Named as a follow-up in
+ * `recall/NOTES.md` §13 (filter inside `Store.nearestTo` — over-fetch and drop
+ * the non-live against box 2, the shape the lexical half just got) rather than
+ * widened into this change. `rebuildCache` does not carry a dead row's vector
+ * forward — a rebuild reproduces the LIVE index — and that asymmetry is named
+ * there too.
+ *
+ * **Two things this does NOT reach, deliberately.** The `ranking` table keeps
+ * the row: it is keyed by id and read per-id by callers that already iterate
+ * live rows, so it is inert rather than wrong. And the rule is kept by the two
+ * WRITERS of `archived = 1` that live in this module — `Store.archive` and
+ * `Store.supersede`; the third, `owner-op-seam.ts`'s removal scrub, is reached
+ * only by its caller's convention (the console's destruction path always
+ * follows it with `rebuildCache`, which drops the row as `skippedDenied`). If
+ * that rebuild ever failed, `counterparts verify`'s "indexed but not live" line
+ * now names the leftover instead of hiding it.
  */
 export function deindexDoc(db: Db, id: string): void {
   forgetAvgDocLen(db);
