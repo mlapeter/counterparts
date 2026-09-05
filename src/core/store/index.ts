@@ -25,6 +25,7 @@
  * owner sees that something WAS here (constitution 16).
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
@@ -45,7 +46,14 @@ import type {
   VersionRow,
 } from "./operational.js";
 import { grantOwnerOps } from "./owner-op-seam.js";
-import { LAYOUT, assertLayoutClassified, assertSafeDataDir, dataDir, paths } from "./paths.js";
+import {
+  LAYOUT,
+  assertLayoutClassified,
+  assertSafeDataDir,
+  dataDir,
+  paths,
+  resolveStoredPath,
+} from "./paths.js";
 import {
   ID_PREFIX,
   archivePriorVersion,
@@ -84,7 +92,15 @@ export type {
   RemovalRow,
   TombstoneRow,
 } from "./operational.js";
-export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, rowToPhysics } from "./operational.js";
+export {
+  DEFAULT_RETENTION_DAYS,
+  OBSERVER_READ_FLOOR,
+  PATHS_MIGRATED_EVENT,
+  SCHEMA_VERSION,
+  relativizeStoredPaths,
+  rowToPhysics,
+} from "./operational.js";
+export type { PathsConverted } from "./operational.js";
 export {
   tokenize,
   cosine,
@@ -183,6 +199,18 @@ export interface PutInput {
    *  carrier a removal destroys, so the pointer dies with the thing it points
    *  at instead of outliving it in a box-2 column. */
   origin?: { session?: string; scope?: string; ref?: string; spanHash?: string };
+}
+
+/** One column's spelling census — `Store.pathCensus()`, printed by `verify`. */
+export interface PathCensus {
+  /** Store-relative rows (the v5 shape). */
+  readonly relative: number;
+  /** Absolute rows the v5 migration could not place; read where they always were. */
+  readonly absolute: number;
+  /** Non-blank rows whose resolved file is not on disk. */
+  readonly missing: number;
+  /** Blanked pointers — removed rows. Nothing to resolve. */
+  readonly blank: number;
 }
 
 export interface StoredMemory {
@@ -469,6 +497,7 @@ export class Store {
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: writesAtOpen,
       retentionDays: this.retentionDays,
+      now: this.nowFn,
     });
     this.cache = openCache(paths.cache(this.dir));
     // The owner-op capability. Handed to the seam module, never to a caller:
@@ -501,7 +530,7 @@ export class Store {
       reindexLexical: (id) => {
         const row = this.row(id);
         if (row === undefined) return;
-        const doc = readProseFile(row.prose_path, id);
+        const doc = readProseFile(this.absolutePath(row.prose_path), id);
         indexDoc(this.cache, doc.id, indexText(doc));
       },
     });
@@ -656,7 +685,7 @@ export class Store {
   ): number {
     const { staged, doc, seq } = this.mutate("revise", () => {
       const row = this.requireRow(id);
-      const current = readFileSync(row.prose_path, "utf8");
+      const current = readFileSync(this.absolutePath(row.prose_path), "utf8");
       const version = archivePriorVersion(this.dir, id, current, row.revision + 1);
       this.ops.run(
         `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
@@ -666,10 +695,10 @@ export class Store {
         patch.reason ?? "revise",
         this.livedDay(),
         this.nowFn(),
-        version.path,
+        version.storedPath,
         version.hash,
       );
-      const prior = readProseFile(row.prose_path, id);
+      const prior = readProseFile(this.absolutePath(row.prose_path), id);
       const next: ProseDoc = {
         ...prior,
         body: patch.body ?? prior.body,
@@ -1183,7 +1212,7 @@ export class Store {
         skippedArchived += 1;
         continue;
       }
-      const doc = readProseFile(row.prose_path, row.id);
+      const doc = readProseFile(this.absolutePath(row.prose_path), row.id);
       const text = indexText(doc);
       // KEEP MEANS KEEP. A row that already has a vector is not offered to the
       // embedder at all under `keepVectors` — the first version called it and
@@ -1413,7 +1442,7 @@ export class Store {
 
   read(id: string): StoredMemory {
     const row = this.requireRow(id);
-    const doc = readProseFile(row.prose_path, id);
+    const doc = readProseFile(this.absolutePath(row.prose_path), id);
     if (row.archived === 1) {
       // §5 G13: a read-back of archived content is an event, so "did the archival
       // mechanisms ever pay for themselves" is an answerable question in v2.
@@ -1505,7 +1534,52 @@ export class Store {
     );
     if (row === undefined) throw new StoreError("VERSION_UNKNOWN", { id, seq });
     this.emit("store.version.read", id, { seq, reason: row.reason });
-    return readProseFile(row.path, id);
+    return readProseFile(this.absolutePath(row.path), id);
+  }
+
+  /**
+   * A row's stored path (`prose_path`, a version's `path`), made absolute
+   * against THIS store — the one address a caller may hand to the filesystem.
+   *
+   * Rows hold store-relative paths (`prose/<family>/<id>.md`; CONTRACT §5 G14),
+   * so a copied or restored store names the files beside it and never the
+   * files of the store it was copied from. `""` — a chased row's blanked
+   * pointer — resolves to `""`, never to the store root (`paths.ts`).
+   */
+  absolutePath(storedPath: string): string {
+    return resolveStoredPath(this.dir, storedPath);
+  }
+
+  /**
+   * How the two path columns are spelled, and whether their files are there.
+   * `verify` prints this; it is the owner's read-only view of the v5 migration
+   * on a live store (constitution 16). Pure reads plus one `stat` per row.
+   *
+   *   relative  — the v5 shape, resolved against this store;
+   *   absolute  — a pre-v5 row the migration could not place (no `prose/` or
+   *               `versions/` segment), still read where it always was;
+   *   missing   — a non-blank pointer whose resolved file does not exist.
+   *
+   * Blank pointers (removed rows) are neither: there is nothing to resolve.
+   */
+  pathCensus(): { prose: PathCensus; versions: PathCensus } {
+    const census = (rows: readonly { p: string }[]): PathCensus => {
+      const out = { relative: 0, absolute: 0, missing: 0, blank: 0 };
+      for (const { p } of rows) {
+        if (p.length === 0) {
+          out.blank += 1;
+          continue;
+        }
+        if (isAbsolute(p)) out.absolute += 1;
+        else out.relative += 1;
+        if (!existsSync(this.absolutePath(p))) out.missing += 1;
+      }
+      return out;
+    };
+    return {
+      prose: census(this.ops.all<{ p: string }>("SELECT prose_path AS p FROM memories")),
+      versions: census(this.ops.all<{ p: string }>("SELECT path AS p FROM versions")),
+    };
   }
 
   edgesFrom(src: string): EdgeRow[] {
@@ -1728,7 +1802,9 @@ export class Store {
       input.physics?.pressure ?? 0,
       input.physics?.lastChallengedDay ?? null,
       staged.hash,
-      staged.finalPath,
+      // The ROW holds the store-relative spelling; `finalPath` is only for the
+      // rename that publishes the file (§5 G14).
+      staged.storedPath,
       doc.learnedOn,
       doc.happenedOn ?? null,
       input.source ?? null,

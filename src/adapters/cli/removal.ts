@@ -664,7 +664,13 @@ export function ownerRemoval(
   append("requested");
 
   const row = store.row(request.targetId);
-  const prosePath = row?.prose_path ?? null;
+  // RESOLVED AGAINST THIS STORE, never taken as a filesystem path (§5 G14): the
+  // row holds `prose/<family>/<id>.md`, and before it did, a removal run in a
+  // copied store deleted the SOURCE's file through the copy's absolute pointer
+  // (finding I22). A blanked pointer resolves to `""`, so an already-chased row
+  // can never resolve to the store root.
+  const prosePath =
+    row === undefined || row.prose_path === "" ? null : store.absolutePath(row.prose_path);
   const versions = store.versions(request.targetId);
 
   // Read the body BEFORE `dark`, and keep it local: it is the strike's fallback
@@ -756,7 +762,8 @@ export function ownerRemoval(
   let versionsGone = 0;
   for (const version of versions) {
     try {
-      if (existsSync(version.path)) rmSync(version.path, { force: true });
+      const versionPath = version.path === "" ? "" : store.absolutePath(version.path);
+      if (versionPath !== "" && existsSync(versionPath)) rmSync(versionPath, { force: true });
       versionsGone += 1;
     } catch {
       /* counted below */
@@ -822,7 +829,8 @@ export function verifyRemoval(store: Store, targetId: string): {
   darkState: number;
 } {
   const row = store.row(targetId);
-  const prosePath = row === undefined || row.prose_path === "" ? null : row.prose_path;
+  const prosePath =
+    row === undefined || row.prose_path === "" ? null : store.absolutePath(row.prose_path);
   const tombstone = store.tombstones().find((e) => e.id === targetId);
   return {
     denied: store.deniedIds().includes(targetId),

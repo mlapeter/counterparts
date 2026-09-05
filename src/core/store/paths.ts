@@ -5,7 +5,7 @@
  * can redirect it per test — the hermetic-test rule in CLAUDE.md depends on this.
  */
 import { homedir } from "node:os";
-import { join, resolve, relative, isAbsolute } from "node:path";
+import { join, posix, resolve, relative, isAbsolute, sep } from "node:path";
 import { StoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
@@ -144,17 +144,92 @@ export const PROSE_DIR: Record<string, string> = {
   schema: "schemas",
 };
 
+/**
+ * The two stored spellings of a canonical file, RELATIVE to the store root and
+ * POSIX-separated whatever the host: `prose/<family>/<id>.md` and
+ * `versions/<id>/<seq>-<hash>.md`. These are what `memories.prose_path` and
+ * `versions.path` hold (CONTRACT §5 G14, 2026-09-05); the absolute forms below
+ * are `join(dir, …)` of exactly these, so there is one spelling of each.
+ *
+ * A store directory is SELF-CONTAINED: copy it, move it, restore it from a
+ * backup — the rows inside still name the files beside them, never the files
+ * of the store they were copied from (finding I22: an absolute path made a
+ * copied store read and DELETE the source's prose).
+ */
+export const stored = {
+  proseFile: (type: string, id: string): string =>
+    posix.join("prose", PROSE_DIR[type] ?? type, `${id}.md`),
+  versionFile: (id: string, seq: number, hash: string): string =>
+    posix.join("versions", id, `${String(seq).padStart(4, "0")}-${hash}.md`),
+} as const;
+
 export const paths = {
   prose: (dir: string) => join(dir, "prose"),
   proseKind: (dir: string, type: string) => join(dir, "prose", PROSE_DIR[type] ?? type),
-  proseFile: (dir: string, type: string, id: string) =>
-    join(dir, "prose", PROSE_DIR[type] ?? type, `${id}.md`),
+  proseFile: (dir: string, type: string, id: string) => join(dir, stored.proseFile(type, id)),
   versions: (dir: string) => join(dir, "versions"),
   versionsFor: (dir: string, id: string) => join(dir, "versions", id),
   versionFile: (dir: string, id: string, seq: number, hash: string) =>
-    join(dir, "versions", id, `${String(seq).padStart(4, "0")}-${hash}.md`),
+    join(dir, stored.versionFile(id, seq, hash)),
   tmp: (dir: string) => join(dir, "tmp"),
   operational: (dir: string) => join(dir, "operational.sqlite"),
   cacheDir: (dir: string) => join(dir, "cache"),
   cache: (dir: string) => join(dir, "cache", "cache.sqlite"),
 } as const;
+
+/**
+ * A stored path, made absolute against the store that holds the row.
+ *
+ * Three cases, each deliberate:
+ *   - `""` → `""`. A chased row's pointers are blanked (`owner-op-seam.ts`), and
+ *     `join(dir, "")` is the STORE ROOT — handed to the removal path's
+ *     `existsSync` + `rmSync`, that would be the one address worse than the
+ *     source's file. A blank pointer resolves to nothing, never to a directory.
+ *   - absolute → returned as it is. A row a build before v5 wrote and the v5
+ *     migration could not place (no `prose/` or `versions/` segment to key on;
+ *     `verify` counts these as "absolute (unmigrated)"). Reads behave exactly as
+ *     they did before v5 for that row, and nothing else.
+ *   - relative → `join(dir, stored)`. The v5 shape.
+ */
+export function resolveStoredPath(dir: string, storedPath: string): string {
+  if (storedPath.length === 0) return "";
+  if (isAbsolute(storedPath)) return storedPath;
+  return join(dir, storedPath);
+}
+
+/**
+ * The v4 → v5 conversion of ONE path: absolute in, store-relative POSIX out, or
+ * `null` when the path cannot be placed.
+ *
+ * Two rules, in order. If the path lies under `dir` the relative part is exact.
+ * Otherwise the DEEPEST `/prose/` or `/versions/` segment keys the tail — which
+ * is what places a row whose store was written under one spelling and opened
+ * under another (`/var/…` vs `/private/var/…` on macOS), or a backup restored
+ * to a new directory with rows that still name the old one. The tail after the
+ * store-level segment can never contain a second such segment: it is
+ * `prose/<family>/<id>.md` or `versions/<id>/<seq>-<hash>.md`, and an id may
+ * not contain a slash (`serializeProse` refuses one).
+ *
+ * A relative path is returned unchanged, so the conversion is idempotent by
+ * construction and a second run finds nothing to do.
+ */
+export function relativizeStoredPath(dir: string, path: string): string | null {
+  if (path.length === 0) return path;
+  if (!isAbsolute(path)) return toPosix(path);
+  if (isWithin(dir, path)) {
+    const rel = relative(resolve(dir), resolve(path));
+    if (rel.length > 0) return toPosix(rel);
+  }
+  const normalized = toPosix(path);
+  let best = -1;
+  for (const segment of ["/prose/", "/versions/"]) {
+    const at = normalized.lastIndexOf(segment);
+    if (at > best) best = at;
+  }
+  if (best === -1) return null;
+  return normalized.slice(best + 1);
+}
+
+function toPosix(path: string): string {
+  return sep === "/" ? path : path.split(sep).join("/");
+}

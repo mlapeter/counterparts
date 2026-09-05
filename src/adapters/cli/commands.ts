@@ -56,6 +56,7 @@ import {
   CACHE_SCHEMA_VERSION,
   ID_PREFIX,
   LAYOUT,
+  SCHEMA_VERSION,
   Store,
   dataDir,
   decodeVector,
@@ -65,7 +66,7 @@ import {
   readProseFile,
   storeExists,
 } from "../../core/store/index.js";
-import type { VectorFormatCensus } from "../../core/store/index.js";
+import type { PathCensus, VectorFormatCensus } from "../../core/store/index.js";
 // The owner-op seam's REPAIR half — the one door that un-archives, and only for
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
@@ -1375,6 +1376,21 @@ function censusCache(dir: string): CacheCensus {
  * One line naming the shape box 3's vectors are in, and — when it is mixed —
  * what to run. An empty table is neither format and says so.
  */
+/**
+ * "N relative, M absolute (unmigrated), K missing files" — the shape the
+ * owner reads the v5 path migration by. Blank pointers (removed rows) are named
+ * only when there are any, because "0 removed" on every store is noise.
+ */
+function pathCensusLine(c: PathCensus): string {
+  const parts = [
+    `${c.relative} relative`,
+    `${c.absolute} absolute (unmigrated)`,
+    `${c.missing} missing file${c.missing === 1 ? "" : "s"}`,
+  ];
+  if (c.blank > 0) parts.push(`${c.blank} blank (removed)`);
+  return parts.join(", ");
+}
+
 function vectorFormatLine(v: VectorFormatCensus): string {
   if (v.total === 0) return "none held";
   const parts: string[] = [];
@@ -1470,6 +1486,8 @@ function verifyCensus(dir: string, io: Io): number {
   let live: string[];
   let denied: string[];
   let unembedded: number;
+  let pathsCensus: ReturnType<Store["pathCensus"]>;
+  let schemaVersion: string | null;
   try {
     canonical = store.list();
     // What the INDEX is supposed to cover, since I13: the live rows. An
@@ -1477,6 +1495,8 @@ function verifyCensus(dir: string, io: Io): number {
     live = store.list({ archived: false });
     denied = store.deniedIds();
     unembedded = store.unembeddedCount();
+    pathsCensus = store.pathCensus();
+    schemaVersion = store.getMeta("schemaVersion") ?? null;
   } finally {
     store.close();
   }
@@ -1487,6 +1507,19 @@ function verifyCensus(dir: string, io: Io): number {
     `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
       `removed (deny-list): ${denied.length}`,
   );
+  // THE PATH COLUMNS, SPELLED OUT (store CONTRACT §5 G14; finding I22). Since
+  // store schema v5 a row names its file RELATIVE to the store, so a copied or
+  // restored store reads its own prose. A v4 store opened here as an observer
+  // still shows its absolute rows — that is the read-only view of what the
+  // first writer open will convert — and "missing" is a separate fact from
+  // either spelling: the pointer resolved to a file that is not there.
+  io.out(`Prose paths: ${pathCensusLine(pathsCensus.prose)}`);
+  io.out(`Version paths: ${pathCensusLine(pathsCensus.versions)}`);
+  if (schemaVersion !== null && Number.parseInt(schemaVersion, 10) < SCHEMA_VERSION) {
+    io.out(
+      `  store schema v${schemaVersion}: absolute paths are converted to relative at the next WRITER open (v${SCHEMA_VERSION}); this census is read-only and changed nothing.`,
+    );
+  }
 
   // The unreadable half of this is narrow by construction: `Store.open` builds
   // box 3 on the way in, so a cache this process cannot read usually fails the
@@ -2531,7 +2564,7 @@ function mergedBeliefs(store: Store): MergedBelief[] {
     // CONTENT", and a repair plan is a look at the address, not at the memory.
     let doc: { body: string; meta: Record<string, unknown> } | null = null;
     try {
-      doc = readProseFile(row.prose_path, id);
+      doc = readProseFile(store.absolutePath(row.prose_path), id);
     } catch {
       doc = null;
     }
@@ -2572,7 +2605,7 @@ function entityNameOf(store: Store, entityId: string): string | null {
   const row = store.row(entityId);
   if (row === undefined) return null;
   try {
-    const name = readProseFile(row.prose_path, entityId).meta["name"];
+    const name = readProseFile(store.absolutePath(row.prose_path), entityId).meta["name"];
     return typeof name === "string" && name.length > 0 ? name : null;
   } catch {
     return null;
@@ -2583,7 +2616,7 @@ function previewOf(store: Store, id: string, max: number): string | null {
   const row = store.row(id);
   if (row === undefined) return null;
   try {
-    return oneLine(readProseFile(row.prose_path, id).body, max);
+    return oneLine(readProseFile(store.absolutePath(row.prose_path), id).body, max);
   } catch {
     return null;
   }

@@ -1093,7 +1093,7 @@ describe("identity ordering and enumeration", () => {
   test("an UNREADABLE element is named as unreadable — a different fact from removed", () => {
     const s = store();
     const id = identity(s, "An element whose prose will not read.", { guarded: true });
-    rmSync(s.row(id)?.prose_path as string, { force: true });
+    rmSync(s.absolutePath(s.row(id)?.prose_path as string), { force: true });
 
     const list = new Self({ store: s }).enumerate(0);
     expect(list.identity.map((e) => e.absent)).toEqual(["unreadable"]);

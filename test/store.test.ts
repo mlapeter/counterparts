@@ -19,6 +19,7 @@ import {
   DATA_DIR_ENV,
   DEFAULT_RETENTION_DAYS,
   LAYOUT,
+  OBSERVER_READ_FLOOR,
   SCHEMA_VERSION,
   StoreError,
   Store,
@@ -935,7 +936,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(readFileSync(paths.operational(dir))).toEqual(before);
   });
 
-  test("a store a schema BEHIND refuses under observer rather than migrating itself", () => {
+  test("a store BELOW the read floor refuses under observer rather than migrating itself", () => {
     const writer = store();
     writer.setMeta("schemaVersion", "1");
     writer.close();
@@ -944,6 +945,27 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // A writer may still migrate it — and does, in one transaction, at open.
     const migrated = store();
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+  });
+
+  test("a v4 store — the read floor — OPENS under observer, reads, and is left byte-identical", () => {
+    // v5 changed only the SPELLING of two path columns and every v5 reader
+    // resolves both spellings, so an instrument may read a v4 store as it
+    // stands. Refusing would have taken `status`, `verify` and `backup` away
+    // from the owner between the merge and the first writer open.
+    const writer = store();
+    const id = writer.put(mem("readable through a v5 instrument while still v4"));
+    writer.setMeta("schemaVersion", String(OBSERVER_READ_FLOOR));
+    writer.close();
+    open.length = 0;
+    const before = readFileSync(paths.operational(dir));
+    const observer = store({ observer: true });
+    expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
+    expect(observer.read(id).doc.body).toBe("readable through a v5 instrument while still v4");
+    observer.close();
+    open.length = 0;
+    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    // The writer that follows migrates it, as before.
+    expect(store().getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
   test("a v3 store gains the v4 source columns at open — old rows read UNRECORDED, never a fabricated default", async () => {

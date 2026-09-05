@@ -887,8 +887,13 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     // it is withheld here exactly as it is withheld in recall.
     text: g.confidential ? WITHHELD : doc.body.trim(),
     confidential: g.confidential,
-    prosePath: row?.prose_path ?? "—",
-    prosePathShort: relativeToStore(store.dir, row?.prose_path ?? ""),
+    // The row holds the store-relative spelling (§5 G14); the editor wants the
+    // absolute one, so it is resolved against THIS store here.
+    prosePath: row === undefined || row.prose_path === "" ? "—" : store.absolutePath(row.prose_path),
+    prosePathShort: relativeToStore(
+      store.dir,
+      row === undefined || row.prose_path === "" ? "" : store.absolutePath(row.prose_path),
+    ),
     kind: physics.kind,
     band: band(physics, day),
     recordedBand: `${row?.band ?? "—"} (set day ${row?.band_day ?? "—"})`,
