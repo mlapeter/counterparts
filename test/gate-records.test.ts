@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart, GATE_CHUNK_FIELDS, GATE_DEPOSIT_FIELDS } from "../src/core/counterpart.js";
+import { SELF_SUBJECT } from "../src/core/encode/index.js";
 import { TUNABLES as REMEMBER_TUNABLES, keyFor } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 
@@ -772,13 +773,68 @@ describe("the authored door's gate record reaches the DURABLE log", () => {
     expect(JSON.stringify(second.store.eventLog({ limit: 1000 }))).not.toContain(PROPOSAL_MARKER);
   });
 
+  test("a REFUSED deposit leaks nothing from ANY author-supplied field — the feeling included", async () => {
+    const c = brain();
+    // EVERY field an author can fill, each carrying the marker, on a draft the
+    // floor will refuse — so nothing mints, no prose is written, and the durable
+    // log is the ONLY place any of it could have landed.
+    //
+    // The feeling fields are here because they are where this broke. The record
+    // copied the emotion gate's `type` on the belief that a feeling word is a
+    // closed vocabulary; `encode/emotion.ts` says outright that the type and the
+    // subject are both author-supplied text, and `bridge.ts` marks every jot and
+    // session-end self-authored, so the exemption path that carries the feeling
+    // through is open on every authored deposit. The whole sentence survived.
+    await c.submitJot(
+      {
+        content: `${PROPOSAL_MARKER} tiny`,
+        kind: "fact",
+        title: `${PROPOSAL_MARKER} a title`,
+        aliases: [`${PROPOSAL_MARKER} an alias`],
+        // `subject` is the AUTHOR, which is what opens the exemption path and
+        // lets the declared type survive the gate. A marker in the subject
+        // instead would fail the exemption, kill the feeling, and quietly make
+        // this test vacuous — the assertion below pins the exemption open.
+        feeling: {
+          feeling: `${PROPOSAL_MARKER} the merger with Acme closes Friday`,
+          quote: `${PROPOSAL_MARKER} tiny`,
+          subject: SELF_SUBJECT,
+        },
+      },
+      JOT_CTX,
+    );
+    const row = deposits(c)[0];
+    expect(row).toBeDefined();
+    // NOT VACUOUS: the row is there, the deposit was refused, and the emotion
+    // gate accepted the declared feeling by exemption — the state in which the
+    // author's own words reached the record.
+    expect(row?.payload["accepted"]).toBe(0);
+    expect(statuses(row?.payload ?? {})["emotion"]).toBe("fired");
+    expect(row?.payload["feelingExemption"]).toBe(true);
+
+    // NO SUBSTRING of the marker, anywhere in the events table. Whole-log, not
+    // per-field: a leak that moves to a new field must fail this too.
+    const whole = JSON.stringify(c.store.eventLog({ limit: 1000 }));
+    expect(whole).not.toContain(PROPOSAL_MARKER);
+    expect(whole).not.toContain("Acme");
+    // …and the closed-vocabulary verdict IS carried, so what replaced the leak
+    // is a fact and not a silence.
+    const gateReasons = ((row?.payload["gates"] ?? []) as { gate: string; reason: string }[])
+      .filter((g) => g.gate === "emotion")
+      .map((g) => g.reason);
+    expect(gateReasons.length).toBe(1);
+    expect(gateReasons[0]).toMatch(/^[a-z-]+$/);
+  });
+
   test("no `dedupKey`: two refusals of the same text on the same day are two rows", async () => {
     const c = brain();
     await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
     await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
-    // The latch is deliberately absent — `store.pruneEvents` keeps a latched row
-    // FOREVER, and the authored door fires at every session end and every jot.
-    // Two refusals are honestly two events; these age out on the 90-day window.
+    // The latch is deliberately absent — `store.pruneEvents` exempts a latched
+    // row by construction, and the authored door fires at every session end and
+    // every jot. Two refusals are honestly two events. (Nothing calls
+    // `pruneEvents` in `src/` today, so unlatched buys eligibility rather than
+    // deletion — `sleep/NOTES.md` §13.)
     expect(deposits(c).length).toBe(2);
     for (const row of c.store.eventLog({ name: "gate.deposit", limit: 10 })) {
       expect(row.dedup_key).toBeNull();

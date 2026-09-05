@@ -161,12 +161,16 @@ export const NARRATORS = {
       .filter((g) => g.status !== "clear" && g.status !== "not-invoked")
       .map((g) => String(g.gate));
     if (!accepted) {
-      // The refusing gate BY NAME — the fact this whole record exists for. The
-      // old in-process event had it too; what it did not have was durability.
+      // THE REFUSING GATE, and only it. `acted` is every gate that did anything
+      // — the alias gate DROPS and the precision gate HEDGES while accepting by
+      // design — so naming that list made "the secrets, emotion, floor gate
+      // refused it" out of one floor refusal, which accuses three gates of a
+      // thing only one of them did. A refusal is `status: "rejected"`.
+      const refusers = gates.filter((g) => g.status === "rejected").map((g) => String(g.gate));
       const blocked = Array.isArray(t.p["blockedBy"]) ? (t.p["blockedBy"] as unknown[]) : [];
       const why = blocked.length > 0 ? blocked.map(String).join(", ") : "no reason recorded";
-      const by = acted.length > 0 ? acted.join(", ") : "the battery";
-      return amber(`I tried to write something down and the ${by} gate refused it — ${why}.`);
+      const by = refusers.length > 0 ? `${refusers.join(", ")} gate` : "battery";
+      return amber(`I tried to write something down and the ${by} refused it — ${why}.`);
     }
     // A clean gate whose ledger write then failed: accepted, but nothing was
     // written. Saying "I wrote something down" here would be a false claim

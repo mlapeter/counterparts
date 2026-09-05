@@ -156,13 +156,27 @@ text. No draft text, no alias, no quote, no secret and no hash of one.
   the battery (`remember/` NOTES §7's rejection ordering). A row claiming five
   clear gates for a draft no gate ever saw would be worse than no row (scar
   §2.4), so those four outcomes keep only their in-process event.
-- **No `dedupKey`, unlike `gate.chunk`.** `store.pruneEvents` keeps a latched row
-  forever. That is right for the crash fallback, whose ordinary rate is zero rows
-  a day; it is wrong for a door that fires at every session end and every jot.
-  These age out on the log's 90-day window, exactly the call §7 records for
-  `recall.decision`. What the latch would have bought is bought elsewhere: an
-  accepted deposit cannot repeat, because `remember/`'s content ledger refuses a
-  second deposit of the same text before the battery is called.
+- **No `dedupKey`, unlike `gate.chunk`.** `store.pruneEvents` exempts a latched
+  row by construction. That is right for the crash fallback, whose ordinary rate
+  is zero rows a day; it is wrong for a door that fires at every session end and
+  every jot. Unlatched, this row is the same class as `recall.decision`, which
+  §7 above put in exactly this position for exactly this reason. **And the
+  honest half: nothing sweeps the events table today** — `Store.pruneEvents()`
+  has no caller in `src/`, so §7's "it ages out on the log's existing window" was
+  already an eligibility claim rather than a deletion one, for `recall.decision`
+  as much as for this. Filed as `src/core/sleep/NOTES.md` §13, not fixed here.
+  What the latch would have bought is bought elsewhere: an accepted deposit
+  cannot repeat, because `remember/`'s content ledger refuses a second deposit of
+  the same text before the battery is called.
+- **No `feelingType`, and it is the one thing review took out.** The first draft
+  copied `EmotionGateRecord.type` on the belief that a feeling word is a closed
+  vocabulary. It is not — `encode/emotion.ts` says "the type and subject are the
+  only things that become durable, and both are author-supplied text" — so a
+  REFUSED jot, which mints nothing and leaves no prose, was putting author free
+  text into the durable log, on the one path where the memory itself does not
+  exist. The emotion gate's closed-vocabulary VERDICT is already in `gates[]` as
+  its `reason`, and that is what a mix wants. Pinned by a honeypot planted in the
+  feeling type and subject as well as the body, title and aliases.
 - **No novelty and no preselection count.** `bridge.batteryGate` refuses before
   it embeds, so the refusal arm could only ever carry a null; and the authored
   door shows the author no schema cards at all, so a `shown: 0` would read as a

@@ -163,7 +163,7 @@ export const GATE_DEPOSIT_FIELDS = [
   "source", "session", "scope", "day", "proposals", "accepted", "refused",
   "memoryId", "contentHash", "kind", "gates", "fires", "refusalsByReason",
   "blockedBy", "secretFamilies", "hedges", "aliasesDeclared", "aliasesKept",
-  "aliasesDropped", "feelingType", "feelingExemption", "quoteStripped",
+  "aliasesDropped", "feelingExemption", "quoteStripped",
   "floorChars", "floorWords", "preselection", "preselectionReason", "shown",
   "channels",
 ] as const;
@@ -623,9 +623,25 @@ function gateDepositRecord(
     aliasesKept: aliases?.kept ?? 0,
     // By POSITION and reason. An alias is author text, so it is never logged.
     aliasesDropped: (aliases?.dropped ?? []).map((d) => ({ index: d.index, reason: d.reason })),
-    /** A closed vocabulary word, not content — the same call `EmotionGateRecord`
-     *  makes about its own `type` field. */
-    feelingType: emotion?.type ?? null,
+    // NO `feelingType` HERE, and the omission is the whole point.
+    //
+    // `EmotionGateRecord.type` is the author's declared feeling word, and the
+    // first draft of this record copied it on the belief that a feeling type is
+    // a closed vocabulary. IT IS NOT: `encode/emotion.ts` says so in as many
+    // words — "the type and subject are the only things that become durable, and
+    // both are author-supplied text" — and it is scanned for SECRETS on the way
+    // out, not constrained to a word list. So a refused jot, which mints nothing
+    // and leaves no prose behind, was putting a free-text field of the author's
+    // into the durable log: `{feeling: "the merger with Acme closes Friday"}`
+    // survived verbatim, in a table nothing chases on removal. That is scar
+    // §2.20 and store §5 G10, through a door that had never been open before,
+    // and on the ONE path where the memory itself does not exist.
+    //
+    // The gate's own verdict is the closed vocabulary, and it is already in this
+    // record: `gates[]` carries `reason`, which for the emotion gate is
+    // `EmotionVerdict` — `no-feeling-declared`, `quote-not-in-span`,
+    // `accepted-by-exemption` and friends. That is what a mix wants; the word
+    // the author typed is not.
     feelingExemption: emotion?.exemption ?? false,
     quoteStripped: emotion?.quoteStripped ?? false,
     floorChars: floor?.chars ?? null,
@@ -1607,15 +1623,22 @@ export class Counterpart {
    * event they have always had.
    *
    * **NO `dedupKey`, AND THAT IS THE WHOLE DIFFERENCE FROM `gate.chunk`.**
-   * `store.pruneEvents` keeps a latched row FOREVER — a latch is the replay
-   * anti-double-append, so sweeping one would let a replayed day re-record what
-   * the store already accounted for. That price is right for `gate.chunk`, whose
-   * writer is the crash fallback and whose ordinary rate is zero rows a day. It
-   * is wrong here: the authored door fires at every session end and every jot,
-   * so a latch would mint an immortal row per deposit on the busiest write path
-   * in the system. Unlatched, these age out on the log's own 90-day window —
-   * exactly the call `recall.decision` made for exactly this reason (replay
-   * INTERFACE-GAPS §7, "no retention rule was added").
+   * `store.pruneEvents` exempts a latched row by construction — a latch is the
+   * replay anti-double-append, so sweeping one would let a replayed day re-record
+   * what the store already accounted for. That price is right for `gate.chunk`,
+   * whose writer is the crash fallback and whose ordinary rate is zero rows a
+   * day. It is wrong here: the authored door fires at every session end and
+   * every jot, so a latch would put a permanently un-sweepable row on the
+   * busiest write path in the system. Unlatched, this row is the same class as
+   * `recall.decision`, which made exactly this call for exactly this reason
+   * (replay INTERFACE-GAPS §7, "no retention rule was added").
+   *
+   * **AND THE HONEST HALF: NOTHING SWEEPS THE EVENTS TABLE TODAY.**
+   * `Store.pruneEvents()` exists, is tested, and has NO caller anywhere in
+   * `src/` — so "unlatched" currently buys eligibility, not deletion, and the
+   * same is true of every unlatched row already in the log. Filed as a debt in
+   * `src/core/sleep/NOTES.md` §13 rather than fixed here: which cycle phase
+   * should call it is a decision about the whole log, not about this row.
    *
    * What the latch would have bought is bought elsewhere anyway: an accepted
    * deposit cannot repeat, because `remember/`'s content ledger refuses a second
