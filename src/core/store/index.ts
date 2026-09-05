@@ -553,10 +553,27 @@ export class Store {
     return staged.map((s) => s.doc.id);
   }
 
-  /** In-place content revision. Archives the prior version FIRST (§16 G4). */
+  /**
+   * In-place content revision. Archives the prior version FIRST (§16 G4).
+   *
+   * `learnedOn` / `happenedOn` are the PROVENANCE half, and they travel this same
+   * door on purpose (§I7, `NOTES.md` 2026-09-05): correcting a date is a change to
+   * canonical prose, so it keeps the prior version exactly the way a body change
+   * does — constitution 7, nothing is silently overwritten and the old date stays
+   * readable in `versions/`. Both write the prose frontmatter AND the column, in
+   * one transaction, because a document and its query surface disagreeing about a
+   * date is worse than either being wrong alone.
+   */
   revise(
     id: string,
-    patch: { body?: string; title?: string; meta?: Record<string, unknown>; reason?: string },
+    patch: {
+      body?: string;
+      title?: string;
+      meta?: Record<string, unknown>;
+      learnedOn?: string;
+      happenedOn?: string;
+      reason?: string;
+    },
   ): number {
     const { staged, doc, seq } = this.mutate("revise", () => {
       const row = this.requireRow(id);
@@ -580,6 +597,8 @@ export class Store {
         meta: patch.meta ? { ...prior.meta, ...patch.meta } : prior.meta,
       };
       if (patch.title !== undefined) next.title = patch.title;
+      if (patch.learnedOn !== undefined) next.learnedOn = patch.learnedOn;
+      if (patch.happenedOn !== undefined) next.happenedOn = patch.happenedOn;
       const s = stageProse(this.dir, next);
       this.ops.run(
         "UPDATE memories SET content_hash = ?, revision = ? WHERE id = ?",
@@ -587,6 +606,12 @@ export class Store {
         version.seq,
         id,
       );
+      if (patch.learnedOn !== undefined) {
+        this.ops.run("UPDATE memories SET learned_on = ? WHERE id = ?", patch.learnedOn, id);
+      }
+      if (patch.happenedOn !== undefined) {
+        this.ops.run("UPDATE memories SET happened_on = ? WHERE id = ?", patch.happenedOn, id);
+      }
       return { staged: s, doc: next, seq: version.seq };
     });
     publishStaged(staged);

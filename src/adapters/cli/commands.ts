@@ -73,6 +73,8 @@ import {
   writeOnce,
 } from "./install.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
+import { repairDates } from "./repair-dates.js";
+import type { Confidence } from "./repair-dates.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
@@ -86,6 +88,7 @@ export const COMMANDS = [
   "remove",
   "verify",
   "backfill-claims",
+  "repair-dates",
   "rebrief",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -102,6 +105,7 @@ export const OWNER_OPS: readonly Command[] = [
   "remove",
   "verify",
   "backfill-claims",
+  "repair-dates",
   "rebrief",
 ];
 
@@ -162,6 +166,14 @@ export function usage(): string {
     "                      embedder to recompute, unless --drop-vectors is passed.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
+    "  repair-dates        Propose true `learned` dates for MIGRATED memories that",
+    "                      carry the import day, read off engram-era ids (millisecond",
+    "                      timestamps), v1 date fields, session references and source",
+    "                      paths. Prints counts by confidence and a sample of 20.",
+    "                      Dry run unless --apply. --confidence high|medium|low sets",
+    "                      the floor for what --apply writes (default high);",
+    "                      --import-day <date> overrides the measured one;",
+    "                      --sample <n> changes the sample size.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
@@ -223,6 +235,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   remove: ["confirm", "reason"],
   verify: ["rebuild", "drop-vectors"],
   "backfill-claims": ["apply"],
+  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample"],
   rebrief: ["budget"],
 };
 
@@ -238,6 +251,9 @@ const VALUED_FLAGS: readonly string[] = [
   "salience",
   "id",
   "budget",
+  "confidence",
+  "import-day",
+  "sample",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -322,6 +338,14 @@ export function parse(argv: readonly string[]): Parsed {
       rebuild: { type: "boolean" },
       "drop-vectors": { type: "boolean" },
       budget: { type: "string" },
+      // `repair-dates`' three. `dry-run` is a declared boolean rather than a
+      // `strict: false` accident so that `--apply --dry-run` is a refusal the
+      // command can see, and the two string flags are declared for the same
+      // reason `budget` is: an undeclared valued flag arrives as `true`.
+      "dry-run": { type: "boolean" },
+      confidence: { type: "string" },
+      "import-day": { type: "string" },
+      sample: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -428,6 +452,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
+      case "repair-dates":
+        return repairDatesCommand(dir, io, parsed.flags);
       case "rebrief":
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home);
     }
@@ -1509,6 +1535,53 @@ function backfillTargets(store: Store): { id: string; kind: string; dims: string
     });
   }
   return out;
+}
+
+// ── repair-dates ────────────────────────────────────────────────────────────
+
+/**
+ * The migrated rows' dates, proposed from what the rows themselves carry.
+ *
+ * The console's half is thin on purpose: parse three flags, refuse a bad one by
+ * name, and hand off to `repair-dates.ts`, where the evidence rules and their
+ * reasons live. `--dry-run` is accepted and is the DEFAULT — it exists so the
+ * safe call can be spelled out loud rather than only implied by the absence of
+ * `--apply` — and passing both is a refusal, not a silent winner.
+ */
+function repairDatesCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+): number {
+  const apply = flags["apply"] === true;
+  if (apply && flags["dry-run"] === true) {
+    io.err("repair-dates: --apply and --dry-run contradict each other; pass one");
+    return EXIT.usage;
+  }
+  const raw = typeof flags["confidence"] === "string" ? flags["confidence"] : "high";
+  if (raw !== "high" && raw !== "medium" && raw !== "low") {
+    io.err(`repair-dates: --confidence must be high, medium or low (got ${raw})`);
+    return EXIT.usage;
+  }
+  const confidence: Confidence = raw;
+  const importDay = typeof flags["import-day"] === "string" ? flags["import-day"] : undefined;
+  if (importDay !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(importDay)) {
+    io.err(`repair-dates: --import-day must be YYYY-MM-DD (got ${importDay})`);
+    return EXIT.usage;
+  }
+  const sampleRaw = typeof flags["sample"] === "string" ? Number(flags["sample"]) : undefined;
+  if (sampleRaw !== undefined && (!Number.isInteger(sampleRaw) || sampleRaw < 0)) {
+    io.err(`repair-dates: --sample must be a non-negative whole number`);
+    return EXIT.usage;
+  }
+  const report = repairDates(dir, io, {
+    apply,
+    minConfidence: confidence,
+    ...(importDay === undefined ? {} : { importDay }),
+    ...(sampleRaw === undefined ? {} : { sample: sampleRaw }),
+  });
+  if (report === null) return EXIT.failed;
+  return report.failures.length === 0 ? EXIT.ok : EXIT.failed;
 }
 
 // ── rebrief ─────────────────────────────────────────────────────────────────
