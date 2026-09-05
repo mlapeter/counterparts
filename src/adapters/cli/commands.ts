@@ -267,6 +267,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove: "The loud removal. Dry run unless --confirm.",
   verify: "Census of the cache against canonical state. Read-only unless --rebuild.",
+  "migrate-cache":
+    "Convert the cache's vectors from JSON text to float32 BLOBs, in place, and compact the file. Dry run — read-only — unless --apply.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
@@ -306,7 +308,10 @@ const FLAG_HELP: Record<string, string> = {
   reason: "the reason, recorded with the removal",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
+  "keep-vectors": "rebuild the text index and leave every vector where it is",
   apply: "actually do it — without this, it is a dry run",
+  batch: "rows per transaction while converting (default 500)",
+  yes: "skip the typed confirmation; --dir is still required",
 };
 
 /**
