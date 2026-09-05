@@ -397,3 +397,76 @@ a throw in `deindexDoc` loses the `store.archive` event for a row that IS archiv
 house pattern from `put`/`supersede`, widened to a method that did not have it. And
 `verify --rebuild --prune-index` together lets rebuild win silently where a one-line
 refusal would be clearer.
+
+## 14. A chapter is delivered, and says it is a chapter — 2026-09-04
+
+Owner ruling, `docs/LAUNCH-STATUS.md` §I14: keep chapters RECALLABLE, label them journal in
+every result. Both halves matter. The filter was the obvious fix and is the wrong one — a
+chapter about the lighthouse conversation may rightly come to mind, and a question answered
+worse is not a safer answer. What was actually wrong is that an `epi_` row arrived from
+recall wearing a memory's clothes: note #12 above measured one coming back `quiet` on a
+question and footnoted on the ambient path, with nothing on the row or the line to say that
+it is the first-person ACCOUNT a memory was made from, that it sits outside every sleep
+phase (`sleep/types.ts#isJournal`), and that the physics printed beside it is recorded and
+never acted on.
+
+**The label is data plus one word, and it is nothing else.** No candidate is added or
+removed, no score moves, no ordering changes, and the surfacing decision record does not
+grow a field — `surfaceSetHash()` is `800a9a9421cd969f` before and after. That hash covers
+field NAMES only, so it is evidence that the record's SHAPE did not move and not evidence
+that no value did: `bytes` moves on every turn that delivers a chapter, and `surfaced` /
+`footnotes` move on a budget-tight one (see the delta at the end). The three doors:
+
+- `render.ts` — `Resolved.journal` and `FRAMING.journal` (`"Journal:"`), in front of the
+  content in BOTH tiers, and outside `clip()`. The label is what tells a reader the line is
+  not a memory, so it can never be the part the byte budget eats; a line that does not fit
+  is dropped whole by the trim order, where that decision belongs.
+- `mcp/deliberate.ts` — `journal: boolean` on `Recalled` and `BoundedMemory`, glossed once
+  in the payload (`JOURNAL_GLOSS`) so the flag is not a bare boolean the reader has to
+  guess at, and claimed in the tool description (`tools.ts`) where the calling model reads
+  it. `kind` stays PHYSICS kind: a chapter is usually `kind: "self"`, which is exactly the
+  ambiguity the boolean resolves rather than overwrites.
+- `cli/commands.ts` — `[journal]` beside the tier, with its own legend line.
+
+**The predicate is `ProseDoc.type === "episode"`**, the same field `isJournal` reads off the
+row. Read at render time from the doc that is already in hand, so nothing was added to
+`Candidate`, `CandidateVerdict` or the decision record to carry it — which is the whole
+reason the hash does not move. The model is the dashboard's, which has flagged the row in
+prose since #33 (`dashboard/web/views.ts`, `MemoryDetail.journal`); this is the same
+sentence at the doors that had not learned it.
+
+**The wake has TWO doors, and the first draft of this note only found one.** The scanned
+lanes come from `self/identity.ts#scanActive`, which lists `type: "memory"` and nothing
+else, so a chapter cannot reach identity, craft, threads or hints however it is shaped —
+identity band, promoted, `unresolved`, skill-kind, maximum salience. `test/self.test.ts`
+builds one of each and asserts none arrives. That much was true, and it is the tripwire for
+the day that one filter moves.
+
+**The horizon lane is the other door, and it was OPEN.** Found by the adversarial review of
+PR #70. `req.horizon` never goes through `scanActive`: `briefing.ts#selfRenderer` fills it
+from `prospective.horizon()`, which walks `store.list({ archived: false })` — every row
+type — and `derive()` excluded only `kind: "skill"`. So a chapter carrying a content date
+rendered in the wake as a thing about to happen. Reproduced end to end, with `at` inside the
+chapter's own window, on a hermetic store: `Arriving: - 2026-09-05 (of 2026-09-10) · ## the
+lighthouse conversation`. It is reachable on the live store — 224 migrated episodes carry
+`happenedOn` and `learnedOn`, are `kind: "self"`, and were given a claimed salience floor —
+and #67's `repair-dates` would widen it.
+
+**And the fix there is a FILTER, not a label**, which is the one place in this branch where
+the ruling's "label, don't filter" does not apply: a chapter's date is the day it was
+LIVED, so "Arriving" is a category error about it no matter what word sits in front of the
+line. `DerivableMemory.journal` and a `"journal"` `DeriveReason` refuse it in the predicate
+rather than at one caller — `derive` has seven call sites in `prospective/index.ts`, and a
+filter at one of them is a rule that holds where somebody remembered it. Tested at the
+predicate (`test/prospective.test.ts`, including the negative control: the same row with
+the flag off IS prospective) and end to end through the real composition root
+(`test/seams.test.ts`).
+
+**Still open, filed rather than fixed.** `self/identity.ts#enumerate()` has no type filter
+either. It is closed today only because no writer gives an episode the identity band or the
+protected flag — which is a fact about the writers, not a property of the enumeration.
+
+**The one value-level delta, named.** A labelled line is 9 bytes longer ("Journal: "), so a
+turn that delivers a chapter AND lands within 9 bytes of `BUDGET_BYTES` trims one more item
+than it used to. That is recorded in `trimmed` like any other trim. Measured on the
+fixture: the same turn renders 225 bytes before and 234 after.

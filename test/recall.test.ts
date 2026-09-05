@@ -848,6 +848,60 @@ describe("the bounded injection", () => {
     expect(res.text).not.toContain("a gist for mem_c");
   });
 
+  test("a chapter is DELIVERED like anything else, and every line of it says journal (I14)", () => {
+    // The label is on the LINE, not on the decision: a chapter may rightly come
+    // to mind, and must never be read as a memory. Negative control included —
+    // an ordinary memory carries no prefix at all.
+    const mixed = (id: string) => ({
+      title: `title for ${id} with a reasonably long tail of words`,
+      gist: `a gist for ${id} that runs on for quite a while so it can be trimmed and clipped`,
+      journal: id.startsWith("epi_"),
+    });
+    const res = render(
+      {
+        turn: 4,
+        affectFlag: false,
+        surfaced: ["epi_ch1"],
+        footnotes: ["epi_ch2", "mem_c"],
+        budgetBytes: 4096,
+        gistBytes: 240,
+        titleBytes: 80,
+        pressureRatio: 0.9,
+      },
+      mixed,
+    );
+    const lines = res.text.split("\n");
+    const lineFor = (id: string) => lines.find((l) => l.includes(id.startsWith("epi_") ? `for ${id}` : `[${id}]`)) ?? "";
+    // Both tiers, both marked, with the label in FRONT of the content.
+    expect(lineFor("epi_ch1").startsWith(`- ${FRAMING.journal} `)).toBe(true);
+    expect(lines.find((l) => l.includes("[epi_ch2]"))?.startsWith(`- ${FRAMING.journal} `)).toBe(true);
+    // And the memory is not marked: the label distinguishes, so it must not be
+    // on everything.
+    expect(lineFor("mem_c")).not.toContain(FRAMING.journal);
+  });
+
+  test("end to end: a chapter that comes to mind arrives labelled journal (I14)", () => {
+    const s = store();
+    seed(s);
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
+      source: "episode",
+    });
+    const r = new Recall({ store: s, owner: true });
+    const out = r.recall({ sessionId: "s1", text: "what did we say about the lighthouse at Fernbrook Point?" });
+    const epi = delivered(out.decision).filter((id) => id.startsWith("epi_"));
+    // The ruling keeps it RECALLABLE. If the activation pass stopped delivering
+    // it, this test would be asserting nothing, so it says so out loud.
+    expect(epi.length).toBeGreaterThan(0);
+    for (const line of out.injection.split("\n")) {
+      if (!line.startsWith("- ")) continue;
+      const isChapter = line.includes("lighthouse") || epi.some((id) => line.includes(`[${id}]`));
+      if (isChapter) expect(line.startsWith(`- ${FRAMING.journal} `)).toBe(true);
+    }
+  });
+
   test("delivery is checked separately from rendering — 'we rendered it' is not 'they got it'", () => {
     const s = store();
     seed(s);

@@ -114,6 +114,7 @@ function mem(over: Partial<DerivableMemory> = {}): DerivableMemory {
     salience: { novelty: null, relevance: 0.7, emotional: 0.7, predictive: 0.7, claimed: null },
     archived: false,
     learnedOn: "2026-08-25",
+    journal: false,
     ...over,
   };
 }
@@ -268,6 +269,25 @@ describe("derivation — the predicate, and every refusal by name", () => {
     expect(reasonOf(mem({ archived: true }), ["2026-09-04"], "2026-09-01")).toBe("archived");
     expect(reasonOf(mem({ kind: "skill" }), ["2026-09-04"], "2026-09-01")).toBe("excluded-kind");
     expect(EXCLUDED_KINDS).toEqual(["skill"]);
+  });
+
+  test("a JOURNAL chapter never becomes prospective — its date is a day already lived", () => {
+    // Adversarial review of PR #70. Not a labelling miss: "Arriving" is a
+    // category error about a chapter whatever word sits in front of the line.
+    // Refused in the predicate, so all seven `derive` call sites inherit it.
+    expect(reasonOf(mem({ journal: true }), ["2026-09-04"], "2026-09-01")).toBe("journal");
+    // And it is refused on its own, not as a side effect of kind or salience:
+    // this row is `kind: "self"` at full salience with a good encode date, which
+    // is the shape the 224 migrated episodes on the live store actually have.
+    const migrated = mem({
+      journal: true,
+      kind: "self",
+      salience: { novelty: null, relevance: 1, emotional: 1, predictive: 1, claimed: 1 },
+    });
+    expect(derive(migrated, [{ date: "2026-09-04" }], "2026-09-01", T).blockedBy).toEqual(["journal"]);
+    // The same row, minus the flag, IS prospective — so the refusal above is
+    // about the journal and nothing else.
+    expect(derive({ ...migrated, journal: false }, [{ date: "2026-09-04" }], "2026-09-01", T).eligible).toBe(true);
   });
 
   test("salience below the floor never becomes prospective", () => {

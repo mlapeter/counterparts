@@ -335,7 +335,10 @@ not a failure.
 
 **The MCP server** is the deliberate half: `note` (remember this), `recall` (ask
 memory a question), `status`, `session_end` (write the session's memories),
-`chapter` (write the episode).
+`chapter` (write the episode). A chapter of the journal can come back from `recall`
+— it is a first-person account and may rightly come to mind — and every result that
+is one says so: `journal: true` on the tool's row, `[journal]` in the console, and
+`Journal:` in front of the line the hook injects. An account is not a memory.
 
 **`sessions/`** is how those two halves find each other. The hooks know the
 session id — the host hands it to every hook — and the MCP server does not. So

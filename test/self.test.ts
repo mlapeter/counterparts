@@ -1028,6 +1028,67 @@ describe("identity ordering and enumeration", () => {
     expect(out.text).not.toContain("- Mike");
   });
 
+  test("no chapter reaches a SCANNED lane, however the chapter is shaped (I14)", () => {
+    // `Self.build` has TWO sources and this test covers ONE of them.
+    //
+    // The scanned lanes — identity, craft, threads, hints — come from
+    // `identity.ts#scanActive`, which lists `type: "memory"` and nothing else,
+    // so no chapter can reach them however it is shaped. That is one filter, in
+    // one line, and this is the tripwire for the day it moves.
+    //
+    // THE HORIZON LANE IS THE OTHER SOURCE, and it never goes through
+    // `scanActive` at all. The first version of this test called that "the wake
+    // can never list a chapter", which was FALSE: a dated chapter arrived under
+    // "Arriving:" until `prospective/derive.ts` learned to refuse a journal row
+    // (adversarial review of PR #70). That door is tested where it lives —
+    // `test/prospective.test.ts` at the predicate, `test/seams.test.ts` end to
+    // end through the real composition root.
+    const s = store();
+    identity(s, "A real identity statement that belongs in the lane.");
+    craft(s, "A real craft statement about how the work gets done.");
+    // Identity-shaped: promoted, identity band, high salience.
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "Chapter one, written as though it were constitutive.",
+      band: "identity",
+      salience: { relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      physics: { promotedIdentity: true },
+      source: "episode",
+    });
+    // Craft-shaped, and hint-shaped by strength.
+    s.put({
+      type: "episode",
+      kind: "skill",
+      body: "Chapter two, an account of a day of practice.",
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      source: "episode",
+    });
+    // Thread-shaped: the unresolved flag is what the threads lane reads.
+    s.put({
+      type: "episode",
+      kind: "person",
+      body: "Chapter three, an account left open.",
+      meta: { unresolved: true },
+      salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+      source: "episode",
+    });
+
+    const self = new Self({ store: s });
+    const out = self.build({ budgetBytes: 8_000, day: 0 });
+    for (const lane of Object.values(out.kept)) {
+      for (const id of lane) expect(id.startsWith("epi_")).toBe(false);
+    }
+    expect(out.text).not.toContain("Chapter one");
+    expect(out.text).not.toContain("Chapter two");
+    expect(out.text).not.toContain("Chapter three");
+    expect(out.text).not.toContain("epi_");
+    // The real elements are still there — the assertion above is not passing
+    // because the wake is empty.
+    expect(out.counts.identity).toBe(1);
+    expect(out.counts.craft).toBe(1);
+  });
+
   test("the byte counter weighs the SELF SCHEMA, not the journal or the import — episodes and migrated rows are counted, never weighed", () => {
     const s = store();
     for (let i = 0; i < 2; i++) identity(s, `A real identity statement ${i}. ${"x".repeat(300)}`);

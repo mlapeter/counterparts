@@ -26,7 +26,9 @@ never got to write.
 - **remember** — the front door itself. Takes what the AI writes at the end of a session
   and in the moment, and keeps the transcript sweep as the crash fallback.
 - **recall** — the nudge in the ear. Turns what you just said into cues, activates
-  related memories, and injects a few as quiet footnotes, rarely loudly.
+  related memories, and injects a few as quiet footnotes, rarely loudly. A chapter of
+  the journal can come to mind the same way, and every one that does is labelled
+  `Journal:` — an account is not a memory.
 - **associate** — the web between memories. Things that come up together get linked,
   and activation spreads along the links.
 - **schemas** — what the AI believes about people and things. Each entity has beliefs
@@ -69,7 +71,8 @@ never got to write.
 1. A session starts. The wake arrives: a short header saying which system this is, which
    day, how big the store is, then who the AI has been, in its own words.
 2. You talk. On each prompt, recall looks for cues, and a few related memories ride
-   along as footnotes. Once in a while one is loud.
+   along as footnotes. Once in a while one is loud. What rides along may be a chapter
+   rather than a memory, and it says which.
 3. Every few turns the AI is asked, once, for two things: what it learned (memories)
    and the next chapter of the session's episode. It writes both itself.
 4. Overnight, sleep fades what was not used, keeps what was, and re-renders tomorrow's

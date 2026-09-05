@@ -782,6 +782,44 @@ describe("recall — deliberate retrieval", () => {
     }
   });
 
+  test("a chapter comes back, and comes back LABELED journal — on every path (I14)", async () => {
+    // The ruling of 2026-09-04: a chapter about the lighthouse conversation may
+    // rightly come to mind, so nothing here is filtered out. What changes is
+    // that the row says what it is, at the door the model reads.
+    const s = server();
+    seed(s.counterpart);
+    const chapter = s.counterpart.store.put({
+      type: "episode",
+      kind: "self",
+      title: "The lighthouse conversation",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
+      source: "episode",
+    });
+    const memory = s.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "Fernbrook Point",
+      body: "The lighthouse at Fernbrook Point stopped turning in 1974 when the keeper left.",
+    });
+
+    // The question path: both rows come back, one of them flagged.
+    const asked = payload(await s.call("recall", { question: "the lighthouse at Fernbrook Point" }));
+    const rows = asked["memories"] as { id: string; journal: boolean }[];
+    const chapterRow = rows.find((m) => m.id === chapter);
+    expect(chapterRow).toBeDefined();
+    expect(chapterRow?.journal).toBe(true);
+    const memoryRow = rows.find((m) => m.id === memory);
+    expect(memoryRow).toBeDefined();
+    expect(memoryRow?.journal).toBe(false);
+    // The word is glossed once in the payload, next to the tier glosses, so the
+    // flag is not a bare boolean the reader has to guess the meaning of.
+    expect(String(asked["journal"])).toContain("not a memory");
+
+    // And the exact-address path says the same thing about the same row.
+    const expanded = payload(await s.call("recall", { handle: chapter }));
+    expect((expanded["memories"] as { journal: boolean }[])[0]?.journal).toBe(true);
+  });
+
   test("a question answers in labeled tiers, and reports what it considered separately from what it returned", async () => {
     const s = server();
     seed(s.counterpart);
