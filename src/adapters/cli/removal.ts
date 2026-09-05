@@ -590,7 +590,7 @@ export function ownerRemoval(
         // loud: the terminal ledger keeps the hash so nothing re-admits the
         // words, and a claim file mid-arc was rewritten under its worker.
         if (report.ledgered > 0) {
-          chased.push(`spans ledger(${report.ledgered} hash${report.ledgered === 1 ? "" : "es"} kept in consumed.jsonl so nothing re-captures them)`);
+          chased.push(`spans ledger(${report.ledgered} hash${report.ledgered === 1 ? "" : "es"} kept in consumed.jsonl so nothing re-captures the words)`);
         }
         if (report.touchedClaim) chased.push("spans claim file(rewritten; a restore cannot put it back)");
         emit("cli.removal.spans", {

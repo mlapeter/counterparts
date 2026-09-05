@@ -814,7 +814,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("spans(1 line in 1 file)");
-    expect(printed).toContain("consumed.jsonl so nothing re-captures them");
+    expect(printed).toContain("consumed.jsonl so nothing re-captures the words");
     expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
     expect(printed).toContain('"unchased":0');
     expect(printed).not.toContain("culvert gate key");
