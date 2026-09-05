@@ -294,7 +294,17 @@ export interface OverviewView {
   readonly bands: BarRow[];
   readonly bandNote: string;
   readonly feed: NarratedEvent[];
-  readonly identity: { id: string; text: string; kind: Kind; band: Band; strength: number; bornDay: number; lastUsedDay: number; confidential: boolean }[];
+  /**
+   * `promotedDay` is the lived day this element crossed into the band, read off
+   * the `band.promoted` record, or null where no such record exists (a seeded
+   * or migrated core was never watched crossing). It is here because `strength`
+   * on an identity row is a TAUTOLOGY: every element in the band is at 1.00 by
+   * construction, so fifteen rows of `strength 1.00` said one thing fifteen
+   * times (design review, 2026-09-04, ranked #2). The day it earned the band is
+   * the fact that varies — and where the store never recorded one, the row says
+   * nothing there rather than inventing a day or repeating the tautology.
+   */
+  readonly identity: { id: string; text: string; kind: Kind; band: Band; strength: number; promotedDay: number | null; bornDay: number; lastUsedDay: number; confidential: boolean }[];
   readonly identityAbsent: string | null;
   readonly guarded: { id: string; text: string; kind: Kind; bornDay: number; lastUsedDay: number; confidential: boolean }[];
   readonly guardedAbsent: string | null;
@@ -332,6 +342,12 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
   const byBand = countMap<Band>(rows, "band");
   const peak = Math.max(1, ...BANDS.map((b) => byBand.get(b) ?? 0));
   const everLived = day > 0 || rows.length > 0 || journalCount > 0;
+  // The lived day each element crossed into the identity band, where the store
+  // watched it happen. Read once for the panel rather than once per row.
+  const promotedDays = new Map<string, number>();
+  for (const row of store.eventLog({ name: "band.promoted", limit: LOG_CEILING })) {
+    if (row.ref !== null && !promotedDays.has(row.ref)) promotedDays.set(row.ref, row.day);
+  }
 
   const tiles: Tile[] = [
     {
@@ -411,6 +427,7 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
         kind: el.kind,
         band: el.band,
         strength: el.strength,
+        promotedDay: promotedDays.get(el.id) ?? null,
         ...livedDays(src, el.id),
         confidential: r.confidential,
       };
@@ -1454,9 +1471,28 @@ export interface HealthView {
   readonly phases: { phase: string; day: number | null; ago: number | null; torn: boolean; absent: string | null }[];
   readonly symmetry: { kind: Kind; up: number; down: number; reason: string; ok: boolean }[];
   readonly exits: { reason: string; count: number; gloss: string; absent: string | null }[];
-  readonly volume: { name: DurableEventName; count: number; description: string; absent: string | null }[];
+  /**
+   * ONE TABLE, LED BY ENGLISH. There were two — "what a host told me" over the
+   * eleven `adapter.*` names, and "everything I can record durably" over all
+   * nineteen — so seven identifiers were listed twice on one screen with
+   * near-duplicate glosses, and the first thing the health tab showed a person
+   * was 23 dotted names against a column of `(never run)` (design review,
+   * 2026-09-04, §9 and ranked #4). The gloss each row already carried in its
+   * third column now LEADS it and the dotted name is the second line, which is
+   * the order a reader needs them in: what this records, then what it is
+   * called. `adapter` says whether a host wrote it or the machinery did — the
+   * only thing the split table was really saying — and `note` carries the
+   * adapter-specific caveat the old table had room for.
+   */
+  readonly records: {
+    name: DurableEventName;
+    gloss: string;
+    count: number;
+    absent: string | null;
+    adapter: boolean;
+    note: string | null;
+  }[];
   readonly heatmap: { days: number[]; names: string[]; cells: { day: number; name: string; count: number }[] };
-  readonly adapters: { name: DurableEventName; count: number; description: string; note: string; absent: string | null }[];
   readonly removals: { id: string; label: string; stage: string; actor: string; reason: string | null; at: number }[];
   readonly removalsAbsent: string | null;
   readonly blind: readonly { readonly what: string; readonly why: string }[];
@@ -1541,10 +1577,23 @@ export function healthView(src: DashboardSource): HealthView {
     exits.push({ reason, count, gloss: "recorded by whatever archived it", absent: null });
   }
 
-  const volume = DURABLE_EVENT_NAMES.map((name) => {
+  // The merged record table. Every durable name appears exactly once — the
+  // totality rule is unchanged, and the test still walks `DURABLE_EVENT_NAMES`
+  // against it — but what HAS happened is ordered above what never has, so the
+  // first screen of this tab is the log's actual contents rather than eleven
+  // adapter names nobody has ever run. The order is stated on the page.
+  const records = DURABLE_EVENT_NAMES.map((name) => {
     const count = eventsNamed(src, name);
-    return { name, count, description: DURABLE_EVENTS[name], absent: count === 0 ? NEVER : null };
-  });
+    const adapter = ADAPTER_EVENTS.includes(name);
+    return {
+      name,
+      gloss: DURABLE_EVENTS[name],
+      count,
+      absent: count === 0 ? NEVER : null,
+      adapter,
+      note: adapter ? (ADAPTER_NOTE[name] ?? "counts and reasons; never text") : null,
+    };
+  }).sort((a, b) => (b.count === a.count ? 0 : b.count - a.count));
 
   // The heatmap: lived day × event name. Bounded to the last 21 lived days so a
   // long-lived store still fits on a screen without a scrollbar in two axes.
@@ -1559,17 +1608,6 @@ export function healthView(src: DashboardSource): HealthView {
     for (const d of days) cells.push({ day: d, name, count: per.get(d) ?? 0 });
   }
 
-  const adapters = ADAPTER_EVENTS.map((name) => {
-    const count = eventsNamed(src, name);
-    return {
-      name,
-      count,
-      description: DURABLE_EVENTS[name],
-      note: ADAPTER_NOTE[name] ?? "counts and reasons; never text",
-      absent: count === 0 ? NEVER : null,
-    };
-  });
-
   const removals = store.removalRecord().map((x) => ({
     id: x.memory_id,
     label: reveal(store, x.memory_id, 72).label,
@@ -1583,9 +1621,8 @@ export function healthView(src: DashboardSource): HealthView {
     phases,
     symmetry,
     exits,
-    volume,
+    records,
     heatmap: { days, names: [...DURABLE_EVENT_NAMES], cells },
-    adapters,
     removals,
     removalsAbsent: removals.length === 0 ? (everLived ? NONE : NEVER) : null,
     blind: BLIND_SPOTS,

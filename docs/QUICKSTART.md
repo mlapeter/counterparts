@@ -517,6 +517,15 @@ counterparts-dashboard status --dir "$HOME/.counterparts/store"
 The same store, rendered. `browse`, `stories` and the other views take `--id`,
 `--limit`, `--band`, `--kind`.
 
+Pointed with `--dir` at a directory with no store in it, both consoles say `No
+store at <dir>. Run 'counterparts init --dir <dir>' to create one.` and exit 1 — a
+census of nothing at all is not a success, and a script wrapping `counterparts
+status` should hear about a mistyped `--dir` rather than sail past it. Neither
+one creates the store by looking for it.
+
+Every command has its own help: `counterparts <command> --help` prints what
+that command does and every flag it takes, and opens nothing.
+
 ### Remove a memory, and read what removal does not reach
 
 ```
@@ -688,15 +697,21 @@ rather than from a script.
 
 ## 10. Known rough edges
 
-1. **Four entry points, two questions.** WHICH STORE: `counterparts`,
-   `counterparts-dashboard` and `counterparts-mcp` read `--dir` or
+1. **Four entry points, two questions — and one deliberate exception.** WHICH
+   STORE: `counterparts` and `counterparts-dashboard`'s **views** read `--dir` or
+   `COUNTERPARTS_DATA_DIR`; `counterparts-mcp` reads `--dir` or
    `COUNTERPARTS_DATA_DIR`; `counterparts-hook` and its worker take neither and
    use the `dataDir` in the configuration they read, falling back to
-   `COUNTERPARTS_DATA_DIR` only when it names no store. WHICH CONFIGURATION: one
-   rule for all four — `--config <absolute path>`, else `COUNTERPARTS_CONFIG`,
-   else the default. The asymmetry that is left is the hook's: it is the one
-   entry point with no `--dir`, so pointing it at another store means pointing it
-   at another configuration (§3, §7).
+   `COUNTERPARTS_DATA_DIR` only when it names no store. The exception is
+   `counterparts-dashboard serve`: it takes `--dir` and **refuses** to take the
+   store from `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that
+   variable with the live store's path in it and `serve` puts a whole memory on a
+   socket in a browser — that choice is made in the command or not at all.
+   `--yes` means the default (and reads the variable) if you want it.
+   WHICH CONFIGURATION: one rule for all four — `--config <absolute path>`, else
+   `COUNTERPARTS_CONFIG`, else the default. The asymmetry that is left is the
+   hook's: it is the one entry point with no `--dir`, so pointing it at another
+   store means pointing it at another configuration (§3, §7).
 2. **`bun add -g` needs an absolute tarball path — and the same error means "no
    such file".** On bun 1.3.10 a relative path fails with
    `error: ENOENT extracting tarball from ./x.tgz`, and so does an absolute path

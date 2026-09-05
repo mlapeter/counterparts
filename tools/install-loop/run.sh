@@ -718,6 +718,53 @@ else
   if printf '%s' "$OUT" | grep -q "What I am, right now"; then ok; else no "the dashboard did not render its status view" "$OUT"; fi
 fi
 
+step "the web dashboard REFUSES to open the default store without --dir"
+# The default data dir is the owner's live memory on any machine with an
+# install, and `serve` used to open it behind a warning printed AFTER the socket
+# was bound. The alarm is the point of the perl wrapper: if the refusal ever
+# regresses, the server starts and never returns, and a hanging loop is a loop
+# nobody reads. With the alarm, a regression fails this step in ten seconds.
+OUT=$(perl -e 'alarm 10; exec @ARGV or exit 127' counterparts-dashboard serve 2>&1)
+CODE=$?
+if [ "$CODE" = "1" ] &&
+   printf '%s' "$OUT" | grep -q "Refused" &&
+   printf '%s' "$OUT" | grep -q -- "--yes"; then
+  ok
+else
+  no "a stray 'serve' was not refused (exit $CODE)" "$OUT"
+fi
+
+step "counterparts status on a MISSING store exits non-zero and offers the right --dir"
+# Two halves of one cold-stranger finding (#11): a census of nothing at all is
+# not a success — `set -e` around it sailed straight past a typo'd --dir — and
+# `counterparts init` offered on its own would create the store in the DEFAULT
+# place rather than the one the sentence above it just named.
+NOWHERE="$WORK/no-store-here"
+OUT=$(counterparts status --dir "$NOWHERE" 2>&1)
+CODE=$?
+if [ "$CODE" != "0" ] &&
+   printf '%s' "$OUT" | grep -q "No store at $NOWHERE" &&
+   printf '%s' "$OUT" | grep -q "counterparts init --dir $NOWHERE" &&
+   [ ! -d "$NOWHERE" ]; then
+  ok
+else
+  no "status on a missing store did not refuse, or minted one (exit $CODE)" "$OUT"
+fi
+
+step "counterparts <command> --help prints THAT command's flags"
+# It printed the whole console's usage, so the flags a command takes were
+# listed nowhere a person could ask for them.
+OUT=$(counterparts note --help 2>&1)
+CODE=$?
+if [ "$CODE" = "0" ] &&
+   printf '%s' "$OUT" | grep -q "^counterparts note — " &&
+   printf '%s' "$OUT" | grep -q -- "--salience" &&
+   ! printf '%s' "$OUT" | grep -q -- "--confirm"; then
+  ok
+else
+  no "note --help did not print note's own flags (exit $CODE)" "$OUT"
+fi
+
 step "the package's own exports map resolves as a library import"
 # package.json declares `main` and `exports`. A declared entry point nobody
 # imports is a claim, not a fact.
