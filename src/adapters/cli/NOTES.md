@@ -450,3 +450,38 @@ refusal you got AFTER typing one wrong. `commandHelp` reads `COMMAND_FLAGS` and
 parser cannot drift; `FLAG_HELP` gives each flag a sentence and the test fails
 on a flag added without one. Bare `--help` still prints the console's usage,
 and both still exit 0 and open nothing.
+
+## 2026-09-05 — `--yes` means one thing (G31)
+
+**The disagreement.** Two commands merged the same night each took `--yes`, and
+meant different things by it. `migrate-cache --apply` asks `remove`-style for a
+typed `yes`, and `--yes` skips the asking; the store must be named (`--dir` or
+`COUNTERPARTS_DATA_DIR`) either way. `repair-dates --apply` asks nothing, and
+its `--yes` was the second way to aim the rewrite at a store nobody named — the
+default store, which on a real machine is the owner's live memory. The one
+`FLAG_HELP` sentence that had to describe both meanings described both, which
+is how the review saw it (LAUNCH-STATUS G31).
+
+**The ruling.** `--yes` ONLY ever skips an interactive confirmation. A command
+that writes always requires the store named by `--dir`, and `--yes` never
+stands in for it. `repair-dates` has no confirmation to skip, so `yes` left its
+flag list rather than staying as a no-op: a flag the help page lists is a flag a
+reader tries, and a no-op that used to mean "aim here" is the worst kind.
+
+**Where it is enforced.** `repairDatesCommand` refuses `--apply` whenever
+`--dir` was not passed — `defaultedDir` is `flags.dir === undefined`, so an
+exported `COUNTERPARTS_DATA_DIR` does not count as naming it, which was already
+this command's rule — in the shape `migrate-cache` uses: `refused:` on stderr,
+`EXIT.refused`, the remedy naming `--dir <path>` and nothing else. `--yes` on
+`repair-dates` now falls to `unknownFlag` before the store is looked at. The
+test is `test/repair-dates.test.ts`, "the console door": refused without
+`--dir`, refused as unknown with `--yes`, through with `--dir`, and the dry run
+still unguarded. `FLAG_HELP.yes` carries the one meaning, so
+`migrate-cache --help` says it too. `migrate-cache`'s own door is unchanged: it
+already refused the default regardless of `--yes`.
+
+**What still says `--yes` and means something else.** `counterparts-dashboard
+serve --yes` means "open the DEFAULT store" (QUICKSTART §10.1, README). It is
+read-only and it is not this console, so it was left alone under a ruling about
+commands that write; but it is the last `--yes` with a second meaning, and a
+rename (`--default-store`, say) is the obvious follow-up once the owner rules.
