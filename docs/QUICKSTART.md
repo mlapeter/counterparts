@@ -116,8 +116,9 @@ Use `install` for your first, real memory — it is the cold start, it owns
 `~/.counterparts/`, and it is the only one that produces a config the hooks will
 read. Use `init` for a second store, a scratch store, or a store on another disk
 that you only want to reach from the console and the dashboard. A store made by
-`init` has no host wiring at all: the hooks will not see it, because they read
-one hardcoded configuration path and nothing else.
+`init` has no host wiring at all: the hooks will not see it, because they read one
+configuration — the default one, unless something names another (`--config`,
+below) — and `init` writes none.
 
 Both take `--name`, and both mean the same thing by it: the identity core is
 minted then and there, by the same door, so a store made either way has it as its
@@ -181,18 +182,66 @@ counterparts install --budget 9000 --name "Your Name" --dir /Volumes/vault/count
 ```
 
 **The configuration does not follow it.** `~/.counterparts/claude-code.json` is the
-one path the hooks read — `src/adapters/claude-code/bin/hook.ts` and its worker
-hardcode it and take no flag — so a config written anywhere else is an ambient
-half that never fires, and no hook will tell you: a hook that stands down says so
-on stderr and exits 0 (§5 has the one exception). The hook falls back to
-`COUNTERPARTS_DATA_DIR` only when that file names no `dataDir` at all
-(`hook.ts:84`), and `install` always writes one.
+path every entry point reads when nothing names another one, so a config written
+somewhere else with nothing pointing at it is an ambient half that never fires,
+and no hook will tell you: a hook that stands down says so on stderr and exits 0
+(§5 has the one exception). The hook falls back to `COUNTERPARTS_DATA_DIR` only
+when the config it read names no `dataDir` at all, and `install` always writes
+one — so a hand-written config with no `dataDir` is the one shape that can still
+land on the default store.
 
 `install` keeps the config where the hooks look, points its `dataDir` at wherever
 you sent the store, and says so in its output when you use `--dir`.
 
 The one `--dir` it refuses is `~/.counterparts` itself, which would put the config
 inside the data dir. It says so instead of creating a store that will not open.
+
+### `--config` moves the CONFIGURATION — one rule, every entry point
+
+```
+counterparts install --budget 9000 --name "Your Name" --config /opt/counterparts/claude-code.json
+```
+
+**One sentence, and it is the same for all four entry points:** `--config
+<absolute path>` if the command line carries one, else `COUNTERPARTS_CONFIG` if
+the environment does, else the default — `~/.counterparts/claude-code.json` for
+`counterparts-hook`, its worker and `counterparts-mcp`; for the console, the
+config beside the store (`<dir>/../claude-code.json`) and then that same home
+path (§7).
+
+The environment variable is the flag's equivalent, for hosts that launch a
+process from a static registration and have no command line to write into —
+which is exactly how Claude Code launches an MCP server (§4).
+
+A path you named and this cannot use is **refused**, at every entry point that
+reads a configuration, and nothing falls back to the default: naming a
+configuration is how you say which memory you mean, and quietly using another one
+is how a scratch run writes into a live store. Three shapes refuse — a relative
+path, an absolute path to a file that is not there, and a file that is not a JSON
+object. **The mistyped path is the one that matters**: before 2026-09-05 it was
+honoured silently, read as "no configuration", and the store then fell back to
+the default one. An absent *default* is still ordinary, because a fresh machine
+has none and the hook must still start.
+
+The hook refuses by standing down — one line on stderr, exit 0, nothing injected
+— because a hook never fails the host. The MCP server refuses by not starting
+(exit 1). `counterparts install` is the exception to all of this: `--config`
+names the file it is about to *write*, so a path that does not exist yet is the
+ordinary case there.
+
+`--config` on `install` moves the whole base: the configuration goes where you
+said, `credentials.env` goes beside it, and the store defaults to `store/`
+beneath it (`--dir` still overrides the store). Everything is then printed with
+the flag filled in, so the hooks block and the `claude mcp add` line point at the
+configuration you chose. Without it, nothing is printed with a flag — the default
+path is the rule, and a hooks block that spells it out is one that breaks the day
+you move a home directory.
+
+**Every entry point says which file it used.** The console prints it (`rebrief`'s
+`budget … from <path>` line, §7); the MCP server and the worker write one line to
+stderr at launch; the hook, which has no channel to you — its stdout is the
+model's context — records it as the `config` field of
+`<dataDir>/sessions/<id>.json`.
 
 ### The `injectionBudgetBytes` number
 
@@ -237,9 +286,12 @@ looks from the outside like a memory that simply never happens.
 If you already have hooks on those events, add this one beside them — hooks on
 one event run in parallel. The hook reads `~/.counterparts/claude-code.json` for
 everything else, so the hooks block passes it no arguments and sets no environment
-variable. (The hook still reads its own process environment: the two API keys come
-from there first, §6, and the store falls back to `COUNTERPARTS_DATA_DIR` if that
-file names none.)
+variable — **that default is the rule** (§3), and `counterparts install` prints
+the block without a flag unless you moved the configuration with `--config`, in
+which case the same block carries `--config "<your path>"` on every event. (The
+hook still reads its own process environment: the two API keys come from there
+first, §6, and the store falls back to `COUNTERPARTS_DATA_DIR` if the config it
+read names none.)
 
 **The MCP server.** Run the line `counterparts install` printed; its shape is:
 
@@ -253,7 +305,15 @@ default store, because Claude Code launches MCP servers from a static
 configuration with no per-session substitution — the server gets no session id and
 no working directory it can trust, so the one thing it should not also have to
 guess is where the memory is. (Absent it, the server falls back to the same
-default the console uses, `serve.ts:23`. That is a fallback, not a plan.)
+default the console uses. That is a fallback, not a plan.)
+
+That same static registration is why `COUNTERPARTS_CONFIG` exists: a server
+launched from it has no command line you can put `--config` on, so a non-default
+configuration travels as a second `-e` — `-e COUNTERPARTS_CONFIG="/your/path"` —
+and `counterparts install --config` prints exactly that. The two answer different
+questions: `COUNTERPARTS_DATA_DIR` says which store, `COUNTERPARTS_CONFIG` says
+whose keys and whose embedder knob (§6, §10.3). The server prints the
+configuration it read on stderr at launch, before any protocol.
 
 Then **restart Claude Code**. Hooks are read at session start; MCP servers are
 launched at session start.
@@ -270,7 +330,7 @@ at most once in a while, ask you a question through the model. No hook ever fail
 your session — that is the one failure mode this adapter does not have. Every hook
 exits 0, with one deliberate exception: a Stop that has a question to ask exits 2
 and writes the ask to stderr, because on this host that is the channel the model
-actually reads (`hook.ts:166-181`, measured; §9). That 2 is the feedback channel,
+actually reads (`hook.ts#hostDelivery`, measured; §9). That 2 is the feedback channel,
 not a failure.
 
 **The MCP server** is the deliberate half: `note` (remember this), `recall` (ask
@@ -342,7 +402,10 @@ reads `~/.counterparts/claude-code.json` for the embedder knob and the credentia
 file it names, whatever `--dir` or `COUNTERPARTS_DATA_DIR` say about the store.
 That is a real trap — the cold-stranger review of 2026-09-04 hit it, running a
 scratch store against an existing config — and it is worth knowing that the store
-you point at and the credentials you use are chosen by two different files.
+you point at and the credentials you use are chosen by two different files. The
+lever, since 2026-09-05, is `--config` / `COUNTERPARTS_CONFIG` (§3): point the
+second file somewhere too, and the server names the file it read on stderr at
+launch.
 
 **The embed key alone is not enough.** Embedding means sending memory text to a
 third party, so it is a decision, not a capability a stray environment variable
@@ -365,9 +428,10 @@ export COUNTERPARTS_DATA_DIR="$HOME/.counterparts/store"
 Every command in this section takes `--dir <store>` instead if you prefer; the
 console and the dashboard read one or the other. The console reads
 `claude-code.json` for exactly one thing — `rebrief` without `--budget` takes
-`injectionBudgetBytes` from `<store>/../claude-code.json`, then from
-`~/.counterparts/claude-code.json`, and prints which — and never for the store,
-the keys or the embedder.
+`injectionBudgetBytes` from the config named by `--config` /
+`COUNTERPARTS_CONFIG` if one was named, else from `<store>/../claude-code.json`,
+else from `~/.counterparts/claude-code.json`, and prints which — and never for the
+store, the keys or the embedder.
 
 ### Store some memories and ask for one back
 
@@ -507,12 +571,24 @@ On a store that has never lived a boundary this prints the honest bootstrap line
 — *"No briefing has been composed yet — this store has not lived a boundary."* —
 and exits 0. That is the wake path working, with nothing yet to say.
 
-**This one reads `~/.counterparts/claude-code.json` and nothing else.** It takes no
+**With no arguments this reads `~/.counterparts/claude-code.json`.** It takes no
 `--dir`, so it acts on whatever store that file names — falling back to
-`COUNTERPARTS_DATA_DIR` only if the file names no `dataDir` at all — which is the point of §3's rule that the config stays where the hooks look.
-If you have not run `counterparts install`, or you are trying it against a scratch
-store, this command will not do what you expect: the only way to point the hook
-somewhere else is to point that one file somewhere else.
+`COUNTERPARTS_DATA_DIR` only if the file names no `dataDir` at all — which is the
+point of §3's rule that the config stays where the hooks look.
+
+To try it against a scratch install without touching the one you use, name the
+configuration:
+
+```
+echo '{"hook_event_name":"SessionStart","session_id":"smoke","cwd":"'"$PWD"'"}' | counterparts-hook --config /path/to/scratch/claude-code.json
+```
+
+It then works on the store THAT file names, and records which configuration sent
+it there in `<dataDir>/sessions/smoke.json` — a hook has no way to print such a
+thing to you, so it writes it down. `COUNTERPARTS_CONFIG` does the same for a
+whole shell. A path that is relative, or absolute but not there, is refused: the
+hook writes one line on stderr, exits 0, and injects nothing rather than falling
+back to the default store.
 
 ### Give the wake something to say before a first real session
 
@@ -524,19 +600,24 @@ which re-renders and republishes the wake bundle now, through the boundary's own
 renderer, advancing no sleep marker. Run the hook again and you get the bundle.
 
 `rebrief` needs an injection ceiling and will not invent one. It takes it from
-`--budget <bytes>` if you pass one; otherwise from `<store>/../claude-code.json`;
-otherwise from `~/.counterparts/claude-code.json`, which is where the hooks read.
-**It always prints which**, as `budget 9000 bytes from <path>` — a ceiling taken
-out of a file you did not name should never be silent — and if none of the three
-answers, it refuses and lists every path it tried.
+`--budget <bytes>` if you pass one; otherwise from the config you named with
+`--config` / `COUNTERPARTS_CONFIG`, and only that one; otherwise from
+`<store>/../claude-code.json`; otherwise from `~/.counterparts/claude-code.json`,
+which is where the hooks read. **It always prints which**, as `budget 9000 bytes
+from <path>` (with `(named by --config)` when you named it) — a ceiling taken out
+of a file you did not name should never be silent — and if nothing answers, it
+refuses and lists every path it tried.
 
-To recap which entry point reads what: the console and the dashboard take `--dir`
-or `COUNTERPARTS_DATA_DIR`; the MCP server takes `--dir` or
-`COUNTERPARTS_DATA_DIR`; the hook and its worker take no flag and read `dataDir`
-out of `~/.counterparts/claude-code.json`, falling back to
-`COUNTERPARTS_DATA_DIR` only if that file names no store. The console reads that
-file only for `rebrief`'s ceiling; the store, the keys and the embedder knob in it
-are the hooks' and the MCP server's.
+To recap the two questions and their two answers. **Which store**: the console and
+the dashboard take `--dir` or `COUNTERPARTS_DATA_DIR`; the MCP server takes
+`--dir` or `COUNTERPARTS_DATA_DIR`; the hook and its worker take neither and use
+the `dataDir` in the configuration they read, falling back to
+`COUNTERPARTS_DATA_DIR` only if it names no store. **Which configuration**: one
+rule for all four — `--config <absolute path>`, else `COUNTERPARTS_CONFIG`, else
+the default (`~/.counterparts/claude-code.json`; for the console,
+`<dir>/../claude-code.json` first). The console reads that file only for
+`rebrief`'s ceiling; the store, the keys and the embedder knob in it are the
+hooks' and the MCP server's.
 
 ---
 
@@ -579,6 +660,13 @@ repo on its PATH and checks, every time:
 - a `session_end` through a separate `counterparts-mcp` process **binds lazily** to
   the session the hook registered, and mints the memory — the deliberate write
   path a real session uses, without a real session;
+- the **one config rule** (§3) at the two entry points that could not be checked
+  before it existed: `counterparts-hook --config <a second config>` works on the
+  store that file names, records it in the session file, and leaves the default
+  store untouched; `COUNTERPARTS_CONFIG` launches `counterparts-mcp` on a named
+  configuration; and a path that is named but unusable — relative, or absolute and
+  not there — refuses at both, the hook by standing down at exit 0, the server by
+  not starting;
 - `rebrief` names the file its injection ceiling came from, falls back to the
   hooks' config for a store that has none beside it, and refuses — listing every
   path it tried — when nothing supplies one;
@@ -599,7 +687,7 @@ The fifth host behaviour — `session_end` binding to a live session **through t
 registry**, since the server is never told a session id — the loop now does
 exercise, end to end: the hook writes `sessions/<id>.json`, a separate
 `counterparts-mcp` process is given only the data dir and the scope, and its
-`session_end` binds to that record and mints the memory (loop step 23; the
+`session_end` binds to that record and mints the memory (loop step 28; the
 refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
 step fails on). What is still unverified is the same thing as above: that this
 happens inside a real Claude Code session, where the id comes from the host
@@ -609,33 +697,36 @@ rather than from a script.
 
 ## 10. Known rough edges
 
-1. **Three entry points, two ways to name the store — and one deliberate
-   exception.** `counterparts` and `counterparts-dashboard`'s **views** read
-   `--dir` or `COUNTERPARTS_DATA_DIR`. `counterparts-dashboard serve` is the
-   exception: it takes `--dir` and **refuses** to take the store from
-   `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that variable
-   with the live store's path in it and `serve` puts a whole memory on a socket
-   in a browser — that choice is made in the command or not at all. `--yes`
-   means the default (and reads the variable) if you want it.
-   `counterparts-mcp` reads `--dir` or `COUNTERPARTS_DATA_DIR`;
-   `counterparts-hook` and its worker take **no flag**; they read `dataDir` out of
-   `~/.counterparts/claude-code.json`, which `install` always writes, and fall
-   back to `COUNTERPARTS_DATA_DIR` only when that file names no store. In
-   practice, on any installed machine, that one file is the only way to point the
-   hook anywhere.
+1. **Four entry points, two questions — and one deliberate exception.** WHICH
+   STORE: `counterparts` and `counterparts-dashboard`'s **views** read `--dir` or
+   `COUNTERPARTS_DATA_DIR`; `counterparts-mcp` reads `--dir` or
+   `COUNTERPARTS_DATA_DIR`; `counterparts-hook` and its worker take neither and
+   use the `dataDir` in the configuration they read, falling back to
+   `COUNTERPARTS_DATA_DIR` only when it names no store. The exception is
+   `counterparts-dashboard serve`: it takes `--dir` and **refuses** to take the
+   store from `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that
+   variable with the live store's path in it and `serve` puts a whole memory on a
+   socket in a browser — that choice is made in the command or not at all.
+   `--yes` means the default (and reads the variable) if you want it.
+   WHICH CONFIGURATION: one rule for all four — `--config <absolute path>`, else
+   `COUNTERPARTS_CONFIG`, else the default. The asymmetry that is left is the
+   hook's: it is the one entry point with no `--dir`, so pointing it at another
+   store means pointing it at another configuration (§3, §7).
 2. **`bun add -g` needs an absolute tarball path — and the same error means "no
    such file".** On bun 1.3.10 a relative path fails with
    `error: ENOENT extracting tarball from ./x.tgz`, and so does an absolute path
    naming a file that does not exist. Check `ls *.tgz`. Hence
    `"$PWD"/counterparts-*.tgz` in §2.
 3. **The store you point at and the host settings you get come from two different
-   files.** `--dir` / `COUNTERPARTS_DATA_DIR` choose the store;
-   `~/.counterparts/claude-code.json` supplies host settings — the embedder knob
+   files** — and you now have to move both. `--dir` / `COUNTERPARTS_DATA_DIR`
+   choose the store; the configuration supplies host settings — the embedder knob
    and the credentials file for the MCP server and the hooks, and, as a last
    resort, the injection ceiling for `counterparts rebrief` (§7). Running a
    scratch store on a machine that already has a configured install will use that
-   install's keys, and can compose a briefing under that install's ceiling. §6
-   says how to tell from the `semantic` field; `rebrief` names the file it read.
+   install's keys unless you also pass `--config` / `COUNTERPARTS_CONFIG` (§3),
+   and can compose a briefing under that install's ceiling. §6 says how to tell
+   from the `semantic` field; `rebrief` names the file it read, and the server
+   names it on stderr at launch.
 4. **The vector cache stores embeddings as JSON text.** On the owner's migrated
    store that is 177 MB at 13.9K vectors, with a nearest-neighbour scan of
    0.6–1.0 s. Irrelevant to a fresh store; a named debt.
@@ -666,3 +757,18 @@ rather than from a script.
    the Markdown grows as the modules record what they learned). Deliberate: those files are what
    `src/` is documented by, and this page points at them. Delete `src/**/*.md`
    from your install if you would rather not carry them.
+8. **A configuration the hooks cannot read is a silent session with no memory.**
+   A named configuration that is missing, unreadable or not JSON is refused (§3),
+   and the refusal happens before anything opens, so a stood-down hook leaves no
+   ring event, no session record, nothing durable — the right choice (it will not
+   write into a store it was not told about) with an unhelpful symptom: nothing
+   happens, and nothing says why. Two lines diagnose it:
+
+   ```
+   echo '{"hook_event_name":"SessionStart","session_id":"smoke","cwd":"'"$PWD"'"}' | counterparts-hook
+   env | grep COUNTERPARTS_CONFIG
+   ```
+
+   The first prints the stand-down reason on stderr; the second finds a stale
+   `COUNTERPARTS_CONFIG` exported into the environment Claude Code was launched
+   from, which is the likeliest cause and the hardest to see.

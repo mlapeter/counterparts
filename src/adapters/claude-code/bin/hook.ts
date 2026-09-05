@@ -13,11 +13,17 @@
  * trivia and may change with the host without touching a core contract (G9).
  */
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { dataDir } from "../../../core/store/index.js";
+import {
+  defaultConfigPath,
+  namedConfigRefusal,
+  namedUnreadableRefusal,
+  resolveConfigPath,
+} from "../../config-path.js";
+import type { ConfigChoice } from "../../config-path.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { loadCredentials, permissionWarning } from "../credentials.js";
@@ -35,8 +41,17 @@ const HOST_HOOKS: Record<string, HookName> = {
   PreCompact: "pre-compact",
 };
 
-/** Where the host's configuration for this package lives. */
-export const CONFIG_PATH = join(homedir(), ".counterparts", "claude-code.json");
+/**
+ * Where the host's configuration for this package lives BY DEFAULT — the path
+ * this file has read since it was written, unchanged, and the one the owner's
+ * live host resolves at every hook event because it passes no flag.
+ *
+ * `--config <absolute path>` and `COUNTERPARTS_CONFIG` override it, in that
+ * order (`adapters/config-path.ts` states the rule for all four entry points).
+ * Neither is set on the live host; a run that sets neither resolves exactly
+ * this.
+ */
+export const CONFIG_PATH = defaultConfigPath();
 
 /** The worker script this hook's spawn runs. Resolved from THIS file's location,
  *  never from a working directory the host chose. */
@@ -64,7 +79,7 @@ async function readStdin(): Promise<string> {
 export function hostConfig(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad } {
+): { config: AdapterConfig; credentials: CredentialLoad; reason: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -73,7 +88,8 @@ export function hostConfig(
     // which is the fail direction observer-mode G5 requires.
     raw = undefined;
   }
-  const loaded = loadConfig(raw).config;
+  const load = loadConfig(raw);
+  const loaded = load.config;
   // Only a configuration we UNDERSTOOD names a file. An unreadable one resolves
   // to `{ observer: true }` above, and an observer opens no credential.
   const credentials = loadCredentials(loaded.credentialsFile, env);
@@ -81,7 +97,26 @@ export function hostConfig(
   // value to pin onto the child (scar §2.13). Leaving it undefined would make
   // the parent and the child resolve it independently, from an environment
   // either of them might have inherited differently.
-  return { config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() }, credentials };
+  // `reason` travels out so the caller can tell "we understood this" from "we
+  // stood down because we did not" — the difference matters only for a config
+  // somebody NAMED (`namedUnreadableRefusal`).
+  return {
+    config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() },
+    credentials,
+    reason: load.reason,
+  };
+}
+
+/**
+ * The configuration this hook process will read, and which of the three rules
+ * chose it. Exported and injectable so the no-flag, no-env case — the ONLY case
+ * the owner's live host produces — is provable without a process.
+ */
+export function hookConfigChoice(
+  argv: readonly string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+): ConfigChoice {
+  return resolveConfigPath(argv, env as Record<string, string | undefined>);
 }
 
 export function toHookInput(payload: Record<string, unknown>): HookInput {
@@ -113,7 +148,30 @@ async function main(): Promise<void> {
   const name = HOST_HOOKS[String(payload["hook_event_name"] ?? "")];
   if (name === undefined || !HOOKS.includes(name)) return;
 
-  const { config, credentials } = hostConfig();
+  // WHICH CONFIGURATION, decided before anything is read and refused rather
+  // than guessed. A caller who named one and named it badly gets a stand-down,
+  // never a silent fall-back onto the default store (`config-path.ts`).
+  const choice = hookConfigChoice();
+  // `namedConfigRefusal` covers the flag's own refusals AND the one the first
+  // review of this rule found: an absolute path to a file that is not there was
+  // honoured silently, read as an absent config, and fell through to `dataDir()`
+  // — the live store on any machine with an install. An absent DEFAULT is still
+  // ordinary; this only ever refuses a path somebody named.
+  const refusal = namedConfigRefusal(choice);
+  if (refusal !== null) {
+    process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
+    return;
+  }
+  const { config, credentials, reason } = hostConfig(choice.path);
+  // The third arm: a named file that parses but whose fields do not typecheck
+  // resolves to observer, and an observer with no `dataDir` reads the DEFAULT
+  // store. Standing down is the only answer that keeps the promise the flag
+  // makes. An unreadable DEFAULT is unchanged — observer, as it always was.
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
+    return;
+  }
   // A file the group or the world can read is WARNED about, by mode, and never
   // refused: the owner's machine, the owner's call (§5 G2 — a throw here would
   // fail the host over a permission bit).
@@ -123,6 +181,12 @@ async function main(): Promise<void> {
     command: process.execPath,
     args: ["run", RUNNER_PATH],
     credentials,
+    // WHICH FILE THIS RUN READ, carried into the adapter so it can be RECORDED:
+    // a hook cannot print to the owner (its stdout is the model's context), so
+    // the answer goes into the session registry record and the event ring
+    // instead. It is also pinned onto the worker's environment, so the child
+    // reads the same file its parent did rather than resolving one of its own.
+    configPath: choice.path,
   });
   try {
     const result = adapter.hook(name, toHookInput(payload));

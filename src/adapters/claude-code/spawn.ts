@@ -37,6 +37,8 @@ import { spawn } from "node:child_process";
 
 import { TUNABLES as REMEMBER, validateWatchdog } from "../../core/remember/index.js";
 
+import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
+
 import { API_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 
@@ -56,6 +58,18 @@ export const WATCHDOG_ENV = "COUNTERPARTS_WATCHDOG_MS";
  */
 export const SESSION_ENV = "COUNTERPARTS_SESSION";
 export const SCOPE_ENV = "COUNTERPARTS_SCOPE";
+/**
+ * The configuration file the PARENT read, pinned onto the child for exactly the
+ * reason the data dir is (§2.13): two processes resolving one value twice is two
+ * answers waiting to disagree. A hook driven by `--config <path>` that spawned a
+ * worker which then resolved the default file would sweep and sleep against the
+ * store the operator did not name.
+ *
+ * It is the SAME name the entry points accept as an environment variable —
+ * imported from `adapters/config-path.ts` rather than retyped, because a second
+ * spelling of a variable that redirects a store is a bug nobody would see.
+ */
+export { CONFIG_ENV } from "../config-path.js";
 
 export type SpawnRefusal =
   | "NO_DATA_DIR"
@@ -90,6 +104,8 @@ export interface PlanInput {
   session?: string;
   /** That session's project scope — where its spans live. */
   scope?: string;
+  /** The configuration file the parent read, pinned onto the child (`CONFIG_ENV`). */
+  configPath?: string;
 }
 
 /**
@@ -151,6 +167,11 @@ export function planSpawn(input: PlanInput): SpawnPlan {
   // worker computes.
   if (input.session !== undefined && input.session.length > 0) env[SESSION_ENV] = input.session;
   if (input.scope !== undefined && input.scope.length > 0) env[SCOPE_ENV] = input.scope;
+  // Last of the three, and for the same reason as the first: whatever the caller
+  // exported, the child reads the file its parent read.
+  if (input.configPath !== undefined && input.configPath.length > 0) {
+    env[CONFIG_PATH_ENV] = input.configPath;
+  }
   return {
     ok: true,
     reason: "ready",

@@ -256,12 +256,17 @@ describe("init", () => {
     expect(printed).toContain("bin/hook.ts");
     expect(printed).toContain("bin/serve.ts");
     expect(printed).toContain("injectionBudgetBytes");
-    // The claims audit's F6, in the CLI's own text: the hook takes no FLAG, and
-    // it does fall back to the environment for the store. "No flag and no
-    // environment override" was printed here for a while and is not true
-    // (`hook.ts:84`, `dataDir: loaded.dataDir ?? dataDir()`).
-    expect(printed).toContain("taking no flag");
+    // The claims audit's F6, in the CLI's own text: with no flag the hook reads
+    // one path, and it does fall back to the environment for the store. "No flag
+    // and no environment override" was printed here for a while and is not true
+    // (`hook.ts#hostConfig`, `dataDir: loaded.dataDir ?? dataDir()`). Since the
+    // one-config rule (2026-09-05) the same paragraph says how to name another
+    // file, because "the hooks read one path" without that sentence is the
+    // half-truth the flag exists to end.
+    expect(printed).toContain("with no flag they read");
     expect(printed).toContain("COUNTERPARTS_DATA_DIR");
+    expect(printed).toContain("--config <absolute path>");
+    expect(printed).toContain("$COUNTERPARTS_CONFIG");
     expect(printed).not.toContain("no environment override");
     // And the exit rule, with its one exception, wherever the exit rule is said.
     expect(printed).not.toContain("every hook exits 0");
@@ -1837,11 +1842,15 @@ describe("install", () => {
     expect(code).toBe(EXIT.ok);
     expect(existsSync(paths.operational(store))).toBe(true);
 
-    // THE ONE PATH THE HOOKS READ. `claude-code/bin/hook.ts` and `bin/runner.ts`
-    // both hardcode `join(homedir(), ".counterparts", "claude-code.json")` with
-    // no flag and no environment override, and every hook exits 0 — so a config
-    // written anywhere else is an ambient half that never fires and never says
-    // why. `--dir` therefore moves the STORE and only the store.
+    // THE PATH THE HOOKS READ WHEN NOTHING NAMES ANOTHER.
+    // `claude-code/bin/hook.ts` and `bin/runner.ts` resolve
+    // `join(homedir(), ".counterparts", "claude-code.json")` unless `--config` or
+    // `COUNTERPARTS_CONFIG` says otherwise (`adapters/config-path.ts`), and a
+    // hook that finds no config stands down at exit 0 — so a config written
+    // somewhere else with NOTHING POINTING AT IT is an ambient half that never
+    // fires and never says why. `--dir` therefore moves the STORE and only the
+    // store; moving the configuration is `--config`'s job, tested in
+    // `test/config-rule.test.ts`.
     const config = join(home, ".counterparts", CONFIG_FILE);
     expect(existsSync(config)).toBe(true);
     expect(existsSync(join(store, CONFIG_FILE))).toBe(false);
@@ -1885,7 +1894,10 @@ describe("install", () => {
     // COUNTERPARTS_DATA_DIR when the config names no store, so "no environment
     // override" is wrong here for the same reason it was wrong in `init`.
     expect(printed).not.toContain("no environment override");
-    expect(printed).toContain("the one path the hooks read for their configuration");
+    // The sentence moved with the one-config rule (2026-09-05): the hooks read
+    // this path when NOTHING NAMES ANOTHER — `--config` / `COUNTERPARTS_CONFIG`
+    // do, and this install passed neither.
+    expect(printed).toContain("the path the hooks read when nothing names another one");
 
     // The host's two steps are PRINTED, and they name absolute paths.
     expect(printed).toContain("claude mcp add counterparts");

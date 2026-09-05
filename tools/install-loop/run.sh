@@ -72,6 +72,14 @@ if [ -n "${COUNTERPARTS_DATA_DIR:-}" ]; then
   echo "A tool that claims a throwaway directory never honors an inherited one (cli §5 G3)."
   exit 1
 fi
+if [ -n "${COUNTERPARTS_CONFIG:-}" ]; then
+  # Same rule, same reason, one level along: this variable names the file that
+  # says where the store is and whose keys to use. A clean room that inherited
+  # one would be testing somebody else's install.
+  echo "REFUSED: COUNTERPARTS_CONFIG is already set ($COUNTERPARTS_CONFIG)."
+  echo "The loop resolves its own configuration; it never honors an inherited one."
+  exit 1
+fi
 
 FAKE_HOME="$WORK/home"
 rm -rf "$FAKE_HOME"
@@ -445,6 +453,77 @@ fi
 step "the hook registered the session under <dataDir>/sessions/"
 if [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "no session record at $STORE/sessions/$SESSION.json"; fi
 
+# THE STEP NOBODY COULD RUN BEFORE. Until the one-config rule (2026-09-05) the
+# hook read `$HOME/.counterparts/claude-code.json` and took no flag, so the only
+# way to drive it at another store was to move a whole HOME — which is what this
+# loop does and what a machine with an existing install cannot. With `--config`
+# the hook is redirectable like every other entry point, and the assertion is in
+# three parts: it worked on the named store, it RECORDED which file sent it
+# there, and the clean room's own default store never heard of the session.
+SECOND_BASE="$WORK/second-install"
+SECOND_STORE="$SECOND_BASE/store"
+SECOND_CONFIG="$SECOND_BASE/claude-code.json"
+SECOND_SESSION="install-loop-second-$$"
+mkdir -p "$SECOND_BASE"
+printf '{\n  "dataDir": "%s",\n  "injectionBudgetBytes": 9000\n}\n' "$SECOND_STORE" > "$SECOND_CONFIG"
+
+step "counterparts-hook --config drives the hook at a SECOND store"
+OUT=$(payload SessionStart "$SECOND_SESSION" | counterparts-hook --config "$SECOND_CONFIG" 2>"$WORK/hook-config.err")
+CODE=$?
+if [ "$CODE" != "0" ] || ! printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+  no "the hook did not run against the named config (exit $CODE)" "$OUT
+$(cat "$WORK/hook-config.err")"
+elif [ ! -f "$SECOND_STORE/sessions/$SECOND_SESSION.json" ]; then
+  no "no session record under the named store at $SECOND_STORE/sessions/$SECOND_SESSION.json"
+elif ! grep -q "$SECOND_CONFIG" "$SECOND_STORE/sessions/$SECOND_SESSION.json"; then
+  # A hook cannot print to the owner — its stdout is the model's context — so
+  # the durable answer to "which config was that?" is this field.
+  no "the session record does not name the config it read" "$(cat "$SECOND_STORE/sessions/$SECOND_SESSION.json")"
+elif [ -f "$STORE/sessions/$SECOND_SESSION.json" ]; then
+  no "the DEFAULT store also got a record for that session — the flag did not redirect"
+else
+  ok
+fi
+
+step "an absolute --config that is NOT THERE stands the hook down too"
+# The hole the PR's own review found: an absolute path to a file that does not
+# exist was honoured silently — read as an absent config, resolved to observer,
+# and then fallen through to the default data dir, which on a machine with an
+# install is the live store. A typo in the one flag that says WHICH MEMORY has
+# to be as loud as a typo in --dir already is.
+BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+OUT=$(payload SessionStart "install-loop-missing-$$" | counterparts-hook --config "$WORK/nowhere/claude-code.json" 2>"$WORK/hook-missing.err")
+CODE=$?
+AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+   grep -q "stood down" "$WORK/hook-missing.err" &&
+   grep -q "could not be read" "$WORK/hook-missing.err" &&
+   [ ! -e "$WORK/nowhere" ] &&
+   [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
+  ok
+else
+  no "a missing --config was not a clean stand-down (exit $CODE, sessions $BEFORE_SESSIONS -> $AFTER_SESSIONS)" "$OUT
+$(cat "$WORK/hook-missing.err")"
+fi
+
+step "a relative --config STANDS THE HOOK DOWN rather than using the default store"
+# The failure direction that matters: an entry point told to use a config it
+# cannot honour must not quietly fall back, because on a real machine the
+# default is somebody's live memory. Exit 0 all the same — a hook never fails
+# the host — with nothing on stdout.
+BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+OUT=$(payload SessionStart "install-loop-relative-$$" | counterparts-hook --config claude-code.json 2>"$WORK/hook-relative.err")
+CODE=$?
+AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+   grep -q "stood down" "$WORK/hook-relative.err" &&
+   [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
+  ok
+else
+  no "a relative --config was not a clean stand-down (exit $CODE, sessions $BEFORE_SESSIONS -> $AFTER_SESSIONS)" "$OUT
+$(cat "$WORK/hook-relative.err")"
+fi
+
 # ── 5. the MCP round trip ───────────────────────────────────────────────────
 
 CANARY="The install loop canary: the espresso machine in the kitchen is a Rancilio Silvia."
@@ -530,6 +609,37 @@ elif printf '%s' "$ENDED" | grep -q '"stored":true'; then
 else
   no "session_end did not report a deposit" "$ENDED
 $(cat "$WORK/mcp3.err")"
+fi
+
+step "COUNTERPARTS_CONFIG points the MCP server at another install's config"
+# The flag's equivalent for a host that launches from a STATIC registration —
+# which is how this host launches MCP servers, so `-e COUNTERPARTS_CONFIG=…` in
+# the `claude mcp add` line is the only channel there is. The server says which
+# file it read on stderr (stdout is the JSON-RPC wire) and serves normally.
+RPC=$(
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}'
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+)
+MCP_OUT=$(printf '%s\n' "$RPC" |
+  COUNTERPARTS_DATA_DIR="$SECOND_STORE" COUNTERPARTS_CONFIG="$SECOND_CONFIG" counterparts-mcp 2>"$WORK/mcp-config.err")
+if printf '%s' "$MCP_OUT" | grep -q '"serverInfo"' &&
+   grep -q "config: $SECOND_CONFIG (named by COUNTERPARTS_CONFIG)" "$WORK/mcp-config.err"; then
+  ok
+else
+  no "the server did not start on the named config, or did not name it" "$MCP_OUT
+$(cat "$WORK/mcp-config.err")"
+fi
+
+step "a relative COUNTERPARTS_CONFIG REFUSES the server rather than falling back"
+OUT=$(printf '%s\n' "$RPC" |
+  COUNTERPARTS_DATA_DIR="$SECOND_STORE" COUNTERPARTS_CONFIG=claude-code.json counterparts-mcp 2>"$WORK/mcp-relative.err")
+CODE=$?
+if [ "$CODE" != "0" ] && grep -q "ABSOLUTE" "$WORK/mcp-relative.err" && [ -z "$OUT" ]; then
+  ok
+else
+  no "a relative COUNTERPARTS_CONFIG did not refuse the launch (exit $CODE)" "$OUT
+$(cat "$WORK/mcp-relative.err")"
 fi
 
 step "the note is durable: the console counts it after both processes exited"

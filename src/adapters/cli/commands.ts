@@ -28,7 +28,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart } from "../../core/counterpart.js";
@@ -61,11 +61,16 @@ import type { Band, Kind } from "../../core/types.js";
 // rules about what recall means. `mcp/deliberate.ts` imports nothing from here,
 // so the direction stays one-way.
 import { deliberateRecall } from "../mcp/deliberate.js";
+// The ONE rule for "which host configuration": the console resolves it with the
+// same function the hook, the worker and the MCP server do.
+import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath, resolveConfigPath } from "../config-path.js";
+import type { ConfigChoice, ConfigSource } from "../config-path.js";
 import { exportStore } from "./export.js";
 import {
   BIN,
   configObject,
   credentialsTemplate,
+  hookCommand,
   installLayout,
   layoutRefusal,
   mcpCommand,
@@ -141,9 +146,12 @@ export function usage(): string {
     "",
     "  status              What is held, what left, what was removed. Read-only.",
     "  install             Cold start: create the store, write claude-code.json and a",
-    "                      0600 credentials.env under ~/.counterparts/ (the one path",
-    "                      the hooks read), and PRINT the host's hooks block and MCP",
-    "                      line. Never edits the host. --dir moves the STORE only.",
+    "                      0600 credentials.env under ~/.counterparts/ (the path every",
+    "                      entry point reads by default), and PRINT the host's hooks",
+    "                      block and MCP line. Never edits the host. --dir moves the",
+    "                      STORE only; --config <abs path> moves the CONFIG, the",
+    "                      credentials beside it and the default store beneath it, and",
+    "                      the printed lines then carry it.",
     "                      --budget <bytes> --name <owner> --embedder --force.",
     "  init                Just a store: create a data dir and PRINT the install steps.",
     "                      No host config, no credentials file, nothing under",
@@ -165,13 +173,18 @@ export function usage(): string {
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
-    "                      which of these gave it one: --budget <bytes>, else",
+    "                      which of these gave it one: --budget <bytes>, else the",
+    "                      config named by --config / $COUNTERPARTS_CONFIG, else",
     "                      <dir>/../claude-code.json (beside the store), else",
     "                      ~/.counterparts/claude-code.json (where the hooks read).",
     "                      Never a config INSIDE the data dir — that store stops",
     "                      opening (§5 G11).",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
+    "  --config <path>     ONE rule, every entry point: --config <absolute path>, else",
+    "                      $COUNTERPARTS_CONFIG, else the default above. install and",
+    "                      rebrief take it here; counterparts-hook and counterparts-mcp",
+    "                      take the same flag, and the server the same variable.",
     "  --observer          Stand down: read-only, owner operations refuse.",
     "  <command> --help    Just that command: what it does and every flag it takes.",
     "",
@@ -212,7 +225,7 @@ export const COMMON_FLAGS: readonly string[] = ["dir", "observer", "help"];
 
 export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   status: [],
-  install: ["budget", "name", "embedder", "force"],
+  install: ["budget", "name", "embedder", "force", "config"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
   // wake has nothing to say about.
@@ -224,7 +237,11 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   remove: ["confirm", "reason"],
   verify: ["rebuild", "drop-vectors"],
   "backfill-claims": ["apply"],
-  rebrief: ["budget"],
+  // `--config` belongs to the two commands that READ or WRITE a host
+  // configuration, and to no others. Declaring it everywhere would say the
+  // console takes it for `note` or `recall`, which read no config at all — the
+  // store comes from `--dir` there and nowhere else.
+  rebrief: ["budget", "config"],
 };
 
 /**
@@ -238,7 +255,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
 export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
-    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the one path the hooks read), and PRINT the host's hooks block and MCP line. It never edits the host.",
+    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another), and PRINT the host's hooks block and MCP line. It never edits the host.",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
   recall: "Ask memory a question. Read-only.",
@@ -286,6 +303,8 @@ const FLAG_HELP: Record<string, string> = {
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   apply: "actually do it — without this, it is a dry run",
+  config:
+    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it",
 };
 
 /**
@@ -323,6 +342,7 @@ export function commandHelp(command: Command): string {
 /** Flags whose value is a string; anything else here is a boolean switch. */
 const VALUED_FLAGS: readonly string[] = [
   "dir",
+  "config",
   "out",
   "reason",
   "passphrase",
@@ -416,6 +436,7 @@ export function parse(argv: readonly string[]): Parsed {
       rebuild: { type: "boolean" },
       "drop-vectors": { type: "boolean" },
       budget: { type: "string" },
+      config: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -484,13 +505,35 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     return EXIT.refused;
   }
 
+  // WHICH HOST CONFIGURATION THIS INVOCATION MEANS — resolved once, by the same
+  // rule the hook, the worker and the MCP server use (`adapters/config-path.ts`),
+  // and refused rather than guessed.
+  //
+  // ONLY for the two commands that read or write one. `note`, `recall`, `status`
+  // and the rest touch no configuration at all, and a stale
+  // `COUNTERPARTS_CONFIG` in somebody's shell must not refuse a command that
+  // would never have looked at it — a guard that fires on the innocent case is
+  // one people learn to unset rather than to read.
+  const readsConfig = command === "install" || command === "rebrief";
+  const named = readsConfig
+    ? resolveConfigPath(
+        typeof parsed.flags["config"] === "string" ? [`--config=${parsed.flags["config"]}`] : [],
+        env,
+        opts.home ?? homedir(),
+      )
+    : undefined;
+  if (named !== undefined && named.refusal !== null) {
+    io.err(named.refusal);
+    return EXIT.refused;
+  }
+
   // `install` resolves its OWN layout and must not go through `resolveDir`:
   // the store's default data dir is `~/.counterparts`, which is exactly the
   // directory this command writes two unclassifiable files into (`install.ts`
   // rule 1). Its default store is the `store/` beneath that instead.
   if (command === "install") {
     try {
-      return installCommand(parsed, io, env, opts.home);
+      return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
       io.err(`install failed: ${String((err as Error).message ?? err)}`);
       return EXIT.failed;
@@ -532,7 +575,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
       case "rebrief":
-        return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home);
+        return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -737,9 +780,22 @@ function installCommand(
   io: Io,
   env: Record<string, string | undefined>,
   home?: string,
+  named?: ConfigChoice,
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
-  const layout = home === undefined ? installLayout(dirFlag, env) : installLayout(dirFlag, env, home);
+  // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
+  // credentials, and the default store beneath it (`install.ts#installLayout`).
+  // The test is the PATH, not how it was named: `--config` spelling out the
+  // default path is the default install, and printing a flag for it (with a
+  // sentence saying it is "NOT at" the path it is at) would be false.
+  const home_ = home ?? homedir();
+  const custom =
+    named !== undefined &&
+    named.source !== "default" &&
+    resolve(named.path) !== defaultConfigPath(home_)
+      ? named.path
+      : undefined;
+  const layout = installLayout(dirFlag, env, home_, custom);
   // Before a single directory: a store that would hold its own configuration is
   // a store that never opens again.
   const refusal = layoutRefusal(layout);
@@ -811,15 +867,19 @@ function installCommand(
   // differently has made the reader do the comparison.
   if (seeded) io.out(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
   if (!isWithin(layout.base, resolved)) {
-    // --dir moved the STORE. It cannot move the configuration: the hooks take no
-    // flag and read one hardcoded path (falling back to COUNTERPARTS_DATA_DIR
-    // only when that file names no store), and a hook that finds nothing stands
-    // down and exits 0 — so a config they cannot find is a silence nobody
-    // debugs. Said out loud rather than left for the reader to discover from an
-    // ambient half that never fires.
+    // --dir moved the STORE. It does not move the configuration: the hooks read
+    // the default path unless something NAMES another one (--config, else
+    // COUNTERPARTS_CONFIG), and a hook that finds no config stands down and
+    // exits 0 — so a config nothing points them at is a silence nobody debugs.
+    // Said out loud rather than left for the reader to discover from an ambient
+    // half that never fires.
     io.out("");
     io.out(`  --dir moved the STORE only. The configuration stays at ${config.path}:`);
-    io.out("  that is the one path the hooks read for their configuration, hardcoded,");
+    io.out(
+      custom === undefined
+        ? "  that is the path the hooks read when nothing names another one,"
+        : `  and the printed lines below name it with ${CONFIG_FLAG} / ${CONFIG_ENV},`,
+    );
     io.out(`  and it points at your store with "dataDir": "${resolved}".`);
   }
   if (config.what === "kept" || creds.what === "kept") {
@@ -841,7 +901,7 @@ function installCommand(
   io.out("");
   io.out("  1. Merge this into ~/.claude/settings.json (one script, five events):");
   io.out("");
-  for (const line of settingsBlock().split("\n")) io.out(`     ${line}`);
+  for (const line of settingsBlock(hookCommand(custom)).split("\n")) io.out(`     ${line}`);
   io.out("");
   io.out("     The runtime and the script are ABSOLUTE on purpose. A host's process");
   io.out("     environment is not your login shell's — measured on this package's own");
@@ -850,8 +910,20 @@ function installCommand(
   io.out("");
   io.out("  2. Register the MCP server, so note, recall and session_end exist:");
   io.out("");
-  io.out(`     ${mcpCommand(resolved)}`);
+  io.out(`     ${mcpCommand(resolved, undefined, custom)}`);
   io.out("");
+  // THE FLAG IS PRINTED ONLY WHEN IT IS NEEDED, and when it is, the output says
+  // why — otherwise a reader learns the wiring as "hooks take a --config", which
+  // is exactly the sentence this rule does not want them to carry away. The
+  // default path IS the rule (`adapters/config-path.ts`).
+  if (custom !== undefined) {
+    io.out(`  Both lines carry this install's configuration, because it is NOT at`);
+    io.out(`  ${defaultConfigPath(home_)} — the path all four entry points`);
+    io.out(`  read when nobody says otherwise. The hook takes it as ${CONFIG_FLAG} <path>; the`);
+    io.out(`  server takes it as ${CONFIG_ENV}, because this host launches MCP servers`);
+    io.out("  from a static registration with no command line to write into.");
+    io.out("");
+  }
   io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
   io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
   io.out("  every open session or the old server keeps serving.");
@@ -922,13 +994,15 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   io.out('       { "dataDir": "<this dir>", "injectionBudgetBytes": <your host\'s ceiling> }');
   io.out("");
   io.out("     WHO HONORS THAT FILE, exactly: this console reads it for the injection");
-  io.out(`     ceiling ('${BIN.cli} rebrief'). The HOOKS DO NOT — they read only`);
-  io.out(`       ${join(home, ".counterparts", "claude-code.json")}`);
-  io.out("     taking no flag, and falling back to COUNTERPARTS_DATA_DIR only when that");
+  io.out(`     ceiling ('${BIN.cli} rebrief'). The HOOKS DO NOT — with no flag they read`);
+  io.out(`       ${defaultConfigPath(home)}`);
+  io.out("     and nothing else, falling back to COUNTERPARTS_DATA_DIR only when that");
   io.out("     file names no store. A hook that finds no config stands down quietly and");
   io.out("     exits 0 (a Stop with a question exits 2 on purpose, and that is the only");
   io.out("     non-zero a hook produces), so a config anywhere else is an ambient half");
-  io.out(`     that never fires and never says so. To wire the hooks, use '${BIN.cli} install'.`);
+  io.out("     that never fires and never says so — unless you NAME it: every entry point");
+  io.out(`     takes ${CONFIG_FLAG} <absolute path>, else $${CONFIG_ENV}, else that default.`);
+  io.out(`     To wire the hooks for you, use '${BIN.cli} install'.`);
   io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
   io.out("refuses to render rather than compose to a number nobody chose (scar §2.18).");
@@ -1665,12 +1739,16 @@ function rebriefCommand(
   budgetFlag: string | boolean | undefined,
   now: () => number,
   home?: string,
+  named?: ConfigChoice,
 ): number {
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  const ceiling = home === undefined ? hostCeiling(dir, budgetFlag) : hostCeiling(dir, budgetFlag, home);
+  const ceiling =
+    home === undefined
+      ? hostCeiling(dir, budgetFlag, homedir(), named)
+      : hostCeiling(dir, budgetFlag, home, named);
   if ("refusal" in ceiling) {
     for (const line of ceiling.refusal.split("\n")) io.err(line);
     return EXIT.refused;
@@ -1693,7 +1771,9 @@ function rebriefCommand(
     io.out(
       ceiling.source === "--budget"
         ? `  budget ${ceiling.bytes} bytes from --budget`
-        : `  budget ${ceiling.bytes} bytes from ${ceiling.source}`,
+        : `  budget ${ceiling.bytes} bytes from ${ceiling.source}${
+            ceiling.namedBy === undefined ? "" : ` (named by ${ceiling.namedBy})`
+          }`,
     );
     io.out(
       `  composed under ${report.composeBudget} — the delivery preface reserves ${PREFACE_RESERVE_BYTES}`,
@@ -1745,6 +1825,9 @@ export interface CeilingFound {
   /** `--budget`, or the absolute path of the file that answered. */
   readonly source: string;
   readonly searched: readonly string[];
+  /** Set when a `--config` / `COUNTERPARTS_CONFIG` named the file that answered,
+   *  so the printed line can say the number came from a file the caller chose. */
+  readonly namedBy?: ConfigSource;
 }
 export interface CeilingMissing {
   readonly refusal: string;
@@ -1755,6 +1838,14 @@ export function hostCeiling(
   dir: string,
   flag: string | boolean | undefined,
   home = homedir(),
+  /**
+   * The configuration this invocation was TOLD to read, when it was told. A
+   * named file replaces the two-step search entirely — a caller who said which
+   * configuration to use did not ask for a fallback to another one, and falling
+   * back would compose a briefing under a ceiling from a file they never named
+   * (the same failure as the rest of this rule, one level up).
+   */
+  named?: ConfigChoice,
 ): CeilingFound | CeilingMissing {
   if (typeof flag === "string" && flag.length > 0) {
     const n = Number(flag);
@@ -1767,17 +1858,28 @@ export function hostCeiling(
     return { bytes: n, source: "--budget", searched: [] };
   }
   const beside = join(dir, "..", "claude-code.json");
-  const hooksConfig = join(home, ".counterparts", "claude-code.json");
+  const hooksConfig = defaultConfigPath(home);
   // De-duplicated, because on a default install these are the same file and a
   // refusal that named it twice would read as two separate misses.
-  const searched = beside === hooksConfig ? [beside] : [beside, hooksConfig];
+  const searched =
+    named !== undefined && named.source !== "default"
+      ? [named.path]
+      : beside === hooksConfig
+        ? [beside]
+        : [beside, hooksConfig];
+  const namedBy = named !== undefined && named.source !== "default" ? named.source : undefined;
   for (const candidate of searched) {
     if (!existsSync(candidate)) continue;
     try {
       const parsed = JSON.parse(readFileSync(candidate, "utf8")) as Record<string, unknown>;
       const value = parsed["injectionBudgetBytes"];
       if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-        return { bytes: value, source: candidate, searched };
+        return {
+          bytes: value,
+          source: candidate,
+          searched,
+          ...(namedBy === undefined ? {} : { namedBy }),
+        };
       }
     } catch {
       /* an unreadable host config reports no ceiling — the refusal below says so */

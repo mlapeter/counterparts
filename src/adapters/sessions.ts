@@ -80,6 +80,19 @@ export interface SessionRecord {
   readonly lastBoundaryAt: number;
   /** Set once, by SessionEnd. A record with an end is never live again. */
   readonly endedAt: number | null;
+  /**
+   * The `claude-code.json` the HOOK that wrote this record read — absolute, and
+   * present only when the hook was told (`claude-code/bin/hook.ts` resolves it
+   * through `adapters/config-path.ts` and passes it in).
+   *
+   * It is here because a hook has no way to TELL anyone: its stdout is the
+   * model's context and its stderr is a host log nobody reads. "Which config did
+   * that hook use" was, until 2026-09-05, unanswerable after the fact — and it
+   * is the question behind every "why is my memory empty" on a machine with more
+   * than one configuration. Still host state, still no content: a path, beside
+   * the id, the scope and the three timestamps.
+   */
+  readonly config?: string;
 }
 
 /**
@@ -166,7 +179,15 @@ export function readSession(dataDir: string, sessionId: string): SessionRecord |
  */
 export function recordSession(
   dataDir: string,
-  input: { sessionId: string; scope: string; phase: SessionPhase; at?: number },
+  input: {
+    sessionId: string;
+    scope: string;
+    phase: SessionPhase;
+    at?: number;
+    /** The configuration the writing hook read. Carried forward when a later
+     *  phase is written by a process that was told nothing. */
+    config?: string;
+  },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
   const path = sessionPath(dataDir, input.sessionId);
@@ -182,6 +203,15 @@ export function recordSession(
     lastBoundaryAt: now,
     endedAt:
       input.phase === "end" ? now : input.phase === "start" ? null : (prior?.endedAt ?? null),
+    // The record is REWRITTEN whole at every phase, so a field only SessionStart
+    // knew would vanish at the first Stop. This one is carried: the newest
+    // answer wins, and a phase written by a process that was told nothing keeps
+    // what the last one said.
+    ...(input.config !== undefined && input.config.length > 0
+      ? { config: input.config }
+      : prior?.config !== undefined
+        ? { config: prior.config }
+        : {}),
   };
 
   try {
@@ -235,5 +265,16 @@ function parseRecord(raw: unknown): SessionRecord | null {
   if (typeof scope !== "string" || scope.length === 0) return null;
   if (typeof startedAt !== "number" || typeof lastBoundaryAt !== "number") return null;
   if (endedAt !== null && typeof endedAt !== "number") return null;
-  return { sessionId, scope, startedAt, lastBoundaryAt, endedAt };
+  // Optional, and never a reason to reject a record: every record written before
+  // 2026-09-05 lacks it, and a registry that refused those would refuse every
+  // live session on the owner's host at the moment this ships.
+  const config = rec["config"];
+  return {
+    sessionId,
+    scope,
+    startedAt,
+    lastBoundaryAt,
+    endedAt,
+    ...(typeof config === "string" && config.length > 0 ? { config } : {}),
+  };
 }
