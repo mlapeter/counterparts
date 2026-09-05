@@ -1827,7 +1827,10 @@ describe("install", () => {
     // COUNTERPARTS_DATA_DIR when the config names no store, so "no environment
     // override" is wrong here for the same reason it was wrong in `init`.
     expect(printed).not.toContain("no environment override");
-    expect(printed).toContain("the one path the hooks read for their configuration");
+    // The sentence moved with the one-config rule (2026-09-05): the hooks read
+    // this path when NOTHING NAMES ANOTHER — `--config` / `COUNTERPARTS_CONFIG`
+    // do, and this install passed neither.
+    expect(printed).toContain("the path the hooks read when nothing names another one");
 
     // The host's two steps are PRINTED, and they name absolute paths.
     expect(printed).toContain("claude mcp add counterparts");

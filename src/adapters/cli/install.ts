@@ -44,6 +44,7 @@ export const DEFAULT_STORE_DIR = "store";
 // of these, would be a file the loader silently ignores and counts. The same
 // direction `mcp/bin/serve.ts` already takes for the same reason.
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
+import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
 import { DEFAULT_DATA_DIR_NAME, isWithin } from "../../core/store/index.js";
 
 /** The five host events one executable serves (`claude-code/bin/hook.ts`). */
@@ -98,6 +99,24 @@ export function runCommand(script: string, exe: string = process.execPath): stri
   return `${shellQuote(exe)} run ${shellQuote(script)}`;
 }
 
+/**
+ * The hook command the host is told to run — and the ONE case where it carries
+ * a flag.
+ *
+ * The default path IS the rule (`adapters/config-path.ts`): a hooks block that
+ * spelled out `--config "$HOME/.counterparts/claude-code.json"` would teach a
+ * reader that the flag is part of the wiring, and would then be wrong the moment
+ * they moved a home directory. So the flag is printed only when this install put
+ * the configuration somewhere the hooks would not find on their own, and the
+ * output says why (`commands.ts#installCommand`).
+ */
+export function hookCommand(configPath?: string, exe: string = process.execPath): string {
+  const base = runCommand(HOOK_SCRIPT, exe);
+  return configPath === undefined || configPath.length === 0
+    ? base
+    : `${base} ${CONFIG_FLAG} ${shellQuote(configPath)}`;
+}
+
 export const CONFIG_FILE = "claude-code.json";
 export const CREDENTIALS_FILE = "credentials.env";
 
@@ -136,6 +155,7 @@ export function installLayout(
   dirFlag: string | undefined,
   env: Record<string, string | undefined>,
   home = homedir(),
+  configPath?: string,
 ): InstallLayout {
   const named =
     dirFlag !== undefined && dirFlag.length > 0
@@ -143,12 +163,24 @@ export function installLayout(
       : (env["COUNTERPARTS_DATA_DIR"] ?? "").trim().length > 0
         ? (env["COUNTERPARTS_DATA_DIR"] as string)
         : undefined;
-  const base = join(home, DEFAULT_DATA_DIR_NAME);
+  // `--config` (or `COUNTERPARTS_CONFIG`) moves the whole BASE — the config, the
+  // credentials beside it, and, when no `--dir` says otherwise, the store
+  // beneath it. Splitting them would put a scratch install's credentials file in
+  // `~/.counterparts/`, which is the live one on the owner's machine; an install
+  // that writes there because it was pointed somewhere else is the accident this
+  // flag exists to prevent.
+  const base =
+    configPath === undefined || configPath.length === 0
+      ? join(home, DEFAULT_DATA_DIR_NAME)
+      : dirname(resolve(configPath));
   const store = named === undefined ? join(base, DEFAULT_STORE_DIR) : resolve(named);
   return {
     base,
     store,
-    config: join(base, CONFIG_FILE),
+    config:
+      configPath === undefined || configPath.length === 0
+        ? join(base, CONFIG_FILE)
+        : resolve(configPath),
     credentials: join(base, CREDENTIALS_FILE),
   };
 }
@@ -228,9 +260,25 @@ export function settingsBlock(hookCommand = runCommand(HOOK_SCRIPT)): string {
   return JSON.stringify({ hooks }, null, 2);
 }
 
-/** The MCP registration line. Printed, never run — it edits the host's config. */
-export function mcpCommand(store: string, serve = runCommand(MCP_SCRIPT)): string {
-  return `claude mcp add ${MCP_SERVER_NAME} -s user -e COUNTERPARTS_DATA_DIR=${shellQuote(store)} -- ${serve}`;
+/**
+ * The MCP registration line. Printed, never run — it edits the host's config.
+ *
+ * A non-default configuration travels as `-e COUNTERPARTS_CONFIG=…`, not as a
+ * flag, and that is the whole reason the environment variable exists: this host
+ * launches MCP servers from a STATIC registration, and `-e` is the channel that
+ * registration has. It sits beside `COUNTERPARTS_DATA_DIR` because the two names
+ * answer different questions — which store, and whose keys.
+ */
+export function mcpCommand(
+  store: string,
+  serve = runCommand(MCP_SCRIPT),
+  configPath?: string,
+): string {
+  const config =
+    configPath === undefined || configPath.length === 0
+      ? ""
+      : ` -e ${CONFIG_ENV}=${shellQuote(configPath)}`;
+  return `claude mcp add ${MCP_SERVER_NAME} -s user -e COUNTERPARTS_DATA_DIR=${shellQuote(store)}${config} -- ${serve}`;
 }
 
 export type WroteWhat = "created" | "kept" | "replaced";
