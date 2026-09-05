@@ -46,6 +46,8 @@ import {
   findIdentityCore,
   fixedPointTotal,
   flatten,
+  identityCoreLine,
+  identityCoreName,
   groupDigits,
   identityShareBytes,
   intakeEpisode,
@@ -234,6 +236,114 @@ describe("the wake briefing — composition", () => {
     expect(floor.text).toContain(FRAMING.context);
     expect(readSentinel(floor.text).intact).toBe(true);
     expect(floor.sentinel).toContain("elements=0");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * THE DAY-0 WAKE (NOTES §11).
+ *
+ * Measured 2026-09-04 on a store opened the way `install --budget 9000 --name
+ * "Dana"` opens one: `SessionStart` returned the bootstrap line, and after the
+ * `rebrief` QUICKSTART §7 tells the stranger to run, 385 bytes of furniture that
+ * promise "who you have been here, in your own words" and then say nothing. The
+ * identity core is a live row, but `scanActive` lists `{ type: "memory" }` and
+ * the core is `type: "schema"`, so no lane could ever reach it.
+ */
+describe("the wake briefing — the day-0 lane", () => {
+  test("an identity lane with no elements names the core the store was seeded with", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.ensureIdentityCore({ name: "Dana" });
+
+    const out = self.build({ budgetBytes: 9_000, day: 0 });
+
+    expect(out.text).toContain(FRAMING.identity);
+    expect(out.text).toContain(identityCoreLine("Dana"));
+    // Furniture, not an element: the counts a truncation preview is read by do
+    // not move, and nothing here opens with a date it does not have.
+    expect(out.counts.identity).toBe(0);
+    expect(out.elements).toBe(0);
+    expect(out.header).toContain("elements=0");
+    expect(out.sentinel).toContain("identity=0");
+    expect(statementLines(out.text)).toEqual([]);
+    expect(readSentinel(out.text).intact).toBe(true);
+  });
+
+  test("the line disappears the moment ONE real identity element exists", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.ensureIdentityCore({ name: "Dana" });
+    expect(self.build({ budgetBytes: 9_000, day: 0 }).text).toContain(identityCoreLine("Dana"));
+
+    identity(s, "I care more about being understood than about being agreed with.");
+    const out = self.build({ budgetBytes: 9_000, day: 0 });
+
+    expect(out.text).not.toContain(identityCoreLine("Dana"));
+    expect(out.text).not.toContain("This memory is for");
+    expect(out.counts.identity).toBe(1);
+    expect(statementLines(out.text)).toHaveLength(1);
+  });
+
+  test("a store with no core renders no line and no heading — self/ invents no name", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    hint(s, "The bus route changed and adds ten minutes.");
+
+    const out = self.build({ budgetBytes: 9_000, day: 0 });
+
+    expect(findIdentityCore(s)).toBeNull();
+    expect(identityCoreName(s)).toBeNull();
+    expect(out.text).not.toContain(FRAMING.identity);
+    expect(out.text).not.toContain("This memory is for");
+  });
+
+  test("it stands beside the other lanes, and displaces none of them", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.ensureIdentityCore({ name: "Dana" });
+    craft(s, "I read the whole file before editing one line of it.");
+    thread(s, "The question about the house move is still open.");
+    hint(s, "The bus route changed and adds ten minutes.");
+
+    const out = self.build({ budgetBytes: 9_000, day: 0 });
+
+    expect(out.text).toContain(identityCoreLine("Dana"));
+    expect(out.counts).toEqual({ identity: 0, craft: 1, threads: 1, hints: 1, horizon: 0 });
+    expect(out.text.indexOf(identityCoreLine("Dana"))).toBeLessThan(out.text.indexOf(FRAMING.craft));
+  });
+
+  test("it is inside the composed total, the fixed point and the floor", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.ensureIdentityCore({ name: "Dana" });
+
+    const resolve: Resolve = (id) => ({ statement: id });
+    const bare = compose(emptyLanes(), 0, resolve);
+    const withCore = compose(emptyLanes(), 0, resolve, "Dana");
+    expect(withCore.bytes).toBe(byteLength(withCore.text));
+    expect(withCore.bytes).toBeGreaterThan(bare.bytes);
+    expect(readSentinel(withCore.text).intact).toBe(true);
+
+    // Under the floor the floor still publishes, flagged — never a lobotomy (§6).
+    const under = self.build({ budgetBytes: 10, day: 0 });
+    expect(under.overBudget).toBe(true);
+    expect(under.text).toContain(identityCoreLine("Dana"));
+    expect(readSentinel(under.text).intact).toBe(true);
+  });
+
+  test("the delivery preface rides above it and rewrites both byte counts", () => {
+    const s = store();
+    const self = new Self({ store: s });
+    self.ensureIdentityCore({ name: "Dana" });
+    self.boundary({ budgetBytes: 9_000, day: 0 });
+
+    const woke = self.wake({ date: "2026-09-04" });
+
+    expect(woke.reason).toBe("delivered");
+    expect(woke.text).toContain("0 memories");
+    expect(woke.text).toContain(identityCoreLine("Dana"));
+    expect(readSentinel(woke.text).intact).toBe(true);
   });
 });
 

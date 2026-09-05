@@ -410,6 +410,36 @@ export function findIdentityCore(store: Store): string | null {
   return null;
 }
 
+/**
+ * The core's NAME, for the day-0 lane (`briefing.ts#identityCoreLine`).
+ *
+ * `ensureIdentityCore` writes the name into three places — title, body and
+ * `meta.name` — and `meta.name` is the one `schemas/` indexes, so it is read
+ * first, with the title as the fallback for a row written before that shape
+ * settled. Null when no core has been minted: this module invents no name
+ * (INTERFACE-GAPS #8), and a store installed without `--name` renders exactly
+ * what it rendered before.
+ *
+ * The CALLER is expected to have checked that the identity lane is empty first.
+ * This reads prose, so it belongs at a boundary and never on the wake path
+ * (contract §5 G1); on any store with even one identity element it is never
+ * reached.
+ */
+export function identityCoreName(store: Store): string | null {
+  const id = findIdentityCore(store);
+  if (id === null) return null;
+  try {
+    const doc = store.readProse(id);
+    const name = doc.meta["name"];
+    if (typeof name === "string" && name.trim().length > 0) return name.trim();
+    const title = (doc.title ?? "").trim();
+    return title.length > 0 ? title : null;
+  } catch {
+    // A core whose prose will not read is not a reason to fail the wake (§5 G7).
+    return null;
+  }
+}
+
 // ── the standing self-schema byte counter (contract §5 G4) ──────────────────
 
 export interface SchemaBytesReport {

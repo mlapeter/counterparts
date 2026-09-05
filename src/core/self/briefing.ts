@@ -85,6 +85,42 @@ export const FRAMING = {
   horizon: "Arriving:",
 } as const;
 
+/**
+ * THE DAY-0 LANE — what "Who I am:" says before an identity element exists.
+ *
+ * Measured 2026-09-04 on a store opened the way `install --budget 9000 --name
+ * "Dana"` opens one: after the `rebrief` QUICKSTART §7 tells the stranger to
+ * run, the delivered wake was 385 bytes of furniture that promise "who you have
+ * been here, in your own words" and then say nothing — and the name the owner
+ * typed appeared nowhere in it. The identity core is a live row, but it is
+ * `type: "schema"` and `scanActive` lists `{ type: "memory" }`, so no lane can
+ * ever reach it (NOTES §11).
+ *
+ * Two facts and no third. It NAMES the core, and it says how the lane fills —
+ * the mechanism `sleep/consolidate.ts` actually implements, where promotion
+ * needs `base >= THETA_ID` AND reinforcement on `N_PROMOTION_DAYS` distinct
+ * lived days (`physics/index.ts#promotionEligibility`), decided at the
+ * consolidation inside the cycle `sessionEnd` runs. It invents no content: a
+ * wake that composed a plausible first belief about Dana would be the rumination
+ * pathway the contract forswears, arriving through the one surface read as
+ * settled fact.
+ *
+ * It deliberately does NOT say "nothing has been lived here yet". The delivery
+ * preface states the live memory count on the line above (`0 memories` on day
+ * 0), and a line claiming emptiness would go false the moment the first note
+ * landed while the identity lane — which takes distinct days to fill — was still
+ * empty. One string that is true on day 0 and on day 30; the preface carries the
+ * count, this line carries the WHO.
+ *
+ * No `- ` bullet: that prefix is reserved for a resolved statement, and
+ * `FRAMING.context` promises every such line opens with the date it was learned,
+ * which this line has none of. It is furniture, so `counts.identity` stays 0 and
+ * the header and sentinel still read `elements=0`.
+ */
+export function identityCoreLine(name: string): string {
+  return `This memory is for ${name}. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.`;
+}
+
 /** Id → the verbatim statement AND its dates, at render time only. */
 export interface Resolved {
   readonly statement: string;
@@ -113,6 +149,13 @@ export interface BriefingRequest {
   readonly budgetBytes: number;
   /** The lived day (scar E8), stated in the header so a stale bundle is legible. */
   readonly day: number;
+  /**
+   * The identity core's name, when the caller found one AND the identity lane is
+   * empty — the day-0 lane (`identityCoreLine`, NOTES §11). Absent means render
+   * nothing, which is what a store with no core has always rendered. The lookup
+   * is the caller's because it reads prose, and `self/` invents no name.
+   */
+  readonly coreName?: string;
 }
 
 export interface TrimEvent {
@@ -275,16 +318,31 @@ export function fixedPointTotal(skeletonBytes: number, occurrences: number): num
   throw new Error(`self: byte fixed point did not converge (skeleton=${skeletonBytes})`);
 }
 
-export function compose(kept: Kept, day: number, resolve: Resolve): Composed {
+export function compose(
+  kept: Kept,
+  day: number,
+  resolve: Resolve,
+  coreName?: string,
+): Composed {
   const counts = emptyCounts();
   for (const lane of LANE_ORDER) counts[lane] = kept[lane].length;
   const elements = LANE_ORDER.reduce((n, lane) => n + counts[lane], 0);
+  // The day-0 lane: a heading and one line of furniture, never an element. The
+  // counts and `elements` above are untouched, so `elements=0` in the header and
+  // `identity=0` in the sentinel stay true of a bundle that carries it.
+  const dayZero =
+    kept.identity.length === 0 && coreName !== undefined && coreName.length > 0 ? coreName : null;
 
   const build = (bytes: string): string => {
     const lines: string[] = [headerLine(day, elements, bytes), FRAMING.context];
     for (const lane of LANE_ORDER) {
       const items = kept[lane];
-      if (items.length === 0) continue;
+      if (items.length === 0) {
+        if (lane === "identity" && dayZero !== null) {
+          lines.push("", laneHeading(lane), identityCoreLine(dayZero));
+        }
+        continue;
+      }
       lines.push("", laneHeading(lane));
       for (const item of items) lines.push(elementLine(item, resolve));
     }
@@ -369,7 +427,7 @@ function offerLeftover(
     const next = held[0];
     if (next === undefined) break;
     kept.identity.push(next);
-    const candidate = compose(kept, req.day, resolve);
+    const candidate = compose(kept, req.day, resolve, req.coreName);
     if (candidate.bytes > req.budgetBytes) {
       kept.identity.pop();
       break;
@@ -415,7 +473,7 @@ export function render(
   const held = withheldForShare(kept, req.budgetBytes, resolve, t);
 
   for (;;) {
-    const c = compose(kept, req.day, resolve);
+    const c = compose(kept, req.day, resolve, req.coreName);
     const fits = c.bytes <= req.budgetBytes;
     let cut: TrimEvent | null = null;
     if (!fits) {

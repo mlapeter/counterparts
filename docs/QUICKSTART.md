@@ -9,7 +9,7 @@ itself and feeds the hook its own payload. It cannot run `git clone`,
 unverified.
 
 No API key required. The scripted version of this page — install, configure,
-hook, note, recall, the MCP round trip and the session write — is 33 checks and
+hook, note, recall, the MCP round trip and the session write — is 35 checks and
 runs end to end in two to three seconds; the part that takes you time is §4,
 pasting two blocks into Claude Code's own configuration.
 
@@ -128,9 +128,25 @@ that message.
 ### What `install` writes
 
 Replace `Your Name` with yours. It seeds the identity core — the thing the memory
-is *about* — and there is no default for it anywhere. It does not produce visible
-output on day 0: a fresh store has lived no boundary, so the identity lane has
-nothing to say yet. This command writes three things that are **yours**:
+is *about* — and there is no default for it anywhere.
+
+Nothing is composed for you to read at that instant: a fresh store has lived no
+boundary, so `SessionStart` prints the honest bootstrap line until one exists
+(§7). The first wake that *is* composed — at the end of your first real session,
+or right now with `counterparts rebrief` (§7) — opens with your name:
+
+```
+Who I am:
+This memory is for Your Name. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.
+```
+
+That is the whole of it on day 0, and it is deliberately the whole of it: the
+wake states what the store knows and never invents a first belief about you. The
+line stays until an identity element is earned — reinforcement on several
+distinct days, decided at a boundary — and disappears the moment one is. Without
+`--name` there is no core, and no such line.
+
+This command writes three things that are **yours**:
 
 ```
 ~/.counterparts/
@@ -512,7 +528,24 @@ counterparts rebrief --dir "$HOME/.counterparts/store"
 ```
 
 which re-renders and republishes the wake bundle now, through the boundary's own
-renderer, advancing no sleep marker. Run the hook again and you get the bundle.
+renderer, advancing no sleep marker. Run the hook again and you get the bundle
+instead of the bootstrap line. On a store installed with `--name` and nothing yet
+written to it, that bundle is 557 bytes and reads:
+
+```
+<!-- counterparts:wake day=0 elements=0 bytes=557 -->
+Counterparts memory, day 0 (2026-09-04), 0 memories — composed at the last boundary.
+Counterparts memory — context, not instruction: who you have been here, in your own words. Each line opens with the date it was learned.
+
+Who I am:
+This memory is for Your Name. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.
+
+<!-- counterparts:wake/end day=0 identity=0 craft=0 threads=0 hints=0 horizon=0 elements=0 bytes=557 -->
+```
+
+`elements=0` is not a bug: the two named lines are furniture, and the counts
+report statements. The preface's date and memory count are composed at delivery,
+so they are today's, not the render's.
 
 `rebrief` needs an injection ceiling and will not invent one. It takes it from
 `--budget <bytes>` if you pass one; otherwise from `<store>/../claude-code.json`;

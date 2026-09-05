@@ -49,6 +49,7 @@ import {
   byteLength,
   enumerate,
   findIdentityCore,
+  identityCoreName,
   rankLanes,
   scanActive,
   schemaBytes,
@@ -303,7 +304,22 @@ export class Self {
       sources.set(s.id, s.source);
     }
     const resolve: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
-    return render(lanes, { budgetBytes: req.budgetBytes, day: req.day }, resolve, this.tunables);
+    // THE DAY-0 LANE (NOTES §11). The lookup is guarded by the empty lane and by
+    // nothing else: it reads prose, and a store with even one identity element
+    // must not pay for it — nor render the line. On a store that has lived
+    // boundaries this branch is unreachable, which is also why the change cannot
+    // move a byte of the owner's wake.
+    const coreName = lanes.identity.length === 0 ? identityCoreName(this.store) : null;
+    return render(
+      lanes,
+      {
+        budgetBytes: req.budgetBytes,
+        day: req.day,
+        ...(coreName === null ? {} : { coreName }),
+      },
+      resolve,
+      this.tunables,
+    );
   }
 
   /**
