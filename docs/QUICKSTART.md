@@ -529,8 +529,9 @@ counterparts rebrief --dir "$HOME/.counterparts/store"
 
 which re-renders and republishes the wake bundle now, through the boundary's own
 renderer, advancing no sleep marker. Run the hook again and you get the bundle
-instead of the bootstrap line. On a store installed with `--name` and nothing yet
-written to it, that bundle is 557 bytes and reads:
+instead of the bootstrap line. On a store installed with §3's command exactly as
+written, and nothing yet written to it, that bundle is 557 bytes — a longer name
+makes it longer — and reads:
 
 ```
 <!-- counterparts:wake day=0 elements=0 bytes=557 -->
@@ -543,9 +544,11 @@ This memory is for Your Name. No identity has formed here yet — identity is ea
 <!-- counterparts:wake/end day=0 identity=0 craft=0 threads=0 hints=0 horizon=0 elements=0 bytes=557 -->
 ```
 
-`elements=0` is not a bug: the two named lines are furniture, and the counts
-report statements. The preface's date and memory count are composed at delivery,
-so they are today's, not the render's.
+`elements=0` is not a bug: the `Who I am:` heading and the line under it are
+furniture, and the counts report statements. The preface's date and memory count
+are composed at delivery, so they are today's rather than the render's — and
+"composed at the last boundary" is the one word it gets wrong on a store whose
+bundle came from `rebrief` before any boundary was lived.
 
 `rebrief` needs an injection ceiling and will not invent one. It takes it from
 `--budget <bytes>` if you pass one; otherwise from `<store>/../claude-code.json`;
