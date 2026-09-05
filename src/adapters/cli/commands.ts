@@ -1377,16 +1377,18 @@ function censusCache(dir: string): CacheCensus {
  * what to run. An empty table is neither format and says so.
  */
 /**
- * "N relative, M absolute (unmigrated), K missing files" — the shape the
- * owner reads the v5 path migration by. Blank pointers (removed rows) are named
- * only when there are any, because "0 removed" on every store is noise.
+ * "N relative, M absolute (unmigrated|unplaceable), K missing files" — the
+ * shape the owner reads the v5 path migration by. Escaping rows (a hand-edited
+ * database) and blank pointers (removed rows) are named only when there are
+ * any, because "0 removed" on every store is noise.
  */
-function pathCensusLine(c: PathCensus): string {
+function pathCensusLine(c: PathCensus, schemaBehind: boolean): string {
   const parts = [
     `${c.relative} relative`,
-    `${c.absolute} absolute (unmigrated)`,
+    `${c.absolute} absolute (${schemaBehind ? "unmigrated" : "unplaceable"})`,
     `${c.missing} missing file${c.missing === 1 ? "" : "s"}`,
   ];
+  if (c.escaped > 0) parts.push(`${c.escaped} ESCAPE the store (never resolved; hand-edited rows)`);
   if (c.blank > 0) parts.push(`${c.blank} blank (removed)`);
   return parts.join(", ");
 }
@@ -1512,10 +1514,14 @@ function verifyCensus(dir: string, io: Io): number {
   // restored store reads its own prose. A v4 store opened here as an observer
   // still shows its absolute rows — that is the read-only view of what the
   // first writer open will convert — and "missing" is a separate fact from
-  // either spelling: the pointer resolved to a file that is not there.
-  io.out(`Prose paths: ${pathCensusLine(pathsCensus.prose)}`);
-  io.out(`Version paths: ${pathCensusLine(pathsCensus.versions)}`);
-  if (schemaVersion !== null && Number.parseInt(schemaVersion, 10) < SCHEMA_VERSION) {
+  // either spelling: the pointer resolved to a file that is not there. The
+  // word beside the absolute count is chosen by the schema: on a v4 store the
+  // rows are UNMIGRATED (the first writer open converts them); on a v5 store a
+  // leftover absolute row was migrated and could not be placed — UNPLACEABLE.
+  const schemaBehind = schemaVersion !== null && Number.parseInt(schemaVersion, 10) < SCHEMA_VERSION;
+  io.out(`Prose paths: ${pathCensusLine(pathsCensus.prose, schemaBehind)}`);
+  io.out(`Version paths: ${pathCensusLine(pathsCensus.versions, schemaBehind)}`);
+  if (schemaBehind) {
     io.out(
       `  store schema v${schemaVersion}: absolute paths are converted to relative at the next WRITER open (v${SCHEMA_VERSION}); this census is read-only and changed nothing.`,
     );

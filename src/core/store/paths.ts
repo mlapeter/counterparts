@@ -178,23 +178,57 @@ export const paths = {
 } as const;
 
 /**
- * A stored path, made absolute against the store that holds the row.
+ * A stored path, made absolute against the store that holds the row — the ONE
+ * way a stored value becomes a filesystem address (CONTRACT §5 G14).
  *
- * Three cases, each deliberate:
+ * Four cases, each deliberate:
  *   - `""` → `""`. A chased row's pointers are blanked (`owner-op-seam.ts`), and
  *     `join(dir, "")` is the STORE ROOT — handed to the removal path's
  *     `existsSync` + `rmSync`, that would be the one address worse than the
  *     source's file. A blank pointer resolves to nothing, never to a directory.
- *   - absolute → returned as it is. A row a build before v5 wrote and the v5
- *     migration could not place (no `prose/` or `versions/` segment to key on;
- *     `verify` counts these as "absolute (unmigrated)"). Reads behave exactly as
- *     they did before v5 for that row, and nothing else.
  *   - relative → `join(dir, stored)`. The v5 shape.
+ *   - absolute → PLACED against the opened dir by the same rule the migration
+ *     uses (`relativizeStoredPath`; pure, no stat, no write), so an INSTRUMENT
+ *     on a pre-v5 copy, backup or moved store reads ITS OWN file rather than the
+ *     source's — the review of PR #79 reproduced a v5 observer on a v4 copy
+ *     reading the live store's prose and calling the copy's own files missing.
+ *     Only an unplaceable row (no `prose/` or `versions/` segment to key on) is
+ *     read as given; `verify` counts those as "absolute (unplaceable)".
+ *   - anything that would resolve OUTSIDE `<dir>/prose/` or `<dir>/versions/` —
+ *     `../ESCAPE/…`, `.`, `cache/cache.sqlite`, an absolute row whose tail is
+ *     `prose/../../x` — is refused with `STORED_PATH_ESCAPES` and never returned.
+ *     No writer in this module produces such a row; a hand-edited database can.
+ *     The guard runs AFTER the join, on both branches, so the two rules compose.
  */
 export function resolveStoredPath(dir: string, storedPath: string): string {
   if (storedPath.length === 0) return "";
-  if (isAbsolute(storedPath)) return storedPath;
-  return join(dir, storedPath);
+  if (isAbsolute(storedPath)) {
+    const placed = relativizeStoredPath(dir, storedPath);
+    if (placed === null || isAbsolute(placed)) return storedPath;
+    return joinInsideStore(dir, placed, storedPath);
+  }
+  return joinInsideStore(dir, storedPath, storedPath);
+}
+
+function joinInsideStore(dir: string, rel: string, original: string): string {
+  if (!isCanonicalRelativePath(dir, rel)) {
+    throw new StoreError("STORED_PATH_ESCAPES", { path: original });
+  }
+  return join(dir, rel);
+}
+
+/**
+ * True when `rel`, joined onto `dir`, lands strictly under `<dir>/prose/` or
+ * `<dir>/versions/` — the only two places a stored path may name. Resolved
+ * before compared (scar §2.13), so `prose/../../x` and `./prose/x` are judged
+ * by where they land, not by how they are spelled. Pure: no stat, no write.
+ */
+export function isCanonicalRelativePath(dir: string, rel: string): boolean {
+  if (rel.length === 0 || isAbsolute(rel)) return false;
+  const back = relative(resolve(dir), resolve(join(dir, rel)));
+  if (back.length === 0 || back.startsWith("..") || isAbsolute(back)) return false;
+  const posixBack = toPosix(back);
+  return posixBack.startsWith("prose/") || posixBack.startsWith("versions/");
 }
 
 /**

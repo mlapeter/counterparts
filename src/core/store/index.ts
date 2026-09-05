@@ -205,9 +205,14 @@ export interface PutInput {
 export interface PathCensus {
   /** Store-relative rows (the v5 shape). */
   readonly relative: number;
-  /** Absolute rows the v5 migration could not place; read where they always were. */
+  /** Absolute rows: on a v4 store, not yet migrated; on a v5 store, the ones the
+   *  migration could not place. Either way resolved against THIS store when a
+   *  `prose/` or `versions/` segment allows it, and read as given otherwise. */
   readonly absolute: number;
-  /** Non-blank rows whose resolved file is not on disk. */
+  /** Rows that would resolve OUTSIDE `prose/` or `versions/` — a hand-edited
+   *  database. Never resolved (`STORED_PATH_ESCAPES`), never stat'ed. */
+  readonly escaped: number;
+  /** Non-blank, resolvable rows whose file is not on disk. */
   readonly missing: number;
   /** Blanked pointers — removed rows. Nothing to resolve. */
   readonly blank: number;
@@ -1543,8 +1548,11 @@ export class Store {
    *
    * Rows hold store-relative paths (`prose/<family>/<id>.md`; CONTRACT §5 G14),
    * so a copied or restored store names the files beside it and never the
-   * files of the store it was copied from. `""` — a chased row's blanked
-   * pointer — resolves to `""`, never to the store root (`paths.ts`).
+   * files of the store it was copied from. A pre-v5 absolute row is PLACED
+   * against this store by the migration's own rule, so an instrument on a v4
+   * copy reads the copy's file too. `""` — a chased row's blanked pointer —
+   * resolves to `""`, never to the store root; a value that would land outside
+   * `prose/` or `versions/` throws `STORED_PATH_ESCAPES` (`paths.ts`).
    */
   absolutePath(storedPath: string): string {
     return resolveStoredPath(this.dir, storedPath);
@@ -1556,23 +1564,34 @@ export class Store {
    * on a live store (constitution 16). Pure reads plus one `stat` per row.
    *
    *   relative  — the v5 shape, resolved against this store;
-   *   absolute  — a pre-v5 row the migration could not place (no `prose/` or
-   *               `versions/` segment), still read where it always was;
-   *   missing   — a non-blank pointer whose resolved file does not exist.
+   *   absolute  — a pre-v5 spelling: unmigrated on a v4 store, unplaceable on a
+   *               v5 one; placed against this store where a segment allows it;
+   *   escaped   — would resolve outside the store's two roots; never resolved;
+   *   missing   — a non-blank, resolvable pointer whose file does not exist.
    *
-   * Blank pointers (removed rows) are neither: there is nothing to resolve.
+   * Blank pointers (removed rows) are none of these: there is nothing to resolve.
    */
   pathCensus(): { prose: PathCensus; versions: PathCensus } {
     const census = (rows: readonly { p: string }[]): PathCensus => {
-      const out = { relative: 0, absolute: 0, missing: 0, blank: 0 };
+      const out = { relative: 0, absolute: 0, escaped: 0, missing: 0, blank: 0 };
       for (const { p } of rows) {
         if (p.length === 0) {
           out.blank += 1;
           continue;
         }
+        let resolved: string;
+        try {
+          resolved = this.absolutePath(p);
+        } catch (err) {
+          if (err instanceof StoreError && err.code === "STORED_PATH_ESCAPES") {
+            out.escaped += 1;
+            continue;
+          }
+          throw err;
+        }
         if (isAbsolute(p)) out.absolute += 1;
         else out.relative += 1;
-        if (!existsSync(this.absolutePath(p))) out.missing += 1;
+        if (!existsSync(resolved)) out.missing += 1;
       }
       return out;
     };

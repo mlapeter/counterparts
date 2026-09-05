@@ -167,10 +167,16 @@ by reference only.
     store's files.** `memories.prose_path` and `versions.path` hold store-relative POSIX
     paths — `prose/<family>/<id>.md`, `versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`)
     — and every read, write and chase resolves them against the OPENED directory
-    (`Store.absolutePath`), never against the process's working directory and never as
-    given. A blank pointer resolves to nothing, never to the store root. Tests copy a
-    store, destroy the source's file, and read through the copy; remove through the copy
-    and find the source intact; and open a `backup` snapshot standalone
+    (`Store.absolutePath`), never against the process's working directory. A pre-v5
+    ABSOLUTE row is placed against the opened directory by the same rule the migration
+    uses, so an instrument on a v4 copy, backup or moved store reads that store's own
+    file; the one value read as given is an unplaceable one (no `prose/` or `versions/`
+    segment to key on). A blank pointer resolves to nothing, never to the store root, and
+    a value that would land outside `prose/` or `versions/` is refused by name
+    (`STORED_PATH_ESCAPES`) and never resolved. Tests copy a store, destroy the source's
+    file, and read through the copy — as a writer and as an instrument on a v4 copy;
+    remove through the copy and find the source intact; open a `backup` snapshot
+    standalone; and refuse a hand-edited `../ESCAPE/…` row
     (`test/store-portable.test.ts`). *Added 2026-09-05 (schema v5), when finding I22 showed
     an absolute `prose_path` made a copied store read and DELETE the source's prose. Rows
     written before v5 are converted once, at the first writer open, inside the

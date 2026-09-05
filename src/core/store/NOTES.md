@@ -461,11 +461,37 @@ POSIX-separated whatever the host: `prose/<family>/<id>.md` and
 drift. Every reader — the six in `index.ts`, `schemas/`, the console, removal, both
 dashboards, the parallel tool's raw-DB readers — resolves through one function,
 `resolveStoredPath(dir, stored)` (`Store.absolutePath` for callers holding a store).
-Three cases, each chosen: relative → `join(dir, …)`; absolute → returned as it is (a
-pre-v5 row the migration could not place still reads where it always read, and nowhere
-else); **`""` → `""`**. That last line is the one that mattered most in review:
-`join(dir, "")` is the store ROOT, and the removal path feeds the resolved value to
-`existsSync` + `rmSync`. A chased row's blanked pointer must resolve to nothing.
+Four cases, each chosen: relative → `join(dir, …)`; absolute → PLACED against the
+opened dir by the migration's own rule (below), and only an unplaceable row — no
+`prose/` or `versions/` segment — is read as given; **`""` → `""`**; and anything that
+would land outside `<dir>/prose/` or `<dir>/versions/` once joined is refused by name
+(`STORED_PATH_ESCAPES`) and never returned. The `""` line is the one that mattered most
+in the first review pass: `join(dir, "")` is the store ROOT, and the removal path feeds
+the resolved value to `existsSync` + `rmSync`. A chased row's blanked pointer must
+resolve to nothing.
+
+**What the adversarial review changed (2026-09-05, PR #79 MERGE WITH CHANGES).** The
+first version returned an absolute row AS GIVEN, and the shipped G14 said "never as
+given" — the contract was ahead of the code. The reviewer reproduced the consequence: a
+v5 *instrument* on a v4 copy read the LIVE store's prose under the copy's ids (and
+returned the live store's edits, silently, when the two had diverged), threw
+`PROSE_FILE_MISSING` naming the source's path once the source was gone, and `verify`
+on the copy called five present files "missing" — until something WROTE to the copy.
+Constitution 7's catastrophe case (source gone, open the backup) is exactly where a
+read-only reader failed. The fix is seven lines: the resolver places an absolute row
+with `relativizeStoredPath` — pure, no stat, no write — and falls back to as-given only
+when unplaceable. A pre-v5 `counterparts backup` is therefore a valid revert artifact
+under any v5 reader, not only after a writer opens it. The second change is hardening
+the reviewer asked for: a hand-edited relative row such as `../ESCAPE/prose/x.md` was
+selected by the migration's predicate, returned unchanged, called "relative" by the
+census, and joined to an address outside the store. `isCanonicalRelativePath` now judges
+every join by where it LANDS — strictly under `prose/` or `versions/`, resolved before
+compared (scar §2.13) — on both the relative and the placed-absolute branch, so the two
+rules compose (`/x/prose/../../y` is caught after its tail is joined). The migration
+counts such a row `unplaceable` and leaves it; the census counts it `escaped`; reads
+refuse it by name. The guard is deliberately wider than the reviewer's minimum: a row
+naming `cache/cache.sqlite` or `tmp/…` resolves inside the store but outside its two
+canonical roots, and a removal that trusted it would have deleted box 3.
 
 **Why a schema bump (v5) rather than a tolerant no-bump.** The migration is data-only —
 no DDL moves — and every v5 reader accepts both spellings, so a tolerant scheme that
@@ -504,7 +530,9 @@ LEFT, not blanked and not guessed, and counted `unplaceable`. Whether the file e
 at the new address is deliberately not consulted: the absolute address is wrong for a
 copied store whatever sits at it, and a missing file is a separate fact
 (`Store.pathCensus()` counts it separately; `verify` prints "N relative, M absolute
-(unmigrated), K missing files" for each column).
+(unmigrated), K missing files" for each column on a v4 store, and "(unplaceable)" in
+place of "(unmigrated)" on a v5 one — a leftover absolute row there WAS migrated and
+could not be placed, so "unmigrated" would be the wrong word).
 
 - *Idempotent by predicate, not only by latch.* The version row short-circuits a v5
   open before the branch is reached; but two writers racing into the migrate branch on

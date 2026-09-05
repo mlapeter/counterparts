@@ -14,7 +14,7 @@ import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
-import { relativizeStoredPath } from "./paths.js";
+import { isCanonicalRelativePath, relativizeStoredPath } from "./paths.js";
 import type { ProseType } from "./prose.js";
 
 /**
@@ -421,7 +421,8 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
 export interface PathsConverted {
   /** Rows whose path was absolute and is now store-relative. */
   readonly converted: number;
-  /** Rows whose absolute path had no `prose/` or `versions/` segment: left as they were. */
+  /** Rows left as they were: no `prose/` or `versions/` segment to key on, or a
+   *  value that would land outside those two roots once joined onto the store. */
   readonly unplaceable: number;
 }
 
@@ -470,7 +471,10 @@ function convertColumn(
   let unplaceable = 0;
   for (const row of rows) {
     const rel = relativizeStoredPath(dir, row.p);
-    if (rel === null) {
+    // No segment to key on, OR a value that would land outside `prose/` /
+    // `versions/` once joined (a hand-edited `../ESCAPE/…`): both are left as
+    // they are and counted. `resolveStoredPath` refuses the second by name.
+    if (rel === null || !isCanonicalRelativePath(dir, rel)) {
       unplaceable += 1;
       continue;
     }

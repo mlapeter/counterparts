@@ -22,6 +22,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -312,8 +313,8 @@ describe("the v4 → v5 migration at open", () => {
     expect(migrated.readVersion(id, 1).title).toBe("Portable");
     // …the census says so…
     expect(migrated.pathCensus()).toEqual({
-      prose: { relative: 2, absolute: 0, missing: 0, blank: 0 },
-      versions: { relative: 1, absolute: 0, missing: 0, blank: 0 },
+      prose: { relative: 2, absolute: 0, escaped: 0, missing: 0, blank: 0 },
+      versions: { relative: 1, absolute: 0, escaped: 0, missing: 0, blank: 0 },
     });
     // …and the conversion left a durable, counts-only record (constitution 16).
     const record = migrated.eventLog({ name: PATHS_MIGRATED_EVENT });
@@ -345,8 +346,8 @@ describe("the v4 → v5 migration at open", () => {
     expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
     expect(observer.read(id).doc.body).toBe(BODY);
     expect(observer.pathCensus()).toEqual({
-      prose: { relative: 0, absolute: 1, missing: 0, blank: 0 },
-      versions: { relative: 0, absolute: 1, missing: 0, blank: 0 },
+      prose: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
+      versions: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
     });
     observer.close();
     open.length = 0;
@@ -365,8 +366,115 @@ describe("the v4 → v5 migration at open", () => {
     open.length = 0;
     const d = consoleAnswering("");
     expect(await run(["verify", "--dir", source], { io: d.io })).toBe(EXIT.ok);
-    expect(d.out.join("\n")).toContain("Prose paths: 1 relative, 0 absolute (unmigrated), 0 missing files");
+    // On a v5 store a leftover absolute row was migrated and could not be
+    // placed, so the word beside the count changes with the schema.
+    expect(d.out.join("\n")).toContain("Prose paths: 1 relative, 0 absolute (unplaceable), 0 missing files");
     expect(d.out.join("\n")).not.toContain("store schema v4");
+  });
+
+  test("an INSTRUMENT on a pre-v5 copy — or a moved pre-v5 store — reads the COPY's own files, source wiped, and writes nothing", async () => {
+    // The review of PR #79 reproduced the gap: an observer on a v4 copy read the
+    // SOURCE's prose (or failed once the source was gone) and `verify` called
+    // the copy's own present files "missing", until something WROTE to the
+    // copy. Absolute rows are now PLACED at read time by the migration's rule.
+    const { id, proseRel } = seed(source);
+    regressToV4(source, source);
+    const copy = join(elsewhere, "copy");
+    cpSync(source, copy, { recursive: true });
+    rmSync(source, { recursive: true, force: true });
+    expect(existsSync(join(copy, proseRel))).toBe(true);
+    const bytes = readFileSync(paths.operational(copy));
+
+    const observer = store(copy, { observer: true });
+    expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
+    expect(observer.read(id).doc.body).toBe(BODY);
+    expect(observer.readVersion(id, 1).title).toBe("Portable");
+    expect(observer.absolutePath(observer.row(id)?.prose_path ?? "")).toBe(join(copy, proseRel));
+    // The census is still a SPELLING census — the rows are absolute — but the
+    // files are the copy's own, so nothing is missing.
+    expect(observer.pathCensus()).toEqual({
+      prose: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
+      versions: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
+    });
+    observer.close();
+    open.length = 0;
+    expect(readFileSync(paths.operational(copy))).toEqual(bytes);
+
+    const c = consoleAnswering("");
+    expect(await run(["verify", "--dir", copy], { io: c.io })).toBe(EXIT.ok);
+    expect(c.out.join("\n")).toContain("Prose paths: 0 relative, 1 absolute (unmigrated), 0 missing files");
+    expect(readFileSync(paths.operational(copy))).toEqual(bytes);
+
+    // The same store MOVED: an instrument reads it where it now is.
+    const moved = join(elsewhere, "moved");
+    renameSync(copy, moved);
+    const afterMove = store(moved, { observer: true });
+    expect(afterMove.read(id).doc.body).toBe(BODY);
+    expect(afterMove.pathCensus().prose.missing).toBe(0);
+    afterMove.close();
+    open.length = 0;
+    expect(readFileSync(paths.operational(moved))).toEqual(bytes);
+    // afterEach removes `elsewhere`; give it the source dir back to remove too.
+    writeFileSync(join(elsewhere, ".keep"), "");
+  });
+
+  test("a row that would resolve OUTSIDE prose/ or versions/ is refused by name, counted, and never resolved", async () => {
+    // Only a hand-edited database can hold one; the store's writers spell
+    // `prose/…` and `versions/…` and nothing else. The guard runs AFTER the
+    // join, so it judges where the value lands, not how it is spelled.
+    for (const bad of [
+      "../ESCAPE/prose/memories/mem_x.md",
+      ".",
+      "prose",
+      "prose/",
+      "cache/cache.sqlite",
+      "tmp/x.tmp",
+      "prose/../cache/cache.sqlite",
+      "/other/store/prose/../../secrets.txt",
+    ]) {
+      let code = "NO_THROW";
+      try {
+        resolveStoredPath("/some/store", bad);
+      } catch (err) {
+        code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+      }
+      expect(`${bad} → ${code}`).toBe(`${bad} → STORED_PATH_ESCAPES`);
+    }
+
+    const { id } = seed(source);
+    const s0 = store(source);
+    const tampered = s0.put({ type: "memory", kind: "fact", body: "a pointer someone edited by hand" });
+    s0.close();
+    open.length = 0;
+    // Regress to v4 and tamper, so the MIGRATION meets the row too.
+    regressToV4(source, source);
+    const db = new Database(paths.operational(source));
+    db.run("UPDATE memories SET prose_path = ? WHERE id = ?", ["../ESCAPE/prose/memories/mem_x.md", tampered]);
+    db.close();
+
+    const s = store(source);
+    // The migration LEFT it and counted it; the good row converted.
+    expect(s.row(tampered)?.prose_path).toBe("../ESCAPE/prose/memories/mem_x.md");
+    expect(s.row(id)?.prose_path).toBe(stored.proseFile("memory", id));
+    expect(JSON.parse(s.eventLog({ name: PATHS_MIGRATED_EVENT })[0]?.payload ?? "{}")).toMatchObject({
+      prose: { converted: 1, unplaceable: 1 },
+    });
+    // Reads refuse by name — never a read of `<parent>/ESCAPE/…`.
+    let code = "NO_THROW";
+    try {
+      s.read(tampered);
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+    }
+    expect(code).toBe("STORED_PATH_ESCAPES");
+    // The census calls it what it is — not "relative", and not stat'ed.
+    expect(s.pathCensus().prose).toEqual({ relative: 1, absolute: 0, escaped: 1, missing: 0, blank: 0 });
+    s.close();
+    open.length = 0;
+    const c = consoleAnswering("");
+    expect(await run(["verify", "--dir", source], { io: c.io })).toBe(EXIT.ok);
+    expect(c.out.join("\n")).toContain("1 ESCAPE the store");
+    expect(existsSync(join(source, "..", "ESCAPE"))).toBe(false);
   });
 
   test("a row the migration cannot place is LEFT and counted, and a missing file is a separate count", () => {
@@ -384,7 +492,7 @@ describe("the v4 → v5 migration at open", () => {
     const migrated = store(source);
     // The stray row keeps its absolute pointer (unmigrated, counted) and the
     // placed row whose file is gone is counted as missing — two different facts.
-    expect(migrated.pathCensus().prose).toEqual({ relative: 1, absolute: 1, missing: 2, blank: 0 });
+    expect(migrated.pathCensus().prose).toEqual({ relative: 1, absolute: 1, escaped: 0, missing: 2, blank: 0 });
     expect(migrated.row(stray)?.prose_path).toBe("/nowhere/at/all/file.md");
     expect(migrated.row(id)?.prose_path).toBe(stored.proseFile("memory", id));
     const record = migrated.eventLog({ name: PATHS_MIGRATED_EVENT });
@@ -400,7 +508,7 @@ describe("the v4 → v5 migration at open", () => {
     regressToV4(source, source); // touches only non-blank rows
     const migrated = store(source);
     expect(migrated.row(id)?.prose_path).toBe("");
-    expect(migrated.pathCensus().prose).toEqual({ relative: 0, absolute: 0, missing: 0, blank: 1 });
+    expect(migrated.pathCensus().prose).toEqual({ relative: 0, absolute: 0, escaped: 0, missing: 0, blank: 1 });
     expect(migrated.eventLog({ name: PATHS_MIGRATED_EVENT })).toEqual([]);
   });
 });
