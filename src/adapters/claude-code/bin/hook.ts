@@ -17,7 +17,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { dataDir } from "../../../core/store/index.js";
-import { defaultConfigPath, namedConfigRefusal, resolveConfigPath } from "../../config-path.js";
+import {
+  defaultConfigPath,
+  namedConfigRefusal,
+  namedUnreadableRefusal,
+  resolveConfigPath,
+} from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
@@ -74,7 +79,7 @@ async function readStdin(): Promise<string> {
 export function hostConfig(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad } {
+): { config: AdapterConfig; credentials: CredentialLoad; reason: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -83,7 +88,8 @@ export function hostConfig(
     // which is the fail direction observer-mode G5 requires.
     raw = undefined;
   }
-  const loaded = loadConfig(raw).config;
+  const load = loadConfig(raw);
+  const loaded = load.config;
   // Only a configuration we UNDERSTOOD names a file. An unreadable one resolves
   // to `{ observer: true }` above, and an observer opens no credential.
   const credentials = loadCredentials(loaded.credentialsFile, env);
@@ -91,7 +97,14 @@ export function hostConfig(
   // value to pin onto the child (scar §2.13). Leaving it undefined would make
   // the parent and the child resolve it independently, from an environment
   // either of them might have inherited differently.
-  return { config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() }, credentials };
+  // `reason` travels out so the caller can tell "we understood this" from "we
+  // stood down because we did not" — the difference matters only for a config
+  // somebody NAMED (`namedUnreadableRefusal`).
+  return {
+    config: { ...loaded, dataDir: loaded.dataDir ?? dataDir() },
+    credentials,
+    reason: load.reason,
+  };
 }
 
 /**
@@ -149,7 +162,16 @@ async function main(): Promise<void> {
     process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
     return;
   }
-  const { config, credentials } = hostConfig(choice.path);
+  const { config, credentials, reason } = hostConfig(choice.path);
+  // The third arm: a named file that parses but whose fields do not typecheck
+  // resolves to observer, and an observer with no `dataDir` reads the DEFAULT
+  // store. Standing down is the only answer that keeps the promise the flag
+  // makes. An unreadable DEFAULT is unchanged — observer, as it always was.
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
+    return;
+  }
   // A file the group or the world can read is WARNED about, by mode, and never
   // refused: the owner's machine, the owner's call (§5 G2 — a throw here would
   // fail the host over a permission bit).

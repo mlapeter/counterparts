@@ -141,6 +141,19 @@ is `namedConfigRefusal`, a separate function rather than a line inside
 and its file does not exist yet: writing it is the command. An absent DEFAULT
 stays ordinary — a fresh machine has none and the hook must still stand up.
 
+Two arms followed from that one. **The pin and the refusal collided**: `spawn.ts`
+pins the parent's resolved path onto EVERY worker, the default included, so on a
+machine with no config the worker would have seen a "named" file that is not
+there and stood down — nothing would ever sweep or sleep there. `isNamed` is the
+fix, and it is the same test `install` uses to decide whether to print a flag:
+the PATH, not how it arrived. **And `unreadable` is not `absent`**: `loadConfig`
+reports it for a file that parses but whose fields do not typecheck, and resolves
+it to `{ observer: true }`, whose store then falls through to `dataDir()`. For a
+file somebody NAMED that is a stand-down nobody asked for at a store nobody
+named, so the three entry points carry the loader's verdict out
+(`namedUnreadableRefusal`). An unreadable DEFAULT is unchanged: observer, as
+observer-mode G5 requires.
+
 **The hook RECORDS rather than prints, and the record is the session file.** A
 hook's stdout is the model's context and its stderr is a host log nobody reads,
 so `<dataDir>/sessions/<id>.json` gains a `config` field — host state, no

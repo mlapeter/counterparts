@@ -9,7 +9,7 @@
  * existed (`test("the default is unchanged…")` below, and the process-level
  * proof at the bottom).
  *
- * Three of the tests here run REAL PROCESSES, which is what makes them worth
+ * Six of the tests here run REAL PROCESSES, which is what makes them worth
  * having: the flag has to survive `bun run <script> --config <path>` (bun has a
  * `--config` of its own), and "wrote to the scratch store and NOT to the home
  * one" is a claim about a filesystem, not about a function. Each spawn gets an
@@ -39,7 +39,9 @@ import {
   configFlag,
   configLine,
   defaultConfigPath,
+  isNamed,
   namedConfigRefusal,
+  namedUnreadableRefusal,
   resolveConfigPath,
 } from "../src/adapters/config-path.js";
 import { recordSession, readSession } from "../src/adapters/sessions.js";
@@ -219,6 +221,46 @@ describe("the rule itself", () => {
     expect(namedConfigRefusal(resolveConfigPath([CONFIG_FLAG, junk], {}, work))).toContain(
       "not a JSON object",
     );
+  });
+
+  test("the PINNED DEFAULT is not a named config, however it arrived", () => {
+    // The collision found while reviewing the missing-file refusal: `spawn.ts`
+    // pins the parent's resolved path onto every worker, the default included,
+    // so a machine with NO `~/.counterparts/claude-code.json` — which is
+    // ordinary, the hook stands up as an observer — would hand its worker a
+    // "named" config that is not there, and the worker would stand down.
+    // Nothing would ever sweep or sleep on such a machine. The test is the
+    // PATH, the same rule `install` uses to decide whether to print a flag.
+    const emptyHome = join(work, "empty-home");
+    const pinnedDefault = {
+      path: defaultConfigPath(emptyHome),
+      source: CONFIG_ENV,
+      refusal: null,
+    } as const;
+    expect(isNamed(pinnedDefault, emptyHome)).toBe(false);
+    expect(namedConfigRefusal(pinnedDefault, undefined, emptyHome)).toBe(null);
+    expect(namedUnreadableRefusal(pinnedDefault, "unreadable", emptyHome)).toBe(null);
+    // A path that really is elsewhere is still named, however it arrived.
+    const elsewhere = {
+      path: join(work, "elsewhere", "claude-code.json"),
+      source: CONFIG_ENV,
+      refusal: null,
+    } as const;
+    expect(isNamed(elsewhere, emptyHome)).toBe(true);
+  });
+
+  test("a NAMED config that parses but does not typecheck refuses; a default does not", () => {
+    // `loadConfig` reports `unreadable` for a file whose fields are the wrong
+    // type and resolves it to `{ observer: true }` — the right fail direction
+    // for a config nobody named, and the wrong one for a file the operator
+    // pointed at, because the store then falls through to the DEFAULT and is
+    // opened as an instrument.
+    const named = { path: join(work, "x", "claude-code.json"), source: CONFIG_FLAG, refusal: null } as const;
+    expect(namedUnreadableRefusal(named, "unreadable")).toContain("could not be understood");
+    expect(namedUnreadableRefusal(named, "loaded")).toBe(null);
+    expect(namedUnreadableRefusal(named, "absent")).toBe(null);
+    const dflt = { path: defaultConfigPath(work), source: "default", refusal: null } as const;
+    expect(namedUnreadableRefusal(dflt, "unreadable", work)).toBe(null);
   });
 
   test("an EMPTY environment variable is absent, not a refusal", () => {
@@ -605,6 +647,29 @@ describe("the hook, as a real process", () => {
       expect(r.stderr).toContain("could not be read");
       // Nothing was minted anywhere: not at the named path's store, not at the
       // data dir the environment offered, not under the home.
+      expect(existsSync(dataDir)).toBe(false);
+      expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    },
+    60_000,
+  );
+
+  test(
+    "a named config whose fields do not typecheck stands the hook down",
+    () => {
+      const home = join(work, "home-junk");
+      const dataDir = join(work, "data-junk");
+      // Parses as an object; `dataDir` is a number, so `loadConfig` reports
+      // `unreadable` and resolves to observer — which would then read the
+      // DEFAULT store rather than the one this file was supposed to name.
+      const bad = writeConfig(join(work, "badtypes", "claude-code.json"), { dataDir: 123 });
+      const r = runHook(
+        [CONFIG_FLAG, bad],
+        { HOME: home, USERPROFILE: home, COUNTERPARTS_DATA_DIR: dataDir },
+        "badtypes",
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("could not be understood");
       expect(existsSync(dataDir)).toBe(false);
       expect(existsSync(join(home, ".counterparts"))).toBe(false);
     },

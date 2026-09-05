@@ -33,6 +33,7 @@ import {
   configLine,
   defaultConfigPath,
   namedConfigRefusal,
+  namedUnreadableRefusal,
   resolveConfigPath,
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
@@ -125,7 +126,12 @@ export function launchOptions(
 export function questionEmbedder(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { embedder: LiveEmbedder | null; credentials: CredentialLoad; credentialsFile?: string } {
+): {
+  embedder: LiveEmbedder | null;
+  credentials: CredentialLoad;
+  credentialsFile?: string;
+  reason: string;
+} {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -134,9 +140,11 @@ export function questionEmbedder(
     // and an observer opens no socket at all.
     raw = undefined;
   }
-  const config = loadConfig(raw).config;
+  const load = loadConfig(raw);
+  const config = load.config;
   const credentials = loadCredentials(config.credentialsFile, env);
   return {
+    reason: load.reason,
     // `openEmbedder` is the ONE answer to "is there an embedder": the knob is
     // the gate, an observer gets none, and a missing key refuses by name on the
     // first call rather than being re-checked here.
@@ -176,7 +184,13 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const { embedder, credentials, credentialsFile } = questionEmbedder(choice.path);
+  const { embedder, credentials, credentialsFile, reason } = questionEmbedder(choice.path);
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`${unreadable}\n`);
+    process.exitCode = 1;
+    return;
+  }
   // stderr, never stdout — stdout is the JSON-RPC wire. This is this entry
   // point's "which file answered": printed at every launch, before a byte of
   // protocol, because a server reading a configuration nobody named is exactly

@@ -62,7 +62,7 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import { DEFAULT_DATA_DIR_NAME } from "../core/store/index.js";
 
@@ -179,6 +179,47 @@ export function resolveConfigPath(
 }
 
 /**
+ * Is this choice a configuration somebody NAMED somewhere other than the default?
+ *
+ * The test is the PATH, not how it was named — the same rule `install` uses to
+ * decide whether to print a flag. It matters because `spawn.ts` pins the
+ * parent's resolved path onto every worker, default included: without this, a
+ * machine with no `~/.counterparts/claude-code.json` (which is ordinary — the
+ * hook stands up as an observer) would spawn a worker that saw a NAMED but
+ * missing config and stood down, so nothing would ever sweep or sleep there.
+ * Found while reviewing the missing-file refusal; the pin is right and the
+ * refusal is right, and this is the line that keeps them from meeting.
+ */
+export function isNamed(choice: ConfigChoice, home: string = homedir()): boolean {
+  return choice.source !== "default" && resolve(choice.path) !== defaultConfigPath(home);
+}
+
+/**
+ * Why a NAMED configuration was not UNDERSTOOD, or null — the third arm, and the
+ * only one that needs the caller's own loader.
+ *
+ * `loadConfig` reports `unreadable` for a file that parses but whose fields do
+ * not typecheck (`"dataDir": 123`), and resolves it to `{ observer: true }` —
+ * the right fail direction for a configuration nobody named, and the wrong one
+ * for a file the operator pointed at: the store then falls through to the
+ * default, opened as an instrument. `reason` is passed in as a string rather
+ * than the adapter's own type, so this module still imports no adapter.
+ */
+export function namedUnreadableRefusal(
+  choice: ConfigChoice,
+  reason: string,
+  home?: string,
+): string | null {
+  if (!isNamed(choice, home) || reason !== "unreadable") return null;
+  const named = choice.source === CONFIG_FLAG ? `${CONFIG_FLAG} <path>` : CONFIG_ENV;
+  return (
+    `refused: ${named} names ${choice.path}, which could not be understood — a key in it ` +
+    "does not hold the type this expects. An unreadable configuration resolves to observer " +
+    "and the store falls back to the default one, which is not what you named."
+  );
+}
+
+/**
  * Why a NAMED configuration cannot be read, or null — the second half of the
  * refusal, for the entry points that READ a config file (`bin/hook.ts`,
  * `bin/runner.ts`, `mcp/bin/serve.ts`).
@@ -209,9 +250,10 @@ export function resolveConfigPath(
 export function namedConfigRefusal(
   choice: ConfigChoice,
   read: (path: string) => string = (path) => readFileSync(path, "utf8"),
+  home?: string,
 ): string | null {
   if (choice.refusal !== null) return choice.refusal;
-  if (choice.source === "default") return null;
+  if (!isNamed(choice, home)) return null;
   const named = choice.source === CONFIG_FLAG ? `${CONFIG_FLAG} <path>` : CONFIG_ENV;
   let text: string;
   try {

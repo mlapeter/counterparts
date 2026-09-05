@@ -43,6 +43,7 @@ import {
   configLine,
   defaultConfigPath,
   namedConfigRefusal,
+  namedUnreadableRefusal,
   resolveConfigPath,
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
@@ -275,7 +276,7 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 export function runnerConfig(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad } {
+): { config: AdapterConfig; credentials: CredentialLoad; reason: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -292,6 +293,7 @@ export function runnerConfig(
       dataDir: pinned ?? loaded.config.dataDir ?? dataDir(),
     },
     credentials,
+    reason: loaded.reason,
   };
 }
 
@@ -308,7 +310,12 @@ async function main(): Promise<void> {
     process.stderr.write(`[counterparts] worker stood down: ${refusal}\n`);
     return;
   }
-  const { config, credentials } = runnerConfig(choice.path);
+  const { config, credentials, reason } = runnerConfig(choice.path);
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`[counterparts] worker stood down: ${unreadable}\n`);
+    return;
+  }
   // Detached, this stderr goes nowhere (`spawn.ts` runs the child with stdio
   // ignored); run by hand it is the line that says which file answered. The
   // record for a detached run is the pin itself — `COUNTERPARTS_CONFIG` in the
