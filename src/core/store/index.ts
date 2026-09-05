@@ -1069,10 +1069,12 @@ export class Store {
   }
 
   /**
-   * Bounded retention — logs are telemetry, not canonical memory (CLAUDE.md's one
-   * named exception to no-silent-destruction). Events carrying a `dedupKey` are
-   * KEPT regardless of age: they are the replay latch, and sweeping one would let
-   * a replayed day re-append a record the store already accounted for.
+   * Bounded retention — logs are telemetry, not canonical memory: "the one
+   * system-path exception to no-deletion — bounded-retention logs"
+   * (`docs/harvest/behavioral-spec.md` #17, v1's `pruneLogs` in `log-audit.md`
+   * §3). Events carrying a `dedupKey` are KEPT regardless of age: they are the
+   * replay latch, and sweeping one would let a replayed day re-append a record
+   * the store already accounted for.
    *
    * `limit` caps the rows one call deletes, OLDEST FIRST by `seq`, so a pass on a
    * store that has never been swept cannot run long or hold the write lock across

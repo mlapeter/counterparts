@@ -337,8 +337,10 @@ filing is kept as written, because it is the argument §15 answers.**
 **Filed 2026-09-05, during replay §2a's review. Not fixed here, deliberately.**
 
 `Store.pruneEvents()` exists, is documented as bounded retention ("logs are
-telemetry, not canonical memory — CLAUDE.md's one named exception to
-no-silent-destruction"), deletes `WHERE day < livedDay - retentionDays AND
+telemetry, not canonical memory — the one named exception to
+no-silent-destruction"; the comment cited `CLAUDE.md` for that, wrongly — the
+source is v1's spec, `docs/harvest/behavioral-spec.md` #17, and both citations
+were fixed with §15), deletes `WHERE day < livedDay - retentionDays AND
 dedup_key IS NULL`, has a `PruneReport`, emits `store.events.pruned`, and is
 covered by `test/seams.test.ts`. **It has no caller anywhere in `src/`.** The
 only invocation in the repo is that test's.
@@ -548,22 +550,40 @@ calibrated: on a 100,000-row log, a 5,000-row capped delete took 177 ms cold and
 hundreds of rows, not thousands, so steady state clears in one pass and the cap
 only bites on a backlog — which is the case it exists for.
 
-**UNVERIFIED — what the live store's events table holds.** This session never
-opened `~/.counterparts` and makes no claim about its row count, its oldest row
-or its composition. What CAN be said is arithmetic on the write sites: every
-`appendEvent` in `src/` passes a `day` taken from `livedDay()` at write time (or
-a `d.day` / `t.day` / `log.day` that is that same value carried a few lines),
-`advanceClock` refuses to move backwards, and `tools/migrate` writes no events
-(it sets `livedDay` to v1's `activeDay` and writes rows, not log entries). So
-the oldest event's day ≥ the lived day at migration, and the store has lived at
-most the calendar days since 2026-08-25 — eleven at the time of writing — while
-the cutoff is `livedDay − 90`. **The first pass on the live store should delete
-0 rows**, whatever v1's clock set `livedDay` to, and should keep doing so until
-the store has lived 90 days past its first v2 event. **The owner's `verify`
-tells the truth of it before the merge:** `counterparts verify --dir
-~/.counterparts/store` prints `Events: N held (L latched records)   oldest:
-lived day D (YYYY-MM-DD)   window: 90 lived days (cutoff day C)` and `past the
-window: E unlatched (the next sleep pass deletes min(E, 5000), cap 5000 per
-pass), K latched records kept`. If `E` is anything but 0 on the live store, the
-arithmetic above is wrong somewhere and the merge should wait on finding out
-where.
+**What the live store's events table holds — and the premise the "0 rows"
+claim rests on.** This session never opened `~/.counterparts`. What CAN be said
+is arithmetic on the write sites: every `appendEvent` in `src/` passes a `day`
+taken from `livedDay()` at write time (or a `d.day` / `t.day` / `log.day` that
+is that same value carried a few lines), `advanceClock` refuses to move
+backwards, and `tools/migrate` writes no events (it sets `livedDay` to v1's
+`activeDay` and writes rows, not log entries). So the oldest event's day ≥ the
+lived day at migration, the store has lived at most the calendar days since
+2026-08-25 — eleven at the time of writing — and the cutoff is `livedDay − 90`:
+**the first pass should delete 0 rows**, whatever v1's clock set `livedDay` to,
+until the store has lived 90 days past its first v2 event.
+
+**The premise, named (adversarial review of PR #81):** that argument holds
+only for a store that had **no events before migration set its clock**.
+"Forward-only" is `advanceClock`'s promise, and `tools/migrate/apply.ts`
+does not use `advanceClock` — `setMetaIfChanged` (`apply.ts:364`) writes
+`livedDay` through `setMeta`, the side door, with no guard that the target
+store is fresh. A store that had already run a hook, `verify`, or an install
+before migration jumped its clock carries day-0 rows that a 400-ish clock puts
+three hundred days past the cutoff. The reviewer's probe: five `adapter.boundary`
+rows at day 0, then `setMeta("livedDay", "400")`, one row at 400 — first cycle
+`eligible=5`, deleted 5, the post-migration row kept; clock set first, then
+rows — `eligible=0`, deleted 0. **The live store is the second shape:** the
+coordinator ran `counterparts verify` read-only against it on 2026-09-05 and it
+printed **1,342 rows held, oldest lived day 184, 0 past the window** — so the
+arithmetic holds there, on a measurement rather than on this paragraph. If a
+future `verify` ever shows a non-zero `past the window` on a store that should
+have none, the named suspect is a clock moved by `setMeta` over rows that
+predate it, not the write sites.
+
+**`gate.deposit` stays unlatched, on purpose.** The reviewer argued it and this
+note agrees: a latch needs a dedup key, a per-row key would make the most
+voluminous kind "kept at any age" — the I23 growth shape again — and a key that
+collapses repeats would change the "two refusals are two events" semantics
+`test/gate-records.test.ts` protects. Readers that need it past the window size
+their own store's `retentionDays` instead — which is what the replay driver now
+does (`tools/replay/driver.ts`).

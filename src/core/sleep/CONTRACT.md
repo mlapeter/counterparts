@@ -62,8 +62,9 @@ alone.
   prune has since resolved toward archival — `NOTES.md` §2. What this module DOES delete,
   loudly and counted, is telemetry: superseded-version rows past `H` and, since
   2026-09-05, unlatched event-log rows past the retention window — §5 G16. Neither is a
-  memory; CLAUDE.md names logs as the one exception to no-silent-destruction, and the
-  sweep is not silent.)*
+  memory; v1's spec names telemetry as "the one system-path exception to no-deletion —
+  bounded-retention logs" (`docs/harvest/behavioral-spec.md` #17; `log-audit.md` §3
+  records v1's `pruneLogs` as exactly that exception), and the sweep is not silent.)*
 - **Autonomous, budgeted, and loud**: at most once per lived day, on its own trigger, never
   an owner chore — *"I won't remember to run random scripts occasionally."* [v1 §7 G8]
 - **Over-budget is measured at full membership, not on the rendered output** — a renderer
