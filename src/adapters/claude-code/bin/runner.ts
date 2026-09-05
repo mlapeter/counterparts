@@ -42,6 +42,7 @@ import { dataDir } from "../../../core/store/index.js";
 import {
   configLine,
   defaultConfigPath,
+  implicitConfigRefusal,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
@@ -299,7 +300,10 @@ export function runnerConfig(
 
 async function main(): Promise<void> {
   const choice = runnerConfigChoice();
-  const refusal = namedConfigRefusal(choice);
+  // The second refusal is the explicit-dir guard (`config-path.ts#implicitConfigRefusal`):
+  // armed, an UNNAMED configuration stands the worker down too, because the
+  // default one names a store. Never armed on the live host.
+  const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
     // Same direction as the hook: a worker told to read a configuration it
     // cannot resolve — relative, or absolute and not there — does NOT fall back

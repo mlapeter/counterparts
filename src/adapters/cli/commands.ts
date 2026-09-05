@@ -54,12 +54,14 @@ import type { Db, SqlValue } from "../../core/store/db.js";
 import { convertVectorBatch, countNonFinite, openCache, vectorFormats } from "../../core/store/cache.js";
 import {
   CACHE_SCHEMA_VERSION,
+  DATA_DIR_ENV,
   ID_PREFIX,
   LAYOUT,
   Store,
   dataDir,
   decodeVector,
   encodeVector,
+  isStoreError,
   isWithin,
   paths,
   readProseFile,
@@ -78,7 +80,13 @@ import type { Band, Kind } from "../../core/types.js";
 import { deliberateRecall } from "../mcp/deliberate.js";
 // The ONE rule for "which host configuration": the console resolves it with the
 // same function the hook, the worker and the MCP server do.
-import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath, resolveConfigPath } from "../config-path.js";
+import {
+  CONFIG_ENV,
+  CONFIG_FLAG,
+  defaultConfigPath,
+  implicitConfigRefusal,
+  resolveConfigPath,
+} from "../config-path.js";
 import type { ConfigChoice, ConfigSource } from "../config-path.js";
 import { exportStore } from "./export.js";
 import {
@@ -628,7 +636,19 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // the store's default data dir is `~/.counterparts`, which is exactly the
   // directory this command writes two unclassifiable files into (`install.ts`
   // rule 1). Its default store is the `store/` beneath that instead.
+  //
+  // Which is why the explicit-dir guard has to be applied HERE by hand: the
+  // layout builds `~/.counterparts` from `homedir()` and never calls `dataDir()`,
+  // so `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` would otherwise leave `install` free
+  // to write the live base — config, credentials, store — from a shell the
+  // guard was armed in. An unnamed configuration is refused; `--config
+  // <elsewhere>` moves the whole base and is the way through.
   if (command === "install") {
+    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
     try {
       return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
@@ -641,7 +661,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   try {
     dir = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : resolveDir(env);
   } catch (err) {
-    io.err(String((err as Error).message ?? err));
+    io.err(describeDirRefusal(err));
     return EXIT.refused;
   }
 
@@ -695,24 +715,34 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   }
 }
 
-/** `dataDir()` reads the environment AT CALL TIME and runs the path guard. */
+/**
+ * `dataDir()` reads the environment AT CALL TIME and runs the path guard — and
+ * it reads THIS invocation's environment, not the process's: the tests pass one,
+ * and a caller-supplied environment is honoured without mutating the real one
+ * (the old shape here swapped `COUNTERPARTS_DATA_DIR` in and out of
+ * `process.env` around the call; `dataDir(env)` made that unnecessary, and it
+ * means the explicit-dir guard is read from the same environment as the dir).
+ */
 function resolveDir(env: Record<string, string | undefined>): string {
-  const prior = process.env["COUNTERPARTS_DATA_DIR"];
-  if (env !== process.env) {
-    // A caller-supplied environment is honored without mutating the real one
-    // for longer than the call: the tests pass one, and a test that leaked it
-    // would be a test that changed the next test's store.
-    const value = env["COUNTERPARTS_DATA_DIR"];
-    try {
-      if (value === undefined) delete process.env["COUNTERPARTS_DATA_DIR"];
-      else process.env["COUNTERPARTS_DATA_DIR"] = value;
-      return dataDir();
-    } finally {
-      if (prior === undefined) delete process.env["COUNTERPARTS_DATA_DIR"];
-      else process.env["COUNTERPARTS_DATA_DIR"] = prior;
-    }
+  return dataDir(env);
+}
+
+/**
+ * The one store refusal the console renders as a SENTENCE rather than printing
+ * the error's own line: `IMPLICIT_DEFAULT_DIR_REFUSED` is the guard an operator
+ * armed on purpose, and the reader is owed what it refused and how to proceed
+ * (constitution 16), not a JSON detail. Every other store error keeps its
+ * `${code} ${detail}` line, which the tests assert by code.
+ */
+function describeDirRefusal(err: unknown): string {
+  if (isStoreError(err, "IMPLICIT_DEFAULT_DIR_REFUSED")) {
+    return (
+      `refused: ${String(err.detail["guard"])} and no store was named, so this command would have ` +
+      `opened the default data dir, ${String(err.detail["dir"])} — on a machine with an install, ` +
+      `somebody's live memory. Name the store: --dir <path>, or ${DATA_DIR_ENV}.`
+    );
   }
-  return dataDir();
+  return String((err as Error).message ?? err);
 }
 
 // ── status ──────────────────────────────────────────────────────────────────

@@ -1323,6 +1323,28 @@ describe("the adapter's surface", () => {
     expect(existsSync(forbidden)).toBe(false);
   });
 
+  test("the explicit-dir guard refuses an unnamed store in ONE sentence naming the guard, the dir and the remedy (I21)", () => {
+    // Armed for the suite by `test/preload.ts`. With the variable unset and no
+    // `--dir`, `dataDir()` is what throws — so, as above, the handler names the
+    // dir from the error's own detail rather than by calling it.
+    delete process.env[ENV];
+    try {
+      const out = run(["status", "--no-colour"]);
+      expect(out.split("\n").length).toBe(1);
+      expect(out).toContain("refused:");
+      expect(out).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+      expect(out).toContain(join(homedir(), ".counterparts", "store"));
+      expect(out).toContain("--dir");
+      expect(out).toContain(ENV);
+      expect(out).not.toContain("    at ");
+      expect(out).not.toContain('{"guard"');
+    } finally {
+      process.env[ENV] = dir;
+    }
+    // An instrument that was refused created nothing, not even the parent.
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+  });
+
   test("the entry script leaves the canonical boxes byte-identical too", async () => {
     await seed();
     // Canonical only: each `run()` opens its own Store, and `openCache` rewrites

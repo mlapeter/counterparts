@@ -32,6 +32,7 @@ import { parseArgs } from "node:util";
 import {
   configLine,
   defaultConfigPath,
+  implicitConfigRefusal,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
@@ -174,7 +175,10 @@ export function serverConfigChoice(
 async function main(): Promise<void> {
   const opts = launchOptions(process.argv.slice(2), process.env);
   const choice = serverConfigChoice();
-  const refusal = namedConfigRefusal(choice);
+  // The second refusal is the explicit-dir guard (`config-path.ts#implicitConfigRefusal`):
+  // armed, an UNNAMED configuration refuses the launch too — the default one is
+  // somebody's keys and names somebody's store. Never armed on the live host.
+  const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
     // A server told to read a configuration it cannot resolve — relative, or
     // absolute and not there — does not fall back to the default one: on a

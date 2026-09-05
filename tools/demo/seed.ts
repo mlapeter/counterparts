@@ -40,7 +40,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { Counterpart } from "../../src/core/counterpart.js";
 import { TUNABLES as PHYSICS, band } from "../../src/core/physics/index.js";
-import { FORBIDDEN_ROOT_NAMES } from "../../src/core/store/index.js";
+import { FORBIDDEN_ROOT_NAMES, REQUIRE_EXPLICIT_DIR_ENV } from "../../src/core/store/index.js";
 import type { Kind } from "../../src/core/types.js";
 import {
   BELIEFS,
@@ -762,6 +762,12 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (import.meta.main) {
+  // Rule 1, mechanized one level down: nothing here reads the environment for a
+  // directory, and with the explicit-dir guard armed nothing UNDER here can fall
+  // back to `~/.counterparts/store` either — a door that forgot its `dir` is
+  // refused by the store instead of opening the owner's memory (I21). Set only
+  // on the CLI path: as a library, the caller's process owns its environment.
+  process.env[REQUIRE_EXPLICIT_DIR_ENV] = "1";
   process.exit(await main(process.argv.slice(2)));
 }
 

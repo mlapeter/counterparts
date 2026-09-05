@@ -158,6 +158,23 @@ by reference only.
     could not answer "did the archival mechanisms ever pay for themselves" because nothing
     logged a read-back (log-audit §3). This is a v2 instrumentation requirement, not a
     preference.
+14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
+    `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
+    owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots
+    (G9) because the store must open its own default. So the fallback is a door with a lock:
+    with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` in the environment, every resolution that
+    would have returned it throws `IMPLICIT_DEFAULT_DIR_REFUSED` before anything is created,
+    naming the guard, the directory and the remedy — and a named `dir` or a
+    `COUNTERPARTS_DATA_DIR` is unaffected. Unset, behaviour is unchanged; the variable is
+    never set on an installed host. The same guard covers the configuration default in
+    `adapters/config-path.ts`, because a default-sourced `~/.counterparts/claude-code.json`
+    NAMES a store and `install` writes under that base. **Not covered, by design:** a
+    number read from the default config for a store already named (`rebrief`'s ceiling),
+    and the read-only instruments that carry the live paths as defaults by their own rule
+    (`claude-code/primacy.ts`, `tools/parallel/bin/*`). Armed by `test/preload.ts` for
+    the whole suite, so a forgetful test is REFUSED rather than redirected — the second
+    layer under the temp-home redirect (LAUNCH-STATUS I21, owner ruling 2026-09-05;
+    `NOTES.md` same date).
 
 ## 6. Scars honored
 

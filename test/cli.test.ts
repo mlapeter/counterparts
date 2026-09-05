@@ -294,6 +294,77 @@ describe("init", () => {
     expect(existsSync(forbidden)).toBe(false);
   });
 
+  test("with the explicit-dir guard armed, a command that names no store is REFUSED before any open, in a sentence (I21)", async () => {
+    // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is read from THIS invocation's
+    // environment (`resolveDir` → `dataDir(env)`), so the case is constructed
+    // here rather than inherited from the preload — and the unarmed case can be
+    // constructed the same way, below.
+    const fallback = join(homedir(), ".counterparts", "store");
+    const armed = { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+
+    const note = consoleWith();
+    expect(await run(["note", "This must not land anywhere."], { io: note.io, env: armed })).toBe(
+      EXIT.refused,
+    );
+    const err = text(note.err);
+    expect(err).toContain("refused:");
+    expect(err).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    expect(err).toContain(fallback);
+    expect(err).toContain("--dir");
+    expect(err).toContain(ENV);
+    expect(err).not.toContain("    at ");
+    // Not the raw `${code} ${detail}` line: the operator armed this on purpose
+    // and is owed a sentence, the way every other console refusal is one.
+    expect(err).not.toContain('{"guard"');
+    expect(text(note.out)).toBe("");
+    // `status` would only have READ the default; it refuses the same way.
+    const status = consoleWith();
+    expect(await run(["status"], { io: status.io, env: armed })).toBe(EXIT.refused);
+    expect(text(status.err)).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    // Nothing opened, nothing minted, nothing created — not even the parent.
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+
+    // Inherited from the process (the shape an agent shell produces): the
+    // preload arms it, the fixture's COUNTERPARTS_DATA_DIR is stood down for
+    // one call, and `run` with no `env` reads `process.env`.
+    delete process.env[ENV];
+    try {
+      const inherited = consoleWith();
+      expect(await run(["status"], { io: inherited.io })).toBe(EXIT.refused);
+      expect(text(inherited.err)).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    } finally {
+      process.env[ENV] = dir;
+    }
+
+    // Armed + `--dir`: opens. Armed + COUNTERPARTS_DATA_DIR: opens. The guard is
+    // about the fallback, not about a caller who said which store they meant.
+    expect(await run(["init", "--dir", dir], { io: consoleWith().io, env: armed })).toBe(EXIT.ok);
+    const byFlag = consoleWith();
+    expect(
+      await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
+        io: byFlag.io,
+        env: armed,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(byFlag.out)).toContain(`Store: ${dir}`);
+    const byEnv = consoleWith();
+    expect(
+      await run(["note", "Postgres in dev listens on port 5433, not 5432."], {
+        io: byEnv.io,
+        env: { ...armed, [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(byEnv.out)).toContain(`Store: ${dir}`);
+
+    // Unarmed: today's behaviour, byte for byte. No store is named, the
+    // fallback resolves (to the temp home), and `note` says there is no store
+    // there — it still creates nothing on the way.
+    const unarmed = consoleWith();
+    expect(await run(["note", "Nowhere to land."], { io: unarmed.io, env: {} })).toBe(EXIT.failed);
+    expect(text(unarmed.err)).toContain(`no store at ${fallback}`);
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+  });
+
   test("--name seeds the identity core, through the same door install uses", async () => {
     // §3 routes second and scratch stores to `init` and then says the identity
     // core has no default anywhere — so an `init` that could not seed one left

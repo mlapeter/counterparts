@@ -313,6 +313,17 @@ export function describeStoreError(err: StoreError, dir: string, namedDir = fals
         "the store, never inside it — the layout check refuses an unclassified file in the data " +
         `dir (§5 G11): ${join(dir, "..", "claude-code.json")}`
       );
+    // The explicit-dir guard (`store/paths.ts#REQUIRE_EXPLICIT_DIR_ENV`): armed
+    // on purpose by an operator, so the sentence says what it refused and how to
+    // proceed. `err.detail["dir"]` is the path the fallback WOULD have opened —
+    // taken from the error, because `dataDir()` is what threw and cannot be
+    // called to name it.
+    case "IMPLICIT_DEFAULT_DIR_REFUSED":
+      return (
+        `refused: ${String(err.detail["guard"])} and no store was named, so this would have opened the ` +
+        `default data dir, ${String(err.detail["dir"])} — on a machine with an install, somebody's live ` +
+        `memory. Name the store: --dir <path>, or ${DATA_DIR_ENV}.`
+      );
     default:
       return `${err.code}: the store at ${dir} refused this read (${JSON.stringify(err.detail)}).`;
   }

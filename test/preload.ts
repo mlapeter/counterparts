@@ -14,7 +14,14 @@
  *   1. mints a fresh temp dir and makes `homedir()` return it;
  *   2. deletes `COUNTERPARTS_DATA_DIR` so a test that forgets to set its own dir
  *      falls back to the TEMP home's `.counterparts`, not the real one;
- *   3. removes the temp dir on exit.
+ *   3. sets `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, so that fallback is not even
+ *      reached: a test that names no dir gets `IMPLICIT_DEFAULT_DIR_REFUSED`
+ *      (`store/paths.ts`) rather than a store minted in the temp home. Two
+ *      layers, because the second names the forgetful test at the moment it
+ *      forgets, where the first only kept the damage in a directory nobody will
+ *      read. A test OF the fallback unsets the variable for its own body and
+ *      re-arms it in `finally`;
+ *   4. removes the temp dir on exit.
  * It exports nothing: tests must not build on it, only be protected by it.
  *
  * WHY `mock.module` AND NOT `$HOME`: on Bun, `os.homedir()` does not read `$HOME`
@@ -50,6 +57,7 @@ const TEMP_HOME = mkdtempSync(join(realpathSync(nodeOs.tmpdir()), "counterparts-
 process.env["HOME"] = TEMP_HOME;
 process.env["USERPROFILE"] = TEMP_HOME;
 delete process.env["COUNTERPARTS_DATA_DIR"];
+process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
 
 mock.module("node:os", () => ({
   ...realOs,

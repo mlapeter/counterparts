@@ -9,6 +9,30 @@ import { join, resolve, relative, isAbsolute } from "node:path";
 import { StoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
+/**
+ * THE EXPLICIT-DIR GUARD. Set to exactly `1`, it makes `dataDir()` REFUSE its
+ * fallback instead of returning `~/.counterparts/store`: a caller who named no
+ * directory — no `dir`, no `COUNTERPARTS_DATA_DIR` — gets
+ * `IMPLICIT_DEFAULT_DIR_REFUSED` and nothing opens. Unset, nothing changes.
+ *
+ * Why it exists (LAUNCH-STATUS I21, owner ruling 2026-09-05): on the owner's
+ * machine the fallback IS his live memory, and a library caller reached it
+ * overnight by passing the wrong option name — `dir` was undefined, the default
+ * answered, and nine titles were read out of the live store. `.counterparts`
+ * cannot go on `FORBIDDEN_ROOT_NAMES` (the store must open its own default), so
+ * the guard is opt-in: OFF by default so every installed host behaves exactly as
+ * before, ON wherever this repo's own tooling runs — `test/preload.ts`, the demo
+ * seeder, the visual loop, the recall bench, and the agent shells the owner
+ * ruled it into. The install loop deliberately UNSETS it inside its clean room
+ * (`tools/install-loop/run.sh`): its fake HOME makes the default throwaway, and
+ * it measures a stranger's environment, which has no such variable.
+ *
+ * `adapters/config-path.ts#implicitConfigRefusal` is the same guard at the other
+ * door: a default-sourced `~/.counterparts/claude-code.json` NAMES a store, so the
+ * hook, the worker and the MCP server reach the live one without ever calling
+ * `dataDir()`, and `install` writes under that base.
+ */
+export const REQUIRE_EXPLICIT_DIR_ENV = "COUNTERPARTS_REQUIRE_EXPLICIT_DIR";
 export const DEFAULT_DATA_DIR_NAME = ".counterparts";
 /**
  * The STORE sits one level below the base dir. The base dir belongs to the host
@@ -48,18 +72,42 @@ export function assertSafeDataDir(dir: string): string {
   return resolved;
 }
 
+/** True when `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is exactly `1` in `env`. Nothing else arms it. */
+export function explicitDirRequired(env: Record<string, string | undefined> = process.env): boolean {
+  return env[REQUIRE_EXPLICIT_DIR_ENV] === "1";
+}
+
+/** The path the fallback WOULD return — so a refusal can name it without resolving it. */
+export function defaultDataDir(): string {
+  return join(homedir(), DEFAULT_DATA_DIR_NAME, DEFAULT_STORE_SUBDIR);
+}
+
 /**
  * The data directory for THIS call. Resolution order:
  *   1. `COUNTERPARTS_DATA_DIR` (read now, not at import)
- *   2. `~/.counterparts/store` (the base dir minus its host-adapter files)
+ *   2. `~/.counterparts/store` (the base dir minus its host-adapter files) —
+ *      unless `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, which refuses it by name.
+ *
+ * `env` defaults to the process's own and is injectable for the one caller that
+ * carries an environment of its own (`cli/commands.ts#resolveDir`, whose tests
+ * pass one) — so the guard is provable without mutating `process.env`.
+ *
+ * The env-set case returns FIRST, before the guard is so much as read: a process
+ * launched with the variable (the live MCP server) runs exactly the instructions
+ * it ran before the guard existed.
  */
-export function dataDir(): string {
-  const fromEnv = process.env[DATA_DIR_ENV];
-  const raw =
-    fromEnv && fromEnv.trim().length > 0
-      ? fromEnv
-      : join(homedir(), DEFAULT_DATA_DIR_NAME, DEFAULT_STORE_SUBDIR);
-  return assertSafeDataDir(raw);
+export function dataDir(env: Record<string, string | undefined> = process.env): string {
+  const fromEnv = env[DATA_DIR_ENV];
+  if (fromEnv && fromEnv.trim().length > 0) return assertSafeDataDir(fromEnv);
+  const fallback = defaultDataDir();
+  if (explicitDirRequired(env)) {
+    throw new StoreError("IMPLICIT_DEFAULT_DIR_REFUSED", {
+      guard: `${REQUIRE_EXPLICIT_DIR_ENV}=1`,
+      dir: fallback,
+      remedy: `name the store: pass dir (--dir on a command line), or set ${DATA_DIR_ENV}`,
+    });
+  }
+  return assertSafeDataDir(fallback);
 }
 
 /**

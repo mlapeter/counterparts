@@ -39,11 +39,13 @@ import {
   configFlag,
   configLine,
   defaultConfigPath,
+  implicitConfigRefusal,
   isNamed,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
 } from "../src/adapters/config-path.js";
+import { REQUIRE_EXPLICIT_DIR_ENV } from "../src/core/store/index.js";
 import { recordSession, readSession } from "../src/adapters/sessions.js";
 import { CONFIG_PATH as HOOK_CONFIG_PATH, hookConfigChoice } from "../src/adapters/claude-code/bin/hook.js";
 import {
@@ -56,7 +58,7 @@ import {
 } from "../src/adapters/mcp/bin/serve.js";
 import { CONFIG_ENV as SPAWN_CONFIG_ENV, planSpawn } from "../src/adapters/claude-code/spawn.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
-import { hostCeiling, run } from "../src/adapters/cli/commands.js";
+import { EXIT, hostCeiling, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { hookCommand, mcpCommand, installLayout } from "../src/adapters/cli/install.js";
 
@@ -460,6 +462,76 @@ describe("the console", () => {
   });
 });
 
+describe("the explicit-dir guard at the config door (I21)", () => {
+  const GUARD = { [REQUIRE_EXPLICIT_DIR_ENV]: "1" };
+
+  test("armed + default → a refusal naming the guard, the file and both ways to name one; named or unarmed → null", () => {
+    const home = join(work, "home");
+    const byDefault = resolveConfigPath([], GUARD, home);
+    expect(byDefault.source).toBe("default");
+    // `resolveConfigPath` itself does not refuse: `rebrief` resolves through it
+    // for a budget NUMBER against a store already named by `--dir`, and a
+    // guard that fired there is one people learn to unset.
+    expect(byDefault.refusal).toBe(null);
+    const refusal = implicitConfigRefusal(byDefault, GUARD);
+    expect(refusal).not.toBe(null);
+    expect(refusal).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+    expect(refusal).toContain(defaultConfigPath(home));
+    expect(refusal).toContain(CONFIG_FLAG);
+    expect(refusal).toContain(CONFIG_ENV);
+
+    // Named, by either rule: not this refusal's business.
+    const named = join(work, "named", "claude-code.json");
+    expect(implicitConfigRefusal(resolveConfigPath([CONFIG_FLAG, named], GUARD, home), GUARD)).toBe(null);
+    expect(implicitConfigRefusal(resolveConfigPath([], { ...GUARD, [CONFIG_ENV]: named }, home), GUARD)).toBe(
+      null,
+    );
+    // Unarmed — or armed with anything but the exact value `1`.
+    expect(implicitConfigRefusal(byDefault, {})).toBe(null);
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "true" })).toBe(null);
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "0" })).toBe(null);
+  });
+
+  test("the three bins' choice functions all feed it, so all three stand down on the same sentence", () => {
+    for (const choose of [hookConfigChoice, runnerConfigChoice, serverConfigChoice]) {
+      expect(implicitConfigRefusal(choose([], GUARD), GUARD)).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(implicitConfigRefusal(choose([], { ...GUARD, [CONFIG_ENV]: "/named/claude-code.json" }), GUARD)).toBe(
+        null,
+      );
+      expect(implicitConfigRefusal(choose([], {}), {})).toBe(null);
+    }
+  });
+
+  test("install with no --config is REFUSED under the guard and writes nothing under the home; --config elsewhere is the way through", async () => {
+    // `installLayout` builds `~/.counterparts` from `homedir()` itself and never
+    // calls `dataDir()`, so the store guard would have left this door open: an
+    // agent's `counterparts install` in a guarded shell would write the live
+    // base — config, credentials, store.
+    const home = join(work, "home-install-guarded");
+    const c = consoleWith();
+    expect(await run(["install", "--budget", "9000", "--name", "Ada"], { io: c.io, env: GUARD, home })).toBe(
+      EXIT.refused,
+    );
+    expect(c.err.join("\n")).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+    expect(c.err.join("\n")).toContain(CONFIG_FLAG);
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    expect(existsSync(home)).toBe(false);
+
+    const configPath = join(work, "elsewhere", "claude-code.json");
+    const named = consoleWith();
+    expect(
+      await run(["install", "--budget", "9000", "--name", "Ada", CONFIG_FLAG, configPath], {
+        io: named.io,
+        env: GUARD,
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(configPath)).toBe(true);
+    expect(existsSync(join(work, "elsewhere", "store", "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
+  });
+});
+
 describe("install", () => {
   test("by default it prints the two host lines WITHOUT the flag", async () => {
     const home = join(work, "home");
@@ -622,6 +694,46 @@ describe("the hook, as a real process", () => {
       const record = join(decoyStore, "sessions", "default-driven.json");
       expect(existsSync(record)).toBe(true);
       expect(JSON.parse(readFileSync(record, "utf8"))["config"]).toBe(decoyConfig);
+    },
+    60_000,
+  );
+
+  test(
+    "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 stands the hook down on an UNNAMED config — the other door into the live store (I21)",
+    () => {
+      // The shape an agent shell on the owner's machine produces: a home that
+      // HAS an install, whose default config names the live store. The store
+      // guard alone never fires here — `hostConfig` takes the dir from the file
+      // and `dataDir()` is not called — so the config resolver has to refuse the
+      // default itself.
+      const home = join(work, "home-guarded");
+      const decoyStore = join(home, ".counterparts", "store");
+      writeConfig(join(home, ".counterparts", "claude-code.json"), {
+        dataDir: decoyStore,
+        injectionBudgetBytes: 9000,
+      });
+      const before = treeHash(join(home, ".counterparts"));
+      const armed = { HOME: home, USERPROFILE: home, [REQUIRE_EXPLICIT_DIR_ENV]: "1" };
+
+      const plain = runHook([], armed, "guarded-default");
+      expect(plain.code).toBe(0);
+      expect(plain.stdout).toBe("");
+      expect(plain.stderr).toContain("hook stood down");
+      expect(plain.stderr).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(plain.stderr).toContain(CONFIG_FLAG);
+      expect(existsSync(decoyStore)).toBe(false);
+      expect(treeHash(join(home, ".counterparts"))).toBe(before);
+
+      // A NAMED configuration is the way through, guard and all.
+      const scratchConfig = writeConfig(join(work, "scratch-guarded", "claude-code.json"), {
+        dataDir: join(work, "scratch-guarded", "store"),
+        injectionBudgetBytes: 9000,
+      });
+      const named = runHook([CONFIG_FLAG, scratchConfig], armed, "guarded-named");
+      expect(named.code).toBe(0);
+      expect(named.stdout).toContain("has not lived a boundary");
+      expect(existsSync(join(work, "scratch-guarded", "store", "sessions", "guarded-named.json"))).toBe(true);
+      expect(existsSync(decoyStore)).toBe(false);
     },
     60_000,
   );

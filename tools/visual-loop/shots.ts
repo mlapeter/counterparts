@@ -35,6 +35,7 @@ import { chromium } from "playwright";
 import type { Browser, ConsoleMessage, Page } from "playwright";
 
 import { Counterpart } from "../../src/core/counterpart.js";
+import { REQUIRE_EXPLICIT_DIR_ENV } from "../../src/core/store/index.js";
 import { startDashboard } from "../../src/adapters/dashboard/web/server.js";
 import { seedDemo, seedEmpty } from "../demo/seed.js";
 
@@ -597,6 +598,10 @@ function wire(page: Page, store: "rich" | "empty", findings: Finding[]): void {
 }
 
 async function main(): Promise<number> {
+  // "It never touches a real store", enforced by the store as well as by this
+  // file: with the explicit-dir guard armed, any open under here that lost its
+  // `dir` is refused rather than pointed at `~/.counterparts/store` (I21).
+  process.env[REQUIRE_EXPLICIT_DIR_ENV] = "1";
   const out = flagValue("out") ?? mkdtempSync(join(tmpdir(), "counterparts-shots-"));
   mkdirSync(out, { recursive: true });
 

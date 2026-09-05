@@ -8,6 +8,15 @@
 export type StoreErrorCode =
   | "OBSERVER_REFUSED"
   | "DATA_DIR_FORBIDDEN"
+  /**
+   * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is set and nothing named a data dir —
+   * no `dir`, no `COUNTERPARTS_DATA_DIR` — so `dataDir()` refused to hand back
+   * `~/.counterparts/store` (`paths.ts`). `detail` carries `{ guard, dir, remedy }`:
+   * the variable that refused, the directory it would have opened, and how to
+   * name one. On the owner's machine that directory is his live memory, and on
+   * 2026-09-05 a caller reached it by passing the wrong option name.
+   */
+  | "IMPLICIT_DEFAULT_DIR_REFUSED"
   | "PROSE_FRONTMATTER_MISSING"
   | "PROSE_PAYLOAD_MISSING"
   | "PROSE_PAYLOAD_MALFORMED"

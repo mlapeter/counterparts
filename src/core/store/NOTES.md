@@ -438,3 +438,65 @@ a malformed one renders the bound, which is the safe direction.
 - **`happenedOn` from spans.** See above. `prospective/` reads it; deriving it would
   arm windows nobody claimed.
 - **Local dating.** Decision 1.
+
+## 2026-09-05 — `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`: the implicit default can be refused
+
+**The incident (LAUNCH-STATUS I21).** Overnight an agent opened the owner's live store
+by passing the wrong option name to a library call: `dir` was undefined, it had no
+`COUNTERPARTS_DATA_DIR`, and `dataDir()` did what it is documented to do — returned
+`~/.counterparts/store`. Read-only, nine titles printed to its own terminal, no write,
+no egress; and exactly the shape every guard in this module was built to catch, one
+directory over. `.counterparts` is deliberately NOT on `FORBIDDEN_ROOT_NAMES` — the store
+has to be able to open its own default — so the path guard (§5 G9) could not have fired,
+and `test/preload.ts`'s temp-home redirect protects only the test process. The owner
+ruled: add a guard, OFF by default, ON in this repo's agent shells.
+
+**The mechanism.** One environment variable, one new error code. With
+`COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, `dataDir()` throws `IMPLICIT_DEFAULT_DIR_REFUSED`
+instead of returning the fallback, with `{ guard, dir, remedy }` in the detail so the
+message names all three without any caller composing it. Only the exact value `1` arms
+it. Every door the store has funnels through that one function — `Store.open`,
+`Counterpart.open`, `SpanBuffer`, `storeExists()` with no argument, the console's
+`resolveDir`, the dashboard — so the guard sits in one place. The env-set case returns
+before the guard is read: a process launched with `COUNTERPARTS_DATA_DIR` (the live MCP
+server) executes the instructions it executed before. `dataDir()` also gained an
+injectable `env` parameter (default `process.env`), which let `cli/commands.ts#resolveDir`
+drop the swap-the-variable-in-and-out-of-`process.env` shape it had, and lets a test
+construct the armed and unarmed cases without touching the process.
+
+**The second door, and why it is covered.** The reviewer of PR #72 named the configuration
+default as the other way into the live machine, and it is: a default-sourced
+`~/.counterparts/claude-code.json` NAMES a store (`install` always writes `dataDir`) and
+the credentials beside it, so the hook, the worker and the MCP server reach the live store
+and the live keys with `dataDir()` never called — and `install` builds `~/.counterparts`
+from `homedir()` itself and writes there. `adapters/config-path.ts#implicitConfigRefusal`
+is the same variable at that door: armed AND the configuration resolved to the default →
+a refusal string, chained after `namedConfigRefusal` in the three bins and applied by hand
+in the console's `install` branch. It is a separate function, not a clause in
+`resolveConfigPath`, because `rebrief` resolves through the resolver too, for a budget
+NUMBER against a store already named by `--dir`; refusing that would teach people to unset
+the guard. The line: **the guard refuses an implicit default that locates a store or
+writes the live base; a number read from the default config is neither.**
+
+**Not covered, on purpose.** `claude-code/primacy.ts` reads the parallel run's assignment
+file at `~/.memory-ab` by default — read-only, no store, and `test/store.test.ts` pins it
+read-only. `tools/parallel/bin/{preflight,daily,restart}.ts` carry the live paths as
+defaults by their own contract (every real path is a flag; the run directory's overlap
+guard needs them named). Neither goes through `dataDir()` and neither opens a store.
+
+**Where it is ON.** `test/preload.ts` (a forgetful test is now REFUSED, not redirected —
+the second layer under the temp-home; `test/preload.test.ts` asserts it is armed when a
+file starts, so a test that stood it down and forgot to re-arm it is caught), the demo
+seeder's CLI path, the visual loop, the recall bench's bin. The install loop UNSETS it
+inside its clean room: its fake HOME already makes the defaults throwaway, and the loop
+measures a stranger's environment — the stranger's path IS the defaults. One loop step
+arms it on purpose to prove the installed console and hook carry the refusal.
+
+**Cost.** With the variable unset, every function in the change returns the same value and
+performs the same side effects it did before, for every input, on every host. The MCP
+server's arm has zero new instructions; the hook's and the console's fallback arms each
+evaluate one new side-effect-free environment read. Surface-set hash unchanged
+(`c3af0bef00209ba6` on master and branch). Declared to the parallel run as ANYTHING ELSE
+riding today's owed restart rather than IDENTICAL — G12's first class is telemetry-only by
+its text, and a guard is not telemetry — with the value-identity argument recorded as the
+reach (`docs/PARALLEL-RUN-STATUS.md`, same date).

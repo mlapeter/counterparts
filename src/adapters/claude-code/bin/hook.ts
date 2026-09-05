@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { dataDir } from "../../../core/store/index.js";
 import {
   defaultConfigPath,
+  implicitConfigRefusal,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
@@ -157,7 +158,12 @@ async function main(): Promise<void> {
   // honoured silently, read as an absent config, and fell through to `dataDir()`
   // — the live store on any machine with an install. An absent DEFAULT is still
   // ordinary; this only ever refuses a path somebody named.
-  const refusal = namedConfigRefusal(choice);
+  //
+  // `implicitConfigRefusal` is the explicit-dir guard at this door: with
+  // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` an UNNAMED configuration stands the
+  // hook down too, because the default one names a store. The live host never
+  // sets it, so the no-flag, no-env case there resolves exactly what it did.
+  const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
     process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
     return;

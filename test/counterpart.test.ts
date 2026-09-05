@@ -1095,6 +1095,46 @@ describe("observer stance — a full lifecycle leaves canonical state byte-ident
     // The refusal is BEFORE creation: nothing was made on the way to throwing.
     expect(existsSync(aimed)).toBe(false);
   });
+
+  /**
+   * LAUNCH-STATUS I21, in the exact shape of the incident: a caller passed the
+   * WRONG OPTION NAME, so `dir` was undefined, the default answered, and on the
+   * owner's machine the default is his live memory. `.counterparts` cannot join
+   * `FORBIDDEN_ROOT_NAMES` (the store must open its own default), so the guard
+   * is `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` — armed for this whole suite by
+   * `test/preload.ts` — and it refuses the FALLBACK by name, never a named dir.
+   */
+  test("with the explicit-dir guard armed, a caller who named no dir — or misnamed the option — is refused before anything opens (I21)", () => {
+    const codeOf = (f: () => unknown): string | undefined => {
+      try {
+        f();
+        return undefined;
+      } catch (e) {
+        return (e as { code?: string }).code;
+      }
+    };
+    delete process.env[ENV];
+    try {
+      // The incident: `dataDir` is not an option `Counterpart.open` takes.
+      const misnamed = { dataDir: dir } as unknown as Parameters<typeof Counterpart.open>[0];
+      expect(codeOf(() => Counterpart.open(misnamed))).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      expect(codeOf(() => Counterpart.open({}))).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      expect(codeOf(() => Counterpart.open({ observer: true }))).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      // Refused on path arithmetic alone: the default's parent was never made.
+      expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+      // A NAMED dir opens with the guard armed and the variable unset: the guard
+      // is about the fallback, not about callers who said which store they meant.
+      const named = Counterpart.open({ dir });
+      open.push(named);
+      expect(named.store.dir).toBe(dir);
+    } finally {
+      process.env[ENV] = dir;
+    }
+    // And `COUNTERPARTS_DATA_DIR` names it too.
+    const viaEnv = Counterpart.open({});
+    open.push(viaEnv);
+    expect(viaEnv.store.dir).toBe(dir);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
