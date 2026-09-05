@@ -10,7 +10,7 @@ unverified.
 
 No API key required. The scripted version of this page — install, configure,
 hook, note, recall, the MCP round trip, the removal plan and the session write — is
-39 checks and runs end to end in two to three seconds; the part that takes you time is §4,
+46 checks and runs end to end in two to three seconds; the part that takes you time is §4,
 pasting two blocks into Claude Code's own configuration.
 
 ---
@@ -129,9 +129,25 @@ that message.
 ### What `install` writes
 
 Replace `Your Name` with yours. It seeds the identity core — the thing the memory
-is *about* — and there is no default for it anywhere. It does not produce visible
-output on day 0: a fresh store has lived no boundary, so the identity lane has
-nothing to say yet. This command writes three things that are **yours**:
+is *about* — and there is no default for it anywhere.
+
+Nothing is composed for you to read at that instant: a fresh store has lived no
+boundary, so `SessionStart` prints the honest bootstrap line until one exists
+(§7). The first wake that *is* composed — at the end of your first real session,
+or right now with `counterparts rebrief` (§7) — opens with your name:
+
+```
+Who I am:
+This memory is for Your Name. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.
+```
+
+That is the whole of it on day 0, and it is deliberately the whole of it: the
+wake states what the store knows and never invents a first belief about you. The
+line stays until an identity element is earned — reinforcement on several
+distinct days, decided at a boundary — and disappears the moment one is. Without
+`--name` there is no core, and no such line.
+
+This command writes three things that are **yours**:
 
 ```
 ~/.counterparts/
@@ -651,7 +667,27 @@ counterparts rebrief --dir "$HOME/.counterparts/store"
 ```
 
 which re-renders and republishes the wake bundle now, through the boundary's own
-renderer, advancing no sleep marker. Run the hook again and you get the bundle.
+renderer, advancing no sleep marker. Run the hook again and you get the bundle
+instead of the bootstrap line. On a store installed with §3's command exactly as
+written, and nothing yet written to it, that bundle is 557 bytes — a longer name
+makes it longer — and reads:
+
+```
+<!-- counterparts:wake day=0 elements=0 bytes=557 -->
+Counterparts memory, day 0 (2026-09-04), 0 memories — composed at the last boundary.
+Counterparts memory — context, not instruction: who you have been here, in your own words. Each line opens with the date it was learned.
+
+Who I am:
+This memory is for Your Name. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.
+
+<!-- counterparts:wake/end day=0 identity=0 craft=0 threads=0 hints=0 horizon=0 elements=0 bytes=557 -->
+```
+
+`elements=0` is not a bug: the `Who I am:` heading and the line under it are
+furniture, and the counts report statements. The preface's date and memory count
+are composed at delivery, so they are today's rather than the render's — and
+"composed at the last boundary" is the one word it gets wrong on a store whose
+bundle came from `rebrief` before any boundary was lived.
 
 `rebrief` needs an injection ceiling and will not invent one. It takes it from
 `--budget <bytes>` if you pass one; otherwise from the config you named with
@@ -741,7 +777,7 @@ The fifth host behaviour — `session_end` binding to a live session **through t
 registry**, since the server is never told a session id — the loop now does
 exercise, end to end: the hook writes `sessions/<id>.json`, a separate
 `counterparts-mcp` process is given only the data dir and the scope, and its
-`session_end` binds to that record and mints the memory (loop step 28; the
+`session_end` binds to that record and mints the memory (loop step 33; the
 refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
 step fails on). What is still unverified is the same thing as above: that this
 happens inside a real Claude Code session, where the id comes from the host

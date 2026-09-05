@@ -595,6 +595,34 @@ else
 $(cat "$WORK/hook-relative.err")"
 fi
 
+# THE DAY-0 WAKE. The finding (LAUNCH-STATUS round 2, self/NOTES §11): `install
+# --name` seeds an identity core that no lane could reach — `scanActive` lists
+# `{ type: "memory" }` and the core is a schema row — so the first composed wake
+# was 385 bytes of furniture that named nobody, over a store whose one live row
+# was the stranger's own name.
+step "the first composed wake has an empty identity lane and zero elements"
+OUT=$(counterparts rebrief --dir "$HOME/.counterparts/store" 2>&1)
+if printf '%s' "$OUT" | grep -q "Re-rendered the wake bundle" &&
+   printf '%s' "$OUT" | grep -q "identity 0" &&
+   printf '%s' "$OUT" | grep -q "elements 0"; then
+  ok
+else
+  no "the first rebrief declined, or ranked an identity element it should not have" "$OUT"
+fi
+
+step "SessionStart injects it, and an empty identity lane still names the core"
+OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook-day0.err")
+if printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+  no "still the bootstrap line after a rebrief" "$OUT"
+elif printf '%s' "$OUT" | grep -q "Who I am:" &&
+     printf '%s' "$OUT" | grep -q "This memory is for Your Name" &&
+     printf '%s' "$OUT" | grep -q "identity=0"; then
+  ok
+else
+  no "the wake did not name the core the install seeded" "$OUT
+$(cat "$WORK/hook-day0.err")"
+fi
+
 # ── 5. the MCP round trip ───────────────────────────────────────────────────
 
 CANARY="The install loop canary: the espresso machine in the kitchen is a Rancilio Silvia."
@@ -770,14 +798,18 @@ else
   no "the refusal did not name both places it looked" "$OUT"
 fi
 
-step "SessionStart now injects that bundle instead of the bootstrap line"
+step "SessionStart injects the re-rendered bundle, still naming the core"
+# The identity lane is still empty here — a promotion needs reinforcement on
+# several distinct lived days, and this loop lives one — so the day-0 line is
+# still the honest thing to say, now over a store that has memories in it.
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook2.err")
 if printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
   no "still the bootstrap line after a rebrief" "$OUT"
-elif [ -n "$OUT" ]; then
+elif printf '%s' "$OUT" | grep -q "This memory is for Your Name"; then
   ok
 else
-  no "the hook injected nothing" "$(cat "$WORK/hook2.err")"
+  no "the hook injected nothing, or stopped naming the core" "$(cat "$WORK/hook2.err")
+$OUT"
 fi
 
 step "the dashboard opens the same store"
