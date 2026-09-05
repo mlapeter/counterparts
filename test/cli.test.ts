@@ -295,6 +295,32 @@ describe("init", () => {
     after.close();
   });
 
+  test("install and init seed the SAME core, so the two paths make the same store", async () => {
+    // §3 says both commands mean the same thing by `--name`. Until 2026-09-04
+    // they did not: `init` minted the core, `install` deferred it to the first
+    // hook, and a reader who followed §3 and then §7 saw a different live-row
+    // count than the page had captured. One assertion, both doors.
+    const viaInstall = join(outside, "same-install", "store");
+    const viaInit = join(outside, "same-init");
+    await run(["install", "--dir", viaInstall, "--budget", "9000", "--name", "Ada"], {
+      io: consoleWith().io,
+      env: {},
+      home: join(outside, "home", "same"),
+    });
+    await run(["init", "--dir", viaInit, "--name", "Ada"], { io: consoleWith().io });
+
+    for (const d of [viaInstall, viaInit]) {
+      const brain = openCounterpart(d);
+      open.push(brain);
+      const core = findIdentityCore(brain.store);
+      expect(core).not.toBe(null);
+      expect(brain.store.readProse(core as string).meta["name"]).toBe("Ada");
+      // One live row each, and it is the core — the shape §7's capture counts on.
+      expect(brain.store.list({ archived: false }).length).toBe(1);
+      brain.close();
+    }
+  });
+
   test("without --name it says the store has no identity core and how to seed one", async () => {
     const bare = join(outside, "bare-store");
     const c = consoleWith();
@@ -1556,6 +1582,29 @@ describe("note and recall", () => {
     expect(printed).toContain("semantic embedder-off");
   });
 
+  test("the denominator is labelled LIVE ROWS, and counts the identity core", async () => {
+    // The word, not the number. `storeSize` is `list({ archived: false })` —
+    // memories, schemas (the identity core included) and journal episodes — so
+    // on a store made the documented way it reads one higher than the memory
+    // count, and `live` alone read as "live memories". §7's capture is this
+    // line, and it is only reproducible while the label names the population.
+    const named = join(outside, "live-rows");
+    await run(["init", "--dir", named, "--name", "Ada"], { io: consoleWith().io });
+    await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", named], {
+      io: consoleWith().io,
+    });
+    const c = consoleWith();
+    expect(await run(["recall", "what espresso machine?", "--dir", named], { io: c.io })).toBe(
+      EXIT.ok,
+    );
+    // One memory, one core: two live rows, one of them considered.
+    expect(text(c.out)).toContain("considered 1 of 2 live rows");
+    const brain = openCounterpart(named);
+    open.push(brain);
+    expect(brain.store.list({ archived: false }).length).toBe(2);
+    brain.close();
+  });
+
   // THE FIRST THING EVERY NEW USER DOES, and for a while the one thing that did
   // not work: at store size one the question path scored no candidates at all
   // (`considered: 0`) and answered `nothing-came`, while the same memory came
@@ -1745,6 +1794,19 @@ describe("install", () => {
     expect(parsed["injectionBudgetBytes"]).toBe(9000);
     expect(parsed["owner"]).toBe(true);
     expect(parsed["identity"]).toEqual({ name: "Ada" });
+    // AND THE CORE EXISTS NOW, not at the first hook. `install` used to write
+    // the name into the config and leave the minting to `openAdapter` at the
+    // first session, while `init --name` minted immediately — so the two
+    // commands §3 calls interchangeable produced different stores, and §7's
+    // captured `considered N of M live rows` was reproducible only on one of
+    // them (2026-09-04).
+    expect(printed).toContain("identity core seeded for Ada");
+    const brain = openCounterpart(store);
+    open.push(brain);
+    const core = findIdentityCore(brain.store);
+    expect(core).not.toBe(null);
+    expect(brain.store.readProse(core as string).meta["name"]).toBe("Ada");
+    brain.close();
     // The egress knob is a DECISION, never a side effect of installing.
     expect(parsed["embedder"]).toBeUndefined();
     // Nor is the parallel-run knob: that one is the run's, not a stranger's.

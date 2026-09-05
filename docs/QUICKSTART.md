@@ -119,9 +119,11 @@ that you only want to reach from the console and the dashboard. A store made by
 `init` has no host wiring at all: the hooks will not see it, because they read
 one hardcoded configuration path and nothing else.
 
-Both take `--name`, and both mean the same thing by it. `counterparts status` on
-a directory with no store points you at `init`, which is the right answer for the
-case you are usually in when you see that message.
+Both take `--name`, and both mean the same thing by it: the identity core is
+minted then and there, by the same door, so a store made either way has it as its
+first live row. `counterparts status` on a directory with no store points you at
+`init`, which is the right answer for the case you are usually in when you see
+that message.
 
 ### What `install` writes
 
@@ -383,18 +385,22 @@ and what the tier on each one means:
 
 ```
 Store: /Users/<you>/.counterparts/store
-question · answered · semantic embedder-off · considered 1 of 2 live · returned 1
+question · answered · semantic embedder-off · considered 1 of 3 live rows · returned 1
 
-  mem_3856a5e8f2fa  [quiet] fact
+  mem_30fbdaa753c5  [quiet] fact
     Postgres in dev listens on port 5433, not 5432.
 
   quiet = quietly available; the ambient path would have footnoted it, not said it
   Nothing here came back vividly, so treat these as leads rather than answers.
 ```
 
-(A real capture. Two memories in the store, one question, and it came back with
-the one that answers it — `considered 1 of 2 live` is recall discriminating, not
-a store small enough to have no choice.)
+(A real capture, on a store made the way §3 says — `--name`, either door — and
+then those two notes. **Three** live rows for two memories: the identity core
+`--name` seeded is the third, because `live rows` counts every unarchived row and
+not only the memories. That is why this number and the wake preface's
+`N memories` are two different numbers about one store, and `counterparts status`
+prints the split. One question, one answer out of two candidate memories: that is
+recall discriminating, not a store too small to have a choice.)
 
 These are the same two doors the MCP tools use — `note` captures the words into
 the span buffer and then deposits a draft that claims that span by hash; `recall`
@@ -407,16 +413,18 @@ tool's own payload.
 something; it is not a claim that the something is right. The tiers are the only
 confidence signal in the output, and the line under the results says what the
 ones you got mean. Asked something this store genuinely does not know — *"what
-colour is the sky on Mars?"* — the same two-memory store returns the espresso
-machine at `[quiet]`, with the same "treat these as leads" line. A cue-based
+colour is the sky on Mars?"* — the same store returns the espresso machine at
+`[quiet]`, with the same "treat these as leads" line (captured, same run). A cue-based
 channel with no embedder answers with the nearest thing it has; a `[quiet]` or
 `[dim]` result is the system saying *this is what I would have murmured*, not
 *this is your answer*.
 
-It also works on the very first memory: a store holding exactly one row answers
-the question about it (`considered 1 of 1 live`). The install loop checks that
-case on every run, because it is the first thing anyone does and it is invisible
-to any test that seeds two rows.
+It also works on the very first memory: a store holding one memory answers the
+question about it. On the store §3 makes that reads `considered 1 of 2 live rows`
+— the memory, and the identity core beside it; on a store made by a bare `init`,
+with no `--name` and so no core, `1 of 1`. The install loop checks the bare case
+on every run, because it is the first thing anyone does and it is invisible to
+any test that seeds two rows.
 
 ### Look at the store
 

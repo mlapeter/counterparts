@@ -654,6 +654,25 @@ function installCommand(
   const resolved = store.dir;
   store.close();
 
+  // SEED THE CORE NOW, not at the first hook. `install` used to write the name
+  // into the config and stop there — `openAdapter` passes `config.identity` to
+  // `Counterpart.open`, so the core appeared only when a session first fired.
+  // Two things were wrong with that. §3 says "It seeds the identity core" of a
+  // command that had not yet; and `init --name` DID seed it immediately, so the
+  // two commands the same page calls interchangeable produced different stores
+  // (found 2026-09-04, when a captured recall reproduced one row higher than
+  // the page said). Same door as `init`: `Counterpart.open`'s own option, which
+  // is an ENSURE, so the hook's later call finds it and mints nothing.
+  let seeded = false;
+  if (name !== undefined && name.length > 0) {
+    const brain = openCounterpart(resolved, false, { name });
+    try {
+      seeded = true;
+    } finally {
+      brain.close();
+    }
+  }
+
   const body = configObject({
     layout,
     ...(budgetBytes === undefined ? {} : { budgetBytes }),
@@ -666,6 +685,10 @@ function installCommand(
   io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
   io.out(`  ${config.what} ${config.path}`);
   io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
+  // The SAME sentence `init` prints, because the two commands did the same
+  // thing: a page that calls them interchangeable and then has them say it
+  // differently has made the reader do the comparison.
+  if (seeded) io.out(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
   if (!isWithin(layout.base, resolved)) {
     // --dir moved the STORE. It cannot move the configuration: the hooks take no
     // flag and read one hardcoded path (falling back to COUNTERPARTS_DATA_DIR
@@ -915,7 +938,11 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     }
     io.out(
       `${result.path} · ${result.reason} · semantic ${result.semantic} · ` +
-        `considered ${result.considered} of ${result.storeSize} live · returned ${result.memories.length}`,
+        // "live rows", not "live memories": the denominator counts schemas and
+        // episodes too, so a store made with `install --name` reads one higher
+        // than its memory count. Naming the population is cheaper than a second
+        // number, and `status` prints the split.
+        `considered ${result.considered} of ${result.storeSize} live rows · returned ${result.memories.length}`,
     );
     if (result.memories.length === 0) {
       io.out("");
