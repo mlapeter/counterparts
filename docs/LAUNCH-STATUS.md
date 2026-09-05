@@ -774,8 +774,9 @@ Branch `overnight/schema-not-dedup`. **Not merged; core, so the owner merges.**
   test pins that case. None of PR #56's five tests were removed; each keeps every
   invariant assertion and only its reason line moved to `skipped.schema`.
 - **Failing-test-first:** five new tests failed on master (same body, migration shape,
-  cosine path, the narrowness guard, two beliefs) and pass after. Suite **1,603 / 0**,
-  `tsc` clean.
+  cosine path, the narrowness guard, two beliefs) and pass after. Measured on the merged
+  tree (master `a49bca5` merged into the branch): suite **1,610 / 0**, `tsc` clean,
+  install loop **36/36**.
 - **The repair exists**, because stopping the bug does not undo it:
   `counterparts repair-merged-beliefs`, dry run by default, over the union of
   `memory.merged` events with a `sch_` candidate and archived schema rows whose reason is
@@ -785,8 +786,9 @@ Branch `overnight/schema-not-dedup`. **Not merged; core, so the owner merges.**
   its own error code. The `uses` each merge credited is LEFT STANDING and recorded in the
   `memory.unmerged` record rather than silently reversed.
 - **G12 class: ANYTHING ELSE.** Surface-set hash `800a9a9421cd969f` on master (`7fe3e9f`)
-  and on the branch — unchanged, because it hashes field NAMES on three record shapes and
-  no field moved. That is not "identical": an element that would have been archived stays
+  and on the branch — unchanged, and still `800a9a9421cd969f` on master `a49bca5` and on
+  the branch with that merged in. Unchanged because it hashes field NAMES on three record
+  shapes and no field moved. That is not "identical": an element that would have been archived stays
   live, one fewer `sleep.merged.<id>` is written, and recall, the wake and every schema
   slice see a belief where they would have seen nothing. The day-1 record says nothing
   about schema/memory collisions, and migration settles the DIRECTION of the loss (elements
