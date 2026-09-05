@@ -453,8 +453,8 @@ counterparts-dashboard status --dir "$HOME/.counterparts/store"
 The same store, rendered. `browse`, `stories` and the other views take `--id`,
 `--limit`, `--band`, `--kind`.
 
-Pointed at a directory with no store in it, both consoles say `No store at
-<dir>. Run 'counterparts init --dir <dir>' to create one.` and exit 1 — a
+Pointed with `--dir` at a directory with no store in it, both consoles say `No
+store at <dir>. Run 'counterparts init --dir <dir>' to create one.` and exit 1 — a
 census of nothing at all is not a success, and a script wrapping `counterparts
 status` should hear about a mistyped `--dir` rather than sail past it. Neither
 one creates the store by looking for it.
