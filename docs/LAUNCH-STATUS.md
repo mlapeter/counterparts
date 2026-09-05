@@ -851,3 +851,28 @@ Claims audit of the site: FAIL 1 → fixed; demo regenerated at master. The ecos
 ### Spend
 
 $0.00 overnight.
+
+### Addendum, end of night — the batch is open as PR #75
+
+`overnight/core-batch` head `386bc38`: ten `--no-ff` merges on `a49bca5` in the landing order
+(#72 → #64 → #65 → #66 → #67 → #68 → #69 → #70 → #71, then master `0ac953b` for #74). Gates on
+the final tree: tsc clean · suite **1782 / 0** (29 files) · install loop **46 / 46** · visual loop
+**51 shots / 0 findings** · hash **`800a9a9421cd969f` → `c3af0bef00209ba6`** (moves at #65, stable
+after) · `--help` lists 14 commands once each, every per-command page free of `(undocumented)` ·
+QUICKSTART's check count (46) and `session_end` step index (33) match `run.sh`.
+
+**The morning rule, corrected by the build:** merge **the batch** (#75). Merging the nine PRs
+individually is NOT equivalent — it re-does every conflict resolution the PR body lists (nine
+`commands.ts` seams, two NOTES §13 renumberings, the `run.sh` seam, the QUICKSTART counts) and #69
+would fail two of its own tests once #64's deindex and #66's BLOB vectors are real; the batch adapted
+those two tests. Reject a PR → the batch is rebuilt without it, not merged around it.
+
+**Three things the merge exposed, NEEDS-OWNER (in the PR body as B1–B3):**
+
+| # | Item | State |
+|---|---|---|
+| G31 | **`--yes` means opposite things** in `migrate-cache` (#66: skip the typed confirmation, `--dir` still required) and `repair-dates` (#67). Same flag, two meanings, now one help sentence naming both. Pick one meaning before publish. | open |
+| G32 | `sleep/NOTES.md` and `recall/NOTES.md` each had two §13s (two PRs appended the same number); the batch renumbered the later-merged one to §14 — an order accident, swap if preferred. | open |
+| G33 | QUICKSTART's `session_end` step index was already stale on master (said 23, was 25) and nothing asserts it; the loop's count and index are prose. A `doc_check` for the two numbers is a ten-line follow-up. | open |
+
+Spend: still $0.00. Every agent shell ran with `COUNTERPARTS_DATA_DIR` on a scratch dir; no live store, hook, MCP server, `daily.ts` or `restart.ts` was touched by the session.
