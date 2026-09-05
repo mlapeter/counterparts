@@ -221,7 +221,20 @@ export interface DeliberateResult {
   /** Candidates the deeper look actually considered — NOT the number returned.
    *  §9.1 G3: a top-K tuned for surfacing is the wrong answer to "how many". */
   readonly considered: number;
-  /** Live memories in the store. The denominator an aggregation question needs. */
+  /**
+   * LIVE ROWS in the store — the denominator an aggregation question needs, and
+   * not the same number as the wake preface's "N memories".
+   *
+   * `store.list({ archived: false })` returns every unarchived row: memories,
+   * the schemas (entities, beliefs, and the identity core `install --name`
+   * mints), and the journal's episodes. A store a reader made by following the
+   * documented path and then wrote two notes into answers `3 live`, not `2` —
+   * the third row is the identity core (found 2026-09-04, when a captured
+   * example reproduced one higher than the page said).
+   *
+   * The COUNT is right for what it is; the word was the problem, so every label
+   * over this field says "live rows".
+   */
   readonly storeSize: number;
   /** Ids a handle matched when the handle was ambiguous. Ids only, no bodies. */
   readonly ambiguous: readonly string[];
@@ -449,9 +462,9 @@ export function expandIds(
  * verdicts under the deliberate rule and fetches bodies for what it admits.
  *
  * `considered` is `decision.candidates` — every candidate the activation pass
- * scored, not the handful that came back. Together with `storeSize` that is
- * §9.1 G3's whole content: the caller can tell "three matched" from "three were
- * returned" from "three exist".
+ * scored, not the handful that came back. Together with `storeSize` — LIVE ROWS,
+ * schemas and journal included — that is §9.1 G3's whole content: the caller can
+ * tell "three matched" from "three were returned" from "three exist".
  */
 export function answerQuestion(
   counterpart: Counterpart,

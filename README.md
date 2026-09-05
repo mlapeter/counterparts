@@ -104,8 +104,9 @@ counterparts note "The espresso machine in the kitchen is a Rancilio Silvia."
 counterparts recall "what espresso machine is in the kitchen?"
 ```
 
-That works on the very first memory — a store holding exactly one row answers the question
-about it — and the install loop checks that case on every run.
+That works on the very first memory — a store holding one memory answers the question
+about it, whether or not `--name` put an identity core beside it — and the install loop
+checks that case on every run.
 
 ---
 
