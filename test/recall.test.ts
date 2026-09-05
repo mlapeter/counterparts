@@ -1500,3 +1500,138 @@ describe("document frequency is counted (§9 G4 at scale)", () => {
     expect(probes).toBeLessThanOrEqual(TUNABLES.MAX_CUES);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// I13 — the two denominators: `df` counted dead rows, `storeSize` counted live
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * `informativeness(df, storeSize)` reads two numbers that came from two boxes.
+ * `storeSize` is `store.list({ archived: false }).length` (box 2, LIVE rows);
+ * `df` was `COUNT(*)` over `doc_tokens` (box 3, EVERY row ever indexed). A row
+ * that is archived or superseded leaves the first count and stayed in the
+ * second, so `df > storeSize` was reachable — and at `df >= storeSize` the
+ * smoothing returns exactly zero for that token, which is the re-zeroing NOTES
+ * §12 named at N=1 arriving through a different door.
+ *
+ * The production caller is `revision.ts:385` — `store.supersede(...)` — which is
+ * what a resolved `updates:` runs when it crosses a belief's bar or replaces a
+ * "now" fact. `store.archive(...)` is the other producer (sleep's dedup and
+ * consolidation).
+ */
+describe("I13 — document frequency counts LIVE rows", () => {
+  test("a superseded head no longer counts toward df (the invariant, at N=1)", () => {
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+
+    const live = s.list({ archived: false });
+    expect(live).toEqual([successor]);
+    // The bug in one line: two indexed documents held `sourdough`, one live row
+    // exists, and rarity is read against the live count.
+    expect(s.docFrequency(["sourdough"]).get("sourdough")).toBe(1);
+    expect(informativeness(1, live.length)).toBeGreaterThan(0);
+  });
+
+  test("an archived sibling no longer counts toward df", () => {
+    const s = store();
+    const kept = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const gone = put(s, { body: "The zygomorphic orchid was moved to the north window." });
+    s.archive(gone, "duplicate");
+
+    expect(s.list({ archived: false })).toEqual([kept]);
+    expect(s.docFrequency(["zygomorphic"]).get("zygomorphic")).toBe(1);
+  });
+
+  test("df never exceeds storeSize, over a store that has archived and superseded", () => {
+    const s = store();
+    seed(s);
+    const a = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const b = put(s, { body: "The zygomorphic orchid was moved to the north window." });
+    s.supersede(a, {
+      type: "memory",
+      kind: "fact",
+      body: "The zygomorphic orchid bloomed twice this year.",
+    });
+    s.archive(b, "duplicate");
+
+    const storeSize = s.list({ archived: false }).length;
+    const tokens = ["zygomorphic", "orchid", "the", "bloomed"];
+    for (const [token, df] of s.docFrequency(tokens)) {
+      expect({ token, withinStore: df <= storeSize }).toEqual({ token, withinStore: true });
+    }
+  });
+
+  test("a dead row does not occupy a candidate slot in the index either", () => {
+    // The second half of the same fact. `activate` already refuses an archived
+    // or superseded hit — it counts them as `skipped` — but only AFTER the index
+    // has spent `PER_CUE_FETCH` slots on them, so the candidate SET was narrowed
+    // by rows that could never be delivered. Same shape as the length-norm bug
+    // the CONTRACT describes: re-ranking a wrong set is not choosing a right one.
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+    expect(s.search("sourdough", 10).map((h) => h.id)).toEqual([successor]);
+  });
+
+  test("the CORE door: revising the first memory in a fresh store keeps it findable", () => {
+    // The reported symptom, at the core door. Before the fix this answered with
+    // no cues at all: `df(sourdough) = 2` against `storeSize = 1` gives
+    // `log((2 + 2) / (2 * 2)) = 0`, `buildCues` drops every zero-weight cue, and
+    // the index is never probed.
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+
+    const out = new Recall({ store: s, owner: true }).recall({
+      sessionId: "s1",
+      text: "what happened to my sourdough starter",
+    });
+    expect(out.decision.storeSize).toBe(1);
+    expect(out.decision.cueCount).toBeGreaterThan(0);
+    expect(out.decision.reason).toBe("rendered");
+    expect(delivered(out.decision)).toContain(successor);
+  });
+
+  test("the CORE door: an archived sibling does not blind the live memory", () => {
+    const s = store();
+    const kept = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const gone = put(s, { body: "The zygomorphic orchid was moved to the north window." });
+    s.archive(gone, "duplicate");
+
+    const out = new Recall({ store: s, owner: true }).recall({
+      sessionId: "s1",
+      text: "why did the zygomorphic orchid bloom",
+    });
+    expect(out.decision.storeSize).toBe(1);
+    expect(out.decision.reason).toBe("rendered");
+    expect(delivered(out.decision)).toContain(kept);
+  });
+
+  test("rebuildCache does not put the dead rows back", () => {
+    // `verify --rebuild` is a supported operation, and a rebuild that re-indexed
+    // archived rows would buy the bug back on the owner's next repair.
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+    const report = s.rebuildCache();
+    expect(report.indexed).toBe(1);
+    expect(s.docFrequency(["sourdough"]).get("sourdough")).toBe(1);
+    expect(s.search("sourdough", 10).map((h) => h.id)).toEqual([successor]);
+  });
+});
