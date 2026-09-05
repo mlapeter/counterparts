@@ -92,11 +92,12 @@ export {
   backfillLengths,
   avgDocLen,
   convertVectorBatch,
+  countNonFinite,
   decodeVector,
   encodeVector,
   vectorFormats,
 } from "./cache.js";
-export type { Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
+export type { ConvertBatchReport, Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
 // The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
 // does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
 // directory the caller-universality test allows (§16 G1–G2).
@@ -203,6 +204,10 @@ export interface RebuildOptions {
    * review). With it on, a vector whose memory is still canonical survives, a
    * vector for a removed or orphaned id is deleted, and a row whose embedder
    * misses keeps the vector it had instead of counting as `unrecomputed`.
+   *
+   * **A row that already has a vector is not re-embedded**, even when an
+   * embedder is wired: keep means keep, and the caller that wants fresh vectors
+   * wants a plain `rebuildCache()`. Rows with NO vector are embedded as usual.
    */
   keepVectors?: boolean;
 }
@@ -1056,16 +1061,22 @@ export class Store {
       }
       const doc = readProseFile(row.prose_path, row.id);
       const text = indexText(doc);
-      // A configured embedder that MISSES counts exactly as no embedder does:
-      // the row is indexed lexically and its vector is declared un-recomputed.
-      const vec = this.embed ? this.embed(text) : null;
+      // KEEP MEANS KEEP. A row that already has a vector is not offered to the
+      // embedder at all under `keepVectors` — the first version called it and
+      // let `indexDoc` overwrite what it had just promised to preserve, so a
+      // process with an embedder wired paid a network call per row and reported
+      // the result as `keptVectors`. Two words for one behaviour is how an API
+      // starts lying; the name picks the behaviour, and the caller that wants
+      // fresh vectors wants a plain `rebuildCache()`.
+      const held = keepVectors && heldVectors.has(row.id);
+      const vec = held ? null : this.embed ? this.embed(text) : null;
       if (vec !== null) indexDoc(this.cache, row.id, text, vec);
       else {
         indexDoc(this.cache, row.id, text);
         // A miss is only a LOSS when there was nothing there to keep. Under
         // `keepVectors` the row's existing vector is still in the table, so
         // counting it un-recomputed would report a gap box 3 does not have.
-        if (!(keepVectors && heldVectors.has(row.id))) unrecomputed += 1;
+        if (!held) unrecomputed += 1;
       }
       indexed += 1;
     }

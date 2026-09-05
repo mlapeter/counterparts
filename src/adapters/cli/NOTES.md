@@ -204,6 +204,31 @@ inspected.
 `migrate-cache` is on `OWNER_OPS`: box 3 is rebuildable, and rewriting it is still a
 write.
 
+**Three things the adversarial review changed, and each is a rule this console already
+had.**
+
+1. **The dry run is READ-ONLY, not merely honest.** It opened box 3 with `openCache`, which
+   stamps `cache_meta.schemaVersion` — so on the v3 store this will actually be run against,
+   one row changed and the file's hash moved under a line saying nothing had. The first fix
+   made the command SAY so, which was the right instinct and the wrong repair: every
+   question the dry run asks is a `SELECT`, so it opens with `openDb` and `openCache` is
+   reserved for `--apply`. "Reads are pure" (§5 G9) means the bytes, not the disclosure.
+2. **`--apply` names its store and asks.** `resolveDir` falls through to `dataDir()`, which
+   on a real machine is the owner's live memory, and this command is the one operation here
+   whose result a `git revert` cannot undo. So `--apply` refuses a data dir that came from
+   the default — **before it looks at a single path**, because a guard that reads the
+   default directory before refusing it has already been pointed at the store it meant to
+   refuse — and then asks, `remove`-style, unless `--yes`.
+3. **Converted-but-not-compacted is a state with a door.** `VACUUM` is the step most likely
+   to fail: it takes an exclusive lock and the Stop worker holds box 3. The first version
+   ran it only after a conversion, and the already-converted arm refused BEFORE it — so one
+   lost lock left the entire 177 MiB behind an "already converted" refusal, unreachable
+   through the tool that exists to reclaim it. Now the dry run reports the reclaimable
+   bytes and `--apply` compacts, converting nothing. The probe is a real `VACUUM INTO` a
+   throwaway copy in the OS temp dir: `PRAGMA freelist_count` reads **0** in that state,
+   because the pages are fragmented rather than free, and a probe that reads zero where the
+   answer is 59% is worse than no probe.
+
 ## Verified live? No
 
 Every test runs against a temp store. Per CLAUDE.md's definition of done this is

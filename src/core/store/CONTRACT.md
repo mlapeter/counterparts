@@ -61,7 +61,7 @@ ended up with canonical state spread across a prose store plus half a dozen side
   3. **A separate rebuildable cache** — embeddings and full-text index. **Never backed
      up**, always reconstructible, and its loss is a re-index, never a memory. Vectors
      are stored as float32 BLOBs (`dim` little-endian singles, cache schema v4,
-     2026-09-05) — the embedder's own precision, and 2.8× smaller and ~9× faster to scan
+     2026-09-05) — the embedder's own precision, and 2.8× smaller and ~11× faster to scan
      than the JSON text of v3 (measured; `NOTES.md`). "Reconstructible" is still an
      honest word for the text index and a partly dishonest one for the vectors: those
      cost a paid network call each, which is why `rebuildCache({ keepVectors })` and

@@ -263,8 +263,26 @@ export function resetCache(db: Db, opts: { keepEmbeddings?: boolean } = {}): voi
  */
 export function encodeVector(vec: readonly number[]): Uint8Array {
   const f = new Float32Array(vec.length);
-  for (let i = 0; i < vec.length; i++) f[i] = vec[i] ?? 0;
+  // `Number.isFinite`, not `?? 0`: a `NaN` or an infinity is not a coordinate,
+  // and it must not reach the scan. v3 coerced it by accident —
+  // `JSON.stringify(NaN)` is `"null"` and `JSON.parse` gave back `null ?? 0` —
+  // so writing it through would have been a REGRESSION dressed as a format
+  // change. A NaN row scores `NaN`, and `nearest`'s comparator
+  // (`b.score - a.score || id`) reads `NaN - x` as falsy and falls through to
+  // the id tiebreak, so one such row sorts anywhere at all, first included.
+  // `countNonFinite` is how a caller reports what it coerced.
+  for (let i = 0; i < vec.length; i++) {
+    const x = vec[i];
+    f[i] = typeof x === "number" && Number.isFinite(x) ? x : 0;
+  }
   return new Uint8Array(f.buffer, f.byteOffset, f.byteLength);
+}
+
+/** How many of `vec`'s entries `encodeVector` would coerce to zero. */
+export function countNonFinite(vec: readonly number[]): number {
+  let n = 0;
+  for (const x of vec) if (!(typeof x === "number" && Number.isFinite(x))) n += 1;
+  return n;
 }
 
 /**
@@ -278,14 +296,22 @@ export function encodeVector(vec: readonly number[]): Uint8Array {
  * lie. The cost is one `typeof` per row.
  *
  * The BLOB arm returns a `Float32Array` VIEW where it can — no per-row copy of
- * 1,024 numbers, which is most of what the old scan spent. Two cases force a
- * copy: a driver that hands back a pooled buffer at an unaligned `byteOffset`
- * (node:sqlite's `Buffer`s do this), and a byte length that is not a multiple
- * of four, which is a corrupt row rather than a vector.
+ * 1,024 numbers, which is most of what the old scan spent. A driver that hands
+ * back a pooled buffer at an unaligned `byteOffset` (node:sqlite's `Buffer`s do
+ * this; bun:sqlite's always start at 0) forces one copy, which is what the
+ * second arm is.
+ *
+ * A byte length that is not a multiple of four is **not** a short vector, it is
+ * a CORRUPT ROW, and it comes back empty rather than truncated: truncating
+ * would hand the scan a silently shortened vector and a cosine computed over a
+ * prefix, which is a wrong number with no signal on it. Empty scores 0 through
+ * `cosine`'s zero-norm arm, `nearestVectors` skips it, and `vectorFormats`
+ * counts the row in `other` so a census names it instead of a scan hiding it.
  */
 export function decodeVector(raw: SqlValue): Float32Array | number[] {
   if (typeof raw === "string") return JSON.parse(raw) as number[];
   if (raw instanceof Uint8Array) {
+    if (raw.byteLength % 4 !== 0) return [];
     const n = raw.byteLength >>> 2;
     if (n === 0) return [];
     if (raw.byteOffset % 4 === 0) return new Float32Array(raw.buffer, raw.byteOffset, n);
@@ -302,7 +328,11 @@ export interface VectorFormatCensus {
   readonly float32: number;
   /** v3 rows: `JSON.stringify(vec)`. What `migrate-cache` converts. */
   readonly jsonText: number;
-  /** Neither — a corrupt row. Named rather than folded into a total. */
+  /**
+   * Unreadable: neither shape, or a BLOB whose byte length is not a multiple
+   * of four (`decodeVector` returns empty for those rather than a truncated
+   * vector). Named rather than folded into a total.
+   */
   readonly other: number;
   /** `SUM(LENGTH(vec))` over each shape, in bytes. */
   readonly float32Bytes: number;
@@ -310,8 +340,18 @@ export interface VectorFormatCensus {
 }
 
 export function vectorFormats(db: Db): VectorFormatCensus {
+  // The GROUP BY key is the shape as a READER sees it, not `typeof` alone: a
+  // blob of 4,097 bytes has `typeof = 'blob'` and is still not a vector, and a
+  // census that counted it as one would report a store as fully converted while
+  // `decodeVector` was returning empty for it.
   const rows = db.all<{ t: string; n: number; b: number | null }>(
-    "SELECT typeof(vec) AS t, COUNT(*) AS n, SUM(LENGTH(vec)) AS b FROM embeddings GROUP BY typeof(vec)",
+    `SELECT CASE
+              WHEN typeof(vec) = 'blob' AND LENGTH(vec) % 4 = 0 THEN 'blob'
+              WHEN typeof(vec) = 'text' THEN 'text'
+              ELSE 'other'
+            END AS t,
+            COUNT(*) AS n, SUM(LENGTH(vec)) AS b
+       FROM embeddings GROUP BY t`,
   );
   let float32 = 0;
   let jsonText = 0;
@@ -331,34 +371,76 @@ export function vectorFormats(db: Db): VectorFormatCensus {
   return { total: float32 + jsonText + other, float32, jsonText, other, float32Bytes, jsonTextBytes };
 }
 
+export interface ConvertBatchReport {
+  /** Rows examined this batch. Zero means the walk is finished. */
+  readonly examined: number;
+  /** Rows rewritten as float32 BLOBs. */
+  readonly converted: number;
+  /** Rows whose `vec` would not parse — left exactly as they are, and named. */
+  readonly skipped: readonly string[];
+  /** Coordinates coerced to zero because they were NaN or infinite. */
+  readonly coerced: number;
+  /** The last `memory_id` examined, to continue the walk past a skipped row. */
+  readonly lastId: string | null;
+}
+
 /**
  * Convert up to `batch` JSON-text vectors to float32 BLOBs, in ONE transaction,
- * and report how many moved. Zero means there is nothing left to convert.
+ * and report what happened. `examined === 0` means the walk is finished.
  *
- * Batched rather than one statement because this runs on a 177 MB file the
+ * **Batched, not one statement**, because this runs on a 177 MB file the
  * Stop-hook worker also writes to: a single transaction over 13.9K rows holds
  * box 3's write lock for the whole rewrite, and `BUSY_TIMEOUT_MS` is five
  * seconds. Idempotent by its WHERE clause — a converted row is not selected —
  * so an interrupted run resumes by being run again, and a finished one is a
  * no-op.
+ *
+ * **`after` is what makes one bad row survivable.** The first version parsed
+ * inside the transaction and let a throw roll the batch back; because the
+ * selection is `ORDER BY memory_id LIMIT ?`, the very next attempt selected the
+ * same unparseable row and threw again, and every row after it stayed in the
+ * old shape forever — one corrupt byte holding 13,000 vectors hostage. Now a
+ * row that will not parse is SKIPPED, NAMED, and left untouched (nothing here
+ * repairs data it cannot read), and the caller walks past it with
+ * `after = lastId`.
  */
-export function convertVectorBatch(db: Db, batch = 500): number {
-  const rows = db.all<{ memory_id: string; vec: SqlValue }>(
-    "SELECT memory_id, vec FROM embeddings WHERE typeof(vec) = 'text' ORDER BY memory_id LIMIT ?",
-    batch,
-  );
-  if (rows.length === 0) return 0;
-  return db.transaction(() => {
+export function convertVectorBatch(db: Db, batch = 500, after?: string): ConvertBatchReport {
+  const rows =
+    after === undefined
+      ? db.all<{ memory_id: string; vec: SqlValue }>(
+          "SELECT memory_id, vec FROM embeddings WHERE typeof(vec) = 'text' ORDER BY memory_id LIMIT ?",
+          batch,
+        )
+      : db.all<{ memory_id: string; vec: SqlValue }>(
+          "SELECT memory_id, vec FROM embeddings WHERE typeof(vec) = 'text' AND memory_id > ? ORDER BY memory_id LIMIT ?",
+          after,
+          batch,
+        );
+  const lastId = rows.length === 0 ? null : (rows[rows.length - 1]?.memory_id ?? null);
+  if (rows.length === 0) return { examined: 0, converted: 0, skipped: [], coerced: 0, lastId };
+  // Parse OUTSIDE the transaction: a throw here must cost one row, not a batch.
+  const decoded: { id: string; arr: number[] }[] = [];
+  const skipped: string[] = [];
+  let coerced = 0;
+  for (const row of rows) {
+    try {
+      const arr = Array.from(decodeVector(row.vec));
+      coerced += countNonFinite(arr);
+      decoded.push({ id: row.memory_id, arr });
+    } catch {
+      skipped.push(row.memory_id);
+    }
+  }
+  const converted = db.transaction(() => {
     const upd = db.prepare("UPDATE embeddings SET dim = ?, vec = ? WHERE memory_id = ?");
     let n = 0;
-    for (const row of rows) {
-      const vec = decodeVector(row.vec);
-      const arr = Array.from(vec);
-      upd.run(arr.length, encodeVector(arr), row.memory_id);
+    for (const d of decoded) {
+      upd.run(d.arr.length, encodeVector(d.arr), d.id);
       n += 1;
     }
     return n;
   });
+  return { examined: rows.length, converted, skipped, coerced, lastId };
 }
 
 export function tokenize(text: string): string[] {

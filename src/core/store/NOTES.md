@@ -207,13 +207,13 @@ vectors, three scans each, `nearest(probe, 50)`, no real store touched:
 
 | values | file before | file after | scan before (3 runs) | scan after (3 runs) | order | max abs Δscore |
 |---|---|---|---|---|---|---|
-| 8-digit decimals (**the live shape**: 12.8 KB/row) | 175.3 MB | 61.8 MB (2.84×) | 449, 455, 455 ms | 55, 53, 42 ms (9.0×) | identical | 1.5e-9 |
-| float32-exact (21.4 KB/row) | 292.0 MB | 61.8 MB (4.72×) | 608, 598, 602 ms | 41, 45, 39 ms (14.4×) | identical | **0 — bit-identical** |
+| 8-digit decimals (**the live shape**: 12.8 KiB/row) | 175.3 MiB | 61.8 MiB (2.84×) | 540, 507, 459 ms | 49, 46, 42 ms (11.1×) | identical | 1.5e-9 |
+| float32-exact (21.4 KiB/row) | 292.0 MiB | 61.8 MiB (4.72×) | 654, 619, 637 ms | 47, 49, 42 ms (13.9×) | identical | **0 — bit-identical** |
 
 The first row is the one the owner's store will see; the second is the property the tests
 pin, because it is the one that can be stated exactly. `test/store.test.ts` holds both:
 bit-identical scores (`Object.is`, not `toBeCloseTo`) for float32-exact vectors, and
-same-order-under-1e-6 for float64 ones. The conversion itself ran 14,000 rows in 0.8–1.2 s
+same-order-under-1e-6 for float64 ones. The conversion itself ran 14,000 rows in 0.9–1.2 s
 plus a 0.3 s `VACUUM`.
 
 **Why the migration converts and does not rebuild.** A rebuild recomputes, and the thing
@@ -244,6 +244,43 @@ box 3 HOLDS, which is not `unembeddedCount()`'s coverage denominator — and
 in place, dropping only the vectors whose memory is no longer canonical (a removed id, an
 orphan) so §16 G12 still holds. `verify --rebuild --keep-vectors` is its door; the old
 refusals are unchanged and now name it.
+
+**How far the rounding can reach, which is further than its size suggests.** The
+adversarial review (2026-09-05) found the argument that matters, and it belongs here rather
+than only in a PR body. The 1e-9 movement is continuous, but two of its consumers are
+DISCRETE:
+
+- `recall/activate.ts:300` applies an ABSOLUTE floor, `if (h.score < SEMANTIC_SEED_FLOOR)
+  continue` (0.45). A candidate that crosses it by 1e-9 does not gain 1e-9 of anything — it
+  gains `semantic > 0`, and `recall/gate.ts:273` builds the turn's background from
+  `candidates.filter((c) => c.cue + c.semantic > 0)`. **Membership is a whole number.** So
+  the crossing changes `n`, `mean`, `sd` and every other candidate's leave-one-out bar by
+  O(1/n), and `background()` switches regime entirely at `n < MIN_BACKGROUND_SAMPLE` (3).
+  Measured on illustrative activations at TUNABLES defaults: the regime flip moved the bar
+  by 2.6e-1, and an in-regime n=3→4 by 4.6e-3. The magnitudes depend on the activations;
+  the O(1/n) shape does not.
+- `ranked.slice(0, SEMANTIC_TOP_M)` (`activate.ts:301`, 8) is a RANK cut, fed the same way
+  from `counterpart.ts:840` and from the worker: a 1e-9 swap at ranks 8/9 changes the seed
+  set outright.
+
+The probability is negligible — a top-8 cosine would have to land within ~1.5e-9 of exactly
+0.45, and the smallest adjacent score gap in a 14,000-row top-50 measured 1.7e-7, about a
+hundred times the perturbation. The CONSEQUENCE, should it happen, is finite. That is the
+honest shape of the claim, and it is why the G12 class is the third one: "provably
+identical" is a claim about consequences, not about probabilities.
+
+**What the review changed, all of it in the same direction.** A `NaN` no longer survives a
+write (`encodeVector` coerces non-finite to 0 and `countNonFinite` reports it) — v3 coerced
+it by accident, via `JSON.stringify(NaN) === "null"`, and writing it through would have been
+a regression dressed as a format change, since `nearest`'s comparator reads `NaN - x` as
+falsy and lets such a row sort anywhere. A BLOB whose byte length is not a multiple of four
+decodes EMPTY rather than truncated, and `vectorFormats` counts it as unreadable: a
+silently shortened vector is a cosine over a prefix, a wrong number with no signal on it. A
+row that will not parse costs one row — `convertVectorBatch` parses outside the transaction
+and takes an `after` cursor, because the first version rolled the batch back and then
+re-selected the same row forever, one corrupt byte holding 13,000 vectors hostage. And
+`keepVectors` no longer offers a held row to the embedder at all: it called it and let
+`indexDoc` overwrite what it had just promised to preserve.
 
 **Brain analog: none, and that is the point.** This is the engineering floor biology does
 not have (CONTRACT §2) — a substrate that stores a number in the precision it was computed
