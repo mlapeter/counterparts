@@ -122,8 +122,11 @@ export function helpText(): string {
     "  --colour / --no-colour, --width <n>",
     "",
     "The web view:",
-    "  serve [--dir <path>] [--port <n>]   the local dashboard, on 127.0.0.1 only",
+    "  serve --dir <path> [--port <n>]     the local dashboard, on 127.0.0.1 only",
     `                                      (default port ${SERVE_DEFAULT_PORT}, or ${SERVE_PORT_ENV})`,
+    "  serve --yes                         open the DEFAULT store instead. Without --dir",
+    "                                      or --yes, 'serve' refuses: on a machine with an",
+    "                                      install the default is the owner's live memory.",
     "",
     "It reads in observer mode and writes nothing, ever.",
   ];
@@ -139,6 +142,8 @@ export interface ServeArgs {
   readonly serve: boolean;
   readonly dir: string | undefined;
   readonly port: number | undefined;
+  /** `--yes`: I meant the default store. The only way past the refusal below. */
+  readonly yes: boolean;
 }
 
 /** `serve` is parsed separately from the five views because it is not one: it
@@ -153,7 +158,32 @@ export function parseServe(argv: readonly string[]): ServeArgs {
     serve,
     dir: parsed.dir,
     ...(port === undefined ? { port: undefined } : { port }),
+    yes: argv.includes("--yes") || argv.includes("--yes=true"),
   };
+}
+
+/**
+ * THE REFUSAL A STRAY `serve` GETS, or null when the command named its store.
+ *
+ * `counterparts-dashboard serve`, typed alone, used to print a warning and then
+ * open the DEFAULT data dir — which on the author's machine is his live memory,
+ * every element of it, on a socket, in a browser. A warning after the fact is
+ * the wrong instrument: the page is already up and the reader has already
+ * skipped the line. So the default store is now opt-in by name.
+ *
+ * Pure, and it opens nothing: the sentence has to be reachable without a store
+ * and without a socket, or the test for it would need both. `targetDirOf` is
+ * the defensive read of the default — `dataDir()` itself throws when the
+ * environment points inside v1's live store, and a refusal that throws while
+ * naming what it refused is the same bug one frame down.
+ */
+export function serveRefusal(args: ServeArgs): string | null {
+  if (args.dir !== undefined || args.yes) return null;
+  return (
+    `Refused: 'serve' with no --dir would open ${targetDirOf(args)}, which is the default store — ` +
+    "on a machine with an install, that is the owner's live memory. " +
+    "Pass --dir <path> to name a store, or --yes to mean the default. Nothing was opened."
+  );
 }
 
 function flagValue(argv: readonly string[], name: string): string | undefined {
@@ -173,6 +203,12 @@ function flagValue(argv: readonly string[], name: string): string | undefined {
  */
 export async function serve(argv: readonly string[]): Promise<number> {
   const args = parseServe(argv);
+  // BEFORE the server module is even loaded, let alone a store opened.
+  const refusal = serveRefusal(args);
+  if (refusal !== null) {
+    process.stderr.write(`${refusal}\n`);
+    return 1;
+  }
   const dir = args.dir === undefined ? undefined : resolve(args.dir);
   const { startDashboard } = await import("../web/server.js");
   try {
@@ -189,8 +225,10 @@ export async function serve(argv: readonly string[]): Promise<number> {
         // look the same as a `serve` aimed on purpose (constitution 16: the
         // system shows its workings). It is a read-only view either way; this
         // line is so a stray start is visible rather than merely harmless.
+        // Only reachable with `--yes`, which is the owner saying he meant it —
+        // and it still says which store that was.
         ...(dir === undefined
-          ? [`(no --dir given, so this is the DEFAULT store — ${DATA_DIR_ENV} or ~/.counterparts/store)`]
+          ? [`(--yes, so this is the DEFAULT store — ${DATA_DIR_ENV} or ~/.counterparts/store)`]
           : []),
         "observer mode: it strengthens nothing, deposits nothing, and writes no file of its own.",
         "ctrl-c to stop.",
@@ -201,7 +239,7 @@ export async function serve(argv: readonly string[]): Promise<number> {
   } catch (err) {
     const where = dir ?? targetDirOf(args);
     if (isStoreError(err)) {
-      process.stderr.write(`${describeStoreError(err, where)}\n`);
+      process.stderr.write(`${describeStoreError(err, where, args.dir !== undefined)}\n`);
       return 1;
     }
     const code = (err as { code?: string }).code;
@@ -232,13 +270,18 @@ function targetDirOf(args: ServeArgs): string {
  * printed. Constitution 16: a refusal the owner cannot read is a refusal that
  * teaches nothing.
  */
-export function describeStoreError(err: StoreError, dir: string): string {
+export function describeStoreError(err: StoreError, dir: string, namedDir = false): string {
   switch (err.code) {
     // The instrument refuses to mint an absent store (cli INTERFACE-GAPS §7) —
     // and an owner pointing a dashboard at nothing deserves a sentence, not a
     // stack trace.
+    //
+    // The remedy names the dir that was passed, exactly as the console's copy
+    // of this sentence does: `counterparts init` on its own, offered under a
+    // line that just named `--dir /somewhere`, creates the store in the DEFAULT
+    // place instead — advice that works, somewhere else.
     case "STORE_UNINITIALIZED":
-      return `No store at ${dir}. Run 'counterparts init' to create one.`;
+      return `No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`;
     // The exact error a stranger who put the adapter's config in the wrong place
     // will hit. The CLI's `init` already teaches the rule; this says the same
     // thing at the moment the rule bites.
@@ -283,13 +326,13 @@ export function run(argv: readonly string[]): string {
     // EVERY store refusal, not just the one that was anticipated. A code this
     // file has never heard of still reaches the owner as a line it can read;
     // anything that is not a StoreError is a bug here and still throws.
-    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed));
+    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed), parsed.dir !== undefined);
     throw err;
   }
   try {
     return dashboard.render(parsed.view, parsed.args);
   } catch (err) {
-    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed));
+    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed), parsed.dir !== undefined);
     throw err;
   } finally {
     dashboard.close();

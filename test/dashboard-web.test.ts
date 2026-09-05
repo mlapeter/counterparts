@@ -55,10 +55,16 @@ import {
   divergentPair,
   healthView,
   mindView,
+  overviewView,
   relativeToStore,
   wakeLanes,
 } from "../src/adapters/dashboard/web/views.js";
-import { parseServe, serve } from "../src/adapters/dashboard/bin/dashboard.js";
+import {
+  describeStoreError,
+  parseServe,
+  serve,
+  serveRefusal,
+} from "../src/adapters/dashboard/bin/dashboard.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -733,6 +739,38 @@ describe("the shapes the page draws with", () => {
     }
   });
 
+  /**
+   * THE OVERVIEW IS ON THE SAME SIGNAL AS THE FLOW PAGE.
+   *
+   * The first fix for the stale `143 came through` gave the poll a second
+   * question — `/api/meta`'s row count, so a deposit that writes no durable
+   * event is still noticed — and then refreshed only the flow diagram. The page
+   * the dashboard OPENS on kept its boot-time tiles: `memories held` frozen at
+   * whatever it was when the tab was opened, on the first screen of the
+   * product, while the tab beside it moved.
+   *
+   * The behaviour itself is asserted in a browser by `tools/visual-loop`, which
+   * types a real note and reads the tile back off the DOM. This is the cheap
+   * half: the refresh path must ask for the overview at all, and it must not be
+   * the boot path (which owns the feed).
+   */
+  test("the poll's refresh re-reads the overview, not only the flow diagram", () => {
+    const app = readFileSync(
+      fileURLToPath(new URL("../src/adapters/dashboard/web/app.html", import.meta.url)),
+      "utf8",
+    );
+    const start = app.indexOf("async function refreshCounters(");
+    expect(start).toBeGreaterThan(0);
+    const body = app.slice(start, app.indexOf("\n}", start));
+    expect(body).toContain("/api/overview");
+    expect(body).toContain("paintOverview(");
+    expect(body).toContain("/api/flow");
+    // And the paint is a function of its own, so the refresh path can skip the
+    // feed the poll is prepending into.
+    expect(app).toContain("function paintOverview(d, withFeed)");
+    expect(app).toContain("window.tileValue");
+  });
+
   test("an empty store's row count is zero and its emptiness agrees with it", () => {
     const d = open(emptyDir);
     try {
@@ -892,6 +930,87 @@ describe("the shapes the page draws with", () => {
     }
   });
 
+  /**
+   * `strength 1.00` ON AN IDENTITY ROW IS A TAUTOLOGY.
+   *
+   * Every element in the band is at 1.00 by construction, so the field said one
+   * thing fifteen times down the panel in the README's first image. The day it
+   * crossed is the fact that varies — and where the store never recorded a
+   * crossing (a seeded or migrated core was never watched crossing), the row
+   * must say nothing there rather than invent a day.
+   */
+  test("identity rows carry the day they were promoted, or nothing, never an invented one", () => {
+    const d = open(richDir);
+    try {
+      const overview = overviewView(d.src);
+      expect(overview.identity.length).toBeGreaterThan(0);
+      const promotions = new Map<string, number>();
+      for (const row of d.src.store.eventLog({ name: "band.promoted", limit: 20_000 })) {
+        if (row.ref !== null && !promotions.has(row.ref)) promotions.set(row.ref, row.day);
+      }
+      for (const el of overview.identity) {
+        // Never invented: a day is present exactly when the log holds one.
+        expect(el.promotedDay).toBe(promotions.get(el.id) ?? null);
+        if (el.promotedDay !== null) {
+          expect(Number.isInteger(el.promotedDay)).toBe(true);
+          expect(el.promotedDay).toBeGreaterThanOrEqual(0);
+        }
+      }
+      // An empty store has no rows to be wrong about, and says so.
+      const empty = open(emptyDir);
+      try {
+        expect(overviewView(empty.src).identity.length).toBe(0);
+      } finally {
+        empty.close();
+      }
+    } finally {
+      d.close();
+    }
+  });
+
+  /**
+   * ONE TABLE, LED BY ENGLISH — and still total.
+   *
+   * The health tab had two: eleven `adapter.*` names in one and all nineteen in
+   * the other, so seven identifiers were listed twice on one screen with
+   * near-duplicate glosses, and the first thing a reader met was 23 dotted
+   * names against a column of `(never run)`. Merging them is only safe if the
+   * totality rule survives it, so this asserts both halves: every durable name
+   * appears EXACTLY once, and every row leads with the plain-English gloss the
+   * registry already carries.
+   */
+  test("every durable event appears exactly once on the health page, led by its gloss", () => {
+    const d = open(richDir);
+    try {
+      const health = healthView(d.src);
+      expect(health.records.length).toBe(DURABLE_EVENT_NAMES.length);
+      const seen = new Set(health.records.map((r) => r.name));
+      expect(seen.size).toBe(DURABLE_EVENT_NAMES.length);
+      for (const name of DURABLE_EVENT_NAMES) expect(seen.has(name)).toBe(true);
+      for (const r of health.records) {
+        // The lead is a sentence, not an identifier: it is longer than the
+        // dotted name and it is not the dotted name.
+        expect(r.gloss.length).toBeGreaterThan(20);
+        expect(r.gloss).not.toBe(r.name);
+        expect(r.gloss.includes(" ")).toBe(true);
+        // `absent` is a fact about the count, in both directions.
+        expect(r.absent === null).toBe(r.count > 0);
+        // A host-written row says so and carries its caveat; a machinery row
+        // has neither, which is the only thing the split table was saying.
+        expect(r.note === null).toBe(!r.adapter);
+      }
+      // What has actually happened is listed above what never has.
+      const counts = health.records.map((r) => r.count);
+      expect([...counts].sort((a, b) => b - a)).toEqual(counts);
+      expect(counts[0]).toBeGreaterThan(0);
+      // At least one adapter row and one machinery row, or the merge is moot.
+      expect(health.records.some((r) => r.adapter)).toBe(true);
+      expect(health.records.some((r) => !r.adapter)).toBe(true);
+    } finally {
+      d.close();
+    }
+  });
+
   test("the stories page tells each contested belief as a timeline", () => {
     const d = open(richDir);
     try {
@@ -1008,8 +1127,65 @@ describe("starting the thing", () => {
       serve: true,
       dir: "/tmp/x",
       port: 5000,
+      yes: false,
     });
     expect(parseServe(["status"]).serve).toBe(false);
     expect(parseServe(["serve"]).port).toBeUndefined();
+    expect(parseServe(["serve", "--yes"]).yes).toBe(true);
+  });
+
+  /**
+   * A STRAY `serve` MUST NOT OPEN THE OWNER'S MEMORY.
+   *
+   * It used to: no `--dir` meant the DEFAULT data dir, which on a machine with
+   * an install is the live store, and the only thing standing in front of that
+   * was a warning line printed after the socket was already bound. The refusal
+   * is pure, so this test needs no store, no socket and no default dir it might
+   * accidentally be right about.
+   */
+  test("`serve` with no --dir refuses, names the store it would have opened, and opens nothing", async () => {
+    const refusal = serveRefusal(parseServe(["serve"]));
+    expect(refusal).not.toBeNull();
+    expect(String(refusal)).toContain("Refused");
+    expect(String(refusal)).toContain("default store");
+    expect(String(refusal)).toContain("--yes");
+    // It NAMES the directory it would have opened, whatever that resolves to
+    // on this machine — the whole point of the sentence.
+    expect(String(refusal).length).toBeGreaterThan(80);
+    // One line, like every other refusal this binary prints.
+    expect(String(refusal).includes("\n")).toBe(false);
+
+    // Named on purpose, either way, and nothing is refused.
+    expect(serveRefusal(parseServe(["serve", "--dir", "/tmp/x"]))).toBeNull();
+    expect(serveRefusal(parseServe(["serve", "--yes"]))).toBeNull();
+
+    // And the whole command exits 1 without touching a store or a socket.
+    const said: string[] = [];
+    const realErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: unknown) => {
+      said.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(await serve(["serve", "--port", "0"])).toBe(1);
+    } finally {
+      process.stderr.write = realErr;
+    }
+    expect(said.join("")).toContain("Refused");
+  });
+
+  test("the no-store sentence offers the --dir that was actually passed", () => {
+    const err = { code: "STORE_UNINITIALIZED", detail: {} } as unknown as Parameters<
+      typeof describeStoreError
+    >[0];
+    // Without a --dir, the remedy is the plain one.
+    expect(describeStoreError(err, "/tmp/somewhere")).toBe(
+      "No store at /tmp/somewhere. Run 'counterparts init' to create one.",
+    );
+    // With one, the remedy carries it — `counterparts init` on its own would
+    // have created the store in the DEFAULT place, not the one just named.
+    expect(describeStoreError(err, "/tmp/somewhere", true)).toBe(
+      "No store at /tmp/somewhere. Run 'counterparts init --dir /tmp/somewhere' to create one.",
+    );
   });
 });
