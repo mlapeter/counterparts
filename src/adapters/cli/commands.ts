@@ -270,7 +270,12 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   recall: ["id", "json"],
   export: ["out", "passphrase", "plaintext"],
   backup: ["out"],
-  remove: ["confirm", "reason"],
+  // `strike-by-content-across-scopes` is the one chase this console refuses by
+  // default: a row whose provenance recorded no scope (every migrated row) can
+  // only be chased in the buffer by matching its body, and matching a body
+  // across every project on the machine is how one removal reaches into work
+  // nobody named. The dry run lists what it WOULD match; this flag performs it.
+  remove: ["confirm", "reason", "strike-by-content-across-scopes"],
   verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
@@ -342,6 +347,8 @@ const FLAG_HELP: Record<string, string> = {
   plaintext: "do not encrypt the export (said on purpose, never by default)",
   confirm: "actually do it — without this, removal is a dry run",
   reason: "the reason, recorded with the removal",
+  "strike-by-content-across-scopes":
+    "for a memory whose provenance records no project: chase its words through EVERY project's capture buffer (an exact jot, never a substring). Look at what the dry run lists first",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   "prune-index": "take the archived and superseded rows out of the text index, keeping the embeddings",
@@ -2038,11 +2045,13 @@ async function removeCommand(
     return EXIT.failed;
   }
 
+  const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
+
   // THE PLAN, made read-only and with no lock held (scar E5).
   const planning = Store.open({ dir, observer: true });
   let plan;
   try {
-    plan = planRemoval(planning, targetId);
+    plan = planRemoval(planning, targetId, { crossScopeContent });
   } finally {
     planning.close();
   }
@@ -2057,16 +2066,23 @@ async function removeCommand(
   // "Nothing has changed" line — a disclosure under the last line of a dry run
   // is a disclosure a reader has already stopped reading (cold-stranger round 3,
   // C3). `not applicable` is stated too: the silence is what made the residue
-  // undiscoverable outside the README (LAUNCH-STATUS §I2).
+  // undiscoverable outside the README (LAUNCH-STATUS §I2). `held` is a CHASE
+  // now, not a confession; only `unknown` still says NOT chased.
   io.out(
-    plan.spans.state === "not-applicable"
-      ? `  ${plan.spans.line}`
-      : `  NOT chased — ${plan.spans.line}`,
+    plan.spans.state === "held"
+      ? `  chased — ${plan.spans.line}`
+      : plan.spans.state === "unknown"
+        ? `  NOT chased — ${plan.spans.line}`
+        : `  ${plan.spans.line}`,
   );
   for (const name of plan.unchasable) {
     if (name === plan.spans.line) continue; // said once, on its own line above
     io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
   }
+  // LEFT ON PURPOSE, which is neither a chase nor a failure (review F6). The
+  // spans sentence above already carries the count; this line is what the
+  // completion report will repeat, so the two read the same.
+  for (const name of plan.leftAlone) io.out(`  LEFT on purpose — ${name}`);
   // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
   // thing being removed.
   io.out(`  other memories whose text overlaps (ids only): ${plan.contamination.length}`);
@@ -2091,7 +2107,7 @@ async function removeCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
-    const replan = planRemoval(store, targetId);
+    const replan = planRemoval(store, targetId, { crossScopeContent });
     if (!replan.valid) {
       io.err(`refused after re-plan: ${replan.reason}. Nothing has changed.`);
       return EXIT.refused;
@@ -2104,12 +2120,13 @@ async function removeCommand(
         reason: typeof flags["reason"] === "string" ? flags["reason"] : "owner request",
         requestedAt: now(),
       },
-      { onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
+      { crossScopeContent, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
     );
     io.out("");
     io.out(`Removed ${targetId}.`);
     io.out(`  chased: ${outcome.chased.join(", ") || "nothing"}`);
     io.out(`  unchased (dark via the deny-list, never silently dropped): ${outcome.unchased.join(", ") || "nothing"}`);
+    io.out(`  left on purpose (not a failure — this removal was never entitled to it): ${outcome.leftAlone.join(", ") || "nothing"}`);
     io.out(`  removal record: ${outcome.notes.length} stages appended`);
     return EXIT.ok;
   } catch (err) {

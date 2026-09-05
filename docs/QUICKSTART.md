@@ -9,8 +9,8 @@ itself and feeds the hook its own payload. It cannot run `git clone`,
 unverified.
 
 No API key required. The scripted version of this page — install, configure,
-hook, note, recall, the MCP round trip and the session write — is 33 checks and
-runs end to end in two to three seconds; the part that takes you time is §4,
+hook, note, recall, the MCP round trip, the removal plan and the session write — is
+39 checks and runs end to end in two to three seconds; the part that takes you time is §4,
 pasting two blocks into Claude Code's own configuration.
 
 ---
@@ -534,32 +534,83 @@ counterparts remove mem_b77c9e0e9808 --dir "$HOME/.counterparts/store"
 
 **A dry run by default.** It prints the plan — every surface it would chase, with
 counts; the ids (never the text) of other memories whose words overlap; and one
-line for the surface it cannot chase — then says `Dry run. Nothing has changed.`
+line for the raw capture buffer — then says `Dry run. Nothing has changed.`
 Add `--confirm` to do it, and the command asks you to type the id back before
 anything moves. There is no `--force`: removal is the one owner operation with a
 human in the loop.
 
-Read the `NOT chased` line before you confirm. On a memory that was taken as a
-note it says this — one line in the terminal, wrapped here:
+Read the `spans` line before you confirm. On a memory that was taken as a note it
+says this — one line in the terminal, wrapped here:
 
 ```
-  NOT chased — spans/be4b7f492c17/jots.jsonl — the raw capture buffer still holds
-  this memory's words; a later backup copies them; export does not. Chasing it is
-  a core change, not yet written.
+  chase spans: 1
+  chased — spans/be4b7f492c17/jots.jsonl — the raw capture buffer holds this
+  memory's words (matched by the span hash its mint recorded);
+  the removal strikes them out of it.
 ```
+
+The parenthesis is not decoration. There are two ways this command can find your
+words, and they are not equally strong: `matched by the span hash its mint
+recorded` is identity, and `matched by content` is a jot whose whole text is this
+memory's body. Read which one you are about to run before you confirm.
 
 That directory name is a 12-hex key derived from the project the note was taken
 in, not the project's path; the command prints your real one.
 
-That is rough edge 6 in §10 below, stated by the command itself. A note is captured
-verbatim into the span buffer before it is minted, and `remove` reaches the
-prose, the database, the links and the cache but not that file. The report says
-so — the completion line counts it as `unchased` — and the id goes dark on the
-deny-list so nothing can quietly resurrect it. The durable removal record holds
-the four stages of the removal, not that count. On a memory that never rode the
-buffer the same line reads `spans: not applicable`, which is stated rather than
-omitted — a surface that goes silent when it is empty is how the residue stayed
-invisible in the first place.
+A note is captured verbatim into the span buffer before it is minted, and until
+2026-09-05 `remove` reached the prose, the database, the links and the cache but
+not that file — so a removed note's words survived there, and a backup taken
+afterwards copied them. They do not now: the buffer is a chased surface like the
+other six. The line the doomed span rode on is rewritten out of every file that
+held it (the live streams, any claim a worker is mid-arc on, the quarantine), its
+hash is kept in the buffer's own `consumed.jsonl` so nothing re-captures the same
+words, and the id goes dark on the deny-list so nothing can quietly resurrect the
+memory. Take a backup afterwards and grep it: the note's own capture is gone.
+
+**What it deliberately does not take, and says so.** If you asked for the note in
+conversation, the turn you said it in is also in the buffer — a conversation span
+is many turns joined together, it belongs to no single memory, and striking it
+because one memory quotes it would destroy material you never named. So it is
+left, on its own line, which is neither `chased` nor `unchased`:
+
+```
+  LEFT on purpose — spans echo: 1 line of conversation quoting these words —
+  transcript, not this memory's capture. Left on purpose. Nothing prunes the
+  buffer today, so it stays there.
+```
+
+Read that last clause literally. **Nothing prunes `buffer.jsonl` for a session
+that ended normally** — the crash-fallback sweep only claims sessions that went
+silent without a session-end boundary — so a conversation turn quoting a removed
+memory stays on disk indefinitely, and a `grep` of the whole store will keep
+answering. The memory is gone; the transcript of having said it is not, and
+nothing today will take it. (Filed as `src/core/remember/INTERFACE-GAPS.md` §10.)
+
+**The one chase this command refuses to make on its own.** A memory whose
+provenance recorded no scope — every row imported from a previous generation
+looks like this — can only be found in the buffer by matching its text, and
+matching text with no scope means visiting every project on the machine. So it
+does not. It tells you what it would have matched, by file and count, and stops:
+
+```
+  NOT chased — spans/ — this memory's provenance records no scope and no span
+  hash, so a chase by content would have to visit EVERY project on this machine.
+  NOT done: 1 jot line whose whole text is this memory's body would have
+  matched, in spans/8c1e4a90b21f/jots.jsonl (1). Look, then re-run with
+  --strike-by-content-across-scopes if they are yours to remove …
+```
+
+Look at the file it names before you pass that flag. Even with it, only a jot
+whose **whole text** is the memory's body is taken — a longer note that merely
+mentions the same words is somebody else's memory and is never touched.
+
+On a memory that never rode the buffer the same `spans` line reads `spans: not
+applicable`, which is stated rather than omitted — a surface that goes silent
+when it is empty is how the residue stayed invisible in the first place. One
+state is still `NOT chased`, and it is the honest one: a memory whose prose file
+is already gone AND whose mint never recorded a span hash cannot be addressed in
+the buffer at all. The command says which way it is blind, and counts itself
+`unchased: 1`.
 
 ### Prove the hook works without opening Claude Code
 
@@ -733,15 +784,13 @@ rather than from a script.
 5. **`parallel: { enabled: true }`** appears in the owner's live config. It is the
    parallel-run knob and makes Counterparts stand down unless another file says
    it may speak. Do not copy it.
-6. **Removal does not reach the span buffer.** A note is captured verbatim into
-   `spans/<12-hex key>/jots.jsonl` before it is minted, and `remove` chases the prose,
-   the database, the links and the cache — not that file. So a removed note's
-   words survive there; a backup taken afterwards copies them, and `export` does
-   not. The command says so itself (§7): the plan and the completion report name
-   the file as unchased, and the completion line counts it. Nothing durable holds
-   that count — the removal record is the four stages. Chasing the buffer is a
-   core change and is not written. **Reproduce it in three lines** — the marker
-   text is only there so `grep` has something to find:
+6. **Removal reaches the span buffer — with two things it names rather than
+   takes.** A note is captured verbatim into `spans/<12-hex key>/jots.jsonl`
+   before it is minted. Until 2026-09-05 `remove` chased the prose, the database,
+   the links and the cache and not that file, so a removed note's words survived
+   there and a backup taken afterwards copied them. The buffer is chased now
+   (§7). **Check it in three lines** — the marker text is only there so `grep`
+   has something to find:
 
    ```
    counterparts note "ZQPROBE the culvert gate key is under the third fence post." --dir "$HOME/.counterparts/store"
@@ -749,7 +798,15 @@ rather than from a script.
    grep -rl ZQPROBE "$HOME/.counterparts/store"
    ```
 
-   The prose file is gone; the file under `spans/` still answers.
+   Nothing answers. Run the same three lines with the note taken through the MCP
+   tool mid-conversation and one file can still answer — `buffer.jsonl`, holding
+   the turn in which you SAID it. That is transcript, not the memory, and it is
+   left on purpose; `remove` counts it on a `spans echo` line rather than
+   passing over it. The other thing it names: a memory whose prose file is
+   already gone AND whose mint recorded no span hash — an old row, or one whose
+   prose you deleted by hand — cannot be addressed in the buffer at all, and
+   `remove` says which way it is blind on its `NOT chased` line and counts it
+   `unchased: 1` rather than reporting `nothing`.
 7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
    `INTERFACE-GAPS.md`** — 40 files, 0.45 MB, in a 2.2 MB package (measured
    2026-09-04 on `npm pack --dry-run`, 742.2 kB packed over 168 files, plus the

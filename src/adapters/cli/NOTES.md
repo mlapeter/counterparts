@@ -112,17 +112,116 @@ What shipped, adapter-side:
   rather than resolved in the comfortable direction. Paths are store-RELATIVE and
   no line of what was read is ever printed (§16 G15).
 
-**Why not chase it.** Striking a span needs a door in `remember/` that does not
-exist, and the buffer is a state machine whose spec (§2 G6) forbids a span being
-in neither claim nor buffer — a `rmSync` from the destruction path would race a
-concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
+**Why not chase it, that day.** Striking a span needs a door in `remember/` that
+did not exist, and the buffer is a state machine whose spec (§2 G6) forbids a
+span being in neither claim nor buffer — a `rmSync` from the destruction path
+would race a concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
 (`SpanBuffer.strike`), including the detail that `Proposal.ownSpanHash` is minted
-but never persisted, which is why the adapter detects by content rather than by
+but never persisted, which is why the adapter detected by content rather than by
 hash.
 
 **Still true after this change:** the words are still on disk. This makes the
-report honest; it does not make the removal complete. README rough edge 4 and
-QUICKSTART §10.6 say so in the same words the command does.
+report honest; it does not make the removal complete. Closed the next day — see
+below.
+
+## 2026-09-05 — the seventh surface is CHASED (option B; INTERFACE-GAPS §9 closed)
+
+The chase landed as `src/core/remember/owner-strike-seam.ts`, called from
+`ownerRemoval` between `dark` and the box-2 chase. What the console owns:
+
+- **The chase key, and why it is not a column.** §9 said `Proposal.ownSpanHash`
+  is minted and never persisted, so either it joins `memories` or `strike` takes
+  a content predicate. It joins the PROSE META instead — `origin.spanHash`,
+  beside the session/scope/ref the mint already mirrors there. A column would
+  have needed `SCHEMA_VERSION` 4 → 5 (`openOperational` returns early on a
+  version match, so `ADDED_COLUMNS` never runs without a bump), which makes a
+  revert a store the previous build refuses to open (`SCHEMA_AHEAD`) — a one-way
+  door on the owner's live memory, bought for a field the prose can hold. And
+  §16 G9 argues the same way: a hash of low-entropy content is brute-forceable,
+  and `chaseRemoved` blanks `content_hash`/`prose_path` on the skeleton
+  precisely so no pointer to removed content outlives the removal. In the prose
+  meta the pointer dies with the document. In a column it would not.
+- **The half that works retroactively.** Every accepted proposal has always
+  written `{spanHash, proposalId, own}` into the scope's `coverage.jsonl`, and
+  the mint has always stored the proposal id in `origin_ref`. So a memory minted
+  months before this branch is addressable by its `own: true` coverage marks,
+  with no migration. `chaseHashes()` reads both sources. ONLY `own` marks: the
+  other spans a proposal covered are the conversation around it, and striking
+  those because one memory cited them would be a destruction nobody asked for.
+- **The order.** The strike runs BEFORE the box-2 chase and before the prose is
+  unlinked, because those are what carry the addressing. Read-everything-first
+  (§16 G13) is now doing work rather than being a rule about the contamination
+  scan.
+- **The body never enters a struct.** `spanChase` on the plan carries a scope
+  and hashes. The content fallback reaches the seam as a CLOSURE the console
+  builds over a local, so no printed surface, no plan object and no record ever
+  holds a word of what is being erased (§16 G15).
+- **The report says what happened to the other two places.** A struck hash is
+  KEPT in `consumed.jsonl` — that is what stops a re-capture, a restore or an
+  orphan merge re-admitting the words — and a claim file rewritten under a
+  worker mid-arc is called out by name. Both are printed lines, not stored
+  counts; the durable `removal_record` is still four stages.
+- **One state is still `NOT chased`, and it is the honest one.** Prose already
+  gone AND no span hash recorded: nothing left to address the buffer with. It
+  stays in `unchasable`, counts as `unchased: 1`, and says which way it is
+  blind. `held` moved out of `unchasable` and into `surfaces`.
+- **The echo, found by the adversarial read of the first draft.** On the live
+  store a note is taken MID-CONVERSATION, so the Stop hook has already captured
+  the turn in which the words were said into `buffer.jsonl`. The first draft
+  counted that line in the plan (`spanLinesIn` matched by hash OR by text) and
+  the strike then took only the jot — plan said 2, report said 1, and `grep`
+  still answered. Two fixes, both about honesty rather than reach: the plan now
+  counts exactly what the strike will take (`needle` is passed only when there
+  is no hash), and the leftover is counted SEPARATELY as `spans echo` and
+  printed on the `unchased` line. It is left on purpose — a conversation span is
+  many turns joined, belongs to no single memory, and striking it because one
+  memory quoted it would destroy material nobody named. `test/cli.test.ts` has
+  the fixture: `captureSpans` a turn holding the marker, then `note`, then
+  remove, and assert the plan's count equals the strike's.
+
+**What the adversarial review (2026-09-05) changed, because none of it was
+caught by the suite:**
+
+- **F4, the one that would have reached the live store.** The content fallback
+  was `text.includes(body)` with `scope: null` visiting every scope. Measured by
+  the reviewer: removing "buy milk" destroyed two unrelated jots in two
+  unrelated projects and ledgered both hashes. Live-reachable because
+  `tools/migrate/apply.ts` writes `origin: { ref }` and nothing else, so all
+  ~12,000 imported rows have no scope and no span hash — the exact shape that
+  falls through to the fallback. Now: **full-text equality on a jot after trim,
+  never a substring**, and **only inside the memory's recorded `origin_scope`**.
+  With no scope the console REFUSES, prints the candidate files and line counts
+  (no text), and points at `--strike-by-content-across-scopes`, which is the
+  owner saying it in so many words. The dry run also states which evidence it is
+  acting on — `matched by the span hash its mint recorded` vs `matched by
+  content` — because the two are not equally strong and the reader is about to
+  type an id back.
+- **F1, the invisible aside.** `jsonlUnder()` collected `*.jsonl` only, so a
+  crashed strike's `jots.jsonl.striking` was invisible to the residue walk and a
+  later `remove` printed "not applicable" over words that were on disk and that
+  `backup` would copy. The walk names `*.jsonl.striking` now, and the strike's
+  own recovery pass folds any aside home before it runs, so naming it is not a
+  promise the chase cannot keep.
+- **F6, the third category.** The echo was filed under `unchased (dark via the
+  deny-list…)`, which describes a conversation turn as though it had an id and a
+  tombstone. It has its own `leftAlone` list and its own line now, in the plan
+  and in the completion report, in the same words: *left on purpose — not a
+  failure, this removal was never entitled to it.*
+- **F5, a claim that was simply false.** The printed line said the sweep drains
+  the echo. It does not: `crashedSessions()` excludes any session that ended
+  normally and nothing else prunes `buffer.jsonl`, so the echo is permanent.
+  Said as such, everywhere, and filed as `remember/INTERFACE-GAPS.md` §9.
+- **The failure arm** reused the plan's success sentence, so a strike that threw
+  printed "the removal strikes them out of it" underneath a strike that had not.
+  It has its own wording.
+
+**Verified:** `test/cli.test.ts` runs §I2's own repro end to end — note through
+the jot door, remove, `grep -r` the whole data dir (nothing), `backup` and grep
+that (nothing) — plus the two-notes case proving the strike is a rewrite and not
+a truncation. `test/remember.test.ts` covers the seam itself, including that the
+sweep is never shown a struck span. The install loop gained two steps (35/35):
+the §7 plan's `spans` lines are checked against QUICKSTART verbatim, and a
+non-interactive `--confirm` still refuses.
 
 ## 2026-09-04 — `verify` is a census by default; the rebuild is opt-in
 

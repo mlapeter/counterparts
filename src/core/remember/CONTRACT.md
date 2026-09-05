@@ -196,6 +196,23 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     used, so "no sweep today" is a fact about the day and not a silence that could also
     be a dead worker (constitution 16, scar §2.4). The gate is answered **before** the
     claim, so a scope with nothing crashed costs no rename and no model call.
+14. **[M] A span can be destroyed on the owner's say-so, and only on the owner's say-so.**
+    The buffer holds lived experience verbatim, so "anything can be removed loudly"
+    (constitution 6/7) has to be true of it too — it was not, and a removed note's words
+    survived in `jots.jsonl` where a later backup copied them (LAUNCH-STATUS §I2). The
+    door is `owner-strike-seam.ts`, reachable only by importing that file: the buffer
+    hands it a capability at construction, `WRITE_SITES` carries `strike` so an
+    instrument's stand-down covers it, and a caller-universality test pins the two files
+    allowed to import it. It rewrites each text-bearing stream WITHOUT the struck lines,
+    by the same rename-aside choreography a claim uses, after recording the struck hashes
+    in the terminal ledger — so a re-capture, a restore and an orphan merge all refuse to
+    re-admit them. **Nothing is ever RAM-only across a destructive step**: survivors sit
+    on disk in the aside until a durable append has landed, and a crashed strike's aside
+    is folded home unconditionally by the next one, whatever that one was asked to do.
+    **A predicate may only ever take a jot** — a conversation span is many turns joined
+    and belongs to no single memory. It records counts and never a hash or a word
+    (§16 G9). One window is NAMED rather than closed: a worker already holding a claim in
+    memory finishes its arc (NOTES §14).
 
 ## 6. Scars honored
 

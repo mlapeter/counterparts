@@ -199,7 +199,15 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     // Engine-set provenance (F9-light): the channel as recorded fact, and ids
     // only — session, scope, and the proposal id. Never span or body text.
     source: channel,
-    origin: { session: proposal.session, scope: proposal.scope, ref: proposal.id },
+    // `spanHash` only when the proposal HAD an own span (a jot). A sweep-minted
+    // memory rode no single span, so the key is absent rather than null — and
+    // removal's span surface reads that absence as "nothing of it rode one".
+    origin: {
+      session: proposal.session,
+      scope: proposal.scope,
+      ref: proposal.id,
+      ...(proposal.ownSpanHash === null ? {} : { spanHash: proposal.ownSpanHash }),
+    },
   });
 
   if (clamp.event !== null) {
