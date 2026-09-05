@@ -324,3 +324,81 @@ place. `band.promoted (never run)` is now a line the owner reads.
 Three views, one rule, three copies of it — if a fourth view ever needs it, that
 is the moment the skip becomes a helper rather than the moment it becomes a
 policy.
+
+## The web view, fourth pass — 2026-09-05, the leftovers
+
+Four of the six things the third pass filed as NOT done, plus the two refusals
+the cold stranger asked for. What they had in common is that each one was a
+surface telling the truth to somebody who already knew the system.
+
+**The overview was not on the signal the flow page was on.** The third pass
+gave the poll a second question — `/api/meta`'s row count, because the event
+log is not the whole truth and a `note` writes nothing into it — and then
+refreshed the flow diagram alone. So the page the dashboard OPENS on kept its
+boot-time tiles: `memories held` frozen at whatever it was when the tab was
+opened, on the first screen of the product, beside a tab that moved. The same
+bug, one page over, found by reading the fix rather than by watching the page.
+`renderOverview` splits into a fetch and a `paintOverview(d, withFeed)`; the
+refresh path calls the paint without the feed, because the poll prepends
+flashed rows into that panel and a repaint underneath would wipe them
+mid-flash — unless the feed is still its absence line, where there is nothing
+of the poll's to lose and a store's first event should not need a reload. The
+loop types a note and reads the tile back off the DOM: a page that never
+repaints answers the payload correctly, so the assertion cannot ask the payload.
+
+**The health page's identifier wall.** Filed twice as "a restructuring, not a
+patch", and it was: eleven `adapter.*` names in one table and all nineteen in
+the other, seven of them listed twice on one screen with near-duplicate
+glosses, and a first screen of 23 dotted names against a column of `(never
+run)`. One table now. The gloss the registry already carried LEADS each row and
+the dotted name is the second line, which is the order a reader needs them in —
+what this records, then what it is called. `host` marks the rows an adapter
+wrote, which is the only thing the split was really saying, and the
+adapter-specific caveat rides beside the name. Two columns rather than three,
+which is also most of what the shredded third column at 390 was about. The
+merge is only safe if totality survives it, so the test asserts both halves:
+every durable name, exactly once, each led by a sentence that is not its own
+name. And what has actually happened is listed above what never has, with the
+rule stated on the page — a reference table nobody can read is not a reference.
+
+**`serve` refuses the default store.** It printed a loud line and opened it: on
+a machine with an install that is the owner's live memory, every element of it,
+on a socket, in a browser — and the warning arrives after the socket is bound,
+which is the wrong end of the transaction. `--dir` names a store, `--yes` means
+the default, and neither is a warning. The refusal is a pure function of the
+parsed arguments, so the test needs no store and no socket, and the install
+loop asserts it on the INSTALLED binary under a `perl alarm` — because the
+failure mode of a regression here is a server that starts and never returns,
+and a hanging loop is a loop nobody reads.
+
+**A view of a store that is not there is a refusal, not a render.** Both
+consoles said the right sentence and exited 0, so a script wrapping either one
+sailed past a mistyped `--dir`. `runReport` carries the second half of the
+answer and the entry point spends it: stderr, exit 1. And the remedy names the
+dir that was actually passed — `counterparts init` offered on its own, under a
+line that had just named `--dir /somewhere`, is advice that works, somewhere
+else.
+
+**`strength 1.00` is gone from the identity rows.** Every element in that band
+is at 1.00 by construction, so the field said one thing fifteen times in the
+README's first image — a tautology dressed as a measurement. The row says
+`promoted day N` where the log recorded a crossing, and nothing where it did
+not: a seeded or migrated core was never watched crossing, and an invented day
+would be worse than an absent one. With `born day` and `last used day` beside
+it, three numbers vary where two were constant.
+
+**And the loop shoots `brain.html` at 390 for the first time.** The phone pass
+skipped the page on the argument that a 390-wide hologram proves nothing. True
+of the hologram; false of its header, which is where the page's two links out
+live — and they measured 13px against a 44px minimum, unseen for as long as
+nobody took the picture. A shot nobody takes is a surface nobody checks. 51
+shots now, zero findings.
+
+**Still open, and named rather than half-done:** the all-monospace type system
+(the 9.5 item, unchanged in its reasoning); the mobile flow list flattening a
+branching architecture into one arrow chain; edge labels dropped silently on
+collision at 1024; the letterboxed canvas at 1024x768; the event modal's raw
+`band.transition` title; the empty store's one sentence five times over; and
+the heatmap's row labels, which are still a third list of raw dotted names —
+the merged table above is where their glosses live now, and the heatmap has no
+room for a sentence per row.

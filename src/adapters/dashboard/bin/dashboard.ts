@@ -312,9 +312,23 @@ function targetDir(parsed: Parsed): string {
   }
 }
 
-export function run(argv: readonly string[]): string {
+/**
+ * The rendered view, and whether it is a REFUSAL rather than a render.
+ *
+ * `run()` returns only the string, because the suite leans on it being a pure
+ * string function and every existing test holds. The entry point needs the
+ * other half: a view of a store that is not there exits non-zero, the same way
+ * `counterparts status` does — a script that asks an instrument what is in a
+ * store and gets a sentence about there being no store has not succeeded, and a
+ * mistyped `--dir` should not read as a clean run.
+ */
+export function runReport(argv: readonly string[]): { text: string; refused: boolean } {
   const parsed = parseArgv(argv);
-  if (parsed.view === "help") return helpText();
+  if (parsed.view === "help") return { text: helpText(), refused: false };
+  const refusal = (err: unknown): { text: string; refused: boolean } => ({
+    text: describeStoreError(err as StoreError, targetDir(parsed), parsed.dir !== undefined),
+    refused: true,
+  });
   let dashboard: Dashboard;
   try {
     dashboard = Dashboard.open({
@@ -326,17 +340,21 @@ export function run(argv: readonly string[]): string {
     // EVERY store refusal, not just the one that was anticipated. A code this
     // file has never heard of still reaches the owner as a line it can read;
     // anything that is not a StoreError is a bug here and still throws.
-    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed), parsed.dir !== undefined);
+    if (isStoreError(err)) return refusal(err);
     throw err;
   }
   try {
-    return dashboard.render(parsed.view, parsed.args);
+    return { text: dashboard.render(parsed.view, parsed.args), refused: false };
   } catch (err) {
-    if (isStoreError(err)) return describeStoreError(err, targetDir(parsed), parsed.dir !== undefined);
+    if (isStoreError(err)) return refusal(err);
     throw err;
   } finally {
     dashboard.close();
   }
+}
+
+export function run(argv: readonly string[]): string {
+  return runReport(argv).text;
 }
 
 /** True only when this file is the process entry point — so a test may import
@@ -361,7 +379,15 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     const code = await serve(argv);
     if (code !== 0) process.exit(code);
   } else {
-    process.stdout.write(`${run(argv)}\n`);
+    // A refusal goes to stderr and exits 1: a non-zero exit whose only output
+    // is on stdout is half a refusal, and the console's `status` makes exactly
+    // the same two calls for exactly the same reason.
+    const report = runReport(argv);
+    if (report.refused) {
+      process.stderr.write(`${report.text}\n`);
+      process.exit(1);
+    }
+    process.stdout.write(`${report.text}\n`);
     process.exit(0);
   }
 }

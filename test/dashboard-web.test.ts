@@ -62,6 +62,8 @@ import {
 import {
   describeStoreError,
   parseServe,
+  run,
+  runReport,
   serve,
   serveRefusal,
 } from "../src/adapters/dashboard/bin/dashboard.js";
@@ -1172,6 +1174,17 @@ describe("starting the thing", () => {
       process.stderr.write = realErr;
     }
     expect(said.join("")).toContain("Refused");
+  });
+
+  test("a view of a store that is not there is a refusal, not a render", () => {
+    const nowhere = join(tempDir("counterparts-web-report-"), "not-a-store");
+    const report = runReport(["status", "--dir", nowhere]);
+    expect(report.refused).toBe(true);
+    expect(report.text).toContain(`No store at ${nowhere}`);
+    // A real render is not a refusal — and `run()` still returns just the text.
+    const fine = runReport(["status", "--dir", richDir]);
+    expect(fine.refused).toBe(false);
+    expect(run(["status", "--dir", richDir])).toBe(fine.text);
   });
 
   test("the no-store sentence offers the --dir that was actually passed", () => {
