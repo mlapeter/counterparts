@@ -50,7 +50,6 @@
  * so the durable trace of a destruction must not carry one.
  */
 import { appendFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 
 import type { Span, SpanKind, WriteSite } from "./spans.js";
@@ -164,9 +163,17 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
   const predicate = request.predicate;
   if (hashes.size === 0 && predicate === undefined) return EMPTY;
 
+  // A HASH names one span. A PREDICATE names a shape, and the only shape it is
+  // ever allowed to name is a JOT — the memory's own words, deposited as
+  // themselves. A conversation span is many turns joined; it belongs to no
+  // single memory, and striking one because a memory's body happens to appear
+  // inside it would destroy material nobody named. The console reports those
+  // lines instead (`SpanSurface.echoes`), and this is the half of that rule
+  // that cannot be got round by calling the seam directly.
   const matches = (span: Span): boolean => {
     if (hashes.has(span.hash)) return true;
-    return predicate !== undefined && typeof span.text === "string" && predicate(span.text);
+    if (predicate === undefined || typeof span.text !== "string") return false;
+    return span.kind === "jot" && predicate(span.text);
   };
 
   const scopes = request.scope === null ? access.scopes() : [request.scope];
@@ -362,9 +369,12 @@ function rewrite(
   }).length;
   if (hits === 0 && carried.length === 0) return struck;
 
-  const tmp = `${aside}.${process.pid}.${randomBytes(3).toString("hex")}`;
-  renameSync(file, tmp);
-  renameSync(tmp, aside);
+  // ONE rename, not two. A `file -> tmp -> aside` pair leaves a third name on
+  // disk if it crashes between them, and that name is one the fold-back above
+  // never looks for and `claimFiles()` never sees — survivors stranded off
+  // every path, with the struck text still beside them. The aside was removed
+  // above, so renaming straight onto it is safe and the window is closed.
+  renameSync(file, aside);
   const keep: string[] = [...carried];
   const seen = new Set(carriedHashes);
   for (const line of lines(aside)) {

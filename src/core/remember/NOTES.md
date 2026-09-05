@@ -229,7 +229,12 @@ reason; it excludes nobody. What excludes:
    restore it, and a crashed run's orphan cannot merge it back. Ledgering a
    struck span is the same disposition a QUARANTINED one gets — terminal, not
    pass-through — so §12's rule (a RESTORED hash must never enter the ledger)
-   is not in tension with it.
+   is not in tension with it. **It is BOUNDED, like every consumed hash**:
+   `consumed.jsonl` trims at `CONSUMED_LEDGER_MAX`, so far enough into the
+   future the struck hash ages out and an identical re-capture would land as a
+   new span. That is bookkeeping's price, not a hole in the removal — the
+   memory stays dark, the old capture stays gone, and what would land is
+   somebody saying the same words again.
 2. **The rename aside.** Each file is `rename(2)`d to `<name>.striking` and the
    survivors appended back to the original path. An append racing the strike
    lands in a FRESH file at that path and is untouched; a read-filter-write-over
@@ -246,6 +251,15 @@ struck a millisecond later. The deny-list stops the removed id from coming back;
 it does not stop a NEW id being minted from the same words in that window. The
 window is the length of one model call, the strike is owner-invoked and rare, and
 closing it properly means a lock the module does not have. Named, not fixed.
+
+**A predicate may only ever take a JOT.** The hash names one span; the content
+predicate names a SHAPE, and the only shape it is allowed to name is a jot —
+the memory's own words, deposited as themselves. A conversation span is many
+turns joined together, belongs to no single memory, and striking one because a
+memory's body appears inside it would destroy material nobody named. The rule
+lives in `matches()` here AND in the console's plan count, so a caller cannot
+forget it and the plan's number is the number the strike takes. Lines left that
+way are counted and printed by the console as `spans echo`.
 
 **Files it rewrites:** `buffer.jsonl`, `jots.jsonl`, `assistant.jsonl`,
 `quarantine.jsonl`, and every `claims/*.jsonl`. Those are the five that carry

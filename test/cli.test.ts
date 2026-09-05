@@ -948,8 +948,11 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const planned = text(plan.out);
     // ONE line struck, not two: the jot's own capture.
     expect(planned).toContain("chase spans: 1");
-    expect(planned).toContain("1 other line under spans/");
+    expect(planned).toContain("1 line of conversation under spans/");
     expect(planned).toContain("transcript, not this memory's own capture, and left alone");
+    // Said ONCE in the plan: the sentence above carries it, so the generic
+    // "CANNOT chase … the id goes dark instead" line does not repeat it.
+    expect(planned).not.toContain("CANNOT chase spans echo");
 
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
@@ -964,6 +967,54 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
     expect(left.some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
     expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
+  });
+
+  test("the CONTENT fallback may only ever take a jot — a conversation turn is never struck by shape", async () => {
+    // The other half of the echo rule, and the one that matters most: a row with
+    // NO recorded hash (migrated, or minted before provenance) is chased by
+    // matching its body, and a body that happens to appear verbatim inside a
+    // live conversation turn must not take that turn with it. The predicate is
+    // restricted to `kind: "jot"` in the seam AND in the plan's count, so this
+    // is not a rule one caller could forget.
+    store().close();
+    const BODY = "ZQFALLBACK the boathouse combination is the year the pier was rebuilt.";
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureSpans({
+        session: "live",
+        scope: process.cwd(),
+        turns: [{ role: "user", text: `We talked about it: ${BODY} Anyway.` }],
+      });
+    } finally {
+      counterpart.close();
+    }
+
+    // A row with no origin at all: no spanHash meta, no origin_ref, so nothing
+    // but the body can address the buffer.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: BODY });
+    s.close();
+    expect(s.row).toBeDefined();
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    // Nothing to strike — the only line holding these words is a conversation
+    // turn, and no jot matched — so the state is the honest `unknown` (a row
+    // with no provenance cannot prove it never rode the buffer) AND the
+    // conversation line is disclosed. Both, neither hiding the other.
+    expect(planned).toContain("NOT chased — spans/");
+    expect(planned).toContain("if a jot is there");
+    expect(planned).toContain("1 line of conversation under spans/");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).not.toContain("spans(1 line");
+    expect(text(c.out)).toContain("spans echo (1 line of conversation quoting these words");
+    expect(text(c.out)).toContain('"unchased":2');
+    // THE POINT: the conversation is untouched.
+    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
+    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.startsWith("prose/"))).toBe(false);
   });
 
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
@@ -988,6 +1039,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
     expect(text(plan.out)).toContain("spans: not applicable");
     expect(text(plan.out)).toContain("a 'fallback' memory is not captured as a jot");
+    expect(text(plan.out)).toContain("no jot under spans/");
     expect(text(plan.out)).toContain("chase spans: 0");
 
     const c = consoleWith([id]);

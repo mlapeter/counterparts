@@ -180,34 +180,45 @@ function spanLinesIn(
   path: string,
   hashes: ReadonlySet<string>,
   needle: string | null,
-): { byHash: number; byText: number } {
+): { byHash: number; byTextJot: number; byTextOther: number } {
+  const none = { byHash: 0, byTextJot: 0, byTextOther: 0 };
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch {
-    return { byHash: 0, byText: 0 };
+    return none;
   }
   let byHash = 0;
-  let byText = 0;
+  let byTextJot = 0;
+  let byTextOther = 0;
   let parsedAny = false;
   for (const line of text.split("\n")) {
     if (line.trim().length === 0) continue;
     try {
-      const record = JSON.parse(line) as { text?: unknown; hash?: unknown };
+      const record = JSON.parse(line) as { text?: unknown; hash?: unknown; kind?: unknown };
       if (typeof record.text !== "string") continue;
       parsedAny = true;
       if (typeof record.hash === "string" && hashes.has(record.hash)) byHash += 1;
-      else if (needle !== null && record.text.includes(needle)) byText += 1;
+      else if (needle !== null && record.text.includes(needle)) {
+        // A text match is only ever this MEMORY's own line when the span is a
+        // jot — the words deposited as themselves. Anything else is the
+        // conversation they were said in, which belongs to no single memory
+        // (`SpanSurface.echoes`). A record with no `kind` counts as an echo:
+        // the conservative direction is the one that destroys nothing.
+        if (record.kind === "jot") byTextJot += 1;
+        else byTextOther += 1;
+      }
     } catch {
       /* a half-written line: covered by the raw check below */
     }
   }
   // The raw substring is what catches a file this console does not understand —
-  // a format change, a half-written line — and it only ever ADDS a hit.
-  if (byHash === 0 && byText === 0 && !parsedAny && needle !== null && text.includes(needle)) {
-    return { byHash: 0, byText: 1 };
+  // a format change, a half-written line. It counts as an ECHO, never as a line
+  // to strike: this console did not manage to identify it.
+  if (byHash === 0 && byTextJot === 0 && byTextOther === 0 && !parsedAny && needle !== null && text.includes(needle)) {
+    return { byHash: 0, byTextJot: 0, byTextOther: 1 };
   }
-  return { byHash, byText };
+  return { byHash, byTextJot, byTextOther };
 }
 
 /**
@@ -317,38 +328,49 @@ export function spanResidue(
 
   const needle = body.trim().length > 0 ? body.trim() : null;
   const keys = new Set(hashes);
-  if (keys.size > 0 || needle !== null) {
-    // WHAT THE STRIKE WILL TAKE, counted exactly as the strike will take it —
-    // by hash when there is one, by content only when there is not. The plan's
-    // number and the report's number are the same number, or the report is a
-    // lie in the direction that matters most (§16 G15).
-    let count = 0;
-    let echoes = 0;
-    let first: string | null = null;
-    for (const file of files) {
-      const hits = spanLinesIn(file, keys, keys.size > 0 ? null : needle);
-      const echo = keys.size > 0 && needle !== null ? spanLinesIn(file, keys, needle).byText : 0;
-      echoes += echo;
-      const mine = keys.size > 0 ? hits.byHash : hits.byHash + hits.byText;
-      if (mine === 0) continue;
-      count += mine;
-      if (first === null) first = rel(file);
-    }
-    if (first !== null) {
-      const where = count === 1 ? first : `${first} (and ${count - 1} more line${count === 2 ? "" : "s"})`;
-      const echoNote =
-        echoes === 0
-          ? ""
-          : ` ${echoes} other line${echoes === 1 ? "" : "s"} under ${named} quote${echoes === 1 ? "s" : ""} these words inside a conversation turn — transcript, not this memory's own capture, and left alone.`;
-      return {
-        surface: "spans",
-        state: "held",
-        path: first,
-        count,
-        echoes,
-        line: `${where} — the raw capture buffer holds this memory's words; the removal strikes them out of it.${echoNote}`,
-      };
-    }
+
+  // ONE pass over the buffer, and TWO numbers out of it.
+  //
+  //   `count`  — lines the strike will take. By hash when the mint recorded
+  //              one; by content only when it did not, and then only for a
+  //              JOT, because a content match on a conversation span is the
+  //              memory's words quoted inside somebody's turn.
+  //   `echoes` — every other line that carries these words. LEFT, because a
+  //              conversation span is many turns joined and belongs to no
+  //              single memory — and SAID, because a grep will find it and a
+  //              report that did not mention it would be the silent partial
+  //              success §16 G15 forbids.
+  //
+  // Both clauses mirror `matches()` in the strike seam exactly, so the plan's
+  // number is the number the report prints.
+  let count = 0;
+  let echoes = 0;
+  let first: string | null = null;
+  for (const file of files) {
+    const hits = spanLinesIn(file, keys, needle);
+    const mine = keys.size > 0 ? hits.byHash : hits.byTextJot;
+    echoes += keys.size > 0 ? hits.byTextJot + hits.byTextOther : hits.byTextOther;
+    if (mine === 0) continue;
+    count += mine;
+    if (first === null) first = rel(file);
+  }
+
+  /** The disclosure sentence, appended to whatever verdict the state reaches. */
+  const echoNote =
+    echoes === 0
+      ? ""
+      : ` ${echoes} line${echoes === 1 ? "" : "s"} of conversation under ${named} quote${echoes === 1 ? "s" : ""} these words — transcript, not this memory's own capture, and left alone.`;
+
+  if (first !== null) {
+    const where = count === 1 ? first : `${first} (and ${count - 1} more line${count === 2 ? "" : "s"})`;
+    return {
+      surface: "spans",
+      state: "held",
+      path: first,
+      count,
+      echoes,
+      line: `${where} — the raw capture buffer holds this memory's words; the removal strikes them out of it.${echoNote}`,
+    };
   }
 
   if (needle === null && keys.size === 0) {
@@ -357,21 +379,25 @@ export function spanResidue(
       state: "unknown",
       path: named,
       count: 0,
-      echoes: 0,
-      line: `${named} — the prose is already gone and no span hash was recorded, so this console cannot tell whether the words rode the buffer; if they did, ${SPANS_BLIND}`,
+      echoes,
+      line: `${named} — the prose is already gone and no span hash was recorded, so this console cannot tell whether the words rode the buffer; if they did, ${SPANS_BLIND}${echoNote}`,
     };
   }
 
   // Searched — by hash where there was one, by content where there was not —
-  // and not found. Whether that settles it depends on how the memory was minted.
+  // and this memory's own line is not there. Whether that settles it depends on
+  // how the memory was minted.
   if (keys.size > 0) {
     return {
       surface: "spans",
       state: "not-applicable",
       path: null,
       count: 0,
-      echoes: 0,
-      line: `spans: not applicable — this memory's own span is named in its provenance, and no line under ${named} still carries it.`,
+      echoes,
+      line:
+        echoes === 0
+          ? `spans: not applicable — this memory's own span is named in its provenance, and no line under ${named} still carries it.`
+          : `spans: not applicable — this memory's own capture is already gone from ${named}.${echoNote}`,
     };
   }
   if (source === "authored") {
@@ -380,8 +406,8 @@ export function spanResidue(
       state: "unknown",
       path: named,
       count: 0,
-      echoes: 0,
-      line: `${named} — this memory came through the jot door, so its words rode the buffer; no line there matches them now, and this console cannot prove the capture is gone; if one survives, ${SPANS_BLIND}`,
+      echoes,
+      line: `${named} — this memory came through the jot door, so its words rode the buffer; no jot there matches them now, and this console cannot prove the capture is gone; if one survives, ${SPANS_BLIND}${echoNote}`,
     };
   }
   if (source === null) {
@@ -390,8 +416,8 @@ export function spanResidue(
       state: "unknown",
       path: named,
       count: 0,
-      echoes: 0,
-      line: `${named} — unknown whether the words rode the buffer: this memory's provenance was never recorded, and a buffer exists; if a line is there, ${SPANS_BLIND}`,
+      echoes,
+      line: `${named} — unknown whether the words rode the buffer: this memory's provenance was never recorded, and a buffer exists; if a jot is there, ${SPANS_BLIND}${echoNote}`,
     };
   }
   return {
@@ -399,8 +425,8 @@ export function spanResidue(
     state: "not-applicable",
     path: null,
     count: 0,
-    echoes: 0,
-    line: `spans: not applicable — a '${source}' memory is not captured as a jot, and no line under ${named} holds its words.`,
+    echoes,
+    line: `spans: not applicable — a '${source}' memory is not captured as a jot, and no jot under ${named} holds its words.${echoNote}`,
   };
 }
 
@@ -497,14 +523,17 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
     // `held` case, which is chased. `unknown` stays: a surface this console
     // cannot rule out is exactly what §16 G15's "no silent partial success"
     // says a plan must name here rather than let the report say `nothing`.
-    unchasable:
-      spans.state === "unknown"
-        ? [spans.line]
-        : spans.echoes > 0
-          ? [
-              `spans echo (${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture; left on purpose, and the sweep drains it)`,
-            ]
-          : [],
+    // Two different things can be true at once, and both are named: the buffer
+    // could not be ruled out (`unknown`), and conversation lines quote these
+    // words and are being left (`echoes`). Neither is allowed to hide the other.
+    unchasable: [
+      ...(spans.state === "unknown" ? [spans.line] : []),
+      ...(spans.echoes > 0
+        ? [
+            `spans echo (${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture; left on purpose, and the sweep drains it)`,
+          ]
+        : []),
+    ],
   };
 }
 

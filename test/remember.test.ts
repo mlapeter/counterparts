@@ -570,6 +570,25 @@ describe("strikeSpans — the buffer's half of the destruction path", () => {
     expect(raw(SCOPE, "quarantine.jsonl")).not.toContain("ZQSTRIKE");
   });
 
+  test("a PREDICATE takes a jot and NEVER a conversation span, whatever the text says", () => {
+    // The rule that keeps the fallback from being a bigger destruction than the
+    // chase: a conversation span is many turns joined and belongs to no single
+    // memory. Enforced here, at the seam, so no caller can lose it.
+    const b = buf();
+    b.capture({
+      session: "s1",
+      scope: SCOPE,
+      turns: [u(`We talked about it. ${DOOMED} Anyway, moving on now.`), a(`Noted. ${DOOMED}`)],
+    });
+    b.jot({ session: "s1", scope: SCOPE, text: DOOMED });
+
+    const report = strikeSpans(b, { scope: SCOPE, predicate: (t) => t.includes("ZQSTRIKE") });
+    expect(report.struck).toBe(1);
+    expect(raw(SCOPE, "jots.jsonl")).not.toContain("ZQSTRIKE");
+    expect(raw(SCOPE, "buffer.jsonl")).toContain("ZQSTRIKE");
+    expect(raw(SCOPE, "assistant.jsonl")).toContain("ZQSTRIKE");
+  });
+
   test("a PREDICATE is the fallback when no hash was ever recorded, and it strikes across scopes", () => {
     const b = buf();
     b.jot({ session: "s1", scope: SCOPE, text: DOOMED });

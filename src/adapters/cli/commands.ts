@@ -1341,6 +1341,12 @@ async function removeCommand(
   );
   for (const name of plan.unchasable) {
     if (name === plan.spans.line) continue; // said once, on its own line above
+    // The echo is not a failure to reach something — it is conversation this
+    // removal is LEAVING, and the sentence above already said so in full. It
+    // stays in `unchasable` so the completion report counts it; printing it
+    // here as "CANNOT chase … the id goes dark instead" would be nonsense about
+    // a turn that has no id.
+    if (name.startsWith("spans echo (")) continue;
     io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
   }
   // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
