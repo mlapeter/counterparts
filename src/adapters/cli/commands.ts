@@ -247,7 +247,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   export: "A portable copy of the store, encrypted unless you say otherwise.",
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove: "The loud removal. Dry run unless --confirm.",
-  verify: "Census of the cache against canonical state. Read-only unless --rebuild.",
+  verify: "Census of the cache against canonical state. Read-only unless --rebuild or --prune-index.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
@@ -287,6 +287,7 @@ const FLAG_HELP: Record<string, string> = {
   reason: "the reason, recorded with the removal",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
+  "prune-index": "take the archived and superseded rows out of the text index, keeping the embeddings",
   apply: "actually do it — without this, it is a dry run",
 };
 
