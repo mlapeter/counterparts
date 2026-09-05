@@ -30,6 +30,7 @@
  * directory as an argument and reads no environment.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,11 +68,14 @@ import {
   runReport,
   serve,
   serveRefusal,
+  unknownFlag,
 } from "../src/adapters/dashboard/bin/dashboard.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const HOST = "127.0.0.1:4747";
+/** The bin as a script, for the one test that has to run `serve` as a process. */
+const BIN = fileURLToPath(new URL("../src/adapters/dashboard/bin/dashboard.ts", import.meta.url));
 
 /** Every endpoint the page and the poster actually call, with its query. */
 const ENDPOINTS = [
@@ -1135,11 +1139,13 @@ describe("starting the thing", () => {
       serve: true,
       dir: "/tmp/x",
       port: 5000,
-      yes: false,
+      defaultStore: false,
     });
     expect(parseServe(["status"]).serve).toBe(false);
     expect(parseServe(["serve"]).port).toBeUndefined();
-    expect(parseServe(["serve", "--yes"]).yes).toBe(true);
+    expect(parseServe(["serve"]).defaultStore).toBe(false);
+    expect(parseServe(["serve", "--default-store"]).defaultStore).toBe(true);
+    expect(parseServe(["serve", "--default-store=true"]).defaultStore).toBe(true);
   });
 
   /**
@@ -1157,7 +1163,8 @@ describe("starting the thing", () => {
     const refusal = String(serveRefusal(parseServe(["serve"]), {}));
     expect(refusal).toContain("Refused");
     expect(refusal).toContain("default store");
-    expect(refusal).toContain("--yes");
+    expect(refusal).toContain("--default-store");
+    expect(refusal).not.toContain("--yes");
     // It NAMES the directory it would have opened, whatever that resolves to
     // on this machine — the whole point of the sentence.
     expect(refusal.length).toBeGreaterThan(80);
@@ -1176,15 +1183,16 @@ describe("starting the thing", () => {
     expect(fromEnv).toContain("Refused");
     expect(fromEnv).toContain(DATA_DIR_ENV);
     expect(fromEnv).toContain("/tmp/some-scratch-store");
-    expect(fromEnv).toContain("--yes");
+    expect(fromEnv).toContain("--default-store");
+    expect(fromEnv).not.toContain("--yes");
     expect(fromEnv.includes("\n")).toBe(false);
     expect(fromEnv).not.toContain("that is the owner's live memory");
 
     // Named on purpose, either way, and nothing is refused.
     expect(serveRefusal(parseServe(["serve", "--dir", "/tmp/x"]), {})).toBeNull();
-    expect(serveRefusal(parseServe(["serve", "--yes"]), {})).toBeNull();
+    expect(serveRefusal(parseServe(["serve", "--default-store"]), {})).toBeNull();
     expect(
-      serveRefusal(parseServe(["serve", "--yes"]), { [DATA_DIR_ENV]: "/tmp/some-scratch-store" }),
+      serveRefusal(parseServe(["serve", "--default-store"]), { [DATA_DIR_ENV]: "/tmp/some-scratch-store" }),
     ).toBeNull();
 
     // And the whole command exits 1 without touching a store or a socket.
@@ -1200,6 +1208,147 @@ describe("starting the thing", () => {
       process.stderr.write = realErr;
     }
     expect(said.join("")).toContain("Refused");
+  });
+
+  /**
+   * `--yes` MEANS ONE THING EVERYWHERE — "skip an interactive confirmation" —
+   * and `serve` has no confirmation to skip. Until 2026-09-05 this was the last
+   * flag in the package with a second meaning ("open the DEFAULT store"); the
+   * flag is `--default-store` now, and `--yes` is not a no-op but an UNKNOWN
+   * flag, refused before the store is resolved, let alone opened. The env var
+   * points at an empty scratch dir so "nothing was opened" is checked rather
+   * than assumed — and the sentence is checked too: a `serve` that got past the
+   * flag would have said "No store at", not "unknown flag".
+   */
+  test("`serve --yes` is refused as an unknown flag, before anything is opened", async () => {
+    const untouched = tempDir("counterparts-web-yes-");
+    process.env[ENV] = untouched;
+    const said: string[] = [];
+    const realErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: unknown) => {
+      said.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(await serve(["serve", "--yes", "--port", "0"])).toBe(1);
+      expect(await serve(["serve", "--yes=true", "--port", "0"])).toBe(1);
+      // Even beside a store named on purpose: the flag is unknown, not merely
+      // insufficient, so a reader of the old docs learns the new word at once.
+      expect(await serve(["serve", "--yes", "--dir", richDir, "--port", "0"])).toBe(1);
+    } finally {
+      process.stderr.write = realErr;
+    }
+    expect(said).toHaveLength(3);
+    for (const line of said) {
+      expect(line).toContain("Refused: unknown flag --yes");
+      expect(line).toContain("--default-store");
+      expect(line).not.toContain("No store at");
+      // One line, like every refusal this binary prints.
+      expect(line.trimEnd().includes("\n")).toBe(false);
+    }
+    expect(readdirSync(untouched)).toEqual([]);
+
+    // Pure, so the sentence is checkable without a socket.
+    expect(unknownFlag(["serve", "--yes"])).toContain("'serve' takes --dir --port --default-store");
+    expect(unknownFlag(["serve", "--default-store", "--dir", "/x", "--port", "1"])).toBeNull();
+    expect(unknownFlag(["serve", "--default-store=true"])).toBeNull();
+    expect(unknownFlag(["serve"])).toBeNull();
+  });
+
+  test("`serve --default-store` takes the store from COUNTERPARTS_DATA_DIR — a missing one is refused by that name", async () => {
+    // Past the gate and into the store's own resolution: the variable names a
+    // dir with no store, and the refusal names THAT dir, so the variable was
+    // read — and nothing was minted there in the process.
+    const nowhere = tempDir("counterparts-web-default-nostore-");
+    process.env[ENV] = nowhere;
+    const said: string[] = [];
+    const realErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: unknown) => {
+      said.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(await serve(["serve", "--default-store", "--port", "0"])).toBe(1);
+    } finally {
+      process.stderr.write = realErr;
+    }
+    const message = said.join("");
+    expect(message).toContain(`No store at ${nowhere}`);
+    expect(message).not.toContain("Refused");
+    expect(readdirSync(nowhere)).toEqual([]);
+  });
+
+  /**
+   * THE WAY THROUGH, exercised for real. `serve()` binds a socket and stays, so
+   * a test that calls it in-process with a store to open has no handle to stop
+   * it; a child process does. The child gets an EXPLICIT env — the shape
+   * preload.ts names as safe for a spawned child: `HOME` is the temp home
+   * preload minted, so `homedir()` in the child can only ever resolve there,
+   * and `COUNTERPARTS_DATA_DIR` names the seeded scratch store.
+   * The start-up lines say that store was opened and that `--default-store` is
+   * why. A regression is a server that never says it started, or one that exits
+   * at once; both end as a failure carrying the child's output, never a hang.
+   */
+  test("`serve --default-store` opens the store COUNTERPARTS_DATA_DIR names, and says so", async () => {
+    const child = spawn(process.execPath, ["run", BIN, "serve", "--default-store", "--port", "0"], {
+      env: { ...process.env, [ENV]: richDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (c: Buffer) => {
+      out += String(c);
+    });
+    child.stderr.on("data", (c: Buffer) => {
+      err += String(c);
+    });
+    const started = new Promise<void>((ok, fail) => {
+      const timer = setTimeout(
+        () => fail(new Error(`serve did not start within 20s\nstdout: ${out}\nstderr: ${err}`)),
+        20_000,
+      );
+      child.stdout.on("data", () => {
+        if (out.includes("ctrl-c to stop.")) {
+          clearTimeout(timer);
+          ok();
+        }
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        fail(new Error(`serve exited ${String(code)} before it started\nstdout: ${out}\nstderr: ${err}`));
+      });
+    });
+    try {
+      await started;
+    } finally {
+      child.kill();
+    }
+    expect(out).toContain(`reading ${richDir}`);
+    expect(out).toContain("(--default-store, so this is the DEFAULT store");
+    expect(out).toContain("observer mode");
+    expect(out).not.toContain("--yes");
+    expect(err).toBe("");
+  }, 30_000);
+
+  test("a view with a flag it does not take is a refusal, not a render", () => {
+    // `--dirr` is the console's founding case (cli/commands.ts#unknownFlag): a
+    // typo in the one flag that says WHICH STORE, swallowed, and the default
+    // store read instead. Under the mocked home the default is a missing store,
+    // so the render would have been a refusal anyway — the assertion is WHICH
+    // refusal: the flag, before the store.
+    const report = runReport(["status", "--dirr", richDir]);
+    expect(report.refused).toBe(true);
+    expect(report.text).toContain("Refused: unknown flag --dirr");
+    expect(report.text).toContain("--dir");
+    expect(report.text).not.toContain("No store at");
+    expect(report.text.includes("\n")).toBe(false);
+    // Every flag the views do take still renders …
+    expect(
+      runReport(["browse", "--dir", richDir, "--no-colour", "--limit=3", "--archived", "--width", "80"]).refused,
+    ).toBe(false);
+    expect(unknownFlag(["status", "--dir", "/x", "--colour"])).toBeNull();
+    // … and help still wins over an unknown flag, opening nothing, as on the console.
+    expect(run(["--help", "--bogus"])).toBe(run(["--help"]));
   });
 
   test("a view of a store that is not there is a refusal, not a render", () => {
