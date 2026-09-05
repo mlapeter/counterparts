@@ -552,6 +552,48 @@ describe("the pipeline driver", () => {
     result.cleanup();
   });
 
+  /**
+   * §I7: a replay of a corpus from months ago must not date its rows today.
+   *
+   * The harness passes no `now` here on purpose — that is the default path, and
+   * the default is the CORPUS DAY, not `Date.now()`. Every memory the replay
+   * mints belongs to the day whose transcripts produced it, while the lived-day
+   * clock still counts three days across a four-day calendar span (the corpus
+   * skips 2026-07-28).
+   */
+  test("the corpus's dates reach the rows, and the lived-day clock still skips the day nobody lived", async () => {
+    const corpus = Corpus.open(corpusDir("corpusdates", { index: true, jot: true }));
+    const run = await runReplay({
+      corpus,
+      interpret: fakeInterpret(),
+      seat: "deterministic-fake",
+      vectors: "none",
+      budgetBytes: BUDGET_BYTES,
+      workRoot: work,
+      minBytes: 100,
+    });
+    const store = run.counterpart.store;
+    const learned = new Set<string>();
+    for (const id of store.list()) learned.add(store.readProse(id).learnedOn);
+    expect(learned.size).toBeGreaterThan(0);
+    const today = new Date().toISOString().slice(0, 10);
+    for (const d of learned) {
+      expect(`${d} in corpus=${DAYS.includes(d)}`).toBe(`${d} in corpus=true`);
+    }
+    expect(learned.has(today)).toBe(false);
+    // The other clock, unmoved: three lived days for three corpus days, even
+    // though four calendar days elapsed.
+    expect(run.observation.days.map((d) => d.livedDay)).toEqual([1, 2, 3]);
+    // The durable event log is dated the same way.
+    const at = store.eventLog({ limit: 5000 }).map((e) => new Date(e.at).toISOString().slice(0, 10));
+    expect(at.length).toBeGreaterThan(0);
+    for (const d of new Set(at)) {
+      expect(`${d} in corpus=${DAYS.includes(d)}`).toBe(`${d} in corpus=true`);
+    }
+    run.cleanup();
+    corpus.close();
+  });
+
   test("a corpus in v1's REAL span shape replays end to end", async () => {
     const result = await runFixture("v1drive", { v1Shape: true });
     const o = result.run.observation;

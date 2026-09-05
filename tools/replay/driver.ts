@@ -109,6 +109,15 @@ export interface DriverOptions {
   readonly workRoot?: string;
   readonly minBytes?: number;
   readonly chunkBytes?: number;
+  /**
+   * The session's wall clock (§I7). ABSENT IS NOT `Date.now` HERE: a replay that
+   * dated a 2025 corpus with today's date would write a store whose every row
+   * claims to have been learned on the day the harness ran, which is the exact
+   * finding this option closes. The default is THE CORPUS DAY — 12:00 UTC on the
+   * date currently being replayed — so `learnedOn`, event `at` and the version
+   * rows all land on the day whose transcripts produced them. Pass a function to
+   * override; the corpus day is still what the driver moves under it.
+   */
   readonly now?: () => number;
   readonly identity?: IdentityCoreSpec;
   /** Both halves of a live embedder, when the run wires one (--embed): the
@@ -128,6 +137,18 @@ export interface ReplayRun {
   readonly storeDir: string;
   /** Closes the brain and removes ONLY the directory this run created. */
   cleanup(): void;
+}
+
+/**
+ * A corpus date → the instant the replay's provenance clock reads on that day.
+ *
+ * Midday UTC. The corpus records a DAY, not a time, and every date this codebase
+ * writes is `toISOString().slice(0, 10)` — so an instant in the middle of the day
+ * round-trips to the same date under any of them.
+ */
+export function corpusInstant(date: string): number {
+  const at = Date.parse(`${date}T12:00:00Z`);
+  return Number.isNaN(at) ? 0 : at;
 }
 
 /** Spans → turns. One span is one turn (see NOTES §2 — v1's `from`/`to` cursor
@@ -155,6 +176,14 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
   }
 
   const events: ObservedEvent[] = [];
+
+  // THE CORPUS CLOCK. `replayAt` is moved to the day being replayed at the top of
+  // the day loop below, before anything that day writes. Midday UTC, deliberately:
+  // a corpus date is a DAY, and putting the instant in the middle of it keeps the
+  // date stable under `dateOf`'s UTC slice no matter which hour a span carried.
+  let replayAt = corpusInstant(opts.corpus.days()[0] ?? "1970-01-01");
+  const now = opts.now ?? ((): number => replayAt);
+
   const brain = Counterpart.open({
     dir: storeDir,
     owner: true,
@@ -162,7 +191,7 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
     ...(opts.identity === undefined ? {} : { identity: opts.identity }),
     ...(opts.embed === undefined ? {} : { embed: opts.embed }),
     ...(opts.liveVectors === undefined ? {} : { vectors: opts.liveVectors }),
-    ...(opts.now === undefined ? {} : { now: opts.now }),
+    now,
     onEvent: (e: CounterpartEvent) => {
       events.push({ name: e.name, data: { ...(e.data ?? {}) } });
     },
@@ -189,6 +218,10 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
   let index = 0;
   for (const date of dates) {
     index += 1;
+    // The clock moves FIRST, before this day writes anything — the same order
+    // `tools/demo/seed.ts` uses, and for the same reason: a row written before
+    // the move would carry yesterday's date.
+    replayAt = corpusInstant(date);
     opts.onDay?.(date, index, dates.length);
     const spans = opts.corpus.spans(date);
 
@@ -280,7 +313,7 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
   const corpusSummary = opts.corpus.summary();
   const record: RunRecord = {
     runId: `run_${corpusSummary.digest.slice(0, 12)}`,
-    at: (opts.now ?? Date.now)(),
+    at: now(),
     seat: opts.seat,
     vectors: opts.vectors,
     corpusDir,
