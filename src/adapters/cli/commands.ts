@@ -266,6 +266,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   remove: "The loud removal. Dry run unless --confirm.",
   verify: "Census of the cache against canonical state. Read-only unless --rebuild.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
+  "repair-merged-beliefs":
+    "Put back beliefs and current-state rows the nightly dedup pass archived as duplicates of an ordinary memory. Dry run unless --apply.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
 
@@ -305,6 +307,7 @@ const FLAG_HELP: Record<string, string> = {
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   apply: "actually do it — without this, it is a dry run",
+  "dry-run": "say out loud what is already the default: change nothing, just list it",
 };
 
 /**
