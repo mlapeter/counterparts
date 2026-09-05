@@ -734,6 +734,25 @@ describe("the hook, as a real process", () => {
       expect(named.stdout).toContain("has not lived a boundary");
       expect(existsSync(join(work, "scratch-guarded", "store", "sessions", "guarded-named.json"))).toBe(true);
       expect(existsSync(decoyStore)).toBe(false);
+
+      // The gap between the two doors: a NAMED configuration that names no
+      // store. `implicitConfigRefusal` is not its business (the config was
+      // named), so `hostConfig` runs and its `loaded.dataDir ?? dataDir()`
+      // meets the STORE guard instead — thrown, not returned, and the entry
+      // point's rejection handler turns it into the same stand-down line. Exit
+      // 0, nothing on stdout, nothing minted anywhere.
+      const storeless = writeConfig(join(work, "storeless", "claude-code.json"), {
+        injectionBudgetBytes: 9000,
+      });
+      const gap = runHook([CONFIG_FLAG, storeless], armed, "guarded-storeless");
+      expect(gap.code).toBe(0);
+      expect(gap.stdout).toBe("");
+      expect(gap.stderr).toContain("hook stood down");
+      expect(gap.stderr).toContain("IMPLICIT_DEFAULT_DIR_REFUSED");
+      expect(gap.stderr).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(existsSync(decoyStore)).toBe(false);
+      expect(existsSync(join(work, "storeless", "store"))).toBe(false);
+      expect(treeHash(join(home, ".counterparts"))).toBe(before);
     },
     60_000,
   );

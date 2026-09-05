@@ -484,6 +484,18 @@ read-only. `tools/parallel/bin/{preflight,daily,restart}.ts` carry the live path
 defaults by their own contract (every real path is a flag; the run directory's overlap
 guard needs them named). Neither goes through `dataDir()` and neither opens a store.
 
+**The gap between the two doors, and how it surfaces.** A NAMED configuration that names
+no store — `--config` at a file with only `injectionBudgetBytes` — and no
+`COUNTERPARTS_DATA_DIR`: `implicitConfigRefusal` is not its business, so the bins proceed
+and `loaded.dataDir ?? dataDir()` meets the STORE guard, thrown rather than returned. The
+hook's entry point already turns any rejection into `[counterparts] hook stood down:
+<message>` with exit 0, and the message names the code, the dir and the remedy
+(`test/config-rule.test.ts`, "guarded-storeless"). The worker's handler exits 0 silently
+and the server's exits 1 silently — the shape those two already have for EVERY open
+failure (`DATA_DIR_FORBIDDEN`, `STORE_UNINITIALIZED`), spawned detached with stdio ignored
+in the worker's case. Not widened here: making two entry points print on every rejection
+is a separate decision about their failure legibility, not part of this guard.
+
 **Where it is ON.** `test/preload.ts` (a forgetful test is now REFUSED, not redirected —
 the second layer under the temp-home; `test/preload.test.ts` asserts it is armed when a
 file starts, so a test that stood it down and forgot to re-arm it is caught), the demo

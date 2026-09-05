@@ -10,7 +10,7 @@ unverified.
 
 No API key required. The scripted version of this page — install, configure,
 hook, note, recall, the MCP round trip, the removal plan and the session write — is
-46 checks and runs end to end in two to three seconds; the part that takes you time is §4,
+47 checks and runs end to end in two to three seconds; the part that takes you time is §4,
 pasting two blocks into Claude Code's own configuration.
 
 ---
