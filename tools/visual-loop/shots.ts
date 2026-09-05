@@ -384,26 +384,24 @@ async function liveEvent(
       return false;
     };
     /**
-     * WAIT FOR THE STAGE TO CLEAR before the next deposit.
+     * THE NODE'S STATE, RE-READ UNTIL IT MOVES — not read once after a sleep.
      *
-     * `ignite` fires one particle per new event at 500ms intervals, so a batch
-     * of events keeps particles in flight for as long as the batch is long — and
-     * `awaitParticle` below then returns on a LEFTOVER from the previous deposit,
-     * declaring the page refreshed before its 4s poll has even asked. That is a
-     * measurement of the fixture's timing, not of the page: it flipped from green
-     * to red on 2026-09-05 purely because `gate.deposit` added one more event to
-     * the batch before it. Draining first makes the particle assertion mean what
-     * it says.
+     * The page polls every 4s and the readbacks below waited a fixed 1200ms, so
+     * whether this check passed depended on where the deposit landed inside a
+     * poll window: a single fixed sleep grades the sleep, not the page. It held
+     * until 2026-09-05, when `gate.deposit` gave the authored door a durable
+     * event and both note readbacks started failing. That was the fixture, not
+     * the page — bisected by stubbing `recordDeposit` out on the same branch
+     * (green again) and by waiting longer (green again, with the numbers moving)
+     * — so what changed here is the wait, not the assertion. The exact
+     * interleaving of the two poll fetches against the two writes is NOT pinned
+     * down; what is measured is that the page does refresh and the old window
+     * was too narrow to see it.
+     *
+     * The regression this check exists for — "a page left open reports the old
+     * count forever" — still fails it: twelve seconds is three poll ticks, where
+     * 1200ms was less than one.
      */
-    const drain = async (): Promise<void> => {
-      for (let waited = 0; waited < 12_000; waited += 120) {
-        const live = (await page.evaluate("window.particleCount ? window.particleCount() : 0")) as number;
-        if (live === 0) return;
-        await page.waitForTimeout(120);
-      }
-    };
-    /** The node's state, re-read until it MOVES or the budget runs out. The page
-     *  polls every 4s, so a single fixed sleep grades the sleep, not the page. */
     const awaitState = async (key: string, was: string): Promise<string> => {
       let now = was;
       for (let waited = 0; waited < 12_000; waited += 250) {
@@ -414,7 +412,6 @@ async function liveEvent(
       return now;
     };
     const before = await stateOf("sleep");
-    await drain();
 
     const c = Counterpart.open({ dir, owner: true });
     try {
@@ -471,7 +468,6 @@ async function liveEvent(
     // console's own two calls, in its own order (`noteCommand`), with no
     // embedder and no interpreter, so it spends nothing.
     const noteBefore = { remember: await stateOf("remember"), store: await stateOf("store") };
-    await drain();
     const jot = Counterpart.open({ dir, owner: true });
     let minted: string | null = null;
     try {

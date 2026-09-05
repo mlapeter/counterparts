@@ -171,6 +171,15 @@ crash fallback and a note did not crash. No feed row is invented — the feed IS
 the durable log, and a row there would be a claim that something was recorded.
 The chip says `last deposit`, not `last event`, for the same reason.
 
+*Postscript, 2026-09-05:* `counterparts note` is no longer an example of this.
+`gate.deposit` (replay §2a) gives the authored door a durable row like every
+other door, so a note moves the sequence and takes the event branch, and its
+animation is driven by the row's own node rather than by the synthesized
+three-edge path. The fingerprint stays: a freshness check that is only correct
+while one particular writer happens to log is not a freshness check, and a store
+seeded around the door still gains rows the log never sees. The `last deposit`
+arm is now what it should always have claimed to be — the arm for those.
+
 **The overview counted beliefs as memories.** `census()` keeps every live row
 that is not the journal, and that includes schema rows — entities, and the
 beliefs about them. So the headline tile read 145 while `counterparts status`

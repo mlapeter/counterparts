@@ -1469,12 +1469,18 @@ async function poll() {
   // THE SECOND QUESTION, AND THE ONE THAT WAS MISSING.
   //
   // "Has anything happened" was asked of the event log alone, and the event log
-  // is not the whole truth: `counterparts note` deposits a memory and writes no
-  // durable event at all, so `lastSeq` never moved, the refetch never fired,
-  // and a page left open on the flow tab said `143 came through` forever while
-  // the server already answered 144. That is the flagship command putting a
-  // wrong number on screen. `/api/meta` carries a row count for exactly this —
-  // one cheap request beside the one we were already making.
+  // is not the whole truth: a deposit that writes no durable event never moves
+  // `lastSeq`, so the refetch never fired and a page left open on the flow tab
+  // said `143 came through` forever while the server already answered 144.
+  // `/api/meta` carries a row count for exactly this — one cheap request beside
+  // the one we were already making.
+  //
+  // The example was `counterparts note`, and it is no longer one: since
+  // `gate.deposit` (2026-09-05) the authored door writes a row like every other
+  // door, so a note moves the sequence and lands in the branch below. This stays
+  // as the belt — a store seeded around the door, and any future writer that
+  // leaves no row — because a freshness check that is only correct while one
+  // particular writer happens to log is not a freshness check.
   let meta = null;
   try { meta = await api("/api/meta"); } catch (e) { /* the next tick retries */ }
   const deposited = meta !== null && fingerprint !== null &&
@@ -1516,7 +1522,12 @@ async function poll() {
     // about what was recorded — but the counters moved and the diagram can say
     // so, along the path a deposit actually takes: the authored door, the gate,
     // the store. Named edges, because the first edge into ENCODE is the crash
-    // fallback and a note did not crash.
+    // fallback and an authored deposit did not crash.
+    //
+    // Since `gate.deposit` this is no longer the branch a note takes — a note
+    // logs, so it takes the one above and its animation is driven by the row's
+    // own `node`. This is now the arm for a store that gained rows some other
+    // way, which is the only thing it should ever have claimed to be.
     refreshCounters(meta);
     ignite([
       { node: "remember", via: "session>remember", tone: "calm", delay: 0 },
