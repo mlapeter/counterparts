@@ -247,17 +247,26 @@ the case study: a count of zero that could equally mean *refused* or *never
 proposed* is not evidence about anything. The cycle-phase table uses `(never run)`;
 the count tables use `(none yet)`.
 
-**And a third, for one node, added 2026-09-04.** ENCODE on the flow diagram
-rendered `(never run)` beside STORE's `143 memories held` — a flat contradiction
-to anyone who did not click it, and both words were false. The gate battery HAS
-run, on all 143; it writes a durable record on one of its two paths. The
-crash-sweep path records what it gated, because nobody was watching it happen.
-The authored path is gated in line, in front of the person who asked, and writes
-no `gate.chunk` row at all. So the node says `143 passed · no gate record yet`
-and `UNLOGGED_PATH` (in `web/flow.ts`) carries the whole sentence for the panel
-behind it, including where that would change — replay §2a. The rule the third
-word obeys is the same as the first two: never borrow an absence word that means
-something else, and never render an absence that is not one.
+**And a third, for one node, added 2026-09-04 — and RETIRED 2026-09-05, one day
+later.** ENCODE on the flow diagram rendered `(never run)` beside STORE's `143
+memories held` — a flat contradiction to anyone who did not click it, and both
+words were false. The gate battery HAD run, on all 143; it wrote a durable record
+on one of its two paths. The crash-sweep path recorded what it gated, because
+nobody was watching it happen. The authored path was gated in line, in front of
+the person who asked, and wrote no row at all. So the node said `143 passed · no
+gate record yet` and `UNLOGGED_PATH` (in `web/flow.ts`) carried the whole
+sentence for the panel behind it, including where that would change — replay §2a.
+
+§2a closed the next day: `gate.deposit` is the authored door's own record, so
+both of encode's paths are in the log, the node has an ordinary count to show,
+and the `UNLOGGED_PATH` entry went away with the condition it described. **The
+map stays, empty.** The word is still needed the moment another node's work is
+real and deliberately unrecorded, and the rule it obeys is the same as the first
+two: never borrow an absence word that means something else, and never render an
+absence that is not one. The one sentence that survives the retirement is the
+fallback line for a store whose memories PREDATE the gate log (or were seeded
+around the door) — `N passed · no gate record for them`, which is a fact about
+those rows and not a claim about the machinery.
 
 ## What the totality rule is anchored to
 

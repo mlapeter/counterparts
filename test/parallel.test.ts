@@ -3550,9 +3550,17 @@ describe("the preflight — Phase 0, as a gate", () => {
     r = rowOf(f, "precondition.9");
     expect(r?.status).toBe("pass");
     expect(r?.detail).toContain(surfaceSetHash());
-    // G12 names three components; a hash of the surfacing fields alone would
-    // class a gate-record or band-transition change as telemetry-only (N6).
-    expect(surfaceSetComponents().map((c) => c.name)).toEqual(["recall.decision", "gate.chunk", "band.transition"]);
+    // A hash of the surfacing fields alone would class a gate-record or
+    // band-transition change as telemetry-only (N6) — so every SCORED durable
+    // record's field list is a component. `gate.deposit` joined 2026-09-05 with
+    // the authored door's own record: `gate.refusalMix` is computed over it, and
+    // a scored record the arbiter cannot see is the hole N6 closed for the rest.
+    expect(surfaceSetComponents().map((c) => c.name)).toEqual([
+      "recall.decision",
+      "gate.chunk",
+      "gate.deposit",
+      "band.transition",
+    ]);
     for (const c of surfaceSetComponents()) expect(c.fields.length).toBeGreaterThan(0);
     const recallOnly = createHash("sha256").update(surfaceSetFields().join("\n")).digest("hex").slice(0, 16);
     expect(surfaceSetHash()).not.toBe(recallOnly);

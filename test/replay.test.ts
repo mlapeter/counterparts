@@ -1144,6 +1144,24 @@ function gateRecord(over: Partial<ReplayObservation["gateRecords"][number]> = {}
   };
 }
 
+function depositRecord(
+  over: Partial<ReplayObservation["depositRecords"][number]> = {},
+): ReplayObservation["depositRecords"][number] {
+  return {
+    contentHash: "h",
+    day: 1,
+    scope: "proj",
+    source: "jot",
+    accepted: true,
+    kind: "fact",
+    fires: {},
+    refusalsByReason: {},
+    blockedBy: [],
+    statuses: {},
+    ...over,
+  };
+}
+
 function cycle(over: Partial<ReplayObservation["cycles"][number]> = {}): ReplayObservation["cycles"][number] {
   return {
     date: "2026-07-27",
@@ -1178,6 +1196,35 @@ describe("the gate metrics compute from the durable record", () => {
     expect(sample?.numerator).toBe(4);
     expect(sample?.denominator).toBe(8);
     expect(scoreMetric(metric as MetricSpec, o).verdict).toBe("pass");
+  });
+
+  test("gate.refusalMix counts BOTH doors — the authored one is not half a distribution", () => {
+    const metric = metricById("gate.refusalMix") as MetricSpec;
+    // One swept chunk, one authored deposit. Before `gate.deposit` (replay
+    // INTERFACE-GAPS §2a) the second row did not exist, so the mix was the
+    // crash-sweep path alone — and the crash sweep is normally silent while the
+    // authored door fires at every session end and every jot.
+    const o = observed({
+      gateRecords: [gateRecord({ fires: { secrets: 1, floor: 1 } })],
+      depositRecords: [depositRecord({ fires: { secrets: 2 } })],
+    });
+    const sample = metric.compute?.(o);
+    expect(sample?.numerator).toBe(3);
+    expect(sample?.denominator).toBe(4);
+
+    // …and the authored rows ALONE are a computable mix, which is the state a
+    // store that never crashed is actually in.
+    const authoredOnly = observed({
+      depositRecords: [depositRecord({ fires: { secrets: 1, aliases: 1 } })],
+    });
+    expect(metric.compute?.(authoredOnly)?.denominator).toBe(2);
+
+    // The preselection metrics do NOT read across: a deposit is preselected
+    // against nothing, so folding these rows in would average in a shown-count
+    // that was never measured.
+    const shown = metricById("preselect.meanSchemasShown") as MetricSpec;
+    expect(shown.compute?.(authoredOnly)).toBeNull();
+    expect(scoreMetric(shown, authoredOnly).verdict).toBe("not-exercised");
   });
 
   test("a corpus that fired NO gate is not-exercised, never a zero that passes", () => {

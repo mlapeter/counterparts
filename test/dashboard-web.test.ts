@@ -744,7 +744,7 @@ describe("the shapes the page draws with", () => {
     }
   });
 
-  test("ENCODE does not say `(never run)` beside a store holding memories", () => {
+  test("ENCODE lights on the AUTHORED gate record, and owes no unlogged-path apology", () => {
     const d = open(richDir);
     try {
       const nodes = get(d.src, "/api/flow").json["nodes"] as { key: string; state: string }[];
@@ -752,14 +752,19 @@ describe("the shapes the page draws with", () => {
       const store = nodes.find((n) => n.key === "store");
       expect(store?.state).toMatch(/\d+ memories held/);
       // Both absence words are FALSE here: the battery ran on every one of
-      // those memories, and only the crash-sweep path records that it did.
+      // those memories, and — since `gate.deposit` (replay §2a) — BOTH of its
+      // doors record that it did. The seeder deposits through the real authored
+      // door and never sweeps, so this node's whole count is the authored one:
+      // before §2a it read `N passed · no gate record yet`.
       expect(encode?.state).not.toBe(NEVER);
       expect(encode?.state).not.toBe(NONE);
-      expect(String(encode?.state)).toMatch(/passed · no gate record yet|recorded/);
-      // And a reader who clicks gets the whole reason, not a one-liner.
+      expect(String(encode?.state)).toMatch(/^\d+ recorded$/);
+      expect(d.src.store.eventLog({ name: "gate.deposit", limit: 5 }).length).toBeGreaterThan(0);
+      // The third absence word is retired with the condition it described: the
+      // node has an ordinary count now, so it says nothing about being unlogged.
       const detail = get(d.src, "/api/node?key=encode").json;
-      expect(String(detail["unloggedPath"]).length).toBeGreaterThan(80);
-      expect(String(detail["unloggedPath"])).toContain("crash-sweep");
+      expect(detail["unloggedPath"]).toBeNull();
+      expect(detail["eventNames"]).toContain("gate.deposit");
     } finally {
       d.close();
     }

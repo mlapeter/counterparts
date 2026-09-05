@@ -168,6 +168,12 @@ export const NARRATORS = {
       const by = acted.length > 0 ? acted.join(", ") : "the battery";
       return amber(`I tried to write something down and the ${by} gate refused it — ${why}.`);
     }
+    // A clean gate whose ledger write then failed: accepted, but nothing was
+    // written. Saying "I wrote something down" here would be a false claim
+    // about the store, which is the one thing this feed may not make.
+    if (t.p["memoryId"] === null) {
+      return amber("The gate passed something I meant to keep, and the write did not land.");
+    }
     if (acted.length === 0) {
       return calm("I wrote something down and every gate was clear.");
     }

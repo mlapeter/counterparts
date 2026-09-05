@@ -130,10 +130,10 @@ one query per known name and takes the length.
 **Want:** `eventCounts(): { name: string; count: number }[]`, or a `distinct`
 option. It would also let the view discover names the registry does not know,
 which is the more interesting direction: right now `DURABLE_EVENTS` is exhaustive
-by type over the four record interfaces, and a fifth writer that appends a raw
-string name would go unlisted without failing `tsc`.
+by type over the record interfaces and the event-name literals, and a writer that
+appends a raw string name would go unlisted without failing `tsc`.
 
-**Cost of the workaround:** four queries where one would do, on a table that is
+**Cost of the workaround:** one query per known name where one would do, on a table that is
 small by construction. Negligible today; wrong at a hundred names.
 
 **Owner:** `store/`.

@@ -46,11 +46,25 @@ interface GateInput {
 }
 
 type GateVerdict =
-  | { ok: true; content: string; aliases?: readonly string[]; feeling?: Feeling | null }
-  | { ok: false; gate: string; reason: string };
+  | { ok: true; content: string; aliases?: readonly string[]; feeling?: Feeling | null;
+      novelty?: number | null;
+      records?: readonly GateRecord[]; channels?: readonly ChannelRecord[] }
+  | { ok: false; gate: string; reason: string; refusedByDesign?: boolean;
+      records?: readonly GateRecord[]; channels?: readonly ChannelRecord[];
+      blockedBy?: readonly string[] };
 ```
 
 Notes for the wiring:
+- **`records` / `channels` / `blockedBy` are a RELAY, added 2026-09-05 (replay
+  INTERFACE-GAPS §2a).** `remember/` still never gates and still reads nothing out
+  of them: they cross the seam so a caller that writes telemetry can record what
+  the battery actually did instead of a first reason and a joined string. They are
+  the one place this module names an `encode/` type — a TYPE-ONLY import in
+  `proposals.ts`, erased at runtime, so the injected-gate property is unchanged.
+  All three are optional: a gate that is not the battery (`NO_GATE`, a test
+  double) has none, and "no battery ran" must stay distinguishable from "a
+  battery ran and found nothing". `SubmitResult` carries them out, together with
+  `kind` — the proposed kind, which now survives a refusal.
 - **`content` on an `ok` verdict is the redacted/hedged text**, and it — never the
   draft — becomes the memory. That is how "the gate runs before anything durable"
   stays true from this side.

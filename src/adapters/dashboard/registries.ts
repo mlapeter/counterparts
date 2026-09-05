@@ -67,11 +67,12 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
  * prune, dedup and decay phases, `schemas/`'s credited challenge and
  * `core/revision.ts`'s identity arm (the same name, the same shape, the same
  * dedup latch — a story does not care which arm moved the row), the
- * composition root's three records — the chunk gate's, one per turn's surfacing
- * decision, and one per crash-fallback run's gate, whose ordinary answer is
- * "nothing crashed" and which is therefore the one record here written to prove
- * a SILENCE — and the one narrow seam an ADAPTER may write through
- * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
+ * composition root's four records — the chunk gate's, the AUTHORED gate's (both
+ * doors of one battery, added 2026-09-05 with replay §2a), one per turn's
+ * surfacing decision, and one per crash-fallback run's gate, whose ordinary
+ * answer is "nothing crashed" and which is therefore the one record here
+ * written to prove a SILENCE — and the one narrow seam an ADAPTER may write
+ * through (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
  *
  * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
  * declares its `event` as a string literal; the `satisfies` below is keyed on

@@ -147,7 +147,9 @@ lived day and the moment; the observer predicate; jots deposited in-session; on 
 fallback path, claimed spans and their schema slices.
 **Outputs** — proposals handed to `encode/`; a claim record; coverage claims by hash; the
 assistant's own turns kept separately (the substrate for "was a surfaced memory actually
-used?"); telemetry by reference.
+used?"); telemetry by reference — including, since 2026-09-05, the gate's own per-gate
+records RELAYED unread from the verdict to whoever writes the durable row (replay
+INTERFACE-GAPS §2a; this module still never gates and never reads them).
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 

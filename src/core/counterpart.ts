@@ -574,10 +574,15 @@ function gateDepositRecord(
     if (r.status === "clear" || r.status === "not-invoked") continue;
     fires[r.gate] = (fires[r.gate] ?? 0) + 1;
   }
+  // THE FIRST blocking reason, counted ONCE — the same rule `gateChunkRecord`
+  // uses (`refusalsByReason[r.reason]`, where `RefusedProposal.reason` is
+  // `blockedBy[0]`). Counting every entry instead would make one refusal with
+  // two reasons weigh two, and a reader summing this map across the two record
+  // kinds would get a silently wrong number for the door that happens to refuse
+  // on two gates at once. The whole list is in `blockedBy` beside it.
   const refusalsByReason: Record<string, number> = {};
-  for (const reason of ctx.blockedBy) {
-    refusalsByReason[reason] = (refusalsByReason[reason] ?? 0) + 1;
-  }
+  const firstBlock = ctx.blockedBy[0];
+  if (firstBlock !== undefined) refusalsByReason[firstBlock] = 1;
 
   return {
     source: ctx.source,
@@ -589,8 +594,9 @@ function gateDepositRecord(
     proposals: 1,
     accepted: ctx.accepted ? 1 : 0,
     refused: ctx.accepted ? 0 : 1,
-    /** The minted id on the accept arm; null on the refuse arm, where there is
-     *  no memory to point at — an address, never the text. */
+    /** The minted id when there is one — an address, never the text. Null on
+     *  the refuse arm, where no memory exists, and ALSO null when the gate was
+     *  clean but the ledger write failed (`accepted: 1, memoryId: null`). */
     memoryId: ctx.memoryId,
     /** Hash of the REDACTED text, from the secrets gate itself (§5 G10). */
     contentHash: secrets?.contentHash ?? null,
@@ -1600,11 +1606,21 @@ export class Counterpart {
    * §2.4). Those outcomes keep the in-process `counterpart.deposit.refused`
    * event they have always had.
    *
-   * THE LATCH is (redacted content hash, lived day) — the same shape
-   * `gate.chunk` uses, and for the same reason: a replayed day appends nothing a
-   * second time, while the same text deposited again on a LATER day is a second,
-   * genuine gate run. A deposit whose secrets gate produced no hash cannot be
-   * latched, so it is written unlatched rather than dropped.
+   * **NO `dedupKey`, AND THAT IS THE WHOLE DIFFERENCE FROM `gate.chunk`.**
+   * `store.pruneEvents` keeps a latched row FOREVER — a latch is the replay
+   * anti-double-append, so sweeping one would let a replayed day re-record what
+   * the store already accounted for. That price is right for `gate.chunk`, whose
+   * writer is the crash fallback and whose ordinary rate is zero rows a day. It
+   * is wrong here: the authored door fires at every session end and every jot,
+   * so a latch would mint an immortal row per deposit on the busiest write path
+   * in the system. Unlatched, these age out on the log's own 90-day window —
+   * exactly the call `recall.decision` made for exactly this reason (replay
+   * INTERFACE-GAPS §7, "no retention rule was added").
+   *
+   * What the latch would have bought is bought elsewhere anyway: an accepted
+   * deposit cannot repeat, because `remember/`'s content ledger refuses a second
+   * deposit of the same text in the same scope before the battery is called. A
+   * refused one CAN repeat, and two refusals are honestly two events.
    */
   private recordDeposit(
     result: SubmitResult,
@@ -1612,7 +1628,10 @@ export class Counterpart {
     source: ProposalSource,
     mint: { id: string } | null,
   ): void {
-    if (this.observer || result.records.length === 0) return;
+    // `records` is non-empty exactly when the battery ran, and the battery runs
+    // only after intake has parsed a kind — so this is a NARROWING, not a
+    // default. A null here would mean the two facts disagreed.
+    if (this.observer || result.records.length === 0 || result.kind === null) return;
     const day = this.store.livedDay();
     const secrets = result.records.find((r) => r.gate === "secrets");
     const contentHash = secrets !== undefined && secrets.gate === "secrets" ? secrets.contentHash : null;
@@ -1626,15 +1645,22 @@ export class Counterpart {
         name: GATE_DEPOSIT_EVENT,
         day,
         ref: contentHash,
-        ...(contentHash === null ? {} : { dedupKey: `gate.deposit:${contentHash}:${day}` }),
         payload: gateDepositRecord(result.records, result.channels, {
           source,
           session: ctx.session,
           scope: ctx.scope,
           day,
-          accepted: mint !== null,
+          // THE GATE'S VERDICT, not the deposit's fate. With records in hand
+          // the only reachable reasons are ACCEPTED, GATE_REJECTED and
+          // IO_FAILED — and IO_FAILED is a clean gate whose ledger write then
+          // failed. Deriving this from `mint !== null` instead recorded that
+          // case as `refused: 1` with an empty `blockedBy` and no rejecting
+          // gate: a refusal with no reason, which is the one shape a refusal
+          // distribution must never contain. `accepted: 1, memoryId: null` is
+          // the IO-failed signature, and it is legible as exactly that.
+          accepted: result.reason !== "GATE_REJECTED",
           memoryId: mint?.id ?? null,
-          kind: result.kind ?? "fact",
+          kind: result.kind,
           // The refusal arm's WHOLE list, not just the first reason — the exact
           // thing the old `{gate, reason}` seam could not carry.
           blockedBy: result.blockedBy,
