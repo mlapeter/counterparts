@@ -64,6 +64,16 @@ export function applyPlan(plan: MigrationPlan, targetDir: string): void {
       if (plan.lastActiveDate.length > 0) {
         setMetaIfChanged(cp, "lastActiveDate", plan.lastActiveDate);
       }
+      // THE DAY THE IMPORT RAN, recorded rather than left to be inferred later.
+      // v1 traces mostly carried no `created`, so every row this tool writes
+      // without one takes the import day as `learnedOn` — and `counterparts
+      // repair-dates` has to know which day that was in order to find them. It
+      // used to MEASURE it (the mode of `learned_on`), which is right exactly
+      // once: after a repair the mode moves and the measurement starts pulling
+      // correctly-dated rows into the target set (PR #67 review §2). One meta
+      // key ends that. Idempotent like the two above — a re-run of the migration
+      // keeps the FIRST import's day, which is the one the rows carry.
+      setMetaIfChanged(cp, "migratedOn", cp.store.today());
       if (core !== undefined) {
         cp.self.ensureIdentityCore({ name: core.name, aliases: core.aliases });
       }

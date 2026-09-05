@@ -1095,7 +1095,15 @@ export class Self {
     // importer wrote the import date wherever v1 carried none, and the row does
     // not say which it did (measured live 2026-09-05 — all eleven elements read
     // the import day, a July incident among them).
-    if (source === "migrated") out.boundedDate = true;
+    //
+    // UNLESS THE ROW NOW SAYS WHICH. `counterparts repair-dates --apply` writes
+    // `meta.dateRepaired` when it re-dates a migrated row from the row's own
+    // evidence, and a date recovered at HIGH confidence — the v1 document's own
+    // `created` field, or an engram-era id that is a millisecond timestamp — is a
+    // claim again, not a bound. Only `high`: `medium` and `low` came from the
+    // session, the element's statement or the source path, which are all still
+    // "no later than", and hedging them is the honest render.
+    if (source === "migrated" && !repairedAtHighConfidence(doc)) out.boundedDate = true;
     return out;
   }
 
@@ -1157,6 +1165,23 @@ export class Self {
 
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
+}
+
+/**
+ * Did `counterparts repair-dates` recover this row's date from the row's OWN
+ * strongest evidence?
+ *
+ * The marker is prose meta, written by the repair beside the corrected date
+ * (`adapters/cli/repair-dates.ts`, `DATE_REPAIRED_META`), so the document stays
+ * self-describing: the claim and the reason to believe it travel together and
+ * survive a copy of the store. Read STRUCTURALLY rather than by importing the
+ * adapter's constant — `self/` may not import an adapter — and a shape check that
+ * fails renders the bound, which is the safe direction.
+ */
+function repairedAtHighConfidence(doc: ProseDoc): boolean {
+  const marker = doc.meta["dateRepaired"];
+  if (typeof marker !== "object" || marker === null || Array.isArray(marker)) return false;
+  return (marker as Record<string, unknown>)["confidence"] === "high";
 }
 
 export type {

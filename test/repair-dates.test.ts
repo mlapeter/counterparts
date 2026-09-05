@@ -13,6 +13,9 @@ import { join } from "node:path";
 
 import { EXIT, run } from "../src/adapters/cli/commands.js";
 import {
+  BULK_STAMP_SHARE,
+  DATE_REPAIRED_META,
+  IMPORT_DAY_META,
   PLAUSIBLE_FLOOR,
   measureImportDay,
   meetsConfidence,
@@ -183,6 +186,61 @@ describe("the evidence rules", () => {
     expect(out.ok).toBe(false);
   });
 
+  test("a stronger tier refused by the window yields to a weaker one, and SAYS SO", () => {
+    // The id parses to 2033 (out of window); the path says 2022-03. The low tier
+    // wins behind the high one, and `superseded` is what makes that visible
+    // rather than silent (review 4).
+    const out = proposeDate(
+      { migratedFrom: `traces/2022-03/tr_${FUTURE_MS}.md#tr_${FUTURE_MS}` },
+      IMPORT_DAY,
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.proposal.confidence).toBe("low");
+    expect(out.proposal.date).toBe("2022-03-01");
+    expect(out.superseded).toBe(true);
+  });
+
+  test("a weaker tier winning on its own merits is NOT reported as superseded", () => {
+    const out = proposeDate({ migratedFrom: "traces/2022-03/tr_plain.md#tr_plain" }, IMPORT_DAY);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.superseded).toBe(false);
+  });
+
+  test("a v1 element's `statedOn` is real evidence, and is consulted", () => {
+    const out = proposeDate(
+      { migratedFrom: "schemas/self.md#el_1", statedOn: "2024-02-02" },
+      IMPORT_DAY,
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.proposal.date).toBe("2024-02-02");
+    expect(out.proposal.confidence).toBe("medium");
+    expect(out.proposal.how).toBe("element-stated-on");
+  });
+
+  test("a v1 element's `openedOn` is consulted too", () => {
+    const out = proposeDate(
+      { migratedFrom: "schemas/self.md#el_2", openedOn: "2023-09-09" },
+      IMPORT_DAY,
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.proposal.how).toBe("element-opened-on");
+  });
+
+  test("the v1 document's own field beats a top-level meta key of the same name", () => {
+    // Precedence: the inner document, not the envelope the migration wrapped it in.
+    const out = proposeDate(
+      { migratedFrom: "traces/x/tr.md#tr", created: "2020-01-01", v1Extra: { created: "2023-04-19" } },
+      IMPORT_DAY,
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.proposal.date).toBe("2023-04-19");
+  });
+
   test("the confidence floor is an ORDER, not a set", () => {
     expect(meetsConfidence("high", "low")).toBe(true);
     expect(meetsConfidence("low", "high")).toBe(false);
@@ -191,11 +249,12 @@ describe("the evidence rules", () => {
 });
 
 describe("the plan", () => {
-  test("the import day is MEASURED, not assumed", () => {
+  test("the import day is MEASURED on a store nobody has repaired", () => {
     const s = Store.open({ dir, observer: true });
     try {
       const m = measureImportDay(s);
       expect(m.day).toBe(IMPORT_DAY);
+      // LIVE migrated rows — the one denominator every number in the report uses.
       expect(m.migrated).toBe(7);
     } finally {
       s.close();
@@ -215,6 +274,9 @@ describe("the plan", () => {
       low: 1,
       noEvidence: 1,
       outOfWindow: 1,
+      alreadyCorrect: 0,
+      alreadyRepaired: 0,
+      supersededTier: 0,
     });
   });
 
@@ -247,9 +309,9 @@ describe("the command", () => {
     expect(report?.wouldWrite).toBe(2);
     const text = l.out.join("\n");
     expect(text).toContain(`Import day: ${IMPORT_DAY}`);
-    expect(text).toContain("high    2");
-    expect(text).toContain("medium  1");
-    expect(text).toContain("low     1");
+    expect(text).toContain("high     2");
+    expect(text).toContain("medium   1");
+    expect(text).toContain("low      1");
     expect(text).toContain("Dry run. Nothing has changed.");
     expect(text).toContain("2024-07-26");
     // Ids and dates only — a repair report never prints a body.
@@ -297,12 +359,30 @@ describe("the command", () => {
     }
   });
 
-  test("a second --apply is a no-op: the repaired rows no longer carry the import day", () => {
-    repairDates(dir, lines().io, { apply: true, minConfidence: "low" });
+  test("a second --apply writes NOTHING — no version, no event, no proposal", () => {
+    const first = repairDates(dir, lines().io, { apply: true, minConfidence: "low" });
+    expect(first?.written).toBe(4);
+    const s = Store.open({ dir, observer: true });
+    const versionsAfterFirst = s.list().reduce((n, id) => n + s.versions(id).length, 0);
+    const eventsAfterFirst = s.eventLog({ name: "date.repaired" }).length;
+    const datesAfterFirst = new Map(s.list().map((id) => [id, s.readProse(id).learnedOn]));
+    s.close();
+    expect(versionsAfterFirst).toBe(4);
+    expect(eventsAfterFirst).toBe(4);
+
     const l = lines();
     const again = repairDates(dir, l.io, { apply: true, minConfidence: "low" });
     expect(again?.written).toBe(0);
-    expect(l.out.join("\n")).toContain("Nothing to do.");
+    expect(again?.wouldWrite).toBe(0);
+
+    const s2 = Store.open({ dir, observer: true });
+    try {
+      expect(s2.list().reduce((n, id) => n + s2.versions(id).length, 0)).toBe(versionsAfterFirst);
+      expect(s2.eventLog({ name: "date.repaired" })).toHaveLength(eventsAfterFirst);
+      expect(new Map(s2.list().map((id) => [id, s2.readProse(id).learnedOn]))).toEqual(datesAfterFirst);
+    } finally {
+      s2.close();
+    }
   });
 
   test("a store with no migrated rows says so instead of proposing anything", () => {
@@ -323,6 +403,178 @@ describe("the command", () => {
     const l = lines();
     expect(repairDates(missing, l.io)).toBeNull();
     expect(l.err.join("\n")).toContain("no store at");
+  });
+});
+
+// ===========================================================================
+// The re-run hazard, exactly as the adversarial review reproduced it (PR #67 2)
+// ===========================================================================
+describe("the re-run guards", () => {
+  /**
+   * The review's fixture: five rows whose v1 `created` all say one day (a bulk
+   * stamp), three bare rows, and one INNOCENT row that legitimately already
+   * carries that same day. Before the guards, a second run measured the mode as
+   * the repaired date, collapsed the plausibility window, pulled the innocent row
+   * into the target set and wrote ten no-op versions for five rows.
+   */
+  const STAMP = "2024-01-15";
+
+  function seedBulkStamp(target: string): void {
+    const s = Store.open({ dir: target, now: () => IMPORT_AT });
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        s.put({
+          type: "memory",
+          kind: "fact",
+          body: `A trace the v1 importer stamped, number ${i} of five in this batch.`,
+          source: "migrated",
+          meta: { migratedFrom: `traces/global/tr_stamp${i}.md#tr_stamp${i}`, v1Extra: { created: STAMP } },
+        });
+      }
+      for (let i = 0; i < 3; i += 1) {
+        s.put({
+          type: "memory",
+          kind: "fact",
+          body: `A bare trace with nothing on it to date by, number ${i} of three.`,
+          source: "migrated",
+          meta: { migratedFrom: `traces/global/tr_bare${i}.md#tr_bare${i}` },
+        });
+      }
+      s.put({
+        type: "memory",
+        kind: "fact",
+        body: "An innocent row that legitimately carries the stamped day already.",
+        source: "migrated",
+        learnedOn: STAMP,
+        meta: { migratedFrom: "traces/2022-03/tr_innocent.md#tr_innocent" },
+      });
+    } finally {
+      s.close();
+    }
+  }
+
+  let stampDir = "";
+  beforeEach(() => {
+    stampDir = mkdtempSync(join(tmpdir(), "cp-repair-stamp-"));
+    seedBulkStamp(stampDir);
+  });
+  afterEach(() => {
+    rmSync(stampDir, { recursive: true, force: true });
+  });
+
+  test("the import day is PINNED by the first --apply, so a re-run cannot re-measure it", () => {
+    const first = repairDates(stampDir, lines().io, { apply: true });
+    expect(first?.written).toBe(5);
+    const s = Store.open({ dir: stampDir, observer: true });
+    try {
+      expect(s.getMeta(IMPORT_DAY_META)).toBe(IMPORT_DAY);
+      // The MODE has indeed flipped - six rows now read the stamp. That is the
+      // fact the pin exists to survive, and the measurement still reports it.
+      expect(measureImportDay(s).day).toBe(STAMP);
+    } finally {
+      s.close();
+    }
+    const again = repairDates(stampDir, lines().io, {});
+    expect(again?.plan.importDay).toBe(IMPORT_DAY);
+    expect(again?.plan.importDayFrom).toBe("recorded");
+  });
+
+  test("a second --apply writes no version, no event and no date - the reproduced failure, closed", () => {
+    repairDates(stampDir, lines().io, { apply: true });
+    const s = Store.open({ dir: stampDir, observer: true });
+    const versions = s.list().reduce((n, id) => n + s.versions(id).length, 0);
+    const events = s.eventLog({ name: "date.repaired" }).length;
+    const revisions = new Map(s.list().map((id) => [id, s.row(id)?.revision ?? 0]));
+    s.close();
+    expect(versions).toBe(5);
+    expect(events).toBe(5);
+
+    const again = repairDates(stampDir, lines().io, { apply: true, minConfidence: "low" });
+    expect(again?.written).toBe(0);
+
+    const s2 = Store.open({ dir: stampDir, observer: true });
+    try {
+      expect(s2.list().reduce((n, id) => n + s2.versions(id).length, 0)).toBe(5);
+      expect(s2.eventLog({ name: "date.repaired" })).toHaveLength(5);
+      expect(new Map(s2.list().map((id) => [id, s2.row(id)?.revision ?? 0]))).toEqual(revisions);
+    } finally {
+      s2.close();
+    }
+  });
+
+  test("the innocent row keeps its true v1 date across both runs", () => {
+    const probe = Store.open({ dir: stampDir, observer: true });
+    const innocent = probe.list().find((id) => probe.readProse(id).body.startsWith("An innocent row")) ?? "";
+    expect(probe.readProse(innocent).learnedOn).toBe(STAMP);
+    probe.close();
+
+    repairDates(stampDir, lines().io, { apply: true, minConfidence: "low" });
+    repairDates(stampDir, lines().io, { apply: true, minConfidence: "low" });
+
+    const s = Store.open({ dir: stampDir, observer: true });
+    try {
+      expect(s.readProse(innocent).learnedOn).toBe(STAMP);
+      expect(s.versions(innocent)).toHaveLength(0);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("a repaired row is never a target again, by its own marker", () => {
+    repairDates(stampDir, lines().io, { apply: true });
+    const s = Store.open({ dir: stampDir, observer: true });
+    let repaired = "";
+    try {
+      repaired = s.list().find((id) => s.readProse(id).meta[DATE_REPAIRED_META] !== undefined) ?? "";
+      const marker = s.readProse(repaired).meta[DATE_REPAIRED_META] as Record<string, unknown>;
+      expect(marker["confidence"]).toBe("high");
+      expect(marker["how"]).toBe("v1-date-field");
+      expect(marker["previous"]).toBe(IMPORT_DAY);
+    } finally {
+      s.close();
+    }
+    // Even asked with the original import day again, the marker refuses it.
+    const plan = planRepair(stampDir, IMPORT_DAY);
+    expect(plan.targets.find((t) => t.id === repaired)).toBeUndefined();
+    const marked = proposeDate({ [DATE_REPAIRED_META]: { confidence: "high" } }, IMPORT_DAY);
+    expect(marked).toEqual({ ok: false, reason: "already-repaired" });
+  });
+
+  test("a recorded import day the store contradicts is a REFUSAL, not a silent winner", () => {
+    const s = Store.open({ dir: stampDir });
+    s.setMeta(IMPORT_DAY_META, "2019-01-01");
+    s.close();
+    const l = lines();
+    const report = repairDates(stampDir, l.io, { apply: true });
+    expect(report?.refused).toBe("import-day-disagreement");
+    expect(report?.written).toBe(0);
+    expect(l.err.join("\n")).toContain("records an import day of 2019-01-01");
+    expect(l.err.join("\n")).toContain("--import-day 2019-01-01");
+    // Naming it out loud is the way through.
+    const forced = repairDates(stampDir, lines().io, { importDay: "2019-01-01" });
+    expect(forced?.refused).toBeNull();
+  });
+
+  test("the dry run SHOWS the bulk stamp before the owner applies it", () => {
+    const l = lines();
+    const report = repairDates(stampDir, l.io, {});
+    expect(report?.bulkStamps).toEqual([STAMP]);
+    const text = l.out.join("\n");
+    expect(text).toContain("Proposed dates by count");
+    expect(text).toContain("check this is not a bulk stamp");
+    expect(text).toContain("A v1 importer that stamped one date onto everything reads exactly like this.");
+    expect(report?.histogram[0]).toEqual({ date: STAMP, n: 5, share: 1 });
+    expect(BULK_STAMP_SHARE).toBe(0.05);
+  });
+
+  test("a proposal equal to the date already there is never a write", () => {
+    repairDates(stampDir, lines().io, { apply: true });
+    const plan = planRepair(stampDir, STAMP);
+    const same = plan.targets.filter((t) => !t.outcome.ok && t.outcome.reason === "already-correct");
+    const marked = plan.targets.filter((t) => !t.outcome.ok && t.outcome.reason === "already-repaired");
+    expect(same.length + marked.length).toBeGreaterThan(0);
+    expect(plan.counts.alreadyCorrect).toBe(same.length);
+    expect(plan.counts.alreadyRepaired).toBe(marked.length);
   });
 });
 
@@ -369,6 +621,19 @@ describe("the console door", () => {
     const code = await run(["repair-dates", "--dir", dir, "--force"], { io: l.io, env: {} });
     expect(code).toBe(EXIT.refused);
     expect(l.err.join("\n")).toContain("refused:");
+  });
+
+  test("--apply on the DEFAULT store needs --dir or --yes", async () => {
+    // No `--dir`: the command would resolve `dataDir()`. It refuses before it
+    // opens anything, and says which two flags aim it (review 4).
+    const l = lines();
+    const code = await run(["repair-dates", "--apply"], { io: l.io, env: {} });
+    expect(code).toBe(EXIT.refused);
+    expect(l.err.join("\n")).toContain("needs --dir <path> or --yes");
+    // A DRY RUN on the default store is read-only and stays unguarded.
+    const dry = lines();
+    await run(["repair-dates"], { io: dry.io, env: {} });
+    expect(dry.err.join("\n")).not.toContain("needs --dir");
   });
 
   test("under --observer the repair refuses: an instrument does not rewrite what it reads", async () => {

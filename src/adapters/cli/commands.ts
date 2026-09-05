@@ -172,8 +172,10 @@ export function usage(): string {
     "                      paths. Prints counts by confidence and a sample of 20.",
     "                      Dry run unless --apply. --confidence high|medium|low sets",
     "                      the floor for what --apply writes (default high);",
-    "                      --import-day <date> overrides the measured one;",
-    "                      --sample <n> changes the sample size.",
+    "                      --import-day <date> overrides the recorded/measured one;",
+    "                      --sample <n> changes the sample size. --apply on the",
+    "                      DEFAULT store needs --dir or --yes: this is the one",
+    "                      owner op that rewrites thousands of canonical documents.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
@@ -235,7 +237,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   remove: ["confirm", "reason"],
   verify: ["rebuild", "drop-vectors"],
   "backfill-claims": ["apply"],
-  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample"],
+  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample", "yes"],
   rebrief: ["budget"],
 };
 
@@ -343,6 +345,7 @@ export function parse(argv: readonly string[]): Parsed {
       // command can see, and the two string flags are declared for the same
       // reason `budget` is: an undeclared valued flag arrives as `true`.
       "dry-run": { type: "boolean" },
+      yes: { type: "boolean" },
       confidence: { type: "string" },
       "import-day": { type: "string" },
       sample: { type: "string" },
@@ -453,7 +456,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
       case "repair-dates":
-        return repairDatesCommand(dir, io, parsed.flags);
+        return repairDatesCommand(dir, io, parsed.flags, parsed.flags["dir"] === undefined);
       case "rebrief":
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home);
     }
@@ -1552,11 +1555,20 @@ function repairDatesCommand(
   dir: string,
   io: Io,
   flags: Record<string, string | boolean | undefined>,
+  defaultedDir: boolean,
 ): number {
   const apply = flags["apply"] === true;
   if (apply && flags["dry-run"] === true) {
     io.err("repair-dates: --apply and --dry-run contradict each other; pass one");
     return EXIT.usage;
+  }
+  // THE ONE OWNER OP THAT REWRITES THOUSANDS OF CANONICAL DOCUMENTS. A dry run on
+  // the defaulted store is read-only and stays unguarded (it is how the owner
+  // looks); an APPLY that nobody aimed asks to be aimed (review §4).
+  if (apply && defaultedDir && flags["yes"] !== true) {
+    io.err(`repair-dates: --apply on the default store (${dir}) needs --dir <path> or --yes.`);
+    io.err("This rewrites the date on every migrated memory the evidence reaches. Nothing has changed.");
+    return EXIT.refused;
   }
   const raw = typeof flags["confidence"] === "string" ? flags["confidence"] : "high";
   if (raw !== "high" && raw !== "medium" && raw !== "low") {
@@ -1581,6 +1593,7 @@ function repairDatesCommand(
     ...(sampleRaw === undefined ? {} : { sample: sampleRaw }),
   });
   if (report === null) return EXIT.failed;
+  if (report.refused !== null) return EXIT.refused;
   return report.failures.length === 0 ? EXIT.ok : EXIT.failed;
 }
 

@@ -282,16 +282,56 @@ arming windows off a field the interpreter never claimed. Filed, not forgotten.
    different year than everything the same run wrote. A boundary is the one place the
    two clocks touch, and that is the only line where they do.
 
+### The repair, and the three guards the review bought it
+
+Nothing here is retroactive. The 12,334 migrated rows still carry the import day until
+the owner runs `counterparts repair-dates --apply`, which proposes true dates from what
+the rows themselves carry — engram-era ids that are millisecond timestamps, v1 `created`
+fields, a v1 element's `statedOn` / `openedOn`, session references, source paths — and
+writes nothing on a dry run.
+
+The adversarial review of PR #67 reproduced the failure mode that matters, and it is
+worth recording because the shape recurs in every repair tool: **a repair that measures
+its own starting condition stops being able to measure it once it has run.**
+`measureImportDay` takes the MODE of `learned_on`; after `--apply` the mode can move to a
+repaired date, which both narrows the plausibility window and pulls correctly-dated rows
+into the target set. Measured on the review's fixture: a second `--apply` wrote ten
+no-op revisions and ten events for five rows, and at 12,334 rows that is ~12K archived
+documents recording a change that did not happen. Three guards, in the order they fire:
+
+1. **The import day is pinned, not re-measured.** The first `--apply` records the day it
+   used in store meta, later runs read it back, and `tools/migrate/apply.ts` now writes
+   `migratedOn` at import time so a store migrated from here on never has to be measured
+   at all. A recorded day the measurement contradicts is a REFUSAL with the flag that
+   overrides it printed — the two ways that happens are "somebody repaired this already"
+   and "this is not the store you think it is", and both want a human.
+2. **A repaired row is never a target again**, by a marker on its own document
+   (`meta.dateRepaired`).
+3. **A proposal equal to the date already there is never written.** A re-dating that
+   changes nothing must not archive a version and claim it did.
+
+**The dry run shows the shape of what it would write, not only the count.** A v1 importer
+that stamped one `created` date onto thousands of documents reads as confidence `high`
+here, and applying it would re-do the exact failure this tool exists to undo — invisibly,
+because twenty sample rows out of 12,334 cannot show it. So the report prints the
+proposed dates by count and flags any single date carrying more than 5% of the proposals
+(with a five-row floor, so a small store does not cry wolf).
+
+**A repaired date stops being hedged.** `self/`'s wake renders a migrated element's date
+as an upper bound — `by 2026-09-03 ·` — because the row could not say whether the date
+was v1's or the importer's. A row repaired at HIGH confidence now says which, so it
+renders plainly; `medium` and `low` keep the bound, because the session, the element's
+statement and the source path are all still "no later than". The marker is read
+structurally in `self/index.ts` (an adapter's constant may not be imported into core) and
+a malformed one renders the bound, which is the safe direction.
+
 ### What this does not fix, on purpose
 
-- **Rows already written.** Nothing here is retroactive. The 12,334 migrated rows still
-  carry the import day until the owner runs `counterparts repair-dates --apply`, which
-  proposes true dates from what the rows themselves carry (engram-era ids that are
-  millisecond timestamps, v1 `created` fields, session references, source paths) and
-  writes nothing on a dry run. Its known ceiling: migrated ELEMENTS carry no v1 id —
-  `tools/migrate/apply.ts#writeElement` does not pass `el.v1Id` into the element's meta
-  — so every `sch_` row lands in the `none` bucket and is left exactly as it is. The
-  count will show it; this is the reason.
+- **Migrated ELEMENTS have no evidence to recover from.**
+  `tools/migrate/apply.ts#writeElement` does not pass `el.v1Id` into the element's meta,
+  so every `sch_` row without a `statedOn` / `openedOn` lands in the `none` bucket and is
+  left exactly as it is. The count shows it; this is the reason. Fixing it means changing
+  the migration and re-importing, which is a different operation than a repair.
 - **`happenedOn` from spans.** See above. `prospective/` reads it; deriving it would
   arm windows nobody claimed.
 - **Local dating.** Decision 1.
