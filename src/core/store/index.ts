@@ -306,6 +306,7 @@ export const WRITE_METHODS = [
   "pruneSupersededVersions",
   "appendRemovalRecord",
   "rebuildCache",
+  "pruneDeadIndex",
   "embedOne",
 ] as const;
 
@@ -1080,6 +1081,40 @@ export class Store {
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
     return report;
+  }
+
+  /**
+   * Take every NOT-LIVE document out of the text index, and touch nothing else.
+   *
+   * This is I13's migration, and it exists for the same reason `backfillLengths`
+   * does: the repair is a pure function of state box 3 and box 2 already hold,
+   * so it must not be paid for with `rebuildCache`, which begins with
+   * `resetCache` and drops every embedding — 13,868 of them on the store this
+   * was written against, one paid network call each. `counterparts verify
+   * --rebuild` refuses outright for that reason unless the owner passes
+   * `--drop-vectors`, so a rebuild is not a repair anyone can actually run here.
+   *
+   * `archive` and `supersede` keep the invariant going forward
+   * (`cache.ts#deindexDoc`); this is how a store that predates them catches up.
+   * It is NOT run at open: an instrument writes nothing at open, and a write at
+   * open takes the write lock (see the constructor). The owner runs it by name.
+   *
+   * Returns the number of documents removed from the index.
+   */
+  pruneDeadIndex(): number {
+    this.assertWritable("pruneDeadIndex");
+    const live = new Set(this.list({ archived: false }));
+    const indexed = this.cache
+      .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
+      .map((r) => r.memory_id);
+    let removed = 0;
+    for (const id of indexed) {
+      if (live.has(id)) continue;
+      deindexDoc(this.cache, id);
+      removed += 1;
+    }
+    if (removed > 0) this.emit("cache.prune.dead", undefined, { removed });
+    return removed;
   }
 
   /**

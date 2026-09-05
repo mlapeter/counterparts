@@ -410,6 +410,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       pruneSupersededVersions: [],
       appendRemovalRecord: [{ memoryId: seedId, stage: "requested", actor: "owner" }],
       rebuildCache: [],
+      pruneDeadIndex: [],
       embedOne: ["mem_0"],
     };
     for (const method of WRITE_METHODS) {

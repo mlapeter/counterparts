@@ -1030,6 +1030,7 @@ describe("observer mode is enforced at the store seam", () => {
     pruneSupersededVersions: [],
     appendRemovalRecord: [{ memoryId: "mem_000000000000", stage: "requested", actor: "owner" }],
     rebuildCache: [],
+    pruneDeadIndex: [],
     embedOne: ["mem_0"],
   };
 

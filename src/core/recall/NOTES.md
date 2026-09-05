@@ -248,3 +248,104 @@ collision the default rather than the exception; (b) `df` counts indexed rows in
 reachable (an archived sibling, a superseded head) and re-zeroes a rare token — revise the
 first memory on a fresh store and it goes dark again. Both want a decision about what the
 denominator IS, which is a bigger question than this bug.
+
+## 13. The two denominators, answered: the index is the LIVE store — 2026-09-04
+
+§12 filed finding (b) and said the denominator wanted a decision. This is the decision.
+
+**Symptom.** A fresh store, one note through the MCP `note` door, one revision — and the
+same question that answered a moment ago comes back `nothing-came`, `storeSize: 1`. Not
+the N=1 degeneracy §12 fixed: the store still holds exactly one live memory, and it is the
+successor, which nothing had ever asked about before.
+
+**Cause.** `informativeness(df, storeSize)` reads two numbers that come from two boxes and
+count two different populations. `storeSize` is `store.list({ archived: false }).length` —
+box 2, LIVE rows. `df` was `COUNT(*)` over `doc_tokens` — box 3, every row ever indexed,
+including the archived and superseded ones, because nothing ever took a row OUT of the
+index. `revision.ts:385` calls `Store.supersede`, which archives the head and leaves its
+token rows in place, so `df(sourdough) = 2` stood against `storeSize = 1`. And
+`log((max(N,2) + df) / (2·df))` is exactly zero at `df ≥ N`: every cue is dropped, the
+index is never probed, and the gate never sees a candidate to refuse. §12's zero, reached
+by revising rather than by being first.
+
+**Fix — deindex, not a second count.** `cache.ts#deindexDoc` deletes the row's
+`doc_tokens` and `doc_lens`; `Store.archive` and `Store.supersede` call it; `rebuildCache`
+skips rows that are archived or superseded and counts them out in `skippedArchived`, which
+`counterparts verify --rebuild` prints and includes in its accounting.
+
+The alternative — counting `df` over live rows only — was refused on two grounds. Box 2
+and box 3 are separate sqlite FILES, so it needs an `ATTACH` or a copy of "which rows are
+live" kept inside the cache: a second source of truth that drifts from the first, which is
+scar §2.6's shape. And it fixes one number where the whole statement was wrong: the index
+is read by `docFrequency` AND by `searchIndex`, and both of those feed a pass that
+discards dead rows anyway. Deindexing makes `df ≤ storeSize` structural rather than a
+filter someone must remember, and the rule it states is the simpler one (constitution 15):
+**the text index is the index of the LIVE store.** Brain analog: reconsolidation replaces
+a trace; it does not leave the old one competing at retrieval.
+
+**The second half, which had not been named.** `searchIndex` returns the top `PER_CUE_FETCH`
+per cue, and `activate.ts` then throws away every hit whose row is archived or superseded
+(`skipped`). So a dead row was spending a candidate SLOT before it was refused — the
+candidate SET was narrowed by rows that could never be delivered. That is the same failure
+that put length normalization inside the SQL before `ORDER BY … LIMIT`: re-ranking a wrong
+set is not choosing a right one. `test/recall.test.ts` pins it ("a dead row does not
+occupy a candidate slot in the index either").
+
+**What it changes, arithmetically.** `storeSize` does not move, so `floorUnit` —
+`informativeness(1, storeSize)` — is bit-identical at every size and **no floor and no
+tier was retuned.** Only `df` moves, from `k + a` to `k`, where `k` is the live rows
+holding the token and `a` the dead ones. Weight of that token, before → after:
+
+| N | k live | a dead | before | after | Δ |
+|---|---|---|---|---|---|
+| 1 | 1 | 1 | 0 | 0.4055 | +0.4055 — the reported case; dark → cueable |
+| 2 | 1 | 1 | 0 | 0.4055 | +0.4055 (journal + note, the note revised) |
+| 2 | 2 | 1 | 0 | 0 | 0 — §12's "left alone" case, still left alone |
+| 100 | 1 | 1 | 3.2387 | 3.9220 | +0.6833 |
+| 100 | 10 | 2 | 1.5404 | 1.7047 | +0.1643 |
+| 14,000 | 1 | 1 | 8.1607 | 8.8537 | +0.6931 |
+| 14,000 | 24 | 5 | 5.4884 | 5.6773 | +0.1889 |
+| 14,000 | 574 | 10 | 2.5246 | 2.5412 | +0.0166 |
+
+The shape: a rare token with one dead twin gains at most `log 2` ≈ 0.693 cue units at any
+scale, and a common token barely moves. So the change is **largest exactly where the bug
+bit** — the small store, the rare word, the revised memory — and is noise on the words that
+span a 14,000-memory index. That is the opposite asymmetry from §12's bug, which grew with
+the store.
+
+**On the live store this MOVES OUTPUT, and by an amount this session cannot read.** `a` is
+the number of archived-or-superseded rows still sitting in `doc_tokens`, and the owner's
+store is off-limits here. It is not zero: the migration archives rows (`tools/migrate/
+apply.ts`), sleep's dedup and prune archive, `schemas` fades, `self` regrows episodes.
+`counterparts verify --dir <store>` now prints that population on its own line — *indexed
+but not live (archived or superseded)* — so the owner reads `a` before deciding anything.
+**Bench re-run: NEEDS-OWNER** — the #25/#28 bench needs a copy of the live store and cannot
+be run from here, and unlike §12 this change cannot be argued bit-identical at N=14,000.
+
+**The fix is PROSPECTIVE, so it ships with its own migration.** `archive` and `supersede`
+keep the invariant from here on; the rows that went dark before this change are still in
+the index. `rebuildCache` would clear them and drop 13,868 paid vectors on the way — and
+`counterparts verify --rebuild` refuses outright while box 3 holds any, so a rebuild is not
+a repair the owner of a real store can actually run. So the migration is
+`Store.pruneDeadIndex()` / `counterparts verify --prune-index`: it diffs box 3's indexed
+ids against box 2's live rows and deindexes the difference, touching no embedding. Same
+shape and same reason as `backfillLengths`, which exists because the v2→v3 lengths were
+derivable and a `resetCache` would have cost the vectors. It is NOT run at open — an
+instrument writes nothing at open, and a write at open takes the write lock — so the owner
+runs it by name, once.
+
+**Left alone, deliberately.** `embeddings`. A vector cost a paid network call, nothing
+reads a dead row's vector (`activate` skips the hit before scoring), and box 3's float
+layout is being rewritten in the same night's work. So `deindexDoc` drops tokens and
+lengths only. `rebuildCache` does not carry a dead row's vector forward, because a rebuild
+reproduces the live index — the one asymmetry, named here rather than hidden: an archived
+row keeps its vector until the next rebuild, and no reader can tell.
+
+**Two adapter surfaces lose their archived hits**, and this is a real cost, not a
+rounding: `cli/removal.ts`'s contamination scan (`store.search(body, 20)`) and the
+dashboard's search view no longer return archived rows. The removal probe's largest
+residue surface is unaffected — the archived VERSION files under `versions/` were never
+indexed at all — but a removed memory's archived sibling will no longer be listed as
+contamination. Filed for the owner rather than worked around: the honest repair is a
+residue scan that reads canonical prose, not the recall index, which is a different piece
+of work from this one.

@@ -160,6 +160,8 @@ export function usage(): string {
     "                      --rebuild drops and rebuilds the cache instead; it refuses",
     "                      while the cache holds embeddings this console has no",
     "                      embedder to recompute, unless --drop-vectors is passed.",
+    "                      --prune-index takes archived and superseded rows out of",
+    "                      the text index and keeps the embeddings.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
@@ -221,7 +223,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   export: ["out", "passphrase", "plaintext"],
   backup: ["out"],
   remove: ["confirm", "reason"],
-  verify: ["rebuild", "drop-vectors"],
+  verify: ["rebuild", "drop-vectors", "prune-index"],
   "backfill-claims": ["apply"],
   rebrief: ["budget"],
 };
@@ -321,6 +323,9 @@ export function parse(argv: readonly string[]): Parsed {
       // `strict: false`, which does not make an undeclared boolean reliable.
       rebuild: { type: "boolean" },
       "drop-vectors": { type: "boolean" },
+      // I13's cheap repair: take the archived and superseded rows out of the
+      // text index without resetting box 3, so the embeddings survive.
+      "prune-index": { type: "boolean" },
       budget: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
@@ -1072,9 +1077,37 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  return flags["rebuild"] === true
-    ? verifyRebuild(dir, io, flags["drop-vectors"] === true)
-    : verifyCensus(dir, io);
+  if (flags["rebuild"] === true) return verifyRebuild(dir, io, flags["drop-vectors"] === true);
+  if (flags["prune-index"] === true) return verifyPruneIndex(dir, io);
+  return verifyCensus(dir, io);
+}
+
+/**
+ * `--prune-index` — the CHEAP repair, and the only one for a store that holds
+ * vectors.
+ *
+ * The text index is the index of the live store (I13, `store/cache.ts#deindexDoc`):
+ * `archive` and `supersede` take a row out of it, and a store written before
+ * they did still holds its dead rows' tokens, where they go on counting toward
+ * document frequency against a live denominator. The repair is a pure function
+ * of what both boxes already hold, so — exactly like `backfillLengths` — it must
+ * not be paid for with `--rebuild`, which drops every embedding.
+ */
+function verifyPruneIndex(dir: string, io: Io): number {
+  const store = Store.open({ dir });
+  try {
+    const removed = store.pruneDeadIndex();
+    io.out(`Store: ${dir}`);
+    io.out(`Dropped from the text index (archived or superseded): ${removed}`);
+    io.out(
+      removed === 0
+        ? "The index already held live rows only."
+        : "Embeddings are untouched — this repair never resets box 3.",
+    );
+    return EXIT.ok;
+  } finally {
+    store.close();
+  }
 }
 
 /**
@@ -1086,10 +1119,14 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
 function verifyCensus(dir: string, io: Io): number {
   const store = Store.open({ dir, observer: true });
   let canonical: string[];
+  let live: string[];
   let denied: string[];
   let unembedded: number;
   try {
     canonical = store.list();
+    // What the INDEX is supposed to cover, since I13: the live rows. An
+    // archived or superseded row is canonical and deliberately unindexed.
+    live = store.list({ archived: false });
     denied = store.deniedIds();
     unembedded = store.unembeddedCount();
   } finally {
@@ -1098,7 +1135,10 @@ function verifyCensus(dir: string, io: Io): number {
 
   const cache = censusCache(dir);
   io.out(`Store: ${dir}`);
-  io.out(`Canonical rows: ${canonical.length}   removed (deny-list): ${denied.length}`);
+  io.out(
+    `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
+      `removed (deny-list): ${denied.length}`,
+  );
 
   // The unreadable half of this is narrow by construction: `Store.open` builds
   // box 3 on the way in, so a cache this process cannot read usually fails the
@@ -1128,9 +1168,17 @@ function verifyCensus(dir: string, io: Io): number {
   // unindexed memory are different problems.
   const indexed = new Set(cache.counts.indexed);
   const known = new Set(canonical);
+  const liveSet = new Set(live);
   const deniedSet = new Set(denied);
-  const missing = canonical.filter((id) => !indexed.has(id) && !deniedSet.has(id));
+  const missing = live.filter((id) => !indexed.has(id) && !deniedSet.has(id));
   const orphans = cache.counts.indexed.filter((id) => !known.has(id));
+  // A THIRD state, and it needs its own name and its own repair: an id that is
+  // a canonical row but not a live one, still holding token rows. It is not an
+  // orphan (the row exists) and it is not missing (it is there); it is a dead
+  // row voting on document frequency against a live denominator, which is I13.
+  // `--rebuild` would fix it and drop every embedding on the way; the cheap
+  // repair is `--prune-index`.
+  const stale = cache.counts.indexed.filter((id) => known.has(id) && !liveSet.has(id));
 
   io.out(`Cache: ${cache.path}`);
   io.out(
@@ -1138,12 +1186,21 @@ function verifyCensus(dir: string, io: Io): number {
       `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
   );
   io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
-  if (missing.length === 0 && orphans.length === 0) {
-    io.out("The cache covers every canonical row and holds nothing else.");
+  io.out(`  indexed but not live (archived or superseded): ${stale.length}`);
+  if (missing.length === 0 && orphans.length === 0 && stale.length === 0) {
+    io.out("The cache covers every live row and holds nothing else.");
     return EXIT.ok;
   }
+  if (missing.length === 0 && orphans.length === 0) {
+    io.err(
+      `Cache stale: ${stale.length} indexed ids are archived or superseded and still count toward rarity — ` +
+        `'counterparts verify --prune-index' drops them and keeps the embeddings.`,
+    );
+    return EXIT.failed;
+  }
   io.err(
-    `Cache incomplete: ${missing.length} canonical rows are not indexed, ${orphans.length} indexed ids are not canonical rows — ` +
+    `Cache incomplete: ${missing.length} live rows are not indexed, ${orphans.length} indexed ids are not canonical rows, ` +
+      `${stale.length} are canonical but not live — ` +
       `'counterparts verify --rebuild' rebuilds box 3.`,
   );
   return EXIT.failed;
