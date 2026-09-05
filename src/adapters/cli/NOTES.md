@@ -271,3 +271,29 @@ poisoned scratch store. The owner runs the read-only
 Every test runs against a temp store. Per CLAUDE.md's definition of done this is
 **merged, not verified**: the outstanding proof is one real snapshot of a real
 store, restored and read.
+
+## 2026-09-05 — two refusals and a help page, from the cold stranger's list
+
+**`status` on a missing store exits 1.** It printed the right sentence on
+stdout and exited 0, so `set -e` around `counterparts status` sailed straight
+past a typo'd `--dir` — and a typo in the one flag that says WHICH STORE is the
+sharpest edge this console has (the same edge `unknownFlag` was built for one
+round earlier). `usage`, not `failed`: nothing broke, the line named a place
+with no store in it. The sentence moved to stderr with it, because a non-zero
+exit whose only output is on stdout is half a refusal. It still does not create
+the store by looking for it.
+
+**And the remedy names the dir that was passed.** `Run 'counterparts init'`,
+offered under a line that had just named `--dir /somewhere`, would create the
+store in the DEFAULT place — advice that works, somewhere else. Both copies of
+the sentence carry the dir now; the dashboard's is `bin/dashboard.ts`'s
+`describeStoreError`, and it moved for the same reason on the same day.
+
+**`counterparts <command> --help` answers the question it was asked.** It
+printed the whole console's usage, so the flags a command actually takes were
+listed nowhere a person could ask for them: the only surface that knew was the
+refusal you got AFTER typing one wrong. `commandHelp` reads `COMMAND_FLAGS` and
+`COMMON_FLAGS` — the same table `unknownFlag` reads — so the help page and the
+parser cannot drift; `FLAG_HELP` gives each flag a sentence and the test fails
+on a flag added without one. Bare `--help` still prints the console's usage,
+and both still exit 0 and open nothing.
