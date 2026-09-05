@@ -56,6 +56,7 @@ import {
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
+  deindexDoc,
   docFrequency,
   indexDoc,
   nearest,
@@ -170,6 +171,15 @@ export interface PruneReport {
 export interface RebuildReport {
   indexed: number;
   skippedDenied: number;
+  /**
+   * Rows that are canonical but not live — archived, or a superseded head. The
+   * text index is the index OF THE LIVE STORE (`cache.ts#deindexDoc`), so a
+   * rebuild reproduces exactly what `archive`/`supersede` maintain. COUNTED,
+   * not silent: `counterparts verify --rebuild` accounts for every canonical
+   * row, and a skip that did not appear in the arithmetic would read as a
+   * mismatch (I13).
+   */
+  skippedArchived: number;
   unrecomputed: number;
   /** Contract §5 G8: what rebuild cannot recompute is DECLARED, with owner + repair. */
   declared: { what: string; owner: string; repair: string }[];
@@ -296,6 +306,7 @@ export const WRITE_METHODS = [
   "pruneSupersededVersions",
   "appendRemovalRecord",
   "rebuildCache",
+  "pruneDeadIndex",
   "embedOne",
 ] as const;
 
@@ -589,6 +600,10 @@ export class Store {
     });
     publishStaged(staged);
     this.indexOne(doc);
+    // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
+    // the prose and the forwarding address — this is the INDEX, and the index
+    // is the index of the live store (`cache.ts#deindexDoc`).
+    deindexDoc(this.cache, oldId);
     this.emit("store.supersede", oldId, { successor: newId, reason });
     return newId;
   }
@@ -599,6 +614,11 @@ export class Store {
       this.requireRow(id);
       this.ops.run("UPDATE memories SET archived = 1, archived_reason = ? WHERE id = ?", reason, id);
     });
+    // Out of the index, not out of the store: `read`, `resolve` and the version
+    // chain are untouched. An archived row was never deliverable — `activate`
+    // discards the hit — and while it stayed indexed it went on voting on
+    // rarity against a live denominator (`cache.ts#deindexDoc`, I13).
+    deindexDoc(this.cache, id);
     this.emit("store.archive", id, { reason });
   }
 
@@ -1004,12 +1024,21 @@ export class Store {
     const rows = this.ops.all<MemoryRow>("SELECT * FROM memories ORDER BY id");
     let indexed = 0;
     let skippedDenied = 0;
+    let skippedArchived = 0;
     let unrecomputed = 0;
     for (const row of rows) {
       if (denied.has(row.id)) {
         // A stray copy of a removed memory is skipped and LOGGED, never deleted (§16 G12).
         skippedDenied += 1;
         this.emit("cache.rebuild.denied", row.id, {});
+        continue;
+      }
+      // Not live, not indexed. `archive` and `supersede` take a row out of box 3
+      // as it goes dark; a rebuild that put it back would restore the I13 bug on
+      // the owner's next `verify --rebuild` — the index's denominator would
+      // count rows `recall`'s `storeSize` does not.
+      if (row.archived === 1 || row.superseded_by !== null) {
+        skippedArchived += 1;
         continue;
       }
       const doc = readProseFile(row.prose_path, row.id);
@@ -1037,14 +1066,55 @@ export class Store {
               repair: "Store.open({ embed }) then rebuildCache()",
             },
           ];
-    const report: RebuildReport = { indexed, skippedDenied, unrecomputed, declared };
+    const report: RebuildReport = {
+      indexed,
+      skippedDenied,
+      skippedArchived,
+      unrecomputed,
+      declared,
+    };
     this.emit("cache.rebuild", undefined, {
       indexed,
       skippedDenied,
+      skippedArchived,
       unrecomputed,
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
     return report;
+  }
+
+  /**
+   * Take every NOT-LIVE document out of the text index, and touch nothing else.
+   *
+   * This is I13's migration, and it exists for the same reason `backfillLengths`
+   * does: the repair is a pure function of state box 3 and box 2 already hold,
+   * so it must not be paid for with `rebuildCache`, which begins with
+   * `resetCache` and drops every embedding — roughly 13.9K of them on the store
+   * this was written against, one paid network call each. `counterparts verify
+   * --rebuild` refuses outright for that reason unless the owner passes
+   * `--drop-vectors`, so a rebuild is not a repair anyone can actually run here.
+   *
+   * `archive` and `supersede` keep the invariant going forward
+   * (`cache.ts#deindexDoc`); this is how a store that predates them catches up.
+   * It is NOT run at open: an instrument writes nothing at open, and a write at
+   * open takes the write lock (see the constructor). The owner runs it by name.
+   *
+   * Returns the number of documents removed from the index.
+   */
+  pruneDeadIndex(): number {
+    this.assertWritable("pruneDeadIndex");
+    const live = new Set(this.list({ archived: false }));
+    const indexed = this.cache
+      .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
+      .map((r) => r.memory_id);
+    let removed = 0;
+    for (const id of indexed) {
+      if (live.has(id)) continue;
+      deindexDoc(this.cache, id);
+      removed += 1;
+    }
+    if (removed > 0) this.emit("cache.prune.dead", undefined, { removed });
+    return removed;
   }
 
   /**

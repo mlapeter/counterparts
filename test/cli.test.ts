@@ -37,7 +37,7 @@ import { PHASES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
-import { openCache, setEmbedding } from "../src/core/store/cache.js";
+import { indexDoc, openCache, setEmbedding } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -872,6 +872,16 @@ describe("verify", () => {
     }
   }
 
+  /** Box 3 as it looked before I13: a dead row's tokens still in the index. */
+  function reindexDead(id: string, text: string): void {
+    const db = openCache(paths.cache(dir));
+    try {
+      indexDoc(db, id, text);
+    } finally {
+      db.close();
+    }
+  }
+
   /**
    * EVERY file under the data dir, cache included — the dashboard suite's
    * protocol (`test/dashboard.test.ts`'s `snapshot`), not `fingerprint`, which
@@ -920,7 +930,11 @@ describe("verify", () => {
     expect(printed).toContain("Canonical rows: 2");
     expect(printed).toContain("embeddings: 1");
     expect(printed).toContain("live memories with no vector: 1");
-    expect(printed).toContain("The cache covers every canonical row");
+    // "live", not "canonical": since I13 the index covers the LIVE rows and an
+    // archived one is deliberately absent from it.
+    expect(printed).toContain("live rows: 2");
+    expect(printed).toContain("indexed but not live (archived or superseded): 0");
+    expect(printed).toContain("The cache covers every live row");
     // Nothing canonical moved, and — the whole point — the vector is still there.
     expect(fingerprint(dir)).toBe(before);
     expect(embeddings()).toBe(1);
@@ -928,6 +942,38 @@ describe("verify", () => {
     // version-idempotent now, so the census may claim the strong form the
     // dashboard suite could only claim across renders (its INTERFACE-GAPS §1).
     expect(everyByte(dir)).toBe(everyByteBefore);
+  });
+
+  test("--prune-index is the cheap repair for a store written before I13", async () => {
+    // A store that archived rows BEFORE `archive` deindexed them still holds
+    // their tokens, where they count toward document frequency against a live
+    // denominator. `--rebuild` would fix it and drop every embedding on the way,
+    // and refuses outright while it holds any — so it is not a repair the owner
+    // of a real store can run. This one is, and the vector survives it.
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "The zygomorphic orchid bloomed after the frost." });
+    const gone = s.put({ type: "memory", kind: "fact", body: "The zygomorphic orchid was moved indoors." });
+    s.archive(gone, "duplicate");
+    s.close();
+    // Put the pre-I13 state back by hand, through box 3's own door: archived in
+    // box 2, still indexed in box 3, which is what every store written before
+    // this change looks like.
+    reindexDead(gone, "The zygomorphic orchid was moved indoors.");
+    seedVector(kept);
+
+    const before = consoleWith();
+    expect(await run(["verify"], { io: before.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
+    expect(text(before.out)).toContain("indexed but not live (archived or superseded): 1");
+    expect(text(before.err)).toContain("--prune-index");
+
+    const c = consoleWith();
+    expect(await run(["verify", "--prune-index"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Dropped from the text index (archived or superseded): 1");
+    expect(embeddings()).toBe(1);
+
+    const after = consoleWith();
+    expect(await run(["verify"], { io: after.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(after.out)).toContain("indexed but not live (archived or superseded): 0");
   });
 
   test("--rebuild REFUSES while box 3 holds vectors nothing here can recompute", async () => {

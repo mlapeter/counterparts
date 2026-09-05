@@ -691,7 +691,16 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
     s = store({ embed: fakeEmbed });
     expect(s.search("coffee")).toEqual([]); // really gone, not a stale handle
     const report = s.rebuildCache();
-    expect(report).toEqual({ indexed: 3, skippedDenied: 0, unrecomputed: 0, declared: [] });
+    // `skippedArchived` joined the report with I13: a rebuild reproduces the
+    // LIVE index, so a canonical row that is archived or superseded is counted
+    // out rather than silently dropped. Three live rows here, so it is zero.
+    expect(report).toEqual({
+      indexed: 3,
+      skippedDenied: 0,
+      skippedArchived: 0,
+      unrecomputed: 0,
+      declared: [],
+    });
 
     expect(cues.map((c) => s.search(c))).toEqual(before);
     expect(s.nearestTo(fakeEmbed("Cold brew every morning, never iced coffee"), 3)).toEqual(
@@ -1021,6 +1030,7 @@ describe("observer mode is enforced at the store seam", () => {
     pruneSupersededVersions: [],
     appendRemovalRecord: [{ memoryId: "mem_000000000000", stage: "requested", actor: "owner" }],
     rebuildCache: [],
+    pruneDeadIndex: [],
     embedOne: ["mem_0"],
   };
 

@@ -847,6 +847,40 @@ describe("recall — deliberate retrieval", () => {
     expect(byHandle["reason"]).toBe("expanded");
   });
 
+  test("I13 — REVISING the first note does not make it dark again", async () => {
+    // The same cold-stranger store one step further on. `revision.ts:385` calls
+    // `store.supersede` when a declared `updates:` crosses a belief's bar or
+    // replaces a "now" fact; the head is archived and keeps its `doc_tokens`
+    // rows, so `df(sourdough)` read 2 against `storeSize` 1 and
+    // `informativeness` returned exactly zero — the N=1 symptom, restored by a
+    // revision. The setup calls `supersede` directly because the `note` door's
+    // own `updates:` on an ordinary memory is LINK-ONLY by owner ruling; the
+    // door under test here is `recall`.
+    const s = server();
+    const first = payload(
+      await s.call("note", {
+        text: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+      }),
+    )["id"] as string;
+    const successor = s.counterpart.store.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding and is healthy.",
+    });
+
+    const result = payload(
+      await s.call("recall", { question: "what happened to my sourdough starter" }),
+    );
+    expect(result["storeSize"]).toBe(1);
+    expect(result["reason"]).toBe("answered");
+    expect(result["considered"] as number).toBeGreaterThan(0);
+    const ids = (result["memories"] as { id: string }[]).map((m) => m.id);
+    expect(ids).toContain(successor);
+    // The superseded head is not delivered — it never was, and that is the half
+    // that was already right. What changed is that it no longer votes on rarity.
+    expect(ids).not.toContain(first);
+  });
+
   test("N=2 and N=3 at the note door: the first note keeps answering as the store grows", async () => {
     // A REGRESSION GUARD, not a demonstration: both sizes pass on pre-fix code
     // too. The bug was N=1 only, and this is here so a later change to the
