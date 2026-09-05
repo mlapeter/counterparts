@@ -486,9 +486,23 @@ other six. The line the doomed span rode on is rewritten out of every file that
 held it (the live streams, any claim a worker is mid-arc on, the quarantine), its
 hash is kept in the buffer's own `consumed.jsonl` so nothing re-captures the same
 words, and the id goes dark on the deny-list so nothing can quietly resurrect the
-memory. Take a backup afterwards and grep it: the words are not there.
+memory. Take a backup afterwards and grep it: the note's own capture is gone.
 
-On a memory that never rode the buffer the same line reads `spans: not
+**What it deliberately does not take, and says so.** If you asked for the note in
+conversation, the turn you said it in is also in the buffer, waiting to be
+interpreted — a conversation span is many turns joined together, it belongs to no
+single memory, and striking it because one memory quotes it would destroy
+material you never named. So it is left, and the command counts it:
+
+```
+  spans echo (1 line of conversation quoting these words — transcript, not this
+  memory's capture; left on purpose, and the sweep drains it)
+```
+
+That is why a `grep` of the whole store can still answer after a removal. The
+memory is gone; the transcript of having said it has not been interpreted yet.
+
+On a memory that never rode the buffer the same `spans` line reads `spans: not
 applicable`, which is stated rather than omitted — a surface that goes silent
 when it is empty is how the residue stayed invisible in the first place. One
 state is still `NOT chased`, and it is the honest one: a memory whose prose file
@@ -635,12 +649,13 @@ rather than from a script.
 5. **`parallel: { enabled: true }`** appears in the owner's live config. It is the
    parallel-run knob and makes Counterparts stand down unless another file says
    it may speak. Do not copy it.
-6. **Removal reaches the span buffer — with one named blind spot.** A note is
-   captured verbatim into `spans/<12-hex key>/jots.jsonl` before it is minted.
-   Until 2026-09-05 `remove` chased the prose, the database, the links and the
-   cache and not that file, so a removed note's words survived there and a backup
-   taken afterwards copied them. The buffer is chased now (§7). **Check it in
-   three lines** — the marker text is only there so `grep` has something to find:
+6. **Removal reaches the span buffer — with two things it names rather than
+   takes.** A note is captured verbatim into `spans/<12-hex key>/jots.jsonl`
+   before it is minted. Until 2026-09-05 `remove` chased the prose, the database,
+   the links and the cache and not that file, so a removed note's words survived
+   there and a backup taken afterwards copied them. The buffer is chased now
+   (§7). **Check it in three lines** — the marker text is only there so `grep`
+   has something to find:
 
    ```
    counterparts note "ZQPROBE the culvert gate key is under the third fence post." --dir "$HOME/.counterparts/store"
@@ -648,11 +663,15 @@ rather than from a script.
    grep -rl ZQPROBE "$HOME/.counterparts/store"
    ```
 
-   Nothing answers. The blind spot that remains: a memory whose prose file is
+   Nothing answers. Run the same three lines with the note taken through the MCP
+   tool mid-conversation and one file can still answer — `buffer.jsonl`, holding
+   the turn in which you SAID it. That is transcript, not the memory, and it is
+   left on purpose; `remove` counts it on a `spans echo` line rather than
+   passing over it. The other thing it names: a memory whose prose file is
    already gone AND whose mint recorded no span hash — an old row, or one whose
-   prose you deleted by hand — cannot be addressed in the buffer, and `remove`
-   says so on its `NOT chased` line and counts it `unchased: 1` rather than
-   reporting `nothing`.
+   prose you deleted by hand — cannot be addressed in the buffer at all, and
+   `remove` says which way it is blind on its `NOT chased` line and counts it
+   `unchased: 1` rather than reporting `nothing`.
 7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
    `INTERFACE-GAPS.md`** — 40 files, 0.45 MB, in a 2.2 MB package (measured
    2026-09-04 on `npm pack --dry-run`, 742.2 kB packed over 168 files, plus the

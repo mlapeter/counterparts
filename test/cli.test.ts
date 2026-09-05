@@ -878,6 +878,94 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(kept.some((p) => p.startsWith("prose/"))).toBe(true);
   });
 
+  test("with the prose GONE, the coverage mark alone still chases it — which is why old rows need no migration", async () => {
+    // The retroactive half, isolated. Deleting the prose file takes away BOTH
+    // the other two keys at once: the `origin.spanHash` meta this branch added,
+    // and the body the option-A console matched on. What is left is what the
+    // store has always held — `origin_ref` on the row and an `own: true` mark in
+    // the scope's `coverage.jsonl` — and it is enough. That is why a memory
+    // minted months before this branch is chaseable with no migration.
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
+
+    const s = store();
+    const prosePath = s.row(id)?.prose_path ?? "";
+    const ref = s.row(id)?.origin_ref ?? "";
+    s.close();
+    expect(ref).toMatch(/^prp_/);
+    rmSync(prosePath, { force: true });
+
+    // The mark this chase runs on, on disk since long before the feature.
+    const scopes = readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n));
+    const coverage = readFileSync(join(dir, "spans", scopes[0] as string, "coverage.jsonl"), "utf8");
+    expect(coverage).toContain(`"proposalId":"${ref}"`);
+    expect(coverage).toContain('"own":true');
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    // Not `unknown`, which is what this same store says when the mark is missing
+    // (the blind-spot test below): the buffer is addressed by identity here.
+    expect(text(plan.out)).toContain("chase spans: 1");
+    expect(text(plan.out)).toContain("chased — spans/");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("spans(1 line in 1 file)");
+    expect(text(c.out)).toContain('"unchased":0');
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+  });
+
+  test("a conversation turn that QUOTES the note is disclosed and left — the plan's count is the strike's count", async () => {
+    // The live shape the CLI-only fixtures cannot make: on the owner's machine a
+    // note is taken mid-conversation, so the Stop hook has already captured the
+    // turn in which the words were SAID into `buffer.jsonl`. That span belongs
+    // to no single memory — it is many turns joined — and striking it because
+    // one memory quoted it would destroy material nobody named. So it is left,
+    // and it is SAID (§16 G15), and the plan's number matches the strike's.
+    store().close();
+    const s = store();
+    s.close();
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureSpans({
+        session: "live",
+        scope: process.cwd(),
+        turns: [
+          { role: "user", text: `Please remember this for me: ${MARKER} And then let us move on.` },
+        ],
+      });
+    } finally {
+      counterpart.close();
+    }
+    const id = await noteThroughTheJotDoor(MARKER);
+    expect(grepStore(dir, "ZQRESIDUEPROBE").filter((p) => p.startsWith("spans/")).sort()).toEqual([
+      expect.stringContaining("buffer.jsonl"),
+      expect.stringContaining("jots.jsonl"),
+    ]);
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    // ONE line struck, not two: the jot's own capture.
+    expect(planned).toContain("chase spans: 1");
+    expect(planned).toContain("1 other line under spans/");
+    expect(planned).toContain("transcript, not this memory's own capture, and left alone");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    // The plan said 1, the strike took 1.
+    expect(printed).toContain("spans(1 line in 1 file)");
+    // And the leftover is COUNTED, by name, rather than passed over in silence.
+    expect(printed).toContain("spans echo (1 line of conversation quoting these words");
+    expect(printed).toContain('"unchased":1');
+
+    const left = grepStore(dir, "ZQRESIDUEPROBE");
+    expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
+    expect(left.some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
+    expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
+  });
+
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
     // A buffer EXISTS in this store — the note above is what puts one there — so
     // "not applicable" is a statement about this memory, not about an empty

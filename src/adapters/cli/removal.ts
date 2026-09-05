@@ -106,8 +106,17 @@ export interface SpanSurface {
   readonly state: SpanState;
   /** Store-RELATIVE, and only when one can be named. Never an absolute path. */
   readonly path: string | null;
-  /** Lines that hold it, counted at plan time. Zero unless the state is `held`. */
+  /** Lines the strike will take, counted at plan time. Zero unless `held`. */
   readonly count: number;
+  /**
+   * OTHER lines under `spans/` that quote these words without being this
+   * memory's own capture — the conversation turn in which they were said,
+   * still waiting to be interpreted. They are LEFT, on purpose: a conversation
+   * span is many turns joined, belongs to no single memory, and striking it
+   * because one memory quoted it would destroy material nobody named. Counted
+   * and disclosed rather than passed over in silence (§16 G15).
+   */
+  readonly echoes: number;
   /** The whole sentence the console prints, and the `unchasable` entry when it is one. */
   readonly line: string;
 }
@@ -167,14 +176,19 @@ function jsonlUnder(root: string): string[] {
  * `failures.jsonl` carry span hashes too, and matching a hash there would report
  * a file that holds nothing but bookkeeping as one that holds the owner's words.
  */
-function spanLinesIn(path: string, hashes: ReadonlySet<string>, needle: string | null): number {
+function spanLinesIn(
+  path: string,
+  hashes: ReadonlySet<string>,
+  needle: string | null,
+): { byHash: number; byText: number } {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch {
-    return 0;
+    return { byHash: 0, byText: 0 };
   }
-  let hits = 0;
+  let byHash = 0;
+  let byText = 0;
   let parsedAny = false;
   for (const line of text.split("\n")) {
     if (line.trim().length === 0) continue;
@@ -182,16 +196,18 @@ function spanLinesIn(path: string, hashes: ReadonlySet<string>, needle: string |
       const record = JSON.parse(line) as { text?: unknown; hash?: unknown };
       if (typeof record.text !== "string") continue;
       parsedAny = true;
-      if (typeof record.hash === "string" && hashes.has(record.hash)) hits += 1;
-      else if (needle !== null && record.text.includes(needle)) hits += 1;
+      if (typeof record.hash === "string" && hashes.has(record.hash)) byHash += 1;
+      else if (needle !== null && record.text.includes(needle)) byText += 1;
     } catch {
       /* a half-written line: covered by the raw check below */
     }
   }
   // The raw substring is what catches a file this console does not understand —
   // a format change, a half-written line — and it only ever ADDS a hit.
-  if (hits === 0 && !parsedAny && needle !== null && text.includes(needle)) return 1;
-  return hits;
+  if (byHash === 0 && byText === 0 && !parsedAny && needle !== null && text.includes(needle)) {
+    return { byHash: 0, byText: 1 };
+  }
+  return { byHash, byText };
 }
 
 /**
@@ -294,6 +310,7 @@ export function spanResidue(
       state: "not-applicable",
       path: null,
       count: 0,
+      echoes: 0,
       line: `spans: not applicable — there is no capture buffer at ${named} for this memory, so nothing of it rode one.`,
     };
   }
@@ -301,22 +318,35 @@ export function spanResidue(
   const needle = body.trim().length > 0 ? body.trim() : null;
   const keys = new Set(hashes);
   if (keys.size > 0 || needle !== null) {
+    // WHAT THE STRIKE WILL TAKE, counted exactly as the strike will take it —
+    // by hash when there is one, by content only when there is not. The plan's
+    // number and the report's number are the same number, or the report is a
+    // lie in the direction that matters most (§16 G15).
     let count = 0;
+    let echoes = 0;
     let first: string | null = null;
     for (const file of files) {
-      const hits = spanLinesIn(file, keys, needle);
-      if (hits === 0) continue;
-      count += hits;
+      const hits = spanLinesIn(file, keys, keys.size > 0 ? null : needle);
+      const echo = keys.size > 0 && needle !== null ? spanLinesIn(file, keys, needle).byText : 0;
+      echoes += echo;
+      const mine = keys.size > 0 ? hits.byHash : hits.byHash + hits.byText;
+      if (mine === 0) continue;
+      count += mine;
       if (first === null) first = rel(file);
     }
     if (first !== null) {
       const where = count === 1 ? first : `${first} (and ${count - 1} more line${count === 2 ? "" : "s"})`;
+      const echoNote =
+        echoes === 0
+          ? ""
+          : ` ${echoes} other line${echoes === 1 ? "" : "s"} under ${named} quote${echoes === 1 ? "s" : ""} these words inside a conversation turn — transcript, not this memory's own capture, and left alone.`;
       return {
         surface: "spans",
         state: "held",
         path: first,
         count,
-        line: `${where} — the raw capture buffer holds this memory's words; the removal strikes them out of it.`,
+        echoes,
+        line: `${where} — the raw capture buffer holds this memory's words; the removal strikes them out of it.${echoNote}`,
       };
     }
   }
@@ -327,6 +357,7 @@ export function spanResidue(
       state: "unknown",
       path: named,
       count: 0,
+      echoes: 0,
       line: `${named} — the prose is already gone and no span hash was recorded, so this console cannot tell whether the words rode the buffer; if they did, ${SPANS_BLIND}`,
     };
   }
@@ -339,6 +370,7 @@ export function spanResidue(
       state: "not-applicable",
       path: null,
       count: 0,
+      echoes: 0,
       line: `spans: not applicable — this memory's own span is named in its provenance, and no line under ${named} still carries it.`,
     };
   }
@@ -348,6 +380,7 @@ export function spanResidue(
       state: "unknown",
       path: named,
       count: 0,
+      echoes: 0,
       line: `${named} — this memory came through the jot door, so its words rode the buffer; no line there matches them now, and this console cannot prove the capture is gone; if one survives, ${SPANS_BLIND}`,
     };
   }
@@ -357,6 +390,7 @@ export function spanResidue(
       state: "unknown",
       path: named,
       count: 0,
+      echoes: 0,
       line: `${named} — unknown whether the words rode the buffer: this memory's provenance was never recorded, and a buffer exists; if a line is there, ${SPANS_BLIND}`,
     };
   }
@@ -365,6 +399,7 @@ export function spanResidue(
     state: "not-applicable",
     path: null,
     count: 0,
+    echoes: 0,
     line: `spans: not applicable — a '${source}' memory is not captured as a jot, and no line under ${named} holds its words.`,
   };
 }
@@ -389,6 +424,7 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
       state: "not-applicable",
       path: null,
       count: 0,
+      echoes: 0,
       line: "spans: not applicable — there is nothing here to have ridden the buffer.",
     },
     spanChase: { scope: null, hashes: [], byContent: false },
@@ -443,8 +479,10 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
       // The seventh, and it is in this list rather than beside it now: a surface
       // that is chased belongs with the chased ones. It is stated at 0 too — the
       // silence about an empty buffer is what made the residue undiscoverable
-      // (LAUNCH-STATUS §I2).
-      { surface: "spans", count: spans.count },
+      // (LAUNCH-STATUS §I2). Not for `unknown`, where a `0` beside a "NOT
+      // chased" line would read as a contradiction rather than a disclosure;
+      // that state says its whole piece in its own sentence.
+      ...(spans.state === "unknown" ? [] : [{ surface: "spans", count: spans.count }]),
     ],
     spans,
     spanChase: {
@@ -459,7 +497,14 @@ export function planRemoval(store: Store, targetId: string): RemovalPlan {
     // `held` case, which is chased. `unknown` stays: a surface this console
     // cannot rule out is exactly what §16 G15's "no silent partial success"
     // says a plan must name here rather than let the report say `nothing`.
-    unchasable: spans.state === "unknown" ? [spans.line] : [],
+    unchasable:
+      spans.state === "unknown"
+        ? [spans.line]
+        : spans.echoes > 0
+          ? [
+              `spans echo (${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture; left on purpose, and the sweep drains it)`,
+            ]
+          : [],
   };
 }
 

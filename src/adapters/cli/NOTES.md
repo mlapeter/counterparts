@@ -165,6 +165,19 @@ The chase landed as `src/core/remember/owner-strike-seam.ts`, called from
   gone AND no span hash recorded: nothing left to address the buffer with. It
   stays in `unchasable`, counts as `unchased: 1`, and says which way it is
   blind. `held` moved out of `unchasable` and into `surfaces`.
+- **The echo, found by the adversarial read of the first draft.** On the live
+  store a note is taken MID-CONVERSATION, so the Stop hook has already captured
+  the turn in which the words were said into `buffer.jsonl`. The first draft
+  counted that line in the plan (`spanLinesIn` matched by hash OR by text) and
+  the strike then took only the jot — plan said 2, report said 1, and `grep`
+  still answered. Two fixes, both about honesty rather than reach: the plan now
+  counts exactly what the strike will take (`needle` is passed only when there
+  is no hash), and the leftover is counted SEPARATELY as `spans echo` and
+  printed on the `unchased` line. It is left on purpose — a conversation span is
+  many turns joined, belongs to no single memory, and striking it because one
+  memory quoted it would destroy material nobody named. `test/cli.test.ts` has
+  the fixture: `captureSpans` a turn holding the marker, then `note`, then
+  remove, and assert the plan's count equals the strike's.
 
 **Verified:** `test/cli.test.ts` runs §I2's own repro end to end — note through
 the jot door, remove, `grep -r` the whole data dir (nothing), `backup` and grep

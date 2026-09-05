@@ -229,7 +229,11 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
     ledgered += ledger.value;
     if (ledger.value > 0) alreadyLedgered = false;
 
-    // 2. THE REWRITE, one file at a time.
+    // 2. THE REWRITE, one file at a time. Counted PER SCOPE as well as across
+    //    them: a scope's record must carry that scope's numbers, or an
+    //    all-scopes strike writes scope B's record with scope A's totals in it.
+    let scopeStruck = 0;
+    let scopeFiles = 0;
     for (const file of targets) {
       const outcome = access.mutate("strike", () => rewrite(access, file, matches));
       if (!outcome.ok) {
@@ -239,6 +243,8 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
       }
       if (outcome.value === 0) continue;
       struck += outcome.value;
+      scopeStruck += outcome.value;
+      scopeFiles += 1;
       files.push({ file: relName(access, scope, file), struck: outcome.value });
       if (file.includes(`${sep}claims${sep}`)) touchedClaim = true;
     }
@@ -252,9 +258,9 @@ export function strikeSpans(buffer: object, request: StrikeRequest): StrikeRepor
           at: access.now(),
           day: access.day(),
           by: "owner",
-          files: files.length,
-          struck,
-          ledgered,
+          files: scopeFiles,
+          struck: scopeStruck,
+          ledgered: ledger.value,
         })}\n`,
         "utf8",
       );
