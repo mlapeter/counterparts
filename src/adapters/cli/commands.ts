@@ -288,6 +288,8 @@ const FLAG_HELP: Record<string, string> = {
   plaintext: "do not encrypt the export (said on purpose, never by default)",
   confirm: "actually do it — without this, removal is a dry run",
   reason: "the reason, recorded with the removal",
+  "strike-by-content-across-scopes":
+    "for a memory whose provenance records no project: chase its words through EVERY project's capture buffer (an exact jot, never a substring). Look at what the dry run lists first",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   apply: "actually do it — without this, it is a dry run",
