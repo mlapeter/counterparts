@@ -269,6 +269,43 @@ export function setEmbedding(db: Db, id: string, vec: readonly number[]): void {
   );
 }
 
+/**
+ * Take one document OUT of the text index — the other half of `indexDoc`.
+ *
+ * **The rule this makes structural: the index is the index OF THE LIVE STORE.**
+ * `doc_tokens` is what `docFrequency` counts and what `searchIndex` selects
+ * from, and both of those numbers are read against a LIVE denominator:
+ * `recall/`'s `storeSize` is `store.list({ archived: false }).length`, and
+ * `activate.ts` throws away any hit whose row is archived or superseded. While
+ * a dead row kept its token rows, the two counts came from two different
+ * populations — so `df > storeSize` was reachable, and
+ * `informativeness(df, storeSize)` returns exactly zero at `df >= storeSize`.
+ * MEASURED 2026-09-04: a fresh store, one note, one revision — `revision.ts`
+ * calls `Store.supersede`, the head is archived and stays indexed,
+ * `df(sourdough) = 2` against `storeSize = 1`, every cue is dropped, and the
+ * MCP `recall` door answers `nothing-came` on a store whose only memory plainly
+ * matches the question. That is NOTES §12's N=1 re-zeroing, restored by an
+ * ordinary revision (LAUNCH-STATUS I13).
+ *
+ * It also stops a dead row from spending a slot: `searchIndex` takes the top
+ * `limit` per cue, and a row `activate` will discard was still winning one of
+ * them. Narrowing the candidate SET is the same failure length normalization
+ * was moved into the SQL to avoid.
+ *
+ * **`embeddings` is deliberately left alone.** A vector cost a paid network
+ * call and nothing reads a dead row's vector anyway (`activate` skips the hit),
+ * so deleting it here would spend money to gain nothing. `rebuildCache` does
+ * not carry it forward — a rebuild reproduces the LIVE index — and that
+ * asymmetry is named in `recall/NOTES.md` rather than hidden.
+ */
+export function deindexDoc(db: Db, id: string): void {
+  forgetAvgDocLen(db);
+  db.transaction(() => {
+    db.run("DELETE FROM doc_tokens WHERE memory_id = ?", id);
+    db.run("DELETE FROM doc_lens WHERE memory_id = ?", id);
+  });
+}
+
 export interface Hit {
   id: string;
   score: number;

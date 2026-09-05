@@ -1187,11 +1187,12 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
     if (held > 0) io.out(`Dropped on your say-so (--drop-vectors): ${vectors}.`);
     io.out(`Re-indexed: ${report.indexed}`);
     io.out(`Skipped as removed (deny-list): ${report.skippedDenied}`);
+    io.out(`Skipped as not live (archived or superseded): ${report.skippedArchived}`);
     io.out(`Not recomputed: ${report.unrecomputed}`);
     for (const declared of report.declared) {
       io.out(`  declared: ${declared.what} — owner ${declared.owner}; repair: ${declared.repair}`);
     }
-    const accounted = report.indexed + report.skippedDenied;
+    const accounted = report.indexed + report.skippedDenied + report.skippedArchived;
     if (accounted !== canonical) {
       io.err(`MISMATCH: ${canonical} canonical rows, ${accounted} accounted for.`);
       return EXIT.failed;

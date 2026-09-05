@@ -56,6 +56,7 @@ import {
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
+  deindexDoc,
   docFrequency,
   indexDoc,
   nearest,
@@ -170,6 +171,15 @@ export interface PruneReport {
 export interface RebuildReport {
   indexed: number;
   skippedDenied: number;
+  /**
+   * Rows that are canonical but not live — archived, or a superseded head. The
+   * text index is the index OF THE LIVE STORE (`cache.ts#deindexDoc`), so a
+   * rebuild reproduces exactly what `archive`/`supersede` maintain. COUNTED,
+   * not silent: `counterparts verify --rebuild` accounts for every canonical
+   * row, and a skip that did not appear in the arithmetic would read as a
+   * mismatch (I13).
+   */
+  skippedArchived: number;
   unrecomputed: number;
   /** Contract §5 G8: what rebuild cannot recompute is DECLARED, with owner + repair. */
   declared: { what: string; owner: string; repair: string }[];
@@ -589,6 +599,10 @@ export class Store {
     });
     publishStaged(staged);
     this.indexOne(doc);
+    // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
+    // the prose and the forwarding address — this is the INDEX, and the index
+    // is the index of the live store (`cache.ts#deindexDoc`).
+    deindexDoc(this.cache, oldId);
     this.emit("store.supersede", oldId, { successor: newId, reason });
     return newId;
   }
@@ -599,6 +613,11 @@ export class Store {
       this.requireRow(id);
       this.ops.run("UPDATE memories SET archived = 1, archived_reason = ? WHERE id = ?", reason, id);
     });
+    // Out of the index, not out of the store: `read`, `resolve` and the version
+    // chain are untouched. An archived row was never deliverable — `activate`
+    // discards the hit — and while it stayed indexed it went on voting on
+    // rarity against a live denominator (`cache.ts#deindexDoc`, I13).
+    deindexDoc(this.cache, id);
     this.emit("store.archive", id, { reason });
   }
 
@@ -1004,12 +1023,21 @@ export class Store {
     const rows = this.ops.all<MemoryRow>("SELECT * FROM memories ORDER BY id");
     let indexed = 0;
     let skippedDenied = 0;
+    let skippedArchived = 0;
     let unrecomputed = 0;
     for (const row of rows) {
       if (denied.has(row.id)) {
         // A stray copy of a removed memory is skipped and LOGGED, never deleted (§16 G12).
         skippedDenied += 1;
         this.emit("cache.rebuild.denied", row.id, {});
+        continue;
+      }
+      // Not live, not indexed. `archive` and `supersede` take a row out of box 3
+      // as it goes dark; a rebuild that put it back would restore the I13 bug on
+      // the owner's next `verify --rebuild` — the index's denominator would
+      // count rows `recall`'s `storeSize` does not.
+      if (row.archived === 1 || row.superseded_by !== null) {
+        skippedArchived += 1;
         continue;
       }
       const doc = readProseFile(row.prose_path, row.id);
@@ -1037,10 +1065,17 @@ export class Store {
               repair: "Store.open({ embed }) then rebuildCache()",
             },
           ];
-    const report: RebuildReport = { indexed, skippedDenied, unrecomputed, declared };
+    const report: RebuildReport = {
+      indexed,
+      skippedDenied,
+      skippedArchived,
+      unrecomputed,
+      declared,
+    };
     this.emit("cache.rebuild", undefined, {
       indexed,
       skippedDenied,
+      skippedArchived,
       unrecomputed,
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
