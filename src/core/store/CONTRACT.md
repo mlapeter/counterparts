@@ -59,7 +59,13 @@ ended up with canonical state spread across a prose store plus half a dozen side
      windows, the removal record, per-session gate state. **Transactional**: every
      multi-step change commits or does not.
   3. **A separate rebuildable cache** — embeddings and full-text index. **Never backed
-     up**, always reconstructible, and its loss is a re-index, never a memory.
+     up**, always reconstructible, and its loss is a re-index, never a memory. Vectors
+     are stored as float32 BLOBs (`dim` little-endian singles, cache schema v4,
+     2026-09-05) — the embedder's own precision, and 2.8× smaller and ~11× faster to scan
+     than the JSON text of v3 (measured; `NOTES.md`). "Reconstructible" is still an
+     honest word for the text index and a partly dishonest one for the vectors: those
+     cost a paid network call each, which is why `rebuildCache({ keepVectors })` and
+     `counterparts migrate-cache` exist rather than a rebuild.
 - **The universal "the DB is a cache" rebuild contract is released** (owner rescope 1,
   settled) — it now covers box 3 only. Box 2 is canonical and is backed up as a database.
 - **Hand-serialized JSON sidecars are gone** (owner rescope 1, settled). All seven bugs in

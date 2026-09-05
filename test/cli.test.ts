@@ -37,7 +37,7 @@ import { PHASES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
-import { indexDoc, openCache, setEmbedding } from "../src/core/store/cache.js";
+import { convertVectorBatch, indexDoc, openCache, setEmbedding } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -1057,7 +1057,299 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
     expect(text(c.err)).toContain("verify --rebuild");
   });
+
+  test("the census names the SHAPE the vectors are in", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory with a vector in the new shape." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("vector format: 1 float32 BLOB (v4)");
+
+    // Age that row back to v3's JSON text and the census says which, and what
+    // to run — a mixed cache is a state the readers tolerate and the owner
+    // still has to finish.
+    writeJsonVector(dir, kept, [0.1, 0.2, 0.3]);
+    const look = consoleWith();
+    expect(await run(["verify"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(look.out)).toContain("1 JSON text (v3)");
+    expect(text(look.out)).toContain("counterparts migrate-cache");
+  });
+
+  test("--rebuild --keep-vectors re-indexes the text side and keeps every vector", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory whose vector must survive a rebuild." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(await run(["verify", "--rebuild", "--keep-vectors"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    const printed = text(c.out);
+    expect(printed).toContain("Vectors kept: 1");
+    expect(printed).toContain("dropped as no longer canonical: 0");
+    expect(printed).toContain("Re-indexed: 1");
+    // Nothing is declared, because nothing is missing — the console has no
+    // embedder and did not need one.
+    expect(printed).not.toContain("declared: embeddings");
+    expect(embeddings()).toBe(1);
+  });
+
+  test("--drop-vectors and --keep-vectors together are refused, not guessed at", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory caught between two contradictory flags." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(
+      await run(["verify", "--rebuild", "--drop-vectors", "--keep-vectors"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("opposite things");
+    expect(embeddings()).toBe(1);
+  });
 });
+
+// ── migrate-cache ───────────────────────────────────────────────────────────
+
+/** Age one of box 3's rows back to v3's shape: `JSON.stringify` into `vec`. */
+function writeJsonVector(at: string, id: string, vec: readonly number[]): void {
+  const db = openDb(paths.cache(at));
+  try {
+    db.run(
+      "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+      id,
+      vec.length,
+      JSON.stringify(vec),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+describe("migrate-cache — the conversion that is not a rebuild", () => {
+  function shapes(): { blob: number; text: number } {
+    const db = openDb(paths.cache(dir));
+    try {
+      const n = (t: string): number =>
+        db.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings WHERE typeof(vec) = ?", t)?.n ?? 0;
+      return { blob: n("blob"), text: n("text") };
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Memories with v3-shaped vectors — the state the live store is in. */
+  function seedJsonStore(n = 2, dim = 3): string[] {
+    const s = store();
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      ids.push(s.put({ type: "memory", kind: "fact", body: `A memory whose vector is still JSON text, number ${i}.` }));
+    }
+    s.close();
+    const db = openCache(paths.cache(dir));
+    db.close();
+    ids.forEach((id, i) =>
+      writeJsonVector(dir, id, Array.from({ length: dim }, (_, k) => Math.fround((i + k + 1) / 17))),
+    );
+    return ids;
+  }
+
+  test("the dry run is READ-ONLY — not a byte moves, on a v3-stamped cache either", async () => {
+    // `ec31994` made this honest; the review found honest is not read-only.
+    // `openCache` stamps `cache_meta.schemaVersion`, which changed the file's
+    // hash under a line saying nothing had changed. Every question the dry run
+    // asks is a SELECT, so `openDb` is the right door.
+    seedJsonStore();
+    const aged = openDb(paths.cache(dir));
+    aged.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '3')");
+    aged.close();
+    const before = readFileSync(paths.cache(dir)).toString("base64");
+
+    const c = consoleWith();
+    expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("JSON text: 2");
+    expect(printed).toContain("float32 BLOB: 0");
+    expect(printed).toContain("schema v3");
+    expect(printed).toContain("Sample:");
+    expect(printed).toContain("largest coordinate change in this row:");
+    expect(printed).toContain("Dry run. Nothing was changed");
+    expect(printed).toContain("counterparts backup");
+    // The claim in full: byte-identical, with the cache still stamped v3.
+    expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+  });
+
+  test("--apply REFUSES the default data dir — the store must be named", async () => {
+    // On a real machine that default is the owner's live memory, and the guard
+    // runs before this command looks at a single path.
+    const c = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: {} })).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("will not run against the default data dir");
+    expect(text(c.err)).toContain("--dir");
+  });
+
+  test("--apply asks before it writes, and takes no for an answer", async () => {
+    seedJsonStore();
+    const before = readFileSync(paths.cache(dir)).toString("base64");
+
+    // No prompt and no --yes: refuse rather than proceed unconfirmed.
+    const mute = consoleWith();
+    expect(await run(["migrate-cache", "--apply"], { io: mute.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(mute.err)).toContain("--yes");
+    expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
+
+    // Asked and declined.
+    const no = consoleWith(["no"]);
+    expect(await run(["migrate-cache", "--apply"], { io: no.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(no.asked.join("")).toContain("Type 'yes'");
+    expect(text(no.err)).toContain("not confirmed");
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+
+    // Asked and confirmed.
+    const yes = consoleWith(["yes"]);
+    expect(await run(["migrate-cache", "--apply"], { io: yes.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(shapes()).toEqual({ blob: 2, text: 0 });
+  });
+
+  test("--apply --yes converts in place, keeps every vector, and compacts the file", async () => {
+    seedJsonStore();
+    const c = consoleWith();
+    expect(
+      await run(["migrate-cache", "--apply", "--yes", "--batch", "1"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("Converted 2 vectors in 2 batches."); // batched, per --batch
+    expect(printed).toContain("Vectors now: float32 BLOB 2, JSON text 0");
+    expect(printed).toContain("Cache file:");
+    // The count is the whole point: a migration that lost a vector would be a
+    // rebuild wearing a different name.
+    expect(shapes()).toEqual({ blob: 2, text: 0 });
+  });
+
+  test("a store CONVERTED BUT NOT COMPACTED has a door — the 177 MiB is not stranded", async () => {
+    // The review's M2, reproduced: `VACUUM` is the step most likely to fail (it
+    // takes an exclusive lock), and the old "already converted" refusal fired
+    // BEFORE it — so a lost lock left the whole debt unreachable through the
+    // tool that exists to pay it. `PRAGMA freelist_count` reads 0 in this
+    // state; the win is defragmentation, so the probe is a real `VACUUM INTO`.
+    seedJsonStore(400, 256);
+    const db = openCache(paths.cache(dir));
+    let after: string | undefined;
+    for (;;) {
+      const r = convertVectorBatch(db, 50, after);
+      if (r.examined === 0) break;
+      after = r.lastId ?? undefined;
+      if (after === undefined) break;
+    }
+    db.close(); // committed, never vacuumed
+    const stranded = statSync(paths.cache(dir)).size;
+    expect(shapes()).toEqual({ blob: 400, text: 0 });
+
+    // The dry run NAMES it rather than saying "already converted, nothing to do".
+    const look = consoleWith();
+    expect(await run(["migrate-cache"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(look.out)).toContain("Converted, NOT yet compacted:");
+    expect(text(look.out)).toContain("reclaimable");
+    expect(statSync(paths.cache(dir)).size).toBe(stranded); // still read-only
+
+    // And `--apply` compacts it, converting nothing.
+    const c = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("Cache file:");
+    expect(statSync(paths.cache(dir)).size).toBeLessThan(stranded);
+    expect(shapes()).toEqual({ blob: 400, text: 0 });
+  });
+
+  test("a second --apply REFUSES once there is nothing left to convert OR reclaim", async () => {
+    seedJsonStore();
+    const first = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: first.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+
+    const again = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: again.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(again.err)).toContain("already float32");
+    expect(shapes()).toEqual({ blob: 2, text: 0 });
+
+    // The dry run over the same store is not an error — it was asked a
+    // question and it answered it.
+    const look = consoleWith();
+    expect(await run(["migrate-cache"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(look.out)).toContain("Converted and compacted.");
+  });
+
+  test("one unparseable row is skipped, named, and left exactly as it was", async () => {
+    const ids = seedJsonStore(3);
+    const bad = ids[1] as string;
+    const db = openDb(paths.cache(dir));
+    db.run("UPDATE embeddings SET vec = ? WHERE memory_id = ?", "not json at all", bad);
+    db.close();
+
+    const c = consoleWith();
+    // Loud: the store is not fully converted, and the exit code says so.
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.failed,
+    );
+    const printed = text(c.out);
+    expect(printed).toContain("Converted 2 vectors");
+    expect(printed).toContain(`SKIPPED, left exactly as it was: ${bad}`);
+    expect(shapes()).toEqual({ blob: 2, text: 1 });
+    const check = openDb(paths.cache(dir));
+    expect(check.get<{ vec: string }>("SELECT vec FROM embeddings WHERE memory_id = ?", bad)?.vec).toBe(
+      "not json at all",
+    );
+    check.close();
+  });
+
+  test("it refuses a store it cannot find and a cache that was never built", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "counterparts-cli-"));
+    try {
+      const c = consoleWith();
+      expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: empty } })).toBe(EXIT.failed);
+      expect(text(c.err)).toContain("no store at");
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "A memory whose index was deleted underneath it." });
+    s.close();
+    rmSync(paths.cacheDir(dir), { recursive: true, force: true });
+    const c = consoleWith();
+    expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
+    expect(text(c.err)).toContain("never been built here");
+    // And it did not mint the box it was inspecting.
+    expect(existsSync(paths.cache(dir))).toBe(false);
+  });
+
+  test("an instrument does not migrate the store it is reading", async () => {
+    seedJsonStore();
+    const c = consoleWith();
+    expect(
+      await run(["migrate-cache", "--apply", "--yes", "--observer"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("observer stance");
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+  });
+});
+
 
 // ── backfill-claims ─────────────────────────────────────────────────────────
 
