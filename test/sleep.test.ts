@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Store } from "../src/core/store/index.js";
+import { DEFAULT_RETENTION_DAYS, Store } from "../src/core/store/index.js";
 import type { PutInput, StoreEvent } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS, band, promotionEligibility, strength } from "../src/core/physics/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
@@ -197,15 +197,23 @@ describe("phase order and completion markers", () => {
     const report = runCycle({ store: s, date: "2026-01-02", render });
 
     expect(report.order).toEqual([...PHASES]);
-    expect(report.order[report.order.length - 1]).toBe("briefing");
+    // The log sweep is the final PHASE (§5 G16); the briefing is the final
+    // CONTENT write. Both are asserted, because they are different claims.
+    expect(report.order[report.order.length - 1]).toBe("log");
+    expect(report.order[report.order.length - 2]).toBe("briefing");
     expect(phaseReport(report, "briefing").status).toBe("ran");
 
     // Render-last is behavior, not implementation: the LAST content write in the
     // whole cycle is the briefing's. Marker rows are written after it, and are
-    // deliberately not content (§3 G5, self/ §5 G1).
+    // deliberately not content (§3 G5, self/ §5 G1) — and neither is the log
+    // sweep, which deletes telemetry rows and puts nothing in the store.
     const contentWrites = events.filter((e) => CONTENT_WRITES.includes(e.name));
     expect(contentWrites.length).toBeGreaterThan(0);
     expect(contentWrites[contentWrites.length - 1]?.ref).toBe(briefingId);
+    const lastContent = events.lastIndexOf(contentWrites[contentWrites.length - 1] as StoreEvent);
+    const sweep = events.findIndex((e) => e.name === "store.events.pruned");
+    expect(sweep).toBeGreaterThan(lastContent);
+    expect(phaseReport(report, "log").status).toBe("ran-nothing-found");
   });
 
   test("every phase that ran advanced its marker to the cycle's day, and only forward", () => {
@@ -1025,6 +1033,7 @@ describe("structural guarantees", () => {
       "dedup",
       "versions",
       "briefing",
+      "log",
     ];
     expect([...PHASES]).toEqual(expected);
   });
@@ -1868,6 +1877,226 @@ describe("dedup never compares a belief with a memory", () => {
 
     expect(out.merged).toEqual([]);
     expect(sc.beliefs(entityId).map((e) => e.id).sort()).toEqual([a, b].sort());
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// G16 — the log sweep. `Store.pruneEvents()` documented a 90-lived-day window
+// and had NO caller (NOTES §13): the window was a number the log was eligible
+// for and never subject to. The `log` phase is the caller, and it is last.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the log sweep — bounded retention on the durable event log (G16)", () => {
+  const date = (i: number): string => new Date(Date.UTC(2026, 0, i)).toISOString().slice(0, 10);
+
+  /** One of each RECORD kind the store latches — what a reader must still find. */
+  function latchedRecords(s: Store, day: number): void {
+    s.appendEvent({
+      name: "memory.merged",
+      day,
+      ref: "sch_000000000001",
+      dedupKey: "sleep.merged.sch_000000000001",
+      payload: { candidateId: "sch_000000000001", originalId: "mem_000000000009", usesDelta: 1 },
+    });
+    s.appendEvent({ name: "memory.pruned", day, ref: "mem_000000000002", dedupKey: "sleep.pruned.mem_000000000002" });
+    s.appendEvent({ name: "band.promoted", day, ref: "mem_000000000003", dedupKey: "sleep.promoted.mem_000000000003" });
+    s.appendEvent({
+      name: "band.transition",
+      day,
+      ref: "mem_000000000004",
+      dedupKey: `band.transition:mem_000000000004:${day}:episodic:semantic`,
+      payload: { kind: "fact", from: "episodic", to: "semantic", direction: "up", site: "decay" },
+    });
+    s.appendEvent({
+      name: "revision.pressure",
+      day,
+      ref: "sch_000000000005",
+      dedupKey: `revision.pressure:sch_000000000005:${day}:mem_000000000006`,
+    });
+    s.appendEvent({ name: "gate.chunk", day, ref: "chunk-1", dedupKey: `gate.chunk:chunk-1:${day}` });
+    s.appendEvent({ name: "memory.unmerged", day, ref: "sch_000000000001", dedupKey: "memory.unmerged:sch_000000000001" });
+  }
+  const LATCHED_KINDS = [
+    "memory.merged",
+    "memory.pruned",
+    "band.promoted",
+    "band.transition",
+    "revision.pressure",
+    "gate.chunk",
+    "memory.unmerged",
+  ];
+
+  test("unlatched rows past the window go; newer rows and EVERY latched record stay, and the kept are counted", () => {
+    const s = store({ retentionDays: 2 });
+    // Day 0: the telemetry a live day writes, plus one of every record kind.
+    s.appendEvent({ name: "recall.decision", day: 0, ref: "session-old", payload: { surfaced: 2 } });
+    s.appendEvent({ name: "adapter.boundary", day: 0, payload: { hook: "session-end" } });
+    s.appendEvent({ name: "gate.deposit", day: 0, ref: "hash-old" });
+    latchedRecords(s, 0);
+    // Two lived days pass; day 2 writes its own telemetry.
+    s.advanceClock(date(1));
+    s.advanceClock(date(2));
+    s.appendEvent({ name: "recall.decision", day: 2, ref: "session-new" });
+
+    const events: SleepEvent[] = [];
+    // The cycle's clock lands on day 3: cutoff = 3 - 2 = 1, so day-0 rows are
+    // past the window and day-2 rows are inside it.
+    const report = runCycle({ store: s, date: date(3), onEvent: (e) => events.push(e) });
+    const log = phaseReport(report, "log");
+
+    expect(log.status).toBe("ran");
+    expect(log.reason).toBe("completed");
+    expect(log.changed).toBe(3);
+    expect(log.examined).toBe(3 + LATCHED_KINDS.length);
+    expect(log.skipped["latched"]).toBe(LATCHED_KINDS.length);
+    expect(log.budgetExhausted).toBe(false);
+    expect(log.skippedForBudget).toBe(0);
+
+    // What went, and what did not.
+    expect(s.eventLog({ name: "adapter.boundary" })).toEqual([]);
+    expect(s.eventLog({ name: "gate.deposit" })).toEqual([]);
+    expect(s.eventLog({ name: "recall.decision" }).map((r) => r.ref)).toEqual(["session-new"]);
+    for (const name of LATCHED_KINDS) {
+      expect(s.eventLog({ name }).length, `${name} must survive at any age`).toBe(1);
+    }
+    // The owner's read-only check and `repair-merged-beliefs` both read this
+    // exact query; it must answer the same after the sweep as before.
+    const merged = s.eventLog({ name: "memory.merged" });
+    expect(merged[0]?.ref?.startsWith("sch_")).toBe(true);
+
+    // Reported the way the other phases report — counts, never contents.
+    const swept = events.find((e) => e.name === "sleep.log.swept");
+    expect(swept?.data).toEqual({
+      day: 3,
+      count: 3,
+      eligible: 3,
+      remaining: 0,
+      keptLatched: LATCHED_KINDS.length,
+      budget: 5_000,
+      cutoffDay: 1,
+      retentionDays: 2,
+    });
+  });
+
+  test("the per-pass cap holds: the OLDEST rows go first, the rest are reported, and tomorrow takes the next cap's worth", () => {
+    const s = store({ retentionDays: 0 });
+    const seqs: number[] = [];
+    for (let i = 0; i < 10; i++) seqs.push(s.appendEvent({ name: "recall.decision", day: 0, ref: `s${i}` }));
+
+    // Day 1, cutoff 1: all ten day-0 rows are eligible; the cap is three.
+    const first = runCycle({ store: s, date: date(1), budgets: { log: 3 } });
+    const log = phaseReport(first, "log");
+    expect(log.status).toBe("ran");
+    expect(log.changed).toBe(3);
+    expect(log.examined).toBe(10);
+    expect(log.budgetExhausted).toBe(true);
+    expect(log.skippedForBudget).toBe(7);
+    expect(log.budget).toBe(3);
+    // Oldest first, by seq — a cap that took arbitrary rows would leave the
+    // feed with holes in the middle of its history.
+    expect(s.eventLog({ name: "recall.decision" }).map((r) => r.seq)).toEqual(seqs.slice(3));
+    // A budget is not a debt: the marker advanced, and nothing is owed.
+    expect(log.markerAfter).toBe(first.day);
+
+    // The same lived day again: nothing more goes.
+    const replay = runCycle({ store: s, date: date(1), budgets: { log: 3 } });
+    expect(phaseReport(replay, "log").reason).toBe("already-done-today");
+    expect(s.eventLog({ name: "recall.decision" }).length).toBe(7);
+
+    // Tomorrow takes the next three.
+    const second = runCycle({ store: s, date: date(2), budgets: { log: 3 } });
+    expect(phaseReport(second, "log").changed).toBe(3);
+    expect(phaseReport(second, "log").skippedForBudget).toBe(4);
+    expect(s.eventLog({ name: "recall.decision" }).map((r) => r.seq)).toEqual(seqs.slice(6));
+
+    // A zero cap is a cap: the phase ran, counted, and deleted nothing.
+    const held = runCycle({ store: s, date: date(3), budgets: { log: 0 } });
+    expect(phaseReport(held, "log").status).toBe("ran-nothing-found");
+    expect(phaseReport(held, "log").skippedForBudget).toBe(4);
+    expect(s.eventLog({ name: "recall.decision" }).length).toBe(4);
+  });
+
+  test("idempotent: a clean window is a no-op on the phase AND on the raw store method", () => {
+    const s = store({ retentionDays: 1 });
+    for (let i = 0; i < 5; i++) s.appendEvent({ name: "adapter.recall", day: 0 });
+    s.advanceClock(date(1));
+
+    const first = runCycle({ store: s, date: date(2) }); // day 2, cutoff 1
+    expect(phaseReport(first, "log").changed).toBe(5);
+    const held = s.eventLogCensus().rows;
+
+    expect(s.pruneEvents({ limit: 5_000 })).toEqual({
+      pruned: 0,
+      eligible: 0,
+      remaining: 0,
+      limit: 5_000,
+      cutoffDay: 1,
+      retentionDays: 1,
+    });
+    expect(s.pruneEvents().pruned).toBe(0);
+    expect(s.eventLogCensus().rows).toBe(held);
+
+    const next = runCycle({ store: s, date: date(3) }); // day 3, cutoff 2: nothing left below it
+    expect(phaseReport(next, "log").status).toBe("ran-nothing-found");
+    expect(phaseReport(next, "log").reason).toBe("nothing-to-do");
+    expect(s.eventLogCensus().rows).toBe(held);
+  });
+
+  test("under observer the phase reports what WOULD go, attempts nothing, and the data dir is byte-identical", () => {
+    const seed = store({ retentionDays: 0 });
+    for (let i = 0; i < 7; i++) seed.appendEvent({ name: "recall.decision", day: 0, ref: `s${i}` });
+    seed.appendEvent({ name: "memory.pruned", day: 0, ref: "mem_000000000001", dedupKey: "sleep.pruned.mem_000000000001" });
+    seed.advanceClock(date(1)); // day 1, cutoff 1: seven eligible, one latched past the cutoff
+    seed.close();
+    open.splice(open.indexOf(seed), 1);
+
+    const obs = store({ observer: true, retentionDays: 0 });
+    const before = snapshot(dir);
+    const report = runCycle({ store: obs, date: date(1), budgets: { log: 5 } });
+    const after = snapshot(dir);
+
+    const log = phaseReport(report, "log");
+    expect(log.status).toBe("did-not-run");
+    expect(log.reason).toBe("observer-report");
+    expect(log.changed).toBe(5);
+    expect(log.examined).toBe(8);
+    expect(log.skippedForBudget).toBe(2);
+    expect(log.budgetExhausted).toBe(true);
+    expect(log.skipped["latched"]).toBe(1);
+    expect(obs.events("store.observer.standdown").length).toBe(0);
+    expect(diff(before, after)).toEqual([]);
+    expect(obs.eventLogCensus().rows).toBe(8);
+  });
+
+  test("a port with no durable log reports `no-durable-event-log` — not a run, not a failure", () => {
+    const s = store();
+    put(s);
+    const report = runCycle({ store: wrap(s), date: date(2) });
+    const log = phaseReport(report, "log");
+    expect(log.status).toBe("did-not-run");
+    expect(log.reason).toBe("no-durable-event-log");
+    expect(log.markerAfter).toBe(log.markerBefore);
+  });
+
+  test("the default window is 90 lived days — longer than the parallel run — and a row leaves on the 91st, not the 90th", () => {
+    // The run needs its own record: ≥ 7 active days plus review slack, every
+    // one of them read off this table by `tools/parallel/readers.ts`. A default
+    // shorter than that would destroy the run's evidence from under it.
+    expect(DEFAULT_RETENTION_DAYS).toBeGreaterThanOrEqual(90);
+    const s = store();
+    expect(s.retentionDays).toBe(DEFAULT_RETENTION_DAYS);
+    s.appendEvent({ name: "recall.decision", day: 0, ref: "born-day-0" });
+    for (let i = 1; i <= DEFAULT_RETENTION_DAYS - 1; i++) s.advanceClock(date(i));
+    expect(s.livedDay()).toBe(DEFAULT_RETENTION_DAYS - 1);
+
+    // The cycle lands on lived day 90: cutoff 0, and `day < 0` matches nothing.
+    const ninety = runCycle({ store: s, date: date(DEFAULT_RETENTION_DAYS) });
+    expect(phaseReport(ninety, "log").status).toBe("ran-nothing-found");
+    expect(s.eventLog({ name: "recall.decision" }).length).toBe(1);
+
+    // Lived day 91: cutoff 1, and the day-0 row is past the window.
+    const ninetyOne = runCycle({ store: s, date: date(DEFAULT_RETENTION_DAYS + 1) });
+    expect(phaseReport(ninetyOne, "log").changed).toBe(1);
+    expect(s.eventLog({ name: "recall.decision" })).toEqual([]);
   });
 });
 

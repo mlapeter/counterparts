@@ -232,6 +232,11 @@ latch-free telemetry, which is not yet written by anything. `schemas/INTERFACE-G
 §1 asked for *bounded* retention on increments specifically; the honest fix when the
 volume matters is an age-based sweep that keeps the latch and drops the payload, which
 nothing needs yet (constitution 15).
+*Two things changed after this was written (2026-09-05). Latch-free telemetry IS written
+now — `recall.decision` per turn, `gate.deposit` per authored deposit, `sweep.gate`, the
+eleven `adapter.*` rows — and `pruneEvents` HAD NO CALLER until sleep's `log` phase
+(`sleep/CONTRACT.md` §5 G16; `sleep/NOTES.md` §13, §15), so "bounded retention" was a
+sentence about a sweep that never ran. The latched-row rent itself stands unchanged.*
 No item was skipped and no genuine gap-vs-CONTRACT contradiction was found, so there is
 no Conflicts section. One item needed an INTERPRETATION rather than a transcription —
 item L, where SEAMS' own summary was read against `associate/INTERFACE-GAPS.md` §1 and

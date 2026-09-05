@@ -32,6 +32,18 @@ export const TUNABLES = {
     dedup: 1_000,
     versions: 1,
     briefing: 1,
+    /**
+     * The log sweep's cap: unlatched event rows deleted per pass, oldest first.
+     * A store swept for the first time takes its backlog a cap's worth a day
+     * rather than in one long transaction — a budget is not a debt, and the
+     * rows left are reported as `skippedForBudget`, not carried as arrears.
+     * NOT calibrated (CAL): sized so one pass is milliseconds on SQLite (on a
+     * 100,000-row log, a 5,000-row capped delete measured 17 ms warm and
+     * 177 ms cold; 20,000 rows, 35 ms — NOTES.md §15) and so a day's inflow
+     * on a busy store — hundreds of `recall.decision` and `adapter.*` rows —
+     * clears in one pass with room to spare.
+     */
+    log: 5_000,
   } as const satisfies Record<Phase, number>,
 
   /** Cadence in lived days per phase. 1 = every lived day. */
@@ -43,6 +55,7 @@ export const TUNABLES = {
     dedup: 1,
     versions: 1,
     briefing: 1,
+    log: 1,
   } as const satisfies Record<Phase, number>,
 } as const;
 

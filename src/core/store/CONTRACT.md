@@ -71,6 +71,14 @@ ended up with canonical state spread across a prose store plus half a dozen side
      `counterparts migrate-cache` exist rather than a rebuild.
 - **The universal "the DB is a cache" rebuild contract is released** (owner rescope 1,
   settled) — it now covers box 3 only. Box 2 is canonical and is backed up as a database.
+  *One box-2 table is telemetry rather than memory and has bounded retention: the
+  durable event log (SEAMS item K). `pruneEvents({ limit })` deletes UNLATCHED rows older
+  than `retentionDays` lived days, oldest first, capped per call, and reports what went
+  and what is left; rows carrying a `dedup_key` — the replay latch, which every
+  prune / promotion / merge / unmerge / pressure / gate-chunk / band-transition record
+  carries — are kept at any age. `eventLogCensus()` is the read-only count of the same.
+  The caller is sleep's `log` phase (`sleep/` §5 G16, 2026-09-05); before that the method
+  had none.*
 - **Hand-serialized JSON sidecars are gone** (owner rescope 1, settled). All seven bugs in
   v1's 2026-08-18 verified-bug batch were structured-sidecar bugs, and the class refired
   2026-08-23; prose files never minted one (scar §2.1).

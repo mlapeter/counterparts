@@ -165,6 +165,13 @@ text. No draft text, no alias, no quote, no secret and no hash of one.
   has no caller in `src/`, so §7's "it ages out on the log's existing window" was
   already an eligibility claim rather than a deletion one, for `recall.decision`
   as much as for this. Filed as `src/core/sleep/NOTES.md` §13, not fixed here.
+  *Closed 2026-09-05: sleep's `log` phase is the caller (`sleep/CONTRACT.md` §5
+  G16). The window is 90 lived days and the driver reads `gate.deposit` over the
+  whole run at its end, so a corpus with more than 90 ACTIVE days would lose its
+  first days' deposit records to the sweep before the scorer read them; the
+  recorded corpus has 26. If a longer one ever exists, the driver reads
+  incrementally or opens its store with a longer `retentionDays` — the default
+  does not move for it (`sleep/NOTES.md` §15).*
   What the latch would have bought is bought elsewhere: an accepted deposit
   cannot repeat, because `remember/`'s content ledger refuses a second deposit of
   the same text before the battery is called.

@@ -3,8 +3,10 @@
  *
  * The librarian. It advances the lived-day clock, materializes strength into the
  * ranking cache, marks consolidation and executes the identity crossing, prunes
- * at the floor (archivally), dedups, expires superseded-version rows, and
- * re-renders the wake briefing LAST.
+ * at the floor (archivally), dedups, expires superseded-version rows, re-renders
+ * the wake briefing (the last CONTENT write), and finally sweeps the durable
+ * event log past its retention window — bounded per pass, latched records kept
+ * (CONTRACT §5 G16).
  *
  * **Zero generative model calls, asserted by a test over this module's sources**
  * (CONTRACT §5 G1). Embedding lookups are permitted arithmetic and arrive
@@ -80,6 +82,9 @@ export type { DedupCandidateInput, DedupCandidateSource, DedupPair, DedupResult 
 
 export { runBriefing } from "./briefing.js";
 export type { BriefingContext, BriefingOutcome, BriefingResult, RenderFn } from "./briefing.js";
+
+export { LOG_SWEEP_EVENT, LOG_SWEEP_SKIPS, runLogSweep } from "./log.js";
+export type { LogSweepResult, LogSweepSkip } from "./log.js";
 
 export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, countSkip, emptyOutcome, isJournal, isSchemaRow, phaseReport } from "./types.js";
 export type {

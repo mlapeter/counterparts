@@ -35,6 +35,7 @@ import { runConsolidate } from "./consolidate.js";
 import { runDecay } from "./decay.js";
 import { runDedup } from "./dedup.js";
 import type { DedupCandidateSource } from "./dedup.js";
+import { runLogSweep } from "./log.js";
 import { advanceMarker, budgetFor, cadenceFor, markerDue, readMarker } from "./markers.js";
 import { runPrune } from "./prune.js";
 import { sqliteStrengthCache, storeRankingCache, supportsRanking } from "./strength-cache.js";
@@ -313,6 +314,22 @@ export function runCycle(opts: SleepOptions): CycleReport {
       (ctx) => runBriefing(ctx, opts.render, opts.budgetBytes),
       undefined,
       () => (opts.render === undefined ? "no-render-fn" : null),
+    );
+
+    // ── phase 8: the log sweep — bounded retention on the durable log ─────
+    // LAST, and deliberately after the briefing: it deletes telemetry rows
+    // past the store's window and writes no content, so §3's "the briefing is
+    // the last content write" holds with it here. `BUDGETS.log` is the per-pass
+    // cap — a backlog is taken a cap's worth a day, never all at once. A port
+    // with no durable log has nothing to sweep and says so by name.
+    runPhase(
+      "log",
+      (ctx) => runLogSweep(ctx),
+      undefined,
+      () =>
+        store.pruneEvents === undefined || store.eventLogCensus === undefined
+          ? "no-durable-event-log"
+          : null,
     );
 
     // ── the tripwire, at cycle end (physics guarantee 12, scar §2.10) ─────

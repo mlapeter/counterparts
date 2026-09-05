@@ -41,7 +41,7 @@ import { LANE_ORDER, PREFACE_RESERVE_BYTES } from "../../core/self/index.js";
 // The ONE predicate for "this row is the journal, not a memory" — the same one
 // the sleep phases and the dashboard's census use. A second copy of that test
 // living here is how the console drifted away from them in the first place.
-import { isJournal } from "../../core/sleep/index.js";
+import { TUNABLES as SLEEP_TUNABLES, isJournal } from "../../core/sleep/index.js";
 // The deep import into box 3's own driver — the same one `snapshot.ts` and
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
@@ -58,6 +58,7 @@ import {
   LAYOUT,
   Store,
   dataDir,
+  dateOf,
   decodeVector,
   encodeVector,
   isWithin,
@@ -65,7 +66,7 @@ import {
   readProseFile,
   storeExists,
 } from "../../core/store/index.js";
-import type { VectorFormatCensus } from "../../core/store/index.js";
+import type { EventLogCensus, VectorFormatCensus } from "../../core/store/index.js";
 // The owner-op seam's REPAIR half — the one door that un-archives, and only for
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
@@ -1459,6 +1460,30 @@ function verifyPruneIndex(dir: string, io: Io): number {
 }
 
 /**
+ * The durable event log, as `verify` prints it: what is held, how old the
+ * oldest row is, and — the number this exists for — what the next cycle's log
+ * sweep would delete. Before 2026-09-05 nothing swept the log at all
+ * (`sleep/NOTES.md` §13); the first sweep on a store that has never been swept
+ * is a deletion somebody should be able to see the size of BEFORE it runs,
+ * which is what this read-only line is for. The cap is the sleep budget itself,
+ * imported rather than restated, so the number printed is the number in force.
+ */
+export function eventLogLines(log: EventLogCensus): string[] {
+  const cap = SLEEP_TUNABLES.BUDGETS.log;
+  const wouldDelete = Math.min(log.eligible, cap);
+  const oldest =
+    log.oldestDay === null || log.oldestAt === null
+      ? "oldest: none"
+      : `oldest: lived day ${log.oldestDay} (${dateOf(log.oldestAt)})`;
+  return [
+    `Events: ${log.rows} held (${log.latched} latched records)   ${oldest}   ` +
+      `window: ${log.retentionDays} lived days (cutoff day ${log.cutoffDay})`,
+    `  past the window: ${log.eligible} unlatched (the next sleep pass deletes ${wouldDelete}, cap ${cap} per pass)` +
+      `, ${log.latchedPastCutoff} latched records kept`,
+  ];
+}
+
+/**
  * Read-only. Opens the store in OBSERVER stance and box 3 on its own connection,
  * one after the other rather than both at once, and writes nothing canonical.
  * (Constructing a `Store` still rewrites box 3's schema-version row when it is
@@ -1470,6 +1495,7 @@ function verifyCensus(dir: string, io: Io): number {
   let live: string[];
   let denied: string[];
   let unembedded: number;
+  let log: EventLogCensus;
   try {
     canonical = store.list();
     // What the INDEX is supposed to cover, since I13: the live rows. An
@@ -1477,6 +1503,7 @@ function verifyCensus(dir: string, io: Io): number {
     live = store.list({ archived: false });
     denied = store.deniedIds();
     unembedded = store.unembeddedCount();
+    log = store.eventLogCensus();
   } finally {
     store.close();
   }
@@ -1487,6 +1514,7 @@ function verifyCensus(dir: string, io: Io): number {
     `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
       `removed (deny-list): ${denied.length}`,
   );
+  for (const line of eventLogLines(log)) io.out(line);
 
   // The unreadable half of this is narrow by construction: `Store.open` builds
   // box 3 on the way in, so a cache this process cannot read usually fails the

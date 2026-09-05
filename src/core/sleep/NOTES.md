@@ -330,6 +330,10 @@ it: `memory.merged` events whose `candidateId` starts with `sch_`.
 
 ## 13. Nothing sweeps the events table — the missing `pruneEvents` caller
 
+**RESOLVED 2026-09-05, the same day, by owner ruling ("wire it into sleep") —
+§15 records the two decisions this section asked for and what was built. The
+filing is kept as written, because it is the argument §15 answers.**
+
 **Filed 2026-09-05, during replay §2a's review. Not fixed here, deliberately.**
 
 `Store.pruneEvents()` exists, is documented as bounded retention ("logs are
@@ -464,3 +468,102 @@ archived stays live, one fewer `sleep.merged.<id>` is written, and recall, the
 wake and every schema slice see a belief where they would have seen nothing.
 The day-1 record says nothing either way about schema/memory collisions, so
 "no live row is affected" is not a claim this session can make.
+
+## 15. The log sweep — §13's caller, and the two decisions it asked for — 2026-09-05
+
+**What was built.** A new terminal phase, `log` (`log.ts`), after `briefing`,
+that calls `Store.pruneEvents({ limit: ctx.budget })` and reports like every
+other phase: `examined` = rows past the window (unlatched + latched), `changed`
+= rows deleted, `skipped.latched` = rows past the window kept by their latch,
+`skippedForBudget` = eligible rows the cap left for tomorrow. It emits
+`sleep.log.swept` (counts only) and the store emits `store.events.pruned`.
+`Store.pruneEvents` grew the cap (`WHERE seq IN (SELECT seq … ORDER BY seq
+LIMIT ?)`, oldest first) and a fuller report (`eligible`, `remaining`,
+`limit`); `Store.eventLogCensus()` is the read-only count of the same numbers,
+which is what the observer report and `counterparts verify` use. CONTRACT §5
+G16 states the guarantee.
+
+**Decision 1 — which phase.** §13 named `prune` as the obvious and wrong home,
+and the alternative of a call at `runCycle`'s end outside the phase machinery.
+Neither. A PHASE gets everything the sweep needs for free and would otherwise
+have to re-spell: a marker (once per lived day, `already-done-today` on replay),
+a budget (the per-pass cap, and "a budget is not a debt" already means "take a
+cap's worth today, report the rest, owe nothing"), degrade-don't-abort, the
+observer's `apply === false` path, the three-way outcome vocabulary, and a row
+in the dashboard's cycle table via `CYCLE_PHASES` (which is `PHASES`, imported).
+It runs LAST because §3's guarantee is that the briefing is the last **content**
+write, and a telemetry delete is not one — the order test now asserts both: the
+briefing's `store.put` is the final content write, and `store.events.pruned`
+comes after it. The name is `log` because that is what the code calls the table
+everywhere (`eventLog`, "the durable event log", `no-durable-event-log`);
+`events` would collide with `CycleReport.events`, the in-memory telemetry ring.
+
+**Decision 2 — the retention, and where it lives.** `Store.retentionDays`
+stays the one window, default `DEFAULT_RETENTION_DAYS` = 90 lived days in
+`store/operational.ts`. It was already the knob for the version and
+gate-session sweeps, and the dashboard already promised it in prose in two
+places ("I keep events for `${store.retentionDays}` lived days; older ones are
+swept unless a replay latch holds them" — `activity.ts`, `web/views.ts`), so a
+second sleep-side number would have made two 90s that drift, and moving the
+store's default into physics would have made the store import physics for one
+constant. What the sleep module owns is the FLOOR ON THE DEFAULT: a test pins
+`DEFAULT_RETENTION_DAYS >= 90` with the reason beside it — the parallel run's
+instrument reads its evidence off this table and needs ≥ 7 active days plus
+review slack. The knob remains the owner's: a store opened with
+`retentionDays: 30` sweeps at 30 and no test forbids it, because a floor that
+silently refused the owner's own setting would be the ceremony constitution 15
+tells us not to build ahead of a failure.
+
+**Every reader of the table, and what each needs — the survey the retention
+was chosen against.** Latched (kept at any age, so retention is irrelevant to
+them): `repair-merged-beliefs` and the seam's `unarchiveMerged` (`memory.merged`
+by name and by ref — and the command ALSO unions archived schema rows via
+`list()`, so it does not lean on the log alone); the symmetry counter in
+`cycle.ts`, `dashboard/status.ts`, `web/views.ts#healthView`, the replay
+driver (`band.transition`); `schemas.story()`, `dashboard/stories.ts`
+(`revision.pressure`); the replay driver and the daily (`gate.chunk`); the
+dashboard's exits and the demo seeder (`memory.pruned`, `memory.merged`,
+`band.promoted`). Unlatched (subject to the window): `tools/parallel/readers.ts`
+reads `adapter.*`, `sweep.gate`, `recall.decision` **for one date at a time**
+(SQL-filtered by `day` or by the payload's `date`) plus a whole-table
+`COUNT(*)` of `recall.decision` — a run window of ≥ 7 active days sits far
+inside 90; `tools/replay/driver.ts` reads `gate.deposit` over the WHOLE run at
+the end, on a store it created whose lived days are the corpus's active days
+— **26 in the recorded replay** — so a corpus longer than the window would lose
+its first days' deposit records to the sweep, and that is the one bound worth
+naming (the fix, if a longer corpus ever exists, is a driver that reads
+incrementally or opens its store with a longer window, not a longer default);
+`tools/demo/seed.ts` counts `recall.decision` over its 30 days; the dashboard's
+feed, node lists and health heatmap read `LOG_CEILING` or the last 21 lived
+days and already say "what I still have"; `eventDetail(seq)` already answers
+"no event with that seq in the kept window"; the `session` node's "N sessions
+seen" is now a count over the window rather than since birth. `date.repaired`
+and `salience.defaulted` (repair tools) are unlatched and written at repair
+time; nothing reads them back. No reader needs more than 90 lived days.
+
+**The cap.** `TUNABLES.BUDGETS.log = 5_000` rows per pass. Measured, not
+calibrated: on a 100,000-row log, a 5,000-row capped delete took 177 ms cold and
+17 ms warm, 20,000 rows took 35 ms, and the census over 70,000 rows took 10 ms
+(bun 1.3.10, this machine, 2026-09-05). A day's inflow on the live store is
+hundreds of rows, not thousands, so steady state clears in one pass and the cap
+only bites on a backlog — which is the case it exists for.
+
+**UNVERIFIED — what the live store's events table holds.** This session never
+opened `~/.counterparts` and makes no claim about its row count, its oldest row
+or its composition. What CAN be said is arithmetic on the write sites: every
+`appendEvent` in `src/` passes a `day` taken from `livedDay()` at write time (or
+a `d.day` / `t.day` / `log.day` that is that same value carried a few lines),
+`advanceClock` refuses to move backwards, and `tools/migrate` writes no events
+(it sets `livedDay` to v1's `activeDay` and writes rows, not log entries). So
+the oldest event's day ≥ the lived day at migration, and the store has lived at
+most the calendar days since 2026-08-25 — eleven at the time of writing — while
+the cutoff is `livedDay − 90`. **The first pass on the live store should delete
+0 rows**, whatever v1's clock set `livedDay` to, and should keep doing so until
+the store has lived 90 days past its first v2 event. **The owner's `verify`
+tells the truth of it before the merge:** `counterparts verify --dir
+~/.counterparts/store` prints `Events: N held (L latched records)   oldest:
+lived day D (YYYY-MM-DD)   window: 90 lived days (cutoff day C)` and `past the
+window: E unlatched (the next sleep pass deletes min(E, 5000), cap 5000 per
+pass), K latched records kept`. If `E` is anything but 0 on the live store, the
+arithmetic above is wrong somewhere and the merge should wait on finding out
+where.

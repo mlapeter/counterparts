@@ -852,7 +852,7 @@ is recorded.
 
 - **I21 (core, process)** Nothing refuses an implicit default data dir: a caller that omits `dir` and has no `COUNTERPARTS_DATA_DIR` opens `~/.counterparts/store`. An agent did exactly that (read-only, nine titles printed to its own terminal, no write, no egress). Proposed guard `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` — G25.
 - **I22 (core)** `prose_path` is stored absolute, so a copied store reads and deletes the source's prose — G26.
-- **I23 (core)** `pruneEvents` has no caller — G27.
+- **I23 (core — FIXED on branch `core/prune-events`, 2026-09-05, owner ruling the same day: wire it into sleep)** `pruneEvents` has no caller — G27. Now sleep's `log` phase, last in the cycle: unlatched rows older than 90 lived days go, at most 5,000 per pass, oldest first; every latched record is kept and counted; `counterparts verify` prints what the next pass would delete (`sleep/CONTRACT.md` §5 G16, `sleep/NOTES.md` §15).
 - **I24 (core, informational)** `self/identity.ts#enumerate()` has no type filter; closed today only because no writer gives an episode the identity band or the protected flag (`recall/NOTES.md` #13).
 - **I25 (fixed in #70)** The horizon lane listed a chapter's date as "Arriving": a lived day rendered as prospective. Filtered in `prospective/derive.ts` — label where the reader can discount, filter where the frame itself would be a lie.
 - **I26 (fixed in #72)** An absolute `--config` naming a missing, non-JSON or mistyped file fell through to the default store instead of refusing.
@@ -885,7 +885,7 @@ is recorded.
 | G24 | The four read-only dry runs (table above), after the merge. `repair-merged-beliefs --dry-run` answers G17 directly. | open |
 | G25 | **I21** — `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`: should the library refuse an implicit default dir when the env var is unset? Tonight's agents ran with the var exported everywhere; one earlier agent opened the live store read-only by passing the wrong option name. Core change; owner's call. | open |
 | G26 | **I22** — `prose_path` is stored ABSOLUTE: a copied store reads and deletes the SOURCE's prose. Backups as a revert lever are unsafe until this is relative; the recall-bench README's `cp -R` advice is hazardous. Core change; owner's call. | open |
-| G27 | `pruneEvents` has no caller; the events table grows without bound. Wire it into sleep or drop it. Core; owner's call. | open |
+| G27 | `pruneEvents` has no caller; the events table grows without bound. Wire it into sleep or drop it. Core; owner's call. **Wired, on branch `core/prune-events` (owner ruling 2026-09-05: sleep).** The `log` phase runs last; `counterparts verify --dir ~/.counterparts/store` prints the live table's row count, oldest day and what the first pass would delete — read that BEFORE merging, since the count on the live store is unverified by any agent. Expected by arithmetic: 0 rows until the store has lived 90 days past its first v2 event. | owner merges PR |
 | G28 | Site: push `~/counterparts-site` `main` (unpushed, ~40 commits), create the GitHub repo and the Vercel project (G19). Kill the dev server on 3111 when done looking. | open |
 | G29 | Site: `content/status.ts` mis-attributes four true status lines to the README's "Status, honestly" section. One-line header fix. | open |
 | G30 | Hero polish round (owner: "dial in the details later"). | later |

@@ -203,6 +203,44 @@ export interface PruneReport {
   retentionDays: number;
 }
 
+/**
+ * What one bounded sweep of the durable event log did, and what it left. The
+ * sweep is capped per pass, so `pruned` and `eligible` are different numbers
+ * and both are reported: a report that said only how many rows went could not
+ * tell "the backlog is cleared" from "the cap was hit" (scar §2.4).
+ */
+export interface EventPruneReport extends PruneReport {
+  /** Unlatched rows older than the window when the sweep began. */
+  eligible: number;
+  /** Eligible rows the cap left for the next pass. Zero means the window is clean. */
+  remaining: number;
+  /** The per-pass cap in force, or null when the caller set none. */
+  limit: number | null;
+}
+
+/**
+ * The durable event log, counted without being touched — what `verify` prints
+ * and what an observer's cycle report is computed from. Every number here is a
+ * read; nothing in it crosses the write seam.
+ */
+export interface EventLogCensus {
+  /** Rows held, latched and unlatched. */
+  rows: number;
+  /** Rows carrying a `dedup_key` — records, kept at any age. */
+  latched: number;
+  /** The oldest row's lived day and wall-clock instant, or null on an empty log. */
+  oldestDay: number | null;
+  oldestAt: number | null;
+  newestDay: number | null;
+  /** `livedDay - retentionDays`: rows with `day` strictly below it are past the window. */
+  cutoffDay: number;
+  retentionDays: number;
+  /** Unlatched rows past the window — what the next sweep would delete, before its cap. */
+  eligible: number;
+  /** Latched rows past the window — kept by kind, and counted so "kept" is a number. */
+  latchedPastCutoff: number;
+}
+
 export interface RebuildReport {
   indexed: number;
   skippedDenied: number;
@@ -1035,22 +1073,93 @@ export class Store {
    * named exception to no-silent-destruction). Events carrying a `dedupKey` are
    * KEPT regardless of age: they are the replay latch, and sweeping one would let
    * a replayed day re-append a record the store already accounted for.
+   *
+   * `limit` caps the rows one call deletes, OLDEST FIRST by `seq`, so a pass on a
+   * store that has never been swept cannot run long or hold the write lock across
+   * a backlog: it takes the cap's worth and reports how much is left. Its caller
+   * is `sleep/log.ts`, on the cycle's own budget; before 2026-09-05 nothing
+   * called this at all (`sleep/NOTES.md` §13), and the window it documents was
+   * a number the log was eligible for and never subject to.
    */
-  pruneEvents(): PruneReport {
+  pruneEvents(opts: { limit?: number } = {}): EventPruneReport {
+    const limit = opts.limit === undefined ? null : Math.max(0, Math.floor(opts.limit));
     const report = this.mutate("pruneEvents", () => {
       const cutoffDay = this.livedDay() - this.retentionDays;
-      const doomed = this.ops.get<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM events WHERE day < ? AND dedup_key IS NULL",
+      const eligible =
+        this.ops.get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM events WHERE day < ? AND dedup_key IS NULL",
+          cutoffDay,
+        )?.n ?? 0;
+      if (limit === null) {
+        this.ops.run("DELETE FROM events WHERE day < ? AND dedup_key IS NULL", cutoffDay);
+      } else {
+        this.ops.run(
+          `DELETE FROM events WHERE seq IN (
+             SELECT seq FROM events WHERE day < ? AND dedup_key IS NULL
+             ORDER BY seq ASC LIMIT ?)`,
+          cutoffDay,
+          limit,
+        );
+      }
+      const pruned = this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+      return {
+        pruned,
+        eligible,
+        remaining: eligible - pruned,
+        limit,
         cutoffDay,
-      );
-      this.ops.run("DELETE FROM events WHERE day < ? AND dedup_key IS NULL", cutoffDay);
-      return { pruned: doomed?.n ?? 0, cutoffDay, retentionDays: this.retentionDays };
+        retentionDays: this.retentionDays,
+      };
     });
     this.emit("store.events.pruned", undefined, {
       count: report.pruned,
+      eligible: report.eligible,
+      remaining: report.remaining,
+      limit: report.limit,
       cutoffDay: report.cutoffDay,
+      retentionDays: report.retentionDays,
     });
     return report;
+  }
+
+  /**
+   * The log counted, not touched. READ-ONLY by construction — it never calls
+   * `mutate`, so an observer may ask it (the cycle's read-only report does) and
+   * `counterparts verify` prints it without opening a writable store.
+   */
+  eventLogCensus(): EventLogCensus {
+    const cutoffDay = this.livedDay() - this.retentionDays;
+    const totals = this.ops.get<{
+      total: number;
+      latched: number;
+      oldest_day: number | null;
+      oldest_at: number | null;
+      newest_day: number | null;
+    }>(
+      `SELECT COUNT(*) AS total,
+              COUNT(dedup_key) AS latched,
+              MIN(day) AS oldest_day,
+              MIN(at) AS oldest_at,
+              MAX(day) AS newest_day
+         FROM events`,
+    );
+    const past = this.ops.get<{ eligible: number; latched: number }>(
+      `SELECT COUNT(*) - COUNT(dedup_key) AS eligible,
+              COUNT(dedup_key) AS latched
+         FROM events WHERE day < ?`,
+      cutoffDay,
+    );
+    return {
+      rows: totals?.total ?? 0,
+      latched: totals?.latched ?? 0,
+      oldestDay: totals?.oldest_day ?? null,
+      oldestAt: totals?.oldest_at ?? null,
+      newestDay: totals?.newest_day ?? null,
+      cutoffDay,
+      retentionDays: this.retentionDays,
+      eligible: past?.eligible ?? 0,
+      latchedPastCutoff: past?.latched ?? 0,
+    };
   }
 
   // ── box 3: the ranking cache (SEAMS item J) ────────────────────────────────
