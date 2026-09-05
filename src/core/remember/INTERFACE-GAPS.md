@@ -46,11 +46,25 @@ interface GateInput {
 }
 
 type GateVerdict =
-  | { ok: true; content: string; aliases?: readonly string[]; feeling?: Feeling | null }
-  | { ok: false; gate: string; reason: string };
+  | { ok: true; content: string; aliases?: readonly string[]; feeling?: Feeling | null;
+      novelty?: number | null;
+      records?: readonly GateRecord[]; channels?: readonly ChannelRecord[] }
+  | { ok: false; gate: string; reason: string; refusedByDesign?: boolean;
+      records?: readonly GateRecord[]; channels?: readonly ChannelRecord[];
+      blockedBy?: readonly string[] };
 ```
 
 Notes for the wiring:
+- **`records` / `channels` / `blockedBy` are a RELAY, added 2026-09-05 (replay
+  INTERFACE-GAPS §2a).** `remember/` still never gates and still reads nothing out
+  of them: they cross the seam so a caller that writes telemetry can record what
+  the battery actually did instead of a first reason and a joined string. They are
+  the one place this module names an `encode/` type — a TYPE-ONLY import in
+  `proposals.ts`, erased at runtime, so the injected-gate property is unchanged.
+  All three are optional: a gate that is not the battery (`NO_GATE`, a test
+  double) has none, and "no battery ran" must stay distinguishable from "a
+  battery ran and found nothing". `SubmitResult` carries them out, together with
+  `kind` — the proposed kind, which now survives a refusal.
 - **`content` on an `ok` verdict is the redacted/hedged text**, and it — never the
   draft — becomes the memory. That is how "the gate runs before anything durable"
   stays true from this side.
@@ -131,3 +145,43 @@ downstream of this module, and calling it here would put the clamp in two places
 A draft with no `kind` mints as `"fact"`. If `encode/` classifies kind, that default
 should move behind the gate seam (the verdict can return one) rather than being
 guessed twice.
+
+## 9. Nothing prunes `buffer.jsonl` for a session that ended normally
+
+**Filed 2026-09-05**, by the adversarial review of the span chase (finding F5).
+
+The strike gave the owner a way to destroy a span. It also made a claim the
+console printed and two documents repeated — that a conversation turn quoting a
+removed memory is "drained by the sweep" — and that claim is false.
+
+`crashedSessions()` excludes any session that recorded a `session-end`
+boundary, by design (§4's three clauses: the author who reached the host's own
+end-of-session path got the pen, and what it chose not to write is forgotten
+deliberately). A session that ends normally therefore never has its spans
+claimed by the fallback, and **nothing else prunes `buffer.jsonl` at all** —
+not `consume()`, which only truncates a claim; not the ledger trim, which is
+bookkeeping; not any phase of sleep, which never looks under `spans/`.
+
+So the live buffer grows without bound in ordinary use, and every conversational
+turn stays on disk verbatim, indefinitely. Two consequences, both real:
+
+1. **A removal cannot promise what a grep will find.** The console now says
+   "nothing prunes the buffer today, so it stays there" instead of "the sweep
+   drains it". Honest, and not a fix.
+2. **`spans/` is `backup: true`.** A store that has been running for a year
+   backs up a year of raw transcript beside the memories interpreted from it.
+
+**What is missing.** A retention rule for the live buffer, owned by this module
+because the buffer is: something on the order of "spans covered by an accepted
+proposal, older than N lived days, are dropped — counted, in a record". The
+pieces exist (`coveredHashes()` says what has been interpreted; the boundary
+ledger says when a session ended; `strikes.jsonl` is the shape of the record).
+What does not exist is the decision about N, and whether an UNCOVERED span may
+ever be dropped on age alone — which is the same question the unaskable-stretch
+bound (§5 G12) answers by refusing to pretend, and should probably answer the
+same way here: bound it, count it, do not silently drop it.
+
+**Not taken with the strike**, deliberately: retention is a policy about
+forgetting, the strike is a mechanism for destroying on demand, and building the
+first inside the second would have made a removal PR into a change of what the
+system keeps.

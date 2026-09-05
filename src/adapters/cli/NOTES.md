@@ -112,17 +112,116 @@ What shipped, adapter-side:
   rather than resolved in the comfortable direction. Paths are store-RELATIVE and
   no line of what was read is ever printed (§16 G15).
 
-**Why not chase it.** Striking a span needs a door in `remember/` that does not
-exist, and the buffer is a state machine whose spec (§2 G6) forbids a span being
-in neither claim nor buffer — a `rmSync` from the destruction path would race a
-concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
+**Why not chase it, that day.** Striking a span needs a door in `remember/` that
+did not exist, and the buffer is a state machine whose spec (§2 G6) forbids a
+span being in neither claim nor buffer — a `rmSync` from the destruction path
+would race a concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
 (`SpanBuffer.strike`), including the detail that `Proposal.ownSpanHash` is minted
-but never persisted, which is why the adapter detects by content rather than by
+but never persisted, which is why the adapter detected by content rather than by
 hash.
 
 **Still true after this change:** the words are still on disk. This makes the
-report honest; it does not make the removal complete. README rough edge 4 and
-QUICKSTART §10.6 say so in the same words the command does.
+report honest; it does not make the removal complete. Closed the next day — see
+below.
+
+## 2026-09-05 — the seventh surface is CHASED (option B; INTERFACE-GAPS §9 closed)
+
+The chase landed as `src/core/remember/owner-strike-seam.ts`, called from
+`ownerRemoval` between `dark` and the box-2 chase. What the console owns:
+
+- **The chase key, and why it is not a column.** §9 said `Proposal.ownSpanHash`
+  is minted and never persisted, so either it joins `memories` or `strike` takes
+  a content predicate. It joins the PROSE META instead — `origin.spanHash`,
+  beside the session/scope/ref the mint already mirrors there. A column would
+  have needed `SCHEMA_VERSION` 4 → 5 (`openOperational` returns early on a
+  version match, so `ADDED_COLUMNS` never runs without a bump), which makes a
+  revert a store the previous build refuses to open (`SCHEMA_AHEAD`) — a one-way
+  door on the owner's live memory, bought for a field the prose can hold. And
+  §16 G9 argues the same way: a hash of low-entropy content is brute-forceable,
+  and `chaseRemoved` blanks `content_hash`/`prose_path` on the skeleton
+  precisely so no pointer to removed content outlives the removal. In the prose
+  meta the pointer dies with the document. In a column it would not.
+- **The half that works retroactively.** Every accepted proposal has always
+  written `{spanHash, proposalId, own}` into the scope's `coverage.jsonl`, and
+  the mint has always stored the proposal id in `origin_ref`. So a memory minted
+  months before this branch is addressable by its `own: true` coverage marks,
+  with no migration. `chaseHashes()` reads both sources. ONLY `own` marks: the
+  other spans a proposal covered are the conversation around it, and striking
+  those because one memory cited them would be a destruction nobody asked for.
+- **The order.** The strike runs BEFORE the box-2 chase and before the prose is
+  unlinked, because those are what carry the addressing. Read-everything-first
+  (§16 G13) is now doing work rather than being a rule about the contamination
+  scan.
+- **The body never enters a struct.** `spanChase` on the plan carries a scope
+  and hashes. The content fallback reaches the seam as a CLOSURE the console
+  builds over a local, so no printed surface, no plan object and no record ever
+  holds a word of what is being erased (§16 G15).
+- **The report says what happened to the other two places.** A struck hash is
+  KEPT in `consumed.jsonl` — that is what stops a re-capture, a restore or an
+  orphan merge re-admitting the words — and a claim file rewritten under a
+  worker mid-arc is called out by name. Both are printed lines, not stored
+  counts; the durable `removal_record` is still four stages.
+- **One state is still `NOT chased`, and it is the honest one.** Prose already
+  gone AND no span hash recorded: nothing left to address the buffer with. It
+  stays in `unchasable`, counts as `unchased: 1`, and says which way it is
+  blind. `held` moved out of `unchasable` and into `surfaces`.
+- **The echo, found by the adversarial read of the first draft.** On the live
+  store a note is taken MID-CONVERSATION, so the Stop hook has already captured
+  the turn in which the words were said into `buffer.jsonl`. The first draft
+  counted that line in the plan (`spanLinesIn` matched by hash OR by text) and
+  the strike then took only the jot — plan said 2, report said 1, and `grep`
+  still answered. Two fixes, both about honesty rather than reach: the plan now
+  counts exactly what the strike will take (`needle` is passed only when there
+  is no hash), and the leftover is counted SEPARATELY as `spans echo` and
+  printed on the `unchased` line. It is left on purpose — a conversation span is
+  many turns joined, belongs to no single memory, and striking it because one
+  memory quoted it would destroy material nobody named. `test/cli.test.ts` has
+  the fixture: `captureSpans` a turn holding the marker, then `note`, then
+  remove, and assert the plan's count equals the strike's.
+
+**What the adversarial review (2026-09-05) changed, because none of it was
+caught by the suite:**
+
+- **F4, the one that would have reached the live store.** The content fallback
+  was `text.includes(body)` with `scope: null` visiting every scope. Measured by
+  the reviewer: removing "buy milk" destroyed two unrelated jots in two
+  unrelated projects and ledgered both hashes. Live-reachable because
+  `tools/migrate/apply.ts` writes `origin: { ref }` and nothing else, so all
+  ~12,000 imported rows have no scope and no span hash — the exact shape that
+  falls through to the fallback. Now: **full-text equality on a jot after trim,
+  never a substring**, and **only inside the memory's recorded `origin_scope`**.
+  With no scope the console REFUSES, prints the candidate files and line counts
+  (no text), and points at `--strike-by-content-across-scopes`, which is the
+  owner saying it in so many words. The dry run also states which evidence it is
+  acting on — `matched by the span hash its mint recorded` vs `matched by
+  content` — because the two are not equally strong and the reader is about to
+  type an id back.
+- **F1, the invisible aside.** `jsonlUnder()` collected `*.jsonl` only, so a
+  crashed strike's `jots.jsonl.striking` was invisible to the residue walk and a
+  later `remove` printed "not applicable" over words that were on disk and that
+  `backup` would copy. The walk names `*.jsonl.striking` now, and the strike's
+  own recovery pass folds any aside home before it runs, so naming it is not a
+  promise the chase cannot keep.
+- **F6, the third category.** The echo was filed under `unchased (dark via the
+  deny-list…)`, which describes a conversation turn as though it had an id and a
+  tombstone. It has its own `leftAlone` list and its own line now, in the plan
+  and in the completion report, in the same words: *left on purpose — not a
+  failure, this removal was never entitled to it.*
+- **F5, a claim that was simply false.** The printed line said the sweep drains
+  the echo. It does not: `crashedSessions()` excludes any session that ended
+  normally and nothing else prunes `buffer.jsonl`, so the echo is permanent.
+  Said as such, everywhere, and filed as `remember/INTERFACE-GAPS.md` §9.
+- **The failure arm** reused the plan's success sentence, so a strike that threw
+  printed "the removal strikes them out of it" underneath a strike that had not.
+  It has its own wording.
+
+**Verified:** `test/cli.test.ts` runs §I2's own repro end to end — note through
+the jot door, remove, `grep -r` the whole data dir (nothing), `backup` and grep
+that (nothing) — plus the two-notes case proving the strike is a rewrite and not
+a truncation. `test/remember.test.ts` covers the seam itself, including that the
+sweep is never shown a struck span. The install loop gained two steps (35/35):
+the §7 plan's `spans` lines are checked against QUICKSTART verbatim, and a
+non-interactive `--confirm` still refuses.
 
 ## 2026-09-04 — `verify` is a census by default; the rebuild is opt-in
 
@@ -174,6 +273,151 @@ though the census writes nothing. That is a false refusal in the safe direction,
 and taking it off the list is stance semantics — threading the stance into the
 command so `--rebuild` alone refuses — which is a separate decision, not a
 safety fix. Left open deliberately.
+
+## 2026-09-05 — `migrate-cache`, and the two follow-ups above are closed
+
+`counterparts migrate-cache` converts box 3's vectors from JSON text to float32 BLOBs in
+place — dry run by default, `--apply` to convert, one transaction per `--batch` (500),
+`VACUUM` at the end. The design and the measurements live in `src/core/store/NOTES.md`
+(2026-09-05); what belongs here is why it is a COMMAND and not a flag on `verify`.
+
+**A rebuild recomputes; this recovers.** The entry above ends with "preserving the vectors
+across a rebuild is a CORE change" and files two follow-ups. Both now exist, so the
+console has three doors instead of two:
+
+- `verify --rebuild` — unchanged, and still refuses while box 3 holds vectors it cannot
+  recompute. The refusals now NAME the safe option; they did not get quieter.
+- `verify --rebuild --keep-vectors` — `Store.rebuildCache({ keepVectors })`. Re-indexes
+  the text side, keeps every vector whose memory is still canonical, drops the ones that
+  are not. Passing it together with `--drop-vectors` is refused rather than guessed at.
+- `migrate-cache` — the format conversion, which is neither of those: it neither drops nor
+  recomputes, it re-writes the same numbers in the shape they should have been in.
+
+The census learned the shape too (`vector format: N float32 BLOB (v4), M JSON text (v3)`),
+because a partly-converted cache is a real state — every reader tolerates it — and one
+that nothing named would sit there unfinished. `Store.embeddingCount()` exists now as
+well; the census still opens `cache.sqlite` directly, because that read is gated on the
+FILE existing and a `Store` constructor cannot promise not to mint the box being
+inspected.
+
+`migrate-cache` is on `OWNER_OPS`: box 3 is rebuildable, and rewriting it is still a
+write.
+
+**Three things the adversarial review changed, and each is a rule this console already
+had.**
+
+1. **The dry run is READ-ONLY, not merely honest.** It opened box 3 with `openCache`, which
+   stamps `cache_meta.schemaVersion` — so on the v3 store this will actually be run against,
+   one row changed and the file's hash moved under a line saying nothing had. The first fix
+   made the command SAY so, which was the right instinct and the wrong repair: every
+   question the dry run asks is a `SELECT`, so it opens with `openDb` and `openCache` is
+   reserved for `--apply`. "Reads are pure" (§5 G9) means the bytes, not the disclosure.
+2. **`--apply` names its store and asks.** `resolveDir` falls through to `dataDir()`, which
+   on a real machine is the owner's live memory, and this command is the one operation here
+   whose result a `git revert` cannot undo. So `--apply` refuses a data dir that came from
+   the default — **before it looks at a single path**, because a guard that reads the
+   default directory before refusing it has already been pointed at the store it meant to
+   refuse — and then asks, `remove`-style, unless `--yes`.
+3. **Converted-but-not-compacted is a state with a door.** `VACUUM` is the step most likely
+   to fail: it takes an exclusive lock and the Stop worker holds box 3. The first version
+   ran it only after a conversion, and the already-converted arm refused BEFORE it — so one
+   lost lock left the entire 177 MiB behind an "already converted" refusal, unreachable
+   through the tool that exists to reclaim it. Now the dry run reports the reclaimable
+   bytes and `--apply` compacts, converting nothing. The probe is a real `VACUUM INTO` a
+   throwaway copy in the OS temp dir: `PRAGMA freelist_count` reads **0** in that state,
+   because the pages are fragmented rather than free, and a probe that reads zero where the
+   answer is 59% is worse than no probe.
+
+## 2026-09-05 — `repair-merged-beliefs`, and the first un-archive the store has
+
+The console gained its tenth owner operation. It exists because a core fix landed
+the same night (`sleep/NOTES.md` §14: a `type: "schema"` row is no longer a
+dedup candidate) and **stopping a bug does not undo it**. On a store that ran a
+cycle before that fix, a belief whose statement matched an ordinary memory's
+body was archived `merged` and stopped being a belief. Migration settles the
+DIRECTION of that loss and not its frequency: migrated elements were minted at
+the import day while migrated memories kept their v1 birth day, so the memory is
+never younger and the element always loses — but a pair needs two distinct v1
+items whose gated text is byte-identical, and nothing in the code says how often
+that happened. **This command is the measurement**, which is why its dry run is
+the answer to G17 rather than an adjective in a document.
+
+**Two sources, unioned, because either can be the surviving evidence.** The
+`memory.merged` events whose `candidateId` is a `sch_` id — the owner's own
+read-only check, filed as G17 — and the archived schema rows whose
+`archived_reason` is the merge, which still reads true after the event log has
+rolled. Removed ids are skipped: the deny-list answers before this tool does.
+
+**It prints statements AND entity names, and `backfill-claims` says not to.**
+That command's header says "IDS AND NUMBERS ONLY — a repair report is not a
+place to print bodies", and this one prints two things that are not ids: the
+first 60 characters of each statement, and **the entity's name** — the line
+reads `sch_0dc7784034fc  Ada  lived day 0`. A person's name is author content as
+squarely as a statement is, and it is named here so a later reader finds a
+choice made twice rather than an unnamed second deviation.
+
+Both are the same decision, and it is the one the command exists to enable: a
+claim restored to the store is a claim the system will state in a briefing, and
+"restore `sch_198628843ffb`?" is not a question a person can answer. Without the
+entity the owner cannot tell which Ada, or whether the belief belongs to a
+person still in their life. This runs on the owner's own terminal, at the
+owner's own keystroke, against the owner's own store — the same reader who could
+open the prose file beside it. Ids-only would have been safer and useless.
+
+**The durable record stays ids and numbers only**, and that is the line that
+actually matters: `memory.unmerged` carries `{event, day, candidateId,
+originalId, mergedOnDay, usesDelta}` and no text of any kind (§5 G10). The
+deviation is console-only — one printed line, at the moment of a decision, and
+nothing written down.
+
+**The core door it needed did not exist, and is the smallest one that works.**
+`Store` has no `unarchive` and must not grow one: the prune, the revision and
+the removal all archive, and each is archived for a reason a repair tool has no
+business reversing. `store/owner-op-seam.ts#unarchiveMerged` accepts
+`archived_reason: "merged"` and refuses everything else by its own error code —
+`UNMERGE_NOT_A_MERGE`, `UNMERGE_SUPERSEDED`, `REMOVED`, `ID_UNKNOWN` — crosses
+the same observer stance check every write crosses, and appends a latched
+`memory.unmerged` record inside the same transaction, so a second `--apply`
+writes nothing at all. The seam's export list grew from three names to six and
+`test/store.test.ts` pins the new list, which is the point of pinning it.
+
+**It re-indexes box 3, and the reason is a moving target.** `archive()` leaves
+box 3 alone on master as this was written, so a restored row was findable with
+no extra work. PR #64 (`overnight/df-live-rows`) adds `deindexDoc` to `archive()`
+so document frequency is counted over live rows — and then whichever of the two
+lands second would leave this command restoring a belief that is live, listed in
+`beliefs(entity)`, and **invisible to lexical recall**, with no cheap way back
+(a cache rebuild without an embedder drops every vector on the store). Measured
+by the adversarial review at `doc_tokens` 7 → 0 on archive → 0 after `--apply`.
+So the seam re-indexes on restore, through the narrowest grant member that could
+do it (`OwnerOpAccess.reindexLexical`) — the LEXICAL half only, because a repair
+that made a paid embedding call, or dropped a vector nothing here can recompute,
+would be worse than the bug. The test simulates #64's deindex and would fail
+without the call; it also asserts the embedding survives untouched.
+
+**It prints which store it opened**, before the list. `--dir` is optional and the
+default resolves to `~/.counterparts/store`, and this is the command the owner is
+asked to type `--apply` at. `status`, `note` and `recall` print `Store: <dir>`;
+`backfill-claims` does not, and should.
+
+**The `uses` the merge credited is left standing.** Reversing it would rewrite a
+physics count whose band may already have been materialized and whose crossing
+may already be a durable `band.transition` row, in order to undo a single use on
+a memory that really was looked at that evening. The delta goes into the
+`memory.unmerged` record instead, so the credit is auditable rather than
+silently reversed. The merge record and the `memory.merged` event are both left
+exactly where they are — constitution 7: a repair that tidied away the evidence
+of the bug would be the same class of mistake as the bug.
+
+**`--dry-run` is a declared flag that does nothing.** Dry run is already the
+default. It is declared because the owner's runbook line spells it out, and a
+console that refuses `--dry-run` as an unknown flag on a command that IS a dry
+run is the 2026-09-04 `--dirr` lesson pointed at the owner's own hands.
+
+**Never run against the live store by this build's authors.** Every test uses a
+temp store; the one demonstration of `--apply` was on a copy of a deliberately
+poisoned scratch store. The owner runs the read-only
+`counterparts repair-merged-beliefs --dry-run --dir ~/.counterparts/store`.
 
 ## Verified live? No
 

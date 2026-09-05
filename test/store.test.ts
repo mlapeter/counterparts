@@ -24,15 +24,23 @@ import {
   Store,
   WRITE_METHODS,
   classifyTopLevel,
+  convertVectorBatch,
+  countNonFinite,
   dataDir,
+  decodeVector,
+  encodeVector,
   hashText,
   newId,
   parseProse,
   paths,
   serializeProse,
+  vectorFormats,
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
+// The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
+// the seam's copy of it is pinned equal rather than hoped equal.
+import { MERGE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
 
 const STORE_SRC = fileURLToPath(new URL("../src/core/store/", import.meta.url));
 
@@ -286,15 +294,36 @@ describe("no deletion surface (contract §5 G2, §16 G1)", () => {
       string,
       unknown
     >;
-    // Pinned by name, so a fourth export cannot appear here quietly. `grantOwnerOps`
-    // is the capability handed over by Store's constructor; `chaseRemoved` is the
-    // box-2 chase; `REMOVED_REASON` is the word a neutralized row carries.
+    // Pinned by name, so a further export cannot appear here quietly.
+    // `grantOwnerOps` is the capability handed over by Store's constructor;
+    // `chaseRemoved` is the box-2 chase; `REMOVED_REASON` is the word a
+    // neutralized row carries. Added 2026-09-05: `unarchiveMerged` is the one
+    // repair on this seam — it puts back a row the dedup pass archived as a
+    // duplicate and refuses every OTHER archive reason by name, which is what
+    // keeps it from being the general resurrection verb the store does not
+    // have; `MERGED_ARCHIVE_REASON` is the one reason it undoes and
+    // `UNMERGE_EVENT` the durable name it appends.
     expect(Object.keys(mod).filter((k) => k !== "default").sort()).toEqual([
+      "MERGED_ARCHIVE_REASON",
       "REMOVED_REASON",
+      "UNMERGE_EVENT",
       "chaseRemoved",
       "grantOwnerOps",
+      "unarchiveMerged",
     ]);
     expect(typeof mod["chaseRemoved"]).toBe("function");
+    expect(typeof mod["unarchiveMerged"]).toBe("function");
+  });
+
+  test("the seam's merge reason is the word `sleep/` actually writes", async () => {
+    // `store/` sits below `sleep/` and must not import it, so the reason is
+    // spelled twice. This is the pin that stops a rename from making the
+    // repair door match nothing at all.
+    const mod = (await import(pathToFileURL(join(STORE_SRC, SEAM)).href)) as Record<
+      string,
+      unknown
+    >;
+    expect(mod["MERGED_ARCHIVE_REASON"]).toBe(MERGE_ARCHIVE_REASON);
   });
 
   test("the chase is not reachable from the store's own surface", async () => {
@@ -691,7 +720,18 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
     s = store({ embed: fakeEmbed });
     expect(s.search("coffee")).toEqual([]); // really gone, not a stale handle
     const report = s.rebuildCache();
-    expect(report).toEqual({ indexed: 3, skippedDenied: 0, unrecomputed: 0, declared: [] });
+    // `skippedArchived` joined the report with I13: a rebuild reproduces the
+    // LIVE index, so a canonical row that is archived or superseded is counted
+    // out rather than silently dropped. Three live rows here, so it is zero.
+    expect(report).toEqual({
+      indexed: 3,
+      skippedDenied: 0,
+      skippedArchived: 0,
+      unrecomputed: 0,
+      declared: [],
+      keptVectors: 0,
+      droppedVectors: 0,
+    });
 
     expect(cues.map((c) => s.search(c))).toEqual(before);
     expect(s.nearestTo(fakeEmbed("Cold brew every morning, never iced coffee"), 3)).toEqual(
@@ -1021,6 +1061,7 @@ describe("observer mode is enforced at the store seam", () => {
     pruneSupersededVersions: [],
     appendRemovalRecord: [{ memoryId: "mem_000000000000", stage: "requested", actor: "owner" }],
     rebuildCache: [],
+    pruneDeadIndex: [],
     embedOne: ["mem_0"],
   };
 
@@ -1121,5 +1162,374 @@ describe("layout", () => {
     const s = store();
     writeFileSync(join(dir, "surprise-sidecar.json"), "{}", "utf8");
     expect(code(() => s.assertLayout())).toBe("LAYOUT_UNCLASSIFIED");
+  });
+});
+
+// ── box 3's vectors: float32 BLOBs, and the conversion that gets there ───────
+
+/**
+ * The measured debt (LAUNCH-STATUS §E-W1(4)): 177.5 MB of JSON text at ~13.9K
+ * vectors, and a `nearest` scan of 590-1,040 ms that `JSON.parse`d every row.
+ *
+ * The property that had to hold before the shape could move is the one this
+ * block leads with: **for a vector whose values are already float32-exact, the
+ * scan's scores are BIT-IDENTICAL before and after**. That is not a claim about
+ * float32 being lossless in general — it is not, and the general case is pinned
+ * separately, as same-order and under 1e-6 — it is the claim that matters here,
+ * because an embedder computes and serves single precision and JSON text was
+ * storing float64 room that never held float64 information.
+ */
+describe("vectors are float32 BLOBs (cache v4)", () => {
+  /** float32-exact by construction: `Math.fround(x) === x` for every value. */
+  function f32Vec(seed: number, dim = 32): number[] {
+    const v: number[] = [];
+    let x = seed;
+    for (let i = 0; i < dim; i++) {
+      x = (x * 1664525 + 1013904223) % 4294967296;
+      v.push(Math.fround((x / 4294967296) * 2 - 1));
+    }
+    return v;
+  }
+
+  /** Write box 3's rows the way v3 wrote them: `JSON.stringify` into `vec`. */
+  function writeJsonVectors(cachePath: string, vecs: Map<string, number[]>): void {
+    const db = openDb(cachePath);
+    try {
+      for (const [id, v] of vecs) {
+        db.run(
+          "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+          id,
+          v.length,
+          JSON.stringify(v),
+        );
+      }
+    } finally {
+      db.close();
+    }
+  }
+
+  /** A vector straight into box 3, bypassing the store — for the orphan case. */
+  function setEmbeddingDirect(cachePath: string, id: string, vec: readonly number[]): void {
+    const db = openDb(cachePath);
+    try {
+      db.run(
+        "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+        id,
+        vec.length,
+        encodeVector(vec),
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  test("a written vector is a blob of dim × 4 bytes", () => {
+    const s = store({ embed: fakeEmbed });
+    const id = s.put(mem("cold brew"));
+    s.close();
+    open.length = 0;
+    const db = openDb(paths.cache(dir));
+    const row = db.get<{ dim: number; t: string; bytes: number }>(
+      "SELECT dim, typeof(vec) AS t, LENGTH(vec) AS bytes FROM embeddings WHERE memory_id = ?",
+      id,
+    );
+    db.close();
+    expect(row?.t).toBe("blob");
+    expect(row?.bytes).toBe((row?.dim ?? 0) * 4);
+  });
+
+  test("encode/decode round-trips a float32-exact vector EXACTLY", () => {
+    const v = f32Vec(7, 64);
+    expect(Array.from(decodeVector(encodeVector(v)))).toEqual(v);
+  });
+
+  test("the nearest scan is bit-identical before and after the conversion", () => {
+    // Build a store, then REPLACE box 3's vectors with v3-shaped JSON text —
+    // the exact state the live store is in this morning.
+    const s = store();
+    const ids = s.putMany([mem("one"), mem("two"), mem("three"), mem("four"), mem("five")]);
+    const vecs = new Map(ids.map((id, i) => [id, f32Vec(i + 1, 48)]));
+    s.close();
+    open.length = 0;
+    writeJsonVectors(paths.cache(dir), vecs);
+
+    const probe = f32Vec(99, 48);
+    const before = store().nearestTo(probe, 5);
+    expect(before.length).toBe(5);
+    // Every row really was JSON text when that answer was produced.
+    const pre = openDb(paths.cache(dir));
+    expect(
+      pre.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings WHERE typeof(vec) = 'text'")?.n,
+    ).toBe(5);
+    pre.close();
+
+    const db = openDb(paths.cache(dir));
+    expect(convertVectorBatch(db, 2).converted).toBe(2); // batched, not one statement
+    expect(convertVectorBatch(db, 2).converted).toBe(2);
+    expect(convertVectorBatch(db, 2).converted).toBe(1);
+    expect(convertVectorBatch(db, 2).examined).toBe(0); // idempotent: nothing left
+    expect(vectorFormats(db)).toMatchObject({ total: 5, float32: 5, jsonText: 0, other: 0 });
+    db.close();
+
+    const after = store().nearestTo(probe, 5);
+    // Not `toBeCloseTo`, and not just the order: the SAME BITS. `Object.is`
+    // rather than `===` so a -0 or a NaN could not slip through as equal.
+    expect(after.map((h) => h.id)).toEqual(before.map((h) => h.id));
+    for (let i = 0; i < after.length; i++) {
+      expect(Object.is(after[i]?.score, before[i]?.score)).toBe(true);
+    }
+  });
+
+  test("a float64 vector is not float32-exact, and the movement is bounded and ordered", () => {
+    // The honest other half. A vector that did NOT come from an embedder — a
+    // fixture, a re-serialized float64 — moves by up to one float32 ulp, and
+    // the claim that survives is same-order, under 1e-6 on the score.
+    const s = store();
+    const ids = s.putMany([mem("a"), mem("b"), mem("c"), mem("d")]);
+    const rnd = (seed: number, dim: number): number[] => {
+      const v: number[] = [];
+      let x = seed;
+      for (let i = 0; i < dim; i++) {
+        x = (x * 48271) % 2147483647;
+        v.push(x / 2147483647 - 0.5); // float64, almost never float32-exact
+      }
+      return v;
+    };
+    const vecs = new Map(ids.map((id, i) => [id, rnd(i * 977 + 13, 64)]));
+    expect([...vecs.values()].every((v) => v.every((x) => Math.fround(x) === x))).toBe(false);
+    s.close();
+    open.length = 0;
+    writeJsonVectors(paths.cache(dir), vecs);
+
+    const probe = rnd(4242, 64);
+    const before = store().nearestTo(probe, 4);
+    const db = openDb(paths.cache(dir));
+    while (convertVectorBatch(db, 3).examined > 0) {
+      /* drain */
+    }
+    db.close();
+    const after = store().nearestTo(probe, 4);
+    expect(after.map((h) => h.id)).toEqual(before.map((h) => h.id));
+    for (let i = 0; i < after.length; i++) {
+      expect(Math.abs((after[i]?.score ?? 0) - (before[i]?.score ?? 0))).toBeLessThan(1e-6);
+    }
+  });
+
+  test("a MIXED cache — an interrupted migration — is read, not crashed on", () => {
+    const s = store();
+    const ids = s.putMany([mem("one"), mem("two"), mem("three")]);
+    const vecs = new Map(ids.map((id, i) => [id, f32Vec(i + 40, 16)]));
+    s.close();
+    open.length = 0;
+    writeJsonVectors(paths.cache(dir), vecs);
+
+    const db = openDb(paths.cache(dir));
+    expect(convertVectorBatch(db, 1).converted).toBe(1); // stop one row in
+    expect(vectorFormats(db)).toMatchObject({ float32: 1, jsonText: 2 });
+    db.close();
+
+    // Both shapes answer, and the converted row still scores its own vector at
+    // exactly 1.0 — the decode is not approximating anything.
+    const first = ids[0] as string;
+    const mixed = store().nearestTo(vecs.get(first) as number[], 3);
+    expect(mixed.length).toBe(3);
+    expect(mixed[0]?.id).toBe(first);
+    expect(Object.is(mixed[0]?.score, 1)).toBe(true);
+  });
+
+  test("a v3 table declaring `vec TEXT` still stores a bound BLOB as a BLOB", () => {
+    // Affinity, not a constraint — this is why the migration needs no table
+    // rewrite. Asserted rather than assumed, because the whole write path
+    // depends on SQLite's TEXT affinity leaving a BLOB alone.
+    const scratch = mkdtempSync(join(tmpdir(), "counterparts-affinity-"));
+    const db = openDb(join(scratch, "affinity.sqlite"));
+    db.exec(
+      "CREATE TABLE embeddings (memory_id TEXT PRIMARY KEY, dim INTEGER NOT NULL, vec TEXT NOT NULL)",
+    );
+    db.run(
+      "INSERT INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+      "mem_x",
+      4,
+      encodeVector([1, 2, 3, 4]),
+    );
+    expect(db.get<{ t: string }>("SELECT typeof(vec) AS t FROM embeddings")?.t).toBe("blob");
+    const back = db.get<{ vec: Uint8Array }>("SELECT vec FROM embeddings")?.vec;
+    expect(Array.from(decodeVector(back ?? null))).toEqual([1, 2, 3, 4]);
+    db.close();
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  test("embeddingCount() is what box 3 HOLDS — not unembeddedCount()", () => {
+    const s = store({ embed: fakeEmbed });
+    s.putMany([mem("one"), mem("two")]);
+    expect(s.embeddingCount()).toBe(2);
+    expect(s.unembeddedCount()).toBe(0);
+    const bare = store(); // no embedder: the next row gets no vector
+    bare.put(mem("three"));
+    expect(bare.embeddingCount()).toBe(2); // still two — the numerator did not move
+    expect(bare.unembeddedCount()).toBe(1); // the denominator did
+  });
+
+  test("rebuildCache({ keepVectors }) re-indexes the text side and keeps the vectors", () => {
+    const s = store({ embed: fakeEmbed });
+    const ids = s.putMany([mem("cold brew"), mem("the dashboard"), mem("doomed")]);
+    const doomed = ids[2] as string;
+    const probeBefore = s.nearestTo(fakeEmbed("cold brew"), 3);
+    // One removed id and one orphan: a kept vector must still not survive
+    // either of those (§16 G12), or the census would report an orphan forever.
+    s.appendRemovalRecord({ memoryId: doomed, stage: "chased", actor: "owner", reason: "owner op" });
+    s.close();
+    open.length = 0;
+    setEmbeddingDirect(paths.cache(dir), "mem_orphan_not_canonical", f32Vec(3, 8));
+
+    // No embedder in the rebuilding process — the dangerous case, and the one
+    // `verify --rebuild --keep-vectors` is actually run in.
+    const bare = store();
+    const report = bare.rebuildCache({ keepVectors: true });
+    expect(report.indexed).toBe(2);
+    expect(report.skippedDenied).toBe(1);
+    // The vectors were there, so nothing is un-recomputed and nothing is declared.
+    expect(report.unrecomputed).toBe(0);
+    expect(report.declared).toEqual([]);
+    expect(report.keptVectors).toBe(2);
+    expect(report.droppedVectors).toBe(2); // the removed id and the orphan
+    expect(bare.embeddingCount()).toBe(2);
+    expect(bare.nearestTo(fakeEmbed("cold brew"), 3).map((h) => h.id)).toEqual(
+      probeBefore.filter((h) => h.id !== doomed).map((h) => h.id),
+    );
+    expect(bare.search("brew").length).toBe(1); // the text index really was rebuilt
+  });
+
+  test("a NaN never reaches the scan — it is coerced to 0 and counted", () => {
+    // v3 coerced it BY ACCIDENT: `JSON.stringify(NaN)` is `"null"` and
+    // `JSON.parse` gave back `null ?? 0`. Writing NaN through would have been a
+    // regression dressed as a format change — `nearest` scores it NaN, and the
+    // comparator `b.score - a.score || id` reads `NaN - x` as falsy and falls
+    // through to the id tiebreak, so one such row sorts anywhere at all.
+    expect(Array.from(decodeVector(encodeVector([Number.NaN, 0.5, Infinity, -Infinity])))).toEqual([
+      0, 0.5, 0, 0,
+    ]);
+    expect(countNonFinite([Number.NaN, 0.5, Infinity])).toBe(2);
+
+    const s = store();
+    const id = s.putMany([mem("one"), mem("two")])[0] as string;
+    s.close();
+    open.length = 0;
+    writeJsonVectors(paths.cache(dir), new Map([[id, f32Vec(5, 8)]]));
+    // A JSON row carrying `null` (which is what v3 wrote for a NaN) converts to
+    // a zero, not to a NaN.
+    const db = openDb(paths.cache(dir));
+    db.run("UPDATE embeddings SET vec = ? WHERE memory_id = ?", "[null,0.5,null]", id);
+    const report = convertVectorBatch(db, 10);
+    expect(report.converted).toBe(1);
+    expect(report.coerced).toBe(2);
+    expect(
+      Array.from(decodeVector(db.get<{ vec: Uint8Array }>("SELECT vec FROM embeddings")?.vec ?? null)),
+    ).toEqual([0, 0.5, 0]);
+    db.close();
+    expect(store().nearestTo([0, 1, 0], 2).every((h) => Number.isFinite(h.score))).toBe(true);
+  });
+
+  test("one unparseable row costs ONE row, not the whole migration", () => {
+    // The first version parsed inside the batch transaction: a throw rolled the
+    // batch back, the `ORDER BY memory_id LIMIT ?` selection re-picked the same
+    // row, and every row after it stayed in the old shape forever.
+    const s = store();
+    const ids = s.putMany([mem("a"), mem("b"), mem("c"), mem("d")]);
+    s.close();
+    open.length = 0;
+    writeJsonVectors(paths.cache(dir), new Map(ids.map((id, i) => [id, f32Vec(i + 1, 8)])));
+    const bad = ids[1] as string;
+    const db = openDb(paths.cache(dir));
+    db.run("UPDATE embeddings SET vec = ? WHERE memory_id = ?", "not json at all", bad);
+
+    let converted = 0;
+    const skipped: string[] = [];
+    let after: string | undefined;
+    let rounds = 0;
+    for (;;) {
+      const r = convertVectorBatch(db, 2, after);
+      if (r.examined === 0) break;
+      converted += r.converted;
+      skipped.push(...r.skipped);
+      after = r.lastId ?? undefined;
+      if (after === undefined || ++rounds > 10) break;
+    }
+    expect(converted).toBe(3);
+    expect(skipped).toEqual([bad]);
+    // The bad row is LEFT EXACTLY AS IT WAS — nothing here repairs data it
+    // cannot read.
+    expect(db.get<{ vec: string }>("SELECT vec FROM embeddings WHERE memory_id = ?", bad)?.vec).toBe(
+      "not json at all",
+    );
+    expect(vectorFormats(db)).toMatchObject({ float32: 3, jsonText: 1 });
+    db.close();
+  });
+
+  test("a blob whose length is not a multiple of four is unreadable, not truncated", () => {
+    // A silently shortened vector is a cosine over a prefix: a wrong number
+    // with no signal on it. Empty scores 0 and the census names the row.
+    expect(Array.from(decodeVector(new Uint8Array([1, 2, 3, 4, 5])))).toEqual([]);
+    const s = store({ embed: fakeEmbed });
+    const id = s.put(mem("one"));
+    s.close();
+    open.length = 0;
+    const db = openDb(paths.cache(dir));
+    db.run("UPDATE embeddings SET vec = ? WHERE memory_id = ?", new Uint8Array([1, 2, 3, 4, 5]), id);
+    expect(vectorFormats(db)).toMatchObject({ total: 1, float32: 0, jsonText: 0, other: 1 });
+    db.close();
+    expect(store().nearestTo(fakeEmbed("one"), 2)).toEqual([{ id, score: 0 }]);
+  });
+
+  test("keepVectors does NOT re-embed a row that already has a vector", () => {
+    // The name picks the behaviour. The first version called the embedder for
+    // every row and let `indexDoc` overwrite what it had just promised to
+    // preserve — a paid network call per row, reported as `keptVectors`.
+    const s = store({ embed: fakeEmbed });
+    const id = s.put(mem("cold brew"));
+    const held = s.nearestTo(fakeEmbed("cold brew"), 1);
+    s.close();
+    open.length = 0;
+
+    let calls = 0;
+    const different = (text: string): number[] => {
+      calls += 1;
+      return fakeEmbed(text).map((x) => 1 - x);
+    };
+    const s2 = store({ embed: different });
+    const report = s2.rebuildCache({ keepVectors: true });
+    expect(calls).toBe(0); // not asked, not charged
+    expect(report.keptVectors).toBe(1);
+    expect(s2.nearestTo(fakeEmbed("cold brew"), 1)).toEqual(held); // the SAME vector
+    expect(s2.search("brew").length).toBe(1); // and the text index still rebuilt
+
+    // A row with NO vector is still embedded — keep is about what is held.
+    const fresh = s2.put(mem("a second memory"));
+    s2.close();
+    open.length = 0;
+    const bare = store();
+    const db = openDb(paths.cache(dir));
+    db.run("DELETE FROM embeddings WHERE memory_id = ?", fresh);
+    db.close();
+    calls = 0;
+    const s3 = Store.open({ dir, embed: different });
+    open.push(s3);
+    const r3 = s3.rebuildCache({ keepVectors: true });
+    expect(calls).toBe(1); // exactly the one that had nothing
+    expect(r3.keptVectors).toBe(1);
+    expect(bare.embeddingCount()).toBe(2);
+  });
+
+  test("the default rebuild still drops the vectors — keepVectors is opt-in", () => {
+    const s = store({ embed: fakeEmbed });
+    s.putMany([mem("one"), mem("two")]);
+    expect(s.embeddingCount()).toBe(2);
+    s.close();
+    open.length = 0;
+    const bare = store();
+    const report = bare.rebuildCache();
+    expect(bare.embeddingCount()).toBe(0);
+    expect(report.unrecomputed).toBe(2);
+    expect(report.keptVectors).toBe(0);
   });
 });

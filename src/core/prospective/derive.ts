@@ -40,6 +40,8 @@ export type DeriveReason =
   | "archived"
   /** Skill memories are excluded by kind (§12 G3). */
   | "excluded-kind"
+  /** A journal chapter. Its date is a day that was LIVED, never one arriving. */
+  | "journal"
   | "below-salience-floor"
   /** Every derived window is behind us — the property expiring by itself. */
   | "window-passed";
@@ -61,6 +63,28 @@ export interface DerivableMemory {
   readonly archived: boolean;
   /** The encode date (`ProseDoc.learnedOn`). Null / blank / unreadable fails closed. */
   readonly learnedOn: string | null;
+  /**
+   * A journal chapter (`ProseDoc.type === "episode"`, the field
+   * `sleep/types.ts#isJournal` reads off the row).
+   *
+   * FOUND 2026-09-04 by the adversarial review of PR #70, and it is not a
+   * labelling miss — it is a CATEGORY ERROR. A chapter's content date is the day
+   * it was LIVED; "Arriving" is false of it no matter what word sits in front of
+   * the line. Nothing on this path filtered by type — `Prospective.arrivals`
+   * walks `list({ archived: false })` and the only kind excluded was `skill` —
+   * so a dated chapter rendered in the wake's horizon lane as a thing about to
+   * happen. Reproduced end to end: `at` on the chapter's own date returned it
+   * `armed`, and the published briefing read
+   * `Arriving: - 2026-09-05 (of 2026-09-10) · ## the lighthouse conversation`.
+   *
+   * Reachable on the owner's store: 224 migrated episodes are live, carrying
+   * `happenedOn`, `learnedOn`, `kind: "self"` and a claimed salience floor.
+   *
+   * It is refused HERE, in the predicate, rather than at one caller — `derive`
+   * has seven call sites in `prospective/index.ts` and a filter at one of them
+   * is a rule that holds where somebody remembered it.
+   */
+  readonly journal: boolean;
 }
 
 /** A content-date the CALLER extracted. Its precision is its own shape (§12 G4). */
@@ -117,6 +141,7 @@ export function derive(
   const s = sal(memory.salience);
 
   if (memory.archived) blockedBy.push("archived");
+  if (memory.journal) blockedBy.push("journal");
   if (EXCLUDED_KINDS.includes(memory.kind)) blockedBy.push("excluded-kind");
   if (!encodeDateOk(memory.learnedOn)) blockedBy.push("missing-encode-date");
   if (s < t.SALIENCE_FLOOR) blockedBy.push("below-salience-floor");

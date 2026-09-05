@@ -194,3 +194,121 @@ claim and removes the claim file, and its `work` function is arbitrary — there
 per-span model call to bound. Wiring quarantine into it would need partial-restore
 choreography it does not have, for a cost that has never been observed. The sweep is
 the loop that bills the owner, and the sweep is what is bounded.
+
+## 14. 2026-09-05 — the strike: how a span is destroyed without racing a claim
+
+**Why there is a destruction path in this module at all.** LAUNCH-STATUS §I2:
+a note is CAPTURED before it is minted, so its verbatim words sit in
+`<key>/jots.jsonl` while the memory minted from them lives in `prose/`. The
+owner's `remove` chased six surfaces, none of them this one, reported
+`unchased: nothing`, and a `backup` taken afterwards copied the removed words.
+Constitution 6/7 — the owner's data, removable loudly — was not true of a note.
+
+**Why the console could not just delete the line.** `spans/` is this module's
+state machine. §2 G6 forbids a span being in NEITHER a claim nor the buffer,
+and `claim()` works by renaming the live file aside — so an `rmSync` or a
+read-filter-write-over from `adapters/cli/removal.ts` races exactly the move
+that guarantee exists to protect. The fix had to be a door here.
+
+**`owner-strike-seam.ts`, and the shape it borrowed.** `store/owner-op-seam.ts`
+already solved "a destruction that must not be reachable by holding the
+object": `SpanBuffer`'s constructor hands the seam a capability through a
+WeakMap, and a test in `test/cli.test.ts` pins the two files in `src/` that may
+import it (this module's `spans.ts`, which grants and never calls, and the
+console's `removal.ts`). A `Counterpart` — which the MCP server holds, and a
+model talks to — holds a buffer and reaches nothing.
+
+**What the race defense actually is.** Three moves, and `mutate()` is NOT one of
+them. `mutate()` is the stance check plus a try/catch that turns a throw into a
+reason; it excludes nobody. What excludes:
+
+1. **The ledger, first.** The struck hashes go into `consumed.jsonl` before a
+   byte moves. That file is already the terminal filter for `seenHashes()`,
+   `restore()` and `mergeOrphans()`, so from that instant a re-capture of the
+   same words dedups away, a worker holding the span in memory mid-arc cannot
+   restore it, and a crashed run's orphan cannot merge it back. Ledgering a
+   struck span is the same disposition a QUARANTINED one gets — terminal, not
+   pass-through — so §12's rule (a RESTORED hash must never enter the ledger)
+   is not in tension with it. **It is BOUNDED, like every consumed hash**:
+   `consumed.jsonl` trims at `CONSUMED_LEDGER_MAX`, so far enough into the
+   future the struck hash ages out and an identical re-capture would land as a
+   new span. That is bookkeeping's price, not a hole in the removal — the
+   memory stays dark, the old capture stays gone, and what would land is
+   somebody saying the same words again.
+2. **The rename aside.** Each file is `rename(2)`d to `<name>.striking` and the
+   survivors appended back to the original path. An append racing the strike
+   lands in a FRESH file at that path and is untouched; a read-filter-write-over
+   would have lost it on the old inode. Ordering inside a stream shuffles by at
+   most one batch, which `spans()` re-sorts on `at` anyway.
+3. **The fold-back, and the order that makes it true.** A `.striking` file left
+   by a crashed strike is folded home before anything else happens — appended to
+   its stream (deduped by hash), **fsync'd, and only then removed**. The first
+   draft read it into an array, removed it, and wrote the array back afterwards,
+   so the survivors lived in RAM across a rename and a full re-read; a crash
+   there lost them, and this paragraph's earlier claim that "a crash strands
+   nothing" was false (review F2). It is true now, in the direction that
+   matters: a crash before the fsync leaves the aside whole and the next fold
+   repeats, deduped; loss is not on the table, bounded duplication is.
+
+   The review asked for temp → fsync → *rename over the original*. Not taken,
+   and the reason is the aside itself: renaming over the live path clobbers a
+   turn a hook appended in the meantime, which is the exact race the aside
+   exists to survive. Append-then-fsync buys the same crash property without
+   buying that one back.
+
+   The fold runs **unconditionally, per scope, before the strike decides it has
+   anything to do** (review F3). Survivors in an aside belong to nobody's
+   removal; a scope repaired only by the removal that happens to name them is a
+   scope repaired by luck. The suffix is deliberately not `.jsonl`:
+   `claimFiles()` must not see an aside as an ordinary orphan — and the console's
+   residue walk now looks for `*.jsonl.striking` by name, because an aside it
+   could not see was a "not applicable" printed over words that were on disk
+   (review F1).
+
+**What it does NOT defend against, said plainly.** A worker that has already read
+`claim.spans` into memory will finish its arc and may mint a memory from a span
+struck a millisecond later. The deny-list stops the removed id from coming back;
+it does not stop a NEW id being minted from the same words in that window. The
+window is the length of one model call, the strike is owner-invoked and rare, and
+closing it properly means a lock the module does not have. Named, not fixed.
+
+**A predicate may only ever take a JOT — and the console may only ever hand it
+an exact line, inside one scope.** Two rules, in two places, because they are
+two different mistakes.
+
+*Here:* the hash names one span; a predicate names a SHAPE, and the only shape
+it is allowed to name is a jot. A conversation span is many turns joined
+together, belongs to no single memory, and striking one because a memory's body
+appears inside it destroys material nobody named. `matches()` enforces it, so no
+caller can get round it.
+
+*In the console:* the predicate it builds is **full-text equality after trim,
+never a substring**, and it is only ever built when the memory's `origin_scope`
+is recorded. Review F4 measured what the substring version did: removing "buy
+milk" from a MIGRATED row — and `tools/migrate/apply.ts` writes `origin: { ref }`
+with no scope at all, so that is the shape of every imported row — struck a jot
+reading "buy milk and call the vet" in one project and an unrelated "buy milk"
+in another, and ledgered both their hashes. With no scope the console now
+REFUSES the content chase, prints the candidate files and counts, and leaves the
+decision with the owner (`--strike-by-content-across-scopes`).
+
+Lines left by either rule are counted and printed by the console as `spans
+echo`, on their own line — not as `unchased`, which is about failure.
+
+**Files it rewrites:** `buffer.jsonl`, `jots.jsonl`, `assistant.jsonl`,
+`quarantine.jsonl`, and every `claims/*.jsonl`. Those are the five that carry
+`text`. `coverage.jsonl`, `consumed.jsonl` and `failures.jsonl` carry span
+hashes and are left alone — the hash is the thing that must SURVIVE, or nothing
+stops the words being re-captured.
+
+**What it records.** `strikes.jsonl` beside the streams: `at`, lived `day`,
+`by`, and three counts. No hash and no text, for §16 G9's reason — hashing
+low-entropy content is a way of keeping it. The ring event
+`remember.span.struck` carries the same counts. It is deliberately not a box-2
+durable event: this module has no `Store`, and adding a `DURABLE_EVENT_NAMES`
+name was the second, explicitly deferred half of cli/INTERFACE-GAPS §9.
+
+**The brain analog, since every physics decision here has one.** This is not
+forgetting — decay, interference, failure to consolidate. It is the one
+operation biological memory has no counterpart for: excision on demand. That is
+why it is a seam nobody can reach by accident rather than a phase of sleep.

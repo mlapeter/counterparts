@@ -160,8 +160,8 @@ a census of the search cache against the real state, and `--rebuild` is what reb
 which is why `verify` counts as a write and refuses under `--observer` even without the
 flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
 explicitly `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run
-unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`, and
-`rebrief`. Pass `--observer` to any of them and the console stands down: everything is
+unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`,
+`repair-merged-beliefs` (a dry run unless you pass `--apply`), and `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
 read-only, and the commands that would write refuse instead.
 
 **The dashboard** — `counterparts-dashboard`, read-only, writing nothing, ever. Five views
@@ -199,8 +199,9 @@ all five events, the MCP server registers and its tools are used daily, the brie
 reaches the model, and both `backup` and the import of the author's previous-generation
 memory ran against the real store.
 **Verified only against temporary stores**: `export` in all three modes, `remove` end to
-end (which is also where the residue in rough edge 4 was found), and the console's and
-dashboard's behaviour on a missing store. **Not verified at
+end (which is also where the residue in rough edge 4 was found, and where the chase that
+closed it is asserted — note, remove, grep the whole store, back it up and grep that), and
+the console's and dashboard's behaviour on a missing store. **Not verified at
 all**: anything under Node, and — until you do it — a stranger installing from the
 documentation on a machine with no copy of this repository.
 
@@ -208,31 +209,46 @@ documentation on a machine with no copy of this repository.
 as its §10.4, and 4 as its §10.6 with a reproduction (and in §7, where `remove` is run). 3 lives in QUICKSTART §6,
 where the embedder knob is set, and 5 in §1 with the runtime requirements:
 
-1. **The store you point at and the host settings you get come from two different files.**
-   Your console, the dashboard and the MCP server take `--dir` or `COUNTERPARTS_DATA_DIR`
-   to choose the store — but the server reads its keys and its embedding setting from
-   `~/.counterparts/claude-code.json` regardless, so a scratch store on a configured
-   machine uses that machine's keys. `counterparts rebrief` will fall back to the same
-   file for the injection ceiling if there is none beside the store; it prints which file
-   it read. The hooks are stricter still: they take no flag and read `dataDir` out of that
-   one file, which `install` always writes; only when it names no store do they fall back
-   to `COUNTERPARTS_DATA_DIR`. (The two API keys are the other way round everywhere: the
-   environment answers first and the credentials file only fills the gaps.)
+1. **The store you point at and the host settings you get come from two different files —
+   so you have to move both.** Your console, the dashboard and the MCP server take `--dir`
+   or `COUNTERPARTS_DATA_DIR` to choose the store; the keys, the embedding setting and the
+   injection ceiling come from a configuration file, and moving one does not move the
+   other. A scratch store on a configured machine uses that machine's keys unless you say
+   otherwise. Saying otherwise is one rule at every entry point — the console, the hook,
+   its worker and the MCP server: `--config <absolute path>`, else `COUNTERPARTS_CONFIG`,
+   else the default `~/.counterparts/claude-code.json` (the console looks beside the store
+   first). A named path this cannot use — relative, or absolute and not there — is
+   refused rather than quietly replaced by the default, and each entry point says
+   which file it used: the console prints it, the server and the
+   worker write a line to stderr, and the hook — whose only output channel belongs to the
+   model — records it in the session file it writes under the store. The hooks keep the
+   one asymmetry that is left: they have no `--dir`, so they take the store from the
+   `dataDir` in whichever configuration they read, and fall back to
+   `COUNTERPARTS_DATA_DIR` only when it names no store. (The two API keys are the other
+   way round everywhere: the environment answers first and the credentials file only fills
+   the gaps.)
 2. **The vector cache stores embeddings as JSON text.** On the author's migrated store
    that is 177.5 MB for about 13,900 vectors, and a nearest-neighbour scan of 0.6–1.0 s.
    Irrelevant to a fresh store; a named debt.
 3. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
    `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
    Absent that, no client is built and no connection opens whatever keys are lying around.
-4. **Removal leaves one residue — and now says so, by name.** `remove` chases a memory out
-   of the prose, the database, the links and the cache. It does not reach
-   the raw-capture buffer under `spans/` (a 12-hex key per project, not the path), so a
-   note's words can
-   survive there; a later backup copies them, and `export` does not. Since 2026-09-04 the
-   dry run and the completion report name that file as unchased, and the completion line
-   counts it (`unchased: 1`) — instead of reporting `nothing`. That count is printed, not
-   stored: the durable removal record holds the removal's four stages, not the count.
-   Chasing the buffer is a core change, not yet written. Found and filed 2026-09-04.
+4. **Removal reaches every surface but one, and names the one.** `remove` chases a memory
+   out of the prose, the database, the links, the cache — and, since 2026-09-05, the
+   raw-capture buffer under `spans/` (a 12-hex key per project, not the path), where a
+   note's verbatim words wait to be interpreted. That last one was a real residue: found
+   2026-09-04, a removed note's words stayed on disk and a later backup copied them.
+   The buffer is a chased surface now, counted in the plan and in the report, and the
+   struck span's hash is kept in the buffer's own ledger so the same words cannot be
+   re-captured. Three things it names rather than takes, each on its own line: a
+   conversation turn that merely QUOTES the note (transcript, many turns joined,
+   belonging to no single memory — and **nothing prunes the buffer today**, so a `grep`
+   of the store can still answer while the memory itself is gone); a memory whose prose
+   is already gone AND whose mint recorded no span hash, which has nothing left to
+   address the buffer with; and a memory whose provenance records no scope — every row
+   imported from a previous generation — where a chase by text would have to visit every
+   project on the machine, so the command lists what it would have matched and stops
+   unless you pass `--strike-by-content-across-scopes`.
 5. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and

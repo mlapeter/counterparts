@@ -19,6 +19,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -29,6 +30,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { DATA_DIR_ENV } from "../src/core/store/paths.js";
 import { isStoreError } from "../src/core/store/errors.js";
 import { hashText } from "../src/core/store/prose.js";
+// The buffer's destruction seam, imported ON PURPOSE — holding a `SpanBuffer`
+// does not reach it (`remember/owner-strike-seam.ts`, the WeakMap grant).
+import { strikeSpans } from "../src/core/remember/owner-strike-seam.js";
 import {
   ALREADY_AUTHORED_MARK,
   BOUNDARY_KINDS,
@@ -450,10 +454,220 @@ describe("observer (G8)", () => {
     o.consume(fake);
     o.restore(fake);
     o.noteFailures(SCOPE, [fakeSpan()], "THREW");
+    strikeSpans(o, { scope: SCOPE, hashes: ["deadbeef"] });
     await sweep(o, { scope: SCOPE, interpret: async () => ({ proposals: [] }) });
 
     const sites = new Set(o.events("remember.observer.standdown").map((e) => String(e.data?.site)));
     expect([...sites].sort()).toEqual([...WRITE_SITES].sort());
+  });
+});
+
+// ── the strike (the owner's destruction seam) ───────────────────────────────
+
+describe("strikeSpans — the buffer's half of the destruction path", () => {
+  const DOOMED = "ZQSTRIKE the culvert gate key is under the third fence post at Kestrel Barn.";
+  const KEEPER = "ZQKEEP the north gate padlock key hangs in the tack room, on the left.";
+
+  /** The raw bytes of one stream, so "gone" is a fact about the file. */
+  function raw(scope: string, name: string): string {
+    const file = scopeFile(scope, name);
+    return existsSync(file) ? readFileSync(file, "utf8") : "";
+  }
+
+  test("it rewrites the jots file WITHOUT the struck line, and leaves every other line whole", () => {
+    const b = buf();
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    b.jot({ session: "s1", scope: SCOPE, text: KEEPER });
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("conversation"))] });
+    expect(doomed).toBeDefined();
+
+    const report = strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+    expect(report.reason).toBe("STRUCK");
+    expect(report.struck).toBe(1);
+    expect(report.files.map((f) => f.file.split("/")[1])).toEqual(["jots.jsonl"]);
+
+    expect(raw(SCOPE, "jots.jsonl")).not.toContain("ZQSTRIKE");
+    expect(raw(SCOPE, "jots.jsonl")).toContain("ZQKEEP");
+    expect(raw(SCOPE, "buffer.jsonl")).toContain("conversation");
+    // And through the buffer's own eyes: one jot left, still readable as JSON.
+    expect(b.spans(SCOPE).filter((s) => s.kind === "jot").map((s) => s.text)).toEqual([KEEPER]);
+  });
+
+  test("the hash is ledgered FIRST, so nothing can re-admit the span", () => {
+    const b = buf();
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+
+    // Layer 2 of dedup now holds it — which is what makes the three re-entry
+    // paths (re-capture, restore, orphan merge) all refuse it.
+    expect(b.seenHashes(SCOPE).has(doomed?.hash ?? "")).toBe(true);
+    expect(raw(SCOPE, "consumed.jsonl")).not.toContain("culvert gate key");
+
+    // 1. A RE-CAPTURE of the identical words dedups away instead of landing.
+    const again = b.jot({ session: "s2", scope: SCOPE, text: DOOMED });
+    expect(again.reason).toBe("DEDUPED");
+    expect(raw(SCOPE, "jots.jsonl")).not.toContain("ZQSTRIKE");
+
+    // 2. A RESTORE of a claim still holding it in memory puts it nowhere.
+    const claim = {
+      id: "clm_zombie",
+      scope: SCOPE,
+      path: join(dir, "spans", keyFor(SCOPE), "claims", "clm_zombie.jsonl"),
+      spans: [doomed as Span],
+      bytes: DOOMED.length,
+      mergedOrphans: [],
+    };
+    expect(b.restore(claim).spans).toBe(0);
+    expect(raw(SCOPE, "jots.jsonl")).not.toContain("ZQSTRIKE");
+  });
+
+  test("the SWEEP cannot re-mint a struck span: it is not in the buffer and not offered", async () => {
+    const b = buf();
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    b.capture({ session: "s1", scope: SCOPE, turns: [u(long("something else entirely"))] });
+    b.boundary({ session: "s1", scope: SCOPE, kind: "stop" });
+    strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+    goQuiet();
+
+    const shown: string[] = [];
+    const out = await sweep(b, {
+      scope: SCOPE,
+      interpret: async (chunk) => {
+        shown.push(chunk.prompt);
+        return { proposals: [] };
+      },
+    });
+    expect(out.reason).not.toBe("IO_FAILED");
+    // The model never saw the words, so it cannot propose them back.
+    expect(shown.join("\n")).not.toContain("culvert gate key");
+    expect(shown.join("\n")).toContain("something else entirely");
+  });
+
+  test("it strikes a CLAIM file too — a worker mid-arc is holding the words on disk", () => {
+    const b = buf({ minClaimBytes: 0 });
+    b.jot({ session: "s1", scope: SCOPE, text: DOOMED });
+    b.jot({ session: "s1", scope: SCOPE, text: KEEPER });
+    const claimed = b.claim(SCOPE);
+    expect(claimed.claimed).toBe(true);
+    if (!claimed.claimed) return;
+    expect(readFileSync(claimed.claim.path, "utf8")).toContain("ZQSTRIKE");
+
+    const doomed = claimed.claim.spans.find((s) => s.text === DOOMED);
+    const report = strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+    expect(report.touchedClaim).toBe(true);
+    expect(readFileSync(claimed.claim.path, "utf8")).not.toContain("ZQSTRIKE");
+    expect(readFileSync(claimed.claim.path, "utf8")).toContain("ZQKEEP");
+  });
+
+  test("the QUARANTINE file is chased as well — a span the sweep gave up on is still text on disk", () => {
+    const b = buf({ maxSpanFailures: 1 });
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    const out = b.noteFailures(SCOPE, [doomed as Span], "THREW");
+    expect(out.quarantined.length).toBe(1);
+    expect(raw(SCOPE, "quarantine.jsonl")).toContain("ZQSTRIKE");
+
+    strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+    expect(raw(SCOPE, "quarantine.jsonl")).not.toContain("ZQSTRIKE");
+  });
+
+  test("a PREDICATE takes a jot and NEVER a conversation span, whatever the text says", () => {
+    // The rule that keeps the fallback from being a bigger destruction than the
+    // chase: a conversation span is many turns joined and belongs to no single
+    // memory. Enforced here, at the seam, so no caller can lose it.
+    const b = buf();
+    b.capture({
+      session: "s1",
+      scope: SCOPE,
+      turns: [u(`We talked about it. ${DOOMED} Anyway, moving on now.`), a(`Noted. ${DOOMED}`)],
+    });
+    b.jot({ session: "s1", scope: SCOPE, text: DOOMED });
+
+    const report = strikeSpans(b, { scope: SCOPE, predicate: (t) => t.includes("ZQSTRIKE") });
+    expect(report.struck).toBe(1);
+    expect(raw(SCOPE, "jots.jsonl")).not.toContain("ZQSTRIKE");
+    expect(raw(SCOPE, "buffer.jsonl")).toContain("ZQSTRIKE");
+    expect(raw(SCOPE, "assistant.jsonl")).toContain("ZQSTRIKE");
+  });
+
+  test("a PREDICATE is the fallback when no hash was ever recorded, and it strikes across scopes", () => {
+    const b = buf();
+    b.jot({ session: "s1", scope: SCOPE, text: DOOMED });
+    b.jot({ session: "s1", scope: OTHER, text: DOOMED });
+    b.jot({ session: "s1", scope: OTHER, text: KEEPER });
+
+    const report = strikeSpans(b, { scope: null, predicate: (t) => t.includes("ZQSTRIKE") });
+    expect(report.struck).toBe(2);
+    expect(report.scopes).toBe(2);
+    expect(raw(SCOPE, "jots.jsonl")).not.toContain("ZQSTRIKE");
+    expect(raw(OTHER, "jots.jsonl")).not.toContain("ZQSTRIKE");
+    expect(raw(OTHER, "jots.jsonl")).toContain("ZQKEEP");
+  });
+
+  test("a jot appended DURING the strike survives it — the aside is the reason", () => {
+    // The race the choreography exists for: `mutate()` is a stance check and a
+    // try/catch, not a lock. The strike renames the live file aside, so an
+    // append racing it lands in a FRESH file at the same path. Simulated here by
+    // appending through the buffer's own door while the aside is on disk.
+    const b = buf();
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    const file = scopeFile(SCOPE, "jots.jsonl");
+    const aside = `${file}.striking`;
+    // Stage exactly what a crash between the rename and the append-back leaves.
+    renameSync(file, aside);
+    b.jot({ session: "s2", scope: SCOPE, text: KEEPER });
+
+    const report = strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+    expect(report.struck).toBe(1);
+    expect(existsSync(aside)).toBe(false);
+    const left = raw(SCOPE, "jots.jsonl");
+    expect(left).not.toContain("ZQSTRIKE");
+    expect(left).toContain("ZQKEEP");
+  });
+
+  test("nothing to strike is NOTHING, not a rewrite: an untouched scope keeps its bytes", () => {
+    const b = buf();
+    b.jot({ session: "s1", scope: SCOPE, text: KEEPER });
+    const before = raw(SCOPE, "jots.jsonl");
+    const report = strikeSpans(b, { scope: SCOPE, hashes: ["not-a-hash-in-this-store"] });
+    expect(report.reason).toBe("NOTHING");
+    expect(report.struck).toBe(0);
+    expect(raw(SCOPE, "jots.jsonl")).toBe(before);
+    expect(existsSync(scopeFile(SCOPE, "strikes.jsonl"))).toBe(false);
+  });
+
+  test("an instrument refuses to strike, and leaves the words exactly where they were", () => {
+    const b = buf();
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    const before = raw(SCOPE, "jots.jsonl");
+
+    const o = buf({ observer: true });
+    const report = strikeSpans(o, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+    expect(report.reason).toBe("OBSERVER");
+    expect(report.struck).toBe(0);
+    expect(raw(SCOPE, "jots.jsonl")).toBe(before);
+    expect(o.events("remember.observer.standdown").some((e) => e.data?.site === "strike")).toBe(true);
+  });
+
+  test("holding a SpanBuffer does not reach the strike — the grant is the capability", () => {
+    // The whole point of the seam: an object shaped like a buffer, that never
+    // ran the constructor's `grantSpanStrike`, cannot be struck through.
+    expect(() => strikeSpans({}, { scope: SCOPE, hashes: ["x"] })).toThrow("SPAN_STRIKE_UNGRANTED");
+  });
+
+  test("the durable record is counts and a day — never a hash, never a word", () => {
+    const b = buf();
+    const doomed = b.jot({ session: "s1", scope: SCOPE, text: DOOMED }).spans[0];
+    strikeSpans(b, { scope: SCOPE, hashes: [doomed?.hash ?? ""] });
+
+    const lines = readFileSync(scopeFile(SCOPE, "strikes.jsonl"), "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toEqual({ at: expect.any(Number), day: 3, by: "owner", files: 1, struck: 1, ledgered: 1 });
+    const text = JSON.stringify(lines[0]);
+    expect(text).not.toContain(doomed?.hash ?? "");
+    expect(text).not.toContain("culvert");
   });
 });
 

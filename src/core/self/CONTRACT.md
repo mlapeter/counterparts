@@ -142,7 +142,20 @@ recompression proposals and their archive; render and delivery telemetry.
    deterministic at a fixed budget — the host's case — but does not preserve the
    smaller-budget-is-a-subset property across budgets when one element is larger than the
    difference between them (NOTES §9, with the measurement). Truncating a belief to keep
-   that property is the worse trade.*
+   that property is the worse trade.* **An identity lane with no elements renders ONE line
+   of furniture naming the identity core** (`briefing.ts#identityCoreLine`) when a core
+   exists, and nothing when none does — the core is `type: "schema"` and no lane can reach
+   it, so a store seeded by `install --name` composed a wake that named nobody (measured
+   2026-09-04: 385 bytes, `elements=0`, four empty lanes and the owner's name nowhere in
+   it). It is furniture and not an element: the counts and `elements` do not move, it
+   carries no date because it has none, and it invents no content — it says who the memory
+   is for and how the lane fills, and nothing else — and the name is FLATTENED, like every
+   other string that reaches the bundle, because it is the only user-supplied one this
+   module renders. **The empty lane guards BOTH seams**: the lookup, on the ranked lane,
+   and the render, on the lane as it ARRIVED at `render` — never on the post-trim copy, so
+   a store whose identity elements the budget trimmed away can never assert that it has
+   none. A store with one identity element neither pays for the lookup nor renders the
+   line (NOTES §11).
 3. **[M]** Header and sentinel each state true counts and bytes. Because both state a number
    that composing them changes, composition iterates to a fixed point. A delivery-side event
    exists, not only a render-side one. **The delivered bundle carries a preface composed at

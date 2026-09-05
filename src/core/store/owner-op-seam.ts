@@ -57,6 +57,13 @@ export interface OwnerRemovalOutcome {
   /** Ids only — printing matches would re-leak what is being erased (§16 G15). */
   chased: string[];
   unchased: string[];
+  /**
+   * Surfaces the removal deliberately does NOT take, in their own words. A
+   * third category on purpose: `unchased` means "could not", and reporting a
+   * conversation turn the removal is leaving on principle as a failure is a
+   * different lie from the silence §16 G15 forbids, not a smaller one.
+   */
+  leftAlone: string[];
   notes: RemovalNote[];
 }
 
@@ -75,13 +82,21 @@ export interface OwnerRemovalPort {
  * refuses to write one (observer-mode G3), and a chase that took the database
  * directly would be the one write in the system that skipped the stance check.
  */
-export type OwnerOpSite = "chaseRemoved";
+export type OwnerOpSite = "chaseRemoved" | "unarchiveMerged";
 
 export interface OwnerOpAccess {
   readonly dir: string;
   ownerMutate<T>(site: OwnerOpSite, fn: (db: Db) => T): T;
   rawRow(id: string): MemoryRow | undefined;
   isDenied(id: string): boolean;
+  /**
+   * Re-index ONE row's tokens from its own prose, leaving its embedding alone.
+   * The seam's only route to box 3, and deliberately the lexical half only —
+   * a restore must never make a paid embedding call and must never drop a
+   * vector nothing here could recompute. See `store/index.ts`'s grant for why
+   * a restore has to touch box 3 at all.
+   */
+  reindexLexical(id: string): void;
 }
 
 const GRANTS = new WeakMap<object, OwnerOpAccess>();
@@ -232,4 +247,162 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
       noop,
     };
   });
+}
+
+// ── the repair ──────────────────────────────────────────────────────────────
+
+/**
+ * The archive reason `sleep/dedup.ts` writes when it merges a duplicate. It is
+ * spelled here rather than imported because `store/` sits BELOW `sleep/` and
+ * must not depend on it; `test/store.test.ts` pins the two spellings equal, so
+ * a rename cannot silently make this door match nothing.
+ */
+export const MERGED_ARCHIVE_REASON = "merged";
+
+/** The durable name a restore appends. Registered in the dashboard's vocabulary. */
+export const UNMERGE_EVENT = "memory.unmerged";
+
+/** What a restore did, in ids and counts. Never a body (§5 G10). */
+export interface UnmergeRecord {
+  readonly event: typeof UNMERGE_EVENT;
+  readonly day: number;
+  /** The row put back on its feet. */
+  readonly candidateId: string;
+  /** What it had been merged into, read from the durable merge record. Null
+   *  when no merge event survives the retention window — the archive reason
+   *  still says `merged`, and the restore is still the right answer. */
+  readonly originalId: string | null;
+  /** The lived day the merge was recorded on. */
+  readonly mergedOnDay: number | null;
+  /**
+   * The use the merge credited to the original — and which this restore
+   * deliberately LEAVES STANDING. Taking it back would rewrite a physics count
+   * whose band may already have been materialized and whose crossing may
+   * already be a durable row, in order to undo a single use. Recording the
+   * number here is what makes the credit auditable without touching it.
+   */
+  readonly usesDelta: number | null;
+}
+
+export interface UnmergeReport {
+  readonly id: string;
+  readonly record: UnmergeRecord;
+  /** True when the row was already live: a repeated repair changes nothing. */
+  readonly noop: boolean;
+}
+
+/**
+ * Put back a row the dedup pass archived as a duplicate — the repair half of
+ * the finding in `sleep/NOTES.md` §12 (probe H).
+ *
+ * It lives on this seam, beside the chase, for the same structural reason:
+ * holding a `Store` gives you no way to un-archive anything, and the
+ * caller-universality test pins who may import this file at all. The store's
+ * public surface has no general `unarchive`, and it must not grow one — a
+ * pruned row, a revised predecessor and a removed row are all archived, and
+ * each is archived for a reason a repair tool has no business reversing. This
+ * door undoes exactly ONE reason and refuses every other by name.
+ *
+ * The refusals, in order: no capability; a removed id (the deny-list answers
+ * before anything else); an unknown id; a row with a successor (restoring it
+ * would put two live versions in one revision chain); an archive reason that
+ * is not the merge's.
+ *
+ * **Box 3 is re-indexed, and the reason is a moving target.** On master as this
+ * was written, `archive()` left box 3 alone — no deindex, no vector drop — so a
+ * restore needed nothing. That stops being true the moment `archive()` starts
+ * DEINDEXING, which PR #64 (`overnight/df-live-rows`) adds so document frequency
+ * is counted over live rows; whichever of the two lands second would otherwise
+ * leave this door restoring a row that is live, listed in `beliefs(entity)`, and
+ * invisible to lexical recall. So the restore calls `access.reindexLexical`
+ * unconditionally: on today's master that rewrites the same `doc_tokens` rows
+ * the id already had, and after #64 it is the only thing standing between the
+ * repair and a half-restored belief. The EMBEDDING is untouched in both worlds —
+ * `indexDoc` writes a vector only when handed one, and it is not handed one —
+ * because a repair that made a paid embedding call, or dropped a vector nothing
+ * here can recompute, would be a worse bug than the one it is fixing.
+ *
+ * What the restore does NOT do is erase the merge: the `sleep.merged.<id>` meta record and the `memory.merged`
+ * event both stay exactly where they are, and `memory.unmerged` is appended
+ * beside them. Constitution 7: the history is the point, and a repair that
+ * tidied away the evidence of the bug would be the same class of mistake as
+ * the bug.
+ */
+export function unarchiveMerged(store: Store, id: string): UnmergeReport {
+  const access = GRANTS.get(store);
+  if (access === undefined) {
+    throw new StoreError("OWNER_OP_UNGRANTED", { id, site: "unarchiveMerged" });
+  }
+  if (access.isDenied(id)) throw new StoreError("REMOVED", { id, by: "owner" });
+  const row = access.rawRow(id);
+  if (row === undefined) throw new StoreError("ID_UNKNOWN", { id });
+  if (row.superseded_by !== null) {
+    throw new StoreError("UNMERGE_SUPERSEDED", { id, successor: row.superseded_by });
+  }
+  if (row.archived === 1 && row.archived_reason !== MERGED_ARCHIVE_REASON) {
+    throw new StoreError("UNMERGE_NOT_A_MERGE", { id, reason: row.archived_reason });
+  }
+
+  const report = access.ownerMutate("unarchiveMerged", (db) => {
+    const noop = row.archived === 0;
+    const merge = db.get<{ day: number; payload: string | null }>(
+      `SELECT day, payload FROM events
+        WHERE name = 'memory.merged' AND ref = ?
+        ORDER BY seq DESC LIMIT 1`,
+      id,
+    );
+    const payload = readMergePayload(merge?.payload ?? null);
+    const record: UnmergeRecord = {
+      event: UNMERGE_EVENT,
+      day: store.livedDay(),
+      candidateId: id,
+      originalId: payload.originalId,
+      mergedOnDay: merge?.day ?? null,
+      usesDelta: payload.usesDelta,
+    };
+    // ALREADY LIVE: say so, and write NOTHING. A `memory.unmerged` row appended
+    // here would read "the owner put this back" about a restore that never
+    // happened — a durable lie in the one log the owner is asked to trust. The
+    // CLI's own loop skips live rows, and that is not a substitute for this
+    // door being honest by itself.
+    if (noop) return { id, record, noop };
+
+    db.run("UPDATE memories SET archived = 0, archived_reason = NULL WHERE id = ?", id);
+    // Recorded inside the same transaction, and latched on the id, so a second
+    // `--apply` over the same store writes nothing at all (§5 G3).
+    store.appendEvent({
+      name: UNMERGE_EVENT,
+      day: record.day,
+      ref: id,
+      dedupKey: `${UNMERGE_EVENT}:${id}`,
+      payload: { ...record },
+    });
+    return { id, record, noop };
+  });
+
+  // Box 2 first, box 3 after the commit — the same order `Store.put`,
+  // `revise` and `supersede` use (`index.ts`: `this.mutate(...)` then
+  // `indexOne`). Box 3 is the rebuildable box; indexing inside box 2's
+  // transaction would be the one write in the system that inverted that order,
+  // and a re-index that ran and then rolled back would leave the index ahead of
+  // the row rather than behind it.
+  if (!report.noop) access.reindexLexical(id);
+  return report;
+}
+
+/** Ids and numbers out of the merge record's JSON, or nulls. Never throws. */
+function readMergePayload(raw: string | null): {
+  originalId: string | null;
+  usesDelta: number | null;
+} {
+  if (raw === null) return { originalId: null, usesDelta: null };
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      originalId: typeof parsed["originalId"] === "string" ? parsed["originalId"] : null,
+      usesDelta: typeof parsed["usesDelta"] === "number" ? parsed["usesDelta"] : null,
+    };
+  } catch {
+    return { originalId: null, usesDelta: null };
+  }
 }

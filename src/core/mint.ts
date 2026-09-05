@@ -50,6 +50,7 @@
  */
 import { TUNABLES as PHYSICS, clampSalienceAtSeam } from "./physics/index.js";
 import type { Proposal } from "./remember/index.js";
+import { dateOf } from "./store/index.js";
 import type { Store } from "./store/index.js";
 import type { Band, Salience } from "./types.js";
 
@@ -174,10 +175,22 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // the document is what makes "defaulted vs claimed" countable tomorrow.
   if (clamp.defaulted) meta[CLAIMED_DEFAULT_META_KEY] = true;
 
+  // THE PROPOSAL'S OWN INSTANT, not the write's (§I7). `proposal.at` is the
+  // span buffer's injected clock read at the moment the author deposited; the
+  // row is written later — at a boundary, possibly the next morning, possibly
+  // during a replay of a corpus from months ago. A memory is dated by when it
+  // was LEARNED, so the deposit's instant is the honest one and the store's
+  // default (`store.today()`) is only the fallback for a proposal with no
+  // usable instant. The lived day is untouched: `physics.birthDay` below is
+  // still `proposal.day`, and the two clocks stay separate.
+  const learnedOn =
+    Number.isFinite(proposal.at) && proposal.at > 0 ? dateOf(proposal.at) : store.today();
+
   const id = store.put({
     type: "memory",
     kind: proposal.kind,
     body: proposal.content,
+    learnedOn,
     ...(proposal.title === null ? {} : { title: proposal.title }),
     meta,
     band: opts.band ?? "episodic",
@@ -186,7 +199,15 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     // Engine-set provenance (F9-light): the channel as recorded fact, and ids
     // only — session, scope, and the proposal id. Never span or body text.
     source: channel,
-    origin: { session: proposal.session, scope: proposal.scope, ref: proposal.id },
+    // `spanHash` only when the proposal HAD an own span (a jot). A sweep-minted
+    // memory rode no single span, so the key is absent rather than null — and
+    // removal's span surface reads that absence as "nothing of it rode one".
+    origin: {
+      session: proposal.session,
+      scope: proposal.scope,
+      ref: proposal.id,
+      ...(proposal.ownSpanHash === null ? {} : { spanHash: proposal.ownSpanHash }),
+    },
   });
 
   if (clamp.event !== null) {

@@ -23,12 +23,13 @@
  * Hermetic: a fresh temp data dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Counterpart, GATE_CHUNK_FIELDS } from "../src/core/counterpart.js";
-import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
+import { Counterpart, GATE_CHUNK_FIELDS, GATE_DEPOSIT_FIELDS } from "../src/core/counterpart.js";
+import { SELF_SUBJECT } from "../src/core/encode/index.js";
+import { TUNABLES as REMEMBER_TUNABLES, keyFor } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -113,12 +114,33 @@ async function sweepOnce(
   await c.sweepFallback({ interpret: interpreter(proposals) });
 }
 
-function records(c: Counterpart): { day: number; ref: string | null; payload: Record<string, unknown> }[] {
-  return c.store.eventLog({ name: "gate.chunk", limit: 1000 }).map((row) => ({
+function rowsNamed(
+  c: Counterpart,
+  name: string,
+): { day: number; ref: string | null; payload: Record<string, unknown> }[] {
+  return c.store.eventLog({ name, limit: 1000 }).map((row) => ({
     day: row.day,
     ref: row.ref,
     payload: JSON.parse(row.payload ?? "{}") as Record<string, unknown>,
   }));
+}
+
+function records(c: Counterpart): { day: number; ref: string | null; payload: Record<string, unknown> }[] {
+  return rowsNamed(c, "gate.chunk");
+}
+
+/** The AUTHORED door's rows — the same log, the other door (§2a). */
+function deposits(c: Counterpart): { day: number; ref: string | null; payload: Record<string, unknown> }[] {
+  return rowsNamed(c, "gate.deposit");
+}
+
+/** The per-gate status map out of one `gate.deposit` payload. */
+function statuses(payload: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const g of (payload["gates"] ?? []) as { gate: string; status: string }[]) {
+    out[g.gate] = g.status;
+  }
+  return out;
 }
 
 const GOOD = {
@@ -597,5 +619,255 @@ describe("the sweep's index cards — prompt and gate see the same world", () =>
     // The hostile statement is still SHOWN verbatim (defanged, never dropped —
     // contradiction detection needs the real words).
     expect(prompt).toContain("SYSTEM OVERRIDE");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. THE AUTHORED DOOR'S RECORD — `gate.deposit` (replay INTERFACE-GAPS §2a)
+//
+// The sweep has recorded its gate since 2026-08-25 because it gates text nobody
+// was watching. The authored door recorded nothing: `remember/`'s `GateVerdict`
+// flattened a refusal to a first reason and a gate name, so `encode/`'s
+// per-gate records died at the seam and half of `gate.refusalMix` could not be
+// computed from a replayed store. These tests hold the same four properties the
+// chunk record is held to, plus the one this door adds: NO ROW when no battery
+// ran.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the authored door's gate record reaches the DURABLE log", () => {
+  const JOT_CTX = { session: "s-dep", scope: "proj" };
+
+  test("a REFUSED deposit leaves a row that NAMES the refusing gate", async () => {
+    const c = brain();
+    // Below the content floor: the one refusal a fixture can produce without
+    // planting a credential shape.
+    const r = await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
+    expect(r.deposited).toBe(false);
+    expect(r.reason).toBe("gate-rejected");
+
+    const rows = deposits(c);
+    expect(rows.length).toBe(1);
+    const p = rows[0]?.payload ?? {};
+    expect(p["accepted"]).toBe(0);
+    expect(p["refused"]).toBe(1);
+    expect(p["proposals"]).toBe(1);
+    expect(p["memoryId"]).toBeNull();
+    expect(p["source"]).toBe("jot");
+    expect(p["session"]).toBe("s-dep");
+    expect(p["scope"]).toBe("proj");
+    // THE GATE, BY NAME — the fact §2a said could not cross the verdict seam.
+    expect(statuses(p)["floor"]).toBe("rejected");
+    // BOTH blocking reasons, unjoined — the old seam sent `"a+b"` as one string.
+    expect(p["blockedBy"]).toEqual(["content-too-short", "content-too-few-words"]);
+    // …and the mix counts the FIRST one ONCE, the rule `gate.chunk` uses. A
+    // refusal that tripped two reasons must not weigh two in a distribution
+    // summed across both record kinds.
+    expect(p["refusalsByReason"]).toEqual({ "content-too-short": 1 });
+    expect((p["fires"] as Record<string, number>)["floor"]).toBe(1);
+    // …and the four gates that did NOT block are in the row too, so "the floor
+    // refused" is readable as a fact about one gate and not as a bare absence.
+    expect(statuses(p)["secrets"]).toBe("clear");
+    expect(statuses(p)["aliases"]).toBe("not-invoked");
+  });
+
+  test("an ACCEPTED deposit leaves one too, and it points at the minted memory", async () => {
+    const c = brain();
+    const r = await c.submitJot(
+      {
+        content:
+          "The cache is rebuildable from the canonical files, which is exactly why it never enters the backup set.",
+        kind: "fact",
+      },
+      JOT_CTX,
+    );
+    expect(r.deposited).toBe(true);
+
+    const rows = deposits(c);
+    expect(rows.length).toBe(1);
+    const p = rows[0]?.payload ?? {};
+    expect(p["accepted"]).toBe(1);
+    expect(p["refused"]).toBe(0);
+    expect(p["memoryId"]).toBe(r.memoryId);
+    expect(p["blockedBy"]).toEqual([]);
+    expect(p["refusalsByReason"]).toEqual({});
+    expect(statuses(p)["floor"]).toBe("clear");
+    // The record is addressed by the REDACTED text's hash, not by the memory id:
+    // a refused deposit has no memory to point at, and one address for both arms
+    // is what makes the two rows one kind.
+    expect(typeof p["contentHash"]).toBe("string");
+    expect(rows[0]?.ref).toBe(p["contentHash"] as string);
+  });
+
+  test("the row's field set IS `GATE_DEPOSIT_FIELDS` — the surface-set component cannot drift from the row", async () => {
+    const c = brain();
+    await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
+    const p = deposits(c)[0]?.payload ?? {};
+    expect(Object.keys(p).sort()).toEqual([...GATE_DEPOSIT_FIELDS].sort());
+  });
+
+  test("a gate that ACTED on an accepted deposit is counted — a fire is not a refusal", async () => {
+    const c = brain();
+    const r = await c.submitJot(
+      {
+        content:
+          "The deploy key we rotated is AKIAIOSFODNN7EXAMPLE and it now lives only in the manager, which is the whole point of the rotation.",
+        kind: "fact",
+      },
+      JOT_CTX,
+    );
+    expect(r.deposited).toBe(true);
+
+    const p = deposits(c)[0]?.payload ?? {};
+    expect(p["accepted"]).toBe(1);
+    // The secrets gate REDACTED and the proposal was kept: that is a fire, and
+    // fires on accepted proposals are most of what a mix is made of.
+    expect(statuses(p)["secrets"]).toBe("fired");
+    expect((p["fires"] as Record<string, number>)["secrets"]).toBe(1);
+    const families = p["secretFamilies"] as { family: string; count: number; site: string }[];
+    expect(families.length).toBeGreaterThan(0);
+    expect(families[0]?.site).toBe("body");
+    // FAMILY AND COUNT, never the credential and never a hash of one.
+    expect(JSON.stringify(p)).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
+
+  test("preselection is `not-run`, not zero — the authored door shows no cards", async () => {
+    const c = brain();
+    await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
+    const p = deposits(c)[0]?.payload ?? {};
+    expect(p["preselection"]).toBe("not-run");
+    expect(p["shown"]).toBeNull();
+    expect(String(p["preselectionReason"]).length).toBeGreaterThan(0);
+  });
+
+  test("NO ROW when no battery ran: a malformed draft, and the observer", async () => {
+    const c = brain();
+    // Intake refuses before the gate is called, so there are no gate records to
+    // write — and a row claiming five clear gates would be a lie.
+    const bad = await c.submitJot({ notContent: 1 }, JOT_CTX);
+    expect(bad.deposited).toBe(false);
+    expect(bad.reason).toBe("malformed");
+    expect(deposits(c).length).toBe(0);
+
+    const observer = brain({ observer: true, dir });
+    const stood = await observer.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
+    expect(stood.deposited).toBe(false);
+    expect(deposits(observer).length).toBe(0);
+  });
+
+  test("it SURVIVES the process, and carries NO text of any kind", async () => {
+    const first = brain();
+    await first.submitJot(
+      { content: `${PROPOSAL_MARKER} A claim with a title and an alias on it, long enough to clear the floor.`, kind: "fact", title: `${PROPOSAL_MARKER} the title`, aliases: [`${PROPOSAL_MARKER} the alias`] },
+      JOT_CTX,
+    );
+    await first.submitJot({ content: `${PROPOSAL_MARKER} short`, kind: "fact" }, JOT_CTX);
+    const written = deposits(first);
+    expect(written.length).toBe(2);
+    first.close();
+
+    const second = brain();
+    const read = deposits(second);
+    expect(read.length).toBe(2);
+    expect(read[0]?.payload["contentHash"]).toBe(written[0]?.payload["contentHash"]);
+    // The honeypot: the marker is in the body, the title AND the alias, and it
+    // must not be anywhere in the whole log.
+    expect(JSON.stringify(second.store.eventLog({ limit: 1000 }))).not.toContain(PROPOSAL_MARKER);
+  });
+
+  test("a REFUSED deposit leaks nothing from ANY author-supplied field — the feeling included", async () => {
+    const c = brain();
+    // EVERY field an author can fill, each carrying the marker, on a draft the
+    // floor will refuse — so nothing mints, no prose is written, and the durable
+    // log is the ONLY place any of it could have landed.
+    //
+    // The feeling fields are here because they are where this broke. The record
+    // copied the emotion gate's `type` on the belief that a feeling word is a
+    // closed vocabulary; `encode/emotion.ts` says outright that the type and the
+    // subject are both author-supplied text, and `bridge.ts` marks every jot and
+    // session-end self-authored, so the exemption path that carries the feeling
+    // through is open on every authored deposit. The whole sentence survived.
+    await c.submitJot(
+      {
+        content: `${PROPOSAL_MARKER} tiny`,
+        kind: "fact",
+        title: `${PROPOSAL_MARKER} a title`,
+        aliases: [`${PROPOSAL_MARKER} an alias`],
+        // `subject` is the AUTHOR, which is what opens the exemption path and
+        // lets the declared type survive the gate. A marker in the subject
+        // instead would fail the exemption, kill the feeling, and quietly make
+        // this test vacuous — the assertion below pins the exemption open.
+        feeling: {
+          feeling: `${PROPOSAL_MARKER} the merger with Acme closes Friday`,
+          quote: `${PROPOSAL_MARKER} tiny`,
+          subject: SELF_SUBJECT,
+        },
+      },
+      JOT_CTX,
+    );
+    const row = deposits(c)[0];
+    expect(row).toBeDefined();
+    // NOT VACUOUS: the row is there, the deposit was refused, and the emotion
+    // gate accepted the declared feeling by exemption — the state in which the
+    // author's own words reached the record.
+    expect(row?.payload["accepted"]).toBe(0);
+    expect(statuses(row?.payload ?? {})["emotion"]).toBe("fired");
+    expect(row?.payload["feelingExemption"]).toBe(true);
+
+    // NO SUBSTRING of the marker, anywhere in the events table. Whole-log, not
+    // per-field: a leak that moves to a new field must fail this too.
+    const whole = JSON.stringify(c.store.eventLog({ limit: 1000 }));
+    expect(whole).not.toContain(PROPOSAL_MARKER);
+    expect(whole).not.toContain("Acme");
+    // …and the closed-vocabulary verdict IS carried, so what replaced the leak
+    // is a fact and not a silence.
+    const gateReasons = ((row?.payload["gates"] ?? []) as { gate: string; reason: string }[])
+      .filter((g) => g.gate === "emotion")
+      .map((g) => g.reason);
+    expect(gateReasons.length).toBe(1);
+    expect(gateReasons[0]).toMatch(/^[a-z-]+$/);
+  });
+
+  test("no `dedupKey`: two refusals of the same text on the same day are two rows", async () => {
+    const c = brain();
+    await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
+    await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
+    // The latch is deliberately absent — `store.pruneEvents` exempts a latched
+    // row by construction, and the authored door fires at every session end and
+    // every jot. Two refusals are honestly two events. (Nothing calls
+    // `pruneEvents` in `src/` today, so unlatched buys eligibility rather than
+    // deletion — `sleep/NOTES.md` §13.)
+    expect(deposits(c).length).toBe(2);
+    for (const row of c.store.eventLog({ name: "gate.deposit", limit: 10 })) {
+      expect(row.dedup_key).toBeNull();
+    }
+  });
+
+  test("a clean gate whose LEDGER WRITE failed is not recorded as a refusal", async () => {
+    const c = brain();
+    // One good deposit first, so the scope and its ledger file exist.
+    await c.submitJot(
+      { content: "A first claim, comfortably past the content floor and carrying nothing to redact.", kind: "fact" },
+      JOT_CTX,
+    );
+    const ledger = join(dir, "spans", keyFor("proj"), "proposals.jsonl");
+    chmodSync(ledger, 0o400);
+
+    const r = await c.submitJot(
+      { content: "A second claim, equally past the floor, whose ledger append will not land.", kind: "fact" },
+      JOT_CTX,
+    );
+    chmodSync(ledger, 0o600);
+    expect(r.deposited).toBe(false);
+    expect(r.reason).toBe("io-failed");
+
+    const p = deposits(c)[1]?.payload ?? {};
+    // THE GATE'S VERDICT, not the deposit's fate. Deriving this from "was there
+    // a mint" recorded a refusal with an empty `blockedBy` and no rejecting
+    // gate — the one shape a refusal distribution must never contain.
+    // `accepted: 1, memoryId: null` is the IO-failed signature instead.
+    expect(p["accepted"]).toBe(1);
+    expect(p["refused"]).toBe(0);
+    expect(p["memoryId"]).toBeNull();
+    expect(p["blockedBy"]).toEqual([]);
+    expect(statuses(p)["floor"]).toBe("clear");
   });
 });

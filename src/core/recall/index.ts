@@ -38,7 +38,7 @@ import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { loadGateState, saveGateState } from "./session.js";
 import type { GateState, SemanticSource } from "./session.js";
 import { render } from "./render.js";
-import type { RenderResult, Resolve } from "./render.js";
+import type { RenderResult, Resolve, Resolved } from "./render.js";
 import { withTunables } from "./tunables.js";
 import type { RecallTunables } from "./tunables.js";
 
@@ -669,12 +669,19 @@ function trainsOf(verdicts: readonly CandidateVerdict[], id: string): boolean {
   return verdicts.find((v) => v.id === id)?.trains ?? true;
 }
 
-/** Id → text, at render time only. A missing doc renders as its own id. */
-function resolveDoc(doc: ProseDoc | undefined, id: string): { title: string; gist: string } {
+/**
+ * Id → text, at render time only. A missing doc renders as its own id.
+ *
+ * The journal flag is read off the doc's own `type` — the same field
+ * `sleep/types.ts#isJournal` reads off the row — so the label cannot disagree
+ * with what the rest of the system calls a chapter, and nothing had to be added
+ * to the candidate, the verdict or the decision record to carry it.
+ */
+function resolveDoc(doc: ProseDoc | undefined, id: string): Resolved {
   if (doc === undefined) return { title: id, gist: id };
   const firstLine = doc.body.split("\n").find((l) => l.trim().length > 0) ?? "";
   const paragraph = doc.body.split(/\n\s*\n/).find((p) => p.trim().length > 0) ?? doc.body;
-  return { title: doc.title ?? firstLine, gist: paragraph };
+  return { title: doc.title ?? firstLine, gist: paragraph, journal: doc.type === "episode" };
 }
 
 export type { Kind, CandidateVerdict, Verdict, Background, GateState, UseTier, CreditOutcome };

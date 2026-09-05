@@ -1379,8 +1379,18 @@ describe("dedup leaves a revision's successor alone", () => {
     const out = runDedup(ctx(wrap(s), 3));
 
     // Nothing merged, and the pass NAMES the refusal.
+    //
+    // 2026-09-05: the name MOVED, and the invariant did not. This successor is
+    // a `sch_` row (`schemas/index.ts` mints element successors as
+    // `type: "schema"`), so the wider rule below — a schema row is not a dedup
+    // candidate at all — now stands it down before a pair is ever formed, and
+    // `revision-successor-never-merged` no longer has anything to fire on
+    // here. G9b is not dead: `revision.ts`'s identity arm mints a `mem_`
+    // successor, and the test at the end of this block is the one that keeps
+    // G9b honest.
     expect(out.merged).toEqual([]);
-    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(out.leftAlone["revision-successor-never-merged"]).toBeUndefined();
+    expect(out.skipped["schema"]).toBeGreaterThan(0);
     expect(s.row(successor)?.archived).toBe(0);
     expect(s.row(challengerId)?.archived).toBe(0);
 
@@ -1405,7 +1415,7 @@ describe("dedup leaves a revision's successor alone", () => {
     const usesBefore = s.physicsOf(challengerId).uses;
     const again = runDedup(ctx(wrap(s), 4));
     expect(again.merged).toEqual([]);
-    expect(again.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(again.skipped["schema"]).toBe(out.skipped["schema"]);
     expect(s.physicsOf(challengerId).uses).toBe(usesBefore);
   });
 
@@ -1446,7 +1456,9 @@ describe("dedup leaves a revision's successor alone", () => {
 
     const out = runDedup(ctx(wrap(s), 1));
     expect(out.merged).toEqual([]);
-    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    // Also a `sch_` successor, so also stood down by the schema rule (see the
+    // note in the first test of this block). The invariant is unchanged.
+    expect(out.skipped["schema"]).toBeGreaterThan(0);
     expect(s.row(successor)?.archived).toBe(0);
     expect(s.read(stateId).archivedReason).toBe(SCHEMA_TUNABLES.REPLACED_REASON);
     expect(s.read(stateId).supersededBy).toBe(successor);
@@ -1494,8 +1506,10 @@ describe("dedup leaves a revision's successor alone", () => {
     expect(out.merged[0]?.usesDelta).toBe(1);
     expect(s.physicsOf(challengerId).uses).toBe(usesBefore + 1);
     expect(s.row(twin)?.archived).toBe(1);
-    // The successor pairs against the same group and is still left alone.
-    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    // The successor is a `sch_` row and never joins the group at all now; the
+    // ordinary pair it used to sit beside merges exactly as before, which is
+    // the whole point of this test.
+    expect(out.skipped["schema"]).toBeGreaterThan(0);
     expect(s.row(successor)?.archived).toBe(0);
   });
 
@@ -1541,7 +1555,7 @@ describe("dedup leaves a revision's successor alone", () => {
     // accommodation row can never be the losing candidate of a same-hash merge.
     expect(s.row(successor)?.archived).toBe(0);
     expect(sc.currentState(entityId).map((e) => e.id)).toEqual([successor]);
-    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(out.skipped["schema"]).toBeGreaterThan(0);
 
     // The CHALLENGER is a different question, and it is deliberately left to the
     // ordinary rule: it is a plain memory that says what a plain memory already
@@ -1595,6 +1609,266 @@ describe("dedup leaves a revision's successor alone", () => {
     expect(s.row(sb)?.archived).toBe(0);
     expect(sc.currentState(entityId).map((e) => e.id).sort()).toEqual([sa, sb].sort());
   });
+
+  test("G9b is still load-bearing: the IDENTITY arm's successor is a mem_ row", () => {
+    // `schemas/index.ts` mints element successors as `type: "schema"`, so the
+    // schema exclusion below covers those. `revision.ts#identityChallenge`
+    // mints its successor as `type: "memory"` (line ~387) — an ORDINARY row
+    // with `source: "accommodation"` — and the exclusion does not reach it.
+    // G9b is the only thing standing between that successor and the challenger
+    // whose words it carries, so this test is the reason G9b stays.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const target = put(s, {
+      body: "I answer in the shortest form that is still true",
+      band: "identity",
+      salience: { novelty: null, relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    expect(s.row(target)?.band).toBe("identity");
+
+    // Identity does not flip on one sentence: three lived days of pressure.
+    const bodies = [
+      "I wrote a long answer because the short one was wrong",
+      "I wrote a second long answer on purpose",
+      "I answer at whatever length the question needs",
+    ];
+    let challengerId = "";
+    let successorId: string | null = null;
+    for (const [i, body] of bodies.entries()) {
+      const day = i + 1;
+      challengerId = challengerFor(s, { day, body, updates: target });
+      const out = applyRevision(
+        s,
+        sc,
+        { updates: target, challengerId, day, method: "declared" },
+        {},
+      );
+      successorId = out.successorId ?? successorId;
+    }
+    expect(successorId).not.toBeNull();
+    const successor = successorId as string;
+    // The precondition: a MEMORY row, not a schema row, carrying the
+    // challenger's own words.
+    expect(s.row(successor)?.type).toBe("memory");
+    expect(s.row(successor)?.source).toBe("accommodation");
+    expect(s.read(successor).doc.body).toBe(s.read(challengerId).doc.body);
+
+    const out = runDedup(ctx(wrap(s), 3));
+    expect(out.merged).toEqual([]);
+    expect(out.leftAlone["revision-successor-never-merged"]).toBe(1);
+    expect(s.row(successor)?.archived).toBe(0);
+    expect(s.row(challengerId)?.archived).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * A BELIEF IS NOT A DUPLICATE OF A MEMORY.
+ *
+ * Probe H, filed by the adversarial review on 2026-09-04 (NOTES §12) and left
+ * open there: an element and an ordinary memory can carry the same words with
+ * NO revision anywhere — an `addBelief` whose statement is X and a memory whose
+ * body is X. G9b does not apply (no accommodation row is involved), the
+ * tie-break puts `mem_` before `sch_`, and the belief is archived `merged` into
+ * the memory. `beliefs(entity)` then reads empty and the store has quietly
+ * stopped believing something nobody retracted.
+ *
+ * On the live store the pair is not exotic but LIKELY: `tools/migrate/apply.ts`
+ * minted every migrated element at the import day while migrated memories kept
+ * their v1 birth day, so on every such collision the memory is strictly older
+ * and the element loses without even needing the id tie-break.
+ *
+ * The rule: a `type: "schema"` row is not a dedup candidate at all. Beliefs
+ * have their own revision machinery (`schemas/` §5.6, "beliefs never blend";
+ * §5 G4, "near collisions refuse loudly rather than merging"), and duplicates
+ * among beliefs are that module's question, not this phase's.
+ */
+describe("dedup never compares a belief with a memory", () => {
+  test("a belief and a memory with the SAME body, born the same day: both stay live", () => {
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const STATEMENT = "Ada prefers async review";
+    const beliefId = sc.addBelief({
+      entityId,
+      statement: STATEMENT,
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    // No revision anywhere: an ordinary memory that happens to say the same
+    // sentence on the same day.
+    const memoryId = put(s, { body: STATEMENT, physics: { birthDay: 0, lastUsedDay: 0 } });
+    expect(s.read(beliefId).doc.body).toBe(s.read(memoryId).doc.body);
+
+    const usesBefore = s.physicsOf(memoryId).uses;
+    const out = runDedup(ctx(wrap(s), 0));
+
+    expect(out.merged).toEqual([]);
+    expect(s.row(beliefId)?.archived).toBe(0);
+    expect(s.row(memoryId)?.archived).toBe(0);
+    // Nothing was credited either: a merge that did not happen credits no use.
+    expect(s.physicsOf(memoryId).uses).toBe(usesBefore);
+    // And the belief is still a belief.
+    expect(sc.beliefs(entityId).map((b) => b.id)).toEqual([beliefId]);
+    // Named, not silent (§5 G6): the phase says it stood the schema rows down.
+    // TWO of them — the belief and the ENTITY it hangs off, which is a
+    // `type: "schema"` row as well (`schemas/index.ts#mention`).
+    expect(out.skipped["schema"]).toBe(2);
+  });
+
+  test("the migration's shape: an element born LATER than the memory still survives", () => {
+    // `migrate/apply.ts` mints elements at the import day; migrated memories
+    // keep their v1 birth day. So the memory is older on every such pair and
+    // wins the tie-break outright, with no id comparison needed.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Bansai",
+      kind: "entity",
+      source: "Bansai is the v1 instance",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const STATEMENT = "Bansai is the v1 instance and keeps running";
+    const memoryId = put(s, { body: STATEMENT, physics: { birthDay: 0, lastUsedDay: 0 } });
+    const stateId = sc.addCurrentState({
+      entityId,
+      statement: STATEMENT,
+      day: 40,
+      statedOn: "2026-09-03",
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+
+    const out = runDedup(ctx(wrap(s), 40));
+
+    expect(out.merged).toEqual([]);
+    expect(s.row(stateId)?.archived).toBe(0);
+    expect(s.row(memoryId)?.archived).toBe(0);
+    expect(sc.currentState(entityId).map((e) => e.id)).toEqual([stateId]);
+  });
+
+  test("the COSINE path too: a near-duplicate belief and memory both stay live", () => {
+    // The injected source is the other door into this phase, and a source that
+    // reads `liveIds` never sees a schema id once they are out of the live set.
+    // This one hands the pair over anyway — the belt-and-braces case — and the
+    // phase must still refuse it rather than merging at 0.99.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = sc.addBelief({
+      entityId,
+      statement: "Ada prefers asynchronous review",
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const memoryId = put(s, {
+      body: "Ada prefers async review",
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+
+    // Distinct bodies, so the hash path finds nothing and this test is only
+    // about cosine.
+    expect(s.read(beliefId).doc.body).not.toBe(s.read(memoryId).doc.body);
+
+    const source = (): DedupPair[] => [
+      { candidateId: beliefId, originalId: memoryId, cosine: 0.99 },
+      // And the other direction, because which row an embedding source calls
+      // the original is not this phase's choice either.
+      { candidateId: memoryId, originalId: beliefId, cosine: 0.99 },
+    ];
+    const out = runDedup(ctx(wrap(s), 0), source);
+
+    expect(out.merged).toEqual([]);
+    expect(s.row(beliefId)?.archived).toBe(0);
+    expect(s.row(memoryId)?.archived).toBe(0);
+    expect(sc.beliefs(entityId).map((b) => b.id)).toEqual([beliefId]);
+    // Two rows stood down when the live set was built (the entity and the
+    // belief), plus the two pairs the injected source handed over anyway —
+    // and those two are named `schema` rather than `already-archived`, which
+    // is what the belt-and-braces arm exists for.
+    expect(out.skipped["schema"]).toBe(4);
+  });
+
+  test("two ordinary memories with one body still merge — the exclusion is NARROW", () => {
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const BODY = "Ada asked for the review notes in writing";
+    // A belief saying the SAME thing sits right beside them and is untouched.
+    const beliefId = sc.addBelief({
+      entityId,
+      statement: BODY,
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const first = put(s, { id: "mem_aaaaaaaaaaaa", body: BODY, physics: { birthDay: 0, lastUsedDay: 0 } });
+    const second = put(s, { id: "mem_ffffffffffff", body: BODY, physics: { birthDay: 1, lastUsedDay: 1 } });
+    const usesBefore = s.physicsOf(first).uses;
+
+    const out = runDedup(ctx(wrap(s), 1));
+
+    expect(out.merged.map((m) => m.candidateId)).toEqual([second]);
+    expect(out.merged[0]?.originalId).toBe(first);
+    expect(out.merged[0]?.reason).toBe("identical-content-hash");
+    expect(s.physicsOf(first).uses).toBe(usesBefore + 1);
+    expect(s.row(second)?.archived).toBe(1);
+    expect(s.row(beliefId)?.archived).toBe(0);
+    expect(sc.beliefs(entityId).map((b) => b.id)).toEqual([beliefId]);
+  });
+
+  test("two beliefs with one body are left to `schemas/`, not merged here", () => {
+    // The alternative rule — "compare schema rows only with schema rows on the
+    // same entity" — would have merged this pair. It is deliberately not the
+    // rule: `schemas/` §5 G4 refuses near collisions LOUDLY rather than
+    // merging, and a belief archived by a sleep phase carries no reason anyone
+    // can argue with.
+    const s = store();
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const STATEMENT = "Ada prefers async review";
+    const a = sc.addBelief({
+      entityId,
+      statement: STATEMENT,
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const b = sc.addBelief({
+      entityId,
+      statement: STATEMENT,
+      day: 1,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+
+    const out = runDedup(ctx(wrap(s), 1));
+
+    expect(out.merged).toEqual([]);
+    expect(sc.beliefs(entityId).map((e) => e.id).sort()).toEqual([a, b].sort());
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1647,7 +1921,9 @@ describe("sleep leaves the journal alone", () => {
     expect(report.pruned.map((p) => p.id)).toContain(ingested);
 
     // Every phase counted the skip rather than passing over it in silence.
-    for (const phase of ["decay", "prune", "consolidate"] as const) {
+    // DEDUP included since 2026-09-05: G15 says "a named skip in each phase",
+    // and until then dedup was the one arm that excluded the journal silently.
+    for (const phase of ["decay", "prune", "consolidate", "dedup"] as const) {
       expect(phaseReport(report, phase).skipped["journal"]).toBe(1);
     }
   });

@@ -70,3 +70,31 @@ Every test here runs against a temp store with a faked stdin. Nothing has spoken
 to a real MCP client. Per CLAUDE.md's definition of done, that makes this
 **merged, not verified**: the outstanding proof is one real host completing a
 handshake, listing the tools, and calling `session_end` at a real boundary.
+
+## The configuration is named the same way everywhere now (2026-09-05)
+
+`bin/serve.ts` read `~/.counterparts/claude-code.json` and nothing else, which is
+how the cold-stranger critic of 2026-09-04 came to embed on the owner's key: the
+store was redirected with `COUNTERPARTS_DATA_DIR` and the credentials were not,
+because there was no way to redirect them.
+
+The rule is `adapters/config-path.ts`, shared with the hook, the worker and the
+console: `--config <absolute path>`, else `COUNTERPARTS_CONFIG`, else the same
+default as before. **The environment variable exists FOR THIS ENTRY POINT.** This
+host registers an MCP server from a static configuration — command, args, env —
+so there is no command line for an operator to add a flag to; `-e
+COUNTERPARTS_CONFIG=…` in the `claude mcp add` line is the only channel, and
+`counterparts install --config` prints exactly that line.
+
+Two properties, both deliberate:
+
+- **The store is still not decided here.** `--dir` / `COUNTERPARTS_DATA_DIR` /
+  the default choose the store; the configuration answers "whose keys, whose
+  embedder knob". Reading `config.dataDir` here would quietly fix half of
+  QUICKSTART §10.3 and leave the docs claiming the other half.
+- **A named configuration that cannot be honoured refuses the launch** — exit 1,
+  the reason on stderr — rather than falling back to a default that, on a machine
+  with an install, is somebody else's keys. "Cannot be honoured" includes an
+  absolute path to a file that is not there, which the first version honoured
+  silently (`claude-code/NOTES.md` §11). The server also writes the file it
+  read to stderr at every launch, before a byte of protocol: stdout is the wire.

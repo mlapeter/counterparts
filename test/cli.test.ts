@@ -22,7 +22,7 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -37,7 +37,13 @@ import { PHASES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
-import { openCache, setEmbedding } from "../src/core/store/cache.js";
+import {
+  convertVectorBatch,
+  decodeVector,
+  indexDoc,
+  openCache,
+  setEmbedding,
+} from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
@@ -72,7 +78,11 @@ import { ownerRemoval, planRemoval, verifyRemoval } from "../src/adapters/cli/re
 // The box-2 half of the destruction path. Imported HERE for the same reason
 // `removal.ts` is: this is the directory allowed to reach it, and the
 // caller-universality test below pins that nothing else does.
-import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { chaseRemoved, unarchiveMerged } from "../src/core/store/owner-op-seam.js";
+// The schemas module, to build (and then read back) the thing the repair is
+// about: a belief that stopped being a belief.
+import { Schemas } from "../src/core/schemas/index.js";
+import { applyRevision } from "../src/core/revision.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -256,12 +266,17 @@ describe("init", () => {
     expect(printed).toContain("bin/hook.ts");
     expect(printed).toContain("bin/serve.ts");
     expect(printed).toContain("injectionBudgetBytes");
-    // The claims audit's F6, in the CLI's own text: the hook takes no FLAG, and
-    // it does fall back to the environment for the store. "No flag and no
-    // environment override" was printed here for a while and is not true
-    // (`hook.ts:84`, `dataDir: loaded.dataDir ?? dataDir()`).
-    expect(printed).toContain("taking no flag");
+    // The claims audit's F6, in the CLI's own text: with no flag the hook reads
+    // one path, and it does fall back to the environment for the store. "No flag
+    // and no environment override" was printed here for a while and is not true
+    // (`hook.ts#hostConfig`, `dataDir: loaded.dataDir ?? dataDir()`). Since the
+    // one-config rule (2026-09-05) the same paragraph says how to name another
+    // file, because "the hooks read one path" without that sentence is the
+    // half-truth the flag exists to end.
+    expect(printed).toContain("with no flag they read");
     expect(printed).toContain("COUNTERPARTS_DATA_DIR");
+    expect(printed).toContain("--config <absolute path>");
+    expect(printed).toContain("$COUNTERPARTS_CONFIG");
     expect(printed).not.toContain("no environment override");
     // And the exit rule, with its one exception, wherever the exit rule is said.
     expect(printed).not.toContain("every hook exits 0");
@@ -760,7 +775,7 @@ describe("remove — the loud removal", () => {
  * The probe is §I2's own: a marker string, and a grep of the store afterwards,
  * so the test asserts the RESIDUE as well as the report about it.
  */
-describe("remove — the span buffer is named, never implied", () => {
+describe("remove — the span buffer is CHASED, and what it cannot reach it names", () => {
   const MARKER = "ZQRESIDUEPROBE the culvert gate key is kept under the third fence post.";
 
   /** Store-relative paths of every file holding `needle`. Ids and paths, no text. */
@@ -783,44 +798,258 @@ describe("remove — the span buffer is named, never implied", () => {
     return /mem_[0-9a-f]+/.exec(line)?.[0] ?? "";
   }
 
-  test("a note that rode the buffer is named unchased — in the dry run, the report and the record", async () => {
-    store().close();
+  /**
+   * The MCP `note` tool's own two steps (`adapters/mcp/server.ts:337-362`), which
+   * is exactly what `counterparts note` runs: `captureJot` FIRST — the verbatim
+   * text into `spans/<key>/jots.jsonl` — then `submitJot` carrying that span's
+   * hash as `ownSpanHash`. This is the door that made the residue.
+   */
+  async function noteThroughTheJotDoor(text: string): Promise<string> {
     const w = consoleWith();
-    expect(await run(["note", MARKER, "--dir", dir], { io: w.io })).toBe(EXIT.ok);
-    const id = idFrom(w.out);
+    expect(await run(["note", text, "--dir", dir], { io: w.io })).toBe(EXIT.ok);
+    return idFrom(w.out);
+  }
+
+  test("the words a note rode in on are struck out of the buffer, and a later backup has none of them", async () => {
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
     expect(id).toMatch(/^mem_/);
     // The residue itself, before anything is removed: the prose AND the buffer.
     const seeded = grepStore(dir, "ZQRESIDUEPROBE");
     expect(seeded.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
+    expect(seeded.some((p) => p.startsWith("prose/"))).toBe(true);
 
-    // The DRY RUN says it, and says it above the closing line — a disclosure
-    // under "Nothing has changed" is one the reader has already stopped reading.
+    // The DRY RUN counts it as a surface to chase, and says so above the closing
+    // line — a disclosure under "Nothing has changed" is one the reader has
+    // already stopped reading.
     const plan = consoleWith();
     expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
     const planned = text(plan.out);
-    expect(planned).toContain("NOT chased — spans/");
-    expect(planned).toContain("the raw capture buffer still holds this memory's words");
-    expect(planned).toContain("Chasing it is a core change, not yet written.");
-    expect(planned.indexOf("NOT chased")).toBeLessThan(planned.indexOf("Dry run. Nothing has changed."));
+    expect(planned).toContain("chase spans: 1");
+    expect(planned).toContain("chased — spans/");
+    expect(planned).toContain("the removal strikes them out of it");
+    expect(planned.indexOf("chased — spans/")).toBeLessThan(
+      planned.indexOf("Dry run. Nothing has changed."),
+    );
     // §16 G15 still holds: the report names a file, never a word of its contents.
     expect(planned).not.toContain("culvert gate key");
+    // A dry run strikes nothing.
+    expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.startsWith("spans/"))).toBe(true);
 
-    // The REAL removal says the same thing, and the completion LINE counts it.
-    // Printed, not stored: the durable `removal_record` is four stage rows with
-    // no count, which is why the assertion below is on the console's output.
+    // THE REAL REMOVAL. The buffer is in `chased` with a count, `unchased` is
+    // empty, and the completion event says so.
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
-    expect(printed).toContain(
-      "unchased (dark via the deny-list, never silently dropped): spans/",
-    );
-    expect(printed).toContain("jots.jsonl — the raw capture buffer still holds this memory's words");
-    expect(printed).toContain('"unchased":1');
+    expect(printed).toContain("spans(1 line in 1 file)");
+    expect(printed).toContain("consumed.jsonl so nothing re-captures the words");
+    expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+    expect(printed).toContain('"unchased":0');
+    expect(printed).not.toContain("culvert gate key");
 
-    // And the report is TRUE: the prose is gone, the buffer line is not.
+    // AND THE REPORT IS TRUE. This is LAUNCH-STATUS §I2's own grep, and the
+    // whole point of the workstream: nothing under the data dir answers.
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+
+    // The blast radius the finding measured: a snapshot taken AFTER the removal
+    // used to carry the words. It does not now.
+    const out = join(outside, "after-removal");
+    const b = consoleWith();
+    expect(await run(["backup", "--dir", dir, "--out", out], { io: b.io })).toBe(EXIT.ok);
+    expect(grepStore(out, "ZQRESIDUEPROBE")).toEqual([]);
+  });
+
+  test("the durable strike record carries counts and no content, and the hash is kept so nothing re-captures it", async () => {
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: consoleWith([id]).io })).toBe(
+      EXIT.ok,
+    );
+
+    const scopes = readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n));
+    expect(scopes.length).toBe(1);
+    const scopeDir = join(dir, "spans", scopes[0] as string);
+
+    const strikes = readFileSync(join(scopeDir, "strikes.jsonl"), "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(strikes.length).toBe(1);
+    expect(strikes[0]?.["struck"]).toBe(1);
+    expect(strikes[0]?.["by"]).toBe("owner");
+    // §16 G9: a record of a destruction carries no hash of what it destroyed.
+    expect(Object.keys(strikes[0] ?? {}).sort()).toEqual(
+      ["at", "by", "day", "files", "ledgered", "struck"],
+    );
+
+    // The terminal ledger holds the hash, which is what stops the words being
+    // re-admitted by a re-capture, a restore, or a crashed run's orphan merge.
+    const consumed = readFileSync(join(scopeDir, "consumed.jsonl"), "utf8");
+    expect(consumed.trim().length).toBeGreaterThan(0);
+    expect(consumed).not.toContain("culvert gate key");
+  });
+
+  test("a note taken TWICE loses only the removed one — the strike is not a truncation", async () => {
+    store().close();
+    const keeper = "ZQKEEPER the north gate is padlocked and the key hangs in the tack room.";
+    const doomedId = await noteThroughTheJotDoor(MARKER);
+    await noteThroughTheJotDoor(keeper);
+
+    expect(
+      await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
+    ).toBe(EXIT.ok);
+
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+    // The other note's capture is untouched: in the buffer AND in its prose.
+    const kept = grepStore(dir, "ZQKEEPER");
+    expect(kept.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
+    expect(kept.some((p) => p.startsWith("prose/"))).toBe(true);
+  });
+
+  test("with the prose GONE, the coverage mark alone still chases it — which is why old rows need no migration", async () => {
+    // The retroactive half, isolated. Deleting the prose file takes away BOTH
+    // the other two keys at once: the `origin.spanHash` meta this branch added,
+    // and the body the option-A console matched on. What is left is what the
+    // store has always held — `origin_ref` on the row and an `own: true` mark in
+    // the scope's `coverage.jsonl` — and it is enough. That is why a memory
+    // minted months before this branch is chaseable with no migration.
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
+
+    const s = store();
+    const prosePath = s.row(id)?.prose_path ?? "";
+    const ref = s.row(id)?.origin_ref ?? "";
+    s.close();
+    expect(ref).toMatch(/^prp_/);
+    rmSync(prosePath, { force: true });
+
+    // The mark this chase runs on, on disk since long before the feature.
+    const scopes = readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n));
+    const coverage = readFileSync(join(dir, "spans", scopes[0] as string, "coverage.jsonl"), "utf8");
+    expect(coverage).toContain(`"proposalId":"${ref}"`);
+    expect(coverage).toContain('"own":true');
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    // Not `unknown`, which is what this same store says when the mark is missing
+    // (the blind-spot test below): the buffer is addressed by identity here.
+    expect(text(plan.out)).toContain("chase spans: 1");
+    expect(text(plan.out)).toContain("chased — spans/");
+    expect(text(plan.out)).toContain("matched by the span hash its mint recorded");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("spans(1 line in 1 file)");
+    expect(text(c.out)).toContain('"unchased":0');
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+  });
+
+  test("a conversation turn that QUOTES the note is disclosed and left — the plan's count is the strike's count", async () => {
+    // The live shape the CLI-only fixtures cannot make: on the owner's machine a
+    // note is taken mid-conversation, so the Stop hook has already captured the
+    // turn in which the words were SAID into `buffer.jsonl`. That span belongs
+    // to no single memory — it is many turns joined — and striking it because
+    // one memory quoted it would destroy material nobody named. So it is left,
+    // and it is SAID (§16 G15), and the plan's number matches the strike's.
+    store().close();
+    const s = store();
+    s.close();
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureSpans({
+        session: "live",
+        scope: process.cwd(),
+        turns: [
+          { role: "user", text: `Please remember this for me: ${MARKER} And then let us move on.` },
+        ],
+      });
+    } finally {
+      counterpart.close();
+    }
+    const id = await noteThroughTheJotDoor(MARKER);
+    expect(grepStore(dir, "ZQRESIDUEPROBE").filter((p) => p.startsWith("spans/")).sort()).toEqual([
+      expect.stringContaining("buffer.jsonl"),
+      expect.stringContaining("jots.jsonl"),
+    ]);
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    // ONE line struck, not two: the jot's own capture.
+    expect(planned).toContain("chase spans: 1");
+    expect(planned).toContain("1 line of conversation under spans/");
+    expect(planned).toContain("transcript, not this memory's own capture, and left alone");
+    // Matched BY WHAT, said out loud — the two chases are not equally strong.
+    expect(planned).toContain("matched by the span hash its mint recorded");
+    // The echo is LEFT, which is neither a chase nor a failure, and it never
+    // appears under "CANNOT chase … the id goes dark instead" — a conversation
+    // turn has no id and no tombstone.
+    expect(planned).toContain("LEFT on purpose — spans echo:");
+    expect(planned).not.toContain("CANNOT chase spans echo");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    // The plan said 1, the strike took 1.
+    expect(printed).toContain("spans(1 line in 1 file)");
+    // And the leftover is COUNTED, by name, on its own line — not filed under
+    // "unchased (dark via the deny-list…)", which is about failure.
+    expect(printed).toContain("left on purpose (not a failure");
+    expect(printed).toContain("spans echo: 1 line of conversation");
+    expect(printed).toContain('"unchased":0');
+
     const left = grepStore(dir, "ZQRESIDUEPROBE");
+    expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
+    expect(left.some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
     expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
-    expect(left.some((p) => p.startsWith("spans/"))).toBe(true);
+  });
+
+  test("the CONTENT fallback may only ever take a jot — a conversation turn is never struck by shape", async () => {
+    // The other half of the echo rule, and the one that matters most: a row with
+    // NO recorded hash (migrated, or minted before provenance) is chased by
+    // matching its body, and a body that happens to appear verbatim inside a
+    // live conversation turn must not take that turn with it. The predicate is
+    // restricted to `kind: "jot"` in the seam AND in the plan's count, so this
+    // is not a rule one caller could forget.
+    store().close();
+    const BODY = "ZQFALLBACK the boathouse combination is the year the pier was rebuilt.";
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureSpans({
+        session: "live",
+        scope: process.cwd(),
+        turns: [{ role: "user", text: `We talked about it: ${BODY} Anyway.` }],
+      });
+    } finally {
+      counterpart.close();
+    }
+
+    // A row with no origin at all: no spanHash meta, no origin_ref, so nothing
+    // but the body can address the buffer.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: BODY });
+    s.close();
+    expect(s.row).toBeDefined();
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    // Nothing to strike — the only line holding these words is a conversation
+    // turn, and no jot matched — so the state is the honest `unknown` (a row
+    // with no provenance cannot prove it never rode the buffer) AND the
+    // conversation line is disclosed. Both, neither hiding the other.
+    expect(planned).toContain("NOT chased — spans/");
+    expect(planned).toContain("if a jot is there");
+    expect(planned).toContain("1 line of conversation under spans/");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).not.toContain("spans(1 line");
+    expect(text(c.out)).toContain("spans echo: 1 line of conversation");
+    expect(text(c.out)).toContain('"unchased":1');
+    // THE POINT: the conversation is untouched.
+    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
+    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.startsWith("prose/"))).toBe(false);
   });
 
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
@@ -845,12 +1074,193 @@ describe("remove — the span buffer is named, never implied", () => {
     expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
     expect(text(plan.out)).toContain("spans: not applicable");
     expect(text(plan.out)).toContain("a 'fallback' memory is not captured as a jot");
+    expect(text(plan.out)).toContain("no jot under spans/");
+    expect(text(plan.out)).toContain("chase spans: 0");
 
     const c = consoleWith([id]);
     expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
     expect(printed).toContain('"unchased":0');
+    // And the other note's capture is still there — a removal that struck an
+    // unrelated scope's buffer would be the worst failure this seam can have.
+    expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.startsWith("spans/"))).toBe(true);
+  });
+
+  test("removing a migrated row does NOT reach into other projects' jots — it lists them and refuses", async () => {
+    // REVIEW F4, and the reason it blocks the live store: `tools/migrate/apply.ts`
+    // writes `origin: { ref }` and NOTHING else, so every one of ~12,000 migrated
+    // rows has no scope and no span hash. The only chase left is by content — and
+    // a content chase with no scope visits every project on the machine.
+    // Measured before the fix: removing "buy milk" destroyed two unrelated jots
+    // in two unrelated projects and ledgered both their hashes.
+    store().close();
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureJot({ session: "a", scope: "/Users/test/project-a", text: "ZQMILK buy milk" });
+      counterpart.captureJot({
+        session: "b",
+        scope: "/Users/test/project-b",
+        text: "ZQMILK buy milk and call the vet about the spaniel",
+      });
+    } finally {
+      counterpart.close();
+    }
+
+    const s = store();
+    const id = s.put({
+      type: "memory",
+      kind: "fact",
+      body: "ZQMILK buy milk",
+      source: "migrated",
+      origin: { ref: "v1_trace_00891" },
+    });
+    s.close();
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    expect(planned).toContain("NOT chased — spans/");
+    expect(planned).toContain("would have to visit EVERY project on this machine");
+    expect(planned).toContain("--strike-by-content-across-scopes");
+    // The candidate is NAMED — file and count — and its words are not printed.
+    expect(planned).toMatch(/1 jot line whose whole text is this memory's body would have matched, in spans\/[0-9a-f]{12}\/jots\.jsonl \(1\)/);
+    expect(planned).not.toContain("call the vet");
+    // The longer jot is not even a candidate: exact-line equality, not substring.
+    expect(planned).toContain("(1)");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // NOTHING was struck, and BOTH other projects' jots are exactly as they were.
+    expect(text(c.out)).not.toContain("spans(");
+    expect(text(c.out)).toContain('"unchased":1');
+    const left = grepStore(dir, "ZQMILK");
+    expect(left.filter((p) => p.startsWith("spans/")).length).toBe(2);
+    // And no hash was ledgered on their behalf.
+    for (const scope of readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n))) {
+      expect(existsSync(join(dir, "spans", scope, "consumed.jsonl"))).toBe(false);
+    }
+  });
+
+  test("--strike-by-content-across-scopes performs it, and STILL only takes the exact jot", async () => {
+    store().close();
+    const counterpart = openCounterpart(dir);
+    try {
+      counterpart.captureJot({ session: "a", scope: "/Users/test/project-a", text: "ZQMILK buy milk" });
+      counterpart.captureJot({
+        session: "b",
+        scope: "/Users/test/project-b",
+        text: "ZQMILK buy milk and call the vet about the spaniel",
+      });
+    } finally {
+      counterpart.close();
+    }
+    const s = store();
+    const id = s.put({
+      type: "memory",
+      kind: "fact",
+      body: "ZQMILK buy milk",
+      source: "migrated",
+      origin: { ref: "v1_trace_00891" },
+    });
+    s.close();
+
+    const plan = consoleWith();
+    expect(
+      await run(["remove", id, "--strike-by-content-across-scopes", "--dir", dir], { io: plan.io }),
+    ).toBe(EXIT.ok);
+    expect(text(plan.out)).toContain("chase spans: 1");
+    expect(text(plan.out)).toContain("matched by content across every scope, on your say-so");
+
+    const c = consoleWith([id]);
+    expect(
+      await run(["remove", id, "--confirm", "--strike-by-content-across-scopes", "--dir", dir], {
+        io: c.io,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("spans(1 line in 1 file)");
+    // The one whose WHOLE text was the body is gone; the one that merely
+    // contains the words — somebody else's memory — is untouched.
+    const left = grepStore(dir, "ZQMILK").filter((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"));
+    expect(left.length).toBe(1);
+    expect(readFileSync(join(dir, left[0] as string), "utf8")).toContain("call the vet");
+  });
+
+  test("a crashed strike's .striking aside is SEEN by the plan and folded back by the next one", async () => {
+    // REVIEW F1 + F2 + F3. An aside is a crashed strike's survivors: invisible
+    // to `claimFiles()`, invisible to the sweep, and — before the fix —
+    // invisible to the residue walk, so a second `remove` said "not applicable"
+    // while the words sat on disk and `backup` copied them.
+    store().close();
+    const id = await noteThroughTheJotDoor(MARKER);
+    const scope = readdirSync(join(dir, "spans")).find((n) => /^[0-9a-f]{12}$/.test(n)) as string;
+    const jots = join(dir, "spans", scope, "jots.jsonl");
+    // Stage the crash: the rename landed, the append-back never did.
+    renameSync(jots, `${jots}.striking`);
+    expect(existsSync(jots)).toBe(false);
+    expect(grepStore(dir, "ZQRESIDUEPROBE").some((p) => p.endsWith(".striking"))).toBe(true);
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    // SEEN, not "not applicable".
+    expect(text(plan.out)).toContain("chase spans: 1");
+    expect(text(plan.out)).toContain(".striking");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // The aside is gone, the words are gone, and nothing is stranded.
+    expect(existsSync(`${jots}.striking`)).toBe(false);
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+  });
+
+  test("an unrelated strike RECOVERS a stranded aside — repair is not gated on having something to strike", async () => {
+    // REVIEW F3. The survivors in an aside belong to nobody's removal, so
+    // folding them back must not wait for a removal that happens to match them.
+    store().close();
+    const keeper = "ZQKEEPER the north gate is padlocked and the key hangs in the tack room.";
+    await noteThroughTheJotDoor(keeper);
+    const doomedId = await noteThroughTheJotDoor(MARKER);
+    const scope = readdirSync(join(dir, "spans")).find((n) => /^[0-9a-f]{12}$/.test(n)) as string;
+    const jots = join(dir, "spans", scope, "jots.jsonl");
+
+    // A crashed strike left BOTH notes' captures in an aside.
+    renameSync(jots, `${jots}.striking`);
+
+    expect(
+      await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
+    ).toBe(EXIT.ok);
+
+    // The doomed one is gone; the OTHER note's capture came home to the live
+    // stream, where the buffer can see it again.
+    expect(existsSync(`${jots}.striking`)).toBe(false);
+    expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
+    expect(readFileSync(jots, "utf8")).toContain("ZQKEEPER");
+  });
+
+  test("the honest line survives for the one state left blind: prose gone, no hash recorded", async () => {
+    store().close();
+    expect(await run(["note", MARKER, "--dir", dir], { io: consoleWith().io })).toBe(EXIT.ok);
+
+    // A row minted before provenance existed: `source` NULL, no origin at all,
+    // and its prose file removed underneath the store. There is nothing left to
+    // address the buffer with, and the console says exactly that.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "A pre-provenance memory." });
+    const prose = s.row(id)?.prose_path ?? "";
+    s.close();
+    rmSync(prose, { force: true });
+
+    const plan = consoleWith();
+    expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    expect(planned).toContain("NOT chased — spans/");
+    expect(planned).toContain("no span hash was recorded");
+    expect(planned).toContain("a later backup would copy it");
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("unchased (dark via the deny-list, never silently dropped): spans/");
+    expect(text(c.out)).toContain('"unchased":1');
   });
 });
 
@@ -862,6 +1272,16 @@ describe("verify", () => {
     const db = openCache(paths.cache(dir));
     try {
       setEmbedding(db, id, [0.1, 0.2, 0.3]);
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Box 3 as it looked before I13: a dead row's tokens still in the index. */
+  function reindexDead(id: string, text: string): void {
+    const db = openCache(paths.cache(dir));
+    try {
+      indexDoc(db, id, text);
     } finally {
       db.close();
     }
@@ -915,7 +1335,11 @@ describe("verify", () => {
     expect(printed).toContain("Canonical rows: 2");
     expect(printed).toContain("embeddings: 1");
     expect(printed).toContain("live memories with no vector: 1");
-    expect(printed).toContain("The cache covers every canonical row");
+    // "live", not "canonical": since I13 the index covers the LIVE rows and an
+    // archived one is deliberately absent from it.
+    expect(printed).toContain("live rows: 2");
+    expect(printed).toContain("indexed but not live (archived or superseded): 0");
+    expect(printed).toContain("The cache covers every live row");
     // Nothing canonical moved, and — the whole point — the vector is still there.
     expect(fingerprint(dir)).toBe(before);
     expect(embeddings()).toBe(1);
@@ -923,6 +1347,38 @@ describe("verify", () => {
     // version-idempotent now, so the census may claim the strong form the
     // dashboard suite could only claim across renders (its INTERFACE-GAPS §1).
     expect(everyByte(dir)).toBe(everyByteBefore);
+  });
+
+  test("--prune-index is the cheap repair for a store written before I13", async () => {
+    // A store that archived rows BEFORE `archive` deindexed them still holds
+    // their tokens, where they count toward document frequency against a live
+    // denominator. `--rebuild` would fix it and drop every embedding on the way,
+    // and refuses outright while it holds any — so it is not a repair the owner
+    // of a real store can run. This one is, and the vector survives it.
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "The zygomorphic orchid bloomed after the frost." });
+    const gone = s.put({ type: "memory", kind: "fact", body: "The zygomorphic orchid was moved indoors." });
+    s.archive(gone, "duplicate");
+    s.close();
+    // Put the pre-I13 state back by hand, through box 3's own door: archived in
+    // box 2, still indexed in box 3, which is what every store written before
+    // this change looks like.
+    reindexDead(gone, "The zygomorphic orchid was moved indoors.");
+    seedVector(kept);
+
+    const before = consoleWith();
+    expect(await run(["verify"], { io: before.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
+    expect(text(before.out)).toContain("indexed but not live (archived or superseded): 1");
+    expect(text(before.err)).toContain("--prune-index");
+
+    const c = consoleWith();
+    expect(await run(["verify", "--prune-index"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Dropped from the text index (archived or superseded): 1");
+    expect(embeddings()).toBe(1);
+
+    const after = consoleWith();
+    expect(await run(["verify"], { io: after.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(after.out)).toContain("indexed but not live (archived or superseded): 0");
   });
 
   test("--rebuild REFUSES while box 3 holds vectors nothing here can recompute", async () => {
@@ -1006,7 +1462,299 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
     expect(text(c.err)).toContain("verify --rebuild");
   });
+
+  test("the census names the SHAPE the vectors are in", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory with a vector in the new shape." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("vector format: 1 float32 BLOB (v4)");
+
+    // Age that row back to v3's JSON text and the census says which, and what
+    // to run — a mixed cache is a state the readers tolerate and the owner
+    // still has to finish.
+    writeJsonVector(dir, kept, [0.1, 0.2, 0.3]);
+    const look = consoleWith();
+    expect(await run(["verify"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(look.out)).toContain("1 JSON text (v3)");
+    expect(text(look.out)).toContain("counterparts migrate-cache");
+  });
+
+  test("--rebuild --keep-vectors re-indexes the text side and keeps every vector", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory whose vector must survive a rebuild." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(await run(["verify", "--rebuild", "--keep-vectors"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    const printed = text(c.out);
+    expect(printed).toContain("Vectors kept: 1");
+    expect(printed).toContain("dropped as no longer canonical: 0");
+    expect(printed).toContain("Re-indexed: 1");
+    // Nothing is declared, because nothing is missing — the console has no
+    // embedder and did not need one.
+    expect(printed).not.toContain("declared: embeddings");
+    expect(embeddings()).toBe(1);
+  });
+
+  test("--drop-vectors and --keep-vectors together are refused, not guessed at", async () => {
+    const s = store();
+    const kept = s.put({ type: "memory", kind: "fact", body: "A memory caught between two contradictory flags." });
+    s.close();
+    seedVector(kept);
+
+    const c = consoleWith();
+    expect(
+      await run(["verify", "--rebuild", "--drop-vectors", "--keep-vectors"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("opposite things");
+    expect(embeddings()).toBe(1);
+  });
 });
+
+// ── migrate-cache ───────────────────────────────────────────────────────────
+
+/** Age one of box 3's rows back to v3's shape: `JSON.stringify` into `vec`. */
+function writeJsonVector(at: string, id: string, vec: readonly number[]): void {
+  const db = openDb(paths.cache(at));
+  try {
+    db.run(
+      "INSERT OR REPLACE INTO embeddings (memory_id, dim, vec) VALUES (?, ?, ?)",
+      id,
+      vec.length,
+      JSON.stringify(vec),
+    );
+  } finally {
+    db.close();
+  }
+}
+
+describe("migrate-cache — the conversion that is not a rebuild", () => {
+  function shapes(): { blob: number; text: number } {
+    const db = openDb(paths.cache(dir));
+    try {
+      const n = (t: string): number =>
+        db.get<{ n: number }>("SELECT COUNT(*) AS n FROM embeddings WHERE typeof(vec) = ?", t)?.n ?? 0;
+      return { blob: n("blob"), text: n("text") };
+    } finally {
+      db.close();
+    }
+  }
+
+  /** Memories with v3-shaped vectors — the state the live store is in. */
+  function seedJsonStore(n = 2, dim = 3): string[] {
+    const s = store();
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      ids.push(s.put({ type: "memory", kind: "fact", body: `A memory whose vector is still JSON text, number ${i}.` }));
+    }
+    s.close();
+    const db = openCache(paths.cache(dir));
+    db.close();
+    ids.forEach((id, i) =>
+      writeJsonVector(dir, id, Array.from({ length: dim }, (_, k) => Math.fround((i + k + 1) / 17))),
+    );
+    return ids;
+  }
+
+  test("the dry run is READ-ONLY — not a byte moves, on a v3-stamped cache either", async () => {
+    // `ec31994` made this honest; the review found honest is not read-only.
+    // `openCache` stamps `cache_meta.schemaVersion`, which changed the file's
+    // hash under a line saying nothing had changed. Every question the dry run
+    // asks is a SELECT, so `openDb` is the right door.
+    seedJsonStore();
+    const aged = openDb(paths.cache(dir));
+    aged.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '3')");
+    aged.close();
+    const before = readFileSync(paths.cache(dir)).toString("base64");
+
+    const c = consoleWith();
+    expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("JSON text: 2");
+    expect(printed).toContain("float32 BLOB: 0");
+    expect(printed).toContain("schema v3");
+    expect(printed).toContain("Sample:");
+    expect(printed).toContain("largest coordinate change in this row:");
+    expect(printed).toContain("Dry run. Nothing was changed");
+    expect(printed).toContain("counterparts backup");
+    // The claim in full: byte-identical, with the cache still stamped v3.
+    expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+  });
+
+  test("--apply REFUSES the default data dir — the store must be named", async () => {
+    // On a real machine that default is the owner's live memory, and the guard
+    // runs before this command looks at a single path.
+    const c = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: {} })).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("will not run against the default data dir");
+    expect(text(c.err)).toContain("--dir");
+  });
+
+  test("--apply asks before it writes, and takes no for an answer", async () => {
+    seedJsonStore();
+    const before = readFileSync(paths.cache(dir)).toString("base64");
+
+    // No prompt and no --yes: refuse rather than proceed unconfirmed.
+    const mute = consoleWith();
+    expect(await run(["migrate-cache", "--apply"], { io: mute.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(mute.err)).toContain("--yes");
+    expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
+
+    // Asked and declined.
+    const no = consoleWith(["no"]);
+    expect(await run(["migrate-cache", "--apply"], { io: no.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(no.asked.join("")).toContain("Type 'yes'");
+    expect(text(no.err)).toContain("not confirmed");
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+
+    // Asked and confirmed.
+    const yes = consoleWith(["yes"]);
+    expect(await run(["migrate-cache", "--apply"], { io: yes.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(shapes()).toEqual({ blob: 2, text: 0 });
+  });
+
+  test("--apply --yes converts in place, keeps every vector, and compacts the file", async () => {
+    seedJsonStore();
+    const c = consoleWith();
+    expect(
+      await run(["migrate-cache", "--apply", "--yes", "--batch", "1"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("Converted 2 vectors in 2 batches."); // batched, per --batch
+    expect(printed).toContain("Vectors now: float32 BLOB 2, JSON text 0");
+    expect(printed).toContain("Cache file:");
+    // The count is the whole point: a migration that lost a vector would be a
+    // rebuild wearing a different name.
+    expect(shapes()).toEqual({ blob: 2, text: 0 });
+  });
+
+  test("a store CONVERTED BUT NOT COMPACTED has a door — the 177 MiB is not stranded", async () => {
+    // The review's M2, reproduced: `VACUUM` is the step most likely to fail (it
+    // takes an exclusive lock), and the old "already converted" refusal fired
+    // BEFORE it — so a lost lock left the whole debt unreachable through the
+    // tool that exists to pay it. `PRAGMA freelist_count` reads 0 in this
+    // state; the win is defragmentation, so the probe is a real `VACUUM INTO`.
+    seedJsonStore(400, 256);
+    const db = openCache(paths.cache(dir));
+    let after: string | undefined;
+    for (;;) {
+      const r = convertVectorBatch(db, 50, after);
+      if (r.examined === 0) break;
+      after = r.lastId ?? undefined;
+      if (after === undefined) break;
+    }
+    db.close(); // committed, never vacuumed
+    const stranded = statSync(paths.cache(dir)).size;
+    expect(shapes()).toEqual({ blob: 400, text: 0 });
+
+    // The dry run NAMES it rather than saying "already converted, nothing to do".
+    const look = consoleWith();
+    expect(await run(["migrate-cache"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(look.out)).toContain("Converted, NOT yet compacted:");
+    expect(text(look.out)).toContain("reclaimable");
+    expect(statSync(paths.cache(dir)).size).toBe(stranded); // still read-only
+
+    // And `--apply` compacts it, converting nothing.
+    const c = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("Cache file:");
+    expect(statSync(paths.cache(dir)).size).toBeLessThan(stranded);
+    expect(shapes()).toEqual({ blob: 400, text: 0 });
+  });
+
+  test("a second --apply REFUSES once there is nothing left to convert OR reclaim", async () => {
+    seedJsonStore();
+    const first = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: first.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+
+    const again = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: again.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(again.err)).toContain("already float32");
+    expect(shapes()).toEqual({ blob: 2, text: 0 });
+
+    // The dry run over the same store is not an error — it was asked a
+    // question and it answered it.
+    const look = consoleWith();
+    expect(await run(["migrate-cache"], { io: look.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(look.out)).toContain("Converted and compacted.");
+  });
+
+  test("one unparseable row is skipped, named, and left exactly as it was", async () => {
+    const ids = seedJsonStore(3);
+    const bad = ids[1] as string;
+    const db = openDb(paths.cache(dir));
+    db.run("UPDATE embeddings SET vec = ? WHERE memory_id = ?", "not json at all", bad);
+    db.close();
+
+    const c = consoleWith();
+    // Loud: the store is not fully converted, and the exit code says so.
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.failed,
+    );
+    const printed = text(c.out);
+    expect(printed).toContain("Converted 2 vectors");
+    expect(printed).toContain(`SKIPPED, left exactly as it was: ${bad}`);
+    expect(shapes()).toEqual({ blob: 2, text: 1 });
+    const check = openDb(paths.cache(dir));
+    expect(check.get<{ vec: string }>("SELECT vec FROM embeddings WHERE memory_id = ?", bad)?.vec).toBe(
+      "not json at all",
+    );
+    check.close();
+  });
+
+  test("it refuses a store it cannot find and a cache that was never built", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "counterparts-cli-"));
+    try {
+      const c = consoleWith();
+      expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: empty } })).toBe(EXIT.failed);
+      expect(text(c.err)).toContain("no store at");
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "A memory whose index was deleted underneath it." });
+    s.close();
+    rmSync(paths.cacheDir(dir), { recursive: true, force: true });
+    const c = consoleWith();
+    expect(await run(["migrate-cache"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.failed);
+    expect(text(c.err)).toContain("never been built here");
+    // And it did not mint the box it was inspecting.
+    expect(existsSync(paths.cache(dir))).toBe(false);
+  });
+
+  test("an instrument does not migrate the store it is reading", async () => {
+    seedJsonStore();
+    const c = consoleWith();
+    expect(
+      await run(["migrate-cache", "--apply", "--yes", "--observer"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("observer stance");
+    expect(shapes()).toEqual({ blob: 0, text: 2 });
+  });
+});
+
 
 // ── backfill-claims ─────────────────────────────────────────────────────────
 
@@ -1117,6 +1865,366 @@ describe("backfill-claims — the one-shot repair for rows minted before the flo
     expect(await run(["backfill-claims", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Authored memories with no claimed salience: 0");
     expect(fingerprint(dir)).toBe(mid);
+  });
+});
+
+// ── repair-merged-beliefs ───────────────────────────────────────────────────
+
+/**
+ * THE REPAIR FOR PROBE H, and the owner-op door under it.
+ *
+ * The bug is fixed in `sleep/dedup.ts` as of the same night — a `type:
+ * "schema"` row is no longer a dedup candidate at all — so this store cannot be
+ * poisoned by running a real cycle any more. `merge()` below therefore does
+ * exactly the four writes the pass used to do, in the same order, and the
+ * fixture is the bug's OUTPUT rather than its mechanism. That is the honest
+ * shape for a repair test: what has to be undone is the state, not the code
+ * path that produced it.
+ */
+describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
+  const STATEMENT = "Ada prefers async review over a live walkthrough";
+
+  /** `sleep/dedup.ts`'s merge, by hand: record, event, credit, archive. */
+  function merge(s: Store, candidateId: string, originalId: string, day: number): void {
+    const record = {
+      event: "memory.merged",
+      day,
+      candidateId,
+      originalId,
+      reason: "identical-content-hash",
+      usesDelta: 1,
+    };
+    s.setMeta(`sleep.merged.${candidateId}`, JSON.stringify(record));
+    s.appendEvent({
+      name: "memory.merged",
+      day,
+      ref: candidateId,
+      dedupKey: `sleep.merged.${candidateId}`,
+      payload: { ...record },
+    });
+    const p = s.physicsOf(originalId);
+    s.updatePhysics(originalId, { uses: p.uses + 1 });
+    s.archive(candidateId, "merged");
+  }
+
+  /** A belief eaten by a memory that says the same sentence. */
+  // `beforeMerge` runs once the belief is live and before the merge archives
+  // it — the one moment a test can measure "while live" now that `archive()`
+  // deindexes for real (#64, on this tree).
+  function poison(
+    s: Store,
+    beforeMerge?: (beliefId: string) => void,
+  ): { entityId: string; beliefId: string; memoryId: string } {
+    const sc = Schemas.open({ store: s });
+    const entityId = sc.mention({
+      name: "Ada",
+      kind: "person",
+      source: STATEMENT,
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = sc.addBelief({
+      entityId,
+      statement: STATEMENT,
+      day: 0,
+      dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
+    }).id as string;
+    const memoryId = s.put({
+      type: "memory",
+      kind: "person",
+      body: STATEMENT,
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
+    beforeMerge?.(beliefId);
+    merge(s, beliefId, memoryId, 0);
+    return { entityId, beliefId, memoryId };
+  }
+
+  test("the dry run names the belief, the entity, the memory and the day — and writes nothing", async () => {
+    const s = store();
+    const ids = poison(s);
+    const before = fingerprint(dir);
+    s.close();
+
+    const c = consoleWith();
+    const code = await run(["repair-merged-beliefs", "--dry-run"], { io: c.io, env: { [ENV]: dir } });
+    expect(code).toBe(EXIT.ok);
+    const out = text(c.out);
+    expect(out).toContain("Beliefs and current-state rows archived as duplicates: 1");
+    // WHICH STORE, before the list. `--dir` is optional and the default is the
+    // owner's live memory; this is the command G23 asks them to type `--apply` at.
+    expect(out).toContain(`Store: ${dir}`);
+    expect(out).toContain(ids.beliefId);
+    expect(out).toContain("Ada");
+    expect(out).toContain("lived day 0");
+    expect(out).toContain(ids.memoryId);
+    expect(out).toContain(STATEMENT);
+    expect(out).toContain("Dry run. Nothing has changed.");
+    // Dry run is the default too, `--dry-run` or not.
+    expect(fingerprint(dir)).toBe(before);
+    const plain = consoleWith();
+    expect(await run(["repair-merged-beliefs"], { io: plain.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(fingerprint(dir)).toBe(before);
+  });
+
+  test("--apply restores the belief, records the unmerge, and leaves the credit standing", async () => {
+    const s = store();
+    const ids = poison(s);
+    const usesAfterMerge = s.physicsOf(ids.memoryId).uses;
+    s.close();
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("Put 1 elements back.");
+
+    const after = store({ observer: true });
+    expect(after.row(ids.beliefId)?.archived).toBe(0);
+    expect(after.row(ids.beliefId)?.archived_reason).toBeNull();
+    // It is a BELIEF again, which is the thing that was actually lost.
+    const sc = Schemas.open({ store: after });
+    expect(sc.beliefs(ids.entityId).map((b) => b.id)).toEqual([ids.beliefId]);
+
+    // The credit STANDS, and the record says so rather than the code hoping so.
+    expect(after.physicsOf(ids.memoryId).uses).toBe(usesAfterMerge);
+    const logged = after.eventLog({ name: "memory.unmerged" });
+    expect(logged.length).toBe(1);
+    expect(logged[0]?.ref).toBe(ids.beliefId);
+    const payload = JSON.parse(logged[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload["originalId"]).toBe(ids.memoryId);
+    expect(payload["usesDelta"]).toBe(1);
+    expect(payload["mergedOnDay"]).toBe(0);
+    // IDS AND NUMBERS ONLY (§5 G10). The console prints the statement and the
+    // entity's name so the owner can decide; the DURABLE record carries neither,
+    // and this is the assertion that keeps those two facts apart.
+    expect(Object.keys(payload).sort()).toEqual(
+      ["candidateId", "day", "event", "mergedOnDay", "originalId", "usesDelta"],
+    );
+    expect(logged[0]?.payload ?? "").not.toContain("Ada");
+    expect(logged[0]?.payload ?? "").not.toContain("async review");
+
+    // Constitution 7: the repair erases no history. The merge record and the
+    // merge event are both exactly where they were.
+    expect(after.getMeta(`sleep.merged.${ids.beliefId}`)).toContain(ids.memoryId);
+    expect(after.eventLog({ name: "memory.merged" }).length).toBe(1);
+  });
+
+  test("a second --apply changes nothing and appends no second record", async () => {
+    const s = store();
+    poison(s);
+    s.close();
+    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+    const mid = fingerprint(dir);
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.out)).toContain("Beliefs and current-state rows archived as duplicates: 0");
+    expect(text(c.out)).toContain("[already live]");
+    expect(fingerprint(dir)).toBe(mid);
+    const after = store({ observer: true });
+    expect(after.eventLog({ name: "memory.unmerged" }).length).toBe(1);
+  });
+
+  test("a store with nothing to repair says so, and an absent store is not created", async () => {
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "An ordinary memory nobody merged." });
+    s.close();
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Beliefs and current-state rows archived as duplicates: 0");
+    expect(text(c.out)).toContain("Dry run. Nothing to repair on this store.");
+
+    const missing = join(outside, "no-store-for-repair");
+    const c2 = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--dir", missing], { io: c2.io, env: {} })).toBe(
+      EXIT.failed,
+    );
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  test("the repair is an owner operation: an instrument refuses it, plan and all", async () => {
+    const s = store();
+    poison(s);
+    const before = fingerprint(dir);
+    s.close();
+    const c = consoleWith();
+    expect(
+      await run(["repair-merged-beliefs", "--observer"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("owner operation");
+    expect(fingerprint(dir)).toBe(before);
+  });
+
+  test("the door undoes ONE archive reason and refuses every other by name", () => {
+    // The reason this is not a general `unarchive`: a prune, a revision and a
+    // removal are all archived, and each is archived for a reason a repair
+    // tool has no business reversing.
+    const s = store();
+    const pruned = s.put({ type: "memory", kind: "fact", body: "A memory let go at the floor." });
+    s.archive(pruned, "pruned");
+    expect(() => unarchiveMerged(s, pruned)).toThrow(/UNMERGE_NOT_A_MERGE/);
+    expect(s.row(pruned)?.archived).toBe(1);
+
+    // A superseded row: restoring it would put two live versions in one chain.
+    const target = s.put({ type: "memory", kind: "fact", body: "A belief about the weather." });
+    s.supersede(
+      target,
+      { type: "memory", kind: "fact", body: "A better belief about the weather." },
+      "revised-by-pressure",
+    );
+    expect(() => unarchiveMerged(s, target)).toThrow(/UNMERGE_SUPERSEDED/);
+
+    expect(() => unarchiveMerged(s, "mem_000000000000")).toThrow(/ID_UNKNOWN/);
+
+    // And a merge is restored — the one case it accepts.
+    const original = s.put({ type: "memory", kind: "fact", body: "One sentence, noted twice." });
+    const duplicate = s.put({
+      id: "mem_ffffffffffff",
+      type: "memory",
+      kind: "fact",
+      body: "One sentence, noted twice.",
+    });
+    s.archive(duplicate, "merged");
+    const report = unarchiveMerged(s, duplicate);
+    expect(report.noop).toBe(false);
+    expect(s.row(duplicate)?.archived).toBe(0);
+    // No merge event existed, so the record says so instead of inventing one.
+    expect(report.record.originalId).toBeNull();
+    expect(report.record.usesDelta).toBeNull();
+    expect(original).not.toBe(duplicate);
+
+    // A LIVE row is a no-op that records NOTHING. A `memory.unmerged` row here
+    // would read "the owner put this back" about a restore that never
+    // happened, and the door has to be honest without the CLI's help.
+    const live = s.put({ type: "memory", kind: "fact", body: "A memory nobody merged." });
+    const before = s.eventLog({ name: "memory.unmerged" }).length;
+    expect(unarchiveMerged(s, live).noop).toBe(true);
+    expect(s.eventLog({ name: "memory.unmerged" }).length).toBe(before);
+  });
+
+  test("a restored belief is FINDABLE again, even when the archive deindexed it", async () => {
+    // The cross-PR hazard, made a test rather than a hope. `archive()` leaves
+    // box 3 alone on master today, but PR #64 (`overnight/df-live-rows`) adds
+    // `deindexDoc` to it so document frequency is counted over live rows —
+    // and then a restore that touched only box 2 would put back a row that is
+    // live, listed in `beliefs(entity)`, and invisible to lexical recall, with
+    // no cheap repair (a rebuild without an embedder drops every vector).
+    //
+    // On the batch tree #64 IS merged, so the deindex is no longer simulated:
+    // the live count is taken before the merge archives the belief, and the
+    // zero after it is asserted rather than produced by hand.
+    const tokensFor = (id: string): number => {
+      const box3 = openDb(paths.cache(dir));
+      try {
+        return (
+          box3.get<{ n: number }>("SELECT COUNT(*) AS n FROM doc_tokens WHERE memory_id = ?", id)?.n ??
+          0
+        );
+      } finally {
+        box3.close();
+      }
+    };
+    const s = store();
+    let indexedWhileLive = 0;
+    const ids = poison(s, (beliefId) => {
+      indexedWhileLive = tokensFor(beliefId);
+    });
+    s.close();
+    expect(indexedWhileLive).toBeGreaterThan(0);
+    // The archive took the rows out of the text index (I13) — the hazard is real.
+    expect(tokensFor(ids.beliefId)).toBe(0);
+
+    expect(
+      await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+
+    const after = store({ observer: true });
+    // Box 3 holds the row's tokens again, and exactly as many as it did.
+    expect(tokensFor(ids.beliefId)).toBe(indexedWhileLive);
+    // The property, not the table: the cue finds it.
+    expect(after.search("walkthrough async review").map((h) => h.id)).toContain(ids.beliefId);
+    after.close();
+
+    // And through the door the owner actually uses.
+    const r = consoleWith();
+    expect(await run(["recall", "what does Ada prefer for review?", "--dir", dir], { io: r.io })).toBe(
+      EXIT.ok,
+    );
+    expect(text(r.out)).toContain("prefers async review");
+  });
+
+  test("the restore never touches an embedding it cannot recompute", () => {
+    // A repair that made a paid embedding call, or dropped a vector nothing in
+    // this process can recompute, would be a worse bug than the one it fixes.
+    // `reindexLexical` hands `indexDoc` no vector, and `indexDoc` writes the
+    // `embeddings` table only when it is handed one.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "A memory with a vector of its own." });
+    const cache = openCache(paths.cache(dir));
+    setEmbedding(cache, id, [0.5, 0.25, 0.125]);
+    cache.close();
+    s.archive(id, "merged");
+
+    unarchiveMerged(s, id);
+
+    const box3 = openDb(paths.cache(dir));
+    const row = box3.get<{ dim: number; vec: string | Uint8Array }>(
+      "SELECT dim, vec FROM embeddings WHERE memory_id = ?",
+      id,
+    );
+    box3.close();
+    expect(row?.dim).toBe(3);
+    // Read through the cache's own decoder: box 3 stores float32 BLOBs (#66,
+    // on this tree), and these three values are float32-exact.
+    expect(Array.from(decodeVector(row?.vec ?? "[]"))).toEqual([0.5, 0.25, 0.125]);
+  });
+
+  test("a belief restored and later revised is not offered again — the run stays green", async () => {
+    // The sequence the owner hits by running this twice across weeks: merged,
+    // restored, then legitimately revised (archived `revised`, with a
+    // successor). Listing it as an open target would make the seam refuse with
+    // UNMERGE_SUPERSEDED and the whole run exit FAILED on a store where
+    // nothing is wrong.
+    const s = store();
+    const ids = poison(s);
+    s.close();
+    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+
+    const writable = store();
+    const sc = Schemas.open({ store: writable });
+    const challengerId = writable.put({
+      type: "memory",
+      kind: "person",
+      body: "Ada asked for a live walkthrough instead",
+      meta: { updates: ids.beliefId },
+      salience: { novelty: null, relevance: 0.9, emotional: 0.9, predictive: 0.9 },
+      physics: { birthDay: 1, lastUsedDay: 1 },
+    });
+    for (const day of [1, 2, 3]) {
+      applyRevision(writable, sc, { updates: ids.beliefId, challengerId, day, method: "declared" }, {});
+    }
+    expect(writable.row(ids.beliefId)?.superseded_by).not.toBeNull();
+    writable.close();
+
+    const c = consoleWith();
+    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(c.err)).not.toContain("FAILED");
+    expect(text(c.out)).not.toContain(ids.beliefId);
+  });
+
+  test("an instrument may not unarchive either — the seam crosses the same stance check", () => {
+    const writable = store();
+    const id = writable.put({ type: "memory", kind: "fact", body: "A merged duplicate." });
+    writable.archive(id, "merged");
+    writable.close();
+    const reader = store({ observer: true });
+    expect(() => unarchiveMerged(reader, id)).toThrow(/OBSERVER_REFUSED/);
+    expect(reader.row(id)?.archived).toBe(1);
   });
 });
 
@@ -1411,6 +2519,43 @@ describe("the destruction path is importable from this directory only", () => {
     walk(root);
     // §16 G2 again, for the half that landed on 2026-08-25.
     expect(offenders).toEqual([]);
+  });
+
+  test("the buffer's STRIKE is imported by this directory and its own grantor only", () => {
+    // The same pin as the box-2 chase, for the seam that landed 2026-09-05.
+    // Two files in `src/` may reach `remember/owner-strike-seam.ts`:
+    // `remember/spans.ts`, which HANDS OVER the capability in its constructor
+    // and never calls the strike, and `adapters/cli/removal.ts`, the one
+    // implementation of the destruction path. A `Counterpart` — which the MCP
+    // server holds, and a model talks to — holds a `SpanBuffer` and reaches
+    // nothing (§16 G2, and `store/owner-op-seam.ts`'s own reasoning).
+    const root = join(import.meta.dir, "..", "src");
+    const offenders: string[] = [];
+    const walk = (path: string): void => {
+      for (const name of readdirSync(path)) {
+        const full = join(path, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!name.endsWith(".ts")) continue;
+        const body = readFileSync(full, "utf8");
+        for (const line of body.split("\n")) {
+          if (!/from\s+"[^"]*owner-strike-seam\.js"/.test(line)) continue;
+          if (/^\s*(?:import|export)\s+type\b/.test(line)) continue;
+          if (full.includes(join("adapters", "cli"))) continue;
+          if (full.endsWith(join("core", "remember", "spans.ts"))) continue;
+          offenders.push(`${full}: ${line.trim()}`);
+        }
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+  });
+
+  test("the strike is not re-exported from remember's index either", () => {
+    const index = readFileSync(join(import.meta.dir, "..", "src/core/remember/index.ts"), "utf8");
+    expect(index).not.toContain("owner-strike-seam");
   });
 
   test("the destruction path is not even re-exported from the adapter's index", () => {
@@ -1728,6 +2873,63 @@ describe("note and recall", () => {
     expect(text(c.out)).toContain("expanded");
   });
 
+  test("a chapter comes back marked [journal], and a memory beside it does not (I14)", async () => {
+    // The third door on the same result. QUICKSTART §5 and the recall CONTRACT
+    // both now say the console marks a chapter; stated is mechanized here.
+    const s = store();
+    // Unrelated filler, so rarity has a population to discriminate against: on a
+    // two-row store every shared content word has `df === storeSize` and scores
+    // nothing (`recall/NOTES.md` #12), which would make this test assert nothing.
+    for (const body of [
+      "The kitchen tap drips when the washer is worn.",
+      "Rye flour ferments faster than wheat.",
+      "The blue mug chipped in the move.",
+      "The bus to town leaves on the hour.",
+      "Cedar smells sharpest after rain.",
+      "The heating pipes knock in the morning.",
+      "The library closes early on Thursdays.",
+      "Basil wilts if the pot dries out once.",
+      "The garden gate sticks in humid weather.",
+      "Coffee ground too fine chokes the machine.",
+      "The attic hatch needs a longer ladder.",
+      "Wool socks dry slower than cotton.",
+      "The porch light flickers before it fails.",
+      "Old plaster crumbles when you drill it.",
+      "Bicycle brake pads wear out in a wet winter.",
+      "The neighbour's cat sits on the fence at dusk.",
+    ]) {
+      s.put({ type: "memory", kind: "fact", body });
+    }
+    const chapter = s.put({
+      type: "episode",
+      kind: "self",
+      title: "The lighthouse conversation",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
+      source: "episode",
+    });
+    const memory = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "Fernbrook Point",
+      body: "The lighthouse at Fernbrook Point stopped turning in 1974 when the keeper left.",
+    });
+    s.close();
+    const c = consoleWith();
+    expect(
+      await run(["recall", "the lighthouse at Fernbrook Point", "--dir", dir], { io: c.io }),
+    ).toBe(EXIT.ok);
+    const lines = text(c.out).split("\n");
+    const lineFor = (id: string): string => lines.find((l) => l.includes(id)) ?? "";
+    // The chapter is DELIVERED — the ruling keeps it recallable — and marked.
+    expect(lineFor(chapter)).not.toBe("");
+    expect(lineFor(chapter)).toContain("[journal]");
+    // And the memory beside it is not: a mark on everything marks nothing.
+    expect(lineFor(memory)).not.toBe("");
+    expect(lineFor(memory)).not.toContain("[journal]");
+    // The word is glossed where the tier legend is, not left bare.
+    expect(text(c.out)).toContain("journal = a chapter");
+  });
+
   test("an empty recall is an ANSWER, and says what to try next", async () => {
     store().close();
     const c = consoleWith();
@@ -1837,11 +3039,15 @@ describe("install", () => {
     expect(code).toBe(EXIT.ok);
     expect(existsSync(paths.operational(store))).toBe(true);
 
-    // THE ONE PATH THE HOOKS READ. `claude-code/bin/hook.ts` and `bin/runner.ts`
-    // both hardcode `join(homedir(), ".counterparts", "claude-code.json")` with
-    // no flag and no environment override, and every hook exits 0 — so a config
-    // written anywhere else is an ambient half that never fires and never says
-    // why. `--dir` therefore moves the STORE and only the store.
+    // THE PATH THE HOOKS READ WHEN NOTHING NAMES ANOTHER.
+    // `claude-code/bin/hook.ts` and `bin/runner.ts` resolve
+    // `join(homedir(), ".counterparts", "claude-code.json")` unless `--config` or
+    // `COUNTERPARTS_CONFIG` says otherwise (`adapters/config-path.ts`), and a
+    // hook that finds no config stands down at exit 0 — so a config written
+    // somewhere else with NOTHING POINTING AT IT is an ambient half that never
+    // fires and never says why. `--dir` therefore moves the STORE and only the
+    // store; moving the configuration is `--config`'s job, tested in
+    // `test/config-rule.test.ts`.
     const config = join(home, ".counterparts", CONFIG_FILE);
     expect(existsSync(config)).toBe(true);
     expect(existsSync(join(store, CONFIG_FILE))).toBe(false);
@@ -1885,7 +3091,10 @@ describe("install", () => {
     // COUNTERPARTS_DATA_DIR when the config names no store, so "no environment
     // override" is wrong here for the same reason it was wrong in `init`.
     expect(printed).not.toContain("no environment override");
-    expect(printed).toContain("the one path the hooks read for their configuration");
+    // The sentence moved with the one-config rule (2026-09-05): the hooks read
+    // this path when NOTHING NAMES ANOTHER — `--config` / `COUNTERPARTS_CONFIG`
+    // do, and this install passed neither.
+    expect(printed).toContain("the path the hooks read when nothing names another one");
 
     // The host's two steps are PRINTED, and they name absolute paths.
     expect(printed).toContain("claude mcp add counterparts");

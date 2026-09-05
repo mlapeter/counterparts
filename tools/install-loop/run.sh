@@ -72,6 +72,14 @@ if [ -n "${COUNTERPARTS_DATA_DIR:-}" ]; then
   echo "A tool that claims a throwaway directory never honors an inherited one (cli §5 G3)."
   exit 1
 fi
+if [ -n "${COUNTERPARTS_CONFIG:-}" ]; then
+  # Same rule, same reason, one level along: this variable names the file that
+  # says where the store is and whose keys to use. A clean room that inherited
+  # one would be testing somebody else's install.
+  echo "REFUSED: COUNTERPARTS_CONFIG is already set ($COUNTERPARTS_CONFIG)."
+  echo "The loop resolves its own configuration; it never honors an inherited one."
+  exit 1
+fi
 
 FAKE_HOME="$WORK/home"
 rm -rf "$FAKE_HOME"
@@ -430,6 +438,77 @@ step "a recall that finds nothing SAYS so, in a sentence"
 OUT=$(counterparts recall "xylophone quokka semaphore" --dir "$FIRSTSTORE" 2>&1)
 if printf '%s' "$OUT" | grep -q "NOTHING CAME BACK"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
 
+step "the §7 removal plan NAMES the span buffer, and says it will be chased"
+# §I2's surface, in the clean room. The dry run is all a non-interactive console
+# can reach — `remove --confirm` refuses without a prompt, which the next step
+# asserts — but the dry run is where the disclosure lives, and it is the line
+# QUICKSTART §7 quotes. Both halves are checked against the doc verbatim, so a
+# code change that reworded the sentence and a doc edit that did are the same
+# failed step.
+# The doc WRAPS the sentence inside its fenced block, so the lockstep is on the
+# two halves the wrap leaves whole — the count line and the verdict clause.
+SPAN_COUNT="chase spans: 1"
+SPAN_TAIL="the removal strikes them out of it."
+SPAN_LINE="the raw capture buffer holds this"
+OUT=$(counterparts note "A note whose words ride the capture buffer before they are minted." --dir "$FIRSTSTORE" 2>&1)
+DOOMED=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
+if ! doc_check "counterparts remove " ; then
+  no "QUICKSTART does not carry the remove command verbatim"
+elif ! doc_check "$SPAN_COUNT" || ! doc_check "$SPAN_TAIL" || ! doc_check "$SPAN_LINE"; then
+  no "QUICKSTART does not quote the span-surface lines the command prints"
+elif [ -z "$DOOMED" ]; then
+  no "the note printed no id to remove" "$OUT"
+else
+  PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
+  if printf '%s' "$PLAN" | grep -qF "$SPAN_COUNT" &&
+     printf '%s' "$PLAN" | grep -qF "chased — spans/" &&
+     printf '%s' "$PLAN" | grep -qF "$SPAN_LINE" &&
+     printf '%s' "$PLAN" | grep -qF "$SPAN_TAIL" &&
+     printf '%s' "$PLAN" | grep -q "Dry run. Nothing has changed."; then
+    ok
+  else
+    no "the plan did not name the buffer as a chased surface" "$PLAN"
+  fi
+fi
+
+step "remove --confirm REFUSES without an interactive prompt, and nothing moves"
+# Its OWN note and its own id: a step that borrows the previous step's variable
+# reports a false pass when that step failed before setting it.
+OUT=$(counterparts note "A second note, taken so this step owns the id it removes." --dir "$FIRSTSTORE" 2>&1)
+TARGET=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
+if [ -z "$TARGET" ]; then
+  no "the note printed no id to remove" "$OUT"
+else
+  BEFORE=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
+  OUT=$(counterparts remove "$TARGET" --confirm --dir "$FIRSTSTORE" 2>&1)
+  RC=$?
+  AFTER=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
+  if [ "$RC" -ne 0 ] &&
+     printf '%s' "$OUT" | grep -q "interactive confirmation" &&
+     [ "$BEFORE" = "$AFTER" ]; then
+    ok
+  else
+    no "a non-interactive --confirm did not refuse cleanly (rc=$RC)" "$OUT"
+  fi
+fi
+
+step "the plan says WHAT it matched by, and refuses a content chase it cannot scope"
+# The two disclosures the adversarial review made blocking: the plan names the
+# evidence it is acting on, and a memory with no recorded scope is NOT chased by
+# content across every project on the machine.
+MATCHED_BY="matched by the span hash its mint recorded"
+REFUSAL="would have to visit EVERY project on this machine"
+if ! doc_check "$MATCHED_BY"; then
+  no "QUICKSTART does not quote the line that says what the chase matched by"
+elif ! doc_check "--strike-by-content-across-scopes"; then
+  no "QUICKSTART does not name the flag the refusal points at"
+elif [ -z "$DOOMED" ]; then
+  no "no id from the earlier note"
+else
+  PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
+  if printf '%s' "$PLAN" | grep -qF "$MATCHED_BY"; then ok; else no "the plan did not say what it matched by" "$PLAN"; fi
+fi
+
 # ── 4. the SessionStart hook ────────────────────────────────────────────────
 
 step "SessionStart returns the honest bootstrap line on a store that never woke"
@@ -444,6 +523,105 @@ fi
 
 step "the hook registered the session under <dataDir>/sessions/"
 if [ -f "$STORE/sessions/$SESSION.json" ]; then ok; else no "no session record at $STORE/sessions/$SESSION.json"; fi
+
+# THE STEP NOBODY COULD RUN BEFORE. Until the one-config rule (2026-09-05) the
+# hook read `$HOME/.counterparts/claude-code.json` and took no flag, so the only
+# way to drive it at another store was to move a whole HOME — which is what this
+# loop does and what a machine with an existing install cannot. With `--config`
+# the hook is redirectable like every other entry point, and the assertion is in
+# three parts: it worked on the named store, it RECORDED which file sent it
+# there, and the clean room's own default store never heard of the session.
+SECOND_BASE="$WORK/second-install"
+SECOND_STORE="$SECOND_BASE/store"
+SECOND_CONFIG="$SECOND_BASE/claude-code.json"
+SECOND_SESSION="install-loop-second-$$"
+mkdir -p "$SECOND_BASE"
+printf '{\n  "dataDir": "%s",\n  "injectionBudgetBytes": 9000\n}\n' "$SECOND_STORE" > "$SECOND_CONFIG"
+
+step "counterparts-hook --config drives the hook at a SECOND store"
+OUT=$(payload SessionStart "$SECOND_SESSION" | counterparts-hook --config "$SECOND_CONFIG" 2>"$WORK/hook-config.err")
+CODE=$?
+if [ "$CODE" != "0" ] || ! printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+  no "the hook did not run against the named config (exit $CODE)" "$OUT
+$(cat "$WORK/hook-config.err")"
+elif [ ! -f "$SECOND_STORE/sessions/$SECOND_SESSION.json" ]; then
+  no "no session record under the named store at $SECOND_STORE/sessions/$SECOND_SESSION.json"
+elif ! grep -q "$SECOND_CONFIG" "$SECOND_STORE/sessions/$SECOND_SESSION.json"; then
+  # A hook cannot print to the owner — its stdout is the model's context — so
+  # the durable answer to "which config was that?" is this field.
+  no "the session record does not name the config it read" "$(cat "$SECOND_STORE/sessions/$SECOND_SESSION.json")"
+elif [ -f "$STORE/sessions/$SECOND_SESSION.json" ]; then
+  no "the DEFAULT store also got a record for that session — the flag did not redirect"
+else
+  ok
+fi
+
+step "an absolute --config that is NOT THERE stands the hook down too"
+# The hole the PR's own review found: an absolute path to a file that does not
+# exist was honoured silently — read as an absent config, resolved to observer,
+# and then fallen through to the default data dir, which on a machine with an
+# install is the live store. A typo in the one flag that says WHICH MEMORY has
+# to be as loud as a typo in --dir already is.
+BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+OUT=$(payload SessionStart "install-loop-missing-$$" | counterparts-hook --config "$WORK/nowhere/claude-code.json" 2>"$WORK/hook-missing.err")
+CODE=$?
+AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+   grep -q "stood down" "$WORK/hook-missing.err" &&
+   grep -q "could not be read" "$WORK/hook-missing.err" &&
+   [ ! -e "$WORK/nowhere" ] &&
+   [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
+  ok
+else
+  no "a missing --config was not a clean stand-down (exit $CODE, sessions $BEFORE_SESSIONS -> $AFTER_SESSIONS)" "$OUT
+$(cat "$WORK/hook-missing.err")"
+fi
+
+step "a relative --config STANDS THE HOOK DOWN rather than using the default store"
+# The failure direction that matters: an entry point told to use a config it
+# cannot honour must not quietly fall back, because on a real machine the
+# default is somebody's live memory. Exit 0 all the same — a hook never fails
+# the host — with nothing on stdout.
+BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+OUT=$(payload SessionStart "install-loop-relative-$$" | counterparts-hook --config claude-code.json 2>"$WORK/hook-relative.err")
+CODE=$?
+AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+   grep -q "stood down" "$WORK/hook-relative.err" &&
+   [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
+  ok
+else
+  no "a relative --config was not a clean stand-down (exit $CODE, sessions $BEFORE_SESSIONS -> $AFTER_SESSIONS)" "$OUT
+$(cat "$WORK/hook-relative.err")"
+fi
+
+# THE DAY-0 WAKE. The finding (LAUNCH-STATUS round 2, self/NOTES §11): `install
+# --name` seeds an identity core that no lane could reach — `scanActive` lists
+# `{ type: "memory" }` and the core is a schema row — so the first composed wake
+# was 385 bytes of furniture that named nobody, over a store whose one live row
+# was the stranger's own name.
+step "the first composed wake has an empty identity lane and zero elements"
+OUT=$(counterparts rebrief --dir "$HOME/.counterparts/store" 2>&1)
+if printf '%s' "$OUT" | grep -q "Re-rendered the wake bundle" &&
+   printf '%s' "$OUT" | grep -q "identity 0" &&
+   printf '%s' "$OUT" | grep -q "elements 0"; then
+  ok
+else
+  no "the first rebrief declined, or ranked an identity element it should not have" "$OUT"
+fi
+
+step "SessionStart injects it, and an empty identity lane still names the core"
+OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook-day0.err")
+if printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
+  no "still the bootstrap line after a rebrief" "$OUT"
+elif printf '%s' "$OUT" | grep -q "Who I am:" &&
+     printf '%s' "$OUT" | grep -q "This memory is for Your Name" &&
+     printf '%s' "$OUT" | grep -q "identity=0"; then
+  ok
+else
+  no "the wake did not name the core the install seeded" "$OUT
+$(cat "$WORK/hook-day0.err")"
+fi
 
 # ── 5. the MCP round trip ───────────────────────────────────────────────────
 
@@ -532,6 +710,37 @@ else
 $(cat "$WORK/mcp3.err")"
 fi
 
+step "COUNTERPARTS_CONFIG points the MCP server at another install's config"
+# The flag's equivalent for a host that launches from a STATIC registration —
+# which is how this host launches MCP servers, so `-e COUNTERPARTS_CONFIG=…` in
+# the `claude mcp add` line is the only channel there is. The server says which
+# file it read on stderr (stdout is the JSON-RPC wire) and serves normally.
+RPC=$(
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}'
+  printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+)
+MCP_OUT=$(printf '%s\n' "$RPC" |
+  COUNTERPARTS_DATA_DIR="$SECOND_STORE" COUNTERPARTS_CONFIG="$SECOND_CONFIG" counterparts-mcp 2>"$WORK/mcp-config.err")
+if printf '%s' "$MCP_OUT" | grep -q '"serverInfo"' &&
+   grep -q "config: $SECOND_CONFIG (named by COUNTERPARTS_CONFIG)" "$WORK/mcp-config.err"; then
+  ok
+else
+  no "the server did not start on the named config, or did not name it" "$MCP_OUT
+$(cat "$WORK/mcp-config.err")"
+fi
+
+step "a relative COUNTERPARTS_CONFIG REFUSES the server rather than falling back"
+OUT=$(printf '%s\n' "$RPC" |
+  COUNTERPARTS_DATA_DIR="$SECOND_STORE" COUNTERPARTS_CONFIG=claude-code.json counterparts-mcp 2>"$WORK/mcp-relative.err")
+CODE=$?
+if [ "$CODE" != "0" ] && grep -q "ABSOLUTE" "$WORK/mcp-relative.err" && [ -z "$OUT" ]; then
+  ok
+else
+  no "a relative COUNTERPARTS_CONFIG did not refuse the launch (exit $CODE)" "$OUT
+$(cat "$WORK/mcp-relative.err")"
+fi
+
 step "the note is durable: the console counts it after both processes exited"
 OUT=$(counterparts status --dir "$STORE" 2>&1)
 LIVE=$(printf '%s\n' "$OUT" | sed -n 's/^Memories: \([0-9]*\).*/\1/p' | head -1)
@@ -589,14 +798,18 @@ else
   no "the refusal did not name both places it looked" "$OUT"
 fi
 
-step "SessionStart now injects that bundle instead of the bootstrap line"
+step "SessionStart injects the re-rendered bundle, still naming the core"
+# The identity lane is still empty here — a promotion needs reinforcement on
+# several distinct lived days, and this loop lives one — so the day-0 line is
+# still the honest thing to say, now over a store that has memories in it.
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook2.err")
 if printf '%s' "$OUT" | grep -q "has not lived a boundary"; then
   no "still the bootstrap line after a rebrief" "$OUT"
-elif [ -n "$OUT" ]; then
+elif printf '%s' "$OUT" | grep -q "This memory is for Your Name"; then
   ok
 else
-  no "the hook injected nothing" "$(cat "$WORK/hook2.err")"
+  no "the hook injected nothing, or stopped naming the core" "$(cat "$WORK/hook2.err")
+$OUT"
 fi
 
 step "the dashboard opens the same store"

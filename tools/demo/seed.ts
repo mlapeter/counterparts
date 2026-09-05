@@ -140,7 +140,20 @@ export const RNG_SEED = 0x5eed10;
 /** Wall-clock origin for the whole run: 2026-06-01T09:00:00Z. Fixed, so nothing
  *  in the store carries the real time this seeder happened to run at. */
 export const EPOCH_MS = Date.UTC(2026, 5, 1, 9, 0, 0);
-const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Milliseconds from `EPOCH_MS` to 09:00 UTC on a scripted day.
+ *
+ * A demo store's dates are the demo's own, and the injected clock is what makes
+ * them so: with it, `learnedOn` is the day the note was written in the story;
+ * without it, every one of the 156 rows read the day the seeder happened to run
+ * (measured 2026-09-04 — the whole wake said "2026-09-05 ·" on every line).
+ */
+function dayOffset(date: string): number {
+  const at = Date.parse(`${date}T09:00:00Z`);
+  if (Number.isNaN(at)) throw new Error(`demo script day is not a date: ${date}`);
+  return at - EPOCH_MS;
+}
 
 /** The HOST's reported injection ceiling. It lives here because it lives in the
  *  host: nothing in `src/` may invent one (scar §2.18), and a seeder that passed
@@ -376,7 +389,14 @@ export async function seedDemo(opts: SeedOptions): Promise<SeedReport> {
 
     // ── the thirty lived days ─────────────────────────────────────────────
     for (const [index, day] of DAYS.entries()) {
-      offset = index * DAY_MS;
+      // THE DAY'S OWN DATE, not its index (§I7). The script's thirty lived days
+      // skip weekends — day 5 is 2026-06-08, not 2026-06-06 — so `index * DAY_MS`
+      // put the wall clock four days behind the calendar by the end of the run
+      // and every date the store wrote was a date the script never names. The
+      // offset is READ OFF `day.date` instead, which makes the injected clock and
+      // the physics clock agree by construction rather than by arithmetic that
+      // happens to line up.
+      offset = dayOffset(day.date);
       // The clock moves at the START of the day here rather than at the
       // boundary, so everything the day writes carries the day's own number.
       // `sessionEnd({date})` below sees the same date and its clock phase is a

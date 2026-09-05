@@ -108,6 +108,8 @@ export interface BoundedMemory {
   readonly tier: Tier;
   readonly kind: string;
   readonly title: string | null;
+  /** A journal entry, not a memory — see `Recalled.journal`. */
+  readonly journal: boolean;
   /** The body, cut to the applicable budget. */
   readonly excerpt: string;
   /** The full body's length, so "there is more" is a number, not a guess. */
@@ -164,6 +166,7 @@ export function boundMemories(
       tier: m.tier,
       kind: m.kind,
       title: m.title,
+      journal: m.journal,
       excerpt,
       bodyChars: m.body.length,
       truncated: excerpt.length < m.body.length,
@@ -186,11 +189,32 @@ export function boundMemories(
  */
 export const DELIBERATE_BUDGET_MS = 15_000;
 
+/**
+ * A journal entry, not a memory — the owner's ruling of 2026-09-04 (§I14).
+ *
+ * The chapter stays RECALLABLE: a chapter about the lighthouse conversation may
+ * rightly come to mind, and filtering it would answer a question worse than
+ * labelling it does. What it must never be is mistaken for a memory — it is the
+ * first-person ACCOUNT a memory was made from, it sits outside every sleep phase
+ * (`sleep/types.ts#isJournal`), and the physics printed beside it is recorded and
+ * never acted on. The dashboard has said so on the row since #33; this is the
+ * same sentence at the other two doors.
+ *
+ * The predicate is `ProseDoc.type`, the same field `isJournal` reads off the row,
+ * so the label cannot disagree with the rest of the system about what a chapter
+ * is. `kind` stays PHYSICS kind: a chapter is usually `kind: "self"`, which is
+ * exactly the ambiguity this boolean resolves rather than overwrites.
+ */
+export const JOURNAL_GLOSS =
+  "A row marked journal: true is a chapter — the first-person account a memory was made from, not a memory. It is outside decay, dedup and the prune, and it is not a claim about the world the way a memory is.";
+
 export interface Recalled {
   readonly id: string;
   readonly tier: Tier;
   readonly kind: string;
   readonly title: string | null;
+  /** True for an `epi_` chapter (`ProseDoc.type === "episode"`). See `JOURNAL_GLOSS`. */
+  readonly journal: boolean;
   /** The body. The quiet tier returns bodies here, not a count (§9.1 G2). */
   readonly body: string;
   readonly strength: number;
@@ -394,6 +418,7 @@ export function expandHandle(
         tier: "vivid",
         kind: read.physics.kind,
         title: read.doc.title ?? null,
+        journal: read.doc.type === "episode",
         body: read.doc.body,
         // The SAME number the question path reports: base-level activation from
         // `physics/`, not a raw use count. Two paths reporting different
@@ -524,6 +549,7 @@ export function answerQuestion(
       tier,
       kind: verdict.kind,
       title: doc.title ?? null,
+      journal: doc.type === "episode",
       body: doc.body,
       strength: verdict.strength,
       activation: verdict.activation,

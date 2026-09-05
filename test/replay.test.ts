@@ -552,6 +552,48 @@ describe("the pipeline driver", () => {
     result.cleanup();
   });
 
+  /**
+   * §I7: a replay of a corpus from months ago must not date its rows today.
+   *
+   * The harness passes no `now` here on purpose — that is the default path, and
+   * the default is the CORPUS DAY, not `Date.now()`. Every memory the replay
+   * mints belongs to the day whose transcripts produced it, while the lived-day
+   * clock still counts three days across a four-day calendar span (the corpus
+   * skips 2026-07-28).
+   */
+  test("the corpus's dates reach the rows, and the lived-day clock still skips the day nobody lived", async () => {
+    const corpus = Corpus.open(corpusDir("corpusdates", { index: true, jot: true }));
+    const run = await runReplay({
+      corpus,
+      interpret: fakeInterpret(),
+      seat: "deterministic-fake",
+      vectors: "none",
+      budgetBytes: BUDGET_BYTES,
+      workRoot: work,
+      minBytes: 100,
+    });
+    const store = run.counterpart.store;
+    const learned = new Set<string>();
+    for (const id of store.list()) learned.add(store.readProse(id).learnedOn);
+    expect(learned.size).toBeGreaterThan(0);
+    const today = new Date().toISOString().slice(0, 10);
+    for (const d of learned) {
+      expect(`${d} in corpus=${DAYS.includes(d)}`).toBe(`${d} in corpus=true`);
+    }
+    expect(learned.has(today)).toBe(false);
+    // The other clock, unmoved: three lived days for three corpus days, even
+    // though four calendar days elapsed.
+    expect(run.observation.days.map((d) => d.livedDay)).toEqual([1, 2, 3]);
+    // The durable event log is dated the same way.
+    const at = store.eventLog({ limit: 5000 }).map((e) => new Date(e.at).toISOString().slice(0, 10));
+    expect(at.length).toBeGreaterThan(0);
+    for (const d of new Set(at)) {
+      expect(`${d} in corpus=${DAYS.includes(d)}`).toBe(`${d} in corpus=true`);
+    }
+    run.cleanup();
+    corpus.close();
+  });
+
   test("a corpus in v1's REAL span shape replays end to end", async () => {
     const result = await runFixture("v1drive", { v1Shape: true });
     const o = result.run.observation;
@@ -687,6 +729,7 @@ const EMPTY_OBSERVATION: ReplayObservation = {
   sweeps: [],
   chunks: [],
   gateRecords: [],
+  depositRecords: [],
   bandTransitions: [],
   symmetry: [],
   events: [],
@@ -1143,6 +1186,24 @@ function gateRecord(over: Partial<ReplayObservation["gateRecords"][number]> = {}
   };
 }
 
+function depositRecord(
+  over: Partial<ReplayObservation["depositRecords"][number]> = {},
+): ReplayObservation["depositRecords"][number] {
+  return {
+    contentHash: "h",
+    day: 1,
+    scope: "proj",
+    source: "jot",
+    accepted: true,
+    kind: "fact",
+    fires: {},
+    refusalsByReason: {},
+    blockedBy: [],
+    statuses: {},
+    ...over,
+  };
+}
+
 function cycle(over: Partial<ReplayObservation["cycles"][number]> = {}): ReplayObservation["cycles"][number] {
   return {
     date: "2026-07-27",
@@ -1177,6 +1238,35 @@ describe("the gate metrics compute from the durable record", () => {
     expect(sample?.numerator).toBe(4);
     expect(sample?.denominator).toBe(8);
     expect(scoreMetric(metric as MetricSpec, o).verdict).toBe("pass");
+  });
+
+  test("gate.refusalMix counts BOTH doors — the authored one is not half a distribution", () => {
+    const metric = metricById("gate.refusalMix") as MetricSpec;
+    // One swept chunk, one authored deposit. Before `gate.deposit` (replay
+    // INTERFACE-GAPS §2a) the second row did not exist, so the mix was the
+    // crash-sweep path alone — and the crash sweep is normally silent while the
+    // authored door fires at every session end and every jot.
+    const o = observed({
+      gateRecords: [gateRecord({ fires: { secrets: 1, floor: 1 } })],
+      depositRecords: [depositRecord({ fires: { secrets: 2 } })],
+    });
+    const sample = metric.compute?.(o);
+    expect(sample?.numerator).toBe(3);
+    expect(sample?.denominator).toBe(4);
+
+    // …and the authored rows ALONE are a computable mix, which is the state a
+    // store that never crashed is actually in.
+    const authoredOnly = observed({
+      depositRecords: [depositRecord({ fires: { secrets: 1, aliases: 1 } })],
+    });
+    expect(metric.compute?.(authoredOnly)?.denominator).toBe(2);
+
+    // The preselection metrics do NOT read across: a deposit is preselected
+    // against nothing, so folding these rows in would average in a shown-count
+    // that was never measured.
+    const shown = metricById("preselect.meanSchemasShown") as MetricSpec;
+    expect(shown.compute?.(authoredOnly)).toBeNull();
+    expect(scoreMetric(shown, authoredOnly).verdict).toBe("not-exercised");
   });
 
   test("a corpus that fired NO gate is not-exercised, never a zero that passes", () => {

@@ -28,6 +28,24 @@
  * noted twice) takes the original's seat and the pair relation reads false
  * against it — and then the element loses its only live version.
  *
+ * The same refusal has a THIRD half, and it is the widest of the three: **a
+ * `type: "schema"` row is not a dedup candidate at all** (`types.ts#isSchemaRow`,
+ * read where the live set is built, so both candidate sources are covered by
+ * construction). A belief is a standing claim about a person or a thing, with
+ * its own revision machinery and its own refusal to blend (`schemas/` §5.6,
+ * §5 G1, §5 G4); "these two say the same thing, so they are one thing" is a
+ * claim about NOTES. Probe H, found by the adversarial review on 2026-09-04:
+ * an `addBelief` with statement X and a memory with body X, born the same day,
+ * no revision anywhere — the belief lost the tie-break and stopped being a
+ * belief. Migration settles the DIRECTION of that loss and not its frequency:
+ * migrated elements were minted at the import day while migrated memories kept
+ * their v1 birth day, so on any such pair the memory is never younger and the
+ * element always loses — but a pair needs two distinct v1 items whose gated
+ * text is byte-identical, and how often that happened is unknown until the
+ * owner's dry run counts it. G9b is NOT made redundant by this: `revision.ts`'s identity arm mints
+ * its successor as `type: "memory"`, and only G9b stands between that row and
+ * the challenger whose words it carries.
+ *
  * **A merge is `uses(original) += 1` and the duplicate ARCHIVES.** Both halves
  * are load-bearing. Without the credit the merge is a deletion; without the
  * exit the same pair is found again tomorrow and credited again — a uses ratchet
@@ -41,7 +59,7 @@ import { rowToPhysics } from "../store/operational.js";
 import { hashText } from "../store/prose.js";
 import { ACCOMMODATION_SOURCE, MERGE_ARCHIVE_REASON, MERGE_RECORD_PREFIX } from "./tunables.js";
 import type { MergeRecord, PhaseCtx, PhaseOutcome, SleepStore } from "./types.js";
-import { countSkip, emptyOutcome, isJournal } from "./types.js";
+import { countSkip, emptyOutcome, isJournal, isSchemaRow } from "./types.js";
 
 export interface DedupPair {
   readonly candidateId: string;
@@ -167,6 +185,8 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
   const out = emptyOutcome();
   out.skipped["already-archived"] = 0;
   out.skipped["self-pair"] = 0;
+  out.skipped["journal"] = 0;
+  out.skipped["schema"] = 0;
   const leftAlone: Record<string, number> = {};
   const merged: MergeRecord[] = [];
   let degradedToLexical = false;
@@ -184,7 +204,22 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
     // the very boundary that minted it, leaving the episode with no live memory
     // and its idempotency key pointing at an archived row. A journal is not a
     // duplicate of the memory made from it, in either direction.
-    if (isJournal(row)) continue;
+    if (isJournal(row)) {
+      // Counted, not passed over in silence — G15 says "a named skip in each
+      // phase", and until 2026-09-05 this one arm was the exception.
+      countSkip(out, "journal");
+      continue;
+    }
+    // NOT A SCHEMA ROW (`types.ts#isSchemaRow`). A belief is a standing claim
+    // with its own machinery for changing, not a note that can turn out to be
+    // a copy of another note. Excluding it HERE rather than at each candidate
+    // source is what makes the rule total: `contentHashCandidates` and any
+    // injected cosine source both read `liveIds`, so neither can see an
+    // element to propose it. Probe H, NOTES §12, closed 2026-09-05.
+    if (isSchemaRow(row)) {
+      countSkip(out, "schema");
+      continue;
+    }
     live.add(id);
   }
   const liveIds = [...live];
@@ -215,7 +250,13 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
       continue;
     }
     if (!live.has(pair.candidateId) || !live.has(pair.originalId)) {
-      countSkip(out, "already-archived");
+      // An INJECTED source is not obliged to have read `liveIds`, so name what
+      // actually stood the pair down. "already-archived" for a live belief
+      // would be a false reason in the one report a reader looks at (§5 G6,
+      // scar §2.4), and a phase that mislabels its refusals is a phase whose
+      // refusals nobody can audit.
+      const kind = excludedKind(store, pair.candidateId) ?? excludedKind(store, pair.originalId);
+      countSkip(out, kind ?? "already-archived");
       continue;
     }
     out.examined += 1;
@@ -289,6 +330,19 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
   }
 
   return { ...out, merged, leftAlone, degradedToLexical };
+}
+
+/**
+ * Which standing exclusion, if any, put this id outside the live set. Returns
+ * the skip name the phase reports, so the two exclusions are named the same
+ * way whether the candidate source respected `liveIds` or not.
+ */
+function excludedKind(store: SleepStore, id: string): "schema" | "journal" | null {
+  const row = store.row(id);
+  if (row === undefined) return null;
+  if (isSchemaRow(row)) return "schema";
+  if (isJournal(row)) return "journal";
+  return null;
 }
 
 function errorName(err: unknown): string {

@@ -47,6 +47,7 @@ import {
 import type { AdapterDurableEventName } from "../../core/counterpart.js";
 import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
 
+import { CONFIG_FILE_EVENT } from "../config-path.js";
 import { pruneSessions, recordSession } from "../sessions.js";
 import type { SessionPhase } from "../sessions.js";
 
@@ -154,6 +155,21 @@ export interface AdapterOptions {
    * the file was used. Names and counts only — never a value.
    */
   readonly credentials?: CredentialLoad;
+  /**
+   * WHICH `claude-code.json` THIS PROCESS READ — an absolute path, resolved by
+   * the entry point (`bin/hook.ts`, via `adapters/config-path.ts`) and passed in
+   * for the same reason `credentials` is: it is a fact about one process's
+   * startup, not something the adapter may go and re-derive.
+   *
+   * The adapter does three things with it, all of them recording:
+   *   - one ring event at construction, exactly as the credential file gets;
+   *   - the `config` field of every session registry record it writes, which is
+   *     the only DURABLE trace a hook can leave of this (a hook has no stdout to
+   *     tell the owner with — that channel is the model's context);
+   *   - the pin onto the detached worker's environment, so parent and child read
+   *     one file rather than resolving two.
+   */
+  readonly configPath?: string;
 }
 
 /**
@@ -222,6 +238,8 @@ export class ClaudeCodeAdapter {
   private readonly onEvent: ((e: AdapterEvent) => void) | undefined;
   private readonly nowFn: () => number;
   private readonly credentials: CredentialLoad | undefined;
+  /** The `claude-code.json` this process read — recorded, pinned, never re-derived. */
+  private readonly configPath: string | undefined;
   private readonly ring: AdapterEvent[] = [];
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
@@ -240,6 +258,14 @@ export class ClaudeCodeAdapter {
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
     this.credentials = opts.credentials;
+    this.configPath = opts.configPath;
+    // ONE event naming the configuration this process read, for the same reason
+    // the credential file gets one: a hook's stdout belongs to the model, so
+    // "which file answered" has nowhere else to go in-process. The durable half
+    // is the session record's `config` field (`noteSession`).
+    if (opts.configPath !== undefined && opts.configPath.length > 0) {
+      this.emit(CONFIG_FILE_EVENT, { path: opts.configPath });
+    }
     // ONE event, and only when the file actually answered. A run whose keys came
     // from the environment says nothing here, so the presence of this line in
     // the ring IS the record that the configured file was the source (§4 G4:
@@ -658,6 +684,14 @@ export class ClaudeCodeAdapter {
       scope: input.scope,
       phase,
       at: this.nowFn(),
+      // THE DURABLE ANSWER TO "WHICH CONFIG DID THIS HOOK READ". A hook cannot
+      // print it — stdout is the model's context — so it is recorded here, in
+      // the one file this process writes that is host state rather than memory,
+      // under the store the configuration itself named. A record written by a
+      // process that was told nothing carries no field at all.
+      ...(this.configPath === undefined || this.configPath.length === 0
+        ? {}
+        : { config: this.configPath }),
     });
     this.emit("adapter.session.registry", { phase, ok: record !== null });
     // Bounded growth, once per session rather than once per turn — and never on
@@ -691,6 +725,13 @@ export class ClaudeCodeAdapter {
         ? {}
         : { session: input.sessionId }),
       ...(input?.scope === undefined || input.scope.length === 0 ? {} : { scope: input.scope }),
+      // The child reads the SAME configuration this process read. Without the
+      // pin the worker would resolve its own — and a hook driven by `--config`
+      // would spawn a worker that went back to the default file, which is the
+      // shape scar §2.13 is about: parent and child resolving one value twice.
+      ...(this.configPath === undefined || this.configPath.length === 0
+        ? {}
+        : { configPath: this.configPath }),
     };
     const seat = interpretSeat(this.config, new Date(this.nowFn()).toISOString().slice(0, 10));
     if (!seat.usable) {

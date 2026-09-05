@@ -33,6 +33,18 @@ export type StoreErrorCode =
   | "REMOVAL_NOT_DARK"
   /** The owner-op capability was never granted for this store. */
   | "OWNER_OP_UNGRANTED"
+  /**
+   * A restore was attempted on a row the dedup pass did not archive. The
+   * un-archive door exists to undo ONE thing — `archived_reason: "merged"` —
+   * and a door that also un-archives prunes, revisions and removals would be
+   * the general resurrection verb the store deliberately does not have.
+   */
+  | "UNMERGE_NOT_A_MERGE"
+  /**
+   * The row has a successor. Restoring it would put two live versions in one
+   * revision chain, which is the state `resolve` exists to make impossible.
+   */
+  | "UNMERGE_SUPERSEDED"
   | "VERSION_UNKNOWN"
   | "CLOCK_BACKWARDS"
   /** An instrument opened a store that does not exist yet, or is a schema behind:

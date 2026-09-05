@@ -25,11 +25,18 @@
  * Nothing in this file is a memory rule; all of it is host trivia (§5 G8).
  */
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import {
+  configLine,
+  defaultConfigPath,
+  namedConfigRefusal,
+  namedUnreadableRefusal,
+  resolveConfigPath,
+} from "../../config-path.js";
+import type { ConfigChoice } from "../../config-path.js";
 import { loadConfig } from "../../claude-code/config.js";
 import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
 import type { CredentialLoad } from "../../claude-code/credentials.js";
@@ -38,9 +45,20 @@ import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { openServer } from "../index.js";
 import { serveStdio } from "../stdio.js";
 
-/** The same file `bin/hook.ts` and `bin/runner.ts` read. One configuration for
- *  this host, three entry points — never three ideas of where the keys live. */
-export const CONFIG_PATH = join(homedir(), ".counterparts", "claude-code.json");
+/**
+ * The same file `bin/hook.ts` and `bin/runner.ts` read by default. One
+ * configuration for this host, four entry points — never four ideas of where the
+ * keys live, and since 2026-09-05 never four ideas of how to move it either:
+ * `--config <absolute path>`, else `COUNTERPARTS_CONFIG`, else this
+ * (`adapters/config-path.ts`).
+ *
+ * The environment variable matters MORE here than anywhere else. This host
+ * registers an MCP server from a static configuration — command, args, env — so
+ * `-e COUNTERPARTS_CONFIG=…` in the `claude mcp add` line is the only way a
+ * server launched by it can be pointed at anything but the default. That is why
+ * the variable exists at all.
+ */
+export const CONFIG_PATH = defaultConfigPath();
 
 export const ENV = {
   session: "COUNTERPARTS_SESSION",
@@ -71,6 +89,11 @@ export function launchOptions(
       dir: { type: "string" },
       owner: { type: "boolean" },
       observer: { type: "boolean" },
+      // Declared so `strict: false` does not read `--config <path>` as a boolean
+      // and leave the path as a stray positional. The VALUE is resolved by
+      // `serverConfigChoice` below, which is the one rule all four entry points
+      // share; this declaration only keeps the parse honest.
+      config: { type: "string" },
     },
     strict: false,
   });
@@ -103,7 +126,12 @@ export function launchOptions(
 export function questionEmbedder(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { embedder: LiveEmbedder | null; credentials: CredentialLoad; credentialsFile?: string } {
+): {
+  embedder: LiveEmbedder | null;
+  credentials: CredentialLoad;
+  credentialsFile?: string;
+  reason: string;
+} {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -112,9 +140,11 @@ export function questionEmbedder(
     // and an observer opens no socket at all.
     raw = undefined;
   }
-  const config = loadConfig(raw).config;
+  const load = loadConfig(raw);
+  const config = load.config;
   const credentials = loadCredentials(config.credentialsFile, env);
   return {
+    reason: load.reason,
     // `openEmbedder` is the ONE answer to "is there an embedder": the knob is
     // the gate, an observer gets none, and a missing key refuses by name on the
     // first call rather than being re-checked here.
@@ -124,9 +154,48 @@ export function questionEmbedder(
   };
 }
 
+/**
+ * Which configuration this server will read, and which rule chose it. Exported
+ * and injectable for the same reason `launchOptions` is: the rule is provable
+ * without a process on stdin.
+ *
+ * **The store is NOT decided here.** It still comes from `--dir`, else
+ * `COUNTERPARTS_DATA_DIR`, else the default — this file answers "whose keys and
+ * whose embedder knob", which is the other half of the trap QUICKSTART §10.3
+ * names, not the same half.
+ */
+export function serverConfigChoice(
+  argv: readonly string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+): ConfigChoice {
+  return resolveConfigPath(argv, env as Record<string, string | undefined>);
+}
+
 async function main(): Promise<void> {
   const opts = launchOptions(process.argv.slice(2), process.env);
-  const { embedder, credentials, credentialsFile } = questionEmbedder();
+  const choice = serverConfigChoice();
+  const refusal = namedConfigRefusal(choice);
+  if (refusal !== null) {
+    // A server told to read a configuration it cannot resolve — relative, or
+    // absolute and not there — does not fall back to the default one: on a
+    // machine with an install, that default is somebody else's keys. It refuses
+    // to start, loudly, on stderr.
+    process.stderr.write(`${refusal}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const { embedder, credentials, credentialsFile, reason } = questionEmbedder(choice.path);
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`${unreadable}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // stderr, never stdout — stdout is the JSON-RPC wire. This is this entry
+  // point's "which file answered": printed at every launch, before a byte of
+  // protocol, because a server reading a configuration nobody named is exactly
+  // how a scratch run came to embed on the owner's key (2026-09-04).
+  process.stderr.write(`[counterparts] config: ${configLine(choice)}\n`);
   const warning = permissionWarning(credentialsFile, credentials);
   // stderr, never stdout: stdout is the JSON-RPC wire. Warned, never refused.
   if (warning !== null) process.stderr.write(`${warning}\n`);
@@ -151,7 +220,9 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 
 if (isEntryPoint(process.argv[1], import.meta.url)) {
   void main().then(
-    () => process.exit(0),
+    // `process.exitCode` is 1 when the launch refused a named configuration it
+    // could not honour; every other path ends 0.
+    () => process.exit(process.exitCode === 1 ? 1 : 0),
     () => process.exit(1),
   );
 }

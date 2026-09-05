@@ -139,6 +139,16 @@ export const NARRATORS = {
     calm(
       `${subject(t, s(t, "candidateId"))} was the same thing I already held; I merged it into ${subject(t, s(t, "originalId"))}.`,
     ),
+  "memory.unmerged": (t) => {
+    const original = s(t, "originalId");
+    // NOTABLE, not calm: a repair is the owner reaching in, and the one line
+    // that must not read as routine housekeeping.
+    return notable(
+      original === null
+        ? `The owner put ${subject(t, s(t, "candidateId"))} back: a merge had archived it, and it should never have been a duplicate.`
+        : `The owner put ${subject(t, s(t, "candidateId"))} back — a merge had folded it into ${subject(t, original)}, and it should never have been a duplicate. The use that merge credited stands.`,
+    );
+  },
 
   // ── the doors ──────────────────────────────────────────────────────────────
   "gate.chunk": (t) => {
@@ -152,6 +162,37 @@ export const NARRATORS = {
     }
     return calm(
       `A swept chunk met the gate battery — ${proposals} proposals looked at, ${accepted} kept.`,
+    );
+  },
+  "gate.deposit": (t) => {
+    const accepted = n(t, "accepted") === 1;
+    const gates = Array.isArray(t.p["gates"]) ? (t.p["gates"] as { gate?: unknown; status?: unknown }[]) : [];
+    const acted = gates
+      .filter((g) => g.status !== "clear" && g.status !== "not-invoked")
+      .map((g) => String(g.gate));
+    if (!accepted) {
+      // THE REFUSING GATE, and only it. `acted` is every gate that did anything
+      // — the alias gate DROPS and the precision gate HEDGES while accepting by
+      // design — so naming that list made "the secrets, emotion, floor gate
+      // refused it" out of one floor refusal, which accuses three gates of a
+      // thing only one of them did. A refusal is `status: "rejected"`.
+      const refusers = gates.filter((g) => g.status === "rejected").map((g) => String(g.gate));
+      const blocked = Array.isArray(t.p["blockedBy"]) ? (t.p["blockedBy"] as unknown[]) : [];
+      const why = blocked.length > 0 ? blocked.map(String).join(", ") : "no reason recorded";
+      const by = refusers.length > 0 ? `${refusers.join(", ")} gate` : "battery";
+      return amber(`I tried to write something down and the ${by} refused it — ${why}.`);
+    }
+    // A clean gate whose ledger write then failed: accepted, but nothing was
+    // written. Saying "I wrote something down" here would be a false claim
+    // about the store, which is the one thing this feed may not make.
+    if (t.p["memoryId"] === null) {
+      return amber("The gate passed something I meant to keep, and the write did not land.");
+    }
+    if (acted.length === 0) {
+      return calm("I wrote something down and every gate was clear.");
+    }
+    return calm(
+      `I wrote something down; the ${acted.join(", ")} gate acted on it first, and it was kept.`,
     );
   },
   "sweep.gate": (t) => {
@@ -309,9 +350,10 @@ export const NARRATED_NAMES: readonly string[] = Object.keys(NARRATORS);
  * the memory resolver prints `[no longer at this address]` beside a turn that
  * went perfectly well — a FALSE absence, which is worse than no line at all in a
  * project whose whole absence discipline is about telling "never happened" from
- * "gone". Three names carry something else: a surfacing decision is keyed by the
- * SESSION it happened in, a chunk gate by the CHUNK's content key, and the sweep
- * gate by nothing at all.
+ * "gone". Four names carry something else: a surfacing decision is keyed by the
+ * SESSION it happened in, a chunk gate by the CHUNK's content key, an authored
+ * gate by the redacted DRAFT's content hash, and the sweep gate by nothing at
+ * all.
  *
  * EXHAUSTIVE BY TYPE, like every other registry here: a durable event added to
  * the core fails `tsc` until someone has said what its `ref` is, rather than
@@ -332,12 +374,18 @@ export const REF_KIND = {
   "band.promoted": "memory",
   "band.transition": "memory",
   "gate.chunk": "chunk",
+  // A content address for the REDACTED draft, not a memory id: a refused
+  // deposit has no memory to point at, and resolving this through the memory
+  // resolver would print `[no longer at this address]` beside a gate that
+  // worked perfectly. The minted id, when there is one, is in the payload.
+  "gate.deposit": "proposal",
   "memory.merged": "memory",
+  "memory.unmerged": "memory",
   "memory.pruned": "memory",
   "recall.decision": "session",
   "revision.pressure": "memory",
   "sweep.gate": "none",
-} as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "none">;
+} as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
 
 function subjectOf(store: Store, row: EventRow): string | null {
   if (row.ref === null) return null;
@@ -346,6 +394,8 @@ function subjectOf(store: Store, row: EventRow): string | null {
       return `session ${row.ref}`;
     case "chunk":
       return `swept chunk ${row.ref}`;
+    case "proposal":
+      return `authored draft ${row.ref}`;
     case "none":
       // A name this file has never heard of, carrying a ref. Print the raw
       // address rather than guessing at what it points to.

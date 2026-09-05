@@ -23,6 +23,9 @@ import { TUNABLES as PHYSICS } from "../../core/physics/index.js";
 import type { PromotionCrossing, PruneRecord } from "../../core/physics/index.js";
 import { PHASES } from "../../core/sleep/index.js";
 import type { MergeRecord, Phase } from "../../core/sleep/index.js";
+// A TYPE import, erased at runtime: the caller-universality test's own rule
+// (`test/cli.test.ts`) is that a type import reaches no function on that seam.
+import type { UnmergeRecord } from "../../core/store/owner-op-seam.js";
 import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import {
@@ -32,6 +35,7 @@ import {
   EMBED_BACKFILL_EVENT,
   EPISODE_ASK_EVENT,
   GATE_CHUNK_EVENT,
+  GATE_DEPOSIT_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
@@ -66,11 +70,12 @@ export const CYCLE_PHASES: readonly Phase[] = PHASES;
  * prune, dedup and decay phases, `schemas/`'s credited challenge and
  * `core/revision.ts`'s identity arm (the same name, the same shape, the same
  * dedup latch — a story does not care which arm moved the row), the
- * composition root's three records — the chunk gate's, one per turn's surfacing
- * decision, and one per crash-fallback run's gate, whose ordinary answer is
- * "nothing crashed" and which is therefore the one record here written to prove
- * a SILENCE — and the one narrow seam an ADAPTER may write through
- * (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
+ * composition root's four records — the chunk gate's, the AUTHORED gate's (both
+ * doors of one battery, added 2026-09-05 with replay §2a), one per turn's
+ * surfacing decision, and one per crash-fallback run's gate, whose ordinary
+ * answer is "nothing crashed" and which is therefore the one record here
+ * written to prove a SILENCE — and the one narrow seam an ADAPTER may write
+ * through (`Counterpart.noteAdapterEvent`, typed on `AdapterDurableEventName`).
  *
  * EXHAUSTIVE BY TYPE, the same way `BAND_ORDER` is. Each record interface
  * declares its `event` as a string literal; the `satisfies` below is keyed on
@@ -85,8 +90,10 @@ export type DurableEventName =
   | PromotionCrossing["event"]
   | PruneRecord["event"]
   | MergeRecord["event"]
+  | UnmergeRecord["event"]
   | PressureIncrement["event"]
   | typeof GATE_CHUNK_EVENT
+  | typeof GATE_DEPOSIT_EVENT
   | typeof RECALL_DECISION_EVENT
   | typeof SWEEP_GATE_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -121,8 +128,10 @@ export const DURABLE_EVENTS = {
   "band.promoted": "a memory crossed into the identity band",
   "band.transition": "a memory changed bands (the symmetry counter's food)",
   "gate.chunk": "a swept chunk met the gate battery",
+  "gate.deposit": "an authored deposit met the gate battery (which gates acted, and what they refused)",
   "memory.pruned": "a memory was let go at the floor",
   "memory.merged": "a duplicate was merged into its original",
+  "memory.unmerged": "the owner put back a row a merge had archived (repair-merged-beliefs)",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief or an identity element took a credited challenge",
   "sweep.gate": "the crash fallback ran its gate (scopes looked at, scopes skipped as nothing-crashed, spans swept)",

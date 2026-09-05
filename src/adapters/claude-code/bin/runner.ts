@@ -33,12 +33,20 @@
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../../../core/counterpart.js";
 import { dataDir } from "../../../core/store/index.js";
+
+import {
+  configLine,
+  defaultConfigPath,
+  namedConfigRefusal,
+  namedUnreadableRefusal,
+  resolveConfigPath,
+} from "../../config-path.js";
+import type { ConfigChoice } from "../../config-path.js";
 
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
@@ -53,7 +61,24 @@ import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js"
 import { backfillVectors, laggedSemantic } from "../vectors.js";
 import type { BackfillReport, LagReport } from "../vectors.js";
 
-export const CONFIG_PATH = join(homedir(), ".counterparts", "claude-code.json");
+/**
+ * The default, unchanged: the same file the hook reads when nobody says
+ * otherwise. `--config <absolute path>` and the `COUNTERPARTS_CONFIG` the
+ * spawner pins override it in that order (`adapters/config-path.ts`).
+ */
+export const CONFIG_PATH = defaultConfigPath();
+
+/**
+ * Which configuration this worker will read, and which rule chose it. Exported
+ * and injectable so the pinned case — the only one a hook produces — is provable
+ * without a process.
+ */
+export function runnerConfigChoice(
+  argv: readonly string[] = process.argv.slice(2),
+  env: NodeJS.ProcessEnv = process.env,
+): ConfigChoice {
+  return resolveConfigPath(argv, env as Record<string, string | undefined>);
+}
 
 export interface RunReport {
   readonly ran: boolean;
@@ -251,7 +276,7 @@ export function isEntryPoint(argv1: string | undefined, url: string): boolean {
 export function runnerConfig(
   path = CONFIG_PATH,
   env: NodeJS.ProcessEnv = process.env,
-): { config: AdapterConfig; credentials: CredentialLoad } {
+): { config: AdapterConfig; credentials: CredentialLoad; reason: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, "utf8"));
@@ -268,11 +293,34 @@ export function runnerConfig(
       dataDir: pinned ?? loaded.config.dataDir ?? dataDir(),
     },
     credentials,
+    reason: loaded.reason,
   };
 }
 
 async function main(): Promise<void> {
-  const { config, credentials } = runnerConfig();
+  const choice = runnerConfigChoice();
+  const refusal = namedConfigRefusal(choice);
+  if (refusal !== null) {
+    // Same direction as the hook: a worker told to read a configuration it
+    // cannot resolve — relative, or absolute and not there — does NOT fall back
+    // to the default store. It says so and exits 0: nothing about a failed run
+    // may reach the host. This one matters even though the spawner pins a path
+    // the parent already read, because the pin travels through an environment
+    // and a file can be moved between the two processes.
+    process.stderr.write(`[counterparts] worker stood down: ${refusal}\n`);
+    return;
+  }
+  const { config, credentials, reason } = runnerConfig(choice.path);
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`[counterparts] worker stood down: ${unreadable}\n`);
+    return;
+  }
+  // Detached, this stderr goes nowhere (`spawn.ts` runs the child with stdio
+  // ignored); run by hand it is the line that says which file answered. The
+  // record for a detached run is the pin itself — `COUNTERPARTS_CONFIG` in the
+  // environment the spawner wrote — and the session record the parent left.
+  process.stderr.write(`[counterparts] worker config: ${configLine(choice)}\n`);
   // No ring here — the worker has no adapter — so the permission warning is a
   // stderr line and nothing else. Warned, never refused (§4).
   const warning = permissionWarning(config.credentialsFile, credentials);

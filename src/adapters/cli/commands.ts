@@ -26,9 +26,9 @@
  * `run()` returns an exit code and never calls `process.exit`, so every command
  * is testable against a temp dir with a faked console.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart } from "../../core/counterpart.js";
@@ -46,26 +46,46 @@ import { isJournal } from "../../core/sleep/index.js";
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
 import { openDb } from "../../core/store/db.js";
-import type { Db } from "../../core/store/db.js";
+import type { Db, SqlValue } from "../../core/store/db.js";
+// Box 3's own door for the vector migration: `openCache` stamps the schema
+// version, `vectorFormats` counts the two shapes, `convertVectorBatch` is the
+// one transactional step. The conversion arithmetic lives in `store/cache.ts`
+// beside the readers it must agree with, never in a second copy here.
+import { convertVectorBatch, countNonFinite, openCache, vectorFormats } from "../../core/store/cache.js";
 import {
+  CACHE_SCHEMA_VERSION,
+  ID_PREFIX,
   LAYOUT,
   Store,
   dataDir,
+  decodeVector,
+  encodeVector,
   isWithin,
   paths,
+  readProseFile,
   storeExists,
 } from "../../core/store/index.js";
+import type { VectorFormatCensus } from "../../core/store/index.js";
+// The owner-op seam's REPAIR half — the one door that un-archives, and only for
+// the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
+// this is the directory the caller-universality test allows to reach that file.
+import { MERGED_ARCHIVE_REASON, unarchiveMerged } from "../../core/store/owner-op-seam.js";
 import type { Band, Kind } from "../../core/types.js";
 // The MCP adapter's deliberate-recall dispatcher, imported rather than
 // re-implemented: a console with its own question path would be a second set of
 // rules about what recall means. `mcp/deliberate.ts` imports nothing from here,
 // so the direction stays one-way.
 import { deliberateRecall } from "../mcp/deliberate.js";
+// The ONE rule for "which host configuration": the console resolves it with the
+// same function the hook, the worker and the MCP server do.
+import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath, resolveConfigPath } from "../config-path.js";
+import type { ConfigChoice, ConfigSource } from "../config-path.js";
 import { exportStore } from "./export.js";
 import {
   BIN,
   configObject,
   credentialsTemplate,
+  hookCommand,
   installLayout,
   layoutRefusal,
   mcpCommand,
@@ -73,6 +93,8 @@ import {
   writeOnce,
 } from "./install.js";
 import { ownerRemoval, planRemoval } from "./removal.js";
+import { repairDates } from "./repair-dates.js";
+import type { Confidence } from "./repair-dates.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
@@ -85,7 +107,10 @@ export const COMMANDS = [
   "backup",
   "remove",
   "verify",
+  "migrate-cache",
   "backfill-claims",
+  "repair-dates",
+  "repair-merged-beliefs",
   "rebrief",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
@@ -101,7 +126,15 @@ export const OWNER_OPS: readonly Command[] = [
   "backup",
   "remove",
   "verify",
+  // Box 3 is rebuildable, and rewriting it is still a WRITE: an instrument does
+  // not migrate the store it is reading.
+  "migrate-cache",
   "backfill-claims",
+  "repair-dates",
+  // A repair is a write, and `--dry-run` does not change that: an instrument
+  // that has stood down refuses the COMMAND, not just the write, so the owner
+  // never gets a plan from a console that could not have carried it out.
+  "repair-merged-beliefs",
   "rebrief",
 ];
 
@@ -141,9 +174,12 @@ export function usage(): string {
     "",
     "  status              What is held, what left, what was removed. Read-only.",
     "  install             Cold start: create the store, write claude-code.json and a",
-    "                      0600 credentials.env under ~/.counterparts/ (the one path",
-    "                      the hooks read), and PRINT the host's hooks block and MCP",
-    "                      line. Never edits the host. --dir moves the STORE only.",
+    "                      0600 credentials.env under ~/.counterparts/ (the path every",
+    "                      entry point reads by default), and PRINT the host's hooks",
+    "                      block and MCP line. Never edits the host. --dir moves the",
+    "                      STORE only; --config <abs path> moves the CONFIG, the",
+    "                      credentials beside it and the default store beneath it, and",
+    "                      the printed lines then carry it.",
     "                      --budget <bytes> --name <owner> --embedder --force.",
     "  init                Just a store: create a data dir and PRINT the install steps.",
     "                      No host config, no credentials file, nothing under",
@@ -159,19 +195,47 @@ export function usage(): string {
     "  verify              Census of the cache against canonical state. Read-only.",
     "                      --rebuild drops and rebuilds the cache instead; it refuses",
     "                      while the cache holds embeddings this console has no",
-    "                      embedder to recompute, unless --drop-vectors is passed.",
+    "                      embedder to recompute, unless --drop-vectors is passed —",
+    "                      or --keep-vectors, which re-indexes the text side and",
+    "                      leaves every vector where it is.",
+    "                      --prune-index takes archived and superseded rows out of",
+    "                      the text index and keeps the embeddings.",
+    "  migrate-cache       Convert the cache's vectors from JSON text to float32",
+    "                      BLOBs, in place, and compact the file. The dry run is",
+    "                      read-only; --apply converts, needs the store NAMED",
+    "                      (--dir or COUNTERPARTS_DATA_DIR, never the default) and",
+    "                      asks unless --yes. --batch <n>.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
     "                      floor. Dry run unless --apply.",
+    "  repair-dates        Propose true `learned` dates for MIGRATED memories that",
+    "                      carry the import day, read off engram-era ids (millisecond",
+    "                      timestamps), v1 date fields, session references and source",
+    "                      paths. Prints counts by confidence and a sample of 20.",
+    "                      Dry run unless --apply. --confidence high|medium|low sets",
+    "                      the floor for what --apply writes (default high);",
+    "                      --import-day <date> overrides the recorded/measured one;",
+    "                      --sample <n> changes the sample size. --apply on the",
+    "                      DEFAULT store needs --dir or --yes: this is the one",
+    "                      owner op that rewrites thousands of canonical documents.",
+    "  repair-merged-beliefs",
+    "                      Find beliefs and current-state rows the nightly dedup",
+    "                      pass archived as duplicates of an ordinary memory, and",
+    "                      put them back. Dry run unless --apply.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
-    "                      which of these gave it one: --budget <bytes>, else",
+    "                      which of these gave it one: --budget <bytes>, else the",
+    "                      config named by --config / $COUNTERPARTS_CONFIG, else",
     "                      <dir>/../claude-code.json (beside the store), else",
     "                      ~/.counterparts/claude-code.json (where the hooks read).",
     "                      Never a config INSIDE the data dir — that store stops",
     "                      opening (§5 G11).",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
+    "  --config <path>     ONE rule, every entry point: --config <absolute path>, else",
+    "                      $COUNTERPARTS_CONFIG, else the default above. install and",
+    "                      rebrief take it here; counterparts-hook and counterparts-mcp",
+    "                      take the same flag, and the server the same variable.",
     "  --observer          Stand down: read-only, owner operations refuse.",
     "  <command> --help    Just that command: what it does and every flag it takes.",
     "",
@@ -212,7 +276,7 @@ export const COMMON_FLAGS: readonly string[] = ["dir", "observer", "help"];
 
 export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   status: [],
-  install: ["budget", "name", "embedder", "force"],
+  install: ["budget", "name", "embedder", "force", "config"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
   // wake has nothing to say about.
@@ -221,10 +285,25 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   recall: ["id", "json"],
   export: ["out", "passphrase", "plaintext"],
   backup: ["out"],
-  remove: ["confirm", "reason"],
-  verify: ["rebuild", "drop-vectors"],
+  // `strike-by-content-across-scopes` is the one chase this console refuses by
+  // default: a row whose provenance recorded no scope (every migrated row) can
+  // only be chased in the buffer by matching its body, and matching a body
+  // across every project on the machine is how one removal reaches into work
+  // nobody named. The dry run lists what it WOULD match; this flag performs it.
+  remove: ["confirm", "reason", "strike-by-content-across-scopes"],
+  verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors"],
+  "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
-  rebrief: ["budget"],
+  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample", "yes"],
+  // `--dry-run` is declared and does NOTHING: dry run is already the default,
+  // and the owner's own runbook line spells it out. A flag that names the
+  // behavior you are getting must not be refused as unknown.
+  "repair-merged-beliefs": ["apply", "dry-run"],
+  // `--config` belongs to the two commands that READ or WRITE a host
+  // configuration, and to no others. Declaring it everywhere would say the
+  // console takes it for `note` or `recall`, which read no config at all — the
+  // store comes from `--dir` there and nowhere else.
+  rebrief: ["budget", "config"],
 };
 
 /**
@@ -238,15 +317,21 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
 export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
-    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the one path the hooks read), and PRINT the host's hooks block and MCP line. It never edits the host.",
+    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the path the hooks read unless --config names another), and PRINT the host's hooks block and MCP line. It never edits the host.",
   init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
   recall: "Ask memory a question. Read-only.",
   export: "A portable copy of the store, encrypted unless you say otherwise.",
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove: "The loud removal. Dry run unless --confirm.",
-  verify: "Census of the cache against canonical state. Read-only unless --rebuild.",
+  verify: "Census of the cache against canonical state. Read-only unless --rebuild or --prune-index.",
+  "migrate-cache":
+    "Convert the cache's vectors from JSON text to float32 BLOBs, in place, and compact the file. Dry run — read-only — unless --apply.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
+  "repair-dates":
+    "Give MIGRATED memories carrying the import day their true `learned` date, read off evidence each row already holds — an engram-era id that is a millisecond timestamp, a v1 date field, a session reference, a source path. Counts by confidence and the proposed dates by count. Dry run unless --apply.",
+  "repair-merged-beliefs":
+    "Put back beliefs and current-state rows the nightly dedup pass archived as duplicates of an ordinary memory. Dry run unless --apply.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
 
@@ -283,9 +368,21 @@ const FLAG_HELP: Record<string, string> = {
   plaintext: "do not encrypt the export (said on purpose, never by default)",
   confirm: "actually do it — without this, removal is a dry run",
   reason: "the reason, recorded with the removal",
+  "strike-by-content-across-scopes":
+    "for a memory whose provenance records no project: chase its words through EVERY project's capture buffer (an exact jot, never a substring). Look at what the dry run lists first",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
+  "prune-index": "take the archived and superseded rows out of the text index, keeping the embeddings",
+  "keep-vectors": "rebuild the text index and leave every vector where it is",
   apply: "actually do it — without this, it is a dry run",
+  config:
+    "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it",
+  batch: "rows per transaction while converting (default 500)",
+  "dry-run": "say the default out loud: plan and print, change nothing",
+  confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
+  "import-day": "YYYY-MM-DD — the day the import ran, instead of the one the store recorded or shows",
+  sample: "how many proposed rows to print (default 20)",
+  yes: "skip the confirmation — migrate-cache still requires --dir; repair-dates may then aim --apply at the DEFAULT store, where --dir would otherwise be required",
 };
 
 /**
@@ -323,6 +420,7 @@ export function commandHelp(command: Command): string {
 /** Flags whose value is a string; anything else here is a boolean switch. */
 const VALUED_FLAGS: readonly string[] = [
   "dir",
+  "config",
   "out",
   "reason",
   "passphrase",
@@ -332,6 +430,10 @@ const VALUED_FLAGS: readonly string[] = [
   "salience",
   "id",
   "budget",
+  "batch",
+  "confidence",
+  "import-day",
+  "sample",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -415,7 +517,23 @@ export function parse(argv: readonly string[]): Parsed {
       // `strict: false`, which does not make an undeclared boolean reliable.
       rebuild: { type: "boolean" },
       "drop-vectors": { type: "boolean" },
+      // I13's cheap repair: take the archived and superseded rows out of the
+      // text index without resetting box 3, so the embeddings survive.
+      "prune-index": { type: "boolean" },
+      "keep-vectors": { type: "boolean" },
+      batch: { type: "string" },
+      yes: { type: "boolean" },
       budget: { type: "string" },
+      config: { type: "string" },
+      // `repair-dates`' three. `dry-run` is a declared boolean rather than a
+      // `strict: false` accident so that `--apply --dry-run` is a refusal the
+      // command can see, and the two string flags are declared for the same
+      // reason `budget` is: an undeclared valued flag arrives as `true`.
+      // (`yes` is declared once, above, for migrate-cache and repair-dates both.)
+      "dry-run": { type: "boolean" },
+      confidence: { type: "string" },
+      "import-day": { type: "string" },
+      sample: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -484,13 +602,35 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     return EXIT.refused;
   }
 
+  // WHICH HOST CONFIGURATION THIS INVOCATION MEANS — resolved once, by the same
+  // rule the hook, the worker and the MCP server use (`adapters/config-path.ts`),
+  // and refused rather than guessed.
+  //
+  // ONLY for the two commands that read or write one. `note`, `recall`, `status`
+  // and the rest touch no configuration at all, and a stale
+  // `COUNTERPARTS_CONFIG` in somebody's shell must not refuse a command that
+  // would never have looked at it — a guard that fires on the innocent case is
+  // one people learn to unset rather than to read.
+  const readsConfig = command === "install" || command === "rebrief";
+  const named = readsConfig
+    ? resolveConfigPath(
+        typeof parsed.flags["config"] === "string" ? [`--config=${parsed.flags["config"]}`] : [],
+        env,
+        opts.home ?? homedir(),
+      )
+    : undefined;
+  if (named !== undefined && named.refusal !== null) {
+    io.err(named.refusal);
+    return EXIT.refused;
+  }
+
   // `install` resolves its OWN layout and must not go through `resolveDir`:
   // the store's default data dir is `~/.counterparts`, which is exactly the
   // directory this command writes two unclassifiable files into (`install.ts`
   // rule 1). Its default store is the `store/` beneath that instead.
   if (command === "install") {
     try {
-      return installCommand(parsed, io, env, opts.home);
+      return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
       io.err(`install failed: ${String((err as Error).message ?? err)}`);
       return EXIT.failed;
@@ -523,6 +663,17 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return recallCommand(dir, io, parsed);
       case "verify":
         return verifyCommand(dir, io, parsed.flags);
+      case "migrate-cache":
+        // Whether the STORE WAS NAMED, not just resolved: `--apply` refuses a
+        // dir that fell through to the default, which on a real machine is the
+        // owner's live memory.
+        return await migrateCacheCommand(
+          dir,
+          io,
+          parsed.flags,
+          typeof parsed.flags["dir"] === "string" ||
+            (env["COUNTERPARTS_DATA_DIR"] ?? "").trim() !== "",
+        );
       case "backup":
         return await backupCommand(dir, io, parsed.flags["out"], now);
       case "export":
@@ -531,8 +682,12 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
         return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
+      case "repair-dates":
+        return repairDatesCommand(dir, io, parsed.flags, parsed.flags["dir"] === undefined);
+      case "repair-merged-beliefs":
+        return repairMergedBeliefsCommand(dir, io, parsed.flags["apply"] === true);
       case "rebrief":
-        return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home);
+        return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -737,9 +892,22 @@ function installCommand(
   io: Io,
   env: Record<string, string | undefined>,
   home?: string,
+  named?: ConfigChoice,
 ): number {
   const dirFlag = typeof parsed.flags["dir"] === "string" ? parsed.flags["dir"] : undefined;
-  const layout = home === undefined ? installLayout(dirFlag, env) : installLayout(dirFlag, env, home);
+  // A configuration at a NON-DEFAULT LOCATION moves the whole base — config,
+  // credentials, and the default store beneath it (`install.ts#installLayout`).
+  // The test is the PATH, not how it was named: `--config` spelling out the
+  // default path is the default install, and printing a flag for it (with a
+  // sentence saying it is "NOT at" the path it is at) would be false.
+  const home_ = home ?? homedir();
+  const custom =
+    named !== undefined &&
+    named.source !== "default" &&
+    resolve(named.path) !== defaultConfigPath(home_)
+      ? named.path
+      : undefined;
+  const layout = installLayout(dirFlag, env, home_, custom);
   // Before a single directory: a store that would hold its own configuration is
   // a store that never opens again.
   const refusal = layoutRefusal(layout);
@@ -811,15 +979,19 @@ function installCommand(
   // differently has made the reader do the comparison.
   if (seeded) io.out(`  identity core seeded for ${name ?? ""} — the thing this memory is about.`);
   if (!isWithin(layout.base, resolved)) {
-    // --dir moved the STORE. It cannot move the configuration: the hooks take no
-    // flag and read one hardcoded path (falling back to COUNTERPARTS_DATA_DIR
-    // only when that file names no store), and a hook that finds nothing stands
-    // down and exits 0 — so a config they cannot find is a silence nobody
-    // debugs. Said out loud rather than left for the reader to discover from an
-    // ambient half that never fires.
+    // --dir moved the STORE. It does not move the configuration: the hooks read
+    // the default path unless something NAMES another one (--config, else
+    // COUNTERPARTS_CONFIG), and a hook that finds no config stands down and
+    // exits 0 — so a config nothing points them at is a silence nobody debugs.
+    // Said out loud rather than left for the reader to discover from an ambient
+    // half that never fires.
     io.out("");
     io.out(`  --dir moved the STORE only. The configuration stays at ${config.path}:`);
-    io.out("  that is the one path the hooks read for their configuration, hardcoded,");
+    io.out(
+      custom === undefined
+        ? "  that is the path the hooks read when nothing names another one,"
+        : `  and the printed lines below name it with ${CONFIG_FLAG} / ${CONFIG_ENV},`,
+    );
     io.out(`  and it points at your store with "dataDir": "${resolved}".`);
   }
   if (config.what === "kept" || creds.what === "kept") {
@@ -841,7 +1013,7 @@ function installCommand(
   io.out("");
   io.out("  1. Merge this into ~/.claude/settings.json (one script, five events):");
   io.out("");
-  for (const line of settingsBlock().split("\n")) io.out(`     ${line}`);
+  for (const line of settingsBlock(hookCommand(custom)).split("\n")) io.out(`     ${line}`);
   io.out("");
   io.out("     The runtime and the script are ABSOLUTE on purpose. A host's process");
   io.out("     environment is not your login shell's — measured on this package's own");
@@ -850,8 +1022,20 @@ function installCommand(
   io.out("");
   io.out("  2. Register the MCP server, so note, recall and session_end exist:");
   io.out("");
-  io.out(`     ${mcpCommand(resolved)}`);
+  io.out(`     ${mcpCommand(resolved, undefined, custom)}`);
   io.out("");
+  // THE FLAG IS PRINTED ONLY WHEN IT IS NEEDED, and when it is, the output says
+  // why — otherwise a reader learns the wiring as "hooks take a --config", which
+  // is exactly the sentence this rule does not want them to carry away. The
+  // default path IS the rule (`adapters/config-path.ts`).
+  if (custom !== undefined) {
+    io.out(`  Both lines carry this install's configuration, because it is NOT at`);
+    io.out(`  ${defaultConfigPath(home_)} — the path all four entry points`);
+    io.out(`  read when nobody says otherwise. The hook takes it as ${CONFIG_FLAG} <path>; the`);
+    io.out(`  server takes it as ${CONFIG_ENV}, because this host launches MCP servers`);
+    io.out("  from a static registration with no command line to write into.");
+    io.out("");
+  }
   io.out(`  Then restart Claude Code, and check it with: ${BIN.cli} status --dir ${resolved}`);
   io.out("  An MCP server keeps the code it was launched with: after an upgrade, restart");
   io.out("  every open session or the old server keeps serving.");
@@ -922,13 +1106,15 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   io.out('       { "dataDir": "<this dir>", "injectionBudgetBytes": <your host\'s ceiling> }');
   io.out("");
   io.out("     WHO HONORS THAT FILE, exactly: this console reads it for the injection");
-  io.out(`     ceiling ('${BIN.cli} rebrief'). The HOOKS DO NOT — they read only`);
-  io.out(`       ${join(home, ".counterparts", "claude-code.json")}`);
-  io.out("     taking no flag, and falling back to COUNTERPARTS_DATA_DIR only when that");
+  io.out(`     ceiling ('${BIN.cli} rebrief'). The HOOKS DO NOT — with no flag they read`);
+  io.out(`       ${defaultConfigPath(home)}`);
+  io.out("     and nothing else, falling back to COUNTERPARTS_DATA_DIR only when that");
   io.out("     file names no store. A hook that finds no config stands down quietly and");
   io.out("     exits 0 (a Stop with a question exits 2 on purpose, and that is the only");
   io.out("     non-zero a hook produces), so a config anywhere else is an ambient half");
-  io.out(`     that never fires and never says so. To wire the hooks, use '${BIN.cli} install'.`);
+  io.out("     that never fires and never says so — unless you NAME it: every entry point");
+  io.out(`     takes ${CONFIG_FLAG} <absolute path>, else $${CONFIG_ENV}, else that default.`);
+  io.out(`     To wire the hooks for you, use '${BIN.cli} install'.`);
   io.out("");
   io.out("The injection ceiling has NO default anywhere in this package: a briefing");
   io.out("refuses to render rather than compose to a number nobody chose (scar §2.18).");
@@ -1081,7 +1267,11 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     }
     for (const m of result.memories) {
       io.out("");
-      io.out(`  ${m.id}  [${m.tier}] ${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
+      // THE JOURNAL SAYS SO (owner ruling, 2026-09-04 — LAUNCH-STATUS §I14). A
+      // chapter stays recallable and is never presented as a memory; the word
+      // rides in front of the kind, where the tier already is.
+      const journal = m.journal ? "[journal] " : "";
+      io.out(`  ${m.id}  [${m.tier}] ${journal}${m.kind}${m.title === null ? "" : ` — ${m.title}`}`);
       for (const line of m.body.split("\n")) io.out(`    ${line}`);
     }
     // THE TIER LEGEND, and it is not decoration. `answered` means the question
@@ -1102,6 +1292,11 @@ function recallCommand(dir: string, io: Io, parsed: Parsed): number {
     }
     if (!tiers.has("vivid")) {
       io.out("  Nothing here came back vividly, so treat these as leads rather than answers.");
+    }
+    if (result.memories.some((m) => m.journal)) {
+      io.out(
+        "  journal = a chapter, the first-person account a memory was made from — not a memory, and outside decay and the prune.",
+      );
     }
     return EXIT.ok;
   } finally {
@@ -1135,6 +1330,13 @@ interface CacheCensus {
     readonly ranking: number;
     /** The distinct ids the token index holds, for the set diff below. */
     readonly indexed: readonly string[];
+    /**
+     * Which SHAPE the vectors are in — float32 BLOB (v4) or JSON text (v3).
+     * A census that counted them without saying which would not answer the one
+     * question `migrate-cache` exists for, and a MIXED cache (an interrupted
+     * migration) has to be visible: readers tolerate it, but it is not done.
+     */
+    readonly vectors: VectorFormatCensus;
   } | null;
   readonly why: string | null;
 }
@@ -1159,6 +1361,7 @@ function censusCache(dir: string): CacheCensus {
         indexed: handle
           .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
           .map((r) => r.memory_id),
+        vectors: vectorFormats(handle),
       },
     };
   } catch (err) {
@@ -1166,6 +1369,23 @@ function censusCache(dir: string): CacheCensus {
   } finally {
     db?.close();
   }
+}
+
+/**
+ * One line naming the shape box 3's vectors are in, and — when it is mixed —
+ * what to run. An empty table is neither format and says so.
+ */
+function vectorFormatLine(v: VectorFormatCensus): string {
+  if (v.total === 0) return "none held";
+  const parts: string[] = [];
+  if (v.float32 > 0) parts.push(`${v.float32} float32 BLOB (v4)`);
+  if (v.jsonText > 0) parts.push(`${v.jsonText} JSON text (v3)`);
+  if (v.other > 0) parts.push(`${v.other} unreadable`);
+  const tail =
+    v.jsonText > 0
+      ? " — 'counterparts migrate-cache' converts them in place (dry run by default)"
+      : "";
+  return `${parts.join(", ")}${tail}`;
 }
 
 /**
@@ -1183,19 +1403,59 @@ function censusCache(dir: string): CacheCensus {
  *
  * So the destructive half now needs `--rebuild`, and even then it refuses while
  * box 3 holds vectors nothing here can recompute, unless `--drop-vectors` says
- * out loud that losing them is the intent. Refuse-unless-flag is the
- * ADAPTER-level answer; preserving the vectors across a rebuild would take a
- * core change (`rebuildCache({ keepVectors })`), and that is filed in NOTES
- * rather than smuggled in here.
+ * out loud that losing them is the intent.
+ *
+ * **2026-09-05: the third door.** Refuse-unless-flag was the adapter-level
+ * answer while preserving the vectors needed a core change; that change now
+ * exists (`Store.rebuildCache({ keepVectors })`), so `--keep-vectors` rebuilds
+ * the text index and leaves `embeddings` in place. The refusals stay exactly as
+ * they were and now name it, because the safe option being available is not a
+ * reason to make the destructive one quieter.
  */
 function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  return flags["rebuild"] === true
-    ? verifyRebuild(dir, io, flags["drop-vectors"] === true)
-    : verifyCensus(dir, io);
+  if (flags["rebuild"] !== true) {
+    if (flags["prune-index"] === true) return verifyPruneIndex(dir, io);
+    return verifyCensus(dir, io);
+  }
+  // Both at once is a command line that contradicts itself, and guessing which
+  // half the owner meant is the one thing a guard like this may not do.
+  if (flags["drop-vectors"] === true && flags["keep-vectors"] === true) {
+    io.err("refused: --drop-vectors and --keep-vectors say opposite things about the same rows.");
+    return EXIT.refused;
+  }
+  return verifyRebuild(dir, io, flags["drop-vectors"] === true, flags["keep-vectors"] === true);
+}
+
+/**
+ * `--prune-index` — the CHEAP repair, and the only one for a store that holds
+ * vectors.
+ *
+ * The text index is the index of the live store (I13, `store/cache.ts#deindexDoc`):
+ * `archive` and `supersede` take a row out of it, and a store written before
+ * they did still holds its dead rows' tokens, where they go on counting toward
+ * document frequency against a live denominator. The repair is a pure function
+ * of what both boxes already hold, so — exactly like `backfillLengths` — it must
+ * not be paid for with `--rebuild`, which drops every embedding.
+ */
+function verifyPruneIndex(dir: string, io: Io): number {
+  const store = Store.open({ dir });
+  try {
+    const removed = store.pruneDeadIndex();
+    io.out(`Store: ${dir}`);
+    io.out(`Dropped from the text index (archived or superseded): ${removed}`);
+    io.out(
+      removed === 0
+        ? "The index already held live rows only."
+        : "Embeddings are untouched — this repair never resets box 3.",
+    );
+    return EXIT.ok;
+  } finally {
+    store.close();
+  }
 }
 
 /**
@@ -1207,10 +1467,14 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
 function verifyCensus(dir: string, io: Io): number {
   const store = Store.open({ dir, observer: true });
   let canonical: string[];
+  let live: string[];
   let denied: string[];
   let unembedded: number;
   try {
     canonical = store.list();
+    // What the INDEX is supposed to cover, since I13: the live rows. An
+    // archived or superseded row is canonical and deliberately unindexed.
+    live = store.list({ archived: false });
     denied = store.deniedIds();
     unembedded = store.unembeddedCount();
   } finally {
@@ -1219,7 +1483,10 @@ function verifyCensus(dir: string, io: Io): number {
 
   const cache = censusCache(dir);
   io.out(`Store: ${dir}`);
-  io.out(`Canonical rows: ${canonical.length}   removed (deny-list): ${denied.length}`);
+  io.out(
+    `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
+      `removed (deny-list): ${denied.length}`,
+  );
 
   // The unreadable half of this is narrow by construction: `Store.open` builds
   // box 3 on the way in, so a cache this process cannot read usually fails the
@@ -1249,9 +1516,17 @@ function verifyCensus(dir: string, io: Io): number {
   // unindexed memory are different problems.
   const indexed = new Set(cache.counts.indexed);
   const known = new Set(canonical);
+  const liveSet = new Set(live);
   const deniedSet = new Set(denied);
-  const missing = canonical.filter((id) => !indexed.has(id) && !deniedSet.has(id));
+  const missing = live.filter((id) => !indexed.has(id) && !deniedSet.has(id));
   const orphans = cache.counts.indexed.filter((id) => !known.has(id));
+  // A THIRD state, and it needs its own name and its own repair: an id that is
+  // a canonical row but not a live one, still holding token rows. It is not an
+  // orphan (the row exists) and it is not missing (it is there); it is a dead
+  // row voting on document frequency against a live denominator, which is I13.
+  // `--rebuild` would fix it and drop every embedding on the way; the cheap
+  // repair is `--prune-index`.
+  const stale = cache.counts.indexed.filter((id) => known.has(id) && !liveSet.has(id));
 
   io.out(`Cache: ${cache.path}`);
   io.out(
@@ -1259,12 +1534,22 @@ function verifyCensus(dir: string, io: Io): number {
       `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
   );
   io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
-  if (missing.length === 0 && orphans.length === 0) {
-    io.out("The cache covers every canonical row and holds nothing else.");
+  io.out(`  indexed but not live (archived or superseded): ${stale.length}`);
+  io.out(`  vector format: ${vectorFormatLine(cache.counts.vectors)}`);
+  if (missing.length === 0 && orphans.length === 0 && stale.length === 0) {
+    io.out("The cache covers every live row and holds nothing else.");
     return EXIT.ok;
   }
+  if (missing.length === 0 && orphans.length === 0) {
+    io.err(
+      `Cache stale: ${stale.length} indexed ids are archived or superseded and still count toward rarity — ` +
+        `'counterparts verify --prune-index' drops them and keeps the embeddings.`,
+    );
+    return EXIT.failed;
+  }
   io.err(
-    `Cache incomplete: ${missing.length} canonical rows are not indexed, ${orphans.length} indexed ids are not canonical rows — ` +
+    `Cache incomplete: ${missing.length} live rows are not indexed, ${orphans.length} indexed ids are not canonical rows, ` +
+      `${stale.length} are canonical but not live — ` +
       `'counterparts verify --rebuild' rebuilds box 3.`,
   );
   return EXIT.failed;
@@ -1279,8 +1564,35 @@ function verifyCensus(dir: string, io: Io): number {
  * The vector count is taken BEFORE a writable store is opened, so the refusal
  * path never constructs one.
  */
-function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
+function verifyRebuild(dir: string, io: Io, dropVectors: boolean, keepVectors: boolean): number {
   const cache = censusCache(dir);
+  // `--keep-vectors` re-indexes the text side and leaves `embeddings` alone
+  // (`Store.rebuildCache({ keepVectors })`, the core follow-up this console
+  // filed in NOTES on 2026-09-04 and could not do adapter-side). Nothing is at
+  // risk, so neither guard below applies — and an unreadable census is no
+  // longer a reason to refuse, because the count it could not take was only
+  // ever the count of what would be LOST.
+  if (keepVectors) {
+    const store = Store.open({ dir });
+    try {
+      const canonical = store.list().length;
+      const report = store.rebuildCache({ keepVectors: true });
+      io.out(`Canonical rows: ${canonical}`);
+      io.out(`Re-indexed: ${report.indexed}`);
+      io.out(`Skipped as removed (deny-list): ${report.skippedDenied}`);
+      io.out(`Vectors kept: ${report.keptVectors}   dropped as no longer canonical: ${report.droppedVectors}`);
+      io.out(`Not recomputed: ${report.unrecomputed}`);
+      const accounted = report.indexed + report.skippedDenied;
+      if (accounted !== canonical) {
+        io.err(`MISMATCH: ${canonical} canonical rows, ${accounted} accounted for.`);
+        return EXIT.failed;
+      }
+      io.out("Every canonical row is accounted for.");
+      return EXIT.ok;
+    } finally {
+      store.close();
+    }
+  }
   // FAIL CLOSED. A count that could not be taken is not a count of zero: box 3
   // is the file the Stop-hook worker writes vectors into, so "database is
   // locked" after the busy timeout is an ordinary outcome here — and a guard
@@ -1288,7 +1600,7 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
   // a guard. An ABSENT cache is different and stays fine: there is nothing to lose.
   if (cache.present && cache.counts === null && !dropVectors) {
     io.err(
-      `Refusing: box 3 exists but could not be read (${cache.why ?? "no reason given"}), so this console cannot tell how many embeddings --rebuild would drop — retry, or pass --drop-vectors to proceed anyway.`,
+      `Refusing: box 3 exists but could not be read (${cache.why ?? "no reason given"}), so this console cannot tell how many embeddings --rebuild would drop — retry, pass --keep-vectors to rebuild the text index and keep them, or --drop-vectors to proceed anyway.`,
     );
     return EXIT.refused;
   }
@@ -1296,7 +1608,7 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
   const vectors = `${held} ${held === 1 ? "embedding" : "embeddings"}`;
   if (held > 0 && !dropVectors) {
     io.err(
-      `Refusing: --rebuild drops box 3 and this console has no embedder, so the ${vectors} it holds would be gone and each one costs a paid network call to recompute — pass --drop-vectors if losing them is what you mean.`,
+      `Refusing: --rebuild drops box 3 and this console has no embedder, so the ${vectors} it holds would be gone and each one costs a paid network call to recompute — pass --keep-vectors to rebuild the text index and keep them, or --drop-vectors if losing them is what you mean.`,
     );
     return EXIT.refused;
   }
@@ -1308,11 +1620,12 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
     if (held > 0) io.out(`Dropped on your say-so (--drop-vectors): ${vectors}.`);
     io.out(`Re-indexed: ${report.indexed}`);
     io.out(`Skipped as removed (deny-list): ${report.skippedDenied}`);
+    io.out(`Skipped as not live (archived or superseded): ${report.skippedArchived}`);
     io.out(`Not recomputed: ${report.unrecomputed}`);
     for (const declared of report.declared) {
       io.out(`  declared: ${declared.what} — owner ${declared.owner}; repair: ${declared.repair}`);
     }
-    const accounted = report.indexed + report.skippedDenied;
+    const accounted = report.indexed + report.skippedDenied + report.skippedArchived;
     if (accounted !== canonical) {
       io.err(`MISMATCH: ${canonical} canonical rows, ${accounted} accounted for.`);
       return EXIT.failed;
@@ -1323,6 +1636,338 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean): number {
     store.close();
   }
 }
+
+// ── migrate-cache ───────────────────────────────────────────────────────────
+
+/** Bytes, in the units an owner reads. Box 3 is measured in hundreds of MiB. */
+function humanBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+}
+
+/**
+ * How many bytes a `VACUUM` would give back, MEASURED — `VACUUM INTO` a
+ * throwaway copy outside the data dir, stat it, delete it.
+ *
+ * The obvious cheap probe is wrong here and was tried: `PRAGMA freelist_count`
+ * reads **0** on a cache whose rows were rewritten from ~12.7 KiB of text to
+ * 4 KiB of blob, because the pages are not free, they are FRAGMENTED — the win
+ * is defragmentation. On a store measured mid-review, `freelist_count = 0` and
+ * a real `VACUUM` still took 3,756,032 bytes to 1,544,192 (59%). A probe that
+ * reads zero where the answer is 59% is worse than no probe.
+ *
+ * `VACUUM INTO` is read-only on the source (it is what `backup` already uses),
+ * and the copy lands in the OS temp dir, never beside the store — box 3's
+ * directory is classified and a stray file there is a store that will not open
+ * (§5 G11). Returns null when the probe cannot run, which is not an error: it
+ * means this run has no number, and it says so rather than guessing one.
+ */
+function reclaimableBytes(db: Db, path: string): number | null {
+  const probeDir = mkdtempSync(join(tmpdir(), "counterparts-vacuum-probe-"));
+  const probe = join(probeDir, "compacted.sqlite");
+  try {
+    db.run("VACUUM INTO ?", probe);
+    return Math.max(0, statSync(path).size - statSync(probe).size);
+  } catch {
+    return null;
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+}
+
+/** Worth compacting: more than a MiB, and more than a twentieth of the file. */
+function worthCompacting(reclaimable: number | null, size: number): boolean {
+  return reclaimable !== null && reclaimable > 1024 * 1024 && reclaimable > size / 20;
+}
+
+/**
+ * `migrate-cache` — convert box 3's vectors from JSON text to float32 BLOBs,
+ * IN PLACE, and compact the file afterwards.
+ *
+ * **Why this is a command and not `verify --rebuild`.** A rebuild recomputes;
+ * the thing that would have to recompute here is an EMBEDDER, and this console
+ * wires none — so `--rebuild` as the migration means "delete ~13,700 vectors
+ * that cost a paid network call each and hope something puts them back"
+ * (`cli/NOTES.md`, 2026-09-04). The information needed to write the new shape
+ * is already in the old one. Converting is a read and a write of the same
+ * numbers, so the migration is a conversion.
+ *
+ * Six properties, each one a rule this console already has:
+ *
+ *   1. **The dry run is READ-ONLY, not merely honest.** It opens box 3 with
+ *      `openDb`, never `openCache`: the migrating constructor stamps
+ *      `cache_meta.schemaVersion`, and on the v3 store this will actually be run
+ *      against that one row changed the file's hash under a line that said
+ *      nothing had changed. Every question the dry run asks is a `SELECT`.
+ *   2. **`--apply` names its store out loud.** It refuses a data dir that came
+ *      from the DEFAULT — on a real machine that default is the owner's live
+ *      memory — so the destination is either `--dir` or `COUNTERPARTS_DATA_DIR`,
+ *      typed on purpose. Then it asks, `remove`-style, unless `--yes`.
+ *   3. **Transactional per batch, and therefore resumable.** One transaction per
+ *      `--batch` rows, not one over the whole table: box 3 is the file the
+ *      Stop-hook worker writes into, `BUSY_TIMEOUT_MS` is five seconds, and a
+ *      single transaction over 13.9K rows would hold the write lock for the
+ *      whole rewrite. An interrupted run leaves a MIXED cache, which every
+ *      reader already tolerates (`cache.ts#decodeVector`), and re-running
+ *      finishes it.
+ *   4. **A row that will not parse costs one row.** It is skipped, counted and
+ *      NAMED, and the walk continues past it — the first version rolled its
+ *      batch back and then re-selected the same row forever.
+ *   5. **Idempotent, and it refuses rather than pretending.** The batch selects
+ *      on `typeof(vec) = 'text'`, so a converted row is never touched twice, and
+ *      `--apply` with nothing to convert AND nothing to reclaim exits REFUSED
+ *      with the counts, because "I did nothing" and "I converted your store"
+ *      must not look the same on a terminal.
+ *   6. **Compaction is reachable on its own.** The rewrite frees space that only
+ *      a `VACUUM` returns, and `VACUUM` is exactly the step most likely to fail
+ *      — it takes an exclusive lock, and the worker holds box 3. So a store that
+ *      is CONVERTED BUT NOT COMPACTED is a real state with a door: the dry run
+ *      reports the reclaimable bytes and `--apply` compacts them. Without that
+ *      door, one lost lock stranded 177 MiB behind an "already converted"
+ *      refusal — the whole debt, unreachable through the tool that exists to pay
+ *      it.
+ *
+ * It never opens a `Store`: box 3 only, gated on the file EXISTING so the
+ * command cannot mint the box it migrates.
+ */
+async function migrateCacheCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+  dirWasNamed: boolean,
+): Promise<number> {
+  const apply = flags["apply"] === true;
+  // FIRST, before this command looks at a single path. `resolveDir` falls
+  // through to `dataDir()`, which on the owner's machine is his live memory,
+  // and this command's own PR says the merge is reversible and the `--apply`
+  // is not. A guard that reads the default directory before refusing it has
+  // already been pointed at the store it meant to refuse.
+  if (apply && !dirWasNamed) {
+    io.err(
+      `refused: 'migrate-cache --apply' rewrites every vector in box 3 and will not run against the default data dir (${dir}). Name the store: --dir <path>, or COUNTERPARTS_DATA_DIR.`,
+    );
+    return EXIT.refused;
+  }
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+  const path = paths.cache(dir);
+  if (!existsSync(path)) {
+    io.err(
+      `no cache at ${path} — box 3 has never been built here, so there are no vectors to convert.`,
+    );
+    return EXIT.failed;
+  }
+  const batch = (() => {
+    const raw = flags["batch"];
+    if (typeof raw !== "string") return 500;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 500;
+  })();
+
+  const sizeBefore = statSync(path).size;
+  // READ-ONLY for the report: `openDb` opens what is there and stamps nothing.
+  // `openCache` — which brings an out-of-date box 3 up to the current schema —
+  // is reserved for `--apply`, below, where a write is the point.
+  const db = openDb(path);
+  let census: VectorFormatCensus;
+  let stamped: string | null;
+  try {
+    census = vectorFormats(db);
+    stamped =
+      db.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'")?.value ??
+      null;
+
+    io.out(`Store: ${dir}`);
+    io.out(
+      `Cache: ${path}  (${humanBytes(sizeBefore)}, schema ${stamped === null ? "unstamped" : `v${stamped}`}` +
+        `${stamped === String(CACHE_SCHEMA_VERSION) ? "" : ` — v${CACHE_SCHEMA_VERSION} once anything opens it for writing`})`,
+    );
+    io.out(
+      `Vectors: ${census.total}   float32 BLOB: ${census.float32}   JSON text: ${census.jsonText}` +
+        (census.other > 0 ? `   unreadable: ${census.other}` : ""),
+    );
+    io.out(
+      `  bytes in vec: JSON text ${humanBytes(census.jsonTextBytes)}, ` +
+        `float32 ${humanBytes(census.float32Bytes)}`,
+    );
+
+    if (census.jsonText === 0) {
+      // Converted. The remaining question is whether the file was ever
+      // compacted — the step most likely to have failed, and the one the
+      // "already converted" refusal used to hide.
+      const reclaimable = reclaimableBytes(db, path);
+      const worth = worthCompacting(reclaimable, sizeBefore);
+      io.out("");
+      if (reclaimable === null) {
+        io.out("Converted. Could not measure whether the file is compacted (the probe would not run).");
+      } else if (worth) {
+        io.out(
+          `Converted, NOT yet compacted: ${humanBytes(reclaimable)} reclaimable of ${humanBytes(sizeBefore)}.`,
+        );
+      } else {
+        io.out(`Converted and compacted. Nothing to do.`);
+      }
+      if (!apply) {
+        if (worth) io.out("Re-run with --apply to compact (it converts nothing — there is nothing left to convert).");
+        return EXIT.ok;
+      }
+      if (!worth) {
+        io.err(
+          `Refusing: box 3 holds no JSON-text vectors and has nothing worth reclaiming — it is already float32. Nothing was written.`,
+        );
+        return EXIT.refused;
+      }
+      const ok = await confirmMigrate(io, flags, dir, `compact box 3 (${humanBytes(reclaimable ?? 0)} reclaimable)`);
+      if (!ok) return EXIT.refused;
+      const writable = openCache(path);
+      try {
+        writable.exec("VACUUM");
+      } finally {
+        writable.close();
+      }
+      const sizeAfter = statSync(path).size;
+      io.out(
+        `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
+          `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
+      );
+      return EXIT.ok;
+    }
+
+    // The projection is arithmetic on the rows themselves, not an average: a
+    // store whose vectors are not all the same width would make a mean lie.
+    const projected =
+      db.get<{ b: number | null }>(
+        "SELECT SUM(dim) * 4 AS b FROM embeddings WHERE typeof(vec) = 'text'",
+      )?.b ?? 0;
+    io.out(
+      `  after conversion those ${census.jsonText} rows hold ${humanBytes(projected)} ` +
+        `(${census.jsonTextBytes > 0 ? (census.jsonTextBytes / Math.max(projected, 1)).toFixed(1) : "?"}× smaller)`,
+    );
+
+    // ONE sample row, decoded both ways. Vectors are not prose, so printing a
+    // few of a memory's coordinates discloses nothing a census does not.
+    const sample = db.get<{ memory_id: string; dim: number; vec: SqlValue }>(
+      "SELECT memory_id, dim, vec FROM embeddings WHERE typeof(vec) = 'text' ORDER BY memory_id LIMIT 1",
+    );
+    if (sample !== undefined) {
+      try {
+        const asIs = Array.from(decodeVector(sample.vec));
+        const converted = Array.from(decodeVector(encodeVector(asIs)));
+        const drift = asIs.reduce((m, v, i) => Math.max(m, Math.abs(v - (converted[i] ?? 0))), 0);
+        const show = (v: readonly number[]): string =>
+          v.slice(0, 4).map((x) => x.toPrecision(9)).join(", ");
+        io.out("");
+        io.out(
+          `Sample: ${sample.memory_id}  dim ${sample.dim}  (${String(sample.vec).length} chars of JSON)`,
+        );
+        io.out(`  now:   [${show(asIs)}, …]`);
+        io.out(`  after: [${show(converted)}, …]`);
+        io.out(`  largest coordinate change in this row: ${drift.toExponential(3)}`);
+        const nonFinite = countNonFinite(asIs);
+        if (nonFinite > 0) io.out(`  ${nonFinite} non-finite coordinates in this row become 0`);
+      } catch {
+        io.out("");
+        io.out(`Sample: ${sample.memory_id} — its vec does not parse; the migration will skip and name it.`);
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  if (!apply) {
+    io.out("");
+    io.out("Dry run. Nothing was changed — every question above was a read.");
+    io.out(`Take a 'counterparts backup --out <dir>' first; then re-run with --apply to convert (batches of ${batch}).`);
+    return EXIT.ok;
+  }
+
+  const ok = await confirmMigrate(io, flags, dir, `convert ${census.jsonText} vectors in box 3`);
+  if (!ok) return EXIT.refused;
+
+  const writable = openCache(path);
+  try {
+    let converted = 0;
+    let coerced = 0;
+    let batches = 0;
+    const skipped: string[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const report = convertVectorBatch(writable, batch, after);
+      if (report.examined === 0) break;
+      converted += report.converted;
+      coerced += report.coerced;
+      skipped.push(...report.skipped);
+      batches += 1;
+      // Walk PAST what was examined, so a skipped row is not re-selected
+      // forever. `lastId` is non-null whenever `examined > 0`.
+      after = report.lastId ?? undefined;
+      if (after === undefined) break;
+    }
+    io.out("");
+    io.out(`Converted ${converted} vectors in ${batches} ${batches === 1 ? "batch" : "batches"}.`);
+    if (coerced > 0) io.out(`Coerced ${coerced} non-finite coordinates to 0 (a NaN is not a coordinate).`);
+    for (const id of skipped) io.out(`  SKIPPED, left exactly as it was: ${id} — its vec does not parse.`);
+    const after2 = vectorFormats(writable);
+    io.out(`Vectors now: float32 BLOB ${after2.float32}, JSON text ${after2.jsonText}`);
+    // Free pages are not free space until the file is rewritten, and the whole
+    // debt this pays is file size. VACUUM runs outside any transaction, and it
+    // is the step that fails first when another process holds box 3 — so its
+    // failure is REPORTED with the way back in, never swallowed.
+    let vacuumed = true;
+    try {
+      writable.exec("VACUUM");
+    } catch (err) {
+      vacuumed = false;
+      io.err(
+        `The conversion is committed; the VACUUM that reclaims the space did not run (${String((err as Error).message ?? err)}). ` +
+          `Re-run 'counterparts migrate-cache --dir ${dir} --apply' with no session open to compact it.`,
+      );
+    }
+    const sizeAfter = statSync(path).size;
+    if (vacuumed) {
+      io.out(
+        `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
+          `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
+      );
+    }
+    if (skipped.length > 0) return EXIT.failed;
+    return after2.jsonText === 0 && vacuumed ? EXIT.ok : EXIT.failed;
+  } finally {
+    writable.close();
+  }
+}
+
+/**
+ * The one human in the loop. `--yes` is the non-interactive door (a script, the
+ * install loop); without it and without a prompt, this refuses rather than
+ * proceeding unconfirmed — the console's rule 2, and the same shape `remove`
+ * uses, one notch softer because this destroys no memory.
+ */
+async function confirmMigrate(
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+  dir: string,
+  what: string,
+): Promise<boolean> {
+  if (flags["yes"] === true) return true;
+  io.out("");
+  io.out(`About to ${what} at ${dir}.`);
+  if (io.prompt === undefined) {
+    io.err("refused: this is not an interactive console — pass --yes if that is what you mean.");
+    return false;
+  }
+  const answer = (await io.prompt("Type 'yes' to proceed: ")).trim().toLowerCase();
+  if (answer !== "yes") {
+    io.err("refused: not confirmed. Nothing has changed.");
+    return false;
+  }
+  return true;
+}
+
 
 // ── backup ──────────────────────────────────────────────────────────────────
 
@@ -1432,11 +2077,13 @@ async function removeCommand(
     return EXIT.failed;
   }
 
+  const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
+
   // THE PLAN, made read-only and with no lock held (scar E5).
   const planning = Store.open({ dir, observer: true });
   let plan;
   try {
-    plan = planRemoval(planning, targetId);
+    plan = planRemoval(planning, targetId, { crossScopeContent });
   } finally {
     planning.close();
   }
@@ -1451,16 +2098,23 @@ async function removeCommand(
   // "Nothing has changed" line — a disclosure under the last line of a dry run
   // is a disclosure a reader has already stopped reading (cold-stranger round 3,
   // C3). `not applicable` is stated too: the silence is what made the residue
-  // undiscoverable outside the README (LAUNCH-STATUS §I2).
+  // undiscoverable outside the README (LAUNCH-STATUS §I2). `held` is a CHASE
+  // now, not a confession; only `unknown` still says NOT chased.
   io.out(
-    plan.spans.state === "not-applicable"
-      ? `  ${plan.spans.line}`
-      : `  NOT chased — ${plan.spans.line}`,
+    plan.spans.state === "held"
+      ? `  chased — ${plan.spans.line}`
+      : plan.spans.state === "unknown"
+        ? `  NOT chased — ${plan.spans.line}`
+        : `  ${plan.spans.line}`,
   );
   for (const name of plan.unchasable) {
     if (name === plan.spans.line) continue; // said once, on its own line above
     io.out(`  CANNOT chase ${name} — the id goes dark via the deny-list instead`);
   }
+  // LEFT ON PURPOSE, which is neither a chase nor a failure (review F6). The
+  // spans sentence above already carries the count; this line is what the
+  // completion report will repeat, so the two read the same.
+  for (const name of plan.leftAlone) io.out(`  LEFT on purpose — ${name}`);
   // IDS ONLY (§16 G15): printing the matching text would re-leak exactly the
   // thing being removed.
   io.out(`  other memories whose text overlaps (ids only): ${plan.contamination.length}`);
@@ -1485,7 +2139,7 @@ async function removeCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
-    const replan = planRemoval(store, targetId);
+    const replan = planRemoval(store, targetId, { crossScopeContent });
     if (!replan.valid) {
       io.err(`refused after re-plan: ${replan.reason}. Nothing has changed.`);
       return EXIT.refused;
@@ -1498,12 +2152,13 @@ async function removeCommand(
         reason: typeof flags["reason"] === "string" ? flags["reason"] : "owner request",
         requestedAt: now(),
       },
-      { onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
+      { crossScopeContent, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
     );
     io.out("");
     io.out(`Removed ${targetId}.`);
     io.out(`  chased: ${outcome.chased.join(", ") || "nothing"}`);
     io.out(`  unchased (dark via the deny-list, never silently dropped): ${outcome.unchased.join(", ") || "nothing"}`);
+    io.out(`  left on purpose (not a failure — this removal was never entitled to it): ${outcome.leftAlone.join(", ") || "nothing"}`);
     io.out(`  removal record: ${outcome.notes.length} stages appended`);
     return EXIT.ok;
   } catch (err) {
@@ -1632,6 +2287,314 @@ function backfillTargets(store: Store): { id: string; kind: string; dims: string
   return out;
 }
 
+// ── repair-dates ────────────────────────────────────────────────────────────
+
+/**
+ * The migrated rows' dates, proposed from what the rows themselves carry.
+ *
+ * The console's half is thin on purpose: parse three flags, refuse a bad one by
+ * name, and hand off to `repair-dates.ts`, where the evidence rules and their
+ * reasons live. `--dry-run` is accepted and is the DEFAULT — it exists so the
+ * safe call can be spelled out loud rather than only implied by the absence of
+ * `--apply` — and passing both is a refusal, not a silent winner.
+ */
+function repairDatesCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+  defaultedDir: boolean,
+): number {
+  const apply = flags["apply"] === true;
+  if (apply && flags["dry-run"] === true) {
+    io.err("repair-dates: --apply and --dry-run contradict each other; pass one");
+    return EXIT.usage;
+  }
+  // THE ONE OWNER OP THAT REWRITES THOUSANDS OF CANONICAL DOCUMENTS. A dry run on
+  // the defaulted store is read-only and stays unguarded (it is how the owner
+  // looks); an APPLY that nobody aimed asks to be aimed (review §4).
+  if (apply && defaultedDir && flags["yes"] !== true) {
+    io.err(`repair-dates: --apply on the default store (${dir}) needs --dir <path> or --yes.`);
+    io.err("This rewrites the date on every migrated memory the evidence reaches. Nothing has changed.");
+    return EXIT.refused;
+  }
+  const raw = typeof flags["confidence"] === "string" ? flags["confidence"] : "high";
+  if (raw !== "high" && raw !== "medium" && raw !== "low") {
+    io.err(`repair-dates: --confidence must be high, medium or low (got ${raw})`);
+    return EXIT.usage;
+  }
+  const confidence: Confidence = raw;
+  const importDay = typeof flags["import-day"] === "string" ? flags["import-day"] : undefined;
+  if (importDay !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(importDay)) {
+    io.err(`repair-dates: --import-day must be YYYY-MM-DD (got ${importDay})`);
+    return EXIT.usage;
+  }
+  const sampleRaw = typeof flags["sample"] === "string" ? Number(flags["sample"]) : undefined;
+  if (sampleRaw !== undefined && (!Number.isInteger(sampleRaw) || sampleRaw < 0)) {
+    io.err(`repair-dates: --sample must be a non-negative whole number`);
+    return EXIT.usage;
+  }
+  const report = repairDates(dir, io, {
+    apply,
+    minConfidence: confidence,
+    ...(importDay === undefined ? {} : { importDay }),
+    ...(sampleRaw === undefined ? {} : { sample: sampleRaw }),
+  });
+  if (report === null) return EXIT.failed;
+  if (report.refused !== null) return EXIT.refused;
+  return report.failures.length === 0 ? EXIT.ok : EXIT.failed;
+}
+
+// ── repair-merged-beliefs ───────────────────────────────────────────────────
+
+/** How much of a statement a repair report prints. */
+const STATEMENT_PREVIEW = 60;
+
+/** How far back the merge log is read. `eventLog`'s own default is 500. */
+const MERGE_LOG_CEILING = 100_000;
+
+interface MergedBelief {
+  readonly id: string;
+  /** The entity the element hangs off, and its name when the entity is readable. */
+  readonly entityId: string | null;
+  readonly entityName: string | null;
+  /** First 60 characters of the statement, on one line. */
+  readonly statement: string;
+  /** The memory it was merged into, from the durable merge record. */
+  readonly originalId: string | null;
+  readonly originalPreview: string | null;
+  /** The lived day the merge was recorded on. */
+  readonly mergedOnDay: number | null;
+  /** True when the row is archived right now (false = already repaired). */
+  readonly archived: boolean;
+}
+
+/**
+ * THE REPAIR FOR PROBE H — beliefs the nightly dedup pass ate.
+ *
+ * The bug (`sleep/NOTES.md` §12, fixed the same night): a `type: "schema"` row
+ * was an ordinary dedup candidate. An element whose statement is X and an
+ * ordinary memory whose body is X — no revision anywhere — formed a same-hash
+ * group, `mem_` sorted before `sch_` in the tie-break, and the ELEMENT was
+ * archived `merged`. `beliefs(entity)` then read empty: the store had stopped
+ * believing something nobody retracted. On a migrated store the DIRECTION of
+ * that loss is certain — `tools/migrate/apply.ts` minted every element at the
+ * import day while migrated memories kept their v1 birth day, so the memory is
+ * never younger and the element always loses — and the COUNT is unknown, since
+ * a collision needs two distinct v1 items whose gated text is byte-identical.
+ * This command is the thing that measures it.
+ *
+ * Stopping the bug does not undo it. This finds what it already took and puts
+ * it back, through the owner-op seam's `unarchiveMerged` — the one door that
+ * un-archives, and only for `archived_reason: "merged"`.
+ *
+ * Two sources are unioned, because either can be the surviving evidence: the
+ * `memory.merged` events whose `candidateId` is a `sch_` id (the owner's
+ * read-only check, and the one that still reads true after the retention window
+ * trims nothing), and the archived schema rows whose reason is the merge (which
+ * survives even if the event log has rolled). Ids the owner removed are skipped
+ * — the deny-list answers before this tool does.
+ *
+ * **What it prints, and the tension in printing it.** `backfill-claims` says
+ * "IDS AND NUMBERS ONLY — a repair report is not a place to print bodies", and
+ * this one prints TWO things that are not ids: the first 60 characters of each
+ * statement, and the ENTITY'S NAME. A person's name is author content as
+ * squarely as a statement is, and both are the same deliberate deviation. The
+ * difference is what the owner has to decide: a claim restored to the store is
+ * a claim the system will state in a briefing, and "restore sch_198628843ffb?"
+ * is not a question anyone can answer — nor is it answerable without knowing
+ * whose belief it is. This runs on the owner's own terminal, on the owner's own
+ * store, at the owner's own keystroke — the same reader who could open the
+ * prose file. **The durable record stays ids and numbers only**
+ * (`memory.unmerged` carries no text at all, §5 G10): the deviation is
+ * console-only. Recorded rather than assumed (see `cli/NOTES.md`).
+ *
+ * **What it does not touch: the `uses` the merge credited.** The original kept
+ * `+1` and keeps it. Taking it back would rewrite a physics count whose band
+ * may already have been materialized and whose crossing may already be a
+ * durable `band.transition` row, to undo one use. The number is written into
+ * the `memory.unmerged` record instead, so the credit is auditable rather than
+ * silently reversed — and the merge record itself is left exactly where it is
+ * (constitution 7: the history is the point).
+ */
+function repairMergedBeliefsCommand(dir: string, io: Io, apply: boolean): number {
+  if (!storeExists(dir)) {
+    io.err(`no store at ${dir}`);
+    return EXIT.failed;
+  }
+
+  // The plan is made read-only, as every plan here is (scar E5).
+  const planning = Store.open({ dir, observer: true });
+  let targets: MergedBelief[];
+  try {
+    targets = mergedBeliefs(planning);
+  } finally {
+    planning.close();
+  }
+
+  const open = targets.filter((t) => t.archived);
+  // WHICH STORE. `--dir` is optional and the default resolves to the owner's
+  // live memory, and this is a command whose next step is `--apply`: a repair
+  // that did not say what it was about to repair is the 2026-09-04 `--dirr`
+  // lesson pointed at the owner's own hands. `status`, `note` and `recall`
+  // print this line; `backfill-claims` does not, and should.
+  io.out(`Store: ${dir}`);
+  io.out(`Beliefs and current-state rows archived as duplicates: ${open.length}`);
+  if (targets.length > open.length) {
+    io.out(`Already restored (a merge record with a live row): ${targets.length - open.length}`);
+  }
+  for (const t of targets) {
+    const where = t.entityName === null ? (t.entityId ?? "no entity") : t.entityName;
+    const day = t.mergedOnDay === null ? "day unrecorded" : `lived day ${t.mergedOnDay}`;
+    io.out(`  ${t.id}  ${where}  ${day}${t.archived ? "" : "  [already live]"}`);
+    io.out(`    "${t.statement}"`);
+    io.out(
+      t.originalId === null
+        ? "    merged into an original the log no longer names"
+        : `    merged into ${t.originalId}${t.originalPreview === null ? "" : `  "${t.originalPreview}"`}`,
+    );
+  }
+
+  if (!apply) {
+    io.out("");
+    io.out(
+      open.length === 0
+        ? "Dry run. Nothing to repair on this store."
+        : "Dry run. Nothing has changed. Re-run with --apply to put these back.",
+    );
+    return EXIT.ok;
+  }
+  if (open.length === 0) {
+    io.out("");
+    io.out("Nothing to do.");
+    return EXIT.ok;
+  }
+
+  const store = Store.open({ dir });
+  let restored = 0;
+  const failures: string[] = [];
+  try {
+    // RE-CHECK under the writing store: the plan was made against a store that
+    // may have moved, and the seam refuses anything that is no longer a merge.
+    for (const target of mergedBeliefs(store)) {
+      if (!target.archived) continue;
+      try {
+        const report = unarchiveMerged(store, target.id);
+        if (!report.noop) restored += 1;
+      } catch (err) {
+        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+      }
+    }
+  } finally {
+    store.close();
+  }
+
+  io.out("");
+  io.out(`Put ${restored} elements back. The uses each merge credited stand, and are recorded.`);
+  for (const failure of failures) io.err(`  FAILED ${failure}`);
+  return failures.length === 0 ? EXIT.ok : EXIT.failed;
+}
+
+/** Archived schema rows the merge took, and the merge records that name them. */
+function mergedBeliefs(store: Store): MergedBelief[] {
+  const denied = new Set(store.deniedIds());
+  const ids = new Set<string>();
+  const schemaPrefix = `${ID_PREFIX["schema"]}_`;
+  for (const id of store.list({ type: "schema", archived: true })) {
+    const row = store.row(id);
+    if (row === undefined || denied.has(id)) continue;
+    if (row.archived_reason === MERGED_ARCHIVE_REASON) ids.add(id);
+  }
+  // `eventLog` defaults to 500 rows; a store with more merges than that would
+  // silently shorten this list, so the ceiling is named rather than inherited.
+  // The ARCHIVED rows above are found by `list`, which has no cap — this pass
+  // adds the ones already restored, and the reason it exists at all is that a
+  // merge record can outlive the archive it describes.
+  for (const event of store.eventLog({ name: "memory.merged", limit: MERGE_LOG_CEILING })) {
+    if (event.ref === null || !event.ref.startsWith(schemaPrefix) || denied.has(event.ref)) continue;
+    const row = store.row(event.ref);
+    if (row === undefined) continue;
+    // ARCHIVED FOR A DIFFERENT REASON IS NOT THIS TOOL'S BUSINESS. A belief
+    // restored last month and legitimately revised since is archived `revised`
+    // with a successor; listing it as an open target would make the next
+    // `--apply` refuse it with `UNMERGE_SUPERSEDED` and exit FAILED on a store
+    // where nothing is wrong.
+    if (row.archived === 1 && row.archived_reason !== MERGED_ARCHIVE_REASON) continue;
+    ids.add(event.ref);
+  }
+
+  const out: MergedBelief[] = [];
+  for (const id of [...ids].sort()) {
+    const row = store.row(id);
+    if (row === undefined) continue;
+    // Prose read DIRECTLY, the way `schemas/index.ts#load` reads it: the
+    // store's archived-read telemetry answers "did anyone look at archived
+    // CONTENT", and a repair plan is a look at the address, not at the memory.
+    let doc: { body: string; meta: Record<string, unknown> } | null = null;
+    try {
+      doc = readProseFile(row.prose_path, id);
+    } catch {
+      doc = null;
+    }
+    const entityId = typeof doc?.meta["entityId"] === "string" ? doc.meta["entityId"] : null;
+    const merge = mergeRecordOf(store, id);
+    out.push({
+      id,
+      entityId,
+      entityName: entityId === null ? null : entityNameOf(store, entityId),
+      statement: doc === null ? "(prose unreadable)" : oneLine(doc.body, STATEMENT_PREVIEW),
+      originalId: merge.originalId,
+      originalPreview:
+        merge.originalId === null ? null : previewOf(store, merge.originalId, STATEMENT_PREVIEW),
+      mergedOnDay: merge.day,
+      archived: row.archived === 1,
+    });
+  }
+  return out;
+}
+
+/** The last `memory.merged` record naming this id, in ids and numbers. */
+function mergeRecordOf(store: Store, id: string): { originalId: string | null; day: number | null } {
+  const rows = store.eventLog({ name: "memory.merged", ref: id });
+  const last = rows[rows.length - 1];
+  if (last === undefined || last.payload === null) return { originalId: null, day: null };
+  try {
+    const parsed = JSON.parse(last.payload) as Record<string, unknown>;
+    return {
+      originalId: typeof parsed["originalId"] === "string" ? parsed["originalId"] : null,
+      day: last.day,
+    };
+  } catch {
+    return { originalId: null, day: last.day };
+  }
+}
+
+function entityNameOf(store: Store, entityId: string): string | null {
+  const row = store.row(entityId);
+  if (row === undefined) return null;
+  try {
+    const name = readProseFile(row.prose_path, entityId).meta["name"];
+    return typeof name === "string" && name.length > 0 ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+function previewOf(store: Store, id: string, max: number): string | null {
+  const row = store.row(id);
+  if (row === undefined) return null;
+  try {
+    return oneLine(readProseFile(row.prose_path, id).body, max);
+  } catch {
+    return null;
+  }
+}
+
+/** One line, at most `max` characters, with an ellipsis when it was cut. */
+function oneLine(body: string, max: number): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max)}…`;
+}
+
 // ── rebrief ─────────────────────────────────────────────────────────────────
 
 /**
@@ -1665,12 +2628,16 @@ function rebriefCommand(
   budgetFlag: string | boolean | undefined,
   now: () => number,
   home?: string,
+  named?: ConfigChoice,
 ): number {
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  const ceiling = home === undefined ? hostCeiling(dir, budgetFlag) : hostCeiling(dir, budgetFlag, home);
+  const ceiling =
+    home === undefined
+      ? hostCeiling(dir, budgetFlag, homedir(), named)
+      : hostCeiling(dir, budgetFlag, home, named);
   if ("refusal" in ceiling) {
     for (const line of ceiling.refusal.split("\n")) io.err(line);
     return EXIT.refused;
@@ -1693,7 +2660,9 @@ function rebriefCommand(
     io.out(
       ceiling.source === "--budget"
         ? `  budget ${ceiling.bytes} bytes from --budget`
-        : `  budget ${ceiling.bytes} bytes from ${ceiling.source}`,
+        : `  budget ${ceiling.bytes} bytes from ${ceiling.source}${
+            ceiling.namedBy === undefined ? "" : ` (named by ${ceiling.namedBy})`
+          }`,
     );
     io.out(
       `  composed under ${report.composeBudget} — the delivery preface reserves ${PREFACE_RESERVE_BYTES}`,
@@ -1745,6 +2714,9 @@ export interface CeilingFound {
   /** `--budget`, or the absolute path of the file that answered. */
   readonly source: string;
   readonly searched: readonly string[];
+  /** Set when a `--config` / `COUNTERPARTS_CONFIG` named the file that answered,
+   *  so the printed line can say the number came from a file the caller chose. */
+  readonly namedBy?: ConfigSource;
 }
 export interface CeilingMissing {
   readonly refusal: string;
@@ -1755,6 +2727,14 @@ export function hostCeiling(
   dir: string,
   flag: string | boolean | undefined,
   home = homedir(),
+  /**
+   * The configuration this invocation was TOLD to read, when it was told. A
+   * named file replaces the two-step search entirely — a caller who said which
+   * configuration to use did not ask for a fallback to another one, and falling
+   * back would compose a briefing under a ceiling from a file they never named
+   * (the same failure as the rest of this rule, one level up).
+   */
+  named?: ConfigChoice,
 ): CeilingFound | CeilingMissing {
   if (typeof flag === "string" && flag.length > 0) {
     const n = Number(flag);
@@ -1767,17 +2747,28 @@ export function hostCeiling(
     return { bytes: n, source: "--budget", searched: [] };
   }
   const beside = join(dir, "..", "claude-code.json");
-  const hooksConfig = join(home, ".counterparts", "claude-code.json");
+  const hooksConfig = defaultConfigPath(home);
   // De-duplicated, because on a default install these are the same file and a
   // refusal that named it twice would read as two separate misses.
-  const searched = beside === hooksConfig ? [beside] : [beside, hooksConfig];
+  const searched =
+    named !== undefined && named.source !== "default"
+      ? [named.path]
+      : beside === hooksConfig
+        ? [beside]
+        : [beside, hooksConfig];
+  const namedBy = named !== undefined && named.source !== "default" ? named.source : undefined;
   for (const candidate of searched) {
     if (!existsSync(candidate)) continue;
     try {
       const parsed = JSON.parse(readFileSync(candidate, "utf8")) as Record<string, unknown>;
       const value = parsed["injectionBudgetBytes"];
       if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-        return { bytes: value, source: candidate, searched };
+        return {
+          bytes: value,
+          source: candidate,
+          searched,
+          ...(namedBy === undefined ? {} : { namedBy }),
+        };
       }
     } catch {
       /* an unreadable host config reports no ceiling — the refusal below says so */

@@ -56,7 +56,9 @@ import {
 import type { ProseDoc, ProseType, Staged } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
+  deindexDoc,
   docFrequency,
+  embeddingCount,
   indexDoc,
   nearest,
   nearestVectors,
@@ -83,8 +85,20 @@ export type {
   TombstoneRow,
 } from "./operational.js";
 export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, rowToPhysics } from "./operational.js";
-export { tokenize, cosine, CACHE_SCHEMA_VERSION, DEFAULT_LENGTH_NORM, backfillLengths, avgDocLen } from "./cache.js";
-export type { Hit, LengthNorm } from "./cache.js";
+export {
+  tokenize,
+  cosine,
+  CACHE_SCHEMA_VERSION,
+  DEFAULT_LENGTH_NORM,
+  backfillLengths,
+  avgDocLen,
+  convertVectorBatch,
+  countNonFinite,
+  decodeVector,
+  encodeVector,
+  vectorFormats,
+} from "./cache.js";
+export type { ConvertBatchReport, Hit, LengthNorm, VectorFormatCensus } from "./cache.js";
 // The seam's TYPES travel as one unit (cli/INTERFACE-GAPS §3). The chase itself
 // does not: `chaseRemoved` is importable only from `owner-op-seam.js`, by the one
 // directory the caller-universality test allows (§16 G1–G2).
@@ -125,6 +139,20 @@ export interface StoreOptions extends Stance {
   retentionDays?: number;
   /** Optional; without it, embeddings are declared un-recomputed at rebuild. */
   embed?: Embedder;
+  /**
+   * THE PROVENANCE CLOCK (LAUNCH-STATUS §I7, `NOTES.md` 2026-09-05).
+   *
+   * The session's wall clock, injected. Everything this store records about
+   * WHEN IN THE WORLD something happened — `learnedOn`, event `at`, a version's
+   * `archived_at`, a removal record's `at` — reads THIS and never the ambient
+   * `Date.now`. The PHYSICS clock is a different clock and stays where it is:
+   * `livedDay()` counts days the owner actually lived, advanced by
+   * `advanceClock()`, and no wall-clock instant moves it.
+   *
+   * Defaults to `Date.now`, so a host that injects nothing behaves exactly as
+   * before. A seeder, a replay harness and a migration pass one.
+   */
+  now?: () => number;
   onEvent?: (event: StoreEvent) => void;
 }
 
@@ -145,8 +173,16 @@ export interface PutInput {
    *  writes NULL — "unrecorded" — never a defaulted claim of authorship. */
   source?: MemorySource;
   /** Light provenance: ids only, never text (F9, owner ruling 2026-08-29).
-   *  Mirrored into the prose doc's meta so the document is self-describing. */
-  origin?: { session?: string; scope?: string; ref?: string };
+   *  Mirrored into the prose doc's meta so the document is self-describing.
+   *
+   *  `spanHash` is the buffer's own hash of the span this memory WAS — a jot's
+   *  own words — and it is here so removal can chase that line by identity
+   *  rather than by re-deriving it from the body (cli/INTERFACE-GAPS §9). It
+   *  lives in the prose meta and NOWHERE ELSE on purpose: a hash of low-entropy
+   *  content is brute-forceable (§16 G9), and the prose document is the one
+   *  carrier a removal destroys, so the pointer dies with the thing it points
+   *  at instead of outliving it in a box-2 column. */
+  origin?: { session?: string; scope?: string; ref?: string; spanHash?: string };
 }
 
 export interface StoredMemory {
@@ -170,9 +206,42 @@ export interface PruneReport {
 export interface RebuildReport {
   indexed: number;
   skippedDenied: number;
+  /**
+   * Rows that are canonical but not live — archived, or a superseded head. The
+   * text index is the index OF THE LIVE STORE (`cache.ts#deindexDoc`), so a
+   * rebuild reproduces exactly what `archive`/`supersede` maintain. COUNTED,
+   * not silent: `counterparts verify --rebuild` accounts for every canonical
+   * row, and a skip that did not appear in the arithmetic would read as a
+   * mismatch (I13).
+   */
+  skippedArchived: number;
   unrecomputed: number;
   /** Contract §5 G8: what rebuild cannot recompute is DECLARED, with owner + repair. */
   declared: { what: string; owner: string; repair: string }[];
+  /** Vectors kept across the rebuild (`keepVectors`), and vectors dropped as
+   *  no longer canonical — removed ids and orphans. Both zero by default. */
+  keptVectors: number;
+  droppedVectors: number;
+}
+
+export interface RebuildOptions {
+  /**
+   * Re-index the TOKEN side without dropping `embeddings`.
+   *
+   * Off by default, because the default is the older and louder claim: box 3 is
+   * rebuildable and a rebuild rebuilds it. It exists because that claim prices
+   * the four tables the same when they are not — a vector costs a paid network
+   * call and a console with no embedder cannot replace one at any price
+   * (`adapters/cli/NOTES.md`, 2026-09-04, the follow-up filed by PR #43's
+   * review). With it on, a vector whose memory is still canonical survives, a
+   * vector for a removed or orphaned id is deleted, and a row whose embedder
+   * misses keeps the vector it had instead of counting as `unrecomputed`.
+   *
+   * **A row that already has a vector is not re-embedded**, even when an
+   * embedder is wired: keep means keep, and the caller that wants fresh vectors
+   * wants a plain `rebuildCache()`. Rows with NO vector are embedded as usual.
+   */
+  keepVectors?: boolean;
 }
 
 export interface EdgeInput {
@@ -296,6 +365,7 @@ export const WRITE_METHODS = [
   "pruneSupersededVersions",
   "appendRemovalRecord",
   "rebuildCache",
+  "pruneDeadIndex",
   "embedOne",
 ] as const;
 
@@ -341,6 +411,8 @@ export class Store {
   private readonly ops: Db;
   private readonly cache: Db;
   private readonly embed: Embedder | undefined;
+  /** The provenance clock (§I7). The ONE `Date.now` in this file is its default. */
+  private readonly nowFn: () => number;
   private readonly onEvent: ((e: StoreEvent) => void) | undefined;
   private readonly ring: StoreEvent[] = [];
 
@@ -353,6 +425,7 @@ export class Store {
     this.observer = isObserver(opts);
     this.retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
     this.embed = opts.embed;
+    this.nowFn = opts.now ?? Date.now;
     this.onEvent = opts.onEvent;
 
     // AN INSTRUMENT WRITES NOTHING AT OPEN when there is a store to read.
@@ -409,6 +482,28 @@ export class Store {
       },
       rawRow: (id) => this.row(id),
       isDenied: (id) => this.isDenied(id),
+      // The narrowest possible route to box 3, and the LEXICAL half only: it
+      // rewrites `doc_tokens` / `doc_lens` for one id from that id's own prose,
+      // and leaves the `embeddings` row exactly where it is (`indexDoc` writes a
+      // vector only when it is HANDED one, and it is not handed one here). A
+      // restore must never make a paid embedding call, and it must never drop a
+      // vector it cannot recompute.
+      //
+      // It exists because `archive()` is on its way to DEINDEXING (PR #64,
+      // `overnight/df-live-rows`, counts document frequency over live rows by
+      // removing archived rows from the index). Without this, whichever of the
+      // two lands second leaves `unarchiveMerged` restoring a row that is live,
+      // listed in `beliefs(entity)`, and invisible to lexical recall — with no
+      // cheap repair, since a cache rebuild without an embedder drops every
+      // vector on the store. Harmless on a master where `archive()` still
+      // leaves the index alone: re-indexing an already-indexed row from its own
+      // prose is a write of the same rows.
+      reindexLexical: (id) => {
+        const row = this.row(id);
+        if (row === undefined) return;
+        const doc = readProseFile(row.prose_path, id);
+        indexDoc(this.cache, doc.id, indexText(doc));
+      },
     });
     this.assertLayout();
   }
@@ -434,9 +529,10 @@ export class Store {
     return this.ops.transaction(fn);
   }
 
-  /** `chaseRemoved` is not a Store method — it is the owner-op seam's, and it
-   *  crosses the same stance check, which is why the site name is spelled here. */
-  private assertWritable(site: WriteMethod | "chaseRemoved"): void {
+  /** `chaseRemoved` and `unarchiveMerged` are not Store methods — they are the
+   *  owner-op seam's, and they cross the same stance check, which is why their
+   *  site names are spelled here. */
+  private assertWritable(site: WriteMethod | "chaseRemoved" | "unarchiveMerged"): void {
     if (this.observer) {
       // Telemetry is the deliberate exception: a stood-down instrument must be
       // distinguishable from a broken hook (observer-mode.md G5/G6, scar §2.4).
@@ -450,12 +546,34 @@ export class Store {
     ref?: string,
     data?: Record<string, string | number | boolean | null>,
   ): void {
-    const event: StoreEvent = { at: Date.now(), name };
+    const event: StoreEvent = { at: this.nowFn(), name };
     if (ref !== undefined) event.ref = ref;
     if (data !== undefined) event.data = data;
     this.ring.push(event);
     if (this.ring.length > EVENT_RING) this.ring.shift();
     this.onEvent?.(event);
+  }
+
+  /**
+   * The provenance clock's instant, and the calendar date it falls on.
+   *
+   * TWO CLOCKS, and this is the second one. `livedDay()` above is the physics
+   * clock — how much EXPERIENCE has passed, which is what decay and
+   * consolidation run on. These two say WHEN IN THE WORLD, which is what a
+   * memory's provenance is made of. A caller that wants "the date this store
+   * thinks it is" asks here rather than reading the ambient clock, so a seeded,
+   * replayed or migrated store dates its rows by the run it is replaying.
+   *
+   * UTC, like every other date this codebase writes (the hooks' own
+   * `new Date().toISOString().slice(0, 10)`, `sleep/cycle.ts#todayDate`). Local
+   * dating is a separate question with a separate answer; see NOTES 2026-09-05.
+   */
+  now(): number {
+    return this.nowFn();
+  }
+
+  today(): string {
+    return dateOf(this.nowFn());
   }
 
   /** Copies, ordered oldest first. Optionally filtered by name. */
@@ -514,10 +632,27 @@ export class Store {
     return staged.map((s) => s.doc.id);
   }
 
-  /** In-place content revision. Archives the prior version FIRST (§16 G4). */
+  /**
+   * In-place content revision. Archives the prior version FIRST (§16 G4).
+   *
+   * `learnedOn` / `happenedOn` are the PROVENANCE half, and they travel this same
+   * door on purpose (§I7, `NOTES.md` 2026-09-05): correcting a date is a change to
+   * canonical prose, so it keeps the prior version exactly the way a body change
+   * does — constitution 7, nothing is silently overwritten and the old date stays
+   * readable in `versions/`. Both write the prose frontmatter AND the column, in
+   * one transaction, because a document and its query surface disagreeing about a
+   * date is worse than either being wrong alone.
+   */
   revise(
     id: string,
-    patch: { body?: string; title?: string; meta?: Record<string, unknown>; reason?: string },
+    patch: {
+      body?: string;
+      title?: string;
+      meta?: Record<string, unknown>;
+      learnedOn?: string;
+      happenedOn?: string;
+      reason?: string;
+    },
   ): number {
     const { staged, doc, seq } = this.mutate("revise", () => {
       const row = this.requireRow(id);
@@ -530,7 +665,7 @@ export class Store {
         version.seq,
         patch.reason ?? "revise",
         this.livedDay(),
-        Date.now(),
+        this.nowFn(),
         version.path,
         version.hash,
       );
@@ -541,6 +676,8 @@ export class Store {
         meta: patch.meta ? { ...prior.meta, ...patch.meta } : prior.meta,
       };
       if (patch.title !== undefined) next.title = patch.title;
+      if (patch.learnedOn !== undefined) next.learnedOn = patch.learnedOn;
+      if (patch.happenedOn !== undefined) next.happenedOn = patch.happenedOn;
       const s = stageProse(this.dir, next);
       this.ops.run(
         "UPDATE memories SET content_hash = ?, revision = ? WHERE id = ?",
@@ -548,6 +685,12 @@ export class Store {
         version.seq,
         id,
       );
+      if (patch.learnedOn !== undefined) {
+        this.ops.run("UPDATE memories SET learned_on = ? WHERE id = ?", patch.learnedOn, id);
+      }
+      if (patch.happenedOn !== undefined) {
+        this.ops.run("UPDATE memories SET happened_on = ? WHERE id = ?", patch.happenedOn, id);
+      }
       return { staged: s, doc: next, seq: version.seq };
     });
     publishStaged(staged);
@@ -572,7 +715,7 @@ export class Store {
         row.revision + 1,
         reason,
         this.livedDay(),
-        Date.now(),
+        this.nowFn(),
         row.prose_path,
         row.content_hash,
         created.doc.id,
@@ -589,6 +732,10 @@ export class Store {
     });
     publishStaged(staged);
     this.indexOne(doc);
+    // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
+    // the prose and the forwarding address — this is the INDEX, and the index
+    // is the index of the live store (`cache.ts#deindexDoc`).
+    deindexDoc(this.cache, oldId);
     this.emit("store.supersede", oldId, { successor: newId, reason });
     return newId;
   }
@@ -599,6 +746,11 @@ export class Store {
       this.requireRow(id);
       this.ops.run("UPDATE memories SET archived = 1, archived_reason = ? WHERE id = ?", reason, id);
     });
+    // Out of the index, not out of the store: `read`, `resolve` and the version
+    // chain are untouched. An archived row was never deliverable — `activate`
+    // discards the hit — and while it stayed indexed it went on voting on
+    // rarity against a live denominator (`cache.ts#deindexDoc`, I13).
+    deindexDoc(this.cache, id);
     this.emit("store.archive", id, { reason });
   }
 
@@ -834,7 +986,7 @@ export class Store {
       this.ops.run(
         `INSERT OR IGNORE INTO events (at, day, name, ref, dedup_key, payload)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        Date.now(),
+        this.nowFn(),
         input.day,
         input.name,
         input.ref ?? null,
@@ -982,7 +1134,7 @@ export class Store {
         "INSERT INTO removal_record (memory_id, stage, at, actor, reason) VALUES (?, ?, ?, ?, ?)",
         note.memoryId,
         note.stage,
-        Date.now(),
+        this.nowFn(),
         note.actor,
         note.reason ?? null,
       );
@@ -997,13 +1149,24 @@ export class Store {
    * Box 3 only. Deleting the cache file and calling this must lose nothing
    * canonical; what cannot be recomputed is declared and counted (§5 G8).
    */
-  rebuildCache(): RebuildReport {
+  rebuildCache(opts: RebuildOptions = {}): RebuildReport {
     this.assertWritable("rebuildCache");
-    resetCache(this.cache);
+    const keepVectors = opts.keepVectors === true;
+    // Read the surviving vector ids BEFORE the reset, so "kept" is a count and
+    // not an assumption, and so the sweep below knows what it is sweeping.
+    const heldVectors = keepVectors
+      ? new Set(
+          this.cache
+            .all<{ memory_id: string }>("SELECT memory_id FROM embeddings")
+            .map((r) => r.memory_id),
+        )
+      : new Set<string>();
+    resetCache(this.cache, { keepEmbeddings: keepVectors });
     const denied = new Set(this.deniedIds());
     const rows = this.ops.all<MemoryRow>("SELECT * FROM memories ORDER BY id");
     let indexed = 0;
     let skippedDenied = 0;
+    let skippedArchived = 0;
     let unrecomputed = 0;
     for (const row of rows) {
       if (denied.has(row.id)) {
@@ -1012,23 +1175,66 @@ export class Store {
         this.emit("cache.rebuild.denied", row.id, {});
         continue;
       }
+      // Not live, not indexed. `archive` and `supersede` take a row out of box 3
+      // as it goes dark; a rebuild that put it back would restore the I13 bug on
+      // the owner's next `verify --rebuild` — the index's denominator would
+      // count rows `recall`'s `storeSize` does not.
+      if (row.archived === 1 || row.superseded_by !== null) {
+        skippedArchived += 1;
+        continue;
+      }
       const doc = readProseFile(row.prose_path, row.id);
       const text = indexText(doc);
-      // A configured embedder that MISSES counts exactly as no embedder does:
-      // the row is indexed lexically and its vector is declared un-recomputed.
-      const vec = this.embed ? this.embed(text) : null;
+      // KEEP MEANS KEEP. A row that already has a vector is not offered to the
+      // embedder at all under `keepVectors` — the first version called it and
+      // let `indexDoc` overwrite what it had just promised to preserve, so a
+      // process with an embedder wired paid a network call per row and reported
+      // the result as `keptVectors`. Two words for one behaviour is how an API
+      // starts lying; the name picks the behaviour, and the caller that wants
+      // fresh vectors wants a plain `rebuildCache()`.
+      const held = keepVectors && heldVectors.has(row.id);
+      const vec = held ? null : this.embed ? this.embed(text) : null;
       if (vec !== null) indexDoc(this.cache, row.id, text, vec);
       else {
         indexDoc(this.cache, row.id, text);
-        unrecomputed += 1;
+        // A miss is only a LOSS when there was nothing there to keep. Under
+        // `keepVectors` the row's existing vector is still in the table, so
+        // counting it un-recomputed would report a gap box 3 does not have.
+        if (!held) unrecomputed += 1;
       }
       indexed += 1;
+    }
+    // Vectors whose memory is no longer canonical do NOT survive a rebuild —
+    // `keepVectors` preserves the cache, it does not resurrect a removed
+    // memory's trace (§16 G12) or keep an orphan the set diff would then report
+    // forever. Deleted here rather than skipped, because the plain rebuild
+    // drops them by dropping the table and the two paths must agree.
+    let droppedVectors = 0;
+    let keptVectors = 0;
+    if (keepVectors && heldVectors.size > 0) {
+      const canonical = new Set(rows.map((r) => r.id));
+      const del = this.cache.prepare("DELETE FROM embeddings WHERE memory_id = ?");
+      this.cache.transaction(() => {
+        for (const id of heldVectors) {
+          if (!canonical.has(id) || denied.has(id)) {
+            del.run(id);
+            droppedVectors += 1;
+          } else keptVectors += 1;
+        }
+      });
     }
     // Declared when there is no embedder at all, AND when a configured one
     // could not answer for some rows — both are "box 3 does not hold what a
     // vector channel would need", and a silent partial is the worse of the two.
+    //
+    // `keepVectors` is the third way to have nothing to declare, and it is the
+    // reason this is not simply "is there an embedder": a rebuild that kept
+    // every vector it started with is not missing them, whatever this process
+    // could or could not have recomputed. Without the extra arm a
+    // `verify --rebuild --keep-vectors` that lost nothing would still print a
+    // repair instruction for a gap box 3 does not have.
     const declared =
-      this.embed !== undefined && unrecomputed === 0
+      unrecomputed === 0 && (this.embed !== undefined || keepVectors)
         ? []
         : [
             {
@@ -1037,14 +1243,59 @@ export class Store {
               repair: "Store.open({ embed }) then rebuildCache()",
             },
           ];
-    const report: RebuildReport = { indexed, skippedDenied, unrecomputed, declared };
+    const report: RebuildReport = {
+      indexed,
+      skippedDenied,
+      skippedArchived,
+      unrecomputed,
+      declared,
+      keptVectors,
+      droppedVectors,
+    };
     this.emit("cache.rebuild", undefined, {
       indexed,
       skippedDenied,
+      skippedArchived,
       unrecomputed,
+      keptVectors,
+      droppedVectors,
       declaredKinds: declared.map((d) => d.what).join(",") || "none",
     });
     return report;
+  }
+
+  /**
+   * Take every NOT-LIVE document out of the text index, and touch nothing else.
+   *
+   * This is I13's migration, and it exists for the same reason `backfillLengths`
+   * does: the repair is a pure function of state box 3 and box 2 already hold,
+   * so it must not be paid for with `rebuildCache`, which begins with
+   * `resetCache` and drops every embedding — roughly 13.9K of them on the store
+   * this was written against, one paid network call each. `counterparts verify
+   * --rebuild` refuses outright for that reason unless the owner passes
+   * `--drop-vectors`, so a rebuild is not a repair anyone can actually run here.
+   *
+   * `archive` and `supersede` keep the invariant going forward
+   * (`cache.ts#deindexDoc`); this is how a store that predates them catches up.
+   * It is NOT run at open: an instrument writes nothing at open, and a write at
+   * open takes the write lock (see the constructor). The owner runs it by name.
+   *
+   * Returns the number of documents removed from the index.
+   */
+  pruneDeadIndex(): number {
+    this.assertWritable("pruneDeadIndex");
+    const live = new Set(this.list({ archived: false }));
+    const indexed = this.cache
+      .all<{ memory_id: string }>("SELECT DISTINCT memory_id FROM doc_tokens")
+      .map((r) => r.memory_id);
+    let removed = 0;
+    for (const id of indexed) {
+      if (live.has(id)) continue;
+      deindexDoc(this.cache, id);
+      removed += 1;
+    }
+    if (removed > 0) this.emit("cache.prune.dead", undefined, { removed });
+    return removed;
   }
 
   /**
@@ -1128,6 +1379,26 @@ export class Store {
    *  watch needs, and the number that must fall run over run. */
   unembeddedCount(): number {
     return this.missingVectors(Number.MAX_SAFE_INTEGER).length;
+  }
+
+  /**
+   * How many vectors box 3 HOLDS — the numerator, and a different number from
+   * `unembeddedCount()`.
+   *
+   * Filed as a core follow-up by PR #43's review (`adapters/cli/NOTES.md`,
+   * 2026-09-04): the console needed "how many embeddings would `--rebuild`
+   * destroy" before it could refuse, `unembeddedCount()` is the coverage
+   * denominator instead, and with no read API for the count the CLI reached
+   * past the Store into `cache.sqlite` with its own `openDb`. It still does for
+   * the census — that read is deliberately gated on the FILE existing, so it
+   * cannot mint the box it inspects, which a Store constructor cannot promise —
+   * but a caller that already holds an open Store now has the number here.
+   *
+   * Counts every vector, including one held for an archived or superseded row:
+   * this is what box 3 contains, not what a live coverage ratio would want.
+   */
+  embeddingCount(): number {
+    return embeddingCount(this.cache);
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────
@@ -1408,12 +1679,13 @@ export class Store {
       if (input.origin.session !== undefined) origin["session"] = input.origin.session;
       if (input.origin.scope !== undefined) origin["scope"] = input.origin.scope;
       if (input.origin.ref !== undefined) origin["ref"] = input.origin.ref;
+      if (input.origin.spanHash !== undefined) origin["spanHash"] = input.origin.spanHash;
       if (Object.keys(origin).length > 0) meta["origin"] = origin;
     }
     const doc: ProseDoc = {
       id,
       type: input.type,
-      learnedOn: input.learnedOn ?? today(),
+      learnedOn: input.learnedOn ?? this.today(),
       bornDay: input.physics?.birthDay ?? day,
       meta,
       body: input.body,
@@ -1501,8 +1773,28 @@ export function newId(type: ProseType): string {
   return `${ID_PREFIX[type]}_${randomBytes(6).toString("hex")}`;
 }
 
+/**
+ * The calendar date an INSTANT falls on — the provenance clock's only arithmetic.
+ *
+ * UTC by deliberate choice, not by accident: every other date in this codebase is
+ * written with the same `toISOString().slice(0, 10)` (the hook that supplies
+ * `advanceClock`'s date, `sleep/cycle.ts#todayDate`, the embedder's seat rotation),
+ * so a local-dating provenance clock would put provenance and physics on two
+ * different calendars. Moving all of them to local dating is a real, separate
+ * question, filed in `NOTES.md` 2026-09-05 with its evidence.
+ *
+ * NOT `physics/clock.ts#dayKey`. That function shifts by the BOUNDARY HOUR, which
+ * is a physics idea — "which lived day does this activity belong to" — and a
+ * memory taken at 01:30 was taken on the 14th no matter which lived day it counts
+ * toward. Provenance does not get the boundary shift.
+ */
+export function dateOf(at: number): string {
+  return new Date(at).toISOString().slice(0, 10);
+}
+
+/** The ambient date. Adapters and defaults only — a store reads `store.today()`. */
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateOf(Date.now());
 }
 
 /** True when a data dir has already been initialized (used by adapters, not writes). */

@@ -153,6 +153,12 @@ function verdictFor(
       ok: true,
       content: g.content,
       aliases: g.aliases,
+      // THE RECORDS TRAVEL NOW (replay INTERFACE-GAPS §2a). They used to be
+      // dropped here on both arms, which left the authored door with two facts
+      // — accepted, or refused-with-a-reason — and nothing durable to write.
+      // Relayed, never read: this function decides nothing from them.
+      records: g.records,
+      channels: outcome.channels,
       feeling:
         g.feeling === null
           ? null
@@ -169,6 +175,13 @@ function verdictFor(
     gate: g.reason,
     reason: g.blockedBy.join("+"),
     refusedByDesign: true,
+    records: g.records,
+    channels: outcome.channels,
+    // The same list `reason` above joins. Both, deliberately: the string is what
+    // a person reads in an event line, the array is what telemetry counts, and
+    // splitting the string back apart at the reader is how a `+` in a future
+    // reason word becomes a silently wrong count.
+    blockedBy: [...g.blockedBy],
   };
 }
 

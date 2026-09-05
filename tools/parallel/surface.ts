@@ -22,14 +22,27 @@
  */
 import { createHash } from "node:crypto";
 
-import { GATE_CHUNK_FIELDS, surfaceSetFields } from "../../src/core/counterpart.js";
+import {
+  GATE_CHUNK_FIELDS,
+  GATE_DEPOSIT_FIELDS,
+  surfaceSetFields,
+} from "../../src/core/counterpart.js";
 import { BAND_TRANSITION_FIELDS } from "../../src/core/sleep/index.js";
 
-/** The three components, in a fixed order, each named so a mismatch says which moved. */
+/** The components, in a fixed order, each named so a mismatch says which moved. */
 export function surfaceSetComponents(): readonly { name: string; fields: readonly string[] }[] {
   return [
     { name: "recall.decision", fields: surfaceSetFields() },
     { name: "gate.chunk", fields: GATE_CHUNK_FIELDS },
+    // THE FOURTH, added 2026-09-05 with the record itself. It is here for the
+    // same reason `gate.chunk` is: `gate.refusalMix` is now scored over BOTH
+    // gate record kinds, so a scored record whose schema the arbiter cannot see
+    // is the exact hole PR-8 delta N6 closed for the other two. Adding it MOVES
+    // the hash, and that is the honest price — CONTRACT §4 is explicit that
+    // nothing is smuggled in as "just telemetry" without the surface-set proof,
+    // and leaving a scored record out of the hash to keep the number still would
+    // be that smuggling with extra steps.
+    { name: "gate.deposit", fields: GATE_DEPOSIT_FIELDS },
     { name: "band.transition", fields: BAND_TRANSITION_FIELDS },
   ];
 }

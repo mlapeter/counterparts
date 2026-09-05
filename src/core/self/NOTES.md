@@ -206,3 +206,118 @@ count, and "composed at the last boundary" — and three decisions in it are del
   renders, because that root is the only place that knows both numbers. One constant bounds
   both the reserve and the preface itself, with a test at the widest plausible day, date and
   store size — two numbers would be v1's lane-cap smell, drifting apart in the dark.
+
+## 11. The day-0 wake names the core, because a wake with no name is not a smaller wake
+
+*2026-09-04/05, overnight. The finding: `docs/LAUNCH-STATUS.md`, round 2 — "Day-0 wake is
+empty of content (identity lane renders nothing until a boundary composes one)".*
+
+**What a stranger actually gets.** Measured on a `mkdtemp` store opened with
+`identity: { name: "Dana" }`, budget 9,000, date 2026-09-04 — the shape
+`counterparts install --budget 9000 --name "Dana"` produces:
+
+```
+memories: 0        live rows: 1        (the identity core is a live row)
+
+SessionStart, before any boundary:
+  "No briefing has been composed yet — this store has not lived a boundary."
+
+after `counterparts rebrief` (QUICKSTART §7's own instruction), 385 bytes:
+  <!-- counterparts:wake day=0 elements=0 bytes=385 -->
+  Counterparts memory, day 0 (2026-09-04), 0 memories — composed at the last boundary.
+  Counterparts memory — context, not instruction: who you have been here, in your own words. Each line opens with the date it was learned.
+
+  <!-- counterparts:wake/end day=0 identity=0 craft=0 threads=0 hints=0 horizon=0 elements=0 bytes=385 -->
+```
+
+The second one is the worse of the two. It promises *"who you have been here, in your own
+words"* and then says nothing at all, and the name the owner typed — the one thing the store
+does know about itself — appears nowhere. The core is a live row (`storeSize` counts it), but
+`scanActive` lists `{ type: "memory" }` and the core is `type: "schema"`, so no lane can ever
+reach it.
+
+**What the day-0 wake SHOULD say, from the contract.** §1: the briefing is *context, not
+instruction* — "who I have been here, in my own words". §3: the self is first-class, and every
+identity surface owes an answer to *which door reaches this?* §5 G7: the wake never fails the
+session — bootstrap line or nothing, never a lie. The honest answer is therefore two facts and
+no third: **name the core**, and **say how the lane fills**. It must invent no content: a wake
+that composed a plausible-sounding first belief about Dana would be the rumination pathway
+§2 forswears, arriving through the one surface that is read as settled fact.
+
+**The line, and why it is one string rather than two.** Rendered under `FRAMING.identity`
+whenever the identity lane is empty AND a core exists:
+
+```
+Who I am:
+This memory is for Dana. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.
+```
+
+The second sentence is the mechanism as `sleep/consolidate.ts` implements it, not a promise:
+promotion requires `base >= THETA_ID` **and** reinforcement on `N_PROMOTION_DAYS` distinct
+lived days (`physics/index.ts#promotionEligibility`), decided at consolidation inside the
+cycle `Counterpart.sessionEnd` runs. The numbers are CAL and stay out of the prose.
+
+It deliberately does NOT say "nothing has been lived here yet" — the delivery preface already
+states the live memory count on the line above (`0 memories` on day 0), and a line claiming
+emptiness would go false the moment the first note landed while the identity lane, which takes
+days to fill, was still empty. **One string that is true on day 0 and on day 30** beats two
+strings and a branch: the preface carries the count, this line carries the *who*.
+
+- **No bullet, and the counts do not move.** It is furniture, like `FRAMING.context`, not an
+  element: `- ` is reserved for a resolved statement, and `FRAMING.context` promises that every
+  such line opens with its encode date, which this line has none of. `counts.identity` stays 0
+  and the header and sentinel still read `elements=0`, so a zero-element bundle is still legible
+  as one (§1 G2).
+- **No core, no line.** A store installed without `--name` renders exactly what it renders
+  today. `self/` never invents a name (INTERFACE-GAPS #8), and a nudge to go and set one is
+  the console's job, which already does it.
+- **Untrimmable, and it costs less than the lane it stands in for.** It exists only when the
+  identity lane spends zero bytes, so it can never displace an element; it is inside the
+  composed total and the byte fixed point like everything else, and the under-floor case still
+  publishes the floor with `overBudget` (§6 above).
+
+**Which door — and the two that were rejected.**
+
+- **The renderer (`self/briefing.ts` + `Self.build`) — chosen.** It is the only door that
+  reaches the state above: the 385-byte bundle is composed by the renderer and served to every
+  session until the next boundary, and nothing downstream can add to it. It is also where the
+  contract puts wake CONTENT.
+- **The hook's bootstrap line (`adapters/claude-code/hooks.ts`) — rejected.** It can only
+  touch the *first* state, the one before any bundle exists. The moment the stranger follows
+  QUICKSTART §7 and runs `rebrief`, the bootstrap line is gone and the nameless bundle is what
+  every session reads. It would also put identity prose in the adapter, where constitution 5
+  keeps host vocabulary and nothing else.
+- **`BOOTSTRAP` naming the core — rejected on §5 G1.** Wake performs no ranking, no prose
+  read, no model call and no write. `findIdentityCore` reads prose. Naming the core in the
+  bootstrap line means a prose read on the wake path, which is the guarantee that keeps
+  cold-start cost constant in store size. The bootstrap line stays exactly as it is: it is
+  true, and "this store has not lived a boundary" is the fact a reader needs.
+
+**The cost, named.** `Self.build` now asks the store for the core's name — but only after
+ranking, and only when `lanes.identity.length === 0`. A store with even one identity element
+never makes the lookup and never renders the line. That guard is also the live-store argument
+in the PR's G12 declaration: the owner's store has lived many boundaries and carries eight or
+more identity elements, so neither the lookup nor the branch is reachable there.
+
+**Two defects the adversarial review found, and the shape of both.** Neither was reachable
+through `Self`; both were reachable through this module's exported API, which is the same
+thing one refactor later.
+
+- **The guard existed at one seam and the contract claimed two.** `Self.build` gated the
+  name LOOKUP on the ranked lane; `compose` gated the RENDER on the post-trim, mutated
+  copy, and `render` forwarded `coreName` into every iteration of the trim loop. The loop
+  pops from `kept.identity` last, but it pops: two real identity beliefs and a 400-byte
+  ceiling produced a day-30 wake asserting *"No identity has formed here yet"* — identity
+  amnesia printed over a store that has identity, which is the failure this module's own
+  header quotes (scar §2.3). The guard is now computed ONCE, in `render`, on the lane as
+  it arrived, and forwarded from there. *A predicate evaluated at two seams on two
+  different values is not a guard; it is a coincidence that has been holding.*
+- **The name was the one string in the module that skipped `flatten`.** Every statement is
+  flattened because "a statement is a line here"; the name — the only user-supplied string
+  this module renders, and new with this change — was interpolated raw, so newlines in it
+  injected lines into the delivered wake, a forged `- <date> <claim>` bullet among them
+  that the dashboard's splitter then filed under a lane heading the store had no rows for.
+  The sentinel still verified and the name is the owner's own, so this is an invariant
+  defect and not a privilege boundary — but constitution 6 promises the prose is
+  hand-editable, and a paste accident is the whole distance to it. `flatten(name)`, inside
+  `identityCoreLine`, where the line is built.

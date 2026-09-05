@@ -23,6 +23,16 @@ import type { Kind, Salience } from "../types.js";
 import { hashText } from "../store/prose.js";
 import { randomBytes } from "node:crypto";
 
+// TYPE-ONLY, and the only edge this module has to `encode/`. The gate itself
+// stays INJECTED (INTERFACE-GAPS #2) — nothing here calls the battery. What
+// crosses is the SHAPE of the battery's own per-gate records, so a verdict can
+// relay them to a caller that writes telemetry instead of flattening them to a
+// first reason and a gate name (replay INTERFACE-GAPS §2a). The import is erased
+// at runtime, so the module graph is unchanged; restating the shape here instead
+// would be a second copy that drifts, which is the failure the `satisfies`
+// discipline in this repo exists to stop.
+import type { ChannelRecord, GateRecord } from "../encode/index.js";
+
 import type { CoverageMark, Span, SpanBuffer } from "./spans.js";
 import type { UpdatesResolution } from "./updates.js";
 
@@ -252,6 +262,26 @@ export type GateVerdict =
        * "never asked" and "asked, no answer" stay different records (scar §2.4).
        */
       novelty?: number | null;
+      /**
+       * THE BATTERY'S OWN PER-GATE RECORDS, relayed rather than summarized.
+       *
+       * On BOTH arms on purpose. Until this field existed a refusal crossed this
+       * seam as `{gate, reason}` — one blocking reason and a joined name — and
+       * everything the battery had actually measured (per-gate statuses, hedge
+       * counts, alias verdicts, secret FAMILIES) died here. That is why the
+       * authored door had no durable gate record to write at all, and why
+       * `gate.refusalMix` could be computed over the sweep path only
+       * (`tools/replay/INTERFACE-GAPS.md` §2a).
+       *
+       * `remember/` reads nothing out of them: they are carried to
+       * `SubmitResult` and handed to whoever writes telemetry. OPTIONAL because
+       * a gate that is not the battery — the `NO_GATE` default, a test double —
+       * has none, and "no battery ran" must stay distinguishable from "a battery
+       * ran and found nothing" (scar §2.4).
+       */
+      records?: readonly GateRecord[];
+      /** The battery's channel records, same relay, same reason. */
+      channels?: readonly ChannelRecord[];
     }
   | {
       ok: false;
@@ -260,6 +290,16 @@ export type GateVerdict =
       /** True when the refusal is the battery working as designed (a gate
        *  fired), false/absent when the gate itself failed. SEAMS item 3. */
       refusedByDesign?: boolean;
+      /** The refusal arm's half of the relay above — the `records` field replay
+       *  INTERFACE-GAPS §2a names as what would close it. */
+      records?: readonly GateRecord[];
+      channels?: readonly ChannelRecord[];
+      /**
+       * EVERY blocking reason, as a list. `reason` above is the same list joined
+       * with `+` for a human line; a telemetry reader that has to split a string
+       * back apart is a reader one delimiter away from a wrong count.
+       */
+      blockedBy?: readonly string[];
     };
 
 export type GateFn = (input: GateInput) => GateVerdict | Promise<GateVerdict>;
@@ -289,6 +329,25 @@ export interface SubmitResult {
   malformed: MalformedReason | null;
   degradedToSpan: boolean;
   droppedFields: string[];
+  /**
+   * The battery's per-gate records, when a battery ran.
+   *
+   * EMPTY IS A FACT, not a default. An observer stand-down, a malformed draft
+   * and a content duplicate are all decided BEFORE the gate is called (NOTES
+   * §7's rejection ordering), so those three outcomes genuinely have no gate
+   * record — and the caller must not write a durable one claiming they do.
+   */
+  records: readonly GateRecord[];
+  /** The battery's channel records, on the same terms. */
+  channels: readonly ChannelRecord[];
+  /**
+   * The kind that was PROPOSED, which survives a refusal where `proposal` does
+   * not. Null before intake has parsed one — a malformed draft has no kind, and
+   * defaulting it to `fact` would put a made-up axis into telemetry.
+   */
+  kind: Kind | null;
+  /** Every reason the gate blocked on, unjoined. Empty on every other outcome. */
+  blockedBy: readonly string[];
 }
 
 export interface SubmitContext {
@@ -329,6 +388,10 @@ export async function submitProposal(
     malformed: null,
     degradedToSpan: false,
     droppedFields: [],
+    records: [],
+    channels: [],
+    kind: null,
+    blockedBy: [],
   };
 
   if (buffer.observer) {
@@ -390,7 +453,10 @@ export async function submitProposal(
     });
   } catch (err) {
     buffer.emit("remember.proposal.gate.failed", undefined, { session: ctx.session });
-    return { ...base, reason: "GATE_FAILED", gate: "unknown", droppedFields: parsed.dropped, malformed: null };
+    // `records` stays EMPTY here on purpose: the gate THREW, so it produced no
+    // records, and a telemetry row claiming five clear gates would be a lie in
+    // the one direction that matters (SEAMS item 3's failed-vs-refused split).
+    return { ...base, reason: "GATE_FAILED", gate: "unknown", droppedFields: parsed.dropped, malformed: null, kind, blockedBy: [] };
   }
 
   if (!verdict.ok) {
@@ -399,7 +465,18 @@ export async function submitProposal(
       gate: verdict.gate,
       reason: verdict.reason,
     });
-    return { ...base, reason: "GATE_REJECTED", gate: verdict.gate, droppedFields: parsed.dropped };
+    return {
+      ...base,
+      reason: "GATE_REJECTED",
+      gate: verdict.gate,
+      droppedFields: parsed.dropped,
+      // The whole point of §2a: a refusal leaves with everything the battery
+      // measured, not with the first reason it hit.
+      records: verdict.records ?? [],
+      channels: verdict.channels ?? [],
+      kind,
+      blockedBy: verdict.blockedBy ?? [],
+    };
   }
 
   let updates: UpdatesResolution | null = null;
@@ -463,7 +540,18 @@ export async function submitProposal(
     accepted: true,
   };
   if (!buffer.recordProposal(ctx.scope, record)) {
-    return { ...base, reason: "IO_FAILED", droppedFields: parsed.dropped };
+    // The battery DID run before this failure, so its records travel: an IO loss
+    // after a clean gate is a different story from a refusal, and the durable
+    // row is how the difference survives the process.
+    return {
+      ...base,
+      reason: "IO_FAILED",
+      droppedFields: parsed.dropped,
+      records: verdict.records ?? [],
+      channels: verdict.channels ?? [],
+      kind,
+      blockedBy: [],
+    };
   }
   buffer.emit("remember.proposal.accepted", proposal.id, {
     source: proposal.source,
@@ -482,6 +570,10 @@ export async function submitProposal(
     malformed: null,
     degradedToSpan: false,
     droppedFields: parsed.dropped,
+    records: verdict.records ?? [],
+    channels: verdict.channels ?? [],
+    kind,
+    blockedBy: [],
   };
 }
 

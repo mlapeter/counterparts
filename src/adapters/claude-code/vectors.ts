@@ -20,7 +20,16 @@
  *
  * **And the RANK travels with it, not the vector.** Measured hermetically at the
  * live index's size, `Store.nearestTo` over 13,862 vectors costs 590-1040 ms:
- * `cache.nearest` reads and JSON-parses every row. Handing the hot path a vector
+ * `cache.nearest` reads and JSON-parses every row.
+ *
+ * **Amended 2026-09-05, and the conclusion survives.** Box 3 now stores vectors
+ * as float32 BLOBs, and the same scan measures ~50 ms at 14,000×1,024
+ * (`store/NOTES.md`) — so the SCAN half of this argument is largely paid off.
+ * The other half is not: the network call is still a network call, and it is
+ * the one that cannot be raced against a 1200 ms synchronous budget. Ranking
+ * stays in the worker for that reason alone.
+ *
+ * Handing the hot path a vector
  * would have moved the network call off it and left that scan on it — the same
  * abort one layer down. So this file embeds AND ranks, and stores the top-M
  * `{id, score}` slice as per-session gate state (`recall/session.ts`).

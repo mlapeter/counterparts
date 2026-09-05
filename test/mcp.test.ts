@@ -782,6 +782,44 @@ describe("recall — deliberate retrieval", () => {
     }
   });
 
+  test("a chapter comes back, and comes back LABELED journal — on every path (I14)", async () => {
+    // The ruling of 2026-09-04: a chapter about the lighthouse conversation may
+    // rightly come to mind, so nothing here is filtered out. What changes is
+    // that the row says what it is, at the door the model reads.
+    const s = server();
+    seed(s.counterpart);
+    const chapter = s.counterpart.store.put({
+      type: "episode",
+      kind: "self",
+      title: "The lighthouse conversation",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
+      source: "episode",
+    });
+    const memory = s.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "Fernbrook Point",
+      body: "The lighthouse at Fernbrook Point stopped turning in 1974 when the keeper left.",
+    });
+
+    // The question path: both rows come back, one of them flagged.
+    const asked = payload(await s.call("recall", { question: "the lighthouse at Fernbrook Point" }));
+    const rows = asked["memories"] as { id: string; journal: boolean }[];
+    const chapterRow = rows.find((m) => m.id === chapter);
+    expect(chapterRow).toBeDefined();
+    expect(chapterRow?.journal).toBe(true);
+    const memoryRow = rows.find((m) => m.id === memory);
+    expect(memoryRow).toBeDefined();
+    expect(memoryRow?.journal).toBe(false);
+    // The word is glossed once in the payload, next to the tier glosses, so the
+    // flag is not a bare boolean the reader has to guess the meaning of.
+    expect(String(asked["journal"])).toContain("not a memory");
+
+    // And the exact-address path says the same thing about the same row.
+    const expanded = payload(await s.call("recall", { handle: chapter }));
+    expect((expanded["memories"] as { journal: boolean }[])[0]?.journal).toBe(true);
+  });
+
   test("a question answers in labeled tiers, and reports what it considered separately from what it returned", async () => {
     const s = server();
     seed(s.counterpart);
@@ -845,6 +883,40 @@ describe("recall — deliberate retrieval", () => {
     // not — so assert they now agree rather than only that one of them answers.
     const byHandle = payload(await s.call("recall", { handle: id }));
     expect(byHandle["reason"]).toBe("expanded");
+  });
+
+  test("I13 — REVISING the first note does not make it dark again", async () => {
+    // The same cold-stranger store one step further on. `revision.ts:385` calls
+    // `store.supersede` when a declared `updates:` crosses a belief's bar or
+    // replaces a "now" fact; the head is archived and keeps its `doc_tokens`
+    // rows, so `df(sourdough)` read 2 against `storeSize` 1 and
+    // `informativeness` returned exactly zero — the N=1 symptom, restored by a
+    // revision. The setup calls `supersede` directly because the `note` door's
+    // own `updates:` on an ordinary memory is LINK-ONLY by owner ruling; the
+    // door under test here is `recall`.
+    const s = server();
+    const first = payload(
+      await s.call("note", {
+        text: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+      }),
+    )["id"] as string;
+    const successor = s.counterpart.store.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding and is healthy.",
+    });
+
+    const result = payload(
+      await s.call("recall", { question: "what happened to my sourdough starter" }),
+    );
+    expect(result["storeSize"]).toBe(1);
+    expect(result["reason"]).toBe("answered");
+    expect(result["considered"] as number).toBeGreaterThan(0);
+    const ids = (result["memories"] as { id: string }[]).map((m) => m.id);
+    expect(ids).toContain(successor);
+    // The superseded head is not delivered — it never was, and that is the half
+    // that was already right. What changed is that it no longer votes on rarity.
+    expect(ids).not.toContain(first);
   });
 
   test("N=2 and N=3 at the note door: the first note keeps answering as the store grows", async () => {

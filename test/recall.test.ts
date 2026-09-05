@@ -848,6 +848,60 @@ describe("the bounded injection", () => {
     expect(res.text).not.toContain("a gist for mem_c");
   });
 
+  test("a chapter is DELIVERED like anything else, and every line of it says journal (I14)", () => {
+    // The label is on the LINE, not on the decision: a chapter may rightly come
+    // to mind, and must never be read as a memory. Negative control included —
+    // an ordinary memory carries no prefix at all.
+    const mixed = (id: string) => ({
+      title: `title for ${id} with a reasonably long tail of words`,
+      gist: `a gist for ${id} that runs on for quite a while so it can be trimmed and clipped`,
+      journal: id.startsWith("epi_"),
+    });
+    const res = render(
+      {
+        turn: 4,
+        affectFlag: false,
+        surfaced: ["epi_ch1"],
+        footnotes: ["epi_ch2", "mem_c"],
+        budgetBytes: 4096,
+        gistBytes: 240,
+        titleBytes: 80,
+        pressureRatio: 0.9,
+      },
+      mixed,
+    );
+    const lines = res.text.split("\n");
+    const lineFor = (id: string) => lines.find((l) => l.includes(id.startsWith("epi_") ? `for ${id}` : `[${id}]`)) ?? "";
+    // Both tiers, both marked, with the label in FRONT of the content.
+    expect(lineFor("epi_ch1").startsWith(`- ${FRAMING.journal} `)).toBe(true);
+    expect(lines.find((l) => l.includes("[epi_ch2]"))?.startsWith(`- ${FRAMING.journal} `)).toBe(true);
+    // And the memory is not marked: the label distinguishes, so it must not be
+    // on everything.
+    expect(lineFor("mem_c")).not.toContain(FRAMING.journal);
+  });
+
+  test("end to end: a chapter that comes to mind arrives labelled journal (I14)", () => {
+    const s = store();
+    seed(s);
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
+      source: "episode",
+    });
+    const r = new Recall({ store: s, owner: true });
+    const out = r.recall({ sessionId: "s1", text: "what did we say about the lighthouse at Fernbrook Point?" });
+    const epi = delivered(out.decision).filter((id) => id.startsWith("epi_"));
+    // The ruling keeps it RECALLABLE. If the activation pass stopped delivering
+    // it, this test would be asserting nothing, so it says so out loud.
+    expect(epi.length).toBeGreaterThan(0);
+    for (const line of out.injection.split("\n")) {
+      if (!line.startsWith("- ")) continue;
+      const isChapter = line.includes("lighthouse") || epi.some((id) => line.includes(`[${id}]`));
+      if (isChapter) expect(line.startsWith(`- ${FRAMING.journal} `)).toBe(true);
+    }
+  });
+
   test("delivery is checked separately from rendering — 'we rendered it' is not 'they got it'", () => {
     const s = store();
     seed(s);
@@ -1192,6 +1246,10 @@ describe("cue length normalization", () => {
  * with a 1200 ms budget cannot pay that, so the ranking is done ONE TURN EARLIER
  * by the detached worker and crosses the lag as `{id, score}`.
  *
+ * (2026-09-05: the scan is float32 now and measures ~50 ms at that size. The
+ * embedding CALL is what still cannot be raced, so the lag stays — and so does
+ * this property, which is about the index not being consulted at all.)
+ *
  * Which makes this the property worth mechanizing: supplied hits must reach the
  * activation pass WITHOUT the index being consulted at all.
  */
@@ -1498,5 +1556,140 @@ describe("document frequency is counted (§9 G4 at scale)", () => {
     );
     expect(probes).toBe(out.cues.length);
     expect(probes).toBeLessThanOrEqual(TUNABLES.MAX_CUES);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// I13 — the two denominators: `df` counted dead rows, `storeSize` counted live
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * `informativeness(df, storeSize)` reads two numbers that came from two boxes.
+ * `storeSize` is `store.list({ archived: false }).length` (box 2, LIVE rows);
+ * `df` was `COUNT(*)` over `doc_tokens` (box 3, EVERY row ever indexed). A row
+ * that is archived or superseded leaves the first count and stayed in the
+ * second, so `df > storeSize` was reachable — and at `df >= storeSize` the
+ * smoothing returns exactly zero for that token, which is the re-zeroing NOTES
+ * §12 named at N=1 arriving through a different door.
+ *
+ * The production caller is `revision.ts:385` — `store.supersede(...)` — which is
+ * what a resolved `updates:` runs when it crosses a belief's bar or replaces a
+ * "now" fact. `store.archive(...)` is the other producer (sleep's dedup and
+ * consolidation).
+ */
+describe("I13 — document frequency counts LIVE rows", () => {
+  test("a superseded head no longer counts toward df (the invariant, at N=1)", () => {
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+
+    const live = s.list({ archived: false });
+    expect(live).toEqual([successor]);
+    // The bug in one line: two indexed documents held `sourdough`, one live row
+    // exists, and rarity is read against the live count.
+    expect(s.docFrequency(["sourdough"]).get("sourdough")).toBe(1);
+    expect(informativeness(1, live.length)).toBeGreaterThan(0);
+  });
+
+  test("an archived sibling no longer counts toward df", () => {
+    const s = store();
+    const kept = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const gone = put(s, { body: "The zygomorphic orchid was moved to the north window." });
+    s.archive(gone, "duplicate");
+
+    expect(s.list({ archived: false })).toEqual([kept]);
+    expect(s.docFrequency(["zygomorphic"]).get("zygomorphic")).toBe(1);
+  });
+
+  test("df never exceeds storeSize, over a store that has archived and superseded", () => {
+    const s = store();
+    seed(s);
+    const a = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const b = put(s, { body: "The zygomorphic orchid was moved to the north window." });
+    s.supersede(a, {
+      type: "memory",
+      kind: "fact",
+      body: "The zygomorphic orchid bloomed twice this year.",
+    });
+    s.archive(b, "duplicate");
+
+    const storeSize = s.list({ archived: false }).length;
+    const tokens = ["zygomorphic", "orchid", "the", "bloomed"];
+    for (const [token, df] of s.docFrequency(tokens)) {
+      expect({ token, withinStore: df <= storeSize }).toEqual({ token, withinStore: true });
+    }
+  });
+
+  test("a dead row does not occupy a candidate slot in the index either", () => {
+    // The second half of the same fact. `activate` already refuses an archived
+    // or superseded hit — it counts them as `skipped` — but only AFTER the index
+    // has spent `PER_CUE_FETCH` slots on them, so the candidate SET was narrowed
+    // by rows that could never be delivered. Same shape as the length-norm bug
+    // the CONTRACT describes: re-ranking a wrong set is not choosing a right one.
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+    expect(s.search("sourdough", 10).map((h) => h.id)).toEqual([successor]);
+  });
+
+  test("the CORE door: revising the first memory in a fresh store keeps it findable", () => {
+    // The reported symptom, at the core door. Before the fix this answered with
+    // no cues at all: `df(sourdough) = 2` against `storeSize = 1` gives
+    // `log((2 + 2) / (2 * 2)) = 0`, `buildCues` drops every zero-weight cue, and
+    // the index is never probed.
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+
+    const out = new Recall({ store: s, owner: true }).recall({
+      sessionId: "s1",
+      text: "what happened to my sourdough starter",
+    });
+    expect(out.decision.storeSize).toBe(1);
+    expect(out.decision.cueCount).toBeGreaterThan(0);
+    expect(out.decision.reason).toBe("rendered");
+    expect(delivered(out.decision)).toContain(successor);
+  });
+
+  test("the CORE door: an archived sibling does not blind the live memory", () => {
+    const s = store();
+    const kept = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    const gone = put(s, { body: "The zygomorphic orchid was moved to the north window." });
+    s.archive(gone, "duplicate");
+
+    const out = new Recall({ store: s, owner: true }).recall({
+      sessionId: "s1",
+      text: "why did the zygomorphic orchid bloom",
+    });
+    expect(out.decision.storeSize).toBe(1);
+    expect(out.decision.reason).toBe("rendered");
+    expect(delivered(out.decision)).toContain(kept);
+  });
+
+  test("rebuildCache does not put the dead rows back", () => {
+    // `verify --rebuild` is a supported operation, and a rebuild that re-indexed
+    // archived rows would buy the bug back on the owner's next repair.
+    const s = store();
+    const first = put(s, { body: "The sourdough starter died after two weeks of neglect." });
+    const successor = s.supersede(first, {
+      type: "memory",
+      kind: "fact",
+      body: "The sourdough starter recovered after a week of daily feeding.",
+    });
+    const report = s.rebuildCache();
+    expect(report.indexed).toBe(1);
+    expect(s.docFrequency(["sourdough"]).get("sourdough")).toBe(1);
+    expect(s.search("sourdough", 10).map((h) => h.id)).toEqual([successor]);
   });
 });

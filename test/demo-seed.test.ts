@@ -184,6 +184,53 @@ describe("the rich store", () => {
     expect(report.refusals).toEqual([]);
   });
 
+  /**
+   * §I7: the demo store's dates are the DEMO'S dates.
+   *
+   * Before the two clocks, `store.put` defaulted `learnedOn` to the ambient day,
+   * so 156 of the 172 rows a run wrote carried the day the seeder happened to
+   * run and every line of the wake read "learned <today>". A store whose whole
+   * job is to be photographed cannot say that.
+   */
+  test("every row is dated by the day of the story, not the day of the run", () => {
+    const s = Store.open({ dir, observer: true });
+    try {
+      const scripted = new Set(DAYS.map((d) => d.date));
+      const dates = new Map<string, number>();
+      for (const id of s.list()) {
+        const learned = s.readProse(id).learnedOn;
+        dates.set(learned, (dates.get(learned) ?? 0) + 1);
+      }
+      // Thirty scripted days plus prehistory's one — never one date for everything.
+      expect(dates.size).toBeGreaterThanOrEqual(20);
+      expect(dates.has(new Date().toISOString().slice(0, 10))).toBe(false);
+      for (const [date, n] of dates) {
+        // Every date is either a day the script names or prehistory's own.
+        expect(`${date}=${scripted.has(date) || date === "2026-01-12"}  (${n} rows)`).toBe(
+          `${date}=true  (${n} rows)`,
+        );
+      }
+      // The last scripted day is reachable: the clock did not drift off the end.
+      expect(dates.has(DAYS[DAYS.length - 1]?.date ?? "")).toBe(true);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("the wake opens its lines with the story's dates, not one repeated date", () => {
+    const s = Store.open({ dir, observer: true });
+    let briefing = "";
+    try {
+      briefing = s.getMeta("self.briefing") ?? "";
+    } finally {
+      s.close();
+    }
+    const dated = [...briefing.matchAll(/^- (\d{4}-\d{2}-\d{2}) ·/gm)].map((m) => m[1] ?? "");
+    expect(dated.length).toBeGreaterThan(10);
+    expect(new Set(dated).size).toBeGreaterThan(5);
+    expect(dated.includes(new Date().toISOString().slice(0, 10))).toBe(false);
+  });
+
   test("thirty lived days, advanced by real sleep cycles", () => {
     expect(report.livedDays).toBe(30);
   });

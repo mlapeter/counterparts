@@ -135,6 +135,38 @@ export interface GateRecordSummary {
   readonly refusalsByReason: Readonly<Record<string, number>>;
 }
 
+/**
+ * One AUTHORED deposit's gate record, read back from the same durable log
+ * (`gate.deposit`, INTERFACE-GAPS §2a).
+ *
+ * KEPT SEPARATE FROM `gateRecords` ON PURPOSE. The two record kinds share the
+ * battery and share the fire vocabulary — so the refusal MIX is legitimately a
+ * sum over both — but they do not share a denominator anywhere else. A deposit
+ * is one proposal, not a chunk; it is preselected against nothing, so folding
+ * these rows into `gateRecords` would drag `preselect.meanSchemasShown` toward
+ * zero with a number that was never measured, and put chunks that do not exist
+ * into `gate.chunkBlockRate`. Two arrays, one vocabulary, and each metric says
+ * which it counts over.
+ */
+export interface DepositRecordSummary {
+  /** The redacted draft's content hash — an address, never the text. */
+  readonly contentHash: string;
+  readonly day: number;
+  readonly scope: string;
+  /** Which authored door: `jot`, `session-end`, … */
+  readonly source: string;
+  readonly accepted: boolean;
+  readonly kind: string;
+  /** Gate ACTIONS by gate name, counted by the same rule `gate.chunk` uses. */
+  readonly fires: Readonly<Record<string, number>>;
+  /** Refusals by blocking reason — the same closed vocabulary. */
+  readonly refusalsByReason: Readonly<Record<string, number>>;
+  /** Every reason the battery blocked on, unjoined. Empty on the accept arm. */
+  readonly blockedBy: readonly string[];
+  /** Per-gate status by gate name (`clear`, `fired`, `rejected`, …). */
+  readonly statuses: Readonly<Record<string, string>>;
+}
+
 /** One band crossing, by DIRECTION, read back from the durable log. */
 export interface BandTransitionSummary {
   readonly day: number;
@@ -268,6 +300,8 @@ export interface ReplayObservation {
   readonly chunks: readonly ChunkSummary[];
   /** The chunk gate's own records, read back from the store's DURABLE log. */
   readonly gateRecords: readonly GateRecordSummary[];
+  /** The AUTHORED door's gate records, from the same log (§2a). */
+  readonly depositRecords: readonly DepositRecordSummary[];
   /** Band crossings by direction, from the same log. */
   readonly bandTransitions: readonly BandTransitionSummary[];
   /** The per-kind symmetry verdicts each cycle rendered. */
