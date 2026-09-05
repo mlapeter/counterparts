@@ -485,6 +485,27 @@ else
   ok
 fi
 
+step "an absolute --config that is NOT THERE stands the hook down too"
+# The hole the PR's own review found: an absolute path to a file that does not
+# exist was honoured silently — read as an absent config, resolved to observer,
+# and then fallen through to the default data dir, which on a machine with an
+# install is the live store. A typo in the one flag that says WHICH MEMORY has
+# to be as loud as a typo in --dir already is.
+BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+OUT=$(payload SessionStart "install-loop-missing-$$" | counterparts-hook --config "$WORK/nowhere/claude-code.json" 2>"$WORK/hook-missing.err")
+CODE=$?
+AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CODE" = "0" ] && [ -z "$OUT" ] &&
+   grep -q "stood down" "$WORK/hook-missing.err" &&
+   grep -q "could not be read" "$WORK/hook-missing.err" &&
+   [ ! -e "$WORK/nowhere" ] &&
+   [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
+  ok
+else
+  no "a missing --config was not a clean stand-down (exit $CODE, sessions $BEFORE_SESSIONS -> $AFTER_SESSIONS)" "$OUT
+$(cat "$WORK/hook-missing.err")"
+fi
+
 step "a relative --config STANDS THE HOOK DOWN rather than using the default store"
 # The failure direction that matters: an entry point told to use a config it
 # cannot honour must not quietly fall back, because on a real machine the

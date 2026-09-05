@@ -214,8 +214,9 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
    otherwise. Saying otherwise is one rule at every entry point — the console, the hook,
    its worker and the MCP server: `--config <absolute path>`, else `COUNTERPARTS_CONFIG`,
    else the default `~/.counterparts/claude-code.json` (the console looks beside the store
-   first). A relative path is refused rather than quietly replaced by the default, and
-   each entry point says which file it used: the console prints it, the server and the
+   first). A named path this cannot use — relative, or absolute and not there — is
+   refused rather than quietly replaced by the default, and each entry point says
+   which file it used: the console prints it, the server and the
    worker write a line to stderr, and the hook — whose only output channel belongs to the
    model — records it in the session file it writes under the store. The hooks keep the
    one asymmetry that is left: they have no `--dir`, so they take the store from the

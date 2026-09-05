@@ -37,18 +37,30 @@
  *   resolved before this file existed. `defaultConfigPath()` is that path and
  *   nothing else consults it.
  *
- *   **A `--config` that cannot be honoured REFUSES; it never falls back.** An
- *   operator who names a configuration has said which memory they mean. Falling
+ *   **A NAMED configuration that cannot be honoured REFUSES; it never falls
+ *   back.** An operator who names one has said which memory they mean. Falling
  *   back to the default on a bad path is how a scratch run writes into a live
- *   store — the failure direction this whole file is a reaction to. So a
- *   relative path, or a flag with nothing after it, is a named refusal at every
- *   entry point (the hook stands down and exits 0, which is its only way to
- *   refuse without failing the host).
+ *   store — the failure direction this whole file is a reaction to. Three shapes
+ *   refuse, at every entry point that READS a configuration: a flag with nothing
+ *   after it, a relative path (`configRefusal`), and — because the first review
+ *   of this rule found the hole — an absolute path to a file that is not there
+ *   or does not parse (`namedConfigRefusal`). That third one is the dangerous
+ *   one: a mistyped `--config /scratch/typo.json` used to be honoured silently,
+ *   read as an absent config, resolved to observer, and then fall through to
+ *   `dataDir()` — which on a real machine is the owner's live store.
+ *
+ *   **An absent DEFAULT stays ordinary.** A fresh machine has no
+ *   `~/.counterparts/claude-code.json` and must still start; that path resolves
+ *   to the observer default as it always did. The distinction is `source`, and
+ *   it is why the check is a separate function rather than a line inside
+ *   `configRefusal`: `install --config <a path>` goes through the same resolver
+ *   and the file does not exist yet — writing it is the whole command.
  *
  * It sits beside `sessions.ts` for the same reason that file does: two adapters
  * need it, and neither adapter may import the other (`mcp/INTERFACE-GAPS.md`
  * §7). A sibling both may import is the shape that rule allows.
  */
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -164,6 +176,71 @@ export function resolveConfigPath(
     return { path: value, source: CONFIG_ENV, refusal: configRefusal(value, CONFIG_ENV) };
   }
   return { path: defaultConfigPath(home), source: "default", refusal: null };
+}
+
+/**
+ * Why a NAMED configuration cannot be read, or null — the second half of the
+ * refusal, for the entry points that READ a config file (`bin/hook.ts`,
+ * `bin/runner.ts`, `mcp/bin/serve.ts`).
+ *
+ * The hole this closes, reproduced by the review of PR #72 on 2026-09-05:
+ * `counterparts-hook --config /definitely/not/here/claude-code.json` exited 0,
+ * printed a wake, and wrote a store — because a read error is swallowed into
+ * `loadConfig(undefined)`, which is the observer default, and the data dir then
+ * falls through to `dataDir()`. On a machine with an install that is the live
+ * store. A typo in the one flag that says WHICH MEMORY was the one thing nothing
+ * would mention (the same sentence the console's `--dirr` refusal already
+ * carries).
+ *
+ * Two things it deliberately does NOT do:
+ *
+ *   - it says nothing about the DEFAULT path. Absent there is ordinary: a fresh
+ *     machine has no config and the hook must still stand up as an observer.
+ *   - it is not folded into `configRefusal`, because `counterparts install
+ *     --config <path>` resolves through the same rule and that file does not
+ *     exist yet — creating it is the command.
+ *
+ * The file is read here and read again by the caller's own loader. That is one
+ * extra read of a file measured in hundreds of bytes, and it keeps this module
+ * free of any adapter's config schema: what it checks is "can this be read, and
+ * is it a JSON object", which is the whole of what a caller needs to have been
+ * true.
+ */
+export function namedConfigRefusal(
+  choice: ConfigChoice,
+  read: (path: string) => string = (path) => readFileSync(path, "utf8"),
+): string | null {
+  if (choice.refusal !== null) return choice.refusal;
+  if (choice.source === "default") return null;
+  const named = choice.source === CONFIG_FLAG ? `${CONFIG_FLAG} <path>` : CONFIG_ENV;
+  let text: string;
+  try {
+    text = read(choice.path);
+  } catch (err) {
+    const code =
+      err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
+        ? (err as { code: string }).code
+        : "UNREADABLE";
+    return (
+      `refused: ${named} names ${choice.path}, which could not be read (${code}). ` +
+      "A configuration you named is not one this can guess at: the default would be a " +
+      "different store, and using it silently is how a scratch run writes into a live one."
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return (
+      `refused: ${named} names ${choice.path}, which is not a JSON object. ` +
+      "An unreadable configuration resolves to observer, and an observer that was " +
+      "POINTED at a file is a stand-down nobody asked for — so this says so instead."
+    );
+  }
+  return null;
 }
 
 /** The one line every entry point prints or records. Path first: it is the fact. */

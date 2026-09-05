@@ -123,10 +123,23 @@ a real hook process.
 Three decisions worth keeping:
 
 **A named configuration that cannot be honoured refuses; it never falls back.**
-A relative `--config` is a stand-down: one line on stderr, exit 0, nothing
-injected. Falling back to the default would mean a scratch run writing into the
-live store, which is the accident the whole rule is a reaction to. The refusal
-direction costs nothing on the live host, which never names a configuration.
+A `--config` that is relative, or absolute and not there, or not a JSON object,
+is a stand-down: one line on stderr, exit 0, nothing injected. Falling back to
+the default would mean a scratch run writing into the live store, which is the
+accident the whole rule is a reaction to. The refusal direction costs nothing on
+the live host, which never names a configuration.
+
+The MISSING-FILE arm was not in the first version, and the review of PR #72
+(2026-09-05) reproduced what that cost: `--config /definitely/not/here.json`
+exited 0, printed a wake and minted a store. The read error is swallowed into
+`loadConfig(undefined)` — the observer default, which is the right fail direction
+for a config nobody named — and the data dir then falls through to `dataDir()`.
+So a typo in the one flag that says WHICH MEMORY landed on the live store, which
+is the same shape as the `--dirr` finding the console already refuses. The check
+is `namedConfigRefusal`, a separate function rather than a line inside
+`configRefusal`, because `install --config <path>` resolves through the same rule
+and its file does not exist yet: writing it is the command. An absent DEFAULT
+stays ordinary — a fresh machine has none and the hook must still stand up.
 
 **The hook RECORDS rather than prints, and the record is the session file.** A
 hook's stdout is the model's context and its stderr is a host log nobody reads,

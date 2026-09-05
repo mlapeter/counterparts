@@ -17,7 +17,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { dataDir } from "../../../core/store/index.js";
-import { defaultConfigPath, resolveConfigPath } from "../../config-path.js";
+import { defaultConfigPath, namedConfigRefusal, resolveConfigPath } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
@@ -139,8 +139,14 @@ async function main(): Promise<void> {
   // than guessed. A caller who named one and named it badly gets a stand-down,
   // never a silent fall-back onto the default store (`config-path.ts`).
   const choice = hookConfigChoice();
-  if (choice.refusal !== null) {
-    process.stderr.write(`[counterparts] hook stood down: ${choice.refusal}\n`);
+  // `namedConfigRefusal` covers the flag's own refusals AND the one the first
+  // review of this rule found: an absolute path to a file that is not there was
+  // honoured silently, read as an absent config, and fell through to `dataDir()`
+  // — the live store on any machine with an install. An absent DEFAULT is still
+  // ordinary; this only ever refuses a path somebody named.
+  const refusal = namedConfigRefusal(choice);
+  if (refusal !== null) {
+    process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
     return;
   }
   const { config, credentials } = hostConfig(choice.path);

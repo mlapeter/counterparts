@@ -94,5 +94,7 @@ Two properties, both deliberate:
   QUICKSTART §10.3 and leave the docs claiming the other half.
 - **A named configuration that cannot be honoured refuses the launch** — exit 1,
   the reason on stderr — rather than falling back to a default that, on a machine
-  with an install, is somebody else's keys. The server also writes the file it
+  with an install, is somebody else's keys. "Cannot be honoured" includes an
+  absolute path to a file that is not there, which the first version honoured
+  silently (`claude-code/NOTES.md` §11). The server also writes the file it
   read to stderr at every launch, before a byte of protocol: stdout is the wire.

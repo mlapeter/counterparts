@@ -39,6 +39,7 @@ import {
   configFlag,
   configLine,
   defaultConfigPath,
+  namedConfigRefusal,
   resolveConfigPath,
 } from "../src/adapters/config-path.js";
 import { recordSession, readSession } from "../src/adapters/sessions.js";
@@ -58,6 +59,8 @@ import type { Io } from "../src/adapters/cli/commands.js";
 import { hookCommand, mcpCommand, installLayout } from "../src/adapters/cli/install.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
+const RUNNER_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/runner.ts");
+const SERVE_SCRIPT = resolve(import.meta.dir, "../src/adapters/mcp/bin/serve.ts");
 
 let work: string;
 const open: { close(): void }[] = [];
@@ -187,6 +190,34 @@ describe("the rule itself", () => {
     expect(resolveConfigPath([CONFIG_FLAG, "--dir"], {}, work).refusal).toContain("given nothing");
     expect(resolveConfigPath([], { [CONFIG_ENV]: "rel/path.json" }, work).refusal).toContain(
       "ABSOLUTE",
+    );
+  });
+
+  test("a NAMED file that is not there refuses; an absent DEFAULT is ordinary", () => {
+    // The hole the first review of this rule found: an absolute path to a file
+    // that does not exist was honoured silently — read as an absent config,
+    // resolved to observer, and then fallen through to `dataDir()`, which on a
+    // machine with an install is the live store.
+    const missing = join(work, "nowhere", "claude-code.json");
+    expect(namedConfigRefusal(resolveConfigPath([CONFIG_FLAG, missing], {}, work))).toContain(
+      "could not be read",
+    );
+    expect(namedConfigRefusal(resolveConfigPath([], { [CONFIG_ENV]: missing }, work))).toContain(
+      "could not be read",
+    );
+    // The DEFAULT is allowed to be absent: a fresh machine has no config and the
+    // hook still has to stand up as an observer.
+    expect(namedConfigRefusal(resolveConfigPath([], {}, join(work, "fresh-home")))).toBe(null);
+    // A named file that is there, and is an object, is honoured.
+    const good = writeConfig(join(work, "good", "claude-code.json"), { dataDir: work });
+    expect(namedConfigRefusal(resolveConfigPath([CONFIG_FLAG, good], {}, work))).toBe(null);
+    // A named file that is NOT a JSON object would resolve to observer — a
+    // stand-down nobody asked for. It says so instead.
+    const junk = join(work, "junk", "claude-code.json");
+    mkdirSync(join(junk, ".."), { recursive: true });
+    writeFileSync(junk, "not json at all\n");
+    expect(namedConfigRefusal(resolveConfigPath([CONFIG_FLAG, junk], {}, work))).toContain(
+      "not a JSON object",
     );
   });
 
@@ -329,6 +360,22 @@ describe("the console", () => {
     ).toBe(0);
     expect(viaEnv.out.join("\n")).toContain(`budget 4321 bytes from ${named}`);
     expect(viaEnv.out.join("\n")).toContain(`(named by ${CONFIG_ENV})`);
+
+    // A named config that is not there refuses here too, by the route this
+    // command already had: it is the only path `hostCeiling` searched, and the
+    // refusal lists it as absent. `rebrief` composes nothing under a ceiling
+    // from a file the caller did not name.
+    const missing = consoleWith();
+    expect(
+      await run(["rebrief", "--dir", store, CONFIG_FLAG, join(work, "nowhere.json")], {
+        io: missing.io,
+        env: {},
+        home: work,
+      }),
+    ).toBe(2);
+    expect(missing.err.join("\n")).toContain("no injection ceiling");
+    expect(missing.err.join("\n")).toContain("(absent)");
+    expect(missing.err.join("\n")).toContain(join(work, "nowhere.json"));
 
     const bad = consoleWith();
     expect(
@@ -533,6 +580,88 @@ describe("the hook, as a real process", () => {
       const record = join(decoyStore, "sessions", "default-driven.json");
       expect(existsSync(record)).toBe(true);
       expect(JSON.parse(readFileSync(record, "utf8"))["config"]).toBe(decoyConfig);
+    },
+    60_000,
+  );
+
+  test(
+    "an absolute --config that is NOT THERE stands the hook down and writes nothing",
+    () => {
+      // The reviewer's reproduction, as a test: a mistyped path used to exit 0,
+      // print a wake, and mint a store — at `dataDir()`, which is the live store
+      // on any machine with an install. The data dir is named here so that a
+      // regression writes into this temp dir and is caught, rather than
+      // anywhere else.
+      const home = join(work, "home-missing");
+      const dataDir = join(work, "data-missing");
+      const r = runHook(
+        [CONFIG_FLAG, join(work, "nowhere", "claude-code.json")],
+        { HOME: home, USERPROFILE: home, COUNTERPARTS_DATA_DIR: dataDir },
+        "missing",
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("stood down");
+      expect(r.stderr).toContain("could not be read");
+      // Nothing was minted anywhere: not at the named path's store, not at the
+      // data dir the environment offered, not under the home.
+      expect(existsSync(dataDir)).toBe(false);
+      expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    },
+    60_000,
+  );
+
+  test(
+    "the WORKER refuses a named config that is not there, and opens no store",
+    () => {
+      const home = join(work, "home-worker");
+      const dataDir = join(work, "data-worker");
+      const r = spawnSync(process.execPath, ["run", RUNNER_SCRIPT], {
+        encoding: "utf8",
+        env: {
+          PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+          HOME: home,
+          USERPROFILE: home,
+          COUNTERPARTS_DATA_DIR: dataDir,
+          [CONFIG_ENV]: join(work, "nowhere", "claude-code.json"),
+        },
+        timeout: 60_000,
+      });
+      // A worker never fails the host either: it says so and exits 0.
+      expect(r.status).toBe(0);
+      expect(r.stderr ?? "").toContain("worker stood down");
+      expect(existsSync(dataDir)).toBe(false);
+    },
+    60_000,
+  );
+
+  test(
+    "the MCP SERVER refuses a named config that is not there, and serves nothing",
+    () => {
+      const home = join(work, "home-serve");
+      const dataDir = join(work, "data-serve");
+      const r = spawnSync(
+        process.execPath,
+        ["run", SERVE_SCRIPT, CONFIG_FLAG, join(work, "nowhere", "claude-code.json")],
+        {
+          input:
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}\n',
+          encoding: "utf8",
+          env: {
+            PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+            HOME: home,
+            USERPROFILE: home,
+            COUNTERPARTS_DATA_DIR: dataDir,
+          },
+          timeout: 60_000,
+        },
+      );
+      // Unlike the two hook-side processes, a server that cannot start SAYS so
+      // with a non-zero exit: nothing downstream is waiting on it to be quiet.
+      expect(r.status).toBe(1);
+      expect(r.stdout ?? "").toBe("");
+      expect(r.stderr ?? "").toContain("could not be read");
+      expect(existsSync(dataDir)).toBe(false);
     },
     60_000,
   );

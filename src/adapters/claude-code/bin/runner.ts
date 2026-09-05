@@ -39,7 +39,12 @@ import { fileURLToPath } from "node:url";
 import { Counterpart } from "../../../core/counterpart.js";
 import { dataDir } from "../../../core/store/index.js";
 
-import { configLine, defaultConfigPath, resolveConfigPath } from "../../config-path.js";
+import {
+  configLine,
+  defaultConfigPath,
+  namedConfigRefusal,
+  resolveConfigPath,
+} from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 
 import { loadConfig } from "../config.js";
@@ -292,11 +297,15 @@ export function runnerConfig(
 
 async function main(): Promise<void> {
   const choice = runnerConfigChoice();
-  if (choice.refusal !== null) {
+  const refusal = namedConfigRefusal(choice);
+  if (refusal !== null) {
     // Same direction as the hook: a worker told to read a configuration it
-    // cannot resolve does NOT fall back to the default store. It says so and
-    // exits 0 — nothing about a failed run may reach the host.
-    process.stderr.write(`[counterparts] worker stood down: ${choice.refusal}\n`);
+    // cannot resolve — relative, or absolute and not there — does NOT fall back
+    // to the default store. It says so and exits 0: nothing about a failed run
+    // may reach the host. This one matters even though the spawner pins a path
+    // the parent already read, because the pin travels through an environment
+    // and a file can be moved between the two processes.
+    process.stderr.write(`[counterparts] worker stood down: ${refusal}\n`);
     return;
   }
   const { config, credentials } = runnerConfig(choice.path);

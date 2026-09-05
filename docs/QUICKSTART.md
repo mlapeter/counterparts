@@ -213,11 +213,21 @@ The environment variable is the flag's equivalent, for hosts that launch a
 process from a static registration and have no command line to write into —
 which is exactly how Claude Code launches an MCP server (§4).
 
-A relative path is **refused**, at every entry point, and nothing falls back to
-the default: naming a configuration is how you say which memory you mean, and
-quietly using another one is how a scratch run writes into a live store. The hook
-refuses by standing down — one line on stderr, exit 0, nothing injected — because
-a hook never fails the host.
+A path you named and this cannot use is **refused**, at every entry point that
+reads a configuration, and nothing falls back to the default: naming a
+configuration is how you say which memory you mean, and quietly using another one
+is how a scratch run writes into a live store. Three shapes refuse — a relative
+path, an absolute path to a file that is not there, and a file that is not a JSON
+object. **The mistyped path is the one that matters**: before 2026-09-05 it was
+honoured silently, read as "no configuration", and the store then fell back to
+the default one. An absent *default* is still ordinary, because a fresh machine
+has none and the hook must still start.
+
+The hook refuses by standing down — one line on stderr, exit 0, nothing injected
+— because a hook never fails the host. The MCP server refuses by not starting
+(exit 1). `counterparts install` is the exception to all of this: `--config`
+names the file it is about to *write*, so a path that does not exist yet is the
+ordinary case there.
 
 `--config` on `install` moves the whole base: the configuration goes where you
 said, `credentials.env` goes beside it, and the store defaults to `store/`
@@ -567,8 +577,9 @@ echo '{"hook_event_name":"SessionStart","session_id":"smoke","cwd":"'"$PWD"'"}' 
 It then works on the store THAT file names, and records which configuration sent
 it there in `<dataDir>/sessions/smoke.json` — a hook has no way to print such a
 thing to you, so it writes it down. `COUNTERPARTS_CONFIG` does the same for a
-whole shell. A relative path is refused: the hook writes one line on stderr, exits
-0, and injects nothing rather than falling back to the default store.
+whole shell. A path that is relative, or absolute but not there, is refused: the
+hook writes one line on stderr, exits 0, and injects nothing rather than falling
+back to the default store.
 
 ### Give the wake something to say before a first real session
 
@@ -644,8 +655,9 @@ repo on its PATH and checks, every time:
   before it existed: `counterparts-hook --config <a second config>` works on the
   store that file names, records it in the session file, and leaves the default
   store untouched; `COUNTERPARTS_CONFIG` launches `counterparts-mcp` on a named
-  configuration; and a relative path refuses at both — the hook by standing down
-  at exit 0, the server by not starting;
+  configuration; and a path that is named but unusable — relative, or absolute and
+  not there — refuses at both, the hook by standing down at exit 0, the server by
+  not starting;
 - `rebrief` names the file its injection ceiling came from, falls back to the
   hooks' config for a store that has none beside it, and refuses — listing every
   path it tried — when nothing supplies one;
@@ -666,7 +678,7 @@ The fifth host behaviour — `session_end` binding to a live session **through t
 registry**, since the server is never told a session id — the loop now does
 exercise, end to end: the hook writes `sessions/<id>.json`, a separate
 `counterparts-mcp` process is given only the data dir and the scope, and its
-`session_end` binds to that record and mints the memory (loop step 27; the
+`session_end` binds to that record and mints the memory (loop step 28; the
 refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
 step fails on). What is still unverified is the same thing as above: that this
 happens inside a real Claude Code session, where the id comes from the host
@@ -730,3 +742,18 @@ rather than from a script.
    the Markdown grows as the modules record what they learned). Deliberate: those files are what
    `src/` is documented by, and this page points at them. Delete `src/**/*.md`
    from your install if you would rather not carry them.
+8. **A configuration the hooks cannot read is a silent session with no memory.**
+   A named configuration that is missing, unreadable or not JSON is refused (§3),
+   and the refusal happens before anything opens, so a stood-down hook leaves no
+   ring event, no session record, nothing durable — the right choice (it will not
+   write into a store it was not told about) with an unhelpful symptom: nothing
+   happens, and nothing says why. Two lines diagnose it:
+
+   ```
+   echo '{"hook_event_name":"SessionStart","session_id":"smoke","cwd":"'"$PWD"'"}' | counterparts-hook
+   env | grep COUNTERPARTS_CONFIG
+   ```
+
+   The first prints the stand-down reason on stderr; the second finds a stale
+   `COUNTERPARTS_CONFIG` exported into the environment Claude Code was launched
+   from, which is the likeliest cause and the hardest to see.

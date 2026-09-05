@@ -29,7 +29,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-import { configLine, defaultConfigPath, resolveConfigPath } from "../../config-path.js";
+import {
+  configLine,
+  defaultConfigPath,
+  namedConfigRefusal,
+  resolveConfigPath,
+} from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
 import { loadConfig } from "../../claude-code/config.js";
 import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
@@ -161,11 +166,13 @@ export function serverConfigChoice(
 async function main(): Promise<void> {
   const opts = launchOptions(process.argv.slice(2), process.env);
   const choice = serverConfigChoice();
-  if (choice.refusal !== null) {
-    // A server told to read a configuration it cannot resolve does not fall back
-    // to the default one: on a machine with an install, that default is somebody
-    // else's keys. It refuses to start, loudly, on stderr.
-    process.stderr.write(`${choice.refusal}\n`);
+  const refusal = namedConfigRefusal(choice);
+  if (refusal !== null) {
+    // A server told to read a configuration it cannot resolve — relative, or
+    // absolute and not there — does not fall back to the default one: on a
+    // machine with an install, that default is somebody else's keys. It refuses
+    // to start, loudly, on stderr.
+    process.stderr.write(`${refusal}\n`);
     process.exitCode = 1;
     return;
   }
