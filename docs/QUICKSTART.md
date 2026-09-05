@@ -453,6 +453,15 @@ counterparts-dashboard status --dir "$HOME/.counterparts/store"
 The same store, rendered. `browse`, `stories` and the other views take `--id`,
 `--limit`, `--band`, `--kind`.
 
+Pointed with `--dir` at a directory with no store in it, both consoles say `No
+store at <dir>. Run 'counterparts init --dir <dir>' to create one.` and exit 1 — a
+census of nothing at all is not a success, and a script wrapping `counterparts
+status` should hear about a mistyped `--dir` rather than sail past it. Neither
+one creates the store by looking for it.
+
+Every command has its own help: `counterparts <command> --help` prints what
+that command does and every flag it takes, and opens nothing.
+
 ### Remove a memory, and read what removal does not reach
 
 ```
@@ -600,8 +609,14 @@ rather than from a script.
 
 ## 10. Known rough edges
 
-1. **Three entry points, two ways to name the store.** `counterparts` and
-   `counterparts-dashboard` read `--dir` or `COUNTERPARTS_DATA_DIR`;
+1. **Three entry points, two ways to name the store — and one deliberate
+   exception.** `counterparts` and `counterparts-dashboard`'s **views** read
+   `--dir` or `COUNTERPARTS_DATA_DIR`. `counterparts-dashboard serve` is the
+   exception: it takes `--dir` and **refuses** to take the store from
+   `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that variable
+   with the live store's path in it and `serve` puts a whole memory on a socket
+   in a browser — that choice is made in the command or not at all. `--yes`
+   means the default (and reads the variable) if you want it.
    `counterparts-mcp` reads `--dir` or `COUNTERPARTS_DATA_DIR`;
    `counterparts-hook` and its worker take **no flag**; they read `dataDir` out of
    `~/.counterparts/claude-code.json`, which `install` always writes, and fall
