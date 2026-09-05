@@ -92,35 +92,103 @@ Three consequences worth stating out loud:
   recomputed every cycle, so a second copy could only go stale. What is persisted
   is the counter.
 
-**Still open, and it needs the dashboard's owner.** The activity view's
-`DURABLE_EVENT_NAMES` registry (`src/adapters/dashboard/registries.ts`) is
-exhaustive by TYPE over four record interfaces and does not know `gate.chunk` or
-`band.transition`. `test/dashboard.test.ts` — "no event reaches the durable log
-that the registry does not know about" — passes today only because its fixture
-sweeps nothing and runs a single cycle (a first materialization is not a
-crossing). **It will fail the moment that fixture sweeps or lives a second day**,
-and the dashboard's own INTERFACE-GAPS §5 already names this as the hole the
-type-level totality check cannot catch.
+**The registry half CLOSED before 2026-09-04.** This paragraph used to read
+"still open, and it needs the dashboard's owner": the activity view's
+`DURABLE_EVENT_NAMES` registry (`src/adapters/dashboard/registries.ts`) knew
+neither `gate.chunk` nor `band.transition`, so `test/dashboard.test.ts`'s "no
+event reaches the durable log that the registry does not know about" passed only
+because its fixture swept nothing and lived one day. Both names are in the
+registry, the flow map and the narration vocabulary now, all three
+`satisfies Record<DurableEventName, …>`. The type-level hole the dashboard's own
+INTERFACE-GAPS §5 names is unchanged and is a different hole: a writer that
+appends a RAW STRING name still goes unlisted without failing `tsc`, which is why
+the empirical half of that test exists beside the type-level one.
 
 The status view should also **surface the symmetry verdict, BY REASON, never by
 `ok`**: below `SYMMETRY_MIN_SAMPLE` the verdict is `never-asked` and carries
 `ok: true`, so a view keyed on the boolean paints a starved tripwire green — the
 precise failure guarantee 12 exists to prevent.
 
-### §2a. The authored door's gate records stop at `remember/`'s verdict seam
+### §2a. CLOSED 2026-09-05 — the authored door records its gate too
 
-`Counterpart.deposit` receives a `SubmitResult` carrying `{reason, gate}` — the
+*The problem is kept in full, because the shape of the fix is the useful part.*
+
+`Counterpart.deposit` received a `SubmitResult` carrying `{reason, gate}` — the
 battery's first refusal reason and nothing else. `encode/`'s `GateRecord[]` (the
-per-gate statuses, hedge counts, alias verdicts, secret families) never crosses
-back, because `remember/`'s `GateVerdict` failure arm has nowhere to put it. So
-no durable record is written for the authored door: the only two facts that could
-be — accepted, refused-with-a-reason — already ride the in-process
-`counterpart.deposit` / `counterpart.deposit.refused` events, and minting a third
-durable event name while the registry above is unfixed would break that totality
-test for no new information.
+per-gate statuses, hedge counts, alias verdicts, secret families) never crossed
+back, because `remember/`'s `GateVerdict` failure arm had nowhere to put it. So
+no durable record was written for the authored door: the only two facts that
+could be — accepted, refused-with-a-reason — rode the in-process
+`counterpart.deposit` / `counterpart.deposit.refused` events and died with the
+process. `gate.refusalMix` was therefore computed over the crash-sweep path
+alone, which on a corpus that mostly AUTHORS is the smaller half of the
+distribution, presented as the whole one.
 
-**What would close it:** an optional `records` field on `GateVerdict`, relayed
-into a `gate.authored` durable event, landing together with the registry entry.
+**What closed it,** and it is the fix this entry proposed, with two departures
+named below: `records`, `channels` and an unjoined `blockedBy` on BOTH arms of
+`GateVerdict`, relayed through `SubmitResult` (which also carries the proposed
+`kind`, the one fact that used to survive a refusal only on the accepted
+proposal), and one durable `gate.deposit` row per deposit that reached the
+battery — written on the accept arm and the refuse arm alike, through
+`store.appendEvent`, the same SEAMS K log `gate.chunk` and `recall.decision` are
+written through. Content by reference, all of it: gate names, closed-vocabulary
+statuses and reasons, counts, secret FAMILIES with a site, a hash of the REDACTED
+text. No draft text, no alias, no quote, no secret and no hash of one.
+`tools/replay`'s `gate.refusalMix` now sums fires over both record kinds.
+
+**The two departures from the proposal above.**
+
+- **The name is `gate.deposit`, not `gate.authored`.** It reads as the twin of
+  `gate.chunk` — both are "the battery met X" — and the door it names is the one
+  `Counterpart.deposit` owns.
+- **It is a FOURTH surface-set component, so the G12 hash moved**
+  (`800a9a9421cd969f` → `1f5452ecaedfff37`). `gate.chunk` is in that hash because
+  it is scored; `gate.deposit` is scored by the same metric, and a scored record
+  whose schema the arbiter cannot see is the hole PR-8 delta N6 closed for the
+  other two. CONTRACT §4 is explicit that nothing is smuggled in as "just
+  telemetry" without the surface-set proof, and keeping the number still by
+  leaving the record out would be that smuggling with extra steps.
+
+**Three things this does NOT do, named rather than laundered:**
+
+- **No row when no battery ran.** An observer stand-down, a malformed draft, a
+  content duplicate and a gate that threw are all decided before or instead of
+  the battery (`remember/` NOTES §7's rejection ordering). A row claiming five
+  clear gates for a draft no gate ever saw would be worse than no row (scar
+  §2.4), so those four outcomes keep only their in-process event.
+- **No `dedupKey`, unlike `gate.chunk`.** `store.pruneEvents` exempts a latched
+  row by construction. That is right for the crash fallback, whose ordinary rate
+  is zero rows a day; it is wrong for a door that fires at every session end and
+  every jot. Unlatched, this row is the same class as `recall.decision`, which
+  §7 above put in exactly this position for exactly this reason. **And the
+  honest half: nothing sweeps the events table today** — `Store.pruneEvents()`
+  has no caller in `src/`, so §7's "it ages out on the log's existing window" was
+  already an eligibility claim rather than a deletion one, for `recall.decision`
+  as much as for this. Filed as `src/core/sleep/NOTES.md` §13, not fixed here.
+  What the latch would have bought is bought elsewhere: an accepted deposit
+  cannot repeat, because `remember/`'s content ledger refuses a second deposit of
+  the same text before the battery is called.
+- **No `feelingType`, and it is the one thing review took out.** The first draft
+  copied `EmotionGateRecord.type` on the belief that a feeling word is a closed
+  vocabulary. It is not — `encode/emotion.ts` says "the type and subject are the
+  only things that become durable, and both are author-supplied text" — so a
+  REFUSED jot, which mints nothing and leaves no prose, was putting author free
+  text into the durable log, on the one path where the memory itself does not
+  exist. The emotion gate's closed-vocabulary VERDICT is already in `gates[]` as
+  its `reason`, and that is what a mix wants. Pinned by a honeypot planted in the
+  feeling type and subject as well as the body, title and aliases.
+- **No novelty and no preselection count.** `bridge.batteryGate` refuses before
+  it embeds, so the refusal arm could only ever carry a null; and the authored
+  door shows the author no schema cards at all, so a `shown: 0` would read as a
+  preselection that ran and selected nothing. The record says
+  `preselection: "not-run"` with a reason instead, and `depositRecords` is a
+  SEPARATE array in the observation so those zeros never reach
+  `preselect.meanSchemasShown`.
+
+Proof: `test/gate-records.test.ts` (a refused deposit and an accepted one, each
+leaving a row that names the acting gate), `test/dashboard.test.ts`'s totality
+test with the new name, and `test/dashboard-web.test.ts` (the ENCODE node lights
+on it, and no longer carries an `unloggedPath` sentence).
 
 ## §3. No turn loop to replay
 

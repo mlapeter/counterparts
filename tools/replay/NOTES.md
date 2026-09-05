@@ -98,15 +98,25 @@ If the real shapes differ again, the fix is in `parseSpan` / `parseEvent` /
   `remember/` puts it on its chunk outcome, this zip becomes a lookup
   (INTERFACE-GAPS §1b).
 - **The gate record is read back out of the store, not off the event ring.**
-  `gate.refusalMix`, `preselect.meanSchemasShown` and `preselect.channelMix`
-  count over `ReplayObservation.gateRecords`, which the driver builds by querying
-  the replayed store's durable log. Same for `bandTransitions`. This is a
+  `preselect.meanSchemasShown` and `preselect.channelMix` count over
+  `ReplayObservation.gateRecords`, which the driver builds by querying the
+  replayed store's durable log. Same for `bandTransitions`. This is a
   deliberate constraint, not a convenience: a number that can only be derived
   from a live in-process event stream cannot be recomputed from the store a
   parallel run leaves behind, and the store is the only evidence that run makes.
   The symmetry VERDICT is the exception and comes off the `CycleReport` — it is
   arithmetic over those same durable rows, recomputed every cycle, so persisting
   it would create a second copy that can go stale.
+- **`gate.refusalMix` reads BOTH gate record kinds (2026-09-05).** One battery
+  gates a swept chunk and an authored deposit alike, so a mix computed over
+  `gateRecords` alone was half a distribution presented as the whole one — and on
+  a corpus that mostly authors, the smaller half. `depositRecords` is a second
+  array rather than more rows in the first, because the two kinds share the fire
+  vocabulary and share nothing else: a deposit is one proposal, not a chunk, and
+  it is preselected against nothing. Folding them together would drag
+  `preselect.meanSchemasShown` toward zero with a number that was never measured
+  and put chunks that do not exist into `gate.chunkBlockRate`. Two arrays, one
+  vocabulary, each metric naming which it counts over.
 
 ## 3. Determinism
 

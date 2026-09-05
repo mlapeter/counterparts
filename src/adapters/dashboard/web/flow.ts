@@ -78,26 +78,30 @@ export const NO_EVENT_OF_ITS_OWN: Partial<Record<NodeKey, string>> = {
 };
 
 /**
- * THE THIRD ABSENCE WORD, and the reason there had to be one.
+ * THE THIRD ABSENCE WORD — a slot that is EMPTY today, and kept for the reason
+ * it was built.
  *
  * `(none yet)` means asked, and the answer is zero. `(never run)` means never
  * asked. Both were wrong for ENCODE, which rendered `(never run)` beside STORE's
  * `143 memories held` on the same diagram — a flat contradiction to anyone who
- * did not click it. The gate battery HAS run, on all 143; it simply writes a
- * durable record on one of its two paths. The crash-sweep path records what it
- * gated because nobody watched it happen. The authored path is gated in line,
- * in front of the person who asked, and writes no `gate.chunk` row at all — a
- * decision about the log, not a gap in the machinery, and one that replay §2a
- * is where it would change.
+ * did not click it. The gate battery HAD run, on all 143; it simply wrote a
+ * durable record on one of its two paths. The crash-sweep path recorded what it
+ * gated because nobody watched it happen; the authored path was gated in line,
+ * in front of the person who asked, and wrote nothing durable.
  *
- * So: a node whose work is real but unrecorded says that, in its own words,
- * rather than borrowing an absence word that means something else. Keyed
- * separately from `NO_EVENT_OF_ITS_OWN` because encode DOES have an event name
- * — the map that says "this node has no events" would be lying about it.
+ * **That is no longer true, and this entry went away with it (2026-09-05).**
+ * `gate.deposit` is the authored door's own row — the same battery, the same
+ * content-by-reference rules, one row per deposit that reached it — so both of
+ * encode's paths are in the log and the node has an ordinary count to show.
+ * Replay §2a, which named this as the place it would change, is closed.
+ *
+ * The map stays because the WORD is still needed: a node whose work is real but
+ * deliberately unrecorded must say so in its own words rather than borrow an
+ * absence word that means something else. Keyed separately from
+ * `NO_EVENT_OF_ITS_OWN` for the same reason as before — a node with an event
+ * name is not a node without events. Empty is the honest state of it now.
  */
-export const UNLOGGED_PATH: Partial<Record<NodeKey, string>> = {
-  encode: "Every memory in the store came through this battery, and most of them left no record of it. Only the crash-sweep path writes a `gate.chunk` row — it gates text nobody was watching, so what it refused has to be recoverable afterwards. The authored path is gated in line, in front of the person who asked, and writes nothing durable. Not a gap: a decision about what the log is for, and the place it would change is replay §2a.",
-};
+export const UNLOGGED_PATH: Partial<Record<NodeKey, string>> = {};
 
 export const FLOW_NODES: readonly FlowNode[] = [
   {
@@ -156,7 +160,7 @@ export const FLOW_NODES: readonly FlowNode[] = [
     key: "encode",
     label: "ENCODE",
     sub: "secrets · precision · salience · novelty",
-    what: "The bouncer. Strips secrets, refuses what is too thin to keep, scores how much this matters (relevance, feeling, predictive value) and how new it is against what is already believed. Only the crash-sweep path leaves a durable record here — the authored path is gated in line, and silently.",
+    what: "The bouncer. Strips secrets, refuses what is too thin to keep, scores how much this matters (relevance, feeling, predictive value) and how new it is against what is already believed. Both paths leave a durable record of what the gates did: `gate.chunk` for a swept chunk, `gate.deposit` for something the author wrote.",
     analog: "Attention selecting what is worth encoding, plus amygdala tagging that marks emotional material for preferential consolidation.",
     breaks: "The secrets gate has no biological analog — the brain has no interlock that refuses to encode a credential. It is a deliberate, non-ablatable addition.",
     x: 0.40,
@@ -333,6 +337,9 @@ export const EVENT_NODE = {
   "memory.merged": "sleep",
   // The gate battery, wherever it runs: the chunk record is the encode door's.
   "gate.chunk": "encode",
+  // Both gate doors light the SAME node. The battery is one battery; which door
+  // walked a proposal up to it is a field on the row, not a second node.
+  "gate.deposit": "encode",
   // The fallback's own record, including the runs that swept nothing.
   "sweep.gate": "sweep",
   // Retrieval: the decision, and the adapter's composed injection.

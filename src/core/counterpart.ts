@@ -66,6 +66,7 @@ import type {
   Proposal,
   ProposalSource,
   Span,
+  SubmitResult,
   SweepChunk,
   SweepReport,
   Turn as CapturedTurn,
@@ -73,9 +74,16 @@ import type {
 } from "./remember/index.js";
 import { preselectSchemas, redactSecrets, renderSchemaContext } from "./encode/index.js";
 import type {
+  AliasGateRecord,
+  ChannelRecord,
+  EmotionGateRecord,
   EncodeResult,
+  FloorGateRecord,
+  GateRecord,
+  PrecisionGateRecord,
   Proposal as EncodeProposal,
   SchemaSlice as EncodeSchemaSlice,
+  SecretsGateRecord,
 } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
@@ -112,6 +120,54 @@ export const GATE_CHUNK_FIELDS = [
   "channels", "fires", "refusals", "refusalsByReason", "novelty", "noveltyReason",
 ] as const;
 export type GateChunkField = (typeof GATE_CHUNK_FIELDS)[number];
+
+/**
+ * THE AUTHORED DOOR'S GATE RECORD — `gate.chunk`'s twin, one row per deposit
+ * that reached the battery (replay INTERFACE-GAPS §2a).
+ *
+ * The sweep path has recorded its gate since 2026-08-25 because it gates text
+ * nobody was watching. The authored path recorded nothing, on the argument that
+ * it is gated in front of the person who asked — but the person who asked is not
+ * there a week later when the question is "what did the battery refuse, and
+ * which gate did it", and `remember/`'s verdict seam flattened the answer to a
+ * first reason and a gate name before anyone could write it down. Half of
+ * `gate.refusalMix` was therefore uncomputable from a replayed store, and the
+ * dashboard's ENCODE node had to say, in its own words, that most of what the
+ * battery did left no record (`web/flow.ts` `UNLOGGED_PATH`).
+ *
+ * SAME RULES AS `gate.chunk`, all of them. Content by reference only: gate
+ * names, closed-vocabulary statuses and reasons, counts, secret FAMILIES, a hash
+ * of the REDACTED text. No draft text, no alias, no quote, no secret, no hash of
+ * one (store §5 G10, scar §2.20).
+ */
+export const GATE_DEPOSIT_EVENT = "gate.deposit";
+
+/**
+ * The authored gate record's field list, in order — the fourth component of the
+ * parallel run's machine-scored surface set, pinned the same way the other three
+ * are (`satisfies` on the record literal in `gateDepositRecord`).
+ *
+ * WHAT IS DELIBERATELY NOT HERE, so the omissions are read as decisions:
+ *
+ *  - **`novelty`.** `bridge.batteryGate` refuses before it embeds — nothing
+ *    refused is ever sent to a vector provider — so the refusal arm could only
+ *    ever carry a null, and a permanent null that means "never asked" sitting
+ *    beside an accept arm's null that means "asked, no vector" is exactly the
+ *    conflation scar §2.4 is about. The accepted proposal's novelty is on the
+ *    memory row already; a second copy here would buy nothing and blur that.
+ *  - **`shownIds` / the channel split.** The authored door runs no preselection
+ *    at all, so there is nothing to split. `preselection: "not-run"` says that
+ *    out loud rather than reporting a zero that reads as "selected, found none".
+ */
+export const GATE_DEPOSIT_FIELDS = [
+  "source", "session", "scope", "day", "proposals", "accepted", "refused",
+  "memoryId", "contentHash", "kind", "gates", "fires", "refusalsByReason",
+  "blockedBy", "secretFamilies", "hedges", "aliasesDeclared", "aliasesKept",
+  "aliasesDropped", "feelingExemption", "quoteStripped",
+  "floorChars", "floorWords", "preselection", "preselectionReason", "shown",
+  "channels",
+] as const;
+export type GateDepositField = (typeof GATE_DEPOSIT_FIELDS)[number];
 
 /** The durable per-turn surfacing record (same registry, same rule). */
 export const RECALL_DECISION_EVENT = "recall.decision";
@@ -469,6 +525,134 @@ function gateChunkRecord(
       blockedBy: [...r.blockedBy],
     })),
   };
+}
+
+/** Find one gate's record by name, typed. Absent means the battery did not run
+ *  — never "the gate was clear" (the caller writes no row at all in that case). */
+function recordFor<T extends GateRecord>(
+  records: readonly GateRecord[],
+  gate: T["gate"],
+): T | undefined {
+  return records.find((r) => r.gate === gate) as T | undefined;
+}
+
+/**
+ * The authored door's gate outcome, as it is PERSISTED (store `events`, SEAMS K).
+ *
+ * Like `gateChunkRecord` above, this function DERIVES NOTHING. `fires` counts an
+ * acting gate exactly the way the battery's own `gate.<name>` events do — status
+ * neither `clear` nor `not-invoked` — because that is the same rule the sweep
+ * record already counts by, and `gate.refusalMix` sums the two sides together.
+ * Everything else is copied off the records `remember/`'s verdict relayed.
+ *
+ * `refusalsByReason` is keyed on the SAME closed vocabulary `gate.chunk` uses
+ * (`RefusalReason`), so a mix computed over both record kinds is a mix over one
+ * vocabulary rather than a union of two.
+ */
+function gateDepositRecord(
+  records: readonly GateRecord[],
+  channels: readonly ChannelRecord[],
+  ctx: {
+    source: ProposalSource;
+    session: string;
+    scope: string;
+    day: number;
+    accepted: boolean;
+    memoryId: string | null;
+    kind: Kind;
+    blockedBy: readonly string[];
+  },
+): Record<GateDepositField, unknown> {
+  const secrets = recordFor<SecretsGateRecord>(records, "secrets");
+  const precision = recordFor<PrecisionGateRecord>(records, "precision");
+  const aliases = recordFor<AliasGateRecord>(records, "aliases");
+  const emotion = recordFor<EmotionGateRecord>(records, "emotion");
+  const floor = recordFor<FloorGateRecord>(records, "floor");
+
+  const fires: Record<string, number> = {};
+  for (const r of records) {
+    if (r.status === "clear" || r.status === "not-invoked") continue;
+    fires[r.gate] = (fires[r.gate] ?? 0) + 1;
+  }
+  // THE FIRST blocking reason, counted ONCE — the same rule `gateChunkRecord`
+  // uses (`refusalsByReason[r.reason]`, where `RefusedProposal.reason` is
+  // `blockedBy[0]`). Counting every entry instead would make one refusal with
+  // two reasons weigh two, and a reader summing this map across the two record
+  // kinds would get a silently wrong number for the door that happens to refuse
+  // on two gates at once. The whole list is in `blockedBy` beside it.
+  const refusalsByReason: Record<string, number> = {};
+  const firstBlock = ctx.blockedBy[0];
+  if (firstBlock !== undefined) refusalsByReason[firstBlock] = 1;
+
+  return {
+    source: ctx.source,
+    session: ctx.session,
+    scope: ctx.scope,
+    day: ctx.day,
+    // Counted the way `gate.chunk` counts, because a chunk of one is what a
+    // deposit is: a reader summing refusals across both kinds needs one shape.
+    proposals: 1,
+    accepted: ctx.accepted ? 1 : 0,
+    refused: ctx.accepted ? 0 : 1,
+    /** The minted id when there is one — an address, never the text. Null on
+     *  the refuse arm, where no memory exists, and ALSO null when the gate was
+     *  clean but the ledger write failed (`accepted: 1, memoryId: null`). */
+    memoryId: ctx.memoryId,
+    /** Hash of the REDACTED text, from the secrets gate itself (§5 G10). */
+    contentHash: secrets?.contentHash ?? null,
+    kind: ctx.kind,
+    // THE PER-GATE STATUSES — the thing §2a said could not cross back.
+    gates: records.map((r) => ({
+      gate: r.gate,
+      status: r.status,
+      reason: r.reason,
+      ablatable: r.ablatable,
+    })),
+    fires,
+    refusalsByReason,
+    blockedBy: [...ctx.blockedBy],
+    // FAMILY AND COUNT AND SITE. Never the credential, and never a hash of one:
+    // hashing a low-entropy secret is reversible (store §16 G9).
+    secretFamilies: (secrets?.findings ?? []).map((f) => ({
+      family: f.family,
+      count: f.count,
+      site: f.site,
+    })),
+    hedges: (precision?.hedges ?? []).map((h) => ({ kind: h.kind, count: h.count })),
+    aliasesDeclared: aliases?.declared ?? 0,
+    aliasesKept: aliases?.kept ?? 0,
+    // By POSITION and reason. An alias is author text, so it is never logged.
+    aliasesDropped: (aliases?.dropped ?? []).map((d) => ({ index: d.index, reason: d.reason })),
+    // NO `feelingType` HERE, and the omission is the whole point.
+    //
+    // `EmotionGateRecord.type` is the author's declared feeling word, and the
+    // first draft of this record copied it on the belief that a feeling type is
+    // a closed vocabulary. IT IS NOT: `encode/emotion.ts` says so in as many
+    // words — "the type and subject are the only things that become durable, and
+    // both are author-supplied text" — and it is scanned for SECRETS on the way
+    // out, not constrained to a word list. So a refused jot, which mints nothing
+    // and leaves no prose behind, was putting a free-text field of the author's
+    // into the durable log: `{feeling: "the merger with Acme closes Friday"}`
+    // survived verbatim, in a table nothing chases on removal. That is scar
+    // §2.20 and store §5 G10, through a door that had never been open before,
+    // and on the ONE path where the memory itself does not exist.
+    //
+    // The gate's own verdict is the closed vocabulary, and it is already in this
+    // record: `gates[]` carries `reason`, which for the emotion gate is
+    // `EmotionVerdict` — `no-feeling-declared`, `quote-not-in-span`,
+    // `accepted-by-exemption` and friends. That is what a mix wants; the word
+    // the author typed is not.
+    feelingExemption: emotion?.exemption ?? false,
+    quoteStripped: emotion?.quoteStripped ?? false,
+    floorChars: floor?.chars ?? null,
+    floorWords: floor?.words ?? null,
+    // NOT A ZERO. The authored door shows the author no schema cards at all, so
+    // "0 shown" would read as a preselection that ran and selected nothing.
+    preselection: "not-run",
+    preselectionReason: "authored-door-shows-no-schema-cards",
+    shown: null,
+    channels: channels.map((c) => ({ channel: c.channel, state: c.state, reason: c.reason })),
+  } satisfies Record<GateDepositField, unknown>;
 }
 
 /**
@@ -1426,6 +1610,95 @@ export class Counterpart {
   // ── internals ──────────────────────────────────────────────────────────────
 
   /**
+   * ONE `gate.deposit` ROW PER DEPOSIT THAT REACHED THE BATTERY — the authored
+   * door's half of the gate log (replay INTERFACE-GAPS §2a).
+   *
+   * WHEN NOTHING IS WRITTEN, and why that is the honest answer rather than a
+   * hole: `records` is empty exactly when no battery ran. An observer stood
+   * down, intake found the draft malformed, the content was already deposited,
+   * or the gate itself threw — all four are decided before or instead of the
+   * battery (`remember/` NOTES §7's rejection ordering), and a row claiming five
+   * clear gates for a draft no gate ever saw would be worse than no row (scar
+   * §2.4). Those outcomes keep the in-process `counterpart.deposit.refused`
+   * event they have always had.
+   *
+   * **NO `dedupKey`, AND THAT IS THE WHOLE DIFFERENCE FROM `gate.chunk`.**
+   * `store.pruneEvents` exempts a latched row by construction — a latch is the
+   * replay anti-double-append, so sweeping one would let a replayed day re-record
+   * what the store already accounted for. That price is right for `gate.chunk`,
+   * whose writer is the crash fallback and whose ordinary rate is zero rows a
+   * day. It is wrong here: the authored door fires at every session end and
+   * every jot, so a latch would put a permanently un-sweepable row on the
+   * busiest write path in the system. Unlatched, this row is the same class as
+   * `recall.decision`, which made exactly this call for exactly this reason
+   * (replay INTERFACE-GAPS §7, "no retention rule was added").
+   *
+   * **AND THE HONEST HALF: NOTHING SWEEPS THE EVENTS TABLE TODAY.**
+   * `Store.pruneEvents()` exists, is tested, and has NO caller anywhere in
+   * `src/` — so "unlatched" currently buys eligibility, not deletion, and the
+   * same is true of every unlatched row already in the log. Filed as a debt in
+   * `src/core/sleep/NOTES.md` §13 rather than fixed here: which cycle phase
+   * should call it is a decision about the whole log, not about this row.
+   *
+   * What the latch would have bought is bought elsewhere anyway: an accepted
+   * deposit cannot repeat, because `remember/`'s content ledger refuses a second
+   * deposit of the same text in the same scope before the battery is called. A
+   * refused one CAN repeat, and two refusals are honestly two events.
+   */
+  private recordDeposit(
+    result: SubmitResult,
+    ctx: DepositContext,
+    source: ProposalSource,
+    mint: { id: string } | null,
+  ): void {
+    // `records` is non-empty exactly when the battery ran, and the battery runs
+    // only after intake has parsed a kind — so this is a NARROWING, not a
+    // default. A null here would mean the two facts disagreed.
+    if (this.observer || result.records.length === 0 || result.kind === null) return;
+    const day = this.store.livedDay();
+    const secrets = result.records.find((r) => r.gate === "secrets");
+    const contentHash = secrets !== undefined && secrets.gate === "secrets" ? secrets.contentHash : null;
+    // TELEMETRY NEVER BREAKS THE DOOR. This runs AFTER the mint on the accept
+    // arm, so a throwing log write would turn a memory that is already on disk
+    // into a failed deposit the caller retries — the worst possible trade for a
+    // row whose only job is to be readable later. The failure is emitted, not
+    // swallowed silently (scar §2.4 again: a missing row must be explainable).
+    try {
+      this.store.appendEvent({
+        name: GATE_DEPOSIT_EVENT,
+        day,
+        ref: contentHash,
+        payload: gateDepositRecord(result.records, result.channels, {
+          source,
+          session: ctx.session,
+          scope: ctx.scope,
+          day,
+          // THE GATE'S VERDICT, not the deposit's fate. With records in hand
+          // the only reachable reasons are ACCEPTED, GATE_REJECTED and
+          // IO_FAILED — and IO_FAILED is a clean gate whose ledger write then
+          // failed. Deriving this from `mint !== null` instead recorded that
+          // case as `refused: 1` with an empty `blockedBy` and no rejecting
+          // gate: a refusal with no reason, which is the one shape a refusal
+          // distribution must never contain. `accepted: 1, memoryId: null` is
+          // the IO-failed signature, and it is legible as exactly that.
+          accepted: result.reason !== "GATE_REJECTED",
+          memoryId: mint?.id ?? null,
+          kind: result.kind,
+          // The refusal arm's WHOLE list, not just the first reason — the exact
+          // thing the old `{gate, reason}` seam could not carry.
+          blockedBy: result.blockedBy,
+        }),
+      });
+    } catch (err) {
+      this.emit("counterpart.deposit.record.failed", undefined, {
+        source,
+        accepted: mint !== null,
+        error: errCode(err),
+      });
+    }
+  }
+
+  /**
    * The authored path, end to end: intake → the encode battery (per proposal,
    * via `bridge.batteryGate()`) → `updates:` resolution against the real store →
    * coverage → mint, with the channel engine-set to `authored`.
@@ -1473,6 +1746,7 @@ export class Counterpart {
         gate: result.gate,
         malformed: result.malformed,
       });
+      this.recordDeposit(result, ctx, source, null);
       return none(reason, result.gate);
     }
 
@@ -1490,6 +1764,11 @@ export class Counterpart {
       lifted: mint.lifted,
       blind: mint.blind,
     });
+    // The ACCEPT arm's row. An accepted deposit's gate record is not a
+    // formality: a gate that redacted a secret, softened a hedge or dropped an
+    // alias ACTED, and those fires are most of what a mix is made of — v1's own
+    // "737 gate fires" counted fires on proposals that were accepted.
+    this.recordDeposit(result, ctx, source, mint);
     this.mentionFromProposal(proposal, `deposit:${mint.id}`);
     this.applyDeclaredRevision(proposal, mint, source);
     return {

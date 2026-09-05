@@ -388,6 +388,34 @@ async function liveEvent(
       }
       return false;
     };
+    /**
+     * THE NODE'S STATE, RE-READ UNTIL IT MOVES — not read once after a sleep.
+     *
+     * The page polls every 4s and the readbacks below waited a fixed 1200ms, so
+     * whether this check passed depended on where the deposit landed inside a
+     * poll window: a single fixed sleep grades the sleep, not the page. It held
+     * until 2026-09-05, when `gate.deposit` gave the authored door a durable
+     * event and both note readbacks started failing. That was the fixture, not
+     * the page — bisected by stubbing `recordDeposit` out on the same branch
+     * (green again) and by waiting longer (green again, with the numbers moving)
+     * — so what changed here is the wait, not the assertion. The exact
+     * interleaving of the two poll fetches against the two writes is NOT pinned
+     * down; what is measured is that the page does refresh and the old window
+     * was too narrow to see it.
+     *
+     * The regression this check exists for — "a page left open reports the old
+     * count forever" — still fails it: twelve seconds is three poll ticks, where
+     * 1200ms was less than one.
+     */
+    const awaitState = async (key: string, was: string): Promise<string> => {
+      let now = was;
+      for (let waited = 0; waited < 12_000; waited += 250) {
+        now = await stateOf(key);
+        if (now !== was) return now;
+        await page.waitForTimeout(250);
+      }
+      return now;
+    };
     const before = await stateOf("sleep");
 
     const c = Counterpart.open({ dir, owner: true });
@@ -424,7 +452,7 @@ async function liveEvent(
     shots.push({ store: "rich", page: "flow-live-event", viewport: "1440x900", file });
     process.stdout.write("  rich · flow-live-event · 1440x900\n");
 
-    const after = await stateOf("sleep");
+    const after = await awaitState("sleep", before);
     if (before === after) {
       findings.push({
         store: "rich",
@@ -492,8 +520,10 @@ async function liveEvent(
       const noteFile = join(out, "rich-flow-note-1440x900.png");
       await page.screenshot({ path: noteFile });
       shots.push({ store: "rich", page: "flow-note", viewport: "1440x900", file: noteFile });
-      await page.waitForTimeout(1200);
-      const noteAfter = { remember: await stateOf("remember"), store: await stateOf("store") };
+      const noteAfter = {
+        remember: await awaitState("remember", noteBefore.remember),
+        store: await awaitState("store", noteBefore.store),
+      };
       process.stdout.write(`  note ${minted}\n`);
       for (const key of ["remember", "store"] as const) {
         if (noteBefore[key] === noteAfter[key]) {

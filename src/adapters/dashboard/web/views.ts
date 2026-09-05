@@ -206,11 +206,19 @@ export interface MetaView {
    * HOW MANY ROWS THE STORE HOLDS RIGHT NOW — a fingerprint, not a headline.
    *
    * An open page polls the event log to know whether anything happened, and
-   * that is a wrong question: `counterparts note` deposits a memory and writes
-   * NO durable event, so the log's sequence never moves and a page left open
-   * reports the old count forever (design review, 2026-09-04 — the only wrong
-   * number left on any screen). This is the cheap thing a poll can compare to
-   * notice a deposit that left no trace in the log.
+   * that is a wrong question: a deposit that writes no durable event never moves
+   * the log's sequence, so a page left open reports the old count forever
+   * (design review, 2026-09-04 — the only wrong number left on any screen). This
+   * is the cheap thing a poll can compare to notice a deposit that left no trace
+   * in the log.
+   *
+   * The case that MOTIVATED it has since gone away: `counterparts note` was the
+   * example, and since `gate.deposit` (2026-09-05, replay §2a) the authored door
+   * writes a row like every other door, so a note moves the sequence and takes
+   * the event branch. This stays as the belt it always was — a store seeded
+   * around the door, a migration, any future write that leaves no row — and
+   * because a fingerprint that is only correct while one particular writer
+   * happens to log is not a fingerprint.
    *
    * It counts every row, including the journal and the archived, which is why
    * it is not called `held`: nothing should ever render it as a memory count.
@@ -1394,12 +1402,15 @@ function nodeState(src: DashboardSource, key: NodeKey, count: number, memories: 
       // writes. What the door actually did is the count that came through it.
       return memories === 0 ? (day === 0 ? NEVER : NONE) : `${memories} came through`;
     case "encode":
-      // NEITHER ABSENCE WORD IS TRUE HERE once anything is in the store. The
-      // battery ran on every one of them; the authored path writes no
-      // `gate.chunk` row (see UNLOGGED_PATH). `(never run)` beside STORE's
-      // `143 memories held` was a contradiction on the face of the diagram.
+      // NEITHER ABSENCE WORD IS TRUE HERE once anything is in the store: the
+      // battery ran on every one of those memories. `(never run)` beside
+      // STORE's `143 memories held` was a contradiction on the face of the
+      // diagram. Both doors record now (`gate.chunk`, `gate.deposit`), so the
+      // ordinary answer is a count — but a store holding memories that PREDATE
+      // the gate log, or that were seeded around the door, still has none, and
+      // that state gets its own sentence rather than a zero.
       if (count > 0) return `${count} recorded`;
-      if (memories > 0) return `${memories} passed · no gate record yet`;
+      if (memories > 0) return `${memories} passed · no gate record for them`;
       return day === 0 ? NEVER : NONE;
     default:
       return count === 0 ? NEVER : `${count} recorded`;

@@ -50,6 +50,7 @@ import type {
   ChunkSummary,
   CycleSummary,
   DaySummary,
+  DepositRecordSummary,
   GateRecordSummary,
   ObservedEvent,
   ReplayObservation,
@@ -301,6 +302,7 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
     // grade what a replayed store actually holds, which is the only form the
     // parallel run's evidence ever takes.
     gateRecords: gateRecordsOf(brain),
+    depositRecords: depositRecordsOf(brain),
     bandTransitions: bandTransitionsOf(brain),
     symmetry: symmetryOf(cycleReports),
     events,
@@ -529,6 +531,42 @@ function gateRecordsOf(brain: Counterpart): GateRecordSummary[] {
       semanticState: strOf(p["semanticState"], "unknown"),
       fires: countsOf(p["fires"]),
       refusalsByReason: countsOf(p["refusalsByReason"]),
+    });
+  }
+  return out;
+}
+
+/**
+ * The AUTHORED door's gate records, out of the same durable log.
+ *
+ * Until `gate.deposit` existed, `remember/`'s verdict seam flattened a refusal
+ * to a first reason and a gate name before anything could write it down, so the
+ * refusal mix could be computed over the crash-sweep path ONLY — half a
+ * distribution, presented as the whole one (INTERFACE-GAPS §2a).
+ */
+function depositRecordsOf(brain: Counterpart): DepositRecordSummary[] {
+  const out: DepositRecordSummary[] = [];
+  for (const row of brain.store.eventLog({ name: "gate.deposit", limit: LOG_LIMIT })) {
+    const p = payloadOf(row.payload);
+    const statuses: Record<string, string> = {};
+    const gates = Array.isArray(p["gates"]) ? (p["gates"] as unknown[]) : [];
+    for (const g of gates) {
+      if (typeof g !== "object" || g === null) continue;
+      const rec = g as Record<string, unknown>;
+      const name = strOf(rec["gate"]);
+      if (name !== "") statuses[name] = strOf(rec["status"], "unknown");
+    }
+    out.push({
+      contentHash: strOf(p["contentHash"], row.ref ?? ""),
+      day: row.day,
+      scope: strOf(p["scope"]),
+      source: strOf(p["source"], "unknown"),
+      accepted: numOf(p["accepted"]) === 1,
+      kind: strOf(p["kind"], "unknown"),
+      fires: countsOf(p["fires"]),
+      refusalsByReason: countsOf(p["refusalsByReason"]),
+      blockedBy: Array.isArray(p["blockedBy"]) ? (p["blockedBy"] as unknown[]).map((v) => String(v)) : [],
+      statuses,
     });
   }
   return out;

@@ -324,3 +324,44 @@ possible claim to lean on here, because the CURRENT-STATE arm supersedes on ONE
 declaration with no bar to climb (PR #22 is live), so a successor may already
 exist without any pressure event to show for it. The read-only check that settles
 it: `memory.merged` events whose `candidateId` starts with `sch_`.
+
+## 13. Nothing sweeps the events table — the missing `pruneEvents` caller
+
+**Filed 2026-09-05, during replay §2a's review. Not fixed here, deliberately.**
+
+`Store.pruneEvents()` exists, is documented as bounded retention ("logs are
+telemetry, not canonical memory — CLAUDE.md's one named exception to
+no-silent-destruction"), deletes `WHERE day < livedDay - retentionDays AND
+dedup_key IS NULL`, has a `PruneReport`, emits `store.events.pruned`, and is
+covered by `test/seams.test.ts`. **It has no caller anywhere in `src/`.** The
+only invocation in the repo is that test's.
+
+So `DEFAULT_RETENTION_DAYS = 90` is a number the log is *eligible* for and never
+subject to. Every unlatched row ever written is still there — `recall.decision`
+(one per turn, and replay INTERFACE-GAPS §7 explicitly reasoned "it ages out on
+the log's existing window" when choosing not to latch it), the adapter rows, and
+now `gate.deposit` (one per authored deposit, same reasoning, same gap). None of
+those choices is *wrong*; the sentence they each leaned on is not true yet.
+
+**What is owed, and the two decisions it needs.**
+
+1. **Which phase calls it.** `prune` is the obvious name and the wrong one — it
+   is the memory floor, and a phase that both forgets memories and truncates
+   telemetry is one budget away from doing half of each. A separate terminal
+   step after `decay`, or a call at `runCycle`'s end outside the phase budget,
+   keeps "what the cycle forgot" and "what the log dropped" separately
+   reportable. The phase list is `satisfies`-checked in three places, so adding
+   one is a typed change, not a quiet one.
+2. **What the retention should be.** 90 lived days is the store's current
+   default and nobody has measured against it. The parallel run is the first
+   thing that will have an opinion: its evidence is the store after the fact, so
+   a window shorter than the run destroys the run's own record. Whatever number
+   is chosen must be longer than the longest run any contract plans, and the
+   choice belongs beside that number rather than inside a phase.
+
+**Why not tonight.** Turning a dormant deletion path on is a change to what the
+owner's live store *loses*, on a store where nothing has ever been swept — the
+opposite risk profile from the record that surfaced it. Constitution line 7's
+"nothing bulk-wipes silently" points the same way: the first run of this would
+delete months of rows in one pass, and it should be a decision someone made on
+purpose, with a count printed first.
