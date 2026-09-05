@@ -44,9 +44,11 @@ import {
   BLOB_NAME,
   CONFIG_FILE,
   COMMANDS,
+  COMMAND_BLURB,
   COMMAND_FLAGS,
   COMMON_FLAGS,
   CREDENTIALS_FILE,
+  commandHelp,
   EXIT,
   HOOK_SCRIPT,
   HOST_EVENTS,
@@ -157,12 +159,23 @@ function fingerprint(root: string): string {
 // ── status ──────────────────────────────────────────────────────────────────
 
 describe("status", () => {
-  test("reports the absence of a store rather than creating one by looking", async () => {
+  test("reports the absence of a store rather than creating one by looking — and exits non-zero", async () => {
     const empty = join(outside, "no-store-here");
     const c = consoleWith();
     const code = await run(["status", "--dir", empty], { io: c.io });
-    expect(code).toBe(EXIT.ok);
-    expect(text(c.out)).toContain("No store at");
+    // NOT 0. "There is no store here" is not a census: a script that asks a
+    // store what it holds and gets an answer about nothing at all has not
+    // succeeded, and `set -e` around `counterparts status` sailed straight past
+    // a typo'd `--dir` (cold-stranger review, 2026-09-04, #11). `usage`, not
+    // `failed`: nothing broke — the line named a place with no store in it.
+    expect(code).toBe(EXIT.usage);
+    // On stderr, because a non-zero exit whose only output is on stdout is half
+    // a refusal.
+    expect(text(c.err)).toContain("No store at");
+    expect(text(c.out)).toBe("");
+    // And the remedy carries the dir that was actually passed: `counterparts
+    // init` alone would have created the store in the DEFAULT place.
+    expect(text(c.err)).toContain(`Run 'counterparts init --dir ${empty}'`);
     // The wart this avoids: an instrument that mints the thing it inspects.
     expect(existsSync(empty)).toBe(false);
   });
@@ -1901,6 +1914,51 @@ describe("usage", () => {
 
     const perCommand = consoleWith();
     expect(await run(["status", "--help"], { io: perCommand.io })).toBe(EXIT.ok);
+  });
+
+  /**
+   * `counterparts <command> --help` ANSWERS THE QUESTION IT WAS ASKED.
+   *
+   * It printed the whole console's usage, so the flags a command actually takes
+   * were listed nowhere a person could ask for them — the only surface that
+   * knew was the refusal you got AFTER typing one wrong (cold-stranger review,
+   * 2026-09-04, #9). The table that refusal reads is the table this prints, so
+   * this walks every command and holds the two to each other.
+   */
+  test("every command's own --help lists exactly the flags that command takes", async () => {
+    for (const command of COMMANDS) {
+      const c = consoleWith();
+      expect(await run([command, "--help"], { io: c.io })).toBe(EXIT.ok);
+      const said = text(c.out);
+      // It is about THIS command, and it says what the command is for.
+      expect(said.startsWith(`counterparts ${command} — `)).toBe(true);
+      expect(said).toContain(COMMAND_BLURB[command]);
+
+      // Every flag it takes is listed — with a sentence, not as a bare name.
+      for (const flag of [...COMMAND_FLAGS[command], ...COMMON_FLAGS]) {
+        expect(said).toContain(`--${flag}`);
+        expect(said).not.toContain(`--${flag} `.padEnd(21) + "(undocumented)");
+      }
+      expect(said).not.toContain("(undocumented)");
+
+      // And no flag it would REFUSE. `unknownFlag` is the authority on that, so
+      // ask it rather than keeping a second list here.
+      for (const other of COMMANDS) {
+        for (const flag of COMMAND_FLAGS[other]) {
+          if (COMMAND_FLAGS[command].includes(flag) || COMMON_FLAGS.includes(flag)) continue;
+          expect(unknownFlag(command, [`--${flag}`])).not.toBeNull();
+          expect(said).not.toContain(`--${flag}`);
+        }
+      }
+
+      // Nothing was opened: a help page is a read of a table, not of a store.
+      expect(text(c.err)).toBe("");
+    }
+
+    // The same page, reachable as a pure function for anything that wants it.
+    expect(commandHelp("remove")).toContain("--confirm");
+    expect(commandHelp("remove")).toContain("<id>");
+    expect(commandHelp("status")).toContain("takes no flags of its own");
   });
 });
 

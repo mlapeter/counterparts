@@ -173,6 +173,7 @@ export function usage(): string {
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
     "  --observer          Stand down: read-only, owner operations refuse.",
+    "  <command> --help    Just that command: what it does and every flag it takes.",
     "",
     "Owner operations never run under observer, and removal is the only one that",
     "asks for a human (CONTRACT §5 G12: owner-in-the-loop is a short, named list).",
@@ -230,6 +231,99 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   "backfill-claims": ["apply"],
   rebrief: ["budget"],
 };
+
+/**
+ * WHAT EACH COMMAND IS, in one line — the lede of its own help page.
+ *
+ * `usage()` already carried these sentences, wrapped to fit a block. They are
+ * declared here rather than parsed back out of it, because a help page built by
+ * re-reading another help page's formatting breaks the moment somebody re-wraps
+ * a line.
+ */
+export const COMMAND_BLURB: Record<Command, string> = {
+  status: "What is held, what left, what was removed. Read-only.",
+  install:
+    "Cold start: create the store, write claude-code.json and a 0600 credentials.env under ~/.counterparts/ (the one path the hooks read), and PRINT the host's hooks block and MCP line. It never edits the host.",
+  init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
+  note: "Remember this, deliberately — the same two doors the MCP tool uses.",
+  recall: "Ask memory a question. Read-only.",
+  export: "A portable copy of the store, encrypted unless you say otherwise.",
+  backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
+  remove: "The loud removal. Dry run unless --confirm.",
+  verify: "Census of the cache against canonical state. Read-only unless --rebuild.",
+  "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
+  rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
+};
+
+/** The invocation line, where a command takes something that is not a flag. */
+const COMMAND_ARGS: Partial<Record<Command, string>> = {
+  note: ' "<text>"',
+  recall: ' "<question>"',
+  remove: " <id>",
+};
+
+/**
+ * EVERY FLAG, IN ONE SENTENCE. Keyed by the names `COMMAND_FLAGS` and
+ * `COMMON_FLAGS` already declare, so `counterparts <command> --help` prints
+ * exactly what `unknownFlag` accepts — one table read twice, rather than a help
+ * page and a parser that drift apart. The test walks every declared flag
+ * against this record, so a flag added without a sentence fails there instead
+ * of printing as a bare name.
+ */
+const FLAG_HELP: Record<string, string> = {
+  dir: "the data directory (default: $COUNTERPARTS_DATA_DIR, else ~/.counterparts/store)",
+  observer: "stand down: read-only, and every owner operation refuses",
+  help: "this page — it opens nothing and writes nothing",
+  budget: "the injection ceiling, in bytes",
+  name: "the owner's name; it seeds the identity core",
+  embedder: "record that an embedder will be configured",
+  force: "overwrite configuration this command already wrote once",
+  kind: "self, person, entity, skill, place or fact",
+  title: "a title for the memory, instead of one taken from its first line",
+  salience: "0..1 — how much this one matters",
+  id: "one memory, by id, instead of a question",
+  json: "the tool's own payload rather than the console's rendering",
+  out: "the directory to write into",
+  passphrase: "encrypt the export with this secret",
+  plaintext: "do not encrypt the export (said on purpose, never by default)",
+  confirm: "actually do it — without this, removal is a dry run",
+  reason: "the reason, recorded with the removal",
+  rebuild: "drop and rebuild the cache instead of counting it",
+  "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
+  apply: "actually do it — without this, it is a dry run",
+};
+
+/**
+ * One command's own help page: what it is, how it is invoked, and every flag it
+ * takes with a sentence each.
+ *
+ * The gap this closes (cold-stranger review, 2026-09-04, #9): `counterparts
+ * <command> --help` printed the whole console's usage, so the flags a command
+ * actually takes were listed nowhere a person could ask for them — the only
+ * surface that knew was the refusal you got AFTER typing one wrong. The table
+ * that refusal reads is the table this page prints.
+ */
+export function commandHelp(command: Command): string {
+  const own = COMMAND_FLAGS[command] ?? [];
+  const flagLine = (name: string): string => {
+    const shown = `--${name}${VALUED_FLAGS.includes(name) ? " <value>" : ""}`;
+    return `  ${shown.padEnd(20)} ${FLAG_HELP[name] ?? "(undocumented)"}`;
+  };
+  return [
+    `counterparts ${command} — ${COMMAND_BLURB[command]}`,
+    "",
+    `  counterparts ${command}${COMMAND_ARGS[command] ?? ""}${own.length === 0 ? "" : " [flags]"} [--dir <path>]`,
+    "",
+    ...(own.length === 0
+      ? ["This command takes no flags of its own."]
+      : [`Flags for ${command}:`, ...own.map(flagLine)]),
+    "",
+    "Everywhere:",
+    ...COMMON_FLAGS.map(flagLine),
+    "",
+    "Any other flag is refused before the store is opened.",
+  ].join("\n");
+}
 
 /** Flags whose value is a string; anything else here is a boolean switch. */
 const VALUED_FLAGS: readonly string[] = [
@@ -350,6 +444,15 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // stranger runs set `$?` to 1 and any `set -e` script died on the help text
   // (cold-stranger review, §6.10).
   if (parsed.flags["help"] === true) {
+    // A COMMAND NAMED BESIDE `--help` IS A QUESTION ABOUT THAT COMMAND.
+    // `counterparts note --help` used to print the whole console's usage, which
+    // answers a different question than the one asked and lists none of the
+    // flags `note` takes. Bare `--help` still prints the console's usage.
+    const named = parsed.command;
+    if (named !== undefined && (COMMANDS as readonly string[]).includes(named)) {
+      io.out(commandHelp(named as Command));
+      return EXIT.ok;
+    }
     io.out(usage());
     return EXIT.ok;
   }
@@ -416,7 +519,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   try {
     switch (command) {
       case "status":
-        return statusCommand(dir, io);
+        return statusCommand(dir, io, typeof parsed.flags["dir"] === "string");
       case "init":
         return initCommand(dir, io, opts.home, typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined);
       case "note":
@@ -474,14 +577,32 @@ function resolveDir(env: Record<string, string | undefined>): string {
  * inspectable on demand: a list, not a cadence" (§14.1 G9). The owner's console
  * is exactly where that list belongs.
  */
-function statusCommand(dir: string, io: Io): number {
+function statusCommand(dir: string, io: Io, namedDir: boolean): number {
   if (!storeExists(dir)) {
     // An instrument that MINTS a data dir by looking at one is a wart — and
     // since 2026-08-26 the store itself refuses it (INTERFACE-GAPS §7 closed:
     // observer + absent store is STORE_UNINITIALIZED at open). This guard
     // stays for the friendlier sentence.
-    io.out(`No store at ${dir}. Run 'counterparts init' to create one.`);
-    return EXIT.ok;
+    //
+    // TWO THINGS CHANGED ON 2026-09-04, both from a cold-stranger reading (#11).
+    //
+    // It exits 1, not 0. "There is no store here" is not a census; a script
+    // that asks a store what it holds and gets an answer about nothing at all
+    // has not succeeded, and `set -e` around `counterparts status` sailed
+    // straight past a typo'd `--dir`. `usage`, not `failed`: nothing broke —
+    // the line named a place with no store in it. The sentence goes to stderr
+    // for the same reason, because a non-zero exit whose only output was on
+    // stdout is half a refusal.
+    //
+    // And the remedy carries the dir the owner actually typed. `Run
+    // 'counterparts init'` after `status --dir /somewhere` would have created
+    // the store in the DEFAULT place — not the one the sentence above it just
+    // named — which is the worst kind of advice: it works, and it works
+    // somewhere else.
+    io.err(
+      `No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`,
+    );
+    return EXIT.usage;
   }
   let store: Store;
   try {
