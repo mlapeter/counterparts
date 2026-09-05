@@ -1192,6 +1192,10 @@ describe("cue length normalization", () => {
  * with a 1200 ms budget cannot pay that, so the ranking is done ONE TURN EARLIER
  * by the detached worker and crosses the lag as `{id, score}`.
  *
+ * (2026-09-05: the scan is float32 now and measures ~50 ms at that size. The
+ * embedding CALL is what still cannot be raced, so the lag stays — and so does
+ * this property, which is about the index not being consulted at all.)
+ *
  * Which makes this the property worth mechanizing: supplied hits must reach the
  * activation pass WITHOUT the index being consulted at all.
  */
