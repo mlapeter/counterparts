@@ -214,9 +214,9 @@ export function usage(): string {
     "                      Dry run unless --apply. --confidence high|medium|low sets",
     "                      the floor for what --apply writes (default high);",
     "                      --import-day <date> overrides the recorded/measured one;",
-    "                      --sample <n> changes the sample size. --apply on the",
-    "                      DEFAULT store needs --dir or --yes: this is the one",
-    "                      owner op that rewrites thousands of canonical documents.",
+    "                      --sample <n> changes the sample size. --apply needs the",
+    "                      store NAMED by --dir, never resolved for it: this is the",
+    "                      one owner op that rewrites thousands of canonical documents.",
     "  repair-merged-beliefs",
     "                      Find beliefs and current-state rows the nightly dedup",
     "                      pass archived as duplicates of an ordinary memory, and",
@@ -294,7 +294,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
-  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample", "yes"],
+  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample"],
   // `--dry-run` is declared and does NOTHING: dry run is already the default,
   // and the owner's own runbook line spells it out. A flag that names the
   // behavior you are getting must not be refused as unknown.
@@ -382,7 +382,7 @@ const FLAG_HELP: Record<string, string> = {
   confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
   "import-day": "YYYY-MM-DD — the day the import ran, instead of the one the store recorded or shows",
   sample: "how many proposed rows to print (default 20)",
-  yes: "skip the confirmation — migrate-cache still requires --dir; repair-dates may then aim --apply at the DEFAULT store, where --dir would otherwise be required",
+  yes: "skip the typed confirmation, and nothing else — it never stands in for --dir, which a command that writes still requires",
 };
 
 /**
@@ -2311,10 +2311,18 @@ function repairDatesCommand(
   }
   // THE ONE OWNER OP THAT REWRITES THOUSANDS OF CANONICAL DOCUMENTS. A dry run on
   // the defaulted store is read-only and stays unguarded (it is how the owner
-  // looks); an APPLY that nobody aimed asks to be aimed (review §4).
-  if (apply && defaultedDir && flags["yes"] !== true) {
-    io.err(`repair-dates: --apply on the default store (${dir}) needs --dir <path> or --yes.`);
-    io.err("This rewrites the date on every migrated memory the evidence reaches. Nothing has changed.");
+  // looks); an APPLY that nobody aimed asks to be aimed (review §4) — by `--dir`,
+  // and by nothing else. `--yes` used to stand in for it here, while one command
+  // over it meant "skip the typed confirmation"; the 2026-09-05 ruling is that
+  // `--yes` only ever skips a confirmation, and this command has none to skip.
+  // Same shape as `migrate-cache`'s refusal: stderr, `refused`, the remedy names
+  // `--dir`. `${dir}` is what the store RESOLVED to, not necessarily the default
+  // — `COUNTERPARTS_DATA_DIR` may have set it — and it is refused either way.
+  if (apply && defaultedDir) {
+    io.err(
+      `refused: 'repair-dates --apply' rewrites the date on every migrated memory the evidence reaches, and will not run against a store nobody named (it would have been ${dir}). Name the store: --dir <path>.`,
+    );
+    io.err("Nothing has changed.");
     return EXIT.refused;
   }
   const raw = typeof flags["confidence"] === "string" ? flags["confidence"] : "high";
