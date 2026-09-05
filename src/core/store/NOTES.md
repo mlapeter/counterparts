@@ -515,10 +515,20 @@ copied store whatever sits at it, and a missing file is a separate fact
   (constitution 16; §5 G10). Its timestamp comes from the injected provenance clock,
   threaded into `openOperational` as `now`, so `two-clocks.test.ts`'s count of ambient
   `Date.now()` calls in `index.ts` stays at one.
-- *Cheap.* On the owner's store this is ~15,000 `memories` rows plus every `versions`
-  row, one SELECT and one prepared UPDATE per converted row, one transaction — the same
-  order as the v4 column adds. It is the first migrate-at-open that store will ever run:
-  v4 dates from 2026-08-29 and the store was created 2026-09-03.
+- *Cheap, measured.* On a synthetic store built under `mkdtemp` — 15,000 `memories`
+  rows and 2,000 `versions` rows holding absolute paths under the dir, stamped v4, no
+  prose files (the migration never stats them) — the first `Store.open()` took **79, 82,
+  67 ms** on three fresh stores, converting every row (`converted: 15000` / `2000`,
+  `unplaceable: 0`, one event); the steady-state open that followed measured under a
+  millisecond. That is one SELECT and one prepared UPDATE per row inside one transaction,
+  and it matters because the first writer open on the live store is a SessionStart hook
+  or the MCP server, not a console command with a progress line. It is the first
+  migrate-at-open that store will ever run: v4 dates from 2026-08-29 and the store was
+  created 2026-09-03.
+- *Re-decided at every bump.* `OBSERVER_READ_FLOOR` is a claim — "every reader of the
+  current version tolerates a floor-version store as it stands" — that v5 makes true for
+  v4 and a v6 column add would silently make false. `test/store.test.ts` pins the floor to
+  `SCHEMA_VERSION - 1`, so the next bump must raise it or drop it on purpose.
 
 **What `backup` and `export` do now.** `snapshot` already copied `prose/` and
 `versions/` whole and the database through `VACUUM INTO`; a snapshot restored anywhere

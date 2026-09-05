@@ -947,6 +947,18 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
+  test("the observer read floor is re-decided at EVERY schema bump — it never drifts", () => {
+    // The floor is a claim: "every reader of the current version tolerates a
+    // store of the floor version as it stands". That claim was true for v5 over
+    // v4 because v5 changed only a spelling. A v6 that adds a column would make
+    // it false for v4, silently — a v6 instrument would select a column a v4
+    // store does not have, the exact failure the v3→v4 refusal existed to
+    // prevent. So the constant is pinned to one version behind, and whoever
+    // bumps SCHEMA_VERSION must raise the floor (or drop it back to the new
+    // version, refusing everything older) on purpose, here.
+    expect(OBSERVER_READ_FLOOR).toBe(SCHEMA_VERSION - 1);
+  });
+
   test("a v4 store — the read floor — OPENS under observer, reads, and is left byte-identical", () => {
     // v5 changed only the SPELLING of two path columns and every v5 reader
     // resolves both spellings, so an instrument may read a v4 store as it
