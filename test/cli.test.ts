@@ -1670,6 +1670,63 @@ describe("note and recall", () => {
     expect(text(c.out)).toContain("expanded");
   });
 
+  test("a chapter comes back marked [journal], and a memory beside it does not (I14)", async () => {
+    // The third door on the same result. QUICKSTART §5 and the recall CONTRACT
+    // both now say the console marks a chapter; stated is mechanized here.
+    const s = store();
+    // Unrelated filler, so rarity has a population to discriminate against: on a
+    // two-row store every shared content word has `df === storeSize` and scores
+    // nothing (`recall/NOTES.md` #12), which would make this test assert nothing.
+    for (const body of [
+      "The kitchen tap drips when the washer is worn.",
+      "Rye flour ferments faster than wheat.",
+      "The blue mug chipped in the move.",
+      "The bus to town leaves on the hour.",
+      "Cedar smells sharpest after rain.",
+      "The heating pipes knock in the morning.",
+      "The library closes early on Thursdays.",
+      "Basil wilts if the pot dries out once.",
+      "The garden gate sticks in humid weather.",
+      "Coffee ground too fine chokes the machine.",
+      "The attic hatch needs a longer ladder.",
+      "Wool socks dry slower than cotton.",
+      "The porch light flickers before it fails.",
+      "Old plaster crumbles when you drill it.",
+      "Bicycle brake pads wear out in a wet winter.",
+      "The neighbour's cat sits on the fence at dusk.",
+    ]) {
+      s.put({ type: "memory", kind: "fact", body });
+    }
+    const chapter = s.put({
+      type: "episode",
+      kind: "self",
+      title: "The lighthouse conversation",
+      body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
+      source: "episode",
+    });
+    const memory = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "Fernbrook Point",
+      body: "The lighthouse at Fernbrook Point stopped turning in 1974 when the keeper left.",
+    });
+    s.close();
+    const c = consoleWith();
+    expect(
+      await run(["recall", "the lighthouse at Fernbrook Point", "--dir", dir], { io: c.io }),
+    ).toBe(EXIT.ok);
+    const lines = text(c.out).split("\n");
+    const lineFor = (id: string): string => lines.find((l) => l.includes(id)) ?? "";
+    // The chapter is DELIVERED — the ruling keeps it recallable — and marked.
+    expect(lineFor(chapter)).not.toBe("");
+    expect(lineFor(chapter)).toContain("[journal]");
+    // And the memory beside it is not: a mark on everything marks nothing.
+    expect(lineFor(memory)).not.toBe("");
+    expect(lineFor(memory)).not.toContain("[journal]");
+    // The word is glossed where the tier legend is, not left bare.
+    expect(text(c.out)).toContain("journal = a chapter");
+  });
+
   test("an empty recall is an ANSWER, and says what to try next", async () => {
     store().close();
     const c = consoleWith();
