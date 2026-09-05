@@ -133,19 +133,23 @@ export interface InstallLayout {
  * Where an install lands, from the flags and the environment — resolved, never
  * guessed halfway.
  *
- * **The base is ALWAYS `~/.counterparts`, whatever `--dir` says.** That is not a
- * convenience; it is the only shape that works. `claude-code/bin/hook.ts:39` and
- * `bin/runner.ts` both hardcode `join(homedir(), ".counterparts",
- * "claude-code.json")` as the one configuration they read, taking no flag and
- * falling back to `COUNTERPARTS_DATA_DIR` only when that file names no store —
- * and a hook that finds no config stands down and exits 0 (the Stop ask's exit 2
- * is the one deliberate non-zero). So a config written anywhere else is a config
- * the ambient half never finds and never complains about. The cold-stranger review of 2026-09-04 found exactly that: `--dir`
- * produced a working store, a correct config and correct printed hooks, and an
- * ambient half permanently blind, with nothing on screen to say so.
+ * **`--dir` never moves the base.** `claude-code/bin/hook.ts` and `bin/runner.ts`
+ * read `~/.counterparts/claude-code.json` unless something NAMES another file —
+ * `--config <absolute path>`, else `COUNTERPARTS_CONFIG`
+ * (`adapters/config-path.ts`) — and they fall back to `COUNTERPARTS_DATA_DIR`
+ * only when the configuration they read names no store. A hook that finds no
+ * config stands down and exits 0 (the Stop ask's exit 2 is the one deliberate
+ * non-zero), so a config nothing points them at is a config the ambient half
+ * never finds and never complains about. The cold-stranger review of 2026-09-04
+ * found exactly that: `--dir` produced a working store, a correct config and
+ * correct printed hooks, and an ambient half permanently blind, with nothing on
+ * screen to say so.
  *
  * So `--dir` (and `COUNTERPARTS_DATA_DIR`) move the STORE and only the store;
- * `dataDir` in the config is how the hooks are told where it went.
+ * `dataDir` in the config is how the hooks are told where it went. `--config`
+ * moves the CONFIGURATION — and with it the credentials file beside it and the
+ * default store beneath it — and then the printed hooks block and `claude mcp
+ * add` line carry it, because a file nothing points at is the failure above.
  *
  * The default store is `~/.counterparts/store`, deliberately NOT `dataDir()`'s
  * `~/.counterparts` — that is the directory holding the two unclassifiable

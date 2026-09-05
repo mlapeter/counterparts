@@ -103,3 +103,42 @@ Tool results, images and documents come back as zero-length turns tagged `tool` 
 `image` / `file`, and `remember/`'s `enters()` is what drops them. One rule, one
 place. The alternative — filtering here — would put a second copy of the
 conversational-text-only rule in a file that changes with the host.
+
+## 11. One config rule, and what the hook does instead of printing (2026-09-05)
+
+`bin/hook.ts` and `bin/runner.ts` each hard-coded
+`join(homedir(), ".counterparts", "claude-code.json")` and took no flag, as did
+`mcp/bin/serve.ts`. That was filed as LAUNCH-STATUS G1, and its cost was not
+theoretical: the clean-room install loop could redirect every entry point but the
+hook, so "the hook honours the configuration it was given" was a step nobody
+could write, and a reviewer on a machine with an existing install could not run
+the hook at all without moving a whole `HOME`.
+
+The rule is now one sentence, in `adapters/config-path.ts` and nowhere else:
+`--config <absolute path>`, else `COUNTERPARTS_CONFIG`, else the default. The
+default did not move — the live host passes neither, and a test asserts that the
+no-flag no-env case resolves exactly the old constant, at the module level and in
+a real hook process.
+
+Three decisions worth keeping:
+
+**A named configuration that cannot be honoured refuses; it never falls back.**
+A relative `--config` is a stand-down: one line on stderr, exit 0, nothing
+injected. Falling back to the default would mean a scratch run writing into the
+live store, which is the accident the whole rule is a reaction to. The refusal
+direction costs nothing on the live host, which never names a configuration.
+
+**The hook RECORDS rather than prints, and the record is the session file.** A
+hook's stdout is the model's context and its stderr is a host log nobody reads,
+so `<dataDir>/sessions/<id>.json` gains a `config` field — host state, no
+content, beside the id and the scope it already carried. A new *durable event*
+name would have been the other option and was rejected: `AdapterDurableEventName`
+lives in `core/counterpart.ts`, and this is not worth a core change. The ring
+event (`adapter.config.file`) is there too, mirroring `adapter.credentials.file`,
+for anything reading the ring in-process.
+
+**The worker is PINNED, not re-resolved.** `spawn.ts` writes
+`COUNTERPARTS_CONFIG` onto the child last, beside `COUNTERPARTS_DATA_DIR` and for
+the same reason (scar §2.13): a hook driven by `--config` that spawned a worker
+which then resolved the default file would sweep and sleep against a store nobody
+named.

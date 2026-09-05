@@ -243,12 +243,17 @@ describe("init", () => {
     expect(printed).toContain("bin/hook.ts");
     expect(printed).toContain("bin/serve.ts");
     expect(printed).toContain("injectionBudgetBytes");
-    // The claims audit's F6, in the CLI's own text: the hook takes no FLAG, and
-    // it does fall back to the environment for the store. "No flag and no
-    // environment override" was printed here for a while and is not true
-    // (`hook.ts:84`, `dataDir: loaded.dataDir ?? dataDir()`).
-    expect(printed).toContain("taking no flag");
+    // The claims audit's F6, in the CLI's own text: with no flag the hook reads
+    // one path, and it does fall back to the environment for the store. "No flag
+    // and no environment override" was printed here for a while and is not true
+    // (`hook.ts#hostConfig`, `dataDir: loaded.dataDir ?? dataDir()`). Since the
+    // one-config rule (2026-09-05) the same paragraph says how to name another
+    // file, because "the hooks read one path" without that sentence is the
+    // half-truth the flag exists to end.
+    expect(printed).toContain("with no flag they read");
     expect(printed).toContain("COUNTERPARTS_DATA_DIR");
+    expect(printed).toContain("--config <absolute path>");
+    expect(printed).toContain("$COUNTERPARTS_CONFIG");
     expect(printed).not.toContain("no environment override");
     // And the exit rule, with its one exception, wherever the exit rule is said.
     expect(printed).not.toContain("every hook exits 0");

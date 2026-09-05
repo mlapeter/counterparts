@@ -206,16 +206,23 @@ documentation on a machine with no copy of this repository.
 as its §10.4, and 4 as its §10.6 with a reproduction (and in §7, where `remove` is run). 3 lives in QUICKSTART §6,
 where the embedder knob is set, and 5 in §1 with the runtime requirements:
 
-1. **The store you point at and the host settings you get come from two different files.**
-   Your console, the dashboard and the MCP server take `--dir` or `COUNTERPARTS_DATA_DIR`
-   to choose the store — but the server reads its keys and its embedding setting from
-   `~/.counterparts/claude-code.json` regardless, so a scratch store on a configured
-   machine uses that machine's keys. `counterparts rebrief` will fall back to the same
-   file for the injection ceiling if there is none beside the store; it prints which file
-   it read. The hooks are stricter still: they take no flag and read `dataDir` out of that
-   one file, which `install` always writes; only when it names no store do they fall back
-   to `COUNTERPARTS_DATA_DIR`. (The two API keys are the other way round everywhere: the
-   environment answers first and the credentials file only fills the gaps.)
+1. **The store you point at and the host settings you get come from two different files —
+   so you have to move both.** Your console, the dashboard and the MCP server take `--dir`
+   or `COUNTERPARTS_DATA_DIR` to choose the store; the keys, the embedding setting and the
+   injection ceiling come from a configuration file, and moving one does not move the
+   other. A scratch store on a configured machine uses that machine's keys unless you say
+   otherwise. Saying otherwise is one rule at every entry point — the console, the hook,
+   its worker and the MCP server: `--config <absolute path>`, else `COUNTERPARTS_CONFIG`,
+   else the default `~/.counterparts/claude-code.json` (the console looks beside the store
+   first). A relative path is refused rather than quietly replaced by the default, and
+   each entry point says which file it used: the console prints it, the server and the
+   worker write a line to stderr, and the hook — whose only output channel belongs to the
+   model — records it in the session file it writes under the store. The hooks keep the
+   one asymmetry that is left: they have no `--dir`, so they take the store from the
+   `dataDir` in whichever configuration they read, and fall back to
+   `COUNTERPARTS_DATA_DIR` only when it names no store. (The two API keys are the other
+   way round everywhere: the environment answers first and the credentials file only fills
+   the gaps.)
 2. **The vector cache stores embeddings as JSON text.** On the author's migrated store
    that is 177.5 MB for about 13,900 vectors, and a nearest-neighbour scan of 0.6–1.0 s.
    Irrelevant to a fresh store; a named debt.
