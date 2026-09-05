@@ -112,17 +112,67 @@ What shipped, adapter-side:
   rather than resolved in the comfortable direction. Paths are store-RELATIVE and
   no line of what was read is ever printed (§16 G15).
 
-**Why not chase it.** Striking a span needs a door in `remember/` that does not
-exist, and the buffer is a state machine whose spec (§2 G6) forbids a span being
-in neither claim nor buffer — a `rmSync` from the destruction path would race a
-concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
+**Why not chase it, that day.** Striking a span needs a door in `remember/` that
+did not exist, and the buffer is a state machine whose spec (§2 G6) forbids a
+span being in neither claim nor buffer — a `rmSync` from the destruction path
+would race a concurrent claim. Filed as INTERFACE-GAPS §9 with the proposed seam
 (`SpanBuffer.strike`), including the detail that `Proposal.ownSpanHash` is minted
-but never persisted, which is why the adapter detects by content rather than by
+but never persisted, which is why the adapter detected by content rather than by
 hash.
 
 **Still true after this change:** the words are still on disk. This makes the
-report honest; it does not make the removal complete. README rough edge 4 and
-QUICKSTART §10.6 say so in the same words the command does.
+report honest; it does not make the removal complete. Closed the next day — see
+below.
+
+## 2026-09-05 — the seventh surface is CHASED (option B; INTERFACE-GAPS §9 closed)
+
+The chase landed as `src/core/remember/owner-strike-seam.ts`, called from
+`ownerRemoval` between `dark` and the box-2 chase. What the console owns:
+
+- **The chase key, and why it is not a column.** §9 said `Proposal.ownSpanHash`
+  is minted and never persisted, so either it joins `memories` or `strike` takes
+  a content predicate. It joins the PROSE META instead — `origin.spanHash`,
+  beside the session/scope/ref the mint already mirrors there. A column would
+  have needed `SCHEMA_VERSION` 4 → 5 (`openOperational` returns early on a
+  version match, so `ADDED_COLUMNS` never runs without a bump), which makes a
+  revert a store the previous build refuses to open (`SCHEMA_AHEAD`) — a one-way
+  door on the owner's live memory, bought for a field the prose can hold. And
+  §16 G9 argues the same way: a hash of low-entropy content is brute-forceable,
+  and `chaseRemoved` blanks `content_hash`/`prose_path` on the skeleton
+  precisely so no pointer to removed content outlives the removal. In the prose
+  meta the pointer dies with the document. In a column it would not.
+- **The half that works retroactively.** Every accepted proposal has always
+  written `{spanHash, proposalId, own}` into the scope's `coverage.jsonl`, and
+  the mint has always stored the proposal id in `origin_ref`. So a memory minted
+  months before this branch is addressable by its `own: true` coverage marks,
+  with no migration. `chaseHashes()` reads both sources. ONLY `own` marks: the
+  other spans a proposal covered are the conversation around it, and striking
+  those because one memory cited them would be a destruction nobody asked for.
+- **The order.** The strike runs BEFORE the box-2 chase and before the prose is
+  unlinked, because those are what carry the addressing. Read-everything-first
+  (§16 G13) is now doing work rather than being a rule about the contamination
+  scan.
+- **The body never enters a struct.** `spanChase` on the plan carries a scope
+  and hashes. The content fallback reaches the seam as a CLOSURE the console
+  builds over a local, so no printed surface, no plan object and no record ever
+  holds a word of what is being erased (§16 G15).
+- **The report says what happened to the other two places.** A struck hash is
+  KEPT in `consumed.jsonl` — that is what stops a re-capture, a restore or an
+  orphan merge re-admitting the words — and a claim file rewritten under a
+  worker mid-arc is called out by name. Both are printed lines, not stored
+  counts; the durable `removal_record` is still four stages.
+- **One state is still `NOT chased`, and it is the honest one.** Prose already
+  gone AND no span hash recorded: nothing left to address the buffer with. It
+  stays in `unchasable`, counts as `unchased: 1`, and says which way it is
+  blind. `held` moved out of `unchasable` and into `surfaces`.
+
+**Verified:** `test/cli.test.ts` runs §I2's own repro end to end — note through
+the jot door, remove, `grep -r` the whole data dir (nothing), `backup` and grep
+that (nothing) — plus the two-notes case proving the strike is a rewrite and not
+a truncation. `test/remember.test.ts` covers the seam itself, including that the
+sweep is never shown a struck span. The install loop gained two steps (35/35):
+the §7 plan's `spans` lines are checked against QUICKSTART verbatim, and a
+non-interactive `--confirm` still refuses.
 
 ## 2026-09-04 — `verify` is a census by default; the rebuild is opt-in
 

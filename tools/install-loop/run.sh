@@ -430,6 +430,52 @@ step "a recall that finds nothing SAYS so, in a sentence"
 OUT=$(counterparts recall "xylophone quokka semaphore" --dir "$FIRSTSTORE" 2>&1)
 if printf '%s' "$OUT" | grep -q "NOTHING CAME BACK"; then ok; else no "an empty recall did not announce itself" "$OUT"; fi
 
+step "the §7 removal plan NAMES the span buffer, and says it will be chased"
+# §I2's surface, in the clean room. The dry run is all a non-interactive console
+# can reach — `remove --confirm` refuses without a prompt, which the next step
+# asserts — but the dry run is where the disclosure lives, and it is the line
+# QUICKSTART §7 quotes. Both halves are checked against the doc verbatim, so a
+# code change that reworded the sentence and a doc edit that did are the same
+# failed step.
+# The doc WRAPS the sentence inside its fenced block, so the lockstep is on the
+# two halves the wrap leaves whole — the count line and the verdict clause.
+SPAN_COUNT="chase spans: 1"
+SPAN_TAIL="the removal strikes them out of it."
+SPAN_LINE="the raw capture buffer holds this"
+OUT=$(counterparts note "A note whose words ride the capture buffer before they are minted." --dir "$FIRSTSTORE" 2>&1)
+DOOMED=$(printf '%s\n' "$OUT" | grep -o 'mem_[0-9a-f]*' | head -1)
+if ! doc_check "counterparts remove " ; then
+  no "QUICKSTART does not carry the remove command verbatim"
+elif ! doc_check "$SPAN_COUNT" || ! doc_check "$SPAN_TAIL" || ! doc_check "$SPAN_LINE"; then
+  no "QUICKSTART does not quote the span-surface lines the command prints"
+elif [ -z "$DOOMED" ]; then
+  no "the note printed no id to remove" "$OUT"
+else
+  PLAN=$(counterparts remove "$DOOMED" --dir "$FIRSTSTORE" 2>&1)
+  if printf '%s' "$PLAN" | grep -qF "$SPAN_COUNT" &&
+     printf '%s' "$PLAN" | grep -qF "chased — spans/" &&
+     printf '%s' "$PLAN" | grep -qF "$SPAN_LINE" &&
+     printf '%s' "$PLAN" | grep -qF "$SPAN_TAIL" &&
+     printf '%s' "$PLAN" | grep -q "Dry run. Nothing has changed."; then
+    ok
+  else
+    no "the plan did not name the buffer as a chased surface" "$PLAN"
+  fi
+fi
+
+step "remove --confirm REFUSES without an interactive prompt, and nothing moves"
+BEFORE=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
+OUT=$(counterparts remove "$DOOMED" --confirm --dir "$FIRSTSTORE" 2>&1)
+RC=$?
+AFTER=$(counterparts status --dir "$FIRSTSTORE" 2>&1)
+if [ "$RC" -ne 0 ] &&
+   printf '%s' "$OUT" | grep -q "interactive confirmation" &&
+   [ "$BEFORE" = "$AFTER" ]; then
+  ok
+else
+  no "a non-interactive --confirm did not refuse cleanly (rc=$RC)" "$OUT"
+fi
+
 # ── 4. the SessionStart hook ────────────────────────────────────────────────
 
 step "SessionStart returns the honest bootstrap line on a store that never woke"

@@ -197,8 +197,9 @@ all five events, the MCP server registers and its tools are used daily, the brie
 reaches the model, and both `backup` and the import of the author's previous-generation
 memory ran against the real store.
 **Verified only against temporary stores**: `export` in all three modes, `remove` end to
-end (which is also where the residue in rough edge 4 was found), and the console's and
-dashboard's behaviour on a missing store. **Not verified at
+end (which is also where the residue in rough edge 4 was found, and where the chase that
+closed it is asserted — note, remove, grep the whole store, back it up and grep that), and
+the console's and dashboard's behaviour on a missing store. **Not verified at
 all**: anything under Node, and — until you do it — a stranger installing from the
 documentation on a machine with no copy of this repository.
 
@@ -222,15 +223,16 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
 3. **An embedding key alone does nothing.** You must also turn the knob on, deliberately —
    `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
    Absent that, no client is built and no connection opens whatever keys are lying around.
-4. **Removal leaves one residue — and now says so, by name.** `remove` chases a memory out
-   of the prose, the database, the links and the cache. It does not reach
-   the raw-capture buffer under `spans/` (a 12-hex key per project, not the path), so a
-   note's words can
-   survive there; a later backup copies them, and `export` does not. Since 2026-09-04 the
-   dry run and the completion report name that file as unchased, and the completion line
-   counts it (`unchased: 1`) — instead of reporting `nothing`. That count is printed, not
-   stored: the durable removal record holds the removal's four stages, not the count.
-   Chasing the buffer is a core change, not yet written. Found and filed 2026-09-04.
+4. **Removal reaches every surface but one, and names the one.** `remove` chases a memory
+   out of the prose, the database, the links, the cache — and, since 2026-09-05, the
+   raw-capture buffer under `spans/` (a 12-hex key per project, not the path), where a
+   note's verbatim words wait to be interpreted. That last one was a real residue: found
+   2026-09-04, a removed note's words stayed on disk and a later backup copied them.
+   The buffer is a chased surface now, counted in the plan and in the report, and the
+   struck span's hash is kept in the buffer's own ledger so the same words cannot be
+   re-captured. What is still `NOT chased`, and said so by name: a memory whose prose is
+   already gone AND whose mint recorded no span hash has nothing left to address the
+   buffer with, and the report counts it `unchased: 1` rather than reporting `nothing`.
 5. **Node.** See above. `package.json` names bun and does not claim Node.
 
 Nothing here is benchmarked against other memory systems. There is no benchmark score and

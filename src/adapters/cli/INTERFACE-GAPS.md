@@ -170,7 +170,56 @@ mentions the entities a deposit names (ambient, constitution 8) or the console
 grows an owner-facing verb, but a birth rule with no live caller cannot be
 claimed as working.
 
-## 9. `remember/` has no door to strike a span, so removal can only NAME the buffer
+## 9. `remember/` has no door to strike a span — **CLOSED 2026-09-05**
+
+**What shipped:** `strikeSpans(buffer, request)` on
+`src/core/remember/owner-strike-seam.ts` — the seam this entry proposed, built
+as named and gated the way `store/owner-op-seam.ts` is: `SpanBuffer`'s
+constructor hands it a capability through a WeakMap, `"strike"` joins
+`WRITE_SITES` so the stand-down totality test covers it, and a
+caller-universality test pins the two files in `src/` that may import it
+(`remember/spans.ts`, which grants and never calls; this directory's
+`removal.ts`). Holding a `SpanBuffer` — which every `Counterpart`, and so the
+MCP server, does — reaches nothing.
+
+**What dies:** the matching lines in the five files under a scope that carry
+`text` — `buffer.jsonl`, `jots.jsonl`, `assistant.jsonl`, `quarantine.jsonl`,
+and every `claims/*.jsonl` — rewritten per file by rename-aside plus
+append-the-survivors-back, `claim()`'s own choreography, because `mutate()` is a
+stance check and not a lock. `removal.ts` calls it between `dark` and the box-2
+chase, so the addressing still exists when it runs.
+
+**What survives, and why:** the hash, in `consumed.jsonl`. That is the terminal
+ledger `seenHashes()`, `restore()` and `mergeOrphans()` all filter against, so
+keeping it is what stops the words being re-captured, restored by a worker
+mid-arc, or merged back from a crashed run's orphan. The strike ledgers FIRST,
+before a byte moves. `coverage.jsonl` and `failures.jsonl` keep their hashes for
+the same reason.
+
+**On the persistence question this entry raised.** `Proposal.ownSpanHash` is
+persisted now — in the PROSE META as `origin.spanHash`, not as a `memories`
+column. Two reasons. §16 G9: a hash of low-entropy content is brute-forceable,
+and `chaseRemoved` blanks `content_hash`/`prose_path` on the skeleton precisely
+so no pointer to removed content outlives the removal; in the prose meta the
+pointer dies with the document, in a column it would not. And the mechanical
+one: `openOperational` returns early when the schema version matches, so a new
+column needs `SCHEMA_VERSION` 4 → 5, after which a REVERT leaves the owner's
+live store unopenable by the previous build (`SCHEMA_AHEAD`) — a one-way door
+bought for a field the prose already carries. The chase also works
+RETROACTIVELY, with no migration at all: every accepted proposal has always
+written `{spanHash, proposalId, own}` into the scope's `coverage.jsonl` and the
+mint has always stored the proposal id in `origin_ref`, so a memory minted long
+before this branch is addressable by its `own: true` marks. The content
+predicate stays as the third fallback, for a row with neither.
+
+**Still open, and deliberately:** the second, smaller ask below — a durable box-2
+event for the removal's counts — is not taken. And one window is named rather
+than closed: a worker that has already read `claim.spans` into memory finishes
+its arc, so a NEW memory can be minted from a span struck a millisecond later.
+The deny-list stops the removed id from returning; it does not stop that. Closing
+it means a lock `remember/` does not have. `remember/NOTES.md` §14 says so.
+
+**The original entry, kept because the reasoning is the record:**
 
 **Filed 2026-09-04**, with the adapter half of LAUNCH-STATUS §I2 (owner ruling:
 option A — report it now, chase it later).
@@ -214,3 +263,9 @@ the scope's buffer files for the doomed words and reports `held` on a hit,
 prose already gone; provenance never recorded). Evidence first, provenance
 second — `source = 'authored'` turns a miss into `unknown` rather than an
 all-clear, because "I did not find it" is not "it was never there".
+
+*(Since the close: identity first, evidence second, provenance third.
+`spanResidue()` matches the recorded span hash before it matches the body, which
+is what lets a memory whose prose is already gone still be chased. Only ONE
+blind spot is left — prose gone AND no hash — and it is still `unknown`, still
+counted `unchased: 1`.)*
