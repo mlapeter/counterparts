@@ -1346,7 +1346,7 @@ describe("the adapter's surface", () => {
       expect(typo.split("\n").length).toBe(1);
       expect(typo).toContain("refused:");
       expect(typo).toContain("'yes'");
-      expect(typo).toContain("1 or true");
+      expect(typo).toContain("1, true, on");
       expect(typo).not.toContain("    at ");
     } finally {
       process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";

@@ -460,11 +460,12 @@ command, hook, server or library call that names no store (no `--dir`, no
 directory it would have opened, and the two ways to name one; the same variable
 makes the hook, the worker, the MCP server and `install` refuse an unnamed
 configuration, because `~/.counterparts/claude-code.json` names a store too. It
-arms on `1` or `true` (the same two `COUNTERPARTS_OBSERVER` takes; surrounding
-whitespace is ignored); blank is unset; **any other value is refused, not
-ignored** — `=yes` or `=on` gets a sentence naming the value and the two that
-work, because a safety guard that cannot read its own switch fails closed. Unset
-— which is every installed host — nothing changes. It is a guard for shells, not
+arms on `1`, `true` or `on`, and stands down on `0`, `false` or `off` — case and
+surrounding whitespace ignored, blank the same as absent — so `=0` turns it off
+rather than tripping it. **Any other value is refused, not read as off**: `=yes`
+gets a sentence naming the value, the three words that arm it and the three that
+turn it off, because a safety guard that cannot read its own switch fails closed.
+Unset — which is every installed host — nothing changes. It is a guard for shells, not
 a setting: the store it protects is the one you would have reached without it.
 
 One refusal near that door needs no variable at all, because it answers a real

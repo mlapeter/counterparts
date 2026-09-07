@@ -454,13 +454,28 @@ ruled: add a guard, OFF by default, ON in this repo's agent shells.
 **The mechanism.** One environment variable, two new error codes. With
 `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, `dataDir()` throws `IMPLICIT_DEFAULT_DIR_REFUSED`
 instead of returning the fallback, with `{ guard, dir, remedy }` in the detail so the
-message names all three without any caller composing it. It arms on `1` or `true`
-(trimmed) — the set `COUNTERPARTS_OBSERVER` already accepts, so a person who exports
-`=true` by analogy is protected. The first draft armed on exactly `1` and the #80 review
+message names all three without any caller composing it.
+
+**Reading the switch — three answers, not two.** It arms on `1`, `true` or `on`, trimmed
+and case-insensitive: a superset of the two `COUNTERPARTS_OBSERVER` accepts, so a person
+who exports `=true` or `=on` by analogy is protected. It stands DOWN on `0`, `false` or
+`off`, exactly as if unset. And it REFUSES anything else non-blank with
+`EXPLICIT_DIR_GUARD_MALFORMED`, at the same decision point (`explicitDirRequired`), with
+a sentence naming the value, the three words that arm it and the three that turn it off.
+
+Two review rounds shaped that. The first draft armed on exactly `1`, and the #80 review
 measured `=true`, `=yes`, `=on` and `= 1` all falling silently to the default: fail-open,
-the one direction a safety guard may not have. So any other non-blank value now throws
-`EXPLICIT_DIR_GUARD_MALFORMED` at the same decision point (`explicitDirRequired`), with a
-sentence naming the value and the two that work; blank is unset. The guard is consulted
+the one direction a safety guard may not have. The fix over-corrected — it refused `0` and
+`false` too — and the owner ruled that back: a guard whose `=0` refuses trips the shell of
+the person it protects, which is the surprising choice, and refusing on junk keeps the
+fail-closed property without it. **Off means off; junk is a question this will not answer.**
+
+`COUNTERPARTS_OBSERVER` is deliberately NOT widened to the same set, though the parity
+argument runs both ways. It is matched exactly (`"1"` / `"true"`) in two places —
+`cli/commands.ts` and `mcp/bin/serve.ts#launchOptions` — and the second is on the live MCP
+server's launch path, which this change promises to leave instruction-for-instruction
+identical; giving observer a fail-closed arm is a behaviour change to an unrelated
+variable and wants its own ruling. So the guard is the superset, and says so. The guard is consulted
 only where it decides — a malformed value beside a named `dir` or a named configuration
 is not read at all, because the guard's one question is about the fallback. Every door
 the store has funnels through that one function — `Store.open`,

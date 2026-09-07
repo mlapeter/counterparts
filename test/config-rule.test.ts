@@ -498,9 +498,17 @@ describe("the explicit-dir guard at the config door (I21)", () => {
     // sentence the store uses — and is not consulted for a NAMED configuration.
     const malformed = implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "yes" });
     expect(malformed).toContain("'yes'");
-    expect(malformed).toContain("1 or true");
+    expect(malformed).toContain("1, true, on");
+    expect(malformed).toContain("0, false, off");
     expect(malformed).toContain("fails closed");
-    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "0" })).toContain("'0'");
+    // And a word that MEANS off turns it off, exactly as unset does: a guard
+    // whose `=0` refused would trip the shell of the person it protects.
+    for (const off of ["0", "false", "off", "OFF"]) {
+      expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: off })).toBe(null);
+    }
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "on" })).toContain(
+      `${REQUIRE_EXPLICIT_DIR_ENV}=on`,
+    );
     expect(
       implicitConfigRefusal(resolveConfigPath([CONFIG_FLAG, named], {}, home), { [REQUIRE_EXPLICIT_DIR_ENV]: "yes" }),
     ).toBe(null);
@@ -780,7 +788,7 @@ describe("the hook, as a real process", () => {
       expect(typo.stdout).toBe("");
       expect(typo.stderr).toContain("hook stood down");
       expect(typo.stderr).toContain("'yes'");
-      expect(typo.stderr).toContain("1 or true");
+      expect(typo.stderr).toContain("1, true, on");
       expect(existsSync(decoyStore)).toBe(false);
     },
     60_000,

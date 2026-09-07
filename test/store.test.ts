@@ -19,6 +19,7 @@ import {
   DATA_DIR_ENV,
   DEFAULT_RETENTION_DAYS,
   EXPLICIT_DIR_ARMING_VALUES,
+  EXPLICIT_DIR_DISARMING_VALUES,
   LAYOUT,
   REQUIRE_EXPLICIT_DIR_ENV,
   SCHEMA_VERSION,
@@ -194,21 +195,28 @@ describe("dataDir", () => {
     expect(dataDir({ [DATA_DIR_ENV]: dir, [REQUIRE_EXPLICIT_DIR_ENV]: "1" })).toBe(dir);
   });
 
-  test("guard unset → today's behaviour; `1` and `true` arm it (trimmed); ANY other value is refused, never ignored — the value matrix", () => {
+  test("the value matrix: `1`/`true`/`on` arm it, `0`/`false`/`off` and blank stand it down, and ANY other value is refused rather than read as off", () => {
     const fallback = join(homedir(), ".counterparts", "store");
     const envWith = (value: string | undefined): Record<string, string | undefined> =>
       value === undefined ? {} : { [REQUIRE_EXPLICIT_DIR_ENV]: value };
 
-    // UNSET: absent or blank. Today's behaviour, byte for byte.
-    for (const value of [undefined, "", "   ", "\t"]) {
+    // OFF: absent, blank, or a word that MEANS off. Today's behaviour, byte for
+    // byte. `=0` refusing would trip the shell of the person the guard protects
+    // — off means off (owner ruling on the #80 review round); it is JUNK that
+    // must not be read as off, which is the case below.
+    for (const value of [undefined, "", "   ", "\t", "0", "false", "off", "OFF", " False ", "Off"]) {
       expect(explicitDirSetting(envWith(value))).toEqual({ armed: false, malformed: null });
       expect(explicitDirRequired(envWith(value))).toBe(false);
       expect(dataDir(envWith(value))).toBe(fallback);
     }
 
-    // ARMED: the two values `COUNTERPARTS_OBSERVER` takes, whitespace trimmed.
-    expect(EXPLICIT_DIR_ARMING_VALUES).toEqual(["1", "true"]);
-    for (const value of ["1", "true", " 1", "1 ", " true\n"]) {
+    // ARMED: a SUPERSET of the two `COUNTERPARTS_OBSERVER` takes, trimmed and
+    // case-insensitive, so a person who exports `=true` or `=on` by analogy is
+    // protected. (`COUNTERPARTS_OBSERVER` itself is deliberately not widened:
+    // it is read on the live MCP server's launch path.)
+    expect(EXPLICIT_DIR_ARMING_VALUES).toEqual(["1", "true", "on"]);
+    expect(EXPLICIT_DIR_DISARMING_VALUES).toEqual(["0", "false", "off"]);
+    for (const value of ["1", "true", "on", " 1", "1 ", " true\n", "TRUE", "True", "ON"]) {
       expect(explicitDirSetting(envWith(value))).toEqual({ armed: true, value: value.trim() });
       expect(explicitDirRequired(envWith(value))).toBe(true);
       let thrown: unknown;
@@ -222,10 +230,12 @@ describe("dataDir", () => {
       expect((thrown as StoreError).detail["guard"]).toBe(`${REQUIRE_EXPLICIT_DIR_ENV}=${value.trim()}`);
     }
 
-    // MALFORMED: the #80 review measured every one of these falling silently
-    // to the default. A safety guard that cannot read its own switch fails
-    // CLOSED — at the decision point, with a distinct code and a sentence.
-    for (const value of ["TRUE", "yes", "on", "01", "0", "false", "no", "off", "1 1", "True"]) {
+    // MALFORMED: neither an on-word nor an off-word. The #80 review measured
+    // several of these falling silently to the default. A safety guard that
+    // cannot read its own switch fails CLOSED — at the decision point, with a
+    // distinct code and a sentence. Junk is not "off"; junk is a question this
+    // will not answer.
+    for (const value of ["yes", "no", "01", "1 1", "enabled", "y", "n", "2", "-1", "tru"]) {
       expect(explicitDirSetting(envWith(value))).toEqual({ armed: false, malformed: value });
       expect(code(() => explicitDirRequired(envWith(value)))).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
       let thrown: unknown;
@@ -237,12 +247,15 @@ describe("dataDir", () => {
       const err = thrown as StoreError;
       expect(err.code).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
       expect(err.detail["value"]).toBe(value);
-      expect(err.detail["accepted"]).toBe("1|true");
+      expect(err.detail["accepted"]).toBe("1|true|on");
+      expect(err.detail["off"]).toBe("0|false|off");
       expect(err.message).toContain(REQUIRE_EXPLICIT_DIR_ENV);
-      // And the sentence a surface prints for it names the value and the two that work.
+      // And the sentence a surface prints for it names the value, the words
+      // that arm it and the words that turn it off.
       const sentence = describeGuardRefusal(err, "irrelevant here");
       expect(sentence).toContain(`'${value}'`);
-      expect(sentence).toContain("1 or true");
+      expect(sentence).toContain("1, true, on");
+      expect(sentence).toContain("0, false, off");
       expect(sentence).toContain("fails closed");
       expect(sentence).toBe(explicitDirMalformedRefusal(value));
     }
@@ -273,6 +286,8 @@ describe("dataDir", () => {
       expect(dataDir()).toBe(fallback);
       process.env[REQUIRE_EXPLICIT_DIR_ENV] = "true";
       expect(code(() => dataDir())).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "0";
+      expect(dataDir()).toBe(fallback);
       process.env[REQUIRE_EXPLICIT_DIR_ENV] = "yes";
       expect(code(() => dataDir())).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
       expect(code(() => Store.open({}))).toBe("EXPLICIT_DIR_GUARD_MALFORMED");

@@ -10,10 +10,12 @@ import { StoreError, isStoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
 /**
- * THE EXPLICIT-DIR GUARD. Armed (`1` or `true`), it makes `dataDir()` REFUSE
+ * THE EXPLICIT-DIR GUARD. Armed (`1`, `true` or `on`), it makes `dataDir()` REFUSE
  * its fallback instead of returning `~/.counterparts/store`: a caller who named
  * no directory — no `dir`, no `COUNTERPARTS_DATA_DIR` — gets
- * `IMPLICIT_DEFAULT_DIR_REFUSED` and nothing opens. Unset, nothing changes.
+ * `IMPLICIT_DEFAULT_DIR_REFUSED` and nothing opens. Unset — or set to `0`, `false`
+ * or `off` — nothing changes. A value that is neither is REFUSED rather than
+ * read as off (`EXPLICIT_DIR_ARMING_VALUES` below).
  *
  * Why it exists (LAUNCH-STATUS I21, owner ruling 2026-09-05): on the owner's
  * machine the fallback IS his live memory, and a library caller reached it
@@ -73,19 +75,33 @@ export function assertSafeDataDir(dir: string): string {
 }
 
 /**
- * The values that ARM the guard — the same two `COUNTERPARTS_OBSERVER` accepts
- * (`cli/commands.ts`, `mcp/bin/serve.ts#launchOptions`), so a person who exports
- * `=true` by analogy IS protected. Whitespace around them is trimmed; blank is
- * unset. ANY OTHER non-empty value is refused, never ignored: the #80 review
- * measured `=true`, `=yes`, `=on` and `= 1` all falling silently to the default,
- * and falling open is the one failure direction a safety guard may not have.
+ * THE THREE READINGS OF THE SWITCH. Whitespace is trimmed and case is ignored on
+ * all of them; blank is absent.
+ *
+ *   - `EXPLICIT_DIR_ARMING_VALUES` — the guard is on. It is a SUPERSET of the two
+ *     `COUNTERPARTS_OBSERVER` accepts (`cli/commands.ts`,
+ *     `mcp/bin/serve.ts#launchOptions` both match `"1"` and `"true"` exactly), so
+ *     a person who exports `=true` by analogy IS protected. `COUNTERPARTS_OBSERVER`
+ *     is deliberately NOT widened to match from here: it is read on the live MCP
+ *     server's launch path, which this change promises to leave instruction-for-
+ *     instruction identical, and giving it a fail-closed arm is its own ruling.
+ *   - `EXPLICIT_DIR_DISARMING_VALUES` — the guard is off, exactly as if the
+ *     variable were unset. A guard whose `=0` REFUSED would trip the shell of the
+ *     person it protects, which is the surprising direction; `off` means off
+ *     (owner ruling on the #80 review round).
+ *   - anything else non-blank is REFUSED, never ignored. The #80 review measured
+ *     `=true`, `=yes`, `=on` and `= 1` all falling silently to the default under
+ *     the first draft, and falling open is the one failure direction a safety
+ *     guard may not have. Junk is not "off"; junk is a question this will not
+ *     answer.
  */
-export const EXPLICIT_DIR_ARMING_VALUES: readonly string[] = ["1", "true"];
+export const EXPLICIT_DIR_ARMING_VALUES: readonly string[] = ["1", "true", "on"];
+export const EXPLICIT_DIR_DISARMING_VALUES: readonly string[] = ["0", "false", "off"];
 
 export type ExplicitDirSetting =
-  /** Armed; `value` is the trimmed text that armed it, so a refusal can quote it. */
+  /** Armed; `value` is the trimmed text that armed it, so a refusal can quote it as typed. */
   | { readonly armed: true; readonly value: string }
-  /** Not armed: `malformed` is null when the variable is absent or blank, else the text the guard refuses to guess at. */
+  /** Not armed: `malformed` is null when the variable is absent, blank or a disarming value, else the text the guard refuses to guess at. */
   | { readonly armed: false; readonly malformed: string | null };
 
 /** What the variable says, read without judgement. Pure; never throws. */
@@ -94,7 +110,9 @@ export function explicitDirSetting(
 ): ExplicitDirSetting {
   const value = (env[REQUIRE_EXPLICIT_DIR_ENV] ?? "").trim();
   if (value.length === 0) return { armed: false, malformed: null };
-  if (EXPLICIT_DIR_ARMING_VALUES.includes(value)) return { armed: true, value };
+  const word = value.toLowerCase();
+  if (EXPLICIT_DIR_ARMING_VALUES.includes(word)) return { armed: true, value };
+  if (EXPLICIT_DIR_DISARMING_VALUES.includes(word)) return { armed: false, malformed: null };
   return { armed: false, malformed: value };
 }
 
@@ -111,6 +129,7 @@ export function explicitDirRequired(env: Record<string, string | undefined> = pr
       guard: REQUIRE_EXPLICIT_DIR_ENV,
       value: setting.malformed,
       accepted: EXPLICIT_DIR_ARMING_VALUES.join("|"),
+      off: EXPLICIT_DIR_DISARMING_VALUES.join("|"),
     });
   }
   return setting.armed;
@@ -120,8 +139,9 @@ export function explicitDirRequired(env: Record<string, string | undefined> = pr
 export function explicitDirMalformedRefusal(value: string): string {
   return (
     `refused: ${REQUIRE_EXPLICIT_DIR_ENV} is set to '${value}', which this will not guess at — it arms on ` +
-    `${EXPLICIT_DIR_ARMING_VALUES.join(" or ")}, and a safety guard fails closed on anything else. ` +
-    `Unset it, or set it to 1.`
+    `${EXPLICIT_DIR_ARMING_VALUES.join(", ")} and stands down on ${EXPLICIT_DIR_DISARMING_VALUES.join(", ")} ` +
+    "(case and surrounding whitespace ignored), and a safety guard fails closed on anything else. " +
+    "Unset it, set it to 1, or set it to 0."
   );
 }
 

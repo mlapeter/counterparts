@@ -376,7 +376,7 @@ describe("init", () => {
     );
     expect(text(typo.err)).toContain("refused:");
     expect(text(typo.err)).toContain("'yes'");
-    expect(text(typo.err)).toContain("1 or true");
+    expect(text(typo.err)).toContain("1, true, on");
     expect(text(typo.err)).not.toContain('{"guard"');
     expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
     const typoNamed = consoleWith();
