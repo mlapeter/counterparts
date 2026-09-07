@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { DATA_DIR_ENV, dataDir } from "../src/core/store/paths.js";
+import { DATA_DIR_ENV, REQUIRE_EXPLICIT_DIR_ENV, dataDir } from "../src/core/store/paths.js";
 
 /**
  * Captured at MODULE LOAD, before any test in this file runs: the claim is that
@@ -15,6 +15,9 @@ import { DATA_DIR_ENV, dataDir } from "../src/core/store/paths.js";
  * here in a full-suite run.
  */
 const DATA_DIR_AT_LOAD = process.env[DATA_DIR_ENV];
+/** Same claim, same moment, for the guard the preload ARMS: a test that stood it
+ *  down and forgot to re-arm it would show up here. */
+const GUARD_AT_LOAD = process.env[REQUIRE_EXPLICIT_DIR_ENV];
 
 const REAL_TMP = realpathSync(tmpdir());
 
@@ -35,11 +38,34 @@ describe("test/preload.ts — the home-directory guard", () => {
     expect(DATA_DIR_AT_LOAD).toBeUndefined();
   });
 
+  test("COUNTERPARTS_REQUIRE_EXPLICIT_DIR is armed when a test file starts — a forgetful test is REFUSED, not redirected", () => {
+    expect(GUARD_AT_LOAD).toBe("1");
+    // With the guard armed and no dir named, the fallback is never handed out:
+    // the second layer (I21) names the forgetful test at the moment it forgets.
+    const prior = process.env[DATA_DIR_ENV];
+    try {
+      delete process.env[DATA_DIR_ENV];
+      let code: string | undefined;
+      try {
+        dataDir();
+      } catch (e) {
+        code = (e as { code?: string }).code;
+      }
+      expect(code).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+    } finally {
+      if (prior === undefined) delete process.env[DATA_DIR_ENV];
+      else process.env[DATA_DIR_ENV] = prior;
+    }
+  });
+
   test("dataDir()'s fallback lands under the temp home — the wound of 2026-09-04", () => {
     // `~/.counterparts` is not on FORBIDDEN_ROOT_NAMES and cannot be: the store
     // has to be able to open its own default dir. So the protection has to be
-    // that `~` itself is temporary. This is that assertion.
+    // that `~` itself is temporary. This is that assertion — and it has to stand
+    // the guard down to reach the fallback at all, which is the point of the
+    // guard. Re-armed in `finally`; the test above catches a leak.
     const prior = process.env[DATA_DIR_ENV];
+    delete process.env[REQUIRE_EXPLICIT_DIR_ENV];
     try {
       delete process.env[DATA_DIR_ENV];
       const fallback = dataDir();
@@ -51,6 +77,7 @@ describe("test/preload.ts — the home-directory guard", () => {
       // owner's — but go find the test.
       expect(existsSync(fallback)).toBe(false);
     } finally {
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "1";
       if (prior === undefined) delete process.env[DATA_DIR_ENV];
       else process.env[DATA_DIR_ENV] = prior;
     }

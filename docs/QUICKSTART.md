@@ -10,7 +10,7 @@ unverified.
 
 No API key required. The scripted version of this page — install, configure,
 hook, note, recall, the MCP round trip, the removal plan and the session write — is
-46 checks and runs end to end in two to three seconds; the part that takes you time is §4,
+47 checks and runs end to end in two to three seconds; the part that takes you time is §4,
 pasting two blocks into Claude Code's own configuration.
 
 ---
@@ -452,6 +452,33 @@ console and the dashboard read one or the other. The console reads
 else from `~/.counterparts/claude-code.json`, and prints which — and never for the
 store, the keys or the embedder.
 
+The default can also be **turned off**. In a shell that must never reach
+`~/.counterparts` by accident — a scratch store beside a real install, a CI job,
+an agent's terminal — export `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`. Then any
+command, hook, server or library call that names no store (no `--dir`, no
+`COUNTERPARTS_DATA_DIR`) refuses before it opens anything, naming the guard, the
+directory it would have opened, and the two ways to name one; the same variable
+makes the hook, the worker, the MCP server and `install` refuse an unnamed
+configuration, because `~/.counterparts/claude-code.json` names a store too. It
+arms on `1`, `true` or `on`, and stands down on `0`, `false` or `off` — case and
+surrounding whitespace ignored, blank the same as absent — so `=0` turns it off
+rather than tripping it. **Any other value is refused, not read as off**: `=yes`
+gets a sentence naming the value, the three words that arm it and the three that
+turn it off, because a safety guard that cannot read its own switch fails closed.
+Unset — which is every installed host — nothing changes. It is a guard for shells, not
+a setting: the store it protects is the one you would have reached without it.
+
+One refusal near that door needs no variable at all, because it answers a real
+accident rather than a shape: **`install` will not write the default
+`~/.counterparts/claude-code.json` with a `dataDir` under the system temp
+directory.** That file is what the hook, the worker and the MCP server read when
+nothing names another, so a throwaway store written into it becomes the machine's
+live memory until the OS deletes it — which is how three days went unrecorded on
+this project's own machine on 2026-09-04. Point a scratch install somewhere of its own instead: `--config
+<absolute path outside ~/.counterparts>` moves the configuration, the credentials
+and the store together. A clean room whose whole `$HOME` is temporary (the install
+loop's, the test suite's) is not this case and is not refused.
+
 ### Store some memories and ask for one back
 
 This is the product. Three commands, no host, no keys:
@@ -781,7 +808,7 @@ The fifth host behaviour — `session_end` binding to a live session **through t
 registry**, since the server is never told a session id — the loop now does
 exercise, end to end: the hook writes `sessions/<id>.json`, a separate
 `counterparts-mcp` process is given only the data dir and the scope, and its
-`session_end` binds to that record and mints the memory (loop step 33; the
+`session_end` binds to that record and mints the memory (loop step 34; the
 refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
 step fails on). What is still unverified is the same thing as above: that this
 happens inside a real Claude Code session, where the id comes from the host
@@ -813,7 +840,11 @@ rather than from a script.
    WHICH CONFIGURATION: one rule for all four — `--config <absolute path>`, else
    `COUNTERPARTS_CONFIG`, else the default. The asymmetry that is left is the
    hook's: it is the one entry point with no `--dir`, so pointing it at another
-   store means pointing it at another configuration (§3, §7).
+   store means pointing it at another configuration (§3, §7). Both defaults can
+   be refused wholesale with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` (§7): with it
+   set, an unnamed store or an unnamed configuration is a refusal, not a fallback
+   — the one exception being `rebrief`'s ceiling, a number read from the default
+   config for a store you already named, which stays readable.
 2. **`bun add -g` needs an absolute tarball path — and the same error means "no
    such file".** On bun 1.3.10 a relative path fails with
    `error: ENOENT extracting tarball from ./x.tgz`, and so does an absolute path

@@ -19,7 +19,9 @@ tests, module CONTRACTs, and `docs/harvest/`.
   removes. No test touches a real store.
 - **Never touch the live stores.** `~/.bansai` (v1's running memory — the owner's and
   the assistant's) and `~/.claude-engram` are off-limits to all code and sessions here,
-  except explicitly-designed read-only replay tooling.
+  except explicitly-designed read-only replay tooling. Sessions export
+  `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, so a store or config nobody named refuses
+  instead of opening the owner's `~/.counterparts`.
 
 ## Reference lineage (read-only donors — never import, never modify)
 

@@ -39,11 +39,13 @@ import {
   configFlag,
   configLine,
   defaultConfigPath,
+  implicitConfigRefusal,
   isNamed,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
 } from "../src/adapters/config-path.js";
+import { REQUIRE_EXPLICIT_DIR_ENV } from "../src/core/store/index.js";
 import { recordSession, readSession } from "../src/adapters/sessions.js";
 import { CONFIG_PATH as HOOK_CONFIG_PATH, hookConfigChoice } from "../src/adapters/claude-code/bin/hook.js";
 import {
@@ -56,7 +58,7 @@ import {
 } from "../src/adapters/mcp/bin/serve.js";
 import { CONFIG_ENV as SPAWN_CONFIG_ENV, planSpawn } from "../src/adapters/claude-code/spawn.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
-import { hostCeiling, run } from "../src/adapters/cli/commands.js";
+import { EXIT, hostCeiling, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { hookCommand, mcpCommand, installLayout } from "../src/adapters/cli/install.js";
 
@@ -460,6 +462,98 @@ describe("the console", () => {
   });
 });
 
+describe("the explicit-dir guard at the config door (I21)", () => {
+  const GUARD = { [REQUIRE_EXPLICIT_DIR_ENV]: "1" };
+
+  test("armed + default → a refusal naming the guard, the file and both ways to name one; named or unarmed → null", () => {
+    const home = join(work, "home");
+    const byDefault = resolveConfigPath([], GUARD, home);
+    expect(byDefault.source).toBe("default");
+    // `resolveConfigPath` itself does not refuse: `rebrief` resolves through it
+    // for a budget NUMBER against a store already named by `--dir`, and a
+    // guard that fired there is one people learn to unset.
+    expect(byDefault.refusal).toBe(null);
+    const refusal = implicitConfigRefusal(byDefault, GUARD);
+    expect(refusal).not.toBe(null);
+    expect(refusal).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+    expect(refusal).toContain(defaultConfigPath(home));
+    expect(refusal).toContain(CONFIG_FLAG);
+    expect(refusal).toContain(CONFIG_ENV);
+
+    // Named, by either rule: not this refusal's business.
+    const named = join(work, "named", "claude-code.json");
+    expect(implicitConfigRefusal(resolveConfigPath([CONFIG_FLAG, named], GUARD, home), GUARD)).toBe(null);
+    expect(implicitConfigRefusal(resolveConfigPath([], { ...GUARD, [CONFIG_ENV]: named }, home), GUARD)).toBe(
+      null,
+    );
+    // Unarmed: absent or blank.
+    expect(implicitConfigRefusal(byDefault, {})).toBe(null);
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "  " })).toBe(null);
+    // `true` arms it too (parity with COUNTERPARTS_OBSERVER), and the sentence
+    // quotes the value that armed it.
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "true" })).toContain(
+      `${REQUIRE_EXPLICIT_DIR_ENV}=true`,
+    );
+    // A value the guard cannot read is refused at the default — the same
+    // sentence the store uses — and is not consulted for a NAMED configuration.
+    const malformed = implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "yes" });
+    expect(malformed).toContain("'yes'");
+    expect(malformed).toContain("1, true, on");
+    expect(malformed).toContain("0, false, off");
+    expect(malformed).toContain("fails closed");
+    // And a word that MEANS off turns it off, exactly as unset does: a guard
+    // whose `=0` refused would trip the shell of the person it protects.
+    for (const off of ["0", "false", "off", "OFF"]) {
+      expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: off })).toBe(null);
+    }
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "on" })).toContain(
+      `${REQUIRE_EXPLICIT_DIR_ENV}=on`,
+    );
+    expect(
+      implicitConfigRefusal(resolveConfigPath([CONFIG_FLAG, named], {}, home), { [REQUIRE_EXPLICIT_DIR_ENV]: "yes" }),
+    ).toBe(null);
+  });
+
+  test("the three bins' choice functions all feed it, so all three stand down on the same sentence", () => {
+    for (const choose of [hookConfigChoice, runnerConfigChoice, serverConfigChoice]) {
+      expect(implicitConfigRefusal(choose([], GUARD), GUARD)).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(implicitConfigRefusal(choose([], { ...GUARD, [CONFIG_ENV]: "/named/claude-code.json" }), GUARD)).toBe(
+        null,
+      );
+      expect(implicitConfigRefusal(choose([], {}), {})).toBe(null);
+    }
+  });
+
+  test("install with no --config is REFUSED under the guard and writes nothing under the home; --config elsewhere is the way through", async () => {
+    // `installLayout` builds `~/.counterparts` from `homedir()` itself and never
+    // calls `dataDir()`, so the store guard would have left this door open: an
+    // agent's `counterparts install` in a guarded shell would write the live
+    // base — config, credentials, store.
+    const home = join(work, "home-install-guarded");
+    const c = consoleWith();
+    expect(await run(["install", "--budget", "9000", "--name", "Ada"], { io: c.io, env: GUARD, home })).toBe(
+      EXIT.refused,
+    );
+    expect(c.err.join("\n")).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+    expect(c.err.join("\n")).toContain(CONFIG_FLAG);
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    expect(existsSync(home)).toBe(false);
+
+    const configPath = join(work, "elsewhere", "claude-code.json");
+    const named = consoleWith();
+    expect(
+      await run(["install", "--budget", "9000", "--name", "Ada", CONFIG_FLAG, configPath], {
+        io: named.io,
+        env: GUARD,
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(configPath)).toBe(true);
+    expect(existsSync(join(work, "elsewhere", "store", "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
+  });
+});
+
 describe("install", () => {
   test("by default it prints the two host lines WITHOUT the flag", async () => {
     const home = join(work, "home");
@@ -622,6 +716,139 @@ describe("the hook, as a real process", () => {
       const record = join(decoyStore, "sessions", "default-driven.json");
       expect(existsSync(record)).toBe(true);
       expect(JSON.parse(readFileSync(record, "utf8"))["config"]).toBe(decoyConfig);
+    },
+    60_000,
+  );
+
+  test(
+    "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 stands the hook down on an UNNAMED config — the other door into the live store (I21)",
+    () => {
+      // The shape an agent shell on the owner's machine produces: a home that
+      // HAS an install, whose default config names the live store. The store
+      // guard alone never fires here — `hostConfig` takes the dir from the file
+      // and `dataDir()` is not called — so the config resolver has to refuse the
+      // default itself.
+      const home = join(work, "home-guarded");
+      const decoyStore = join(home, ".counterparts", "store");
+      writeConfig(join(home, ".counterparts", "claude-code.json"), {
+        dataDir: decoyStore,
+        injectionBudgetBytes: 9000,
+      });
+      const before = treeHash(join(home, ".counterparts"));
+      const armed = { HOME: home, USERPROFILE: home, [REQUIRE_EXPLICIT_DIR_ENV]: "1" };
+
+      const plain = runHook([], armed, "guarded-default");
+      expect(plain.code).toBe(0);
+      expect(plain.stdout).toBe("");
+      expect(plain.stderr).toContain("hook stood down");
+      expect(plain.stderr).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(plain.stderr).toContain(CONFIG_FLAG);
+      expect(existsSync(decoyStore)).toBe(false);
+      expect(treeHash(join(home, ".counterparts"))).toBe(before);
+
+      // A NAMED configuration is the way through, guard and all.
+      const scratchConfig = writeConfig(join(work, "scratch-guarded", "claude-code.json"), {
+        dataDir: join(work, "scratch-guarded", "store"),
+        injectionBudgetBytes: 9000,
+      });
+      const named = runHook([CONFIG_FLAG, scratchConfig], armed, "guarded-named");
+      expect(named.code).toBe(0);
+      expect(named.stdout).toContain("has not lived a boundary");
+      expect(existsSync(join(work, "scratch-guarded", "store", "sessions", "guarded-named.json"))).toBe(true);
+      expect(existsSync(decoyStore)).toBe(false);
+
+      // The gap between the two doors: a NAMED configuration that names no
+      // store. `implicitConfigRefusal` is not its business (the config was
+      // named), so `hostConfig` runs and its `loaded.dataDir ?? dataDir()`
+      // meets the STORE guard instead — thrown, not returned, and the entry
+      // point's rejection handler turns it into the same stand-down line. Exit
+      // 0, nothing on stdout, nothing minted anywhere.
+      const storeless = writeConfig(join(work, "storeless", "claude-code.json"), {
+        injectionBudgetBytes: 9000,
+      });
+      const gap = runHook([CONFIG_FLAG, storeless], armed, "guarded-storeless");
+      expect(gap.code).toBe(0);
+      expect(gap.stdout).toBe("");
+      expect(gap.stderr).toContain("hook stood down");
+      expect(gap.stderr).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      // A SENTENCE with the HOOK's remedy — the field in the file it read — and
+      // not the console's flag, which a hook does not have (#80 review, 4).
+      expect(gap.stderr).toContain(`Set "dataDir" in ${storeless}`);
+      expect(gap.stderr).toContain("COUNTERPARTS_DATA_DIR");
+      expect(gap.stderr).not.toContain("--dir");
+      expect(gap.stderr).not.toContain('{"guard"');
+      expect(existsSync(decoyStore)).toBe(false);
+      expect(existsSync(join(work, "storeless", "store"))).toBe(false);
+      expect(treeHash(join(home, ".counterparts"))).toBe(before);
+
+      // A value the guard cannot read stands the hook down too, on the same
+      // sentence the store uses, rather than falling to the decoy.
+      const typo = runHook([], { HOME: home, USERPROFILE: home, [REQUIRE_EXPLICIT_DIR_ENV]: "yes" }, "guarded-typo");
+      expect(typo.code).toBe(0);
+      expect(typo.stdout).toBe("");
+      expect(typo.stderr).toContain("hook stood down");
+      expect(typo.stderr).toContain("'yes'");
+      expect(typo.stderr).toContain("1, true, on");
+      expect(existsSync(decoyStore)).toBe(false);
+    },
+    60_000,
+  );
+
+  test(
+    "the WORKER and the MCP SERVER say why in that same gap, where both used to exit silently (#80 review, 3)",
+    () => {
+      // Same shape as the hook's gap above — a NAMED configuration that names
+      // no store, guard armed, no `COUNTERPARTS_DATA_DIR` — at the two entry
+      // points whose rejection handlers used to discard the error: the worker
+      // exited 0 with an empty stderr and the server exited 1 with an empty
+      // stderr, so a Claude Code user saw "MCP server failed" and no reason.
+      // Nothing about the refusal changed; only that it is now SAID.
+      const home = join(work, "home-gap-bins");
+      const storeless = writeConfig(join(work, "storeless-bins", "claude-code.json"), {
+        injectionBudgetBytes: 9000,
+      });
+      const armed = {
+        PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+        HOME: home,
+        USERPROFILE: home,
+        [REQUIRE_EXPLICIT_DIR_ENV]: "1",
+      };
+
+      // The worker: exit 0 always (nothing about a failed run may reach the
+      // host), and the reason on stderr, with the WORKER's remedy — the field
+      // in the file it read, not the console's `--dir`.
+      const worker = spawnSync(process.execPath, ["run", RUNNER_SCRIPT], {
+        encoding: "utf8",
+        env: { ...armed, [CONFIG_ENV]: storeless },
+        timeout: 60_000,
+      });
+      expect(worker.status).toBe(0);
+      expect(worker.stderr ?? "").toContain("worker stood down");
+      expect(worker.stderr ?? "").toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(worker.stderr ?? "").toContain(`Set "dataDir" in ${storeless}`);
+      expect(worker.stderr ?? "").not.toContain("--dir");
+      expect(worker.stderr ?? "").not.toContain('{"guard"');
+
+      // The server: exit 1, stdout untouched (it is the wire), and the same
+      // sentence with the SERVER's remedy, which does have `--dir`.
+      const server = spawnSync(process.execPath, ["run", SERVE_SCRIPT, CONFIG_FLAG, storeless], {
+        input:
+          '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}\n',
+        encoding: "utf8",
+        env: armed,
+        timeout: 60_000,
+      });
+      expect(server.status).toBe(1);
+      expect(server.stdout ?? "").toBe("");
+      expect(server.stderr ?? "").toContain("refused:");
+      expect(server.stderr ?? "").toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(server.stderr ?? "").toContain("--dir <path>");
+      expect(server.stderr ?? "").not.toContain('{"guard"');
+
+      // Neither minted anything: not the store the config failed to name, not
+      // the default one under the temp home.
+      expect(existsSync(join(work, "storeless-bins", "store"))).toBe(false);
+      expect(existsSync(join(home, ".counterparts"))).toBe(false);
     },
     60_000,
   );

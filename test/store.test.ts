@@ -18,7 +18,10 @@ import {
   CACHE_SCHEMA_VERSION,
   DATA_DIR_ENV,
   DEFAULT_RETENTION_DAYS,
+  EXPLICIT_DIR_ARMING_VALUES,
+  EXPLICIT_DIR_DISARMING_VALUES,
   LAYOUT,
+  REQUIRE_EXPLICIT_DIR_ENV,
   SCHEMA_VERSION,
   StoreError,
   Store,
@@ -28,12 +31,18 @@ import {
   countNonFinite,
   dataDir,
   decodeVector,
+  defaultDataDir,
+  describeGuardRefusal,
   encodeVector,
+  explicitDirMalformedRefusal,
+  explicitDirRequired,
+  explicitDirSetting,
   hashText,
   newId,
   parseProse,
   paths,
   serializeProse,
+  storeExists,
   vectorFormats,
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
@@ -111,11 +120,183 @@ describe("dataDir", () => {
   });
 
   test("falls back to ~/.counterparts/store when the variable is absent or blank — the base dir is the host adapters', and an unclassified file in the data dir is a store that will not open (§5 G11)", () => {
+    // The preload arms the explicit-dir guard for the whole run; a test OF the
+    // fallback stands it down for its own body and re-arms it in `finally`.
+    delete process.env[REQUIRE_EXPLICIT_DIR_ENV];
+    try {
+      delete process.env[DATA_DIR_ENV];
+      expect(dataDir()).toBe(join(homedir(), ".counterparts", "store"));
+      process.env[DATA_DIR_ENV] = "   ";
+      expect(dataDir()).toBe(join(homedir(), ".counterparts", "store"));
+    } finally {
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "1";
+      process.env[DATA_DIR_ENV] = dir;
+    }
+  });
+
+  // ── the explicit-dir guard (LAUNCH-STATUS I21, owner ruling 2026-09-05) ────
+  //
+  // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` makes the fallback REFUSE. The preload
+  // arms it for the suite, so "guard set" is the ambient state here and "guard
+  // unset" is the case a test has to construct.
+
+  test("guard set + no dir + no env → IMPLICIT_DEFAULT_DIR_REFUSED, naming the guard, the dir and the remedy, and nothing is created", () => {
+    expect(process.env[REQUIRE_EXPLICIT_DIR_ENV]).toBe("1");
     delete process.env[DATA_DIR_ENV];
-    expect(dataDir()).toBe(join(homedir(), ".counterparts", "store"));
-    process.env[DATA_DIR_ENV] = "   ";
-    expect(dataDir()).toBe(join(homedir(), ".counterparts", "store"));
-    process.env[DATA_DIR_ENV] = dir;
+    try {
+      const fallback = join(homedir(), ".counterparts", "store");
+      expect(defaultDataDir()).toBe(fallback);
+      let thrown: unknown;
+      try {
+        dataDir();
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(StoreError);
+      const err = thrown as StoreError;
+      expect(err.code).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      // The message names all three: which guard, which dir, what to do.
+      expect(err.message).toContain(REQUIRE_EXPLICIT_DIR_ENV);
+      expect(err.message).toContain(fallback);
+      expect(err.message).toContain(DATA_DIR_ENV);
+      expect(err.message).toContain("--dir");
+      expect(err.detail["dir"]).toBe(fallback);
+      // Refused on path arithmetic alone: the default's parent was never made.
+      expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+
+      // Every door the store has goes through the same fallback.
+      expect(code(() => Store.open({}))).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      expect(code(() => Store.open({ observer: true }))).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      expect(code(() => storeExists())).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+    } finally {
+      process.env[DATA_DIR_ENV] = dir;
+    }
+  });
+
+  test("guard set + an explicit dir opens; guard set + COUNTERPARTS_DATA_DIR opens — the env-set case returns before the guard is read", () => {
+    expect(process.env[REQUIRE_EXPLICIT_DIR_ENV]).toBe("1");
+    // Explicit `dir`, variable UNSET: the guard is about the fallback, not about
+    // callers who said which store they meant.
+    delete process.env[DATA_DIR_ENV];
+    try {
+      const s = store({ dir });
+      expect(s.dir).toBe(dir);
+      s.close();
+    } finally {
+      process.env[DATA_DIR_ENV] = dir;
+    }
+    // The variable names the store.
+    expect(dataDir()).toBe(dir);
+    const s2 = store();
+    expect(s2.dir).toBe(dir);
+    s2.close();
+    // An injected environment is honoured on its own terms.
+    expect(dataDir({ [DATA_DIR_ENV]: dir, [REQUIRE_EXPLICIT_DIR_ENV]: "1" })).toBe(dir);
+  });
+
+  test("the value matrix: `1`/`true`/`on` arm it, `0`/`false`/`off` and blank stand it down, and ANY other value is refused rather than read as off", () => {
+    const fallback = join(homedir(), ".counterparts", "store");
+    const envWith = (value: string | undefined): Record<string, string | undefined> =>
+      value === undefined ? {} : { [REQUIRE_EXPLICIT_DIR_ENV]: value };
+
+    // OFF: absent, blank, or a word that MEANS off. Today's behaviour, byte for
+    // byte. `=0` refusing would trip the shell of the person the guard protects
+    // — off means off (owner ruling on the #80 review round); it is JUNK that
+    // must not be read as off, which is the case below.
+    for (const value of [undefined, "", "   ", "\t", "0", "false", "off", "OFF", " False ", "Off"]) {
+      expect(explicitDirSetting(envWith(value))).toEqual({ armed: false, malformed: null });
+      expect(explicitDirRequired(envWith(value))).toBe(false);
+      expect(dataDir(envWith(value))).toBe(fallback);
+    }
+
+    // ARMED: a SUPERSET of the two `COUNTERPARTS_OBSERVER` takes, trimmed and
+    // case-insensitive, so a person who exports `=true` or `=on` by analogy is
+    // protected. (`COUNTERPARTS_OBSERVER` itself is deliberately not widened:
+    // it is read on the live MCP server's launch path.)
+    expect(EXPLICIT_DIR_ARMING_VALUES).toEqual(["1", "true", "on"]);
+    expect(EXPLICIT_DIR_DISARMING_VALUES).toEqual(["0", "false", "off"]);
+    for (const value of ["1", "true", "on", " 1", "1 ", " true\n", "TRUE", "True", "ON"]) {
+      expect(explicitDirSetting(envWith(value))).toEqual({ armed: true, value: value.trim() });
+      expect(explicitDirRequired(envWith(value))).toBe(true);
+      let thrown: unknown;
+      try {
+        dataDir(envWith(value));
+      } catch (e) {
+        thrown = e;
+      }
+      expect((thrown as StoreError).code).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      // The guard names the value that armed it, not a hard-coded `1`.
+      expect((thrown as StoreError).detail["guard"]).toBe(`${REQUIRE_EXPLICIT_DIR_ENV}=${value.trim()}`);
+    }
+
+    // MALFORMED: neither an on-word nor an off-word. The #80 review measured
+    // several of these falling silently to the default. A safety guard that
+    // cannot read its own switch fails CLOSED — at the decision point, with a
+    // distinct code and a sentence. Junk is not "off"; junk is a question this
+    // will not answer.
+    for (const value of ["yes", "no", "01", "1 1", "enabled", "y", "n", "2", "-1", "tru"]) {
+      expect(explicitDirSetting(envWith(value))).toEqual({ armed: false, malformed: value });
+      expect(code(() => explicitDirRequired(envWith(value)))).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
+      let thrown: unknown;
+      try {
+        dataDir(envWith(value));
+      } catch (e) {
+        thrown = e;
+      }
+      const err = thrown as StoreError;
+      expect(err.code).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
+      expect(err.detail["value"]).toBe(value);
+      expect(err.detail["accepted"]).toBe("1|true|on");
+      expect(err.detail["off"]).toBe("0|false|off");
+      expect(err.message).toContain(REQUIRE_EXPLICIT_DIR_ENV);
+      // And the sentence a surface prints for it names the value, the words
+      // that arm it and the words that turn it off.
+      const sentence = describeGuardRefusal(err, "irrelevant here");
+      expect(sentence).toContain(`'${value}'`);
+      expect(sentence).toContain("1, true, on");
+      expect(sentence).toContain("0, false, off");
+      expect(sentence).toContain("fails closed");
+      expect(sentence).toBe(explicitDirMalformedRefusal(value));
+    }
+    // A malformed value beside a NAMED store is not consulted: the guard's one
+    // question is about the fallback, and the env-set arm returns first.
+    expect(dataDir({ [DATA_DIR_ENV]: dir, [REQUIRE_EXPLICIT_DIR_ENV]: "yes" })).toBe(dir);
+
+    // `describeGuardRefusal` is the ONE rendering every surface uses; the
+    // remedy is the surface's own, and any other error is not its business.
+    let armedErr: unknown;
+    try {
+      dataDir(envWith("1"));
+    } catch (e) {
+      armedErr = e;
+    }
+    const rendered = describeGuardRefusal(armedErr, "Say --dir.");
+    expect(rendered).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+    expect(rendered).toContain(fallback);
+    expect(rendered).toContain("Say --dir.");
+    expect(rendered?.startsWith("refused:")).toBe(true);
+    expect(describeGuardRefusal(new StoreError("STORE_UNINITIALIZED"), "x")).toBe(null);
+    expect(describeGuardRefusal(new Error("plain"), "x")).toBe(null);
+
+    // And through `process.env`, the way every real caller reaches it.
+    delete process.env[REQUIRE_EXPLICIT_DIR_ENV];
+    delete process.env[DATA_DIR_ENV];
+    try {
+      expect(dataDir()).toBe(fallback);
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "true";
+      expect(code(() => dataDir())).toBe("IMPLICIT_DEFAULT_DIR_REFUSED");
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "0";
+      expect(dataDir()).toBe(fallback);
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "yes";
+      expect(code(() => dataDir())).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
+      expect(code(() => Store.open({}))).toBe("EXPLICIT_DIR_GUARD_MALFORMED");
+    } finally {
+      process.env[REQUIRE_EXPLICIT_DIR_ENV] = "1";
+      process.env[DATA_DIR_ENV] = dir;
+    }
+    // Nothing above created the default's parent, whichever way it went.
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
   });
 
   test("no source file names a live store's directory — the forbidden list and the read-only assignment resolver are the only two (parallel-run G9)", () => {

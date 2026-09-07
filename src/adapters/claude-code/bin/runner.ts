@@ -37,11 +37,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../../../core/counterpart.js";
-import { dataDir } from "../../../core/store/index.js";
+import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 
 import {
   configLine,
   defaultConfigPath,
+  implicitConfigRefusal,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
@@ -299,7 +300,10 @@ export function runnerConfig(
 
 async function main(): Promise<void> {
   const choice = runnerConfigChoice();
-  const refusal = namedConfigRefusal(choice);
+  // The second refusal is the explicit-dir guard (`config-path.ts#implicitConfigRefusal`):
+  // armed, an UNNAMED configuration stands the worker down too, because the
+  // default one names a store. Never armed on the live host.
+  const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
     // Same direction as the hook: a worker told to read a configuration it
     // cannot resolve — relative, or absolute and not there — does NOT fall back
@@ -350,6 +354,16 @@ async function main(): Promise<void> {
 if (isEntryPoint(process.argv[1], import.meta.url)) {
   void main().then(
     () => process.exit(0),
-    () => process.exit(0),
+    (err: unknown) => {
+      // Exit 0 either way — nothing about a failed run may reach the host — but
+      // SAY why, the way the hook does. Before this line, the gap between the
+      // two guards (a named configuration that names no store, nothing else
+      // naming it) was a bare exit 0 (#80 review). Detached, this goes nowhere;
+      // run by hand, it is the reason.
+      const detail = err instanceof Error ? err.message : String(err);
+      const remedy = `Set "dataDir" in ${runnerConfigChoice().path}, or set ${DATA_DIR_ENV}.`;
+      process.stderr.write(`[counterparts] worker stood down: ${describeGuardRefusal(err, remedy) ?? detail}\n`);
+      process.exit(0);
+    },
   );
 }

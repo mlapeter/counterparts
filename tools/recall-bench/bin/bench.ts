@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { BEFORE, readBenchInput, renderReport, renderSweep, runBench } from "../index.js";
 import { TUNABLES } from "../../../src/core/recall/index.js";
+import { REQUIRE_EXPLICIT_DIR_ENV } from "../../../src/core/store/index.js";
 import type { BenchConfig, BenchReport } from "../types.js";
 
 interface Args {
@@ -147,6 +148,11 @@ function gateGrid(): BenchConfig[] {
 }
 
 function main(): void {
+  // "There is NO default store", enforced by the store too: with the explicit-dir
+  // guard armed, an open under here that lost its `--store-dir` is refused rather
+  // than pointed at `~/.counterparts/store` (I21). `refuseLiveStore` still runs
+  // first for the dir that WAS named.
+  process.env[REQUIRE_EXPLICIT_DIR_ENV] = "1";
   const a = parse(process.argv.slice(2));
   const input = readBenchInput(a.input as string);
   const configs: BenchConfig[] = a.gateSweep

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { Dashboard, VIEWS, VIEW_BLURB, isViewName } from "../index.js";
 import type { ViewArgs, ViewName } from "../index.js";
 import { terminalWantsColour } from "../ansi.js";
-import { DATA_DIR_ENV, dataDir, isStoreError } from "../../../core/store/index.js";
+import { DATA_DIR_ENV, dataDir, describeGuardRefusal, isStoreError } from "../../../core/store/index.js";
 import type { StoreError } from "../../../core/store/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 
@@ -361,6 +361,17 @@ export function describeStoreError(err: StoreError, dir: string, namedDir = fals
         "which the store's layout does not classify. Write the adapter's configuration BESIDE " +
         "the store, never inside it — the layout check refuses an unclassified file in the data " +
         `dir (§5 G11): ${join(dir, "..", "claude-code.json")}`
+      );
+    // The explicit-dir guard (`store/paths.ts#REQUIRE_EXPLICIT_DIR_ENV`): armed
+    // on purpose by an operator, so the sentence says what it refused and how to
+    // proceed. The sentence is the store's; the remedy is this surface's, which
+    // has `--dir`. The dir it names comes from the error's own detail, because
+    // `dataDir()` is what threw and cannot be called to name it.
+    case "IMPLICIT_DEFAULT_DIR_REFUSED":
+    case "EXPLICIT_DIR_GUARD_MALFORMED":
+      return (
+        describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
+        `${err.code}: the store at ${dir} refused this read (${JSON.stringify(err.detail)}).`
       );
     default:
       return `${err.code}: the store at ${dir} refused this read (${JSON.stringify(err.detail)}).`;
