@@ -699,7 +699,11 @@ of a file you did not name should never be silent — and if nothing answers, it
 refuses and lists every path it tried.
 
 To recap the two questions and their two answers. **Which store**: the console and
-the dashboard take `--dir` or `COUNTERPARTS_DATA_DIR`; the MCP server takes
+the dashboard take `--dir` or `COUNTERPARTS_DATA_DIR` — with one exception, the
+console's bulk repairs (`migrate-cache --apply`, `repair-dates --apply`,
+`backfill-claims --apply`, `repair-merged-beliefs --apply`, and `verify` with
+`--rebuild`, `--prune-index` or `--drop-vectors`), which rewrite a whole store at
+once and take `--dir` alone, refusing a store named only by the variable; the MCP server takes
 `--dir` or `COUNTERPARTS_DATA_DIR`; the hook and its worker take neither and use
 the `dataDir` in the configuration they read, falling back to
 `COUNTERPARTS_DATA_DIR` only if it names no store. **Which configuration**: one
@@ -787,13 +791,21 @@ rather than from a script.
 
 ## 10. Known rough edges
 
-1. **Four entry points, two questions — and one deliberate exception.** WHICH
+1. **Four entry points, two questions — and two deliberate exceptions.** WHICH
    STORE: `counterparts` and `counterparts-dashboard`'s **views** read `--dir` or
    `COUNTERPARTS_DATA_DIR`; `counterparts-mcp` reads `--dir` or
    `COUNTERPARTS_DATA_DIR`; `counterparts-hook` and its worker take neither and
    use the `dataDir` in the configuration they read, falling back to
-   `COUNTERPARTS_DATA_DIR` only when it names no store. The exception is
-   `counterparts-dashboard serve`: it takes `--dir` and **refuses** to take the
+   `COUNTERPARTS_DATA_DIR` only when it names no store. The first exception is
+   the console's BULK REPAIRS — `migrate-cache --apply`, `repair-dates --apply`,
+   `backfill-claims --apply`, `repair-merged-beliefs --apply`, and `verify` with
+   `--rebuild`, `--prune-index` or `--drop-vectors`. Each rewrites a whole store
+   in one go, so each takes `--dir` and **refuses** a store named only by the
+   variable: an exported path is a shell's memory of where a store lives, not a
+   sentence you typed about this rewrite. `--yes`, where a command has one, skips
+   the typed confirmation and never stands in for `--dir`. The dry runs — every
+   one of these without its writing flag — read the variable as usual. The second
+   is `counterparts-dashboard serve`: it takes `--dir` and **refuses** to take the
    store from `COUNTERPARTS_DATA_DIR` alone, because §7 tells you to export that
    variable with the live store's path in it and `serve` puts a whole memory on a
    socket in a browser — that choice is made in the command or not at all.
