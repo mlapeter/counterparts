@@ -926,3 +926,89 @@ those two tests. Reject a PR → the batch is rebuilt without it, not merged aro
 | G33 | QUICKSTART's `session_end` step index was already stale on master (said 23, was 25) and nothing asserts it; the loop's count and index are prose. A `doc_check` for the two numbers is a ten-line follow-up. | open |
 
 Spend: still $0.00. Every agent shell ran with `COUNTERPARTS_DATA_DIR` on a scratch dir; no live store, hook, MCP server, `daily.ts` or `restart.ts` was touched by the session.
+
+## 2026-09-05 afternoon → 2026-09-07 — the batch merged, four repairs applied, the second batch built, and a three-day gap found
+
+*Appended by the coordinator on 2026-09-07. A rate limit ended the 09-05 session mid-afternoon;
+work resumed 09-07 with the owner's instruction to use Opus for agents. Master now `cf80c53`
+(suite 1803 / 0, loop 46 / 46). The second core batch is open as draft PR #82 (owner-only).*
+
+### What happened on 2026-09-05
+
+- The owner merged **#75**, the first core batch (master `ef82cd5`), ran the second same-date
+  `restart.ts` (restarts.jsonl line 3, hash `c3af0bef00209ba6`), then permitted the session to run
+  the four read-only dry runs and three of the four repairs on the live store: `verify
+  --prune-index` (1,078 dead index rows dropped), `repair-merged-beliefs --apply` (3 beliefs
+  restored), `repair-dates --apply --confidence medium` (445 rows re-dated; 11,466 import-day
+  rows carry no date evidence and stay). The owner ran `migrate-cache --apply` with every session
+  closed: 14,328 vectors → float32, cache 272.9 → 142.5 MiB. `verify` afterwards: "the cache
+  covers every live row and holds nothing else". The daily record for 2026-09-04 was written
+  (ACTIVE, 97 turns, no red line).
+- Owner rulings: G31 `--yes` only skips a confirmation and every bulk write requires the `--dir`
+  flag → **#77 merged** (`cf80c53`; one helper on seven doors, incl. `backfill-claims` and
+  `repair-merged-beliefs`, which had no door). G32 leave the §14 renumbering. G33 lockstep test →
+  in #77 (`test/install-loop.test.ts`). Dashboard `serve --yes` → `--default-store` → **#78
+  merged** (`1744f1e`; the bin also gained the unknown-flag refusal it lacked). I22, I21, I23 →
+  yes to all three → the second batch.
+
+### The second core batch — draft PR #82, owner-only
+
+| PR | What | Review | Head |
+|---|---|---|---|
+| #80 | `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` guard on every door incl. the config door; `install` refuses to write a real-home default config that points at a temp store (the I29 incident); loop step 16 arms it | MERGE WITH CHANGES → applied (`abadc25`; 1 / true / on arm, 0 / false / off disarm, junk refuses) | `abadc25` |
+| #79 | `prose_path` and `versions.path` stored store-relative; schema 4 → 5 migrate-at-open (~80 ms / 15k rows); observers place absolute rows against the opened dir; `STORED_PATH_ESCAPES` guard; `verify` path census | MERGE WITH CHANGES → applied (`1ca16e5`) | `1ca16e5` |
+| #81 | sleep phase `log` calls `pruneEvents` (cap 5,000 / pass, retention 90 lived days, every durable record kind latched); replay driver opens with a corpus-sized retention; `verify` events census | MERGE WITH CHANGES → applied (`7ba6dbe`) | `7ba6dbe` |
+
+Batch head `6c76418` on `cf80c53`: tsc clean · suite **1837 / 0** (31 files) · install loop
+**47 / 47 both ways** · visual loop 51 / 0 · hash **`c3af0bef00209ba6` unchanged** · eight
+conflicts resolved, listed in the PR body (store CONTRACT G14 / G15 renumbering; `verifyCensus`
+folded; three G12 declarations reconciled to one restart). Live census, read-only, before #81:
+1,342 event rows, oldest lived day 184, the first pass deletes 0.
+
+### NEEDS-OWNER — the merge of #82
+
+| # | Item | State |
+|---|---|---|
+| G34 | **Backup first**: `counterparts backup --out <dir outside the store> --dir ~/.counterparts/store`, kept until the run's verdict. #79 moves the schema to v5 and a pre-v5 build refuses a v5 store, so this backup is the revert lever. | open |
+| G35 | **Merge #82 with NO session open** (a stale old-code MCP server fails every prose read after the migration), then ONE `restart.ts --date <merge day>` with the reason in the PR body (hash unchanged; class ANYTHING ELSE). Supersedes G23. | open |
+| G36 | Then `counterparts verify --dir ~/.counterparts/store`: prose paths census ("0 absolute" only after the first writer open) and the events census. | open |
+| G25 | I21 explicit-dir guard — **in #82** (closes on merge). | in #82 |
+| G26 | I22 prose paths — **in #82**. | in #82 |
+| G27 | I23 events pruned — **in #82**. | in #82 |
+| G31 | `--yes` — **closed by #77 + #78**. | closed |
+| G33 | step-count lockstep — **closed by #77**. | closed |
+
+### I29 — the live memory recorded nothing from 2026-09-04 15:16 to 2026-09-07
+
+Found on resume. `~/.counterparts/claude-code.json`'s `dataDir` had been overwritten at
+2026-09-04 15:15:59 with a temp path (`…/T/counterparts-out-HKaR6P/twice-install/store`): the
+repo's own `install` test, run in a checkout that predated the home-directory mock, wrote the
+owner's real default config. Every hook and MCP session since opened that empty temp store: 780
+events, **0 memories**; the live store's last active day is 2026-09-04. The daily records for
+09-05 and 09-06 read THIN for that reason (v2 reached no boundary in the live store; 09-06 also
+had no v1 log). The classifier blocked the session's restore and its rescue copy; the owner
+restores the one field from the Desktop sheet and restarts sessions. Nothing to carry across (the
+temp store holds no memories); the owner chose not to replay the three days. Prevention landed in
+#80 (the guard, armed in the test preload and every agent shell; `install` refuses a temp-store
+default) — G37 below asks for the last piece.
+
+### I30 — the Anthropic receipts are bansai's
+
+The $20 recharges (11 since 09-03) are bansai's Stop / SessionEnd / PreCompact hooks encoding
+every assistant turn through the Anthropic API — "always encode, both systems collect" is the
+run's own rule; muting stops injection only. Our sessions run ~10× a normal day's turns.
+Counterparts spent $0 on Anthropic (sweeps ran 0 times; embeddings are Voyage, cents). The run's
+09-03 cost estimate counted v2's sweeps and never v1's encoding. Owner's choice, G38.
+
+### NEEDS-OWNER — new
+
+| # | Item | State |
+|---|---|---|
+| G37 | Restore `dataDir` in `~/.counterparts/claude-code.json` to `/Users/mlapeter/.counterparts/store` (sheet on the Desktop), restart every session, confirm with `counterparts status`. | open |
+| G38 | bansai's per-turn encoding spend: remove its Stop / SessionEnd / PreCompact hook entries from `~/.claude/settings.json` (recommended; keeps the muted wake hooks so the daily's consistency check still reads) — or accept the cost until the verdict retires v1. | open |
+| G39 | `tools/parallel/bin/restart.ts` writes a live path by naming nothing (the #80 reviewer); `COUNTERPARTS_OBSERVER` accepts only `1|true` untrimmed while the new guard accepts a wider set — widen in one place, separate PR. | later |
+| G40 | `migrate-cache`'s hint says "take a `counterparts backup` first" but `backup` excludes the cache by design; a `cp` of `cache.sqlite` is the real protection. One-line hint fix. | later |
+
+### Spend
+
+$0.00 by the session and its agents across 09-05 → 09-07. See I30 for the receipts.
