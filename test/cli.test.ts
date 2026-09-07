@@ -45,6 +45,7 @@ import {
   setEmbedding,
 } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
+import { CONFIG_FLAG } from "../src/adapters/config-path.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
@@ -62,6 +63,8 @@ import {
   OWNER_OPS,
   installLayout,
   layoutRefusal,
+  tempRoots,
+  throwawayDefaultRefusal,
   mcpCommand,
   openCounterpart,
   runCommand,
@@ -363,6 +366,29 @@ describe("init", () => {
     expect(await run(["note", "Nowhere to land."], { io: unarmed.io, env: {} })).toBe(EXIT.failed);
     expect(text(unarmed.err)).toContain(`no store at ${fallback}`);
     expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+
+    // A value the guard cannot read is REFUSED, in a sentence, rather than
+    // falling to the default (the #80 review's fail-open finding): `=yes` gets
+    // told the value and the two that work. Beside `--dir` it is not consulted.
+    const typo = consoleWith();
+    expect(await run(["status"], { io: typo.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "yes" } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(typo.err)).toContain("refused:");
+    expect(text(typo.err)).toContain("'yes'");
+    expect(text(typo.err)).toContain("1 or true");
+    expect(text(typo.err)).not.toContain('{"guard"');
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+    const typoNamed = consoleWith();
+    expect(
+      await run(["status", "--dir", dir], { io: typoNamed.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "yes" } }),
+    ).toBe(EXIT.ok);
+    // And `true` arms, as it does for COUNTERPARTS_OBSERVER.
+    const byTrue = consoleWith();
+    expect(await run(["status"], { io: byTrue.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "true" } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(byTrue.err)).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=true");
   });
 
   test("--name seeds the identity core, through the same door install uses", async () => {
@@ -3293,6 +3319,89 @@ describe("install", () => {
     );
     expect(text(c.err)).toContain("DATA_DIR_FORBIDDEN");
     expect(existsSync(forbidden)).toBe(false);
+  });
+
+  test("refuses to point the DEFAULT config at a throwaway store — the 2026-09-04 incident's shape", async () => {
+    // On 2026-09-04 a suite run that had lost `test/preload.ts`'s home mock
+    // rewrote the owner's real `~/.counterparts/claude-code.json` with a temp
+    // `dataDir`. That file is what the hook, the worker and the MCP server read
+    // with no flag, so his memory recorded nothing for three days. A throwaway
+    // store may not become the live default.
+    //
+    // The home here is deliberately OUTSIDE the temp tree — a home under
+    // `os.tmpdir()` is a clean room (the install loop's, this suite's), whose
+    // default config is throwaway too and is not what this protects. Nothing
+    // is ever created at it: the refusal comes before the first mkdir.
+    const home = join("/", `counterparts-not-a-real-home-${process.pid}`);
+    const store = join(outside, "throwaway", "store");
+    const c = consoleWith();
+    // env `{}` — the explicit-dir guard is NOT armed. The incident's shell had
+    // neither the guard nor the mock, so this refusal may not depend on either.
+    expect(await run(["install", "--dir", store, "--budget", "9000"], { io: c.io, env: {}, home })).toBe(
+      EXIT.refused,
+    );
+    const said = text(c.err);
+    expect(said).toContain("refused:");
+    expect(said).toContain(join(home, ".counterparts", CONFIG_FILE));
+    expect(said).toContain(store);
+    expect(said).toContain(CONFIG_FLAG);
+    expect(existsSync(home)).toBe(false);
+    expect(existsSync(store)).toBe(false);
+
+    // `--force` does not buy past it: `--force` overwrites a file you named,
+    // and this is the file nobody named.
+    const forced = consoleWith();
+    expect(
+      await run(["install", "--dir", store, "--force"], { io: forced.io, env: {}, home }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(home)).toBe(false);
+
+    // COUNTERPARTS_DATA_DIR is the same door and gets the same answer.
+    const viaEnv = consoleWith();
+    expect(
+      await run(["install"], { io: viaEnv.io, env: { COUNTERPARTS_DATA_DIR: store }, home }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(home)).toBe(false);
+
+    // `--config <elsewhere>` is the way through: it moves the configuration,
+    // the credentials and the store together, so the scratch install is scratch
+    // all the way down and the default file is untouched.
+    const named = join(outside, "throwaway-named", "claude-code.json");
+    const ok = consoleWith();
+    expect(
+      await run(["install", CONFIG_FLAG, named, "--budget", "9000"], { io: ok.io, env: {}, home }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(named)).toBe(true);
+    expect(existsSync(home)).toBe(false);
+
+    // The unit, stated directly. A store outside the temp tree is fine at the
+    // default config; a clean-room home (one UNDER the temp tree) is fine with
+    // a temp store, which is what keeps `tools/install-loop/run.sh` green.
+    expect(throwawayDefaultRefusal(installLayout(store, {}, home), {}, home)).not.toBe(null);
+    expect(
+      throwawayDefaultRefusal(installLayout(join(outside, "x"), {}, home), {}, home),
+    ).not.toBe(null);
+    expect(
+      throwawayDefaultRefusal(installLayout("/opt/counterparts/store", {}, home), {}, home),
+    ).toBe(null);
+    const cleanRoom = join(outside, "clean-home");
+    expect(
+      throwawayDefaultRefusal(installLayout(undefined, {}, cleanRoom), {}, cleanRoom),
+    ).toBe(null);
+    expect(
+      throwawayDefaultRefusal(installLayout(store, {}, cleanRoom), {}, cleanRoom),
+    ).toBe(null);
+    // A NAMED configuration is out of its business whatever the store is.
+    expect(
+      throwawayDefaultRefusal(installLayout(store, {}, home, named), {}, home),
+    ).toBe(null);
+
+    // The roots it compares against carry both spellings of the same directory,
+    // because macOS hands out `/var/folders/…` and `/private/var/folders/…` for
+    // it and a prefix test that knows one silently answers "no" to the other.
+    const roots = tempRoots({});
+    expect(roots.length).toBeGreaterThan(0);
+    expect(roots.some((r: string) => outside.startsWith(r))).toBe(true);
   });
 
   test("is an owner operation: an observer console refuses it", async () => {

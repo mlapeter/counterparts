@@ -6,13 +6,13 @@
  */
 import { homedir } from "node:os";
 import { join, resolve, relative, isAbsolute } from "node:path";
-import { StoreError } from "./errors.js";
+import { StoreError, isStoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
 /**
- * THE EXPLICIT-DIR GUARD. Set to exactly `1`, it makes `dataDir()` REFUSE its
- * fallback instead of returning `~/.counterparts/store`: a caller who named no
- * directory — no `dir`, no `COUNTERPARTS_DATA_DIR` — gets
+ * THE EXPLICIT-DIR GUARD. Armed (`1` or `true`), it makes `dataDir()` REFUSE
+ * its fallback instead of returning `~/.counterparts/store`: a caller who named
+ * no directory — no `dir`, no `COUNTERPARTS_DATA_DIR` — gets
  * `IMPLICIT_DEFAULT_DIR_REFUSED` and nothing opens. Unset, nothing changes.
  *
  * Why it exists (LAUNCH-STATUS I21, owner ruling 2026-09-05): on the owner's
@@ -72,9 +72,79 @@ export function assertSafeDataDir(dir: string): string {
   return resolved;
 }
 
-/** True when `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is exactly `1` in `env`. Nothing else arms it. */
+/**
+ * The values that ARM the guard — the same two `COUNTERPARTS_OBSERVER` accepts
+ * (`cli/commands.ts`, `mcp/bin/serve.ts#launchOptions`), so a person who exports
+ * `=true` by analogy IS protected. Whitespace around them is trimmed; blank is
+ * unset. ANY OTHER non-empty value is refused, never ignored: the #80 review
+ * measured `=true`, `=yes`, `=on` and `= 1` all falling silently to the default,
+ * and falling open is the one failure direction a safety guard may not have.
+ */
+export const EXPLICIT_DIR_ARMING_VALUES: readonly string[] = ["1", "true"];
+
+export type ExplicitDirSetting =
+  /** Armed; `value` is the trimmed text that armed it, so a refusal can quote it. */
+  | { readonly armed: true; readonly value: string }
+  /** Not armed: `malformed` is null when the variable is absent or blank, else the text the guard refuses to guess at. */
+  | { readonly armed: false; readonly malformed: string | null };
+
+/** What the variable says, read without judgement. Pure; never throws. */
+export function explicitDirSetting(
+  env: Record<string, string | undefined> = process.env,
+): ExplicitDirSetting {
+  const value = (env[REQUIRE_EXPLICIT_DIR_ENV] ?? "").trim();
+  if (value.length === 0) return { armed: false, malformed: null };
+  if (EXPLICIT_DIR_ARMING_VALUES.includes(value)) return { armed: true, value };
+  return { armed: false, malformed: value };
+}
+
+/**
+ * True when the guard is armed. THROWS `EXPLICIT_DIR_GUARD_MALFORMED` on a value
+ * it will not guess at — this is the guard's decision point, and it is exactly
+ * where falling open would cost a live store. A caller who wants the reading
+ * without the throw uses `explicitDirSetting`.
+ */
 export function explicitDirRequired(env: Record<string, string | undefined> = process.env): boolean {
-  return env[REQUIRE_EXPLICIT_DIR_ENV] === "1";
+  const setting = explicitDirSetting(env);
+  if (!setting.armed && setting.malformed !== null) {
+    throw new StoreError("EXPLICIT_DIR_GUARD_MALFORMED", {
+      guard: REQUIRE_EXPLICIT_DIR_ENV,
+      value: setting.malformed,
+      accepted: EXPLICIT_DIR_ARMING_VALUES.join("|"),
+    });
+  }
+  return setting.armed;
+}
+
+/** The sentence for a value the guard refuses to guess at. One copy, so the two doors say the same thing. */
+export function explicitDirMalformedRefusal(value: string): string {
+  return (
+    `refused: ${REQUIRE_EXPLICIT_DIR_ENV} is set to '${value}', which this will not guess at — it arms on ` +
+    `${EXPLICIT_DIR_ARMING_VALUES.join(" or ")}, and a safety guard fails closed on anything else. ` +
+    `Unset it, or set it to 1.`
+  );
+}
+
+/**
+ * The guard's two refusals as ONE SENTENCE, for a surface that has a reader —
+ * the console, the dashboard, the hook, the worker, the MCP server. `remedy` is
+ * that surface's OWN way of naming a store: the console has `--dir`, the hook
+ * has a field in the file it was pointed at, and a remedy that names a flag the
+ * reader does not have is worse than none (#80 review). Null for any other
+ * error, so a caller falls through to its usual rendering.
+ */
+export function describeGuardRefusal(err: unknown, remedy: string): string | null {
+  if (isStoreError(err, "IMPLICIT_DEFAULT_DIR_REFUSED")) {
+    return (
+      `refused: ${String(err.detail["guard"])} and no store was named, so this would have opened the ` +
+      `default data dir, ${String(err.detail["dir"])} — on a machine with an install, somebody's live ` +
+      `memory. ${remedy}`
+    );
+  }
+  if (isStoreError(err, "EXPLICIT_DIR_GUARD_MALFORMED")) {
+    return explicitDirMalformedRefusal(String(err.detail["value"]));
+  }
+  return null;
 }
 
 /** The path the fallback WOULD return — so a refusal can name it without resolving it. */
@@ -86,27 +156,37 @@ export function defaultDataDir(): string {
  * The data directory for THIS call. Resolution order:
  *   1. `COUNTERPARTS_DATA_DIR` (read now, not at import)
  *   2. `~/.counterparts/store` (the base dir minus its host-adapter files) —
- *      unless `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, which refuses it by name.
+ *      unless `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is armed, which refuses it by
+ *      name; a value that neither arms nor is blank is refused too
+ *      (`explicitDirRequired`).
  *
  * `env` defaults to the process's own and is injectable for the one caller that
  * carries an environment of its own (`cli/commands.ts#resolveDir`, whose tests
- * pass one) — so the guard is provable without mutating `process.env`.
+ * pass one) — so the guard is provable without mutating `process.env`. It is
+ * read from THAT object only: a `run(argv, { env: {} })` is unarmed for that
+ * call whatever `process.env` says (`NOTES.md` 2026-09-05, the observation).
  *
  * The env-set case returns FIRST, before the guard is so much as read: a process
  * launched with the variable (the live MCP server) runs exactly the instructions
- * it ran before the guard existed.
+ * it ran before the guard existed — and a malformed guard value beside a named
+ * store is not consulted either, because the guard's only question is about
+ * the fallback.
  */
 export function dataDir(env: Record<string, string | undefined> = process.env): string {
   const fromEnv = env[DATA_DIR_ENV];
   if (fromEnv && fromEnv.trim().length > 0) return assertSafeDataDir(fromEnv);
   const fallback = defaultDataDir();
-  if (explicitDirRequired(env)) {
+  const setting = explicitDirSetting(env);
+  if (setting.armed) {
     throw new StoreError("IMPLICIT_DEFAULT_DIR_REFUSED", {
-      guard: `${REQUIRE_EXPLICIT_DIR_ENV}=1`,
+      guard: `${REQUIRE_EXPLICIT_DIR_ENV}=${setting.value}`,
       dir: fallback,
-      remedy: `name the store: pass dir (--dir on a command line), or set ${DATA_DIR_ENV}`,
+      remedy: `name the store: pass dir (--dir on a command line, "dataDir" in a host configuration), or set ${DATA_DIR_ENV}`,
     });
   }
+  // Fails closed: a value this cannot read refuses here, where falling open
+  // would have handed back the live store.
+  explicitDirRequired(env);
   return assertSafeDataDir(fallback);
 }
 

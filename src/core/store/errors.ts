@@ -17,6 +17,15 @@ export type StoreErrorCode =
    * 2026-09-05 a caller reached it by passing the wrong option name.
    */
   | "IMPLICIT_DEFAULT_DIR_REFUSED"
+  /**
+   * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` holds a value the guard will not guess
+   * at — not blank, not one of `EXPLICIT_DIR_ARMING_VALUES`. Thrown at the
+   * guard's decision point instead of falling open: the #80 review measured
+   * `=true`, `=yes`, `=on` and `= 1` all silently resolving the default, which
+   * is the one failure direction a safety guard may not have. `detail` carries
+   * `{ guard, value, accepted }`.
+   */
+  | "EXPLICIT_DIR_GUARD_MALFORMED"
   | "PROSE_FRONTMATTER_MISSING"
   | "PROSE_PAYLOAD_MISSING"
   | "PROSE_PAYLOAD_MALFORMED"

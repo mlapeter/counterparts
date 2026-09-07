@@ -451,11 +451,19 @@ has to be able to open its own default — so the path guard (§5 G9) could not 
 and `test/preload.ts`'s temp-home redirect protects only the test process. The owner
 ruled: add a guard, OFF by default, ON in this repo's agent shells.
 
-**The mechanism.** One environment variable, one new error code. With
-`COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, `dataDir()` throws `IMPLICIT_DEFAULT_DIR_REFUSED`
+**The mechanism.** One environment variable, two new error codes. With
+`COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, `dataDir()` throws `IMPLICIT_DEFAULT_DIR_REFUSED`
 instead of returning the fallback, with `{ guard, dir, remedy }` in the detail so the
-message names all three without any caller composing it. Only the exact value `1` arms
-it. Every door the store has funnels through that one function — `Store.open`,
+message names all three without any caller composing it. It arms on `1` or `true`
+(trimmed) — the set `COUNTERPARTS_OBSERVER` already accepts, so a person who exports
+`=true` by analogy is protected. The first draft armed on exactly `1` and the #80 review
+measured `=true`, `=yes`, `=on` and `= 1` all falling silently to the default: fail-open,
+the one direction a safety guard may not have. So any other non-blank value now throws
+`EXPLICIT_DIR_GUARD_MALFORMED` at the same decision point (`explicitDirRequired`), with a
+sentence naming the value and the two that work; blank is unset. The guard is consulted
+only where it decides — a malformed value beside a named `dir` or a named configuration
+is not read at all, because the guard's one question is about the fallback. Every door
+the store has funnels through that one function — `Store.open`,
 `Counterpart.open`, `SpanBuffer`, `storeExists()` with no argument, the console's
 `resolveDir`, the dashboard — so the guard sits in one place. The env-set case returns
 before the guard is read: a process launched with `COUNTERPARTS_DATA_DIR` (the live MCP
@@ -488,13 +496,64 @@ guard needs them named). Neither goes through `dataDir()` and neither opens a st
 no store — `--config` at a file with only `injectionBudgetBytes` — and no
 `COUNTERPARTS_DATA_DIR`: `implicitConfigRefusal` is not its business, so the bins proceed
 and `loaded.dataDir ?? dataDir()` meets the STORE guard, thrown rather than returned. The
-hook's entry point already turns any rejection into `[counterparts] hook stood down:
-<message>` with exit 0, and the message names the code, the dir and the remedy
-(`test/config-rule.test.ts`, "guarded-storeless"). The worker's handler exits 0 silently
-and the server's exits 1 silently — the shape those two already have for EVERY open
-failure (`DATA_DIR_FORBIDDEN`, `STORE_UNINITIALIZED`), spawned detached with stdio ignored
-in the worker's case. Not widened here: making two entry points print on every rejection
-is a separate decision about their failure legibility, not part of this guard.
+refusal is right (a config that omits `dataDir` named where the keys are, not which
+memory); the first draft's rendering was not: the hook printed the raw `StoreError` JSON,
+whose remedy said `--dir` — a flag the hook does not have — and the worker exited 0 and
+the server exited 1 with nothing on stderr (#80 review, recommendations 3 and 4). Now
+`store/paths.ts#describeGuardRefusal(err, remedy)` renders both guard codes as one
+sentence with the SURFACE's own remedy: the console, the dashboard and the server say
+`--dir <path>, or COUNTERPARTS_DATA_DIR`; the hook and the worker say `Set "dataDir" in
+<the file they read>, or set COUNTERPARTS_DATA_DIR`. The worker's and the server's
+rejection handlers print that sentence (or, for any other error, its message) before
+their exit 0 / exit 1, where they printed nothing — the one place this PR widened two
+entry points' failure legibility, because the reason was sitting in the error the
+handler was discarding (`test/config-rule.test.ts`, "the WORKER and the MCP SERVER say why
+in that same gap", which spawns both as real processes).
+
+**THE SECOND INCIDENT, and the refusal it earned (2026-09-04, added in the #80 review
+round).** I21 was read-only and cost nine titles. The day before it, the same door was
+walked through in the other direction, with a WRITE at the end: a suite run that had lost
+`test/preload.ts`'s home mock resolved the owner's REAL `~/.counterparts/claude-code.json`
+and rewrote its `dataDir` to a temp path. That file is the one the hook, the worker and the MCP server
+read when nothing names another, so from that moment his live memory was a directory the
+OS was free to delete — and it recorded nothing for three days before anyone noticed.
+This PR is the prevention, and the mock is only half of it: a mock can be lost, and was.
+
+So `cli/install.ts#throwawayDefaultRefusal` refuses the shape itself, with no variable
+involved — the incident's shell had neither the guard nor the mock, so a refusal that
+needed either would not have been there. `install` will not write THE DEFAULT
+`~/.counterparts/claude-code.json` with a `dataDir` under a temp root (`os.tmpdir()`,
+`$TMPDIR`/`$TMP`/`$TEMP`, `/tmp` — each compared in both its spellings, because macOS
+hands out `/var/folders/…` and `/private/var/folders/…` for the same directory).
+`--config <elsewhere>` is the way through and moves the credentials and the store with
+it, so a scratch install is scratch all the way down; `--force` does not buy past it,
+because `--force` overwrites a file you named and this is the file nobody named.
+
+The refusal's third clause is what keeps the clean rooms working, and it is the honest
+answer to "key it on the REAL default path": it fires only when the CONFIG is **not**
+itself under a temp root. `tools/install-loop/run.sh` installs into a fake `$HOME`
+beneath `$TMPDIR` with no `--config`, so its default config and its store are both
+throwaway and both under the same base — a stranger's install, correctly measured, not a
+live default pointed at a temp store. The test suite is in the same position (the mocked
+home is minted under `os.tmpdir()`), which is why the refusal is provable only with an
+injected home outside the temp tree; both install-loop runs stayed 47/47 with it in.
+
+**Observation, recorded (#80 review, 5).** The guard is read from the INJECTED
+environment only: `dataDir(env)` and `cli/commands.ts#run(argv, { env })` read the object
+they were handed, so `run(["status"], { env: {} })` with `process.env` armed is not
+refused — it reaches the fallback, which in the suite is the mocked temp home. The real
+bin passes no `env` (`opts.env ?? process.env`), so no live surface is affected, and the
+preload's first layer still holds for a test that injects an empty environment; what the
+second layer promises — "a forgetful test is REFUSED" — is true of tests that do not
+inject one. OR-ing the injected env with `process.env` would close it at the cost of the
+"unarmed → today's behaviour" tests having to stand the process guard down around their
+bodies; left as is, and named here, so the choice is visible.
+
+**Follow-up, filed (#80 review, 6).** `tools/parallel/bin/restart.ts` still reaches a live
+path by naming nothing — its `--v2-data-dir` default is `join(homedir(), ".counterparts")`
+— and WRITES there. It is outside this guard by construction (an explicit dir built from
+`homedir()`, never `dataDir()`) and outside the ruling's scope; it is the incident's exact
+class with a write at the end, and wants its own ruling.
 
 **Where it is ON.** `test/preload.ts` (a forgetful test is now REFUSED, not redirected —
 the second layer under the temp-home; `test/preload.test.ts` asserts it is armed when a

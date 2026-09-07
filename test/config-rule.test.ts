@@ -486,10 +486,24 @@ describe("the explicit-dir guard at the config door (I21)", () => {
     expect(implicitConfigRefusal(resolveConfigPath([], { ...GUARD, [CONFIG_ENV]: named }, home), GUARD)).toBe(
       null,
     );
-    // Unarmed — or armed with anything but the exact value `1`.
+    // Unarmed: absent or blank.
     expect(implicitConfigRefusal(byDefault, {})).toBe(null);
-    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "true" })).toBe(null);
-    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "0" })).toBe(null);
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "  " })).toBe(null);
+    // `true` arms it too (parity with COUNTERPARTS_OBSERVER), and the sentence
+    // quotes the value that armed it.
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "true" })).toContain(
+      `${REQUIRE_EXPLICIT_DIR_ENV}=true`,
+    );
+    // A value the guard cannot read is refused at the default — the same
+    // sentence the store uses — and is not consulted for a NAMED configuration.
+    const malformed = implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "yes" });
+    expect(malformed).toContain("'yes'");
+    expect(malformed).toContain("1 or true");
+    expect(malformed).toContain("fails closed");
+    expect(implicitConfigRefusal(byDefault, { [REQUIRE_EXPLICIT_DIR_ENV]: "0" })).toContain("'0'");
+    expect(
+      implicitConfigRefusal(resolveConfigPath([CONFIG_FLAG, named], {}, home), { [REQUIRE_EXPLICIT_DIR_ENV]: "yes" }),
+    ).toBe(null);
   });
 
   test("the three bins' choice functions all feed it, so all three stand down on the same sentence", () => {
@@ -748,11 +762,85 @@ describe("the hook, as a real process", () => {
       expect(gap.code).toBe(0);
       expect(gap.stdout).toBe("");
       expect(gap.stderr).toContain("hook stood down");
-      expect(gap.stderr).toContain("IMPLICIT_DEFAULT_DIR_REFUSED");
       expect(gap.stderr).toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      // A SENTENCE with the HOOK's remedy — the field in the file it read — and
+      // not the console's flag, which a hook does not have (#80 review, 4).
+      expect(gap.stderr).toContain(`Set "dataDir" in ${storeless}`);
+      expect(gap.stderr).toContain("COUNTERPARTS_DATA_DIR");
+      expect(gap.stderr).not.toContain("--dir");
+      expect(gap.stderr).not.toContain('{"guard"');
       expect(existsSync(decoyStore)).toBe(false);
       expect(existsSync(join(work, "storeless", "store"))).toBe(false);
       expect(treeHash(join(home, ".counterparts"))).toBe(before);
+
+      // A value the guard cannot read stands the hook down too, on the same
+      // sentence the store uses, rather than falling to the decoy.
+      const typo = runHook([], { HOME: home, USERPROFILE: home, [REQUIRE_EXPLICIT_DIR_ENV]: "yes" }, "guarded-typo");
+      expect(typo.code).toBe(0);
+      expect(typo.stdout).toBe("");
+      expect(typo.stderr).toContain("hook stood down");
+      expect(typo.stderr).toContain("'yes'");
+      expect(typo.stderr).toContain("1 or true");
+      expect(existsSync(decoyStore)).toBe(false);
+    },
+    60_000,
+  );
+
+  test(
+    "the WORKER and the MCP SERVER say why in that same gap, where both used to exit silently (#80 review, 3)",
+    () => {
+      // Same shape as the hook's gap above — a NAMED configuration that names
+      // no store, guard armed, no `COUNTERPARTS_DATA_DIR` — at the two entry
+      // points whose rejection handlers used to discard the error: the worker
+      // exited 0 with an empty stderr and the server exited 1 with an empty
+      // stderr, so a Claude Code user saw "MCP server failed" and no reason.
+      // Nothing about the refusal changed; only that it is now SAID.
+      const home = join(work, "home-gap-bins");
+      const storeless = writeConfig(join(work, "storeless-bins", "claude-code.json"), {
+        injectionBudgetBytes: 9000,
+      });
+      const armed = {
+        PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+        HOME: home,
+        USERPROFILE: home,
+        [REQUIRE_EXPLICIT_DIR_ENV]: "1",
+      };
+
+      // The worker: exit 0 always (nothing about a failed run may reach the
+      // host), and the reason on stderr, with the WORKER's remedy — the field
+      // in the file it read, not the console's `--dir`.
+      const worker = spawnSync(process.execPath, ["run", RUNNER_SCRIPT], {
+        encoding: "utf8",
+        env: { ...armed, [CONFIG_ENV]: storeless },
+        timeout: 60_000,
+      });
+      expect(worker.status).toBe(0);
+      expect(worker.stderr ?? "").toContain("worker stood down");
+      expect(worker.stderr ?? "").toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(worker.stderr ?? "").toContain(`Set "dataDir" in ${storeless}`);
+      expect(worker.stderr ?? "").not.toContain("--dir");
+      expect(worker.stderr ?? "").not.toContain('{"guard"');
+
+      // The server: exit 1, stdout untouched (it is the wire), and the same
+      // sentence with the SERVER's remedy, which does have `--dir`.
+      const server = spawnSync(process.execPath, ["run", SERVE_SCRIPT, CONFIG_FLAG, storeless], {
+        input:
+          '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}\n',
+        encoding: "utf8",
+        env: armed,
+        timeout: 60_000,
+      });
+      expect(server.status).toBe(1);
+      expect(server.stdout ?? "").toBe("");
+      expect(server.stderr ?? "").toContain("refused:");
+      expect(server.stderr ?? "").toContain(`${REQUIRE_EXPLICIT_DIR_ENV}=1`);
+      expect(server.stderr ?? "").toContain("--dir <path>");
+      expect(server.stderr ?? "").not.toContain('{"guard"');
+
+      // Neither minted anything: not the store the config failed to name, not
+      // the default one under the temp home.
+      expect(existsSync(join(work, "storeless-bins", "store"))).toBe(false);
+      expect(existsSync(join(home, ".counterparts"))).toBe(false);
     },
     60_000,
   );

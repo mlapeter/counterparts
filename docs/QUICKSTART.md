@@ -459,10 +459,24 @@ command, hook, server or library call that names no store (no `--dir`, no
 `COUNTERPARTS_DATA_DIR`) refuses before it opens anything, naming the guard, the
 directory it would have opened, and the two ways to name one; the same variable
 makes the hook, the worker, the MCP server and `install` refuse an unnamed
-configuration, because `~/.counterparts/claude-code.json` names a store too. The
-value must be exactly `1`. Unset — which is every installed host — nothing
-changes. It is a guard for shells, not a setting: the store it protects is the
-one you would have reached without it.
+configuration, because `~/.counterparts/claude-code.json` names a store too. It
+arms on `1` or `true` (the same two `COUNTERPARTS_OBSERVER` takes; surrounding
+whitespace is ignored); blank is unset; **any other value is refused, not
+ignored** — `=yes` or `=on` gets a sentence naming the value and the two that
+work, because a safety guard that cannot read its own switch fails closed. Unset
+— which is every installed host — nothing changes. It is a guard for shells, not
+a setting: the store it protects is the one you would have reached without it.
+
+One refusal near that door needs no variable at all, because it answers a real
+accident rather than a shape: **`install` will not write the default
+`~/.counterparts/claude-code.json` with a `dataDir` under the system temp
+directory.** That file is what the hook, the worker and the MCP server read when
+nothing names another, so a throwaway store written into it becomes the machine's
+live memory until the OS deletes it — which is how three days went unrecorded on
+this project's own machine on 2026-09-04. Point a scratch install somewhere of its own instead: `--config
+<absolute path outside ~/.counterparts>` moves the configuration, the credentials
+and the store together. A clean room whose whole `$HOME` is temporary (the install
+loop's, the test suite's) is not this case and is not refused.
 
 ### Store some memories and ask for one back
 
@@ -789,7 +803,7 @@ The fifth host behaviour — `session_end` binding to a live session **through t
 registry**, since the server is never told a session id — the loop now does
 exercise, end to end: the hook writes `sessions/<id>.json`, a separate
 `counterparts-mcp` process is given only the data dir and the scope, and its
-`session_end` binds to that record and mints the memory (loop step 33; the
+`session_end` binds to that record and mints the memory (loop step 34; the
 refusals `session-unknown`, `scope-mismatch` and `session-required` are what the
 step fails on). What is still unverified is the same thing as above: that this
 happens inside a real Claude Code session, where the id comes from the host

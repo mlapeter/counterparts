@@ -60,8 +60,8 @@ import {
   Store,
   dataDir,
   decodeVector,
+  describeGuardRefusal,
   encodeVector,
-  isStoreError,
   isWithin,
   paths,
   readProseFile,
@@ -95,6 +95,7 @@ import {
   credentialsTemplate,
   hookCommand,
   installLayout,
+  throwawayDefaultRefusal,
   layoutRefusal,
   mcpCommand,
   settingsBlock,
@@ -728,21 +729,18 @@ function resolveDir(env: Record<string, string | undefined>): string {
 }
 
 /**
- * The one store refusal the console renders as a SENTENCE rather than printing
- * the error's own line: `IMPLICIT_DEFAULT_DIR_REFUSED` is the guard an operator
- * armed on purpose, and the reader is owed what it refused and how to proceed
- * (constitution 16), not a JSON detail. Every other store error keeps its
- * `${code} ${detail}` line, which the tests assert by code.
+ * The store refusals the console renders as a SENTENCE rather than printing the
+ * error's own line: the explicit-dir guard is one an operator armed on purpose,
+ * and the reader is owed what it refused and how to proceed (constitution 16),
+ * not a JSON detail. The sentence is the store's (`describeGuardRefusal`); the
+ * remedy is this console's, because it is the surface that has `--dir`. Every
+ * other store error keeps its `${code} ${detail}` line, asserted by code.
  */
 function describeDirRefusal(err: unknown): string {
-  if (isStoreError(err, "IMPLICIT_DEFAULT_DIR_REFUSED")) {
-    return (
-      `refused: ${String(err.detail["guard"])} and no store was named, so this command would have ` +
-      `opened the default data dir, ${String(err.detail["dir"])} — on a machine with an install, ` +
-      `somebody's live memory. Name the store: --dir <path>, or ${DATA_DIR_ENV}.`
-    );
-  }
-  return String((err as Error).message ?? err);
+  return (
+    describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
+    String((err as Error).message ?? err)
+  );
 }
 
 // ── status ──────────────────────────────────────────────────────────────────
@@ -943,6 +941,18 @@ function installCommand(
   const refusal = layoutRefusal(layout);
   if (refusal !== null) {
     io.err(refusal);
+    return EXIT.refused;
+  }
+  // And before that: the DEFAULT configuration is never written pointing at a
+  // throwaway store (`install.ts#throwawayDefaultRefusal`). That is the shape
+  // the 2026-09-04 incident took — the live `claude-code.json` rewritten with a
+  // temp `dataDir`, three days of memory recorded nowhere. Independent of the
+  // explicit-dir guard on purpose: the incident happened in a shell that had
+  // neither the guard nor the home mock, so a refusal that needed either would
+  // not have been there.
+  const throwaway = throwawayDefaultRefusal(layout, env, home_);
+  if (throwaway !== null) {
+    io.err(throwaway);
     return EXIT.refused;
   }
 

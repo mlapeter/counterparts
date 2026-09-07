@@ -64,7 +64,12 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
-import { DEFAULT_DATA_DIR_NAME, REQUIRE_EXPLICIT_DIR_ENV, explicitDirRequired } from "../core/store/index.js";
+import {
+  DEFAULT_DATA_DIR_NAME,
+  REQUIRE_EXPLICIT_DIR_ENV,
+  explicitDirMalformedRefusal,
+  explicitDirSetting,
+} from "../core/store/index.js";
 
 /** The flag, spelled once. */
 export const CONFIG_FLAG = "--config";
@@ -309,17 +314,23 @@ export function namedConfigRefusal(
  *
  * Callers: the three bins (chained after `namedConfigRefusal`, which already
  * stands them down on a string) and the console's `install`. Read from the
- * injected `env`, like everything else in this file.
+ * injected `env`, like everything else in this file. A value the guard cannot
+ * read is refused HERE too, in the same sentence the store uses — but only at
+ * the default, because a named configuration never consulted the guard.
  */
 export function implicitConfigRefusal(
   choice: ConfigChoice,
   env: Record<string, string | undefined> = process.env,
 ): string | null {
-  if (choice.source !== "default" || !explicitDirRequired(env)) return null;
+  if (choice.source !== "default") return null;
+  const setting = explicitDirSetting(env);
+  if (!setting.armed) {
+    return setting.malformed === null ? null : explicitDirMalformedRefusal(setting.malformed);
+  }
   return (
-    `refused: ${REQUIRE_EXPLICIT_DIR_ENV}=1 and no configuration was named, so this would have ` +
-    `read the default one, ${choice.path} — which on a machine with an install names the live ` +
-    `store and its credentials. Name one: ${CONFIG_FLAG} <absolute path>, or ${CONFIG_ENV}.`
+    `refused: ${REQUIRE_EXPLICIT_DIR_ENV}=${setting.value} and no configuration was named, so this ` +
+    `would have read the default one, ${choice.path} — which on a machine with an install names the ` +
+    `live store and its credentials. Name one: ${CONFIG_FLAG} <absolute path>, or ${CONFIG_ENV}.`
   );
 }
 

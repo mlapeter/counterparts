@@ -1338,7 +1338,18 @@ describe("the adapter's surface", () => {
       expect(out).toContain(ENV);
       expect(out).not.toContain("    at ");
       expect(out).not.toContain('{"guard"');
+
+      // A value the guard cannot read: refused in a sentence, never fallen
+      // through to the default (the #80 review's fail-open finding).
+      process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "yes";
+      const typo = run(["status", "--no-colour"]);
+      expect(typo.split("\n").length).toBe(1);
+      expect(typo).toContain("refused:");
+      expect(typo).toContain("'yes'");
+      expect(typo).toContain("1 or true");
+      expect(typo).not.toContain("    at ");
     } finally {
+      process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
       process.env[ENV] = dir;
     }
     // An instrument that was refused created nothing, not even the parent.

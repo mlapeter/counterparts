@@ -45,6 +45,7 @@ import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { openServer } from "../index.js";
 import { serveStdio } from "../stdio.js";
+import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 
 /**
  * The same file `bin/hook.ts` and `bin/runner.ts` read by default. One
@@ -227,6 +228,19 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     // `process.exitCode` is 1 when the launch refused a named configuration it
     // could not honour; every other path ends 0.
     () => process.exit(process.exitCode === 1 ? 1 : 0),
-    () => process.exit(1),
+    (err: unknown) => {
+      // A server that cannot start SAYS why, on stderr (stdout is the wire).
+      // Before this line, the gap between the two guards — a named configuration
+      // that names no store, no `--dir`, no variable — was a bare exit 1 that
+      // the host reports as "MCP server failed" and nothing else (#80 review).
+      // The explicit-dir guard gets a sentence with THIS entry point's remedy;
+      // any other failure gets its own message.
+      const detail = err instanceof Error ? err.message : String(err);
+      const remedy = `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`;
+      process.stderr.write(
+        `${describeGuardRefusal(err, remedy) ?? `[counterparts] server did not start: ${detail}`}\n`,
+      );
+      process.exit(1);
+    },
   );
 }

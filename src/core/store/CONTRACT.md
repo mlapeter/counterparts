@@ -162,11 +162,14 @@ by reference only.
     `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
     owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots
     (G9) because the store must open its own default. So the fallback is a door with a lock:
-    with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` in the environment, every resolution that
-    would have returned it throws `IMPLICIT_DEFAULT_DIR_REFUSED` before anything is created,
-    naming the guard, the directory and the remedy — and a named `dir` or a
-    `COUNTERPARTS_DATA_DIR` is unaffected. Unset, behaviour is unchanged; the variable is
-    never set on an installed host. The same guard covers the configuration default in
+    with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed (`1` or `true`, whitespace trimmed — the
+    set `COUNTERPARTS_OBSERVER` accepts), every resolution that would have returned it throws
+    `IMPLICIT_DEFAULT_DIR_REFUSED` before anything is created, naming the guard, the directory
+    and the remedy — and a named `dir` or a `COUNTERPARTS_DATA_DIR` is unaffected. **The guard
+    fails closed:** any other non-blank value throws `EXPLICIT_DIR_GUARD_MALFORMED` at the same
+    decision point rather than falling to the default (the #80 review measured `=true`, `=yes`,
+    `=on` and `= 1` all falling open under the first draft). Unset or blank, behaviour is
+    unchanged; the variable is never set on an installed host. The same guard covers the configuration default in
     `adapters/config-path.ts`, because a default-sourced `~/.counterparts/claude-code.json`
     NAMES a store and `install` writes under that base. **Not covered, by design:** a
     number read from the default config for a store already named (`rebrief`'s ceiling),
