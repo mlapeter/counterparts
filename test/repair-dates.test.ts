@@ -623,17 +623,32 @@ describe("the console door", () => {
     expect(l.err.join("\n")).toContain("refused:");
   });
 
-  test("--apply on the DEFAULT store needs --dir or --yes", async () => {
+  test("--apply on a store nobody named refuses, and --yes does not stand in for --dir", async () => {
     // No `--dir`: the command would resolve `dataDir()`. It refuses before it
-    // opens anything, and says which two flags aim it (review 4).
+    // opens anything, and names the ONE flag that aims it (review 4). Until the
+    // 2026-09-05 ruling `--yes` was a second way through this door — the same
+    // flag that, one command over, meant "skip the typed confirmation". Now
+    // `--yes` only ever skips a confirmation, and this command has none.
     const l = lines();
     const code = await run(["repair-dates", "--apply"], { io: l.io, env: {} });
     expect(code).toBe(EXIT.refused);
-    expect(l.err.join("\n")).toContain("needs --dir <path> or --yes");
+    expect(l.err.join("\n")).toContain("refused:");
+    expect(l.err.join("\n")).toContain("will not run against a store nobody named");
+    expect(l.err.join("\n")).toContain("--dir <path>");
+    expect(l.err.join("\n")).not.toContain("--yes");
+    // `--yes` is not a flag this command takes any more: it is refused as unknown,
+    // before the store is looked at — never accepted as a substitute for --dir.
+    const yes = lines();
+    expect(await run(["repair-dates", "--apply", "--yes"], { io: yes.io, env: {} })).toBe(EXIT.refused);
+    expect(yes.err.join("\n")).toContain("unknown flag --yes");
+    // Naming the store is the way through, and the only one.
+    const named = lines();
+    expect(await run(["repair-dates", "--apply", "--dir", dir], { io: named.io, env: {} })).toBe(EXIT.ok);
+    expect(named.err.join("\n")).not.toContain("refused:");
     // A DRY RUN on the default store is read-only and stays unguarded.
     const dry = lines();
     await run(["repair-dates"], { io: dry.io, env: {} });
-    expect(dry.err.join("\n")).not.toContain("needs --dir");
+    expect(dry.err.join("\n")).not.toContain("will not run against");
   });
 
   test("under --observer the repair refuses: an instrument does not rewrite what it reads", async () => {

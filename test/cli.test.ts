@@ -23,6 +23,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -735,7 +736,7 @@ describe("remove — the loud removal", () => {
     await run(["remove", id, "--confirm"], { io: consoleWith([id]).io, env: { [ENV]: dir } });
 
     const c = consoleWith();
-    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["verify", "--rebuild", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Skipped as removed (deny-list): 1");
     expect(printed).toContain("Re-indexed: 1");
@@ -1372,7 +1373,7 @@ describe("verify", () => {
     expect(text(before.err)).toContain("--prune-index");
 
     const c = consoleWith();
-    expect(await run(["verify", "--prune-index"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["verify", "--prune-index", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Dropped from the text index (archived or superseded): 1");
     expect(embeddings()).toBe(1);
 
@@ -1389,7 +1390,7 @@ describe("verify", () => {
 
     const before = fingerprint(dir);
     const c = consoleWith();
-    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(await run(["verify", "--rebuild", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
     expect(text(c.err)).toContain("the 1 embedding it holds would be gone");
     expect(text(c.err)).toContain("paid network call");
     expect(text(c.err)).toContain("--drop-vectors");
@@ -1405,7 +1406,7 @@ describe("verify", () => {
     seedVector(kept);
 
     const c = consoleWith();
-    expect(await run(["verify", "--rebuild", "--drop-vectors"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["verify", "--rebuild", "--drop-vectors", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
     const printed = text(c.out);
@@ -1422,7 +1423,7 @@ describe("verify", () => {
 
     // No vectors to lose, so no flag is needed: the guard is about cost, not ceremony.
     const c = consoleWith();
-    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["verify", "--rebuild", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Re-indexed: 5");
     // What cannot be recomputed is DECLARED, with an owner and a repair (§5 G8).
     expect(text(c.out)).toContain("declared: embeddings");
@@ -1439,7 +1440,7 @@ describe("verify", () => {
     writeFileSync(paths.cache(dir), "not a database");
 
     const c = consoleWith();
-    expect(await run(["verify", "--rebuild"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+    expect(await run(["verify", "--rebuild", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
     expect(text(c.err)).toContain("could not be read");
     expect(readFileSync(paths.cache(dir)).toString()).toBe("not a database");
 
@@ -1490,7 +1491,7 @@ describe("verify", () => {
     seedVector(kept);
 
     const c = consoleWith();
-    expect(await run(["verify", "--rebuild", "--keep-vectors"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["verify", "--rebuild", "--keep-vectors", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
     const printed = text(c.out);
@@ -1511,7 +1512,7 @@ describe("verify", () => {
 
     const c = consoleWith();
     expect(
-      await run(["verify", "--rebuild", "--drop-vectors", "--keep-vectors"], {
+      await run(["verify", "--rebuild", "--drop-vectors", "--keep-vectors", "--dir", dir], {
         io: c.io,
         env: { [ENV]: dir },
       }),
@@ -1592,13 +1593,31 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(shapes()).toEqual({ blob: 0, text: 2 });
   });
 
-  test("--apply REFUSES the default data dir — the store must be named", async () => {
-    // On a real machine that default is the owner's live memory, and the guard
-    // runs before this command looks at a single path.
+  test("--apply REFUSES a store nobody named, and COUNTERPARTS_DATA_DIR does not name it", async () => {
+    // THE REVIEWER'S EXACT CASE (#77 review, 2026-09-05). This line used to
+    // walk through: `migrate-cache` counted the environment variable as having
+    // named the store, while `repair-dates` — one command over, the same night
+    // — refused the identical line. `--yes` skips a confirmation and nothing
+    // else; the `--dir` FLAG names the store, and it is the only thing that
+    // does. On a real machine what the variable names is the owner's live
+    // memory, and the guard runs before this command looks at a single path.
+    seedJsonStore();
+    const before = readFileSync(paths.cache(dir)).toString("base64");
     const c = consoleWith();
-    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: {} })).toBe(EXIT.refused);
-    expect(text(c.err)).toContain("will not run against the default data dir");
-    expect(text(c.err)).toContain("--dir");
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(c.err)).toContain("will not run against a store nobody named");
+    expect(text(c.err)).toContain("Name the store: --dir <path>.");
+    // It stopped AT THE DOOR, not one step in at box 3's "nothing to convert"
+    // refusal: both exit 2, and only the report tells them apart.
+    expect(text(c.out)).not.toContain("Store:");
+    expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
+
+    // With nothing naming a store at all, the same refusal.
+    const d = consoleWith();
+    expect(await run(["migrate-cache", "--apply", "--yes"], { io: d.io, env: {} })).toBe(EXIT.refused);
+    expect(text(d.err)).toContain("Name the store: --dir <path>.");
   });
 
   test("--apply asks before it writes, and takes no for an answer", async () => {
@@ -1607,7 +1626,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
 
     // No prompt and no --yes: refuse rather than proceed unconfirmed.
     const mute = consoleWith();
-    expect(await run(["migrate-cache", "--apply"], { io: mute.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["migrate-cache", "--apply", "--dir", dir], { io: mute.io, env: { [ENV]: dir } })).toBe(
       EXIT.refused,
     );
     expect(text(mute.err)).toContain("--yes");
@@ -1615,7 +1634,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
 
     // Asked and declined.
     const no = consoleWith(["no"]);
-    expect(await run(["migrate-cache", "--apply"], { io: no.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["migrate-cache", "--apply", "--dir", dir], { io: no.io, env: { [ENV]: dir } })).toBe(
       EXIT.refused,
     );
     expect(no.asked.join("")).toContain("Type 'yes'");
@@ -1624,7 +1643,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
 
     // Asked and confirmed.
     const yes = consoleWith(["yes"]);
-    expect(await run(["migrate-cache", "--apply"], { io: yes.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["migrate-cache", "--apply", "--dir", dir], { io: yes.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(shapes()).toEqual({ blob: 2, text: 0 });
   });
 
@@ -1632,7 +1651,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     seedJsonStore();
     const c = consoleWith();
     expect(
-      await run(["migrate-cache", "--apply", "--yes", "--batch", "1"], { io: c.io, env: { [ENV]: dir } }),
+      await run(["migrate-cache", "--apply", "--yes", "--batch", "1", "--dir", dir], { io: c.io, env: { [ENV]: dir } }),
     ).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Converted 2 vectors in 2 batches."); // batched, per --batch
@@ -1671,7 +1690,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
 
     // And `--apply` compacts it, converting nothing.
     const c = consoleWith();
-    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["migrate-cache", "--apply", "--yes", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
     expect(text(c.out)).toContain("Cache file:");
@@ -1682,12 +1701,12 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
   test("a second --apply REFUSES once there is nothing left to convert OR reclaim", async () => {
     seedJsonStore();
     const first = consoleWith();
-    expect(await run(["migrate-cache", "--apply", "--yes"], { io: first.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["migrate-cache", "--apply", "--yes", "--dir", dir], { io: first.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
 
     const again = consoleWith();
-    expect(await run(["migrate-cache", "--apply", "--yes"], { io: again.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["migrate-cache", "--apply", "--yes", "--dir", dir], { io: again.io, env: { [ENV]: dir } })).toBe(
       EXIT.refused,
     );
     expect(text(again.err)).toContain("already float32");
@@ -1709,7 +1728,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
 
     const c = consoleWith();
     // Loud: the store is not fully converted, and the exit code says so.
-    expect(await run(["migrate-cache", "--apply", "--yes"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["migrate-cache", "--apply", "--yes", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.failed,
     );
     const printed = text(c.out);
@@ -1748,7 +1767,7 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     seedJsonStore();
     const c = consoleWith();
     expect(
-      await run(["migrate-cache", "--apply", "--yes", "--observer"], { io: c.io, env: { [ENV]: dir } }),
+      await run(["migrate-cache", "--apply", "--yes", "--observer", "--dir", dir], { io: c.io, env: { [ENV]: dir } }),
     ).toBe(EXIT.refused);
     expect(text(c.err)).toContain("observer stance");
     expect(shapes()).toEqual({ blob: 0, text: 2 });
@@ -1828,7 +1847,7 @@ describe("backfill-claims — the one-shot repair for rows minted before the flo
     s.close();
 
     const c = consoleWith();
-    const code = await run(["backfill-claims", "--apply"], { io: c.io, env: { [ENV]: dir } });
+    const code = await run(["backfill-claims", "--apply", "--dir", dir], { io: c.io, env: { [ENV]: dir } });
     expect(code).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Applied the default floor to 2 memories.");
 
@@ -1858,11 +1877,11 @@ describe("backfill-claims — the one-shot repair for rows minted before the flo
     const s = store();
     seedMixed(s);
     s.close();
-    await run(["backfill-claims", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+    await run(["backfill-claims", "--apply", "--dir", dir], { io: consoleWith().io, env: { [ENV]: dir } });
     const mid = fingerprint(dir);
 
     const c = consoleWith();
-    expect(await run(["backfill-claims", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(await run(["backfill-claims", "--apply", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(c.out)).toContain("Authored memories with no claimed salience: 0");
     expect(fingerprint(dir)).toBe(mid);
   });
@@ -1974,7 +1993,7 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     s.close();
 
     const c = consoleWith();
-    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["repair-merged-beliefs", "--apply", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
     expect(text(c.out)).toContain("Put 1 elements back.");
@@ -2014,11 +2033,11 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     const s = store();
     poison(s);
     s.close();
-    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+    await run(["repair-merged-beliefs", "--apply", "--dir", dir], { io: consoleWith().io, env: { [ENV]: dir } });
     const mid = fingerprint(dir);
 
     const c = consoleWith();
-    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["repair-merged-beliefs", "--apply", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
     expect(text(c.out)).toContain("Beliefs and current-state rows archived as duplicates: 0");
@@ -2138,7 +2157,7 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     expect(tokensFor(ids.beliefId)).toBe(0);
 
     expect(
-      await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } }),
+      await run(["repair-merged-beliefs", "--apply", "--dir", dir], { io: consoleWith().io, env: { [ENV]: dir } }),
     ).toBe(EXIT.ok);
 
     const after = store({ observer: true });
@@ -2191,7 +2210,7 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     const s = store();
     const ids = poison(s);
     s.close();
-    await run(["repair-merged-beliefs", "--apply"], { io: consoleWith().io, env: { [ENV]: dir } });
+    await run(["repair-merged-beliefs", "--apply", "--dir", dir], { io: consoleWith().io, env: { [ENV]: dir } });
 
     const writable = store();
     const sc = Schemas.open({ store: writable });
@@ -2210,7 +2229,7 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     writable.close();
 
     const c = consoleWith();
-    expect(await run(["repair-merged-beliefs", "--apply"], { io: c.io, env: { [ENV]: dir } })).toBe(
+    expect(await run(["repair-merged-beliefs", "--apply", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
       EXIT.ok,
     );
     expect(text(c.err)).not.toContain("FAILED");
@@ -3277,6 +3296,94 @@ describe("install", () => {
     }
     // The host's own settings file is never named as a thing we open.
     expect(settingsBlock()).not.toContain("settings.json");
+  });
+});
+
+// ── the one door in front of a bulk write ───────────────────────────────────
+
+/**
+ * ONE DEFINITION OF "NAMED", ON EVERY COMMAND THAT WRITES IN BULK.
+ *
+ * The disagreement (#77 review, 2026-09-05): `migrate-cache --apply` counted
+ * `COUNTERPARTS_DATA_DIR` as having named the store and walked through on the
+ * variable alone, while `repair-dates --apply` — landed the same night —
+ * refused the identical line, and the shared `--yes` help sentence asserted the
+ * two agreed. `backfill-claims --apply` and `repair-merged-beliefs --apply`,
+ * bulk writes of the same shape, had no door at all.
+ *
+ * The owner's ruling: `--yes` only ever skips an interactive confirmation, and
+ * a BULK WRITE always requires the `--dir` flag — neither `--yes` nor the
+ * environment variable stands in for it. Ordinary per-memory commands keep
+ * today's behaviour, which QUICKSTART §3 teaches, and so do the dry runs.
+ *
+ * Every door is walked from both sides here, and the refusal is proven to have
+ * left the store byte-identical rather than merely to have printed something.
+ */
+describe("a bulk write names its store with --dir, and nothing else names it", () => {
+  /** Every byte under the store, so a refusal can be shown to have changed none. */
+  const fingerprint = (root: string): string => {
+    const walk = (path: string): string[] => {
+      if (!existsSync(path)) return [];
+      if (statSync(path).isDirectory()) {
+        return readdirSync(path)
+          .sort()
+          .flatMap((name) => walk(join(path, name)));
+      }
+      return [`${path} ${createHash("sha256").update(readFileSync(path)).digest("hex")}`];
+    };
+    return walk(root).join("\n");
+  };
+
+  /** Each door, as the owner would type it. */
+  const DOORS: readonly (readonly [string, readonly string[]])[] = [
+    ["repair-dates --apply", ["repair-dates", "--apply"]],
+    ["migrate-cache --apply --yes", ["migrate-cache", "--apply", "--yes"]],
+    ["backfill-claims --apply", ["backfill-claims", "--apply"]],
+    ["repair-merged-beliefs --apply", ["repair-merged-beliefs", "--apply"]],
+    ["verify --rebuild", ["verify", "--rebuild"]],
+    ["verify --prune-index", ["verify", "--prune-index"]],
+    ["verify --drop-vectors", ["verify", "--drop-vectors"]],
+  ];
+
+  beforeEach(() => {
+    const s = Store.open({ dir });
+    s.put({ type: "memory", kind: "fact", body: "A row for a bulk repair to walk over." });
+    s.close();
+  });
+
+  for (const [name, argv] of DOORS) {
+    test(`'${name}' on COUNTERPARTS_DATA_DIR alone is refused, and changes nothing`, async () => {
+      const before = fingerprint(dir);
+      const c = consoleWith(["yes"]);
+      expect(await run(argv, { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+      expect(text(c.err)).toContain("will not run against a store nobody named");
+      // It says WHICH store it would have been, and names the one remedy.
+      expect(text(c.err)).toContain(dir);
+      expect(text(c.err)).toContain("Name the store: --dir <path>.");
+      expect(text(c.err)).toContain("Nothing has changed.");
+      expect(fingerprint(dir)).toBe(before);
+    });
+
+    test(`'${name} --dir <store>' goes through the door`, async () => {
+      const c = consoleWith(["yes"]);
+      const code = await run([...argv, "--dir", dir], { io: c.io, env: {} });
+      expect(text(c.err)).not.toContain("will not run against a store nobody named");
+      expect(code).not.toBe(EXIT.usage);
+    });
+  }
+
+  test("the DRY RUNS still read COUNTERPARTS_DATA_DIR — the door is only in front of the write", async () => {
+    for (const argv of [
+      ["repair-dates"],
+      ["migrate-cache"],
+      ["backfill-claims"],
+      ["repair-merged-beliefs"],
+      ["verify"],
+    ]) {
+      const c = consoleWith();
+      await run(argv, { io: c.io, env: { [ENV]: dir } });
+      expect(text(c.err)).not.toContain("will not run against a store nobody named");
+    }
   });
 });
 

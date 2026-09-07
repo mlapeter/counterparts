@@ -450,3 +450,103 @@ refusal you got AFTER typing one wrong. `commandHelp` reads `COMMAND_FLAGS` and
 parser cannot drift; `FLAG_HELP` gives each flag a sentence and the test fails
 on a flag added without one. Bare `--help` still prints the console's usage,
 and both still exit 0 and open nothing.
+
+## 2026-09-05 — `--yes` means one thing (G31)
+
+**The disagreement.** Two commands merged the same night each took `--yes`, and
+meant different things by it. `migrate-cache --apply` asks `remove`-style for a
+typed `yes`, and `--yes` skips the asking; the store must be named (`--dir` or
+`COUNTERPARTS_DATA_DIR`) either way. `repair-dates --apply` asks nothing, and
+its `--yes` was the second way to aim the rewrite at a store nobody named — the
+default store, which on a real machine is the owner's live memory. The one
+`FLAG_HELP` sentence that had to describe both meanings described both, which
+is how the review saw it (LAUNCH-STATUS G31).
+
+**The ruling.** `--yes` ONLY ever skips an interactive confirmation. A command
+that writes always requires the store named by `--dir`, and `--yes` never
+stands in for it. `repair-dates` has no confirmation to skip, so `yes` left its
+flag list rather than staying as a no-op: a flag the help page lists is a flag a
+reader tries, and a no-op that used to mean "aim here" is the worst kind.
+
+**Where it is enforced.** `repairDatesCommand` refuses `--apply` whenever
+`--dir` was not passed — `defaultedDir` is `flags.dir === undefined`, so an
+exported `COUNTERPARTS_DATA_DIR` does not count as naming it, which was already
+this command's rule — in the shape `migrate-cache` uses: `refused:` on stderr,
+`EXIT.refused`, the remedy naming `--dir <path>` and nothing else. `--yes` on
+`repair-dates` now falls to `unknownFlag` before the store is looked at. The
+test is `test/repair-dates.test.ts`, "the console door": refused without
+`--dir`, refused as unknown with `--yes`, through with `--dir`, and the dry run
+still unguarded. `FLAG_HELP.yes` carries the one meaning, so
+`migrate-cache --help` says it too. `migrate-cache`'s own door is unchanged: it
+already refused the default regardless of `--yes`.
+
+**What still says `--yes` and means something else.** `counterparts-dashboard
+serve --yes` means "open the DEFAULT store" (QUICKSTART §10.1, README). It is
+read-only and it is not this console, so it was left alone under a ruling about
+commands that write; but it is the last `--yes` with a second meaning, and a
+rename (`--default-store`, say) is the obvious follow-up once the owner rules.
+(It landed as `--default-store` in #78, the same day.)
+
+## 2026-09-05 — one definition of "named", and one door in front of every bulk write
+
+**What the review found (#77).** The entry above closed the `--yes` half and
+left the other half open, in the same sentence. `repair-dates --apply` refused a
+store named only by `COUNTERPARTS_DATA_DIR`; `migrate-cache --apply` counted the
+variable as having named it. So
+`COUNTERPARTS_DATA_DIR=<store> counterparts migrate-cache --apply --yes` walked
+through, printed the plan and reached the conversion, while the identical line
+one command over refused — under one `FLAG_HELP.yes` sentence asserting the two
+agreed ("it never stands in for `--dir`, which a command that writes still
+requires"). Two definitions of "named" in one console, and a help page that
+named the stricter one. The reviewer also found that `backfill-claims --apply`
+(salience across every authored memory) and `repair-merged-beliefs --apply`
+(un-archives rows) had **no door at all** — `grep` found the guard at exactly
+two sites.
+
+**The ruling (owner, 2026-09-05).** `--yes` only ever skips an interactive
+confirmation. A command that performs a BULK WRITE always requires the `--dir`
+FLAG; neither `--yes` nor `COUNTERPARTS_DATA_DIR` stands in for it. Ordinary
+per-memory commands — `note`, `recall`, `remove`, `init`, `install`, `status`,
+and `verify` without a writing flag — keep today's behaviour: the variable names
+their store, which is what QUICKSTART §3 teaches. The distinction is blast
+radius, not "writes": an exported variable is a shell's memory of where a store
+lives, and a rewrite of the whole store asks for a sentence typed about THIS
+rewrite.
+
+**The helper.** `requireDirFlagForBulkWrite(dir, io, flags, label, what)` in
+`commands.ts`, beside `unknownFlag` — one test (`typeof flags["dir"] ===
+"string"`, the dispatcher's own), one refusal shape (`refused:` on stderr,
+`EXIT.refused`, `it would have been <dir>`, `Name the store: --dir <path>.`,
+`Nothing has changed.`), returning the exit code or `null`. It is the FIRST
+statement in each writing body, before `storeExists` and before any planning
+read: a guard that opened the directory before refusing it has already pointed
+the command at the store it meant to refuse.
+
+**The doors, all seven invocations of them.** `repair-dates --apply`,
+`migrate-cache --apply`, `backfill-claims --apply`,
+`repair-merged-beliefs --apply`, and `verify --rebuild` / `--prune-index` /
+`--drop-vectors`. `--drop-vectors` is guarded although it is inert without
+`--rebuild`: it is a standing consent to lose embeddings, and consent typed at a
+store nobody named is the thing the door is for. The dry runs — each of these
+without its writing flag, and `verify`'s census — still read the variable, and
+`test/cli.test.ts` asserts that they do.
+
+**What moved with it.** The `dirWasNamed` computation left the dispatcher, so
+`migrate-cache` no longer has an answer of its own; its doc-comment rule 2 and
+the usage block's paragraph both said "`--dir` or `COUNTERPARTS_DATA_DIR`" and
+now say `--dir`. `FLAG_HELP.yes` is true of every command that prints it, which
+today is `migrate-cache` alone: "skip the typed confirmation, and nothing else —
+it never stands in for `--dir`, which `--apply` requires". Each bulk command's
+`COMMAND_BLURB` ends with `--apply requires --dir.` (verify names its three
+flags). QUICKSTART §9's recap and §10.1 carry the exception — §10.1 now lists
+two, this one and `serve`'s.
+
+**The tests.** `test/cli.test.ts`, "a bulk write names its store with `--dir`,
+and nothing else names it": each of the seven refused on the variable alone with
+the store proven byte-identical by a sha256 fingerprint of the whole tree, each
+through with `--dir`, and the dry runs unguarded. The reviewer's exact case
+(`migrate-cache --apply --yes` on the variable) is asserted in the
+`migrate-cache` block, including that stdout carries no `Store:` line — proof it
+stopped AT the door rather than one step in at box 3's "nothing to convert"
+refusal, since both are exit 2. `test/repair-dates.test.ts`'s "console door"
+stays as it was.

@@ -200,13 +200,16 @@ export function usage(): string {
     "                      leaves every vector where it is.",
     "                      --prune-index takes archived and superseded rows out of",
     "                      the text index and keeps the embeddings.",
+    "                      --rebuild, --prune-index and --drop-vectors are the writing",
+    "                      half, and each needs the store NAMED by --dir.",
     "  migrate-cache       Convert the cache's vectors from JSON text to float32",
     "                      BLOBs, in place, and compact the file. The dry run is",
-    "                      read-only; --apply converts, needs the store NAMED",
-    "                      (--dir or COUNTERPARTS_DATA_DIR, never the default) and",
-    "                      asks unless --yes. --batch <n>.",
+    "                      read-only; --apply converts, needs the store NAMED by",
+    "                      --dir (never the default, and never resolved from",
+    "                      COUNTERPARTS_DATA_DIR) and asks unless --yes. --batch <n>.",
     "  backfill-claims     Give unclaimed AUTHORED memories the default claimed",
-    "                      floor. Dry run unless --apply.",
+    "                      floor. Dry run unless --apply, which needs the store",
+    "                      NAMED by --dir.",
     "  repair-dates        Propose true `learned` dates for MIGRATED memories that",
     "                      carry the import day, read off engram-era ids (millisecond",
     "                      timestamps), v1 date fields, session references and source",
@@ -214,13 +217,14 @@ export function usage(): string {
     "                      Dry run unless --apply. --confidence high|medium|low sets",
     "                      the floor for what --apply writes (default high);",
     "                      --import-day <date> overrides the recorded/measured one;",
-    "                      --sample <n> changes the sample size. --apply on the",
-    "                      DEFAULT store needs --dir or --yes: this is the one",
-    "                      owner op that rewrites thousands of canonical documents.",
+    "                      --sample <n> changes the sample size. --apply needs the",
+    "                      store NAMED by --dir, never resolved for it: this is the",
+    "                      one owner op that rewrites thousands of canonical documents.",
     "  repair-merged-beliefs",
     "                      Find beliefs and current-state rows the nightly dedup",
     "                      pass archived as duplicates of an ordinary memory, and",
-    "                      put them back. Dry run unless --apply.",
+    "                      put them back. Dry run unless --apply, which needs the",
+    "                      store NAMED by --dir.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
@@ -294,7 +298,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
-  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample", "yes"],
+  "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample"],
   // `--dry-run` is declared and does NOTHING: dry run is already the default,
   // and the owner's own runbook line spells it out. A flag that names the
   // behavior you are getting must not be refused as unknown.
@@ -324,14 +328,15 @@ export const COMMAND_BLURB: Record<Command, string> = {
   export: "A portable copy of the store, encrypted unless you say otherwise.",
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove: "The loud removal. Dry run unless --confirm.",
-  verify: "Census of the cache against canonical state. Read-only unless --rebuild or --prune-index.",
+  verify:
+    "Census of the cache against canonical state. Read-only unless --rebuild or --prune-index. --rebuild, --prune-index and --drop-vectors require --dir.",
   "migrate-cache":
-    "Convert the cache's vectors from JSON text to float32 BLOBs, in place, and compact the file. Dry run — read-only — unless --apply.",
-  "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply.",
+    "Convert the cache's vectors from JSON text to float32 BLOBs, in place, and compact the file. Dry run — read-only — unless --apply. --apply requires --dir.",
+  "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply. --apply requires --dir.",
   "repair-dates":
-    "Give MIGRATED memories carrying the import day their true `learned` date, read off evidence each row already holds — an engram-era id that is a millisecond timestamp, a v1 date field, a session reference, a source path. Counts by confidence and the proposed dates by count. Dry run unless --apply.",
+    "Give MIGRATED memories carrying the import day their true `learned` date, read off evidence each row already holds — an engram-era id that is a millisecond timestamp, a v1 date field, a session reference, a source path. Counts by confidence and the proposed dates by count. Dry run unless --apply. --apply requires --dir.",
   "repair-merged-beliefs":
-    "Put back beliefs and current-state rows the nightly dedup pass archived as duplicates of an ordinary memory. Dry run unless --apply.",
+    "Put back beliefs and current-state rows the nightly dedup pass archived as duplicates of an ordinary memory. Dry run unless --apply. --apply requires --dir.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
 };
 
@@ -382,7 +387,11 @@ const FLAG_HELP: Record<string, string> = {
   confidence: "high, medium or low — the weakest evidence --apply is allowed to write (default high)",
   "import-day": "YYYY-MM-DD — the day the import ran, instead of the one the store recorded or shows",
   sample: "how many proposed rows to print (default 20)",
-  yes: "skip the confirmation — migrate-cache still requires --dir; repair-dates may then aim --apply at the DEFAULT store, where --dir would otherwise be required",
+  // TRUE OF EVERY COMMAND THAT PRINTS IT, which is the point (review of #77:
+  // the first version said "a command that writes still requires --dir", which
+  // was false of `note` and of `migrate-cache` itself). `migrate-cache` is the
+  // one command left with a `--yes`, and `--apply` there does require `--dir`.
+  yes: "skip the typed confirmation, and nothing else — it never stands in for --dir, which --apply requires",
 };
 
 /**
@@ -491,6 +500,57 @@ export function unknownFlag(command: Command, argv: readonly string[]): string |
   return null;
 }
 
+/**
+ * THE ONE DOOR IN FRONT OF A BULK WRITE: the store is named by the `--dir`
+ * FLAG, typed on this command line, or the command refuses.
+ *
+ * **The disagreement this ends (review of #77, 2026-09-05).** Two writing
+ * commands landed the same night with two definitions of "named".
+ * `migrate-cache --apply` counted `COUNTERPARTS_DATA_DIR`, so
+ * `COUNTERPARTS_DATA_DIR=<store> counterparts migrate-cache --apply --yes`
+ * walked through its door, reached the conversion and would have rewritten
+ * every vector; `repair-dates --apply`, one command over, refused the identical
+ * environment, because its guard read `flags.dir === undefined`. Two answers to
+ * "did you name the store", in one console, under one `--yes` sentence
+ * asserting they agreed.
+ *
+ * **The owner's ruling (2026-09-05).** `--yes` only ever skips an interactive
+ * confirmation. A command that performs a BULK WRITE always requires the
+ * `--dir` flag; neither `--yes` nor `COUNTERPARTS_DATA_DIR` stands in for it.
+ * An exported variable is a shell's memory of where a store lives, not a
+ * sentence somebody typed about THIS rewrite — and on a real machine what it
+ * names is the owner's live memory. Ordinary per-memory commands (`note`,
+ * `recall`, `remove`, `init`, `install`, `status`, and `verify`'s read-only
+ * census) keep today's behaviour: the variable names their store, which is what
+ * QUICKSTART §3 teaches.
+ *
+ * Called FIRST in each writing body, before `storeExists` and before any
+ * planning read: a guard that opened the directory before refusing it has
+ * already pointed the command at the store it meant to refuse.
+ *
+ * `label` is the invocation as the owner typed it (`repair-dates --apply`,
+ * `verify --rebuild`) and `what` is the one clause saying what it would have
+ * done. Returns the refusal's exit code, or `null` when the door is open.
+ */
+function requireDirFlagForBulkWrite(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+  label: string,
+  what: string,
+): number | null {
+  // The same test the dispatcher uses to decide whether `--dir` named the
+  // store. A bare trailing `--dir` never reaches here — `unknownFlag` refuses
+  // it for want of a value — and if it ever did it would arrive as boolean
+  // `true`, which is "absent" to every reader in this file, and to this one.
+  if (typeof flags["dir"] === "string") return null;
+  io.err(
+    `refused: '${label}' ${what}, and will not run against a store nobody named (it would have been ${dir}). Name the store: --dir <path>.`,
+  );
+  io.err("Nothing has changed.");
+  return EXIT.refused;
+}
+
 export function parse(argv: readonly string[]): Parsed {
   const { values, positionals } = parseArgs({
     args: [...argv],
@@ -529,7 +589,8 @@ export function parse(argv: readonly string[]): Parsed {
       // `strict: false` accident so that `--apply --dry-run` is a refusal the
       // command can see, and the two string flags are declared for the same
       // reason `budget` is: an undeclared valued flag arrives as `true`.
-      // (`yes` is declared once, above, for migrate-cache and repair-dates both.)
+      // (`yes` is declared above; `migrate-cache` is the one command that takes
+      // it, since repair-dates has no confirmation to skip.)
       "dry-run": { type: "boolean" },
       confidence: { type: "string" },
       "import-day": { type: "string" },
@@ -664,16 +725,11 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "verify":
         return verifyCommand(dir, io, parsed.flags);
       case "migrate-cache":
-        // Whether the STORE WAS NAMED, not just resolved: `--apply` refuses a
-        // dir that fell through to the default, which on a real machine is the
-        // owner's live memory.
-        return await migrateCacheCommand(
-          dir,
-          io,
-          parsed.flags,
-          typeof parsed.flags["dir"] === "string" ||
-            (env["COUNTERPARTS_DATA_DIR"] ?? "").trim() !== "",
-        );
+        // Whether the STORE WAS NAMED is the command's own question now, asked
+        // by one shared door (`requireDirFlagForBulkWrite`) rather than by each
+        // writing command in its own words. This site used to compute it, and
+        // counted `COUNTERPARTS_DATA_DIR` where `repair-dates` did not.
+        return await migrateCacheCommand(dir, io, parsed.flags);
       case "backup":
         return await backupCommand(dir, io, parsed.flags["out"], now);
       case "export":
@@ -681,11 +737,11 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "remove":
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
-        return backfillClaimsCommand(dir, io, parsed.flags["apply"] === true);
+        return backfillClaimsCommand(dir, io, parsed.flags);
       case "repair-dates":
-        return repairDatesCommand(dir, io, parsed.flags, parsed.flags["dir"] === undefined);
+        return repairDatesCommand(dir, io, parsed.flags);
       case "repair-merged-beliefs":
-        return repairMergedBeliefsCommand(dir, io, parsed.flags["apply"] === true);
+        return repairMergedBeliefsCommand(dir, io, parsed.flags);
       case "rebrief":
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
     }
@@ -1413,6 +1469,29 @@ function vectorFormatLine(v: VectorFormatCensus): string {
  * reason to make the destructive one quieter.
  */
 function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
+  // THE WRITING HALF NAMES ITS STORE (2026-09-05 ruling). The census is
+  // read-only and stays open to `COUNTERPARTS_DATA_DIR`; these three are not.
+  // `--drop-vectors` is guarded even though it is inert without `--rebuild`,
+  // because it is a standing consent to lose embeddings and must never be
+  // typed at a store the owner did not name.
+  const writing =
+    flags["rebuild"] === true
+      ? (["verify --rebuild", "drops box 3 for the whole store and builds it again"] as const)
+      : flags["prune-index"] === true
+        ? ([
+            "verify --prune-index",
+            "deletes every archived and superseded row from the text index",
+          ] as const)
+        : flags["drop-vectors"] === true
+          ? ([
+              "verify --drop-vectors",
+              "stands as consent to lose embeddings this console has no embedder to recompute",
+            ] as const)
+          : null;
+  if (writing !== null) {
+    const refusal = requireDirFlagForBulkWrite(dir, io, flags, writing[0], writing[1]);
+    if (refusal !== null) return refusal;
+  }
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
@@ -1701,10 +1780,11 @@ function worthCompacting(reclaimable: number | null, size: number): boolean {
  *      `cache_meta.schemaVersion`, and on the v3 store this will actually be run
  *      against that one row changed the file's hash under a line that said
  *      nothing had changed. Every question the dry run asks is a `SELECT`.
- *   2. **`--apply` names its store out loud.** It refuses a data dir that came
- *      from the DEFAULT — on a real machine that default is the owner's live
- *      memory — so the destination is either `--dir` or `COUNTERPARTS_DATA_DIR`,
- *      typed on purpose. Then it asks, `remove`-style, unless `--yes`.
+ *   2. **`--apply` names its store out loud.** The destination is the `--dir`
+ *      FLAG, typed on this line, and nothing else — not the default, and (since
+ *      the 2026-09-05 ruling) not `COUNTERPARTS_DATA_DIR` either, which is a
+ *      shell's memory rather than a sentence about this rewrite. Then it asks,
+ *      `remove`-style, unless `--yes`.
  *   3. **Transactional per batch, and therefore resumable.** One transaction per
  *      `--batch` rows, not one over the whole table: box 3 is the file the
  *      Stop-hook worker writes into, `BUSY_TIMEOUT_MS` is five seconds, and a
@@ -1736,7 +1816,6 @@ async function migrateCacheCommand(
   dir: string,
   io: Io,
   flags: Record<string, string | boolean | undefined>,
-  dirWasNamed: boolean,
 ): Promise<number> {
   const apply = flags["apply"] === true;
   // FIRST, before this command looks at a single path. `resolveDir` falls
@@ -1744,11 +1823,15 @@ async function migrateCacheCommand(
   // and this command's own PR says the merge is reversible and the `--apply`
   // is not. A guard that reads the default directory before refusing it has
   // already been pointed at the store it meant to refuse.
-  if (apply && !dirWasNamed) {
-    io.err(
-      `refused: 'migrate-cache --apply' rewrites every vector in box 3 and will not run against the default data dir (${dir}). Name the store: --dir <path>, or COUNTERPARTS_DATA_DIR.`,
+  if (apply) {
+    const refusal = requireDirFlagForBulkWrite(
+      dir,
+      io,
+      flags,
+      "migrate-cache --apply",
+      "rewrites every vector in box 3",
     );
-    return EXIT.refused;
+    if (refusal !== null) return refusal;
   }
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
@@ -2201,7 +2284,24 @@ async function removeCommand(
  * content-idempotency ledger in `remember/` hashes normalized content and never
  * reads this column at all.
  */
-function backfillClaimsCommand(dir: string, io: Io, apply: boolean): number {
+function backfillClaimsCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+): number {
+  const apply = flags["apply"] === true;
+  // A BULK WRITE ACROSS EVERY AUTHORED MEMORY, and until 2026-09-05 it had no
+  // door at all: `COUNTERPARTS_DATA_DIR=<store> backfill-claims --apply` ran.
+  if (apply) {
+    const refusal = requireDirFlagForBulkWrite(
+      dir,
+      io,
+      flags,
+      "backfill-claims --apply",
+      "writes the default claimed floor onto every unclaimed authored memory",
+    );
+    if (refusal !== null) return refusal;
+  }
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;
@@ -2302,20 +2402,29 @@ function repairDatesCommand(
   dir: string,
   io: Io,
   flags: Record<string, string | boolean | undefined>,
-  defaultedDir: boolean,
 ): number {
   const apply = flags["apply"] === true;
+  // Argument arithmetic only: this opens nothing, so it may stand in front of
+  // the store door. A command line that contradicts itself should be told so.
   if (apply && flags["dry-run"] === true) {
     io.err("repair-dates: --apply and --dry-run contradict each other; pass one");
     return EXIT.usage;
   }
   // THE ONE OWNER OP THAT REWRITES THOUSANDS OF CANONICAL DOCUMENTS. A dry run on
   // the defaulted store is read-only and stays unguarded (it is how the owner
-  // looks); an APPLY that nobody aimed asks to be aimed (review §4).
-  if (apply && defaultedDir && flags["yes"] !== true) {
-    io.err(`repair-dates: --apply on the default store (${dir}) needs --dir <path> or --yes.`);
-    io.err("This rewrites the date on every migrated memory the evidence reaches. Nothing has changed.");
-    return EXIT.refused;
+  // looks); an APPLY that nobody aimed asks to be aimed (review §4) — by `--dir`,
+  // and by nothing else. `--yes` used to stand in for it here, while one command
+  // over it meant "skip the typed confirmation"; the 2026-09-05 ruling is that
+  // `--yes` only ever skips a confirmation, and this command has none to skip.
+  if (apply) {
+    const refusal = requireDirFlagForBulkWrite(
+      dir,
+      io,
+      flags,
+      "repair-dates --apply",
+      "rewrites the date on every migrated memory the evidence reaches",
+    );
+    if (refusal !== null) return refusal;
   }
   const raw = typeof flags["confidence"] === "string" ? flags["confidence"] : "high";
   if (raw !== "high" && raw !== "medium" && raw !== "low") {
@@ -2416,7 +2525,23 @@ interface MergedBelief {
  * silently reversed — and the merge record itself is left exactly where it is
  * (constitution 7: the history is the point).
  */
-function repairMergedBeliefsCommand(dir: string, io: Io, apply: boolean): number {
+function repairMergedBeliefsCommand(
+  dir: string,
+  io: Io,
+  flags: Record<string, string | boolean | undefined>,
+): number {
+  const apply = flags["apply"] === true;
+  // UN-ARCHIVES ROWS IN BULK, and it too had no door before 2026-09-05.
+  if (apply) {
+    const refusal = requireDirFlagForBulkWrite(
+      dir,
+      io,
+      flags,
+      "repair-merged-beliefs --apply",
+      "un-archives every belief and current-state row the dedup pass took",
+    );
+    if (refusal !== null) return refusal;
+  }
   if (!storeExists(dir)) {
     io.err(`no store at ${dir}`);
     return EXIT.failed;

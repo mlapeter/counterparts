@@ -23,6 +23,10 @@
 # would run must appear verbatim in `docs/QUICKSTART.md`. `doc_check` greps for
 # the line before it is executed, so the loop and the written install path
 # cannot drift apart silently — a doc edit that changes a command fails the loop.
+# The two NUMBERS the doc quotes about this loop — how many steps it runs, and
+# which step is the lazy `session_end` bind (§9) — are held to it the other way
+# round, by `test/install-loop.test.ts`: add or move a `step "..."` line and
+# `bun test` says which sentence in QUICKSTART to change.
 #
 # Usage:  tools/install-loop/run.sh [workdir]
 # Default workdir: a fresh `install-loop-<pid>` under $TMPDIR.
