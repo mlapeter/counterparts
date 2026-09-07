@@ -70,6 +70,12 @@ export type StoreErrorCode =
   | "STORE_UNINITIALIZED"
   /** A store written by a NEWER build: refused rather than stamped backwards. */
   | "SCHEMA_AHEAD"
+  /**
+   * A stored path that, resolved against the opened store, would land outside
+   * its `prose/` or `versions/` root — `../ESCAPE/…`, a bare `.`, `cache/…`.
+   * Only a hand-edited database can hold one; it is never resolved (§5 G15).
+   */
+  | "STORED_PATH_ESCAPES"
   | "SQLITE_UNAVAILABLE"
   | "LAYOUT_UNCLASSIFIED";
 

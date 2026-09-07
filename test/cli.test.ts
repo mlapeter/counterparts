@@ -1015,10 +1015,11 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const id = await noteThroughTheJotDoor(MARKER);
 
     const s = store();
-    const prosePath = s.row(id)?.prose_path ?? "";
+    const prosePath = s.absolutePath(s.row(id)?.prose_path ?? "");
     const ref = s.row(id)?.origin_ref ?? "";
     s.close();
     expect(ref).toMatch(/^prp_/);
+    expect(existsSync(prosePath)).toBe(true);
     rmSync(prosePath, { force: true });
 
     // The mark this chase runs on, on disk since long before the feature.
@@ -1344,8 +1345,9 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // address the buffer with, and the console says exactly that.
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "A pre-provenance memory." });
-    const prose = s.row(id)?.prose_path ?? "";
+    const prose = s.absolutePath(s.row(id)?.prose_path ?? "");
     s.close();
+    expect(existsSync(prose)).toBe(true);
     rmSync(prose, { force: true });
 
     const plan = consoleWith();

@@ -188,7 +188,7 @@ export class Schemas {
     for (const id of this.store.list({ type: "schema" })) {
       const row = this.store.row(id);
       if (row === undefined) continue;
-      const doc = readProseFile(row.prose_path, id);
+      const doc = readProseFile(this.store.absolutePath(row.prose_path), id);
       const rec = toMetaRecord(doc.meta);
       if (rec === null) continue;
       this.remember(id, rec);
@@ -1121,7 +1121,7 @@ export class Schemas {
       id,
       entityId: rec.entityId ?? "",
       role: rec.role,
-      statement: readProseFile(row.prose_path, id).body,
+      statement: readProseFile(this.store.absolutePath(row.prose_path), id).body,
       kind: row.kind,
       archived: row.archived === 1,
       supersededBy: row.superseded_by,

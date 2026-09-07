@@ -8,14 +8,24 @@
  *
  * Every multi-row mutation is wrapped in a transaction by the seam in `index.ts`.
  */
+import { dirname } from "node:path";
+
 import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
+import { isCanonicalRelativePath, relativizeStoredPath } from "./paths.js";
 import type { ProseType } from "./prose.js";
 
 /**
- * Bumped to 4 (2026-08-29, the mint-source doctrine): `source` + three
+ * Bumped to 5 (2026-09-05, finding I22): `memories.prose_path` and
+ * `versions.path` hold STORE-RELATIVE paths (`prose/<family>/<id>.md`,
+ * `versions/<id>/<seq>-<hash>.md`) where v4 and before held absolute ones. No
+ * DDL moves; the migration is a DATA rewrite of two columns, done once, inside
+ * the same transaction as everything else at open (`relativizeStoredPaths`).
+ * It is the first migrate-at-open the live store will ever run.
+ *
+ * Version 4 (2026-08-29, the mint-source doctrine) added `source` + three
  * `origin_*` columns on `memories`. Version 3 was the box-2 chase
  * (`removal_tombstone`); version 2 was SEAMS items B + K (`gate_session` and
  * `events`).
@@ -33,7 +43,24 @@ import type { ProseType } from "./prose.js";
  * them 'authored' would be a false claim in the very column that exists for
  * honest attribution). NULL renders as "unrecorded", by name.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
+/**
+ * The oldest schema an OBSERVER may open without a migration having run.
+ *
+ * An instrument writes nothing at open, so a store a schema behind normally
+ * refuses under observer by name (`STORE_UNINITIALIZED`) rather than migrating
+ * itself out from under the process that owns it. v5 is the exception that
+ * earns a floor: its only change is the SPELLING of two path columns, and every
+ * v5 reader resolves both spellings (`resolveStoredPath`). So a v4 store reads
+ * correctly through a v5 observer, and refusing would have taken `status`,
+ * `verify`, `backup` and the dashboard away from the owner between the merge
+ * and the first writer open — the exact window in which `verify` is supposed
+ * to show the unmigrated count. A store below the floor still refuses: v3 lacks
+ * columns the readers select.
+ */
+export const OBSERVER_READ_FLOOR = 4;
+/** The durable record the v5 path migration leaves in `events`. Counts only. */
+export const PATHS_MIGRATED_EVENT = "store.migrate.paths";
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2). */
 export const DEFAULT_RETENTION_DAYS = 90;
 
@@ -318,6 +345,8 @@ export interface OpenOperationalOptions {
   readonly initialize?: boolean;
   /** Written once, at creation only. Ignored for an already-initialized store. */
   readonly retentionDays?: number;
+  /** The provenance clock, for the migration's event row. Defaults to `Date.now`. */
+  readonly now?: () => number;
 }
 
 /** The schema version recorded in the file, or null if there is not one yet. */
@@ -348,6 +377,9 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
     throw new StoreError("SCHEMA_AHEAD", { path, expected: SCHEMA_VERSION, found });
   }
   if (opts.initialize === false) {
+    // A store at or above the read floor is readable as it stands (see
+    // OBSERVER_READ_FLOOR); the migration waits for a writer.
+    if (found !== null && Number.parseInt(found, 10) >= OBSERVER_READ_FLOOR) return db;
     db.close();
     throw new StoreError("STORE_UNINITIALIZED", {
       path,
@@ -362,11 +394,96 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
     put.run("livedDay", "0");
     put.run("lastActiveDate", "");
     put.run("retentionDays", String(opts.retentionDays ?? DEFAULT_RETENTION_DAYS));
+    // v5: the path columns. Runs on every migrating open, and is a no-op by its
+    // own predicate on a store that already holds relative paths — so two
+    // writers racing into this branch on the same v4 file cannot double-convert.
+    const converted = relativizeStoredPaths(db, dirname(path));
+    if (converted.prose.converted + converted.versions.converted > 0) {
+      const day = Number.parseInt(
+        db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'livedDay'")?.value ?? "0",
+        10,
+      );
+      db.run(
+        `INSERT INTO events (at, day, name, ref, dedup_key, payload) VALUES (?, ?, ?, NULL, NULL, ?)`,
+        (opts.now ?? Date.now)(),
+        Number.isFinite(day) ? day : 0,
+        PATHS_MIGRATED_EVENT,
+        JSON.stringify({ from: found ?? "none", to: SCHEMA_VERSION, ...converted }),
+      );
+    }
     // Last, and REPLACE not IGNORE: the version row is the latch the next open
     // reads, so it must be written only after the DDL it describes has run.
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", String(SCHEMA_VERSION));
   });
   return db;
+}
+
+export interface PathsConverted {
+  /** Rows whose path was absolute and is now store-relative. */
+  readonly converted: number;
+  /** Rows left as they were: no `prose/` or `versions/` segment to key on, or a
+   *  value that would land outside those two roots once joined onto the store. */
+  readonly unplaceable: number;
+}
+
+/**
+ * The v5 data migration: every absolute `memories.prose_path` and
+ * `versions.path` becomes store-relative (`paths.ts#relativizeStoredPath`).
+ *
+ * Only rows whose value is absolute are selected, so the rewrite is idempotent
+ * by predicate and cheap in the steady state (a v5 store never enters this
+ * branch at all — the version latch short-circuits `openOperational`). A row
+ * that cannot be placed is LEFT, not blanked and not guessed: `verify` counts
+ * it as "absolute (unmigrated)", and `resolveStoredPath` keeps reading it where
+ * it always read it. Blank pointers (a chased row's) are untouched.
+ *
+ * Whether the file EXISTS at the new address is deliberately not consulted.
+ * The absolute address is wrong for a copied store whatever is at it; the
+ * relative one is the only address that can be right. Missing files are a
+ * separate fact, and `Store.pathCensus()` reports them separately.
+ */
+export function relativizeStoredPaths(
+  db: Db,
+  dir: string,
+): { prose: PathsConverted; versions: PathsConverted } {
+  const prose = convertColumn(db, dir, "memories", "prose_path", "id");
+  const versions = convertColumn(db, dir, "versions", "path", "rowid");
+  return { prose, versions };
+}
+
+function convertColumn(
+  db: Db,
+  dir: string,
+  table: string,
+  column: string,
+  key: string,
+): PathsConverted {
+  // `GLOB '/*'` is a POSIX absolute path; a Windows drive letter is covered by
+  // the JS-side `isAbsolute` in `relativizeStoredPath`, so the SQL predicate is
+  // widened to "not already relative": anything that does not start with
+  // `prose/` or `versions/` and is not blank.
+  const rows = db.all<{ k: string | number; p: string }>(
+    `SELECT ${key} AS k, ${column} AS p FROM ${table}
+      WHERE ${column} <> '' AND ${column} NOT GLOB 'prose/*' AND ${column} NOT GLOB 'versions/*'`,
+  );
+  const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`);
+  let converted = 0;
+  let unplaceable = 0;
+  for (const row of rows) {
+    const rel = relativizeStoredPath(dir, row.p);
+    // No segment to key on, OR a value that would land outside `prose/` /
+    // `versions/` once joined (a hand-edited `../ESCAPE/…`): both are left as
+    // they are and counted. `resolveStoredPath` refuses the second by name.
+    if (rel === null || !isCanonicalRelativePath(dir, rel)) {
+      unplaceable += 1;
+      continue;
+    }
+    if (rel !== row.p) {
+      update.run(rel, row.k);
+      converted += 1;
+    }
+  }
+  return { converted, unplaceable };
 }
 
 /**

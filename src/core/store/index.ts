@@ -25,6 +25,7 @@
  * owner sees that something WAS here (constitution 16).
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
@@ -45,7 +46,14 @@ import type {
   VersionRow,
 } from "./operational.js";
 import { grantOwnerOps } from "./owner-op-seam.js";
-import { LAYOUT, assertLayoutClassified, assertSafeDataDir, dataDir, paths } from "./paths.js";
+import {
+  LAYOUT,
+  assertLayoutClassified,
+  assertSafeDataDir,
+  dataDir,
+  paths,
+  resolveStoredPath,
+} from "./paths.js";
 import {
   ID_PREFIX,
   archivePriorVersion,
@@ -84,7 +92,15 @@ export type {
   RemovalRow,
   TombstoneRow,
 } from "./operational.js";
-export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, rowToPhysics } from "./operational.js";
+export {
+  DEFAULT_RETENTION_DAYS,
+  OBSERVER_READ_FLOOR,
+  PATHS_MIGRATED_EVENT,
+  SCHEMA_VERSION,
+  relativizeStoredPaths,
+  rowToPhysics,
+} from "./operational.js";
+export type { PathsConverted } from "./operational.js";
 export {
   tokenize,
   cosine,
@@ -183,6 +199,23 @@ export interface PutInput {
    *  carrier a removal destroys, so the pointer dies with the thing it points
    *  at instead of outliving it in a box-2 column. */
   origin?: { session?: string; scope?: string; ref?: string; spanHash?: string };
+}
+
+/** One column's spelling census — `Store.pathCensus()`, printed by `verify`. */
+export interface PathCensus {
+  /** Store-relative rows (the v5 shape). */
+  readonly relative: number;
+  /** Absolute rows: on a v4 store, not yet migrated; on a v5 store, the ones the
+   *  migration could not place. Either way resolved against THIS store when a
+   *  `prose/` or `versions/` segment allows it, and read as given otherwise. */
+  readonly absolute: number;
+  /** Rows that would resolve OUTSIDE `prose/` or `versions/` — a hand-edited
+   *  database. Never resolved (`STORED_PATH_ESCAPES`), never stat'ed. */
+  readonly escaped: number;
+  /** Non-blank, resolvable rows whose file is not on disk. */
+  readonly missing: number;
+  /** Blanked pointers — removed rows. Nothing to resolve. */
+  readonly blank: number;
 }
 
 export interface StoredMemory {
@@ -469,6 +502,7 @@ export class Store {
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: writesAtOpen,
       retentionDays: this.retentionDays,
+      now: this.nowFn,
     });
     this.cache = openCache(paths.cache(this.dir));
     // The owner-op capability. Handed to the seam module, never to a caller:
@@ -501,7 +535,7 @@ export class Store {
       reindexLexical: (id) => {
         const row = this.row(id);
         if (row === undefined) return;
-        const doc = readProseFile(row.prose_path, id);
+        const doc = readProseFile(this.absolutePath(row.prose_path), id);
         indexDoc(this.cache, doc.id, indexText(doc));
       },
     });
@@ -656,7 +690,7 @@ export class Store {
   ): number {
     const { staged, doc, seq } = this.mutate("revise", () => {
       const row = this.requireRow(id);
-      const current = readFileSync(row.prose_path, "utf8");
+      const current = readFileSync(this.absolutePath(row.prose_path), "utf8");
       const version = archivePriorVersion(this.dir, id, current, row.revision + 1);
       this.ops.run(
         `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
@@ -666,10 +700,10 @@ export class Store {
         patch.reason ?? "revise",
         this.livedDay(),
         this.nowFn(),
-        version.path,
+        version.storedPath,
         version.hash,
       );
-      const prior = readProseFile(row.prose_path, id);
+      const prior = readProseFile(this.absolutePath(row.prose_path), id);
       const next: ProseDoc = {
         ...prior,
         body: patch.body ?? prior.body,
@@ -1183,7 +1217,7 @@ export class Store {
         skippedArchived += 1;
         continue;
       }
-      const doc = readProseFile(row.prose_path, row.id);
+      const doc = readProseFile(this.absolutePath(row.prose_path), row.id);
       const text = indexText(doc);
       // KEEP MEANS KEEP. A row that already has a vector is not offered to the
       // embedder at all under `keepVectors` — the first version called it and
@@ -1413,7 +1447,7 @@ export class Store {
 
   read(id: string): StoredMemory {
     const row = this.requireRow(id);
-    const doc = readProseFile(row.prose_path, id);
+    const doc = readProseFile(this.absolutePath(row.prose_path), id);
     if (row.archived === 1) {
       // §5 G13: a read-back of archived content is an event, so "did the archival
       // mechanisms ever pay for themselves" is an answerable question in v2.
@@ -1505,7 +1539,66 @@ export class Store {
     );
     if (row === undefined) throw new StoreError("VERSION_UNKNOWN", { id, seq });
     this.emit("store.version.read", id, { seq, reason: row.reason });
-    return readProseFile(row.path, id);
+    return readProseFile(this.absolutePath(row.path), id);
+  }
+
+  /**
+   * A row's stored path (`prose_path`, a version's `path`), made absolute
+   * against THIS store — the one address a caller may hand to the filesystem.
+   *
+   * Rows hold store-relative paths (`prose/<family>/<id>.md`; CONTRACT §5 G15),
+   * so a copied or restored store names the files beside it and never the
+   * files of the store it was copied from. A pre-v5 absolute row is PLACED
+   * against this store by the migration's own rule, so an instrument on a v4
+   * copy reads the copy's file too. `""` — a chased row's blanked pointer —
+   * resolves to `""`, never to the store root; a value that would land outside
+   * `prose/` or `versions/` throws `STORED_PATH_ESCAPES` (`paths.ts`).
+   */
+  absolutePath(storedPath: string): string {
+    return resolveStoredPath(this.dir, storedPath);
+  }
+
+  /**
+   * How the two path columns are spelled, and whether their files are there.
+   * `verify` prints this; it is the owner's read-only view of the v5 migration
+   * on a live store (constitution 16). Pure reads plus one `stat` per row.
+   *
+   *   relative  — the v5 shape, resolved against this store;
+   *   absolute  — a pre-v5 spelling: unmigrated on a v4 store, unplaceable on a
+   *               v5 one; placed against this store where a segment allows it;
+   *   escaped   — would resolve outside the store's two roots; never resolved;
+   *   missing   — a non-blank, resolvable pointer whose file does not exist.
+   *
+   * Blank pointers (removed rows) are none of these: there is nothing to resolve.
+   */
+  pathCensus(): { prose: PathCensus; versions: PathCensus } {
+    const census = (rows: readonly { p: string }[]): PathCensus => {
+      const out = { relative: 0, absolute: 0, escaped: 0, missing: 0, blank: 0 };
+      for (const { p } of rows) {
+        if (p.length === 0) {
+          out.blank += 1;
+          continue;
+        }
+        let resolved: string;
+        try {
+          resolved = this.absolutePath(p);
+        } catch (err) {
+          if (err instanceof StoreError && err.code === "STORED_PATH_ESCAPES") {
+            out.escaped += 1;
+            continue;
+          }
+          throw err;
+        }
+        if (isAbsolute(p)) out.absolute += 1;
+        else out.relative += 1;
+        if (!existsSync(resolved)) out.missing += 1;
+      }
+      return out;
+    };
+    return {
+      prose: census(this.ops.all<{ p: string }>("SELECT prose_path AS p FROM memories")),
+      versions: census(this.ops.all<{ p: string }>("SELECT path AS p FROM versions")),
+    };
   }
 
   edgesFrom(src: string): EdgeRow[] {
@@ -1728,7 +1821,9 @@ export class Store {
       input.physics?.pressure ?? 0,
       input.physics?.lastChallengedDay ?? null,
       staged.hash,
-      staged.finalPath,
+      // The ROW holds the store-relative spelling; `finalPath` is only for the
+      // rename that publishes the file (§5 G15).
+      staged.storedPath,
       doc.learnedOn,
       doc.happenedOn ?? null,
       input.source ?? null,

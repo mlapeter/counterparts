@@ -535,7 +535,7 @@ describe("the floor prune — archival, never deletion", () => {
   test("a pruned memory is ARCHIVED with reason 'pruned': the file stays, the id resolves", () => {
     const s = store();
     const id = prunable(s);
-    const prosePath = s.row(id)?.prose_path as string;
+    const prosePath = s.absolutePath(s.row(id)?.prose_path as string);
 
     const report = runCycle({ store: s, date: "2026-01-02" });
 

@@ -51,6 +51,11 @@ ended up with canonical state spread across a prose store plus half a dozen side
   2026-09-05).
 - **One content-address function**, so a raw span, a run record, and a rejected proposal
   join on the same key. [v1] §17.1.
+- **A store directory is self-contained.** Every file a row names is named RELATIVE to
+  the store root, so a copy, a move, or a restored backup reads and chases its own files
+  and never another store's (§5 G15; finding I22, 2026-09-05). Constitution line 6 —
+  local-first, portable — and line 7's "backups catch catastrophe" both rest on it: a
+  backup that still pointed at the live store was not a backup.
 
 ## 4. Drops / simplifies
 
@@ -180,6 +185,27 @@ by reference only.
     the whole suite, so a forgetful test is REFUSED rather than redirected — the second
     layer under the temp-home redirect (LAUNCH-STATUS I21, owner ruling 2026-09-05;
     `NOTES.md` same date).
+15. **[M] A store directory is self-contained: copying or moving it never touches another
+    store's files.** `memories.prose_path` and `versions.path` hold store-relative POSIX
+    paths — `prose/<family>/<id>.md`, `versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`)
+    — and every read, write and chase resolves them against the OPENED directory
+    (`Store.absolutePath`), never against the process's working directory. A pre-v5
+    ABSOLUTE row is placed against the opened directory by the same rule the migration
+    uses, so an instrument on a v4 copy, backup or moved store reads that store's own
+    file; the one value read as given is an unplaceable one (no `prose/` or `versions/`
+    segment to key on). A blank pointer resolves to nothing, never to the store root, and
+    a value that would land outside `prose/` or `versions/` is refused by name
+    (`STORED_PATH_ESCAPES`) and never resolved. Tests copy a store, destroy the source's
+    file, and read through the copy — as a writer and as an instrument on a v4 copy;
+    remove through the copy and find the source intact; open a `backup` snapshot
+    standalone; and refuse a hand-edited `../ESCAPE/…` row
+    (`test/store-portable.test.ts`). *Added 2026-09-05 (schema v5), when finding I22 showed
+    an absolute `prose_path` made a copied store read and DELETE the source's prose. Rows
+    written before v5 are converted once, at the first writer open, inside the
+    migrate-at-open transaction; a row that cannot be placed is left and counted, and
+    `counterparts verify` prints the census. A v5 instrument may open a v4 store as it
+    stands (`OBSERVER_READ_FLOOR`), because the only thing v5 changed is a spelling every
+    v5 reader accepts.*
 
 ## 6. Scars honored
 

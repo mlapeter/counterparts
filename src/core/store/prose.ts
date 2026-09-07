@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { StoreError } from "./errors.js";
-import { paths } from "./paths.js";
+import { paths, stored } from "./paths.js";
 
 export type ProseType = "memory" | "episode" | "schema";
 export const PROSE_TYPES: readonly ProseType[] = ["memory", "episode", "schema"];
@@ -212,7 +212,10 @@ export function readProseFile(path: string, expectId?: string): ProseDoc {
  */
 export interface Staged {
   readonly tempPath: string;
+  /** Where `publishStaged` renames to — absolute, for the filesystem call. */
   readonly finalPath: string;
+  /** The same file as the ROW records it: store-relative, `prose/<family>/<id>.md`. */
+  readonly storedPath: string;
   readonly text: string;
   readonly hash: string;
 }
@@ -221,13 +224,14 @@ let stageSeq = 0;
 
 export function stageProse(dir: string, doc: ProseDoc): Staged {
   const text = serializeProse(doc);
+  const storedPath = stored.proseFile(doc.type, doc.id);
   const finalPath = paths.proseFile(dir, doc.type, doc.id);
   const tempPath = `${paths.tmp(dir)}/${doc.id}.${process.pid}.${Date.now()}.${stageSeq++}.${Math.random()
     .toString(36)
     .slice(2, 8)}.tmp`;
   mkdirSync(paths.tmp(dir), { recursive: true });
   writeFileSync(tempPath, text, "utf8");
-  return { tempPath, finalPath, text, hash: hashText(text) };
+  return { tempPath, finalPath, storedPath, text, hash: hashText(text) };
 }
 
 /** Publish a staged file. rename(2) is atomic and leaves no residue. */
@@ -247,14 +251,16 @@ export function archivePriorVersion(
   id: string,
   currentText: string,
   startSeq: number,
-): { seq: number; path: string; hash: string } {
+): { seq: number; path: string; storedPath: string; hash: string } {
   const hash = hashText(currentText);
   mkdirSync(paths.versionsFor(dir, id), { recursive: true });
   for (let seq = startSeq; seq < startSeq + 1000; seq++) {
     const path = paths.versionFile(dir, id, seq, hash);
     try {
       writeFileSync(path, currentText, { encoding: "utf8", flag: "wx" });
-      return { seq, path, hash };
+      // `path` is for the write above; `storedPath` is what the version ROW
+      // records — relative, so the row survives the store being copied.
+      return { seq, path, storedPath: stored.versionFile(id, seq, hash), hash };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
     }

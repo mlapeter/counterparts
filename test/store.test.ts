@@ -21,6 +21,7 @@ import {
   EXPLICIT_DIR_ARMING_VALUES,
   EXPLICIT_DIR_DISARMING_VALUES,
   LAYOUT,
+  OBSERVER_READ_FLOOR,
   REQUIRE_EXPLICIT_DIR_ENV,
   SCHEMA_VERSION,
   StoreError,
@@ -1116,7 +1117,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     expect(readFileSync(paths.operational(dir))).toEqual(before);
   });
 
-  test("a store a schema BEHIND refuses under observer rather than migrating itself", () => {
+  test("a store BELOW the read floor refuses under observer rather than migrating itself", () => {
     const writer = store();
     writer.setMeta("schemaVersion", "1");
     writer.close();
@@ -1125,6 +1126,39 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // A writer may still migrate it — and does, in one transaction, at open.
     const migrated = store();
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+  });
+
+  test("the observer read floor is re-decided at EVERY schema bump — it never drifts", () => {
+    // The floor is a claim: "every reader of the current version tolerates a
+    // store of the floor version as it stands". That claim was true for v5 over
+    // v4 because v5 changed only a spelling. A v6 that adds a column would make
+    // it false for v4, silently — a v6 instrument would select a column a v4
+    // store does not have, the exact failure the v3→v4 refusal existed to
+    // prevent. So the constant is pinned to one version behind, and whoever
+    // bumps SCHEMA_VERSION must raise the floor (or drop it back to the new
+    // version, refusing everything older) on purpose, here.
+    expect(OBSERVER_READ_FLOOR).toBe(SCHEMA_VERSION - 1);
+  });
+
+  test("a v4 store — the read floor — OPENS under observer, reads, and is left byte-identical", () => {
+    // v5 changed only the SPELLING of two path columns and every v5 reader
+    // resolves both spellings, so an instrument may read a v4 store as it
+    // stands. Refusing would have taken `status`, `verify` and `backup` away
+    // from the owner between the merge and the first writer open.
+    const writer = store();
+    const id = writer.put(mem("readable through a v5 instrument while still v4"));
+    writer.setMeta("schemaVersion", String(OBSERVER_READ_FLOOR));
+    writer.close();
+    open.length = 0;
+    const before = readFileSync(paths.operational(dir));
+    const observer = store({ observer: true });
+    expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
+    expect(observer.read(id).doc.body).toBe("readable through a v5 instrument while still v4");
+    observer.close();
+    open.length = 0;
+    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    // The writer that follows migrates it, as before.
+    expect(store().getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
   test("a v3 store gains the v4 source columns at open — old rows read UNRECORDED, never a fabricated default", async () => {

@@ -586,3 +586,132 @@ evaluate one new side-effect-free environment read. Surface-set hash unchanged
 riding today's owed restart rather than IDENTICAL — G12's first class is telemetry-only by
 its text, and a guard is not telemetry — with the value-identity argument recorded as the
 reach (`docs/PARALLEL-RUN-STATUS.md`, same date).
+## 2026-09-05 — a store directory is self-contained: the path columns are store-relative (schema v5)
+
+**The bug (finding I22, LAUNCH-STATUS G26).** `insertOne` wrote `staged.finalPath` —
+`join(dir, "prose", family, id + ".md")`, ABSOLUTE — into `memories.prose_path`, and
+`revise`/`supersede` wrote the same shape into `versions.path`. Every reader then handed
+the column straight to `readFileSync`, and `adapters/cli/removal.ts` handed it to
+`rmSync`. So a copied store — `cp -R`, a `counterparts backup`, a restored snapshot —
+opened fine, listed its own rows, and read the ORIGINAL's prose through them; a removal
+run in the copy reported success and deleted the original's file while the copy's own
+survived. `test/store-portable.test.ts` reproduces both against the pre-fix build: (a)
+delete the source's file, read through the copy → `PROSE_FILE_MISSING` naming the
+SOURCE's path; (b) remove through the copy → exit 0, no stderr, the copy's file still on
+disk. The owner's ruling: "a copied store should also include a copy of the prose files"
+— which `backup` and `cp -R` already did; the copy just never looked at them.
+
+**The representation.** One spelling per file, relative to the store root and
+POSIX-separated whatever the host: `prose/<family>/<id>.md` and
+`versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`). The absolute forms `paths.proseFile`
+/ `paths.versionFile` are `join(dir, stored.…)` of exactly those, so the two cannot
+drift. Every reader — the six in `index.ts`, `schemas/`, the console, removal, both
+dashboards, the parallel tool's raw-DB readers — resolves through one function,
+`resolveStoredPath(dir, stored)` (`Store.absolutePath` for callers holding a store).
+Four cases, each chosen: relative → `join(dir, …)`; absolute → PLACED against the
+opened dir by the migration's own rule (below), and only an unplaceable row — no
+`prose/` or `versions/` segment — is read as given; **`""` → `""`**; and anything that
+would land outside `<dir>/prose/` or `<dir>/versions/` once joined is refused by name
+(`STORED_PATH_ESCAPES`) and never returned. The `""` line is the one that mattered most
+in the first review pass: `join(dir, "")` is the store ROOT, and the removal path feeds
+the resolved value to `existsSync` + `rmSync`. A chased row's blanked pointer must
+resolve to nothing.
+
+**What the adversarial review changed (2026-09-05, PR #79 MERGE WITH CHANGES).** The
+first version returned an absolute row AS GIVEN, and the shipped G15 said "never as
+given" — the contract was ahead of the code. The reviewer reproduced the consequence: a
+v5 *instrument* on a v4 copy read the LIVE store's prose under the copy's ids (and
+returned the live store's edits, silently, when the two had diverged), threw
+`PROSE_FILE_MISSING` naming the source's path once the source was gone, and `verify`
+on the copy called five present files "missing" — until something WROTE to the copy.
+Constitution 7's catastrophe case (source gone, open the backup) is exactly where a
+read-only reader failed. The fix is seven lines: the resolver places an absolute row
+with `relativizeStoredPath` — pure, no stat, no write — and falls back to as-given only
+when unplaceable. A pre-v5 `counterparts backup` is therefore a valid revert artifact
+under any v5 reader, not only after a writer opens it. The second change is hardening
+the reviewer asked for: a hand-edited relative row such as `../ESCAPE/prose/x.md` was
+selected by the migration's predicate, returned unchanged, called "relative" by the
+census, and joined to an address outside the store. `isCanonicalRelativePath` now judges
+every join by where it LANDS — strictly under `prose/` or `versions/`, resolved before
+compared (scar §2.13) — on both the relative and the placed-absolute branch, so the two
+rules compose (`/x/prose/../../y` is caught after its tail is joined). The migration
+counts such a row `unplaceable` and leaves it; the census counts it `escaped`; reads
+refuse it by name. The guard is deliberately wider than the reviewer's minimum: a row
+naming `cache/cache.sqlite` or `tmp/…` resolves inside the store but outside its two
+canonical roots, and a removal that trusted it would have deleted box 3.
+
+**Why a schema bump (v5) rather than a tolerant no-bump.** The migration is data-only —
+no DDL moves — and every v5 reader accepts both spellings, so a tolerant scheme that
+converted opportunistically and never bumped would have worked for v5 code. What decided
+it is what v4 CODE does to a v5 store: `readProseFile("prose/…")` resolves against the
+process's working directory, so `removal.ts` gets `existsSync(rel) === false`, pushes
+`"prose"` to `chased`, and `verifyRemoved` reports `proseGone: true` while the file
+survives — a removal that lies, silently. With the bump, v4 code refuses a v5 store by
+name (`SCHEMA_AHEAD`). Loud beats silent. The cost is named in the PR: **the revert lever
+is one-way once the live store has opened under v5.** Checking master back out to a
+pre-v5 build after the first writer open leaves a store that build cannot open; the way
+back is a restore from a pre-v5 backup (whose rows the tail rule below places correctly
+under v5 again) or a hand rewrite of the two columns.
+
+**The observer read floor is the exception the bump earns.** Since 2026-08-25 an
+instrument refuses a store a schema behind (`STORE_UNINITIALIZED`) rather than migrate
+under the process that owns it. Kept for v3 and below — v3 lacks columns the readers
+select. Lifted for v4 (`OBSERVER_READ_FLOOR = 4`): the only thing v5 changed is a
+spelling every v5 reader accepts, so a v4 store reads correctly through a v5 observer,
+and refusing would have taken `status`, `verify`, `backup` and the dashboard away from
+the owner between the merge and the first writer open — precisely the window in which
+`verify` is meant to show the unmigrated count. (Without the floor, `dashboard.ts` would
+also have rendered that refusal as "No store at … run `counterparts init`", which is
+false.) A test holds the v4 database byte-identical across an observer open.
+
+**The migration, and its three properties.** `relativizeStoredPaths` runs inside the
+existing migrate-at-open transaction, on the two columns, for rows whose value is not
+blank and not already `prose/…` or `versions/…`. Per row: if the path lies under the
+opened dir, `relative()` is exact; otherwise the DEEPEST `/prose/` or `/versions/`
+segment keys the tail — the case that matters is a store written under one spelling and
+opened under another (`/var/…` vs `/private/var/…` on macOS; the parallel tool met this
+exact pair and grew `realpathOr` for it), and a backup restored to a new directory whose
+rows still name the old one. The tail after the store-level segment can never contain a
+second such segment (an id may not contain a slash). A row with neither segment is
+LEFT, not blanked and not guessed, and counted `unplaceable`. Whether the file exists
+at the new address is deliberately not consulted: the absolute address is wrong for a
+copied store whatever sits at it, and a missing file is a separate fact
+(`Store.pathCensus()` counts it separately; `verify` prints "N relative, M absolute
+(unmigrated), K missing files" for each column on a v4 store, and "(unplaceable)" in
+place of "(unmigrated)" on a v5 one — a leftover absolute row there WAS migrated and
+could not be placed, so "unmigrated" would be the wrong word).
+
+- *Idempotent by predicate, not only by latch.* The version row short-circuits a v5
+  open before the branch is reached; but two writers racing into the migrate branch on
+  the same v4 file both select "rows not yet relative", and the second finds none. A
+  test asserts the database is byte-identical across a second open.
+- *Recorded.* A conversion that touched anything appends one `store.migrate.paths` row
+  to `events` in the same transaction — from/to versions and four counts, never a path
+  (constitution 16; §5 G10). Its timestamp comes from the injected provenance clock,
+  threaded into `openOperational` as `now`, so `two-clocks.test.ts`'s count of ambient
+  `Date.now()` calls in `index.ts` stays at one.
+- *Cheap, measured.* On a synthetic store built under `mkdtemp` — 15,000 `memories`
+  rows and 2,000 `versions` rows holding absolute paths under the dir, stamped v4, no
+  prose files (the migration never stats them) — the first `Store.open()` took **79, 82,
+  67 ms** on three fresh stores, converting every row (`converted: 15000` / `2000`,
+  `unplaceable: 0`, one event); the steady-state open that followed measured under a
+  millisecond. That is one SELECT and one prepared UPDATE per row inside one transaction,
+  and it matters because the first writer open on the live store is a SessionStart hook
+  or the MCP server, not a console command with a progress line. It is the first
+  migrate-at-open that store will ever run: v4 dates from 2026-08-29 and the store was
+  created 2026-09-03.
+- *Re-decided at every bump.* `OBSERVER_READ_FLOOR` is a claim — "every reader of the
+  current version tolerates a floor-version store as it stands" — that v5 makes true for
+  v4 and a v6 column add would silently make false. `test/store.test.ts` pins the floor to
+  `SCHEMA_VERSION - 1`, so the next bump must raise it or drop it on purpose.
+
+**What `backup` and `export` do now.** `snapshot` already copied `prose/` and
+`versions/` whole and the database through `VACUUM INTO`; a snapshot restored anywhere
+now reads its own files (test (d), source wiped before the read). The plaintext `export`
+bundles `prose/` and the database but NOT `versions/`, so a restored export's version
+rows dangle — pre-existing, out of this change's scope, named here rather than fixed.
+
+**Brain analog: none.** This is the engineering floor (CONTRACT §2). What it protects is
+constitution line 6 — memory that "travels across hosts" cannot be pinned to one
+machine's directory tree — and line 7's "backups catch catastrophe", which was not true
+while a backup's rows pointed at the live store.
