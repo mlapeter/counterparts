@@ -58,7 +58,13 @@ alone.
   stamps, markers snapped with it, so recovery never retro-runs history; an upgraded store
   initializes markers to the present. [v1 §11 G9]
 - **Expiry archives, never deletes, and names what it archived** [v1 §11 G7] — still true of
-  everything except the floor prune, which is the one deletion and is recorded.
+  everything except the floor prune, which is the one deletion and is recorded. *(The floor
+  prune has since resolved toward archival — `NOTES.md` §2. What this module DOES delete,
+  loudly and counted, is telemetry: superseded-version rows past `H` and, since
+  2026-09-05, unlatched event-log rows past the retention window — §5 G16. Neither is a
+  memory; v1's spec names telemetry as "the one system-path exception to no-deletion —
+  bounded-retention logs" (`docs/harvest/behavioral-spec.md` #17; `log-audit.md` §3
+  records v1's `pruneLogs` as exactly that exception), and the sweep is not silent.)*
 - **Autonomous, budgeted, and loud**: at most once per lived day, on its own trigger, never
   an owner chore — *"I won't remember to run random scripts occasionally."* [v1 §7 G8]
 - **Over-budget is measured at full membership, not on the rendered output** — a renderer
@@ -208,6 +214,36 @@ and their records; the next session's briefing, written last; a per-cycle summar
     dedup merged an ingested memory into its own episode (identical prose, identical
     content hash) at the boundary that minted it; and prune would have taken the whole
     migrated journal at the floor.*
+
+16. **[M]** **The durable event log has bounded retention, and the cycle is what bounds
+    it.** The `log` phase — the cycle's LAST phase, after the briefing, which stays the
+    last CONTENT write (§3 G5: the sweep writes no content) — calls `Store.pruneEvents`
+    with the phase budget as its cap. **Retention:** an unlatched row is deleted once its
+    lived day is older than `retentionDays` lived days (`day < livedDay − retentionDays`).
+    `retentionDays` is the store's option, default `DEFAULT_RETENTION_DAYS` = 90 lived
+    days, and **the default is pinned ≥ 90 by a test** — the parallel run reads its
+    evidence off this table (`tools/parallel/readers.ts`) and needs ≥ 7 active days plus
+    review slack, so a shorter default would destroy the run's record from under it; no
+    reader found on 2026-09-05 needs more (`NOTES.md` §15 lists them). **Kept by kind:**
+    every row the store latches with a `dedup_key` — `memory.pruned`, `memory.merged`,
+    `memory.unmerged`, `band.promoted`, `band.transition`, `revision.pressure`,
+    `gate.chunk` — is kept at any age; that is what `repair-merged-beliefs`, the owner's
+    read-only check (`memory.merged` rows with `sch_` losers), the symmetry counter (G14)
+    and `schemas.story()` read, and the phase counts them as the named skip `latched`
+    rather than passing over them in silence. **Bounded per pass:** at most
+    `TUNABLES.BUDGETS.log` (5,000) rows go per cycle, OLDEST FIRST by `seq`, so a store
+    swept for the first time takes its backlog a cap's worth a day; the rows left are
+    `skippedForBudget`, reported and never owed (§3: a budget is not a debt). **Idempotent:**
+    once per lived day by marker (a replayed day is `already-done-today`), and a clean
+    window is `ran-nothing-found` on the phase and `pruned: 0` on the store. **Observer:**
+    computed from the read-only census, `changed` carries the would-delete count, and
+    nothing is attempted. **Legible before it runs** (constitution 16): `counterparts
+    verify` prints the rows held, the oldest row's lived day and date, the latched count,
+    and what the next pass would delete. *Filed 2026-09-05 as `NOTES.md` §13: `pruneEvents`
+    existed, documented this window, and had no caller anywhere in `src/` — every unlatched
+    row ever written was still there, and the dashboard's "I keep events for N lived days;
+    older ones are swept" described a sweep that never ran. Owner ruling the same day: wire
+    it into sleep.*
 
 ## 6. Scars honored
 

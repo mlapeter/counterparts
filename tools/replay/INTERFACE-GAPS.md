@@ -165,6 +165,16 @@ text. No draft text, no alias, no quote, no secret and no hash of one.
   has no caller in `src/`, so §7's "it ages out on the log's existing window" was
   already an eligibility claim rather than a deletion one, for `recall.decision`
   as much as for this. Filed as `src/core/sleep/NOTES.md` §13, not fixed here.
+  *Closed 2026-09-05: sleep's `log` phase is the caller (`sleep/CONTRACT.md` §5
+  G16), and it runs DURING a replay — `sessionEnd` → `runCycle` in-process — so
+  a store on the default 90-lived-day window would have swept the first days'
+  `gate.deposit` rows out from under `depositRecordsOf` on any corpus with more
+  than 90 active days (the recorded one has 26). The driver now opens its store
+  with `retentionDays` = the corpus's active-day count + the default window
+  (`driver.ts`, beside `Counterpart.open`), so nothing the scorer reads at run
+  end can age out mid-run, whatever the corpus's length. The default itself does
+  not move for the replay, and `gate.deposit` stays unlatched (`sleep/NOTES.md`
+  §15).*
   What the latch would have bought is bought elsewhere: an accepted deposit
   cannot repeat, because `remember/`'s content ledger refuses a second deposit of
   the same text before the battery is called.

@@ -874,6 +874,57 @@ describe("revision + bounded versioning", () => {
     expect(store().retentionDays).toBe(90);
     expect(store({ retentionDays: 14 }).retentionDays).toBe(14);
   });
+
+  test("the event sweep is capped per call, takes the OLDEST rows first, and reports what it left", () => {
+    const s = store({ retentionDays: 1 });
+    const seqs: number[] = [];
+    for (let i = 0; i < 6; i++) seqs.push(s.appendEvent({ name: "telemetry", day: 0, payload: { i } }));
+    // A latched record older than everything: never eligible, at any cap.
+    s.appendEvent({ name: "memory.pruned", day: 0, ref: "mem_000000000001", dedupKey: "sleep.pruned.mem_000000000001" });
+    s.appendEvent({ name: "telemetry", day: 1 }); // inside the window once the clock reaches day 2
+    s.advanceClock("2026-08-26");
+    s.advanceClock("2026-08-27");
+    expect(s.livedDay()).toBe(2);
+
+    const census = s.eventLogCensus();
+    expect(census).toEqual({
+      rows: 8,
+      latched: 1,
+      oldestDay: 0,
+      oldestAt: census.oldestAt,
+      newestDay: 1,
+      cutoffDay: 1,
+      retentionDays: 1,
+      eligible: 6,
+      latchedPastCutoff: 1,
+    });
+    expect(typeof census.oldestAt).toBe("number");
+
+    const first = s.pruneEvents({ limit: 4 });
+    expect(first).toEqual({ pruned: 4, eligible: 6, remaining: 2, limit: 4, cutoffDay: 1, retentionDays: 1 });
+    expect(s.eventLog({ name: "telemetry", limit: 10 }).map((r) => r.seq)).toEqual([...seqs.slice(4), 8]);
+    expect(s.events("store.events.pruned").at(-1)?.data).toEqual({
+      count: 4,
+      eligible: 6,
+      remaining: 2,
+      limit: 4,
+      cutoffDay: 1,
+      retentionDays: 1,
+    });
+
+    // No cap: the rest of the window goes, the day-1 row and the latch stay.
+    const second = s.pruneEvents();
+    expect(second).toEqual({ pruned: 2, eligible: 2, remaining: 0, limit: null, cutoffDay: 1, retentionDays: 1 });
+    expect(s.eventLog({ name: "telemetry" }).length).toBe(1);
+    expect(s.eventLog({ name: "memory.pruned" }).length).toBe(1);
+    expect(s.eventLogCensus()).toMatchObject({ rows: 2, latched: 1, eligible: 0, latchedPastCutoff: 1 });
+
+    // The census is a READ: an observer may ask it, and asking writes nothing.
+    s.close();
+    const obs = store({ observer: true, retentionDays: 1 });
+    expect(obs.eventLogCensus().rows).toBe(2);
+    expect(obs.events("store.observer.standdown")).toEqual([]);
+  });
 });
 
 // ── box 3: the rebuildable cache ─────────────────────────────────────────────

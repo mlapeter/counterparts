@@ -18,6 +18,8 @@
 
 import type { Band, Kind, MemoryPhysics } from "../types.js";
 import type {
+  EventLogCensus,
+  EventPruneReport,
   MemoryRow,
   PruneReport as VersionPruneReport,
   ProseType,
@@ -107,6 +109,17 @@ export interface SleepStore {
    */
   setRanking?(rows: readonly { id: string; strength: number; band: Band; day: number }[]): void;
   rankingAll?(): Map<string, { id: string; strength: number; band: Band; day: number }>;
+  /**
+   * SWEEPING that same log, OPTIONAL for the same reason as `appendEvent`: a
+   * port with no durable log has nothing to sweep, and the `log` phase says so
+   * by name (`no-durable-event-log`) rather than pretending it ran. `limit` is
+   * the cycle's per-pass cap, oldest rows first; latched rows (`dedupKey`) are
+   * the store's to keep at any age, not this module's to ask for. The census is
+   * the READ half: an observer's report and the kept-by-kind count come from it,
+   * and it never crosses the write seam.
+   */
+  pruneEvents?(opts?: { limit?: number }): EventPruneReport;
+  eventLogCensus?(): EventLogCensus;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +135,11 @@ export interface SleepStore {
  *     the strength cache is materialized.
  *   - revision-dependent work (`prune`, `dedup`, `versions`) runs after
  *     `consolidate`, so it sees this boundary's own supersedes and promotions.
- *   - `briefing` is LAST — the cycle's final content write.
+ *   - `briefing` is the cycle's final CONTENT write. `log` runs after it and
+ *     writes no content: it deletes telemetry rows past the retention window
+ *     (§5 G16), and it is last so "what the cycle forgot" and "what the log
+ *     dropped" are two reports, never one budget doing half of each
+ *     (NOTES.md §13).
  */
 export const PHASES = [
   "clock",
@@ -132,6 +149,7 @@ export const PHASES = [
   "dedup",
   "versions",
   "briefing",
+  "log",
 ] as const;
 
 export type Phase = (typeof PHASES)[number];
@@ -146,6 +164,7 @@ export type PhaseReason =
   | "not-due-this-cadence"
   | "observer-report"
   | "no-render-fn"
+  | "no-durable-event-log"
   | "failed";
 
 export interface PhaseReport {

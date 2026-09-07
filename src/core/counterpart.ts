@@ -1645,12 +1645,13 @@ export class Counterpart {
    * `recall.decision`, which made exactly this call for exactly this reason
    * (replay INTERFACE-GAPS §7, "no retention rule was added").
    *
-   * **AND THE HONEST HALF: NOTHING SWEEPS THE EVENTS TABLE TODAY.**
-   * `Store.pruneEvents()` exists, is tested, and has NO caller anywhere in
-   * `src/` — so "unlatched" currently buys eligibility, not deletion, and the
-   * same is true of every unlatched row already in the log. Filed as a debt in
-   * `src/core/sleep/NOTES.md` §13 rather than fixed here: which cycle phase
-   * should call it is a decision about the whole log, not about this row.
+   * **AND THE HONEST HALF, NOW CLOSED: the events table IS swept.** When this
+   * row was added, `Store.pruneEvents()` existed, was tested, and had NO caller
+   * anywhere in `src/` — "unlatched" bought eligibility, not deletion (filed as
+   * `src/core/sleep/NOTES.md` §13). Since 2026-09-05 sleep's `log` phase calls
+   * it as the cycle's last step: this row leaves the log once it is older than
+   * the store's window (90 lived days by default), at most `BUDGETS.log` rows a
+   * pass (`sleep/CONTRACT.md` §5 G16, `sleep/NOTES.md` §15).
    *
    * What the latch would have bought is bought elsewhere anyway: an accepted
    * deposit cannot repeat, because `remember/`'s content ledger refuses a second

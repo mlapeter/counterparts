@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
-import { Store } from "../src/core/store/index.js";
+import { DEFAULT_RETENTION_DAYS, Store } from "../src/core/store/index.js";
 
 import {
   BASELINES_DOC,
@@ -515,6 +515,16 @@ describe("the pipeline driver", () => {
       minBytes: 100,
     });
     expect(existsSync(run.storeDir)).toBe(true);
+    // The replay store's log window is the corpus plus the default, so the
+    // `log` phase — which runs during the replay — can never sweep a row the
+    // scorer reads at run end. The meta row is written at the store's first
+    // open, so it records the window the driver actually asked for.
+    const replayed = Store.open({ dir: run.storeDir, observer: true });
+    try {
+      expect(replayed.getMeta("retentionDays")).toBe(String(corpus.days().length + DEFAULT_RETENTION_DAYS));
+    } finally {
+      replayed.close();
+    }
     run.cleanup();
     expect(existsSync(run.storeDir)).toBe(false);
     corpus.close();

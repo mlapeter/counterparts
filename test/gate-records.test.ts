@@ -832,9 +832,9 @@ describe("the authored door's gate record reaches the DURABLE log", () => {
     await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
     // The latch is deliberately absent — `store.pruneEvents` exempts a latched
     // row by construction, and the authored door fires at every session end and
-    // every jot. Two refusals are honestly two events. (Nothing calls
-    // `pruneEvents` in `src/` today, so unlatched buys eligibility rather than
-    // deletion — `sleep/NOTES.md` §13.)
+    // every jot. Two refusals are honestly two events. (Unlatched now means
+    // DELETION, not just eligibility: sleep's `log` phase calls `pruneEvents`
+    // as of 2026-09-05 — `sleep/CONTRACT.md` §5 G16, `sleep/NOTES.md` §15.)
     expect(deposits(c).length).toBe(2);
     for (const row of c.store.eventLog({ name: "gate.deposit", limit: 10 })) {
       expect(row.dedup_key).toBeNull();

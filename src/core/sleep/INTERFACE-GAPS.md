@@ -252,4 +252,8 @@ Two smaller notes that ride along:
   The volume is one row per crossing (v1: ~38/day at 13.5K memories). The honest
   fix when it matters is still an age-based sweep that keeps the latch and drops
   the payload — but a swept counter would shrink the symmetry sample, so that
-  sweep needs a rolled-up total, not just a delete.
+  sweep needs a rolled-up total, not just a delete. *(2026-09-05: `pruneEvents`
+  now HAS a caller — the `log` phase, CONTRACT §5 G16 — and it still keeps every
+  latched row, so the symmetry sample is untouched by it. The rolled-up total
+  remains the thing to build when latched volume is the problem; unlatched
+  volume no longer is.)*

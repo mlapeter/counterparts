@@ -34,7 +34,7 @@ import {
   byteLength,
   readSentinel,
 } from "../src/core/self/index.js";
-import { PHASES, markerKey } from "../src/core/sleep/index.js";
+import { PHASES, TUNABLES as SLEEP_TUNABLES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
@@ -1424,6 +1424,14 @@ describe("verify", () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "fact", body: "The memory whose vector must survive a look." });
     s.put({ type: "memory", kind: "fact", body: "A second memory, with no vector of its own." });
+    // A durable log with history: three unlatched rows and one record from day
+    // 0, one row from today, and a clock that has moved past the window for the
+    // old ones — so the census has real numbers to print, and prints them
+    // without sweeping (this is a look, not the cycle).
+    for (let i = 0; i < 3; i++) s.appendEvent({ name: "recall.decision", day: 0, ref: `s${i}` });
+    s.appendEvent({ name: "memory.pruned", day: 0, ref: kept, dedupKey: `sleep.pruned.${kept}` });
+    for (let d = 1; d <= 91; d++) s.advanceClock(new Date(Date.UTC(2026, 0, d)).toISOString().slice(0, 10));
+    s.appendEvent({ name: "recall.decision", day: 91, ref: "today" });
     s.close();
     seedVector(kept);
 
@@ -1433,6 +1441,12 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Canonical rows: 2");
+    // The log, read-only: what is held, how old, and what the next sweep takes.
+    expect(printed).toContain("Events: 5 held (1 latched records)   oldest: lived day 0 (");
+    expect(printed).toContain("window: 90 lived days (cutoff day 1)");
+    expect(printed).toContain(
+      `past the window: 3 unlatched (the next sleep pass deletes 3, cap ${SLEEP_TUNABLES.BUDGETS.log} per pass), 1 latched records kept`,
+    );
     expect(printed).toContain("embeddings: 1");
     expect(printed).toContain("live memories with no vector: 1");
     // "live", not "canonical": since I13 the index covers the LIVE rows and an
