@@ -25,7 +25,7 @@ directory at all, so nothing else can reach one by accident.
 |---|---|---|
 | `--run-dir` | the run directory — **the only thing written** | *(required)* |
 | `--v1-dir` | v1's data dir, read-only | `~/.bansai` |
-| `--v2-data-dir` | v2's data dir, read-only | `~/.counterparts` |
+| `--v2-data-dir` | v2's data dir, read-only — **announced when it falls to the default, refused under the guard** (below) | `~/.counterparts` |
 | `--v2-config` | v2's adapter config JSON | — |
 | `--engram-dir` | the third store, for the disjointness check | `~/.claude-engram` |
 | `--ab-dir` | the primacy assignment directory | `$MEMORY_AB_DIR` or `~/.memory-ab` |
@@ -46,8 +46,40 @@ sqlite read error, a truncated event read, or a `contaminated` day. All three
 exit `2` on a named REFUSAL (a run directory overlapping a live store, a corrupt
 `run.json`, uncommitted bars, a day with no v1 cross-encoding probe, a
 `--primacy` **or a stored `run.json` primacy** that disagrees with the assignment
-file, a restart with no run record / no reason / an impossible date). A gate that
+file, a restart with no run record / no reason / an impossible date, **an unnamed
+`--v2-data-dir` under an armed `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`**). A gate that
 prints red and exits 0 is a document.
+
+### `--v2-data-dir` is announced, or refused
+
+The #80 reviewer's finding on `bin/restart.ts` — *"writes a live path by naming
+nothing"* — applies to all three bins, and to the one path of the four that the
+product's own path guard does not cover. `~/.bansai` and `~/.claude-engram` are
+on `store/paths.ts#FORBIDDEN_ROOT_NAMES`, so every store-open path in the product
+refuses them by realpath with no variable involved; `~/.counterparts` is
+deliberately **not** on that list, because the store has to be able to open its
+own default. So v2's is the one path here where a default can silently choose a
+live store — for a guard input, and, in the daily and the preflight, for a read.
+
+The default stays. A default that has to be typed is a guard that is sometimes
+skipped, and the overlap check needs the live stores named to have anything to
+refuse. What changed is that it is never silent:
+
+- **Named** (`--v2-data-dir <dir>` on the command line) — nothing is printed, and
+  the guard is not consulted. Its question has only ever been about the fallback.
+- **Unnamed** — one line on **stderr** naming the resolved path this run is being
+  guarded against, so the choice is in the transcript.
+- **Unnamed with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed** (`1`, `true` or `on`,
+  trimmed, case-insensitive) — **REFUSED, exit 2**, naming the flag, before the
+  overlap guard and before any directory is created. This is every agent shell in
+  the repo, the install loop, and the test suite.
+- **Unnamed with a value the guard will not guess at** — refused too, in the
+  guard's own sentence, so the store door and this one teach one lesson. `0`,
+  `false` and `off` mean off, exactly as at the store door.
+
+`--v1-dir`, `--engram-dir` and `--ab-dir` keep their silent defaults: the first
+two are covered structurally by the forbidden-roots list, and the third names an
+assignment file rather than a store and already answers to `$MEMORY_AB_DIR`.
 
 ## The run directory
 
@@ -295,8 +327,14 @@ assistant restates a delivered recall in its own words — rides beside it as
 ## Restarting the phase clock
 
 ```
-bun tools/parallel/bin/restart.ts --run-dir <dir> --date <YYYY-MM-DD> --reason "<text>"
+bun tools/parallel/bin/restart.ts --run-dir <dir> --date <YYYY-MM-DD> --reason "<text>" \
+  --v2-data-dir <v2's data dir>
 ```
+
+`--v2-data-dir` is written out because the shells this is typed in arm
+`COUNTERPARTS_REQUIRE_EXPLICIT_DIR`, which refuses the built-in default (see
+*`--v2-data-dir` is announced, or refused*, above). Without the guard the flag is
+still optional and the default is announced on stderr.
 
 CONTRACT §5 G12 prices mid-run change by class: an identical surface-set hash is
 telemetry-only and the day count carries; a red-line fix restarts the clock for

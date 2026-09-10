@@ -15,6 +15,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { v2DataDirGate } from "../live-stores.js";
 import { preflightArtifacts, readBars, runPreflight } from "../preflight.js";
 import type { RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
@@ -23,6 +24,8 @@ interface Args {
   runDir: string;
   v1Dir: string;
   v2DataDir: string;
+  /** True once `--v2-data-dir` appeared on the command line (G39). */
+  v2DataDirNamed: boolean;
   v2Config: string;
   engramDir: string;
   abDir: string;
@@ -40,6 +43,8 @@ function usage(): never {
       "  --run-dir <dir>       the run directory. The ONLY thing this tool writes.",
       "  --v1-dir <dir>        v1's data dir (read-only).      default ~/.bansai",
       "  --v2-data-dir <dir>   v2's data dir (read-only).      default ~/.counterparts",
+      "                        The default is ANNOUNCED on stderr, and REFUSED",
+      "                        outright under COUNTERPARTS_REQUIRE_EXPLICIT_DIR.",
       "  --v2-config <file>    v2's adapter config JSON.",
       "  --engram-dir <dir>    the third store, for disjointness. default ~/.claude-engram",
       "  --ab-dir <dir>        the primacy assignment dir.     default ~/.memory-ab",
@@ -61,6 +66,7 @@ function parseArgs(argv: readonly string[]): Args {
     runDir: "",
     v1Dir: join(home, ".bansai"),
     v2DataDir: join(home, ".counterparts"),
+    v2DataDirNamed: false,
     v2Config: "",
     engramDir: join(home, ".claude-engram"),
     // v1's own resolution order: the environment override first, so the
@@ -87,6 +93,7 @@ function parseArgs(argv: readonly string[]): Args {
         break;
       case "--v2-data-dir":
         args.v2DataDir = value;
+        args.v2DataDirNamed = true;
         break;
       case "--v2-config":
         args.v2Config = value;
@@ -131,6 +138,14 @@ const MARK: Record<string, string> = {
 
 function main(argv: readonly string[]): number {
   const args = parseArgs(argv);
+  // G39 — THE ONE LIVE PATH THAT MUST BE SAID OUT LOUD. Before the overlap
+  // guard, before any read, before any mkdir: an unnamed `--v2-data-dir` is
+  // ANNOUNCED on stderr, and REFUSED when the explicit-dir guard is armed.
+  // `../live-stores.ts` carries the argument for keeping the default at all,
+  // and for why v2's is the only one of the four paths that needs this.
+  const gate = v2DataDirGate({ dir: args.v2DataDir, named: args.v2DataDirNamed });
+  for (const line of gate.lines) process.stderr.write(`${line}\n`);
+  if (gate.refused) return 2;
   // The env var's PRESENCE is the defect the CONTRACT names (scar §2.13). This
   // process can only observe its own environment, so the same answer is
   // reported for both hook processes and the record says so rather than

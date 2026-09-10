@@ -211,10 +211,18 @@ describe("dataDir", () => {
       expect(dataDir(envWith(value))).toBe(fallback);
     }
 
-    // ARMED: a SUPERSET of the two `COUNTERPARTS_OBSERVER` takes, trimmed and
-    // case-insensitive, so a person who exports `=true` or `=on` by analogy is
-    // protected. (`COUNTERPARTS_OBSERVER` itself is deliberately not widened:
-    // it is read on the live MCP server's launch path.)
+    // ARMED: trimmed and case-insensitive, so a person who exports `=true` or
+    // `=on` by analogy is protected.
+    //
+    // These two lists were a SUPERSET of what `COUNTERPARTS_OBSERVER` took
+    // until G39; they are now simply THE lists. `adapters/stance-env.ts`
+    // imports them rather than retyping them, so observer and owner accept
+    // exactly these words too — with the fail direction each of those two
+    // wants, which is not this one's (a stance stands down where a guard
+    // refuses). The core comments that still call this a superset —
+    // `store/paths.ts`'s block above `EXPLICIT_DIR_ARMING_VALUES`,
+    // `store/NOTES.md` 2026-09-05, `store/CONTRACT.md` §5 — describe the world
+    // before that ruling and are the one core follow-up G39 leaves open.
     expect(EXPLICIT_DIR_ARMING_VALUES).toEqual(["1", "true", "on"]);
     expect(EXPLICIT_DIR_DISARMING_VALUES).toEqual(["0", "false", "off"]);
     for (const value of ["1", "true", "on", " 1", "1 ", " true\n", "TRUE", "True", "ON"]) {

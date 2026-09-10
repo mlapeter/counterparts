@@ -259,11 +259,92 @@ describe("the wire", () => {
       session: "abc",
       owner: true,
       observer: false,
+      unreadable: [],
     });
     const fromEnv = launchOptions([], { COUNTERPARTS_SESSION: "xyz", COUNTERPARTS_OBSERVER: "1" });
     expect(fromEnv.session).toBe("xyz");
     expect(fromEnv.observer).toBe(true);
     expect(launchOptions([], {}).session).toBeUndefined();
+  });
+
+  /**
+   * G39 — THE STANCE VARIABLES ARE READ THE WAY THE GUARD NEXT DOOR IS READ.
+   *
+   * The measured defect: `launchOptions` matched `"1"` and `"true"` by exact,
+   * untrimmed string, while `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` — the guard
+   * whose own documentation invites the analogy, and which `store/paths.ts`
+   * calls "a SUPERSET of the two `COUNTERPARTS_OBSERVER` accepts" — takes
+   * `1|true|on` trimmed and case-insensitive. So `COUNTERPARTS_OBSERVER=on`
+   * launched an ORDINARY server: the person who typed the word the guard
+   * documents got the stance they were trying to leave.
+   *
+   * `store/NOTES.md` recorded the mismatch and deferred it — widening observer
+   * "is a behaviour change to an unrelated variable and wants its own ruling",
+   * because #80 had promised to leave this launch path instruction-for-
+   * instruction identical. G39 (HANDOFF 2026-09-08 item 4) is that ruling.
+   */
+  test("COUNTERPARTS_OBSERVER takes the guard's whole vocabulary — on, True, padded (G39)", () => {
+    for (const value of ["1", "true", "on", "ON", "True", " on ", "\t1\n"]) {
+      const opts = launchOptions([], { COUNTERPARTS_OBSERVER: value });
+      expect(`${JSON.stringify(value)} → ${opts.observer}`).toBe(`${JSON.stringify(value)} → true`);
+      expect(opts.unreadable).toEqual([]);
+    }
+    for (const value of ["0", "false", "off", "OFF", " 0 ", "", "   "]) {
+      const opts = launchOptions([], { COUNTERPARTS_OBSERVER: value });
+      expect(`${JSON.stringify(value)} → ${opts.observer}`).toBe(`${JSON.stringify(value)} → false`);
+      expect(opts.unreadable).toEqual([]);
+    }
+    // ABSENT is not observer, and never was. This is the case that must not
+    // move: every ordinary launch on the live host has no such variable.
+    expect(launchOptions([], {}).observer).toBe(false);
+    expect(launchOptions([], {}).unreadable).toEqual([]);
+  });
+
+  test("a value the reader cannot read STANDS DOWN to observer, and says so (G5)", () => {
+    // THE FAIL DIRECTION, AND WHY IT IS NOT THE GUARD'S. The explicit-dir guard
+    // REFUSES junk: it exists to stop a process, so refusing is its fail-closed.
+    // A stance exists to WITHHOLD WRITES, so standing down is its fail-closed —
+    // `docs/observer-mode.md` G5, already mechanized in `core/observer.ts`,
+    // where a non-boolean `observer` field resolves to observer rather than to
+    // "encode anyway". A refused MCP server answers nothing and the host says
+    // only "MCP server failed"; a stood-down one answers every read. The
+    // smaller, more recoverable failure wins, and it is never silent.
+    const opts = launchOptions([], { COUNTERPARTS_OBSERVER: "yes" });
+    expect(opts.observer).toBe(true);
+    expect(opts.unreadable).toHaveLength(1);
+    expect(opts.unreadable[0]).toContain("COUNTERPARTS_OBSERVER");
+    expect(opts.unreadable[0]).toContain("'yes'");
+    expect(opts.unreadable[0]).toContain("standing down to observer stance");
+    expect(opts.unreadable[0]).toContain("1, true, on");
+  });
+
+  test("COUNTERPARTS_OWNER gets the same vocabulary and the OPPOSITE collapse", () => {
+    // Same helper, one line apart: `owner` GRANTS reach where `observer`
+    // WITHHOLDS it, so least privilege is `false` here and `true` there. Junk
+    // must never mint an owner.
+    for (const value of ["on", "TRUE", " 1 "]) {
+      expect(launchOptions([], { COUNTERPARTS_OWNER: value }).owner).toBe(true);
+    }
+    for (const value of ["off", "0", "FALSE"]) {
+      expect(launchOptions([], { COUNTERPARTS_OWNER: value }).owner).toBe(false);
+    }
+    const junk = launchOptions([], { COUNTERPARTS_OWNER: "sure" });
+    expect(junk.owner).toBe(false);
+    expect(junk.observer).toBe(false);
+    expect(junk.unreadable).toHaveLength(1);
+    expect(junk.unreadable[0]).toContain("COUNTERPARTS_OWNER");
+    expect(junk.unreadable[0]).toContain("NOT owner-stanced");
+  });
+
+  test("a flag still beats the environment, and a junk variable beside it is still named", () => {
+    // `--observer` wins outright, but the unreadable value does not vanish: the
+    // next launch may not carry the flag, and a shell with a typo in it is the
+    // thing to fix (scar §2.4 — a path that discards something says what).
+    const both = launchOptions(["--observer"], { COUNTERPARTS_OBSERVER: "maybe" });
+    expect(both.observer).toBe(true);
+    expect(both.unreadable).toHaveLength(1);
+    // `--owner` beside an OFF variable: the flag is the sentence somebody typed.
+    expect(launchOptions(["--owner"], { COUNTERPARTS_OWNER: "off" }).owner).toBe(true);
   });
 });
 

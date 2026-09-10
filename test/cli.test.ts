@@ -2587,6 +2587,60 @@ describe("owner operations never run under observer", () => {
     });
     expect(code).toBe(EXIT.refused);
   });
+
+  /**
+   * G39, the console's half. The variable used to be matched here by exact,
+   * untrimmed string — `"1"` or `"true"` — while the explicit-dir guard one
+   * directory over took `1|true|on`, trimmed and case-insensitive, and
+   * `store/paths.ts` described itself as "a SUPERSET of the two
+   * `COUNTERPARTS_OBSERVER` accepts". A person reasoning from that sentence and
+   * exporting `=on` got an OWNER console: `backup`, `export`, `remove` all
+   * reachable, from a shell they believed was an instrument.
+   */
+  test("COUNTERPARTS_OBSERVER=on stands the console down — the guard's whole vocabulary (G39)", async () => {
+    store().close();
+    for (const value of ["on", "ON", "True", " 1 ", "\ttrue "]) {
+      const c = consoleWith();
+      const code = await run(["backup", "--out", outside], {
+        io: c.io,
+        env: { [ENV]: dir, COUNTERPARTS_OBSERVER: value },
+      });
+      expect(`${JSON.stringify(value)} → ${code}`).toBe(`${JSON.stringify(value)} → ${EXIT.refused}`);
+      expect(text(c.err)).toContain("observer stance");
+    }
+    // OFF means off — a stood-down variable does not stand the console down,
+    // exactly as an absent one does not (the #80 owner ruling, same words).
+    for (const value of ["0", "off", "FALSE", ""]) {
+      const c = consoleWith();
+      const code = await run(["status"], { io: c.io, env: { [ENV]: dir, COUNTERPARTS_OBSERVER: value } });
+      expect(`${JSON.stringify(value)} → ${code}`).toBe(`${JSON.stringify(value)} → ${EXIT.ok}`);
+    }
+  });
+
+  test("a value the console cannot read STANDS DOWN, and names itself doing it (G5)", async () => {
+    // Fail toward standing down (`docs/observer-mode.md` G5), NOT toward the
+    // guard's refusal: a stood-down console still answers every read, so it is
+    // the cheaper failure, and the line on stderr is what keeps it from being a
+    // silent one. `status` proves the read still works; `backup` proves the
+    // owner operation does not.
+    store().close();
+    const reads = consoleWith();
+    expect(await run(["status"], { io: reads.io, env: { [ENV]: dir, COUNTERPARTS_OBSERVER: "yes" } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(reads.err)).toContain("COUNTERPARTS_OBSERVER is set to 'yes'");
+    expect(text(reads.err)).toContain("standing down to observer stance");
+    expect(text(reads.err)).toContain("1, true, on");
+
+    const writes = consoleWith();
+    expect(
+      await run(["backup", "--out", outside], {
+        io: writes.io,
+        env: { [ENV]: dir, COUNTERPARTS_OBSERVER: "yes" },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(writes.err)).toContain("observer stance");
+  });
 });
 
 // ── the import graph ────────────────────────────────────────────────────────

@@ -34,7 +34,8 @@ import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Store } from "../src/core/store/index.js";
-import { DATA_DIR_ENV } from "../src/core/store/index.js";
+import { DATA_DIR_ENV, FORBIDDEN_ROOT_NAMES, explicitDirMalformedRefusal } from "../src/core/store/index.js";
+import { v2DataDirGate, v2DataDirNotice, v2DataDirRefusal } from "../tools/parallel/live-stores.js";
 import { AB_DIR_ENV } from "../src/adapters/claude-code/index.js";
 import { PRIMACY_DELIVER_EVENT, PRIMACY_STANDDOWN_EVENT } from "../src/core/counterpart.js";
 import { METRICS } from "../tools/replay/baselines.js";
@@ -3833,5 +3834,154 @@ describe("guarantee 1 — nothing but the run directory", () => {
     const bin = readFileSync(join(toolRoot, "bin", "preflight.ts"), "utf8");
     expect(bin.includes(OS)).toBe(true);
     expect(bin.includes(".memory-ab")).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * `--v2-data-dir`: THE ONE LIVE PATH THAT MUST BE SAID OUT LOUD (G39).
+ *
+ * The #80 reviewer's finding, carried as LAUNCH-STATUS G39: the three bins
+ * default `--v2-data-dir` to `~/.counterparts`, so a command line that names
+ * nothing still names the owner's live memory — "writes a live path by naming
+ * nothing". The tool writes only its run directory; the path is a GUARD INPUT
+ * (`RunDir.open`'s overlap check) and, in the daily and the preflight, a READ
+ * TARGET. A guard whose subject was chosen by a default is a guard nobody
+ * agreed to.
+ *
+ * THE DEFAULT STAYS, and the source scan above says why in its own words: "a
+ * default that has to be typed is a guard that is sometimes skipped". Requiring
+ * the flag would make the overlap check optional in practice, and would break
+ * the restart line documented in `tools/parallel/README.md` and
+ * `docs/HANDOFF.md`, which passes none.
+ *
+ * What replaces the SILENCE is the explicit-dir guard's own doctrine at a third
+ * door (after `store/paths.ts#dataDir` and
+ * `config-path.ts#implicitConfigRefusal`): an unnamed default is always
+ * ANNOUNCED, and REFUSED outright wherever the guard is armed — which is every
+ * agent shell in this repo, the install loop, and this suite.
+ */
+describe("the v2 path is named, announced, or refused", () => {
+  const NAMED = { dir: "/tmp/some/named/store", named: true } as const;
+  const UNNAMED = { dir: "/Users/nobody/.counterparts", named: false } as const;
+  const GUARD = "COUNTERPARTS_REQUIRE_EXPLICIT_DIR";
+
+  test("a path the operator TYPED is neither announced nor refused, whatever the guard says", () => {
+    // The guard's question has only ever been about the fallback. A named path
+    // is a sentence somebody wrote, and a tool that argued with it would teach
+    // people to unset the variable — the exact failure `store/NOTES.md` names
+    // for the config door.
+    for (const env of [{}, { [GUARD]: "1" }, { [GUARD]: "0" }, { [GUARD]: "banana" }]) {
+      const gate = v2DataDirGate(NAMED, env);
+      expect(`${JSON.stringify(env)} → ${gate.refused} ${gate.lines.length}`).toBe(
+        `${JSON.stringify(env)} → false 0`,
+      );
+    }
+    expect(v2DataDirRefusal(NAMED, { [GUARD]: "1" })).toBeNull();
+    expect(v2DataDirNotice(NAMED)).toBeNull();
+  });
+
+  test("UNARMED: the default stands, and stops being silent", () => {
+    // Silence was the defect. The path is not wrong — it is the path the run
+    // actually uses — it was simply never in the transcript, so nobody could
+    // see that a live store had been chosen for them.
+    const gate = v2DataDirGate(UNNAMED, {});
+    expect(gate.refused).toBe(false);
+    expect(gate.lines).toHaveLength(1);
+    expect(gate.lines[0]).toContain("--v2-data-dir");
+    expect(gate.lines[0]).toContain(UNNAMED.dir);
+    // `off` means off here exactly as it does at the store door: a guard whose
+    // `=0` refused would trip the shell of the person it protects.
+    for (const value of ["0", "false", "off", "OFF", ""]) {
+      const off = v2DataDirGate(UNNAMED, { [GUARD]: value });
+      expect(`${JSON.stringify(value)} → ${off.refused}`).toBe(`${JSON.stringify(value)} → false`);
+      expect(off.lines).toHaveLength(1);
+    }
+  });
+
+  test("ARMED: the default is REFUSED by name, in the guard's whole vocabulary", () => {
+    for (const value of ["1", "true", "on", "ON", " True ", "\t1\n"]) {
+      const gate = v2DataDirGate(UNNAMED, { [GUARD]: value });
+      expect(`${JSON.stringify(value)} → ${gate.refused}`).toBe(`${JSON.stringify(value)} → true`);
+      expect(gate.lines).toHaveLength(1);
+      // The sentence carries all three: what armed it, which flag answers it,
+      // and the path it would otherwise have used.
+      expect(gate.lines[0]).toContain(GUARD);
+      expect(gate.lines[0]).toContain("--v2-data-dir");
+      expect(gate.lines[0]).toContain(UNNAMED.dir);
+    }
+  });
+
+  test("JUNK is refused too, in the guard's OWN words — the two doors teach one lesson", () => {
+    // Not this module's sentence: `explicitDirMalformedRefusal`, the same
+    // string the store throws, so `=yes` gets an identical explanation wherever
+    // it is met.
+    const gate = v2DataDirGate(UNNAMED, { [GUARD]: "yes" });
+    expect(gate.refused).toBe(true);
+    expect(gate.lines[0]).toBe(explicitDirMalformedRefusal("yes"));
+  });
+
+  /**
+   * THE BINS' HALF. Exit codes only exist at the bin, and the claim that must
+   * hold is not merely "exit 2" — it is that the refusal costs NOTHING: no
+   * realpath of a live store, no mkdir of the run dir, no record. So the run
+   * directory named is one that does not exist, and it must still not exist
+   * afterwards.
+   *
+   * The suite's own environment arms the guard (`test/preload.ts`) and a
+   * spawned child inherits it — which is exactly the class of process this
+   * ruling is for.
+   */
+  test("all three BINS refuse an unnamed --v2-data-dir under the armed guard, having done nothing", () => {
+    const binDir = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "parallel", "bin");
+    const cases: readonly (readonly [string, readonly string[]])[] = [
+      ["restart.ts", ["--date", "2026-09-10", "--reason", "a fix landed"]],
+      ["daily.ts", ["--date", "2026-09-10"]],
+      ["preflight.ts", []],
+    ];
+    for (const [name, extra] of cases) {
+      const runDir = join(root, `never-created-${name}`);
+      expect(existsSync(runDir)).toBe(false);
+      const out = spawnSync(process.execPath, [join(binDir, name), "--run-dir", runDir, ...extra], {
+        encoding: "utf8",
+        env: { ...process.env, [GUARD]: "1" },
+      });
+      expect(`${name} → ${out.status}: ${out.stderr}`).toContain("--v2-data-dir");
+      expect(`${name} → ${out.status}`).toBe(`${name} → 2`);
+      expect(`${name}: ${out.stderr}`).toContain(GUARD);
+      // NOTHING HAPPENED. Not the run dir, not a record, not a resolved path.
+      expect(`${name} created ${runDir}: ${existsSync(runDir)}`).toBe(
+        `${name} created ${runDir}: false`,
+      );
+      expect(`${name} stdout: ${out.stdout}`).toBe(`${name} stdout: `);
+    }
+  });
+
+  test("only v2's path gets this — v1's and engram's are covered by the FORBIDDEN list instead", () => {
+    // The asymmetry is the point, and it is structural rather than a judgement
+    // call. `~/.bansai` and `~/.claude-engram` are on
+    // `store/paths.ts#FORBIDDEN_ROOT_NAMES`, so every store-open path in the
+    // product refuses them by realpath with no variable involved: a silent
+    // default there cannot become an opened store. `~/.counterparts` is
+    // deliberately NOT on that list — the store has to be able to open its own
+    // default — which is the whole reason the explicit-dir guard exists, and
+    // the reason v2's is the one path here that a default leaves uncovered.
+    // `--ab-dir` is an assignment file, not a store, and answers to
+    // `MEMORY_AB_DIR` already.
+    expect(FORBIDDEN_ROOT_NAMES).toContain(".bansai");
+    expect(FORBIDDEN_ROOT_NAMES).toContain(".claude-engram");
+    expect(FORBIDDEN_ROOT_NAMES as readonly string[]).not.toContain(".counterparts");
+    // And the bins still carry every default, so this ruling changed what is
+    // SAID about an unnamed path, not which paths the tool knows.
+    for (const name of ["preflight.ts", "daily.ts", "restart.ts"]) {
+      const src = readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "parallel", "bin", name),
+        "utf8",
+      );
+      expect(`${name}:.bansai:${src.includes(".bansai")}`).toBe(`${name}:.bansai:true`);
+      expect(`${name}:.counterparts:${src.includes(".counterparts")}`).toBe(
+        `${name}:.counterparts:true`,
+      );
+    }
   });
 });

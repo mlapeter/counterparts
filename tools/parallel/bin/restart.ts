@@ -14,6 +14,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { v2DataDirGate } from "../live-stores.js";
 import { restartArtifacts } from "../restart.js";
 import type { RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
@@ -25,6 +26,8 @@ interface Args {
   phase: RunPhase | null;
   v1Dir: string;
   v2DataDir: string;
+  /** True once `--v2-data-dir` appeared on the command line (G39). */
+  v2DataDirNamed: boolean;
   engramDir: string;
   abDir: string;
 }
@@ -41,6 +44,8 @@ function usage(): never {
       "  --phase <0|P>         the phase whose clock restarts. Default: run.json's.",
       "  --v1-dir <dir>        v1's data dir — the run dir must be disjoint from it.",
       "  --v2-data-dir <dir>   v2's data dir.                default ~/.counterparts",
+      "                        The default is ANNOUNCED on stderr, and REFUSED",
+      "                        outright under COUNTERPARTS_REQUIRE_EXPLICIT_DIR.",
       "  --engram-dir <dir>    the third store.              default ~/.claude-engram",
       "  --ab-dir <dir>        the primacy assignment dir.   default ~/.memory-ab",
       "",
@@ -58,6 +63,7 @@ function parseArgs(argv: readonly string[]): Args {
     phase: null,
     v1Dir: join(home, ".bansai"),
     v2DataDir: join(home, ".counterparts"),
+    v2DataDirNamed: false,
     engramDir: join(home, ".claude-engram"),
     abDir: process.env["MEMORY_AB_DIR"] ?? join(home, ".memory-ab"),
   };
@@ -89,6 +95,7 @@ function parseArgs(argv: readonly string[]): Args {
         break;
       case "--v2-data-dir":
         args.v2DataDir = value;
+        args.v2DataDirNamed = true;
         break;
       case "--engram-dir":
         args.engramDir = value;
@@ -107,6 +114,17 @@ function parseArgs(argv: readonly string[]): Args {
 
 function main(argv: readonly string[]): number {
   const args = parseArgs(argv);
+  // G39 — THE ONE LIVE PATH THAT MUST BE SAID OUT LOUD. This is the bin the #80
+  // reviewer named: "writes a live path by naming nothing". It writes only the
+  // run dir, and the path it defaults is still the path this restart is
+  // RECORDED as having been guarded against. Announced on stderr, and REFUSED
+  // when the explicit-dir guard is armed — before `RunDir.open`, so a refusal
+  // resolves nothing and creates nothing. `../live-stores.ts` carries the
+  // argument for keeping the default at all, and for why v2's is the only one
+  // of the four paths that needs this.
+  const gate = v2DataDirGate({ dir: args.v2DataDir, named: args.v2DataDirNamed });
+  for (const line of gate.lines) process.stderr.write(`${line}\n`);
+  if (gate.refused) return 2;
   // BEFORE ANYTHING ELSE: a run directory that overlaps a live store is refused
   // outright, the same guard the other two bins open with (§5 G1).
   const run = RunDir.open(args.runDir, {
