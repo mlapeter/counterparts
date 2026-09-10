@@ -1700,7 +1700,16 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(printed).toContain("Sample:");
     expect(printed).toContain("largest coordinate change in this row:");
     expect(printed).toContain("Dry run. Nothing was changed");
-    expect(printed).toContain("counterparts backup");
+    // THE HINT NAMES THE PROTECTION THAT EXISTS (G40). It used to say "take a
+    // 'counterparts backup --out <dir>' first" — and `backup` has box 3 on its
+    // explicit exclusion list, so that snapshot holds no copy of the file
+    // `--apply` rewrites. The `cp` of `cache.sqlite` is the only real cover,
+    // and the sentence has to say the two things that make it one: WHICH file,
+    // and that `backup` skips it deliberately rather than by oversight.
+    expect(printed).toContain(`cp ${paths.cache(dir)} ${paths.cache(dir)}.bak-<date>`);
+    expect(printed).toContain("skips the cache on purpose");
+    expect(printed).toContain("every session closed");
+    expect(printed).not.toContain("Take a 'counterparts backup");
     // The claim in full: byte-identical, with the cache still stamped v3.
     expect(readFileSync(paths.cache(dir)).toString("base64")).toBe(before);
     expect(shapes()).toEqual({ blob: 0, text: 2 });
