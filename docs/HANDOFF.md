@@ -13,7 +13,7 @@ The owner's one-sitting sheet is done and is no longer reading material.
 |---|---|
 | master | **`2b95f21`** — PR #82 merged `2026-09-10T14:13:23Z`, hash `c3af0bef00209ba6` |
 | Open PRs | **None.** #79, #80 and #81 all read `MERGED`, closed by the batch at `2026-09-10T14:13:26Z` |
-| Live memory | **ON since 2026-09-10 08:15 local.** `~/.counterparts/claude-code.json` `dataDir` points at `/Users/mlapeter/.counterparts/store` again (G37), with a backup, `claude-code.json.bak-2026-09-07`, beside it. I29 and I31 are both closed by that one edit. |
+| Live memory | **ON since 2026-09-10 08:15 local.** `~/.counterparts/claude-code.json` `dataDir` points at `~/.counterparts/store` again (G37), with a backup, `claude-code.json.bak-2026-09-07`, beside it. I29 and I31 are both closed by that one edit. |
 | Store | Schema **v5**. `store.migrate.paths` at `2026-09-10T14:16:03Z`: 15,541 prose paths and 468 version paths converted, 0 unplaceable. `verify` after the first wake: 15,541 canonical / 14,466 live, 1,349 events held (104 latched), cache covers every live row. Backup at `~/counterparts-backup-2026-09-07/2026-09-10T14-13-00-341Z` — the revert lever; a pre-v5 build refuses a v5 store by name. |
 | Parallel run | **Restart #4** recorded 2026-09-10 (`restarts.jsonl` line 4, `2026-09-10T14:15:48.392Z`). `run.json`: `activeDays {"0":1,"P":0}`. **Phase P active days: 0 of ≥ 7, counting from 2026-09-10.** Days recorded through 09-09; 09-04 ACTIVE, 09-05 → 09-09 all THIN for I29's reason. |
 | Receipts | I30 stands: the Anthropic recharges are bansai's per-turn encoding. Counterparts spent $0. Owner's call is G38, still open. |
@@ -23,7 +23,7 @@ The owner's one-sitting sheet is done and is no longer reading material.
 ## The morning, in order
 
 1. **Read-only check that the config is still sane**: `grep dataDir ~/.counterparts/claude-code.json`.
-   It must name `/Users/mlapeter/.counterparts/store`. This is the check that would have caught I29
+   It must name `~/.counterparts/store`. This is the check that would have caught I29
    on day one; run it before anything else, every morning. Do not write to `~/.counterparts`.
 2. **The daily record for the previous day** (standing permission from the owner, 2026-09-05) —
    `~/.bun/bin/bun tools/parallel/bin/daily.ts --run-dir ~/counterparts-parallel-run/2026-09-03 --date <YYYY-MM-DD> --phase P --v2-data-dir ~/.counterparts/store --v2-config ~/.counterparts/claude-code.json --v1-ritual ~/counterparts-parallel-run/2026-09-03/v1-ritual.txt`
@@ -83,6 +83,6 @@ The owner's one-sitting sheet is done and is no longer reading material.
 - `docs/PARALLEL-RUN-STATUS.md` — the run and its G12 declarations.
 - `docs/launch/coordinator-log-2026-09-04-07.md` — the coordinator's dated running log (agent ids,
   verdicts, incidents).
-- Memory files under `~/.claude/projects/-Users-mlapeter-counterparts/memory/`
+- Memory files under `~/.claude/projects/<this project>/memory/`
   (`counterparts-launch-session`, `counterparts-parallel-run-status`,
   `no-claude-attribution-in-commits`, `parallel-run-host-facts`).

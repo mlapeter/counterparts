@@ -1004,7 +1004,7 @@ Counterparts spent $0 on Anthropic (sweeps ran 0 times; embeddings are Voyage, c
 
 | # | Item | State |
 |---|---|---|
-| G37 | Restore `dataDir` in `~/.counterparts/claude-code.json` to `/Users/mlapeter/.counterparts/store` (sheet on the Desktop), restart every session, confirm with `counterparts status`. | open |
+| G37 | Restore `dataDir` in `~/.counterparts/claude-code.json` to `~/.counterparts/store` (sheet on the Desktop), restart every session, confirm with `counterparts status`. | open |
 | G38 | bansai's per-turn encoding spend: remove its Stop / SessionEnd / PreCompact hook entries from `~/.claude/settings.json` (recommended; keeps the muted wake hooks so the daily's consistency check still reads) — or accept the cost until the verdict retires v1. | open |
 | G39 | `tools/parallel/bin/restart.ts` writes a live path by naming nothing (the #80 reviewer); `COUNTERPARTS_OBSERVER` accepts only `1|true` untrimmed while the new guard accepts a wider set — widen in one place, separate PR. | later |
 | G40 | `migrate-cache`'s hint says "take a `counterparts backup` first" but `backup` excludes the cache by design; a `cp` of `cache.sqlite` is the real protection. One-line hint fix. | later |
@@ -1078,7 +1078,7 @@ unmerged by this one. The original I29 line stays as written; this is the append
 it explains a refusal that had been visible for six days without an explanation.
 
 **What was true.** The MCP server is registered in `~/.claude.json` with
-`COUNTERPARTS_DATA_DIR=/Users/mlapeter/.counterparts/store` in its `env` — the LIVE store. The hooks
+`COUNTERPARTS_DATA_DIR=~/.counterparts/store` in its `env` — the LIVE store. The hooks
 take their `dataDir` from `~/.counterparts/claude-code.json`, which since 2026-09-04 15:15:59 named
 a **temp** store (I29). One host, two components, two different stores, for six days.
 
