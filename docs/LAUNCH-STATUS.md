@@ -1172,3 +1172,47 @@ numbers are in `docs/PARALLEL-RUN-STATUS.md`, 2026-09-10.
 
 **$0.00** by the session and its agents across 2026-09-08 → 2026-09-10. The Anthropic receipts in
 this window are still bansai's (I30, G38 open).
+
+## 2026-09-10, afternoon — owner rulings applied; G39 and G40 landed
+
+Appended by the coordinating session after the morning entry above. Every line is command
+output or a merge the session ran; nothing here is from memory.
+
+### Merged
+
+| PR | What | Verified before merge |
+|---|---|---|
+| #85 | G40 — `migrate-cache`'s dry-run hint no longer points at `counterparts backup` (which excludes the cache on purpose); it names the `cp` of `cache/cache.sqlite` and "every session closed". Test tightened to assert the new line and refuse the old one. | preview merge on master: 1837 / 0, tsc clean, hash `c3af0bef00209ba6`; adversarial review MERGE |
+| #87 | G39 — `src/adapters/stance-env.ts`: `COUNTERPARTS_OBSERVER` / `COUNTERPARTS_OWNER` parse `1\|true\|on` trimmed, case-insensitive, via the guard's own word lists; junk ⇒ observer / not owner, one stderr line; flags still beat the environment, and `--owner` + `COUNTERPARTS_OBSERVER=1` still stands down (the observer-mode directories rely on it). `tools/parallel/live-stores.ts`: the three run bins announce the default `--v2-data-dir` on stderr and REFUSE (exit 2, before `RunDir.open`) when `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is armed and the flag is absent or blank. | review MERGE WITH CHANGES → the blank-value hole closed in a fix round (head `4d828e5`); preview merge: 1852 / 0, tsc clean, hash unchanged, `src/core` untouched |
+
+Residuals named by the fix round, not fixed: unarmed + blank `--v2-data-dir` is announced but
+still proceeds with `""` (cwd) as the overlap subject; the notice prints an empty path in that
+case. Three core comments now state the opposite of shipped behaviour and are the owner's next
+core batch: `src/core/store/paths.ts` ~82–84, `src/core/store/NOTES.md` (2026-09-05 entry),
+`src/core/store/CONTRACT.md` ~179 ("`COUNTERPARTS_OBSERVER` deliberately not widened").
+
+### Owner rulings, applied the same afternoon
+
+| # | Ruling | Applied |
+|---|---|---|
+| G38 | Stop bansai's per-turn encoding. | Its Stop / SessionEnd / PreCompact hook entries removed from `~/.claude/settings.json` (backup `settings.json.bak-2026-09-10-pre-bansai-off`); session-start and user-prompt-submit kept, so `record.ts`'s `v1MutedConsistent` (needs only `ab.muted` rows) still reads. bansai's memory has a gap from 2026-09-10 onward — the revert lever is weakened knowingly. |
+| G28 | Push the site. | `~/counterparts-site` pushed to a PRIVATE GitHub repository (42 commits; HTTPS remote); the dev server on 3111 stopped. G19 (Vercel, domain) waits for the flip. |
+| G29 | Status-file attribution. | One comment fixed and pushed: three of the seven status lines come from README "Status, honestly", the other four from package.json, "License and contributing" and "Install". |
+| G18 | Lane labels. | Closed by inspection: the site says "you" / "your counterpart" throughout. |
+| G30 | Hero polish + a critic pass on the ribbons hero. | Deferred to a site review session with the owner. |
+| G6 | Salience backfill. | Closed by the 09-10 dry run (0 rows). |
+| G39, G40 | | Closed by #87 and #85 above. |
+
+Also that afternoon: three private project directories placed in observer mode via project
+settings (`COUNTERPARTS_CONFIG` → an observer config, `COUNTERPARTS_OBSERVER=1`), and bansai's
+hooks routed through a guard script with a per-directory opt-out list — host facts, recorded in
+`src/adapters/claude-code/INTERFACE-GAPS.md`. Seven stale agent worktrees removed.
+
+Open for the owner after this entry: G15 (optional), G19, G30, G41–G43 (build now or after
+launch), the four deletions (the empty `x` test store, the 09-05 cache backup inside the live
+store, the temp-store backup, one kept worktree), the flip checklist steps 3 / 5 / 6, and the
+post-verdict plan for bansai (undefined in both run documents).
+
+### Spend
+
+$0.00 by the session and its agents.
