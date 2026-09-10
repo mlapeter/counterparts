@@ -2,3 +2,10 @@ node_modules/
 *.log
 .DS_Store
 .claude/worktrees/
+
+# Forward-looking ignores for a public repository (flip checklist step 5)
+.env
+credentials.env
+*.pem
+.npmrc
+.claude/settings.local.json
