@@ -202,6 +202,37 @@ into the wrapper.
    code compares against it yet, because every foreground path is an appender and
    the heavy work is already detached. When something in the foreground can grow,
    this is the number it must be measured against.
+6. **On first launch in a new directory, nobody is asked whether this should be
+   on.** Owner's ask, 2026-09-10. The hooks are registered globally, so a project
+   directory that has never heard of Counterparts inherits capture, deposit and
+   the wake the first time a session opens in it. The honest default is a
+   question asked once per new directory and remembered — "on here?" — rather
+   than a silent yes. The host offers `SessionStart` as the place to ask and no
+   place to receive the answer (gap 7's problem, again), so the mechanism is
+   likely a written record plus an ask in the first wake, not a prompt.
+7. **Turning it OFF for one directory takes four moving parts.** Owner's ask,
+   2026-09-10 (the same conversation as 6). Today it is a project
+   `.claude/settings.json` with an `env` block naming an observer configuration
+   through `COUNTERPARTS_CONFIG` and setting `COUNTERPARTS_OBSERVER=1` —
+   **verified 2026-09-10 to reach both the hooks and this host's MCP servers**,
+   which is the part that was not obvious. Observer means the wake and recall are
+   delivered and nothing is captured or deposited. It works; it is a JSON file, a
+   second config file and two environment variables to say "not here". One flag,
+   one file, would be the size of the thing being asked for. (See also G39: the
+   guard and `COUNTERPARTS_OBSERVER` accept different value sets, which should be
+   one place.)
+8. **There is no pause/resume for a directory that is normally on.** Owner's ask,
+   2026-09-10. Item 7's mechanism is permanent by shape — you edit a file to opt
+   out and edit it back to opt in. The missing thing is the temporary version:
+   one session, or one afternoon, that the counterpart does not record, without
+   the directory changing its mind about what it is. `COUNTERPARTS_OBSERVER` is
+   the right underlying state; what is missing is a way to reach it that is not
+   an edit.
+
+**Host fact, 2026-09-10:** three private project directories are running in
+observer mode by the mechanism in item 7. Sessions there deliver wake and recall
+and capture nothing, by configuration. A daily record that reads few turns from
+those directories is reading the configuration working, not a fault.
 
 ---
 
@@ -314,3 +345,47 @@ measure sends `null`, and those stay different records. `verdictFor` therefore
 attaches NOTHING — it runs before any vector exists — and `batteryGate` attaches
 the value after the gate has spoken, which is what keeps the omitted/null
 distinction real rather than documented.
+
+---
+
+## 9. The hooks and the MCP server can name different stores, and nothing notices — FOUND LIVE
+
+*Written 2026-09-10, from the live host. LAUNCH-STATUS I31.*
+
+**What happened.** This host registers MCP servers from a static configuration:
+`~/.claude.json` carries the server's `env`, and the counterparts server is
+launched with `COUNTERPARTS_DATA_DIR` naming the live store. The hooks do not
+read that file at all — they take `dataDir` from
+`~/.counterparts/claude-code.json`. From 2026-09-04 15:16 until 2026-09-10 08:15
+those two named **different directories**: the config's `dataDir` had been
+overwritten with a temp path (I29), while the server kept opening the live store.
+
+**What it cost, and why it was invisible for six days.** Gap 7 above describes the
+session record this adapter writes so the tool can find the session:
+`<dataDir>/sessions/<id>.json`, written at SessionStart, refreshed at Stop. The
+hook writes it into ITS store. `requireBoundSession` in
+`src/adapters/mcp/server.ts` reads it back with `readSession(registryDir)` — the
+SERVER's store. Split the two and the mechanism has a writer in one directory and
+a reader in another, so **every `session_end` and every `chapter` call was refused
+`session-unknown`** for the whole window. The authored front door that gap 7 was
+written to open was shut again, by configuration rather than by design, and the
+refusal names the session rather than the split, so the message told nobody what
+was actually wrong.
+
+Nothing leaked: the live store's `operational.sqlite` mtime stayed at 2026-09-05
+and its last active date stayed 2026-09-04 through every daily record. The server
+held the live store open and refused every write that reached it. The refusals are
+the evidence.
+
+**The honest fix, and it belongs to `mcp/`.** The server can see this at startup
+and the operator cannot. When it resolves its registry dir, it should also resolve
+the hooks' configured `dataDir` and **refuse to bind a session when the two
+differ**, naming both paths — the same shape as `assertSafeDataDir`: resolve both
+sides, compare, refuse before anything opens. The alternative sometimes proposed —
+have the hook write the session record into both stores — makes the split legal
+instead of loud, and a split store is never what anyone wanted.
+
+**Why the #80 guard does not cover this.** `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`
+refuses a store nobody named. Both of these stores were named, confidently, by two
+different files. A guard against silence does not catch two voices disagreeing;
+that needs a comparison, which is what the fix above is.
