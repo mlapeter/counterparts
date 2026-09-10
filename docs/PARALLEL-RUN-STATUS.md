@@ -5,6 +5,113 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-10: the second core batch merged, restart #4, the run's clock starts again
+
+*Appended 2026-09-10. Every number below is copied from `~/counterparts-parallel-run/2026-09-03/`
+(`run.json`, `restarts.jsonl`, `days/*.json`) or from `gh pr view`, read read-only. Nothing here
+was measured by opening a live store.*
+
+### The two restarts since the last entry
+
+| # | `restartedAt` | `date` | Reason, as recorded | surfaceSet |
+|---|---|---|---|---|
+| 3 | `2026-09-05T14:54:16.681Z` | 2026-09-05 | "overnight core batch #64-#72: surfaceSet 800a9a9421cd969f -> c3af0bef00209ba6 (#65 gate.deposit); class anything-else" | `800a9a9421cd969f` → **`c3af0bef00209ba6`** |
+| 4 | `2026-09-10T14:15:48.392Z` | 2026-09-10 | "second core batch #79 #80 #81: prose paths relative (schema v5), explicit-dir guard, events pruned in sleep; surfaceSet c3af0bef00209ba6 unchanged; class anything-else; hooks restored to the live store" | `c3af0bef00209ba6` unchanged |
+
+Source: `restarts.jsonl` lines 3 and 4. Both entries record `phase: "P"` and
+`clearedActiveDays: {"0":1,"P":0}`.
+
+`run.json` after restart #4: `phaseRestart.date` **2026-09-10**, `phaseRestart.phase` `"P"`,
+`activeDays` **`{"0":1,"P":0}`**, `surfaceSet` `c3af0bef00209ba6`, `updatedAt`
+`2026-09-10T14:19:28.314Z`. **The ≥ 7 Phase-P active days therefore count from 2026-09-10.**
+Zero counted days are lost: the count was already 0.
+
+The merges the two restarts price, from `gh pr view`:
+
+- **#75**, the first core batch (#64–#72), merged `2026-09-05T14:41:15Z` as `ef82cd5`. Restart 3
+  followed it thirteen minutes later.
+- **#82**, the second core batch (#79, #80, #81), merged `2026-09-10T14:13:23Z` as **`2b95f21`**.
+  Restart 4 followed it two minutes later. #79, #80 and #81 each read `MERGED` (closed by the
+  batch at `2026-09-10T14:13:26Z`); no PR is open.
+
+### The days, 09-04 through 09-09
+
+| Date | `class` | `turns` | What the record's `why` says |
+|---|---|---|---|
+| 2026-09-04 | **active** | 97 | "the primary (v2) reached a boundary and the muted side graded pass (v2 by 86 stop-hook primacy record(s) and 82 episode-ask record(s)) and the day carried 97 turn(s), at or above the committed floor of 5" |
+| 2026-09-05 | thin | 86 | "the PRIMARY system (v2) reached no session boundary on this day — v1 pass (11 session.end, 124 ab.muted row(s)) · v2 fail (0 stop primacy, 0 episode-ask, 0 adapter.boundary)" |
+| 2026-09-06 | thin | 0 | same v2 failure; "v1 not-exercised (no log for this day)" |
+| 2026-09-07 | thin | 60 | same v2 failure; "v1 pass (1 session.end, 66 ab.muted row(s))" |
+| 2026-09-08 | thin | 0 | same v2 failure; "v1 not-exercised (no log for this day)" |
+| 2026-09-09 | thin | 26 | same v2 failure; "v1 pass (3 session.end, 32 ab.muted row(s))" |
+
+`class`, `turns` and `why` copied from `days/<date>.json`; `run.json`'s `days` array agrees on
+every class. The records for **09-07, 09-08 and 09-09 were written on 2026-09-10**, under the
+owner's standing permission of 2026-09-05 to run `daily.ts` for a previous day.
+
+**Every thin day above is I29, not a quiet day.** The hooks were reading `dataDir` from
+`~/.counterparts/claude-code.json`, which pointed at a temp store from 2026-09-04 15:16 until the
+owner restored it on 2026-09-10 08:15 (LAUNCH-STATUS I29, and I31 for the second half of the same
+fault). The primary side reached no boundary in the LIVE store because nothing was writing to the
+live store. Three of the six days carried turns well above the floor — 86, 60 and 26 against
+`turnFloor: 5` — and were still classed thin.
+
+**An instrument wording debt, named so it is not mistaken for a red line.** `tools/parallel/CONTRACT.md`
+§5, "What counts as a day" (line 236), glosses the class as "**thin** (below the floor)". The
+instrument's `thin` is wider than that gloss: the same paragraph defines `active` as *the primary
+side reached a boundary AND the day carried at least K turns*, so a day that clears the turn floor
+and misses the boundary half is `thin` too. **Three of the five thin days here prove it** — 09-05,
+09-07 and 09-09, at 86, 60 and 26 turns against a floor of 5; 09-06 and 09-08 carried 0 turns and
+are thin under either reading. The records say so in their own `why` field, and `turnFloor: 5` sits
+beside `turns: 86` on 09-05. The instrument is behaving as
+the definition specifies; the parenthetical gloss is the thing that is wrong. Filed as a wording
+fix owed to the CONTRACT, not as a finding against the run.
+
+### The watches
+
+All **four** watches read `not-exercised` on every one of 09-04 → 09-09, with the reasons the
+instrument writes:
+
+- `sleep.symmetry` — "band.transition carries only the store's LIVED day and no `--lived-day` was
+  given, so no transition can be attributed to this date — the watch was not driven here (a zero
+  would be scar §2.4)".
+- `self.schema.pressure` — "no durable revision-pressure row exists in this build — the
+  revision-pressure path is being wired separately".
+- `self.schema.tripped` — "not a row: the trip is `schemaBytes` over the self rows, recomputed
+  read-only by the preflight's `store.schemaBytes` check".
+- `self.schema.quarantined` — "not a row: the F8 fallback quarantine is subtracted INSIDE
+  `schemaBytes`".
+
+The last two are `not-exercised` **by construction** — they are not rows in this build. The first
+two are the pair a future daily could actually drive, and they are what the next session should
+look at before any verdict is written.
+
+### Cross-encoding: one named finding, on 2026-09-09
+
+`days/2026-09-09.json` `crossEncoding`:
+
+| Field | Value |
+|---|---|
+| v1 → v2 | 0 hits, against a bar of **0** in every phase |
+| v2 → v1 | **3** hits, `distinctHits` 1 (address `f802320fad782067`), `scanned` 565 |
+| `ratioDenominator` | 1502 v1 mints that day |
+| `ratio` | **0.0019973368841544607** (≈ 0.0020) |
+| `ratioBar` | 0.1 |
+| `redLine` | `false` — `namedFinding` **`true`** |
+
+The instrument's own note: "v2→v1 3 v1 line(s) carrying a verbatim v2 line against 1502 v1 mint(s)
+that day — red-line above 0.1 (OQ4: v1 keeps v2's text by design)". Roughly fiftyfold under the
+bar, in the direction the run expects to leak. **Named, not a red line.** 09-07 and 09-08 read
+0 in both directions; 09-08 has no denominator at all (no v1 log), so its `ratioNote` records that
+any hit there would have been a red line until the denominator could be read.
+
+### `mute.v2DeliverByHook` is empty on 09-07, 09-08 and 09-09
+
+`{}` on all three records. That is not evidence the delivery path is dead: the hooks were
+delivering out of the temp store for the whole window, so the live store the daily reads has no
+delivery rows to show. See I29 and I31. The reading becomes meaningful again from 2026-09-10, the
+first day the hooks and the store agree.
+
 ## State — 2026-09-04, day 1: the first conversation reviewed, ten fixes merged and LIVE
 
 **Day 1 is the review day.** The first real conversation on counterparts (one session
@@ -416,6 +523,12 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 
 **2026-09-05, PROPOSED and not yet recorded by the owner — `overnight/schema-not-dedup` (probe H: a `type: "schema"` row is no longer a dedup candidate at all; plus `counterparts repair-merged-beliefs` and the seam's `unarchiveMerged`). Class: ANYTHING ELSE (§5 G12's third class).** *This entry is written by the session that made the change and is a PROPOSAL: G12 says the declaration is recorded before the change lands, and the owner merges core. Confirm or amend it at merge.*
 
+> **RECORDED 2026-09-10 — no longer a proposal.** The change went in as PR **#69**, inside the
+> first core batch **#75**, merged `2026-09-05T14:41:15Z` as `ef82cd5` (`gh pr view 75`). The
+> owner confirmed the class by running the restart it asks for: `restarts.jsonl` line 3,
+> `2026-09-05T14:54:16.681Z`, class anything-else. The heading above is left as it was written;
+> this note is the record of its confirmation.
+
 - **Why not "red-line fix".** G10's list is closed — span loss, corruption, a secrets miss, an isolation breach, a broken session, cross-encoding, a write into v1 — and a belief archived with a valid merge record is none of them. It is a behaviour-changing correctness fix, the same shape and the same night as `fix/revision-successor-survives` above.
 - **Why not "identical" either.** Surface-set hash, `tools/parallel/surface.ts#surfaceSetHash()`: master `7fe3e9f` → `800a9a9421cd969f`; branch `overnight/schema-not-dedup` → `800a9a9421cd969f`. Unchanged, and **that does not make the class identical**: the hash covers FIELD NAMES on three record shapes and no field moved, while what the store HOLDS does move. Before, an element whose statement matched an ordinary memory's body was archived `merged` at the next cycle and left the live set; after, it stays live and no `sleep.merged.<id>` is written for it. Recall then has one more live row to weigh, and the wake and every schema slice show a belief where they showed nothing. `run.json` is NOT re-read here — the run directory is off-limits to this session, and the preflight compares it on the next daily.
 - **Live reach, and why "no live row is affected" is NOT claimable.** Any cycle in which an element and an ordinary memory carry the same body. Migration settles the DIRECTION of that loss and NOT its frequency, and the difference matters: `tools/migrate/apply.ts#writeElement` minted every migrated element at the IMPORT day while migrated memories kept their v1 `birthDay`, so on any such pair the memory is strictly older and the element loses without even needing the `mem_` < `sch_` tie-break — but a pair needs two DISTINCT v1 items whose gated text is byte-identical (`plan.ts` sends each item down one route, `element()` trims where `planElementAsMemory` does not, and `hashText` is a raw sha256 with no normalisation), so nothing in the migration code gives a count. **The direction of the loss is certain; the count is unknown, and only the owner's dry run can say.** The day-1 record says nothing either way about schema/memory collisions and this session cannot open that store, so the honest class is the third one.
@@ -439,6 +552,15 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 
 **2026-09-05, PROPOSED and not yet recorded by the owner — `core/prose-paths-relative`, PR #79 (finding I22 / LAUNCH-STATUS G26: `memories.prose_path` and `versions.path` become STORE-RELATIVE; store schema v4 → v5; a copied or restored store reads and chases its own prose). Class: ANYTHING ELSE (§5 G12's third class) — a durable field's REPRESENTATION changes on the live store at its first writer open after the merge — riding the day's single restart.** *Written by the session that made the change; the owner merges core and confirms or amends this at merge.*
 
+> **RECORDED 2026-09-10 — no longer a proposal.** PR **#79** went in inside the second core batch
+> **#82**, merged `2026-09-10T14:13:23Z` as `2b95f21` (`gh pr view 82`; #79 itself reads `MERGED`,
+> closed at `2026-09-10T14:13:26Z`). The owner confirmed the class by running the restart it asks
+> for: `restarts.jsonl` line 4, `2026-09-10T14:15:48.392Z`, `surfaceSet c3af0bef00209ba6`
+> unchanged, class anything-else. The conversion happened: `store.migrate.paths` at
+> `2026-09-10T14:16:03Z`, schema 4 → 5, 15,541 prose rows and 468 version rows converted, 0
+> unplaceable (the owner's `verify`, relayed 2026-09-10 — see LAUNCH-STATUS, G36). The heading
+> above is left as it was written; this note is the record of its confirmation.
+
 - **Surface-set hash unchanged.** `tools/parallel/surface.ts#surfaceSetHash()`: master `ef82cd5` → `c3af0bef00209ba6`; branch `core/prose-paths-relative` → `c3af0bef00209ba6`. `prose_path` is a store column, not a field of the per-turn surfacing decision, gate-chunk, gate-deposit or band-transition records, and no record shape moved. `run.json` is NOT re-read here — the run directory is off-limits to this session; the preflight compares it on the next daily.
 - **Why not IDENTICAL, despite the hash.** G12's first class is *telemetry-only AND provably identical*, and this is not telemetry-only: two canonical columns are rewritten on ~15,000 `memories` rows and every `versions` row of the live store, in one transaction, at the first WRITER open after the merge (a session start, the MCP server, the worker). Recall, wake and every surfaced string are unchanged on a store opened where it was written — the resolved path is the same file — so no scored number is expected to move; but "expected" is not "provably", and the class is chosen for what the store HOLDS, not for what the meter reads.
 - **Why not "red-line fix".** G10's list is closed and a copied store reading another store's prose is none of its seven items — no live write went wrong, no span was lost. It is a correctness fix to a durable representation, which is the third class.
@@ -454,3 +576,22 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - **What the instrument reads, and why the window is safe for it.** `tools/parallel/readers.ts` reads `adapter.*`, `sweep.gate`, `recall.decision` and the two durable exit rows for ONE date at a time (SQL-filtered by lived day or payload date) plus a whole-table count of `recall.decision`; the run needs ≥ 7 active days plus review slack; the window is 90 lived days and a test pins the default at ≥ 90 with this run as the reason. Every record kind — `memory.pruned`, `memory.merged`, `memory.unmerged`, `band.promoted`, `band.transition`, `revision.pressure`, `gate.chunk` — carries a latch and is kept at any age. The owner's I17 check (`memory.merged` rows whose `candidateId` starts with `sch_`) reads latched rows and is unaffected.
 - **Live reach — arithmetic, then a measurement.** Every `appendEvent` site passes a `day` taken from `livedDay()` at write time; `advanceClock` refuses to move backwards; `tools/migrate` writes no events. The live store has lived at most the calendar days since 2026-08-25 (eleven), and the cutoff is `livedDay − 90`, so **the first pass on the live store should delete 0 rows**, whatever v1's `activeDay` set the clock to, and keep deleting 0 until the store has lived 90 days past its first v2 event. **The premise that argument rests on, named by the adversarial review:** no event was written before migration set the clock. `tools/migrate/apply.ts#setMetaIfChanged` moves `livedDay` through `setMeta` — the side door around `advanceClock`'s forward-only promise — with no fresh-store guard, so a store that had run a hook, `verify` or an install before migration would carry day-0 rows a 400-ish clock puts far past the cutoff (reviewer's probe: 5 rows then clock → 400, first pass deleted 5; clock first then rows, 0). **Measured on the live store, read-only, by the coordinator on 2026-09-05:** `counterparts verify` printed **1,342 rows held, oldest lived day 184, 0 past the window** — the live store is the second shape and the first pass deletes nothing. The session that made the change did not open the store. If a future `verify` shows a non-zero `past the window`, the named suspect is a `setMeta`-moved clock over rows that predate it.
 - **Consequence: the phase clock restarts — and all three ride the single restart the owner runs after this batch merges.** (Reconciled by the integrator of the second core batch, branch `overnight/core-batch-2` (PR #82): these three declarations were each written against "today's owed restart" on 2026-09-05 and are landed together; there is ONE restart, dated the merge day, and a same-date re-restart is accepted.) No separate `restart.ts` run is owed by this PR; the session that made the change may not run one.
+
+**2026-09-10, RECORDED AFTER THE FACT — `#65 gate.deposit` (workstream 6, replay §2a: a durable `gate.deposit` record per authored deposit, 28 ids-only fields; a registries total; the replay refusal mix computed over both record kinds). Class: ANYTHING ELSE (§5 G12's third class). This is the change that moved the surface-set hash to `c3af0bef00209ba6`.** *Written 2026-09-10 by a docs session. G12's rule is that the declaration is recorded BEFORE the change lands; this one was not, and saying so is the point of the entry. The change landed 2026-09-05 with its class stated in the overnight PR table and its restart run the same afternoon, but the declarations section here never got an entry of its own — the hash it moved was cited by every neighbouring declaration and the record that moved it was missing. Filling the hole late is better than leaving it; it is not a precedent for declaring late.*
+
+- **The class, as it was stated at the time.** `docs/LAUNCH-STATUS.md` line 840, the overnight PR table of 2026-09-05: class **"anything else (hash moved by design)"**, review verdict MERGE WITH CHANGES → applied (`6cdb542`), hash on branch **`c3af0bef00209ba6`**.
+- **Why the hash moved, and why that is not the reason for the class.** `#65` adds a FOURTH hashed component to the surface set — `gate.deposit` — beside the per-turn surfacing decision, gate-chunk and band-transition records. `tools/parallel/surface.ts#surfaceSetHash()` hashes field NAMES, so a new record shape moves it by construction: `800a9a9421cd969f` → **`c3af0bef00209ba6`**. The class would be the third one regardless: a durable record that did not exist before now exists on every authored deposit, so what the store HOLDS moves.
+- **Why not "identical".** G12's first class is *telemetry-only AND provably identical*. `gate.deposit` IS telemetry — the review's applied change kept the feeling word out of it and left it ids-only, 28 fields — but the two halves are an AND, and a new durable row is not identical to no row. Both halves fail together.
+- **Why not "red-line fix".** G10's list is closed — span loss, corruption, a secrets miss, an isolation breach, a broken session, cross-encoding, a write into v1 — and adding a record is on none of it.
+- **Consequence, and what actually happened.** The phase clock restarts. It did: `restarts.jsonl` line 3, `2026-09-05T14:54:16.681Z`, reason "overnight core batch #64-#72: surfaceSet 800a9a9421cd969f -> c3af0bef00209ba6 (#65 gate.deposit); class anything-else", `clearedActiveDays {"0":1,"P":0}`. The batch itself is PR **#75**, merged `2026-09-05T14:41:15Z` as `ef82cd5` (`gh pr view 75`). Thirteen minutes between merge and restart; zero counted days lost, because the count was 0.
+- **Not measured by this entry.** No live store was opened to write it. The reach on the owner's store — how many `gate.deposit` rows exist — is a number the next `verify` or daily can read; nothing here claims one.
+
+**2026-09-10, RECORDED at merge — the second core batch, PR #82 (`overnight/core-batch-2`: PR #79 prose paths relative / schema v5, PR #80 the explicit-dir guard, PR #81 events pruned in sleep's `log` phase). Class: ANYTHING ELSE for all three, on the three declarations above. ONE restart covers the batch.**
+
+- **What merged, and when.** #82 merged **`2026-09-10T14:13:23Z`** as master **`2b95f21`** (`gh pr view 82`). #79, #80 and #81 each read `MERGED`, closed by the batch at `2026-09-10T14:13:26Z`; no PR is open. The owner merged it with no session open, as G35 asked.
+- **Surface-set hash unchanged: `c3af0bef00209ba6`**, on every one of the three branch declarations above and in `run.json` after the restart. Nothing in the batch adds or renames a field of the per-turn surfacing decision, gate-chunk, gate-deposit or band-transition records.
+- **The single restart.** `restarts.jsonl` line 4: `restartedAt` **`2026-09-10T14:15:48.392Z`**, `date` 2026-09-10, `phase` P, reason "second core batch #79 #80 #81: prose paths relative (schema v5), explicit-dir guard, events pruned in sleep; surfaceSet c3af0bef00209ba6 unchanged; class anything-else; hooks restored to the live store", `clearedActiveDays {"0":1,"P":0}`. This is the reconciliation the three 2026-09-05 declarations each promised: they were written against "today's owed restart", they landed together, and there is one restart dated the merge day.
+- **The schema conversion happened as declared.** `store.migrate.paths` at `2026-09-10T14:16:03Z`: `from` 4, `to` 5, **15,541** prose paths converted, **468** version paths converted, **0** unplaceable. `verify` after the first wake reads "Prose paths: 15541 relative, 0 absolute (unplaceable), 0 missing files / Version paths: 468 relative, 0 absolute, 0 missing" (the owner's command output, relayed 2026-09-10; see LAUNCH-STATUS G36). The revert lever for v2's CODE is now one-way — a pre-v5 build refuses a v5 store by name — which is why G34's backup was taken first.
+- **#81's pass will delete nothing when it runs, as the arithmetic said.** `verify`: "Events: 1349 held (104 latched) oldest lived day 184 (2026-09-03) window 90 lived days". The oldest row is 184 against a lived day of 185, so the cutoff (day − 90) catches no row. **Not yet exercised:** the `log` phase runs inside a sleep cycle, and the `verify` above was taken before the first Stop-boundary sleep pass of the new session — so this is what the first pass will read, not a report of one that ran. The pre-merge census read 1,342; seven rows were added between that reading and this one.
+- **#80's guard is off on the live host and stays off.** It arms on `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`, which the hooks and the MCP server do not set. Where it IS set — the test preload, the demo seeder, the loops, the bench, every agent shell — the only behaviour that moves is a refusal before anything opens.
+- **The run's own clock.** `run.json` after the restart: `phaseRestart.date` 2026-09-10, `activeDays {"0":1,"P":0}`. The ≥ 7 Phase-P active days count from 2026-09-10, the first day the hooks and the live store agree (I29/I31, closed by G37 the same morning).

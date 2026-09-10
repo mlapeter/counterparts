@@ -1012,3 +1012,163 @@ Counterparts spent $0 on Anthropic (sweeps ran 0 times; embeddings are Voyage, c
 ### Spend
 
 $0.00 by the session and its agents across 09-05 → 09-07. See I30 for the receipts.
+
+## 2026-09-08 → 09-10 — the owner's sitting: #82 merged, live memory back on, restart #4, I31, G41–G43
+
+*Appended 2026-09-10 by a docs session. Master is now **`2b95f21`** (`gh pr view 82`: #82 merged
+`2026-09-10T14:13:23Z`; no PR is open). **Provenance rule for this entry:** every figure in the
+sitting table below is the OWNER's command output, relayed to this session by the coordinating
+session on 2026-09-10. This session ran no command against the live store, opened no backup
+directory, and ran no test. The run-directory numbers (restart 4, `run.json`, the dailies) were
+read read-only from `~/counterparts-parallel-run/2026-09-03/` and are this session's own.*
+
+### The sitting, item by item
+
+| # | Item | State | What the record says |
+|---|---|---|---|
+| G34 | Backup before the schema move | **DONE** | `~/counterparts-backup-2026-09-07/2026-09-10T14-13-00-341Z` — prose **15,541** files, versions **468**, `operational.sqlite` via `VACUUM INTO`, spans **58**. Kept until the run's verdict; this is the revert lever, since a pre-v5 build refuses a v5 store by name. |
+| G35 | Merge #82 with no session open, then ONE restart | **DONE** | Merged `2026-09-10T14:13:23Z` as `2b95f21`, no session open. Restart 4: `restarts.jsonl` line 4, `2026-09-10T14:15:48.392Z`, hash `c3af0bef00209ba6` unchanged, class anything-else. |
+| G36 | `verify --dir ~/.counterparts/store` after the merge | **DONE** | Output verbatim below. |
+| G37 | Restore `dataDir` in `~/.counterparts/claude-code.json` | **DONE 08:15 local** | The config's `dataDir` points at the live store again, and a backup, `claude-code.json.bak-2026-09-07`, sits beside it (this session did not open either file and does not know which state that backup holds). This is the end of the I29 window and, unknowingly, of I31's. |
+| G25 | I21 explicit-dir guard (#80) | **CLOSED** | by the merge. |
+| G26 | I22 prose paths (#79) | **CLOSED** | by the merge; the conversion event is below. |
+| G27 | I23 events pruned (#81) | **CLOSED** | by the merge. Not yet exercised: the `log` phase runs inside a sleep cycle and the `verify` below was taken before the first Stop-boundary sleep pass, so 1,349 held / oldest lived day 184 is what the first pass will read, not a report of one that ran. It will delete 0. |
+| G6 | `backfill-claims --apply` on the live store | **CLOSED — nothing to apply** | The read-only dry run, 2026-09-10: "Authored memories with no claimed salience: 0 / Default floor to apply: 0.25 / Dry run. Nothing has changed." A carried-forward item since 2026-09-04, closed by finding the work already unnecessary rather than by doing it. |
+
+### `counterparts verify --dir ~/.counterparts/store`, after the first wake (owner's output)
+
+> Canonical rows: 15541 live rows: 14466 removed (deny-list): 0
+> Prose paths: 15541 relative, 0 absolute (unplaceable), 0 missing files
+> Version paths: 468 relative, 0 absolute, 0 missing
+> Events: 1349 held (104 latched) oldest lived day 184 (2026-09-03) window 90 lived days
+> Cache: indexed documents 14466, embeddings 14328, live memories with no vector 219, vector format float32 BLOB (v4)
+> The cache covers every live row and holds nothing else
+
+And the conversion that produced the second and third lines: event **`store.migrate.paths`** at
+`2026-09-10T14:16:03Z` — `from` 4, `to` 5, prose converted **15,541**, versions converted **468**,
+**0** unplaceable.
+
+**One consistency check this session CAN make without touching anything.** `verify`'s "15541
+canonical / 14466 live" reconciles against the run directory: every daily record from 09-07 through
+09-09 carries `v2.memories.total` **15541** and `archivedTotal` **1075**, and 15541 − 1075 = 14466.
+Two instruments, read days apart, agree on the same store. It is a weak check — both read the same
+rows — but it is the only one available here, and it passes.
+
+**A note on `counterparts status` and "last active", so it is not misread as a failure.** The
+owner's sheet said to expect `last active = today` right after the restart. It showed the previous
+date instead. That is correct behaviour: `advanceClock` runs in the Stop-boundary sleep pass, so
+the store's active date does not move until the first such boundary of the new session. The sheet's
+expectation was early, not wrong about the outcome. The same mechanism is why the four watches
+still read `not-exercised` (PARALLEL-RUN-STATUS, 2026-09-10).
+
+### Correction to I29 — the temp store was not empty by 09-10
+
+The 2026-09-07 entry records the temp store as holding **0 memories**, which was true when it was
+read. By 2026-09-10 it held **124**. They were backed up to
+`~/counterparts-tempstore-backup-2026-09-10/…` and the owner ruled they are **NOT** merged into the
+live store: the content is from private project directories and does not belong in the counterpart's
+memory. There is no `import` command in the CLI, so no partial merge was available even had the
+ruling gone the other way; writing one for 124 rows of unwanted content is not work anybody asked
+for. The three days remain unreplayed by the owner's earlier choice, and now the 124 remain
+unmerged by this one. The original I29 line stays as written; this is the appended correction.
+
+### I31 — the hooks and the MCP server were pointed at different stores
+
+**NEW, found 2026-09-10.** The second half of the I29 fault, and the more interesting half, because
+it explains a refusal that had been visible for six days without an explanation.
+
+**What was true.** The MCP server is registered in `~/.claude.json` with
+`COUNTERPARTS_DATA_DIR=/Users/mlapeter/.counterparts/store` in its `env` — the LIVE store. The hooks
+take their `dataDir` from `~/.counterparts/claude-code.json`, which since 2026-09-04 15:15:59 named
+a **temp** store (I29). One host, two components, two different stores, for six days.
+
+**What it caused, 2026-09-04 15:16 → 2026-09-10 08:15.**
+
+- The wake and the crash-fallback sweeps came from the TEMP store. That is the same fact I29
+  records; the daily records for 09-05 through 09-09 read `thin` because of it.
+- **Every `session_end` and `chapter` call was refused `session-unknown`.** The hook writes the
+  session record into ITS store — `<dataDir>/sessions/<id>.json`, the temp one. The server checks
+  the LIVE store's registry (`src/adapters/mcp/server.ts`, `requireBoundSession` →
+  `readSession(registryDir)`), which held no entry after 2026-09-04 15:15. The two halves of the
+  session-binding mechanism — the note the hook leaves and the note the tool reads — were in
+  different directories, so the authored front door was shut for the whole window.
+- **Nothing leaked into the live store.** Its `operational.sqlite` mtime stayed at 2026-09-05 (the
+  merge-day repairs), and its last active date stayed 2026-09-04 in every daily record. The server
+  held the live store open and refused every write that reached it; the refusals are the proof.
+
+**Re-aligned by G37** on 2026-09-10 at 08:15 local, when the config's `dataDir` went back to the
+live store. Both components now name the same directory.
+
+**Prevention idea for the owner, filed rather than built.** The server should refuse to bind a
+session when its registry dir differs from the hooks' configured `dataDir` — a mismatch it can see
+at startup and the operator cannot. The alternative, the hook recording the session in BOTH stores,
+is worse: it makes the split legal instead of loud. Filed as gap 9 in
+`src/adapters/claude-code/INTERFACE-GAPS.md`, which is where this adapter's asks against `mcp/`
+live. Note what the #80 guard would and would not have caught: `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`
+refuses an UNNAMED store, and both of these stores were named. A guard against silence does not
+catch two confident voices disagreeing.
+
+### Corrections — housekeeping on this file (appended; no earlier line is edited)
+
+- **G22, G23 and G24 were assigned twice.** The workstream-11 round (lines 805–807: merge
+  `overnight/schema-not-dedup`; the `repair-merged-beliefs --apply`; the phase clock) and the
+  overnight round the same night (lines 883–885: read the nine reviews and merge; the ONE restart;
+  the four read-only dry runs). Both sets are real and both are now resolved by events. **Going
+  forward the SECOND set — lines 883–885 — is cited as G22b, G23b, G24b.** No line is renumbered.
+- **I28 was never defined in this file.** The number was used before it had a definition. It is
+  hereby defined as the `migrate-cache` backup-hint finding: the hint says "take a `counterparts
+  backup` first" while `backup` excludes the cache by design, so a `cp` of `cache.sqlite` is the
+  real protection. **I28 = G40**, which is still open.
+- **§F's score table (the four blank rows at lines 353–356) was never filled and will not be.** The scores exist; they
+  live in the round entries, under "Scores — round 1" (line 536) and **"Scores — final for this
+  session"** (line 705). Read those. The empty table stays as the reminder that a blank row means
+  the gauntlet did not run.
+- **G items resolved in the narrative but never crossed off in a table**, listed here so the tables
+  are not read as the whole truth: **G1** (the hard-coded `CONFIG_PATH` — closed by #72, `--config`
+  on the hook, the MCP server, the dashboard and the CLI); **G2** (Node vs bun — bun is the
+  documented runtime; Node is untested at launch and CLAUDE.md says so); **G5** (`private`,
+  licence and the README's "deliberately undecided" — closed by #32); **G12** (I7 / I8 as launch
+  blockers — ruled 2026-09-04, both fixed); **G14** (I13 / I14 as core PRs — closed by #64 and
+  #70); **G16** (the #56 restart — run; `restarts.jsonl` line 2, `2026-09-05T03:12:09.700Z`, which
+  is the evening of 09-04 in the owner's local time, and is what line 884's "already ran on
+  2026-09-04" refers to); **G17** (the merged-beliefs dry run — run 2026-09-05, 3 beliefs restored
+  by `--apply`); **G21** (fire the overnight prompt — done, and #64–#73 are its output).
+
+### NEEDS-OWNER — new (owner's asks, 2026-09-10)
+
+The owner asked for three things after a week of living with the hooks in three private project
+directories. All three are host-adapter questions, filed in
+`src/adapters/claude-code/INTERFACE-GAPS.md` under the host-side gaps.
+
+| # | Item | State |
+|---|---|---|
+| G41 | **Ask on first launch in a new directory** whether Counterparts should be on or off there. Today the answer is "on, everywhere, silently" — the hooks are global and a new project inherits them without being asked. | open |
+| G42 | **An easier per-directory disable.** Today it takes a project `.claude/settings.json` `env` block naming an observer config via `COUNTERPARTS_CONFIG` plus `COUNTERPARTS_OBSERVER=1` — verified 2026-09-10 to reach both the hooks and the MCP servers. Observer means wake and recall are delivered and nothing is captured or deposited. That is four moving parts and a JSON file to get one directory to stop remembering. | open |
+| G43 | **A pause/resume toggle per directory** — the temporary version of G42, for a session you do not want recorded without permanently opting the directory out. | open |
+
+**Host fact, recorded so the next session does not mistake it for a bug:** three private project
+directories were set to observer mode this way on 2026-09-10. Sessions in those directories deliver
+wake and recall and capture nothing. A daily that reads few turns from those directories is reading
+the configuration working, not a fault.
+
+### Open owner items as of 2026-09-10
+
+**G15** (optional — the bench re-run on a store copy, record only), **G18** (site lane labels),
+**G19** (the site's GitHub repo and Vercel project), **G28** (push the site), **G29**
+(`content/status.ts` attribution), **G30** (hero polish), **G38** (bansai's per-turn encoding
+spend — I30), **G39** (`restart.ts` naming a live path by default; widen
+`COUNTERPARTS_OBSERVER`'s accepted values), **G40** (= I28, the `migrate-cache` backup hint), and
+the three new ones, **G41–G43**. G39 and G40 are small enough to be PRs the next session opens.
+G6 is closed by its dry run (above) and is off this list.
+
+### Dailies
+
+Records for **2026-09-07, 2026-09-08 and 2026-09-09** were written on 2026-09-10 under the owner's
+standing permission of 2026-09-05. All three read `thin` for I29's reason; 09-09 carries one named
+finding (cross-encoding v2→v1, ratio 0.0020 against a bar of 0.1) and no red line. The day-by-day
+numbers are in `docs/PARALLEL-RUN-STATUS.md`, 2026-09-10.
+
+### Spend
+
+**$0.00** by the session and its agents across 2026-09-08 → 2026-09-10. The Anthropic receipts in
+this window are still bansai's (I30, G38 open).

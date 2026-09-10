@@ -2084,7 +2084,20 @@ async function migrateCacheCommand(
   if (!apply) {
     io.out("");
     io.out("Dry run. Nothing was changed — every question above was a read.");
-    io.out(`Take a 'counterparts backup --out <dir>' first; then re-run with --apply to convert (batches of ${batch}).`);
+    // NAME THE PROTECTION THAT EXISTS. This line used to say "take a
+    // 'counterparts backup' first", which protects nothing here: box 3 is on
+    // the backup set's explicit EXCLUSION list ("cache — Box 3 — rebuildable",
+    // `store/paths.ts#LAYOUT`), so a snapshot taken before `--apply` contains
+    // no copy of the file `--apply` rewrites. The only thing that does is a
+    // copy of the file itself — and a copy of a database another process is
+    // writing is not a backup (scar §2.11), which is why the sentence says
+    // with nothing open rather than leaving that to be discovered.
+    io.out(
+      `First, copy box 3 aside — 'counterparts backup' skips the cache on purpose (it is rebuildable), so it does not cover this:`,
+    );
+    io.out(`  cp ${path} ${path}.bak-<date>`);
+    io.out(`  (with every session closed — a copy of a database being written is not a copy of it)`);
+    io.out(`Then re-run with --apply to convert (batches of ${batch}).`);
     return EXIT.ok;
   }
 
