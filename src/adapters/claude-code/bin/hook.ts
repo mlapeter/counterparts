@@ -16,9 +16,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { dataDir } from "../../../core/store/index.js";
+import { DATA_DIR_ENV, dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import {
   defaultConfigPath,
+  implicitConfigRefusal,
   namedConfigRefusal,
   namedUnreadableRefusal,
   resolveConfigPath,
@@ -157,7 +158,12 @@ async function main(): Promise<void> {
   // honoured silently, read as an absent config, and fell through to `dataDir()`
   // — the live store on any machine with an install. An absent DEFAULT is still
   // ordinary; this only ever refuses a path somebody named.
-  const refusal = namedConfigRefusal(choice);
+  //
+  // `implicitConfigRefusal` is the explicit-dir guard at this door: with
+  // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` an UNNAMED configuration stands the
+  // hook down too, because the default one names a store. The live host never
+  // sets it, so the no-flag, no-env case there resolves exactly what it did.
+  const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
     process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
     return;
@@ -248,8 +254,14 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
       // stand-down stays observable (observer-mode G6). One line names it:
       // e.g. an observer stance finding no store to read (cli §7) says
       // STORE_UNINITIALIZED here instead of minting one silently.
+      //
+      // The explicit-dir guard gets a SENTENCE with THIS entry point's remedy:
+      // a hook has no `--dir`, so the way to name its store is the `dataDir`
+      // field of the file it was pointed at (the gap between the two guards —
+      // a named configuration that names no store; #80 review).
       const detail = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[counterparts] hook stood down: ${detail}\n`);
+      const remedy = `Set "dataDir" in ${hookConfigChoice().path}, or set ${DATA_DIR_ENV}.`;
+      process.stderr.write(`[counterparts] hook stood down: ${describeGuardRefusal(err, remedy) ?? detail}\n`);
       process.exit(0);
     },
   );

@@ -14,6 +14,10 @@ relevant.
 
 ```sh
 # 1. copy the store. The tool REFUSES to open a live one.
+#    A store directory is self-contained (store CONTRACT §5 G15): the copy reads
+#    and writes its own prose, never the original's. Prefer `counterparts backup
+#    --out /tmp/backups` when a session may be writing — it snapshots the
+#    database through VACUUM INTO, where `cp -R` of a busy store can tear it.
 cp -R ~/.counterparts/store /tmp/store-copy
 
 # 2. one configuration
@@ -46,6 +50,13 @@ an old revision.
 
 `bin/migrate-timing.ts --cache <copy of cache.sqlite>` times the box-3 v2→v3 migration and
 asserts the embeddings survived it.
+
+**A copy made before store schema v5** (2026-09-05) still carries the ORIGINAL's absolute
+paths in its rows. The bench opens its `--store-dir` as a writer, so the first run
+converts them to relative in one transaction and from then on the copy is its own store;
+`counterparts verify --dir /tmp/store-copy` shows the count either way, read-only, and a
+copy that is only ever opened by an instrument (`status`, `verify`, the dashboard) keeps
+pointing at the original until something opens it for writing.
 
 ## What it will not do
 

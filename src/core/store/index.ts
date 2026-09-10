@@ -25,6 +25,7 @@
  * owner sees that something WAS here (constitution 16).
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
@@ -45,7 +46,14 @@ import type {
   VersionRow,
 } from "./operational.js";
 import { grantOwnerOps } from "./owner-op-seam.js";
-import { LAYOUT, assertLayoutClassified, assertSafeDataDir, dataDir, paths } from "./paths.js";
+import {
+  LAYOUT,
+  assertLayoutClassified,
+  assertSafeDataDir,
+  dataDir,
+  paths,
+  resolveStoredPath,
+} from "./paths.js";
 import {
   ID_PREFIX,
   archivePriorVersion,
@@ -84,7 +92,15 @@ export type {
   RemovalRow,
   TombstoneRow,
 } from "./operational.js";
-export { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, rowToPhysics } from "./operational.js";
+export {
+  DEFAULT_RETENTION_DAYS,
+  OBSERVER_READ_FLOOR,
+  PATHS_MIGRATED_EVENT,
+  SCHEMA_VERSION,
+  relativizeStoredPaths,
+  rowToPhysics,
+} from "./operational.js";
+export type { PathsConverted } from "./operational.js";
 export {
   tokenize,
   cosine,
@@ -185,6 +201,23 @@ export interface PutInput {
   origin?: { session?: string; scope?: string; ref?: string; spanHash?: string };
 }
 
+/** One column's spelling census — `Store.pathCensus()`, printed by `verify`. */
+export interface PathCensus {
+  /** Store-relative rows (the v5 shape). */
+  readonly relative: number;
+  /** Absolute rows: on a v4 store, not yet migrated; on a v5 store, the ones the
+   *  migration could not place. Either way resolved against THIS store when a
+   *  `prose/` or `versions/` segment allows it, and read as given otherwise. */
+  readonly absolute: number;
+  /** Rows that would resolve OUTSIDE `prose/` or `versions/` — a hand-edited
+   *  database. Never resolved (`STORED_PATH_ESCAPES`), never stat'ed. */
+  readonly escaped: number;
+  /** Non-blank, resolvable rows whose file is not on disk. */
+  readonly missing: number;
+  /** Blanked pointers — removed rows. Nothing to resolve. */
+  readonly blank: number;
+}
+
 export interface StoredMemory {
   doc: ProseDoc;
   physics: MemoryPhysics;
@@ -201,6 +234,44 @@ export interface PruneReport {
   pruned: number;
   cutoffDay: number;
   retentionDays: number;
+}
+
+/**
+ * What one bounded sweep of the durable event log did, and what it left. The
+ * sweep is capped per pass, so `pruned` and `eligible` are different numbers
+ * and both are reported: a report that said only how many rows went could not
+ * tell "the backlog is cleared" from "the cap was hit" (scar §2.4).
+ */
+export interface EventPruneReport extends PruneReport {
+  /** Unlatched rows older than the window when the sweep began. */
+  eligible: number;
+  /** Eligible rows the cap left for the next pass. Zero means the window is clean. */
+  remaining: number;
+  /** The per-pass cap in force, or null when the caller set none. */
+  limit: number | null;
+}
+
+/**
+ * The durable event log, counted without being touched — what `verify` prints
+ * and what an observer's cycle report is computed from. Every number here is a
+ * read; nothing in it crosses the write seam.
+ */
+export interface EventLogCensus {
+  /** Rows held, latched and unlatched. */
+  rows: number;
+  /** Rows carrying a `dedup_key` — records, kept at any age. */
+  latched: number;
+  /** The oldest row's lived day and wall-clock instant, or null on an empty log. */
+  oldestDay: number | null;
+  oldestAt: number | null;
+  newestDay: number | null;
+  /** `livedDay - retentionDays`: rows with `day` strictly below it are past the window. */
+  cutoffDay: number;
+  retentionDays: number;
+  /** Unlatched rows past the window — what the next sweep would delete, before its cap. */
+  eligible: number;
+  /** Latched rows past the window — kept by kind, and counted so "kept" is a number. */
+  latchedPastCutoff: number;
 }
 
 export interface RebuildReport {
@@ -469,6 +540,7 @@ export class Store {
     this.ops = openOperational(paths.operational(this.dir), {
       initialize: writesAtOpen,
       retentionDays: this.retentionDays,
+      now: this.nowFn,
     });
     this.cache = openCache(paths.cache(this.dir));
     // The owner-op capability. Handed to the seam module, never to a caller:
@@ -501,7 +573,7 @@ export class Store {
       reindexLexical: (id) => {
         const row = this.row(id);
         if (row === undefined) return;
-        const doc = readProseFile(row.prose_path, id);
+        const doc = readProseFile(this.absolutePath(row.prose_path), id);
         indexDoc(this.cache, doc.id, indexText(doc));
       },
     });
@@ -656,7 +728,7 @@ export class Store {
   ): number {
     const { staged, doc, seq } = this.mutate("revise", () => {
       const row = this.requireRow(id);
-      const current = readFileSync(row.prose_path, "utf8");
+      const current = readFileSync(this.absolutePath(row.prose_path), "utf8");
       const version = archivePriorVersion(this.dir, id, current, row.revision + 1);
       this.ops.run(
         `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
@@ -666,10 +738,10 @@ export class Store {
         patch.reason ?? "revise",
         this.livedDay(),
         this.nowFn(),
-        version.path,
+        version.storedPath,
         version.hash,
       );
-      const prior = readProseFile(row.prose_path, id);
+      const prior = readProseFile(this.absolutePath(row.prose_path), id);
       const next: ProseDoc = {
         ...prior,
         body: patch.body ?? prior.body,
@@ -1031,26 +1103,99 @@ export class Store {
   }
 
   /**
-   * Bounded retention — logs are telemetry, not canonical memory (CLAUDE.md's one
-   * named exception to no-silent-destruction). Events carrying a `dedupKey` are
-   * KEPT regardless of age: they are the replay latch, and sweeping one would let
-   * a replayed day re-append a record the store already accounted for.
+   * Bounded retention — logs are telemetry, not canonical memory: "the one
+   * system-path exception to no-deletion — bounded-retention logs"
+   * (`docs/harvest/behavioral-spec.md` #17, v1's `pruneLogs` in `log-audit.md`
+   * §3). Events carrying a `dedupKey` are KEPT regardless of age: they are the
+   * replay latch, and sweeping one would let a replayed day re-append a record
+   * the store already accounted for.
+   *
+   * `limit` caps the rows one call deletes, OLDEST FIRST by `seq`, so a pass on a
+   * store that has never been swept cannot run long or hold the write lock across
+   * a backlog: it takes the cap's worth and reports how much is left. Its caller
+   * is `sleep/log.ts`, on the cycle's own budget; before 2026-09-05 nothing
+   * called this at all (`sleep/NOTES.md` §13), and the window it documents was
+   * a number the log was eligible for and never subject to.
    */
-  pruneEvents(): PruneReport {
+  pruneEvents(opts: { limit?: number } = {}): EventPruneReport {
+    const limit = opts.limit === undefined ? null : Math.max(0, Math.floor(opts.limit));
     const report = this.mutate("pruneEvents", () => {
       const cutoffDay = this.livedDay() - this.retentionDays;
-      const doomed = this.ops.get<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM events WHERE day < ? AND dedup_key IS NULL",
+      const eligible =
+        this.ops.get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM events WHERE day < ? AND dedup_key IS NULL",
+          cutoffDay,
+        )?.n ?? 0;
+      if (limit === null) {
+        this.ops.run("DELETE FROM events WHERE day < ? AND dedup_key IS NULL", cutoffDay);
+      } else {
+        this.ops.run(
+          `DELETE FROM events WHERE seq IN (
+             SELECT seq FROM events WHERE day < ? AND dedup_key IS NULL
+             ORDER BY seq ASC LIMIT ?)`,
+          cutoffDay,
+          limit,
+        );
+      }
+      const pruned = this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+      return {
+        pruned,
+        eligible,
+        remaining: eligible - pruned,
+        limit,
         cutoffDay,
-      );
-      this.ops.run("DELETE FROM events WHERE day < ? AND dedup_key IS NULL", cutoffDay);
-      return { pruned: doomed?.n ?? 0, cutoffDay, retentionDays: this.retentionDays };
+        retentionDays: this.retentionDays,
+      };
     });
     this.emit("store.events.pruned", undefined, {
       count: report.pruned,
+      eligible: report.eligible,
+      remaining: report.remaining,
+      limit: report.limit,
       cutoffDay: report.cutoffDay,
+      retentionDays: report.retentionDays,
     });
     return report;
+  }
+
+  /**
+   * The log counted, not touched. READ-ONLY by construction — it never calls
+   * `mutate`, so an observer may ask it (the cycle's read-only report does) and
+   * `counterparts verify` prints it without opening a writable store.
+   */
+  eventLogCensus(): EventLogCensus {
+    const cutoffDay = this.livedDay() - this.retentionDays;
+    const totals = this.ops.get<{
+      total: number;
+      latched: number;
+      oldest_day: number | null;
+      oldest_at: number | null;
+      newest_day: number | null;
+    }>(
+      `SELECT COUNT(*) AS total,
+              COUNT(dedup_key) AS latched,
+              MIN(day) AS oldest_day,
+              MIN(at) AS oldest_at,
+              MAX(day) AS newest_day
+         FROM events`,
+    );
+    const past = this.ops.get<{ eligible: number; latched: number }>(
+      `SELECT COUNT(*) - COUNT(dedup_key) AS eligible,
+              COUNT(dedup_key) AS latched
+         FROM events WHERE day < ?`,
+      cutoffDay,
+    );
+    return {
+      rows: totals?.total ?? 0,
+      latched: totals?.latched ?? 0,
+      oldestDay: totals?.oldest_day ?? null,
+      oldestAt: totals?.oldest_at ?? null,
+      newestDay: totals?.newest_day ?? null,
+      cutoffDay,
+      retentionDays: this.retentionDays,
+      eligible: past?.eligible ?? 0,
+      latchedPastCutoff: past?.latched ?? 0,
+    };
   }
 
   // ── box 3: the ranking cache (SEAMS item J) ────────────────────────────────
@@ -1183,7 +1328,7 @@ export class Store {
         skippedArchived += 1;
         continue;
       }
-      const doc = readProseFile(row.prose_path, row.id);
+      const doc = readProseFile(this.absolutePath(row.prose_path), row.id);
       const text = indexText(doc);
       // KEEP MEANS KEEP. A row that already has a vector is not offered to the
       // embedder at all under `keepVectors` — the first version called it and
@@ -1413,7 +1558,7 @@ export class Store {
 
   read(id: string): StoredMemory {
     const row = this.requireRow(id);
-    const doc = readProseFile(row.prose_path, id);
+    const doc = readProseFile(this.absolutePath(row.prose_path), id);
     if (row.archived === 1) {
       // §5 G13: a read-back of archived content is an event, so "did the archival
       // mechanisms ever pay for themselves" is an answerable question in v2.
@@ -1505,7 +1650,66 @@ export class Store {
     );
     if (row === undefined) throw new StoreError("VERSION_UNKNOWN", { id, seq });
     this.emit("store.version.read", id, { seq, reason: row.reason });
-    return readProseFile(row.path, id);
+    return readProseFile(this.absolutePath(row.path), id);
+  }
+
+  /**
+   * A row's stored path (`prose_path`, a version's `path`), made absolute
+   * against THIS store — the one address a caller may hand to the filesystem.
+   *
+   * Rows hold store-relative paths (`prose/<family>/<id>.md`; CONTRACT §5 G15),
+   * so a copied or restored store names the files beside it and never the
+   * files of the store it was copied from. A pre-v5 absolute row is PLACED
+   * against this store by the migration's own rule, so an instrument on a v4
+   * copy reads the copy's file too. `""` — a chased row's blanked pointer —
+   * resolves to `""`, never to the store root; a value that would land outside
+   * `prose/` or `versions/` throws `STORED_PATH_ESCAPES` (`paths.ts`).
+   */
+  absolutePath(storedPath: string): string {
+    return resolveStoredPath(this.dir, storedPath);
+  }
+
+  /**
+   * How the two path columns are spelled, and whether their files are there.
+   * `verify` prints this; it is the owner's read-only view of the v5 migration
+   * on a live store (constitution 16). Pure reads plus one `stat` per row.
+   *
+   *   relative  — the v5 shape, resolved against this store;
+   *   absolute  — a pre-v5 spelling: unmigrated on a v4 store, unplaceable on a
+   *               v5 one; placed against this store where a segment allows it;
+   *   escaped   — would resolve outside the store's two roots; never resolved;
+   *   missing   — a non-blank, resolvable pointer whose file does not exist.
+   *
+   * Blank pointers (removed rows) are none of these: there is nothing to resolve.
+   */
+  pathCensus(): { prose: PathCensus; versions: PathCensus } {
+    const census = (rows: readonly { p: string }[]): PathCensus => {
+      const out = { relative: 0, absolute: 0, escaped: 0, missing: 0, blank: 0 };
+      for (const { p } of rows) {
+        if (p.length === 0) {
+          out.blank += 1;
+          continue;
+        }
+        let resolved: string;
+        try {
+          resolved = this.absolutePath(p);
+        } catch (err) {
+          if (err instanceof StoreError && err.code === "STORED_PATH_ESCAPES") {
+            out.escaped += 1;
+            continue;
+          }
+          throw err;
+        }
+        if (isAbsolute(p)) out.absolute += 1;
+        else out.relative += 1;
+        if (!existsSync(resolved)) out.missing += 1;
+      }
+      return out;
+    };
+    return {
+      prose: census(this.ops.all<{ p: string }>("SELECT prose_path AS p FROM memories")),
+      versions: census(this.ops.all<{ p: string }>("SELECT path AS p FROM versions")),
+    };
   }
 
   edgesFrom(src: string): EdgeRow[] {
@@ -1728,7 +1932,9 @@ export class Store {
       input.physics?.pressure ?? 0,
       input.physics?.lastChallengedDay ?? null,
       staged.hash,
-      staged.finalPath,
+      // The ROW holds the store-relative spelling; `finalPath` is only for the
+      // rename that publishes the file (§5 G15).
+      staged.storedPath,
       doc.learnedOn,
       doc.happenedOn ?? null,
       input.source ?? null,

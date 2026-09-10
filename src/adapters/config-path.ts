@@ -64,7 +64,12 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
-import { DEFAULT_DATA_DIR_NAME } from "../core/store/index.js";
+import {
+  DEFAULT_DATA_DIR_NAME,
+  REQUIRE_EXPLICIT_DIR_ENV,
+  explicitDirMalformedRefusal,
+  explicitDirSetting,
+} from "../core/store/index.js";
 
 /** The flag, spelled once. */
 export const CONFIG_FLAG = "--config";
@@ -283,6 +288,50 @@ export function namedConfigRefusal(
     );
   }
   return null;
+}
+
+/**
+ * THE EXPLICIT-DIR GUARD AT THE OTHER DOOR (`store/paths.ts#REQUIRE_EXPLICIT_DIR_ENV`).
+ *
+ * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` makes `dataDir()` refuse its implicit
+ * default. That alone leaves this module's default open, and it is the wider
+ * door: a default-sourced `~/.counterparts/claude-code.json` NAMES a store — its
+ * `dataDir` field, which `install` always writes — and the credentials beside
+ * it, so the hook, the worker and the MCP server reach the live store and the
+ * live keys without `dataDir()` ever running; and `install` writes its config
+ * and credentials under that same base (`cli/install.ts#installLayout`, which
+ * builds the base from `homedir()` itself). The reviewer of PR #72 named this
+ * the other way into the live machine, and it is.
+ *
+ * So the same variable refuses the same shape here: the guard armed AND the
+ * configuration resolved to the default. Null when either is false. It is a
+ * separate function rather than a clause in `resolveConfigPath`, for the same
+ * reason `namedConfigRefusal` is: the console's `rebrief` goes through the
+ * resolver too, and its config read is a budget NUMBER for a store already
+ * named by `--dir` — refusing it would teach people to unset the guard. The
+ * line drawn: the guard refuses an implicit default that LOCATES A STORE or
+ * WRITES THE LIVE BASE; a number read from the default config is neither.
+ *
+ * Callers: the three bins (chained after `namedConfigRefusal`, which already
+ * stands them down on a string) and the console's `install`. Read from the
+ * injected `env`, like everything else in this file. A value the guard cannot
+ * read is refused HERE too, in the same sentence the store uses — but only at
+ * the default, because a named configuration never consulted the guard.
+ */
+export function implicitConfigRefusal(
+  choice: ConfigChoice,
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  if (choice.source !== "default") return null;
+  const setting = explicitDirSetting(env);
+  if (!setting.armed) {
+    return setting.malformed === null ? null : explicitDirMalformedRefusal(setting.malformed);
+  }
+  return (
+    `refused: ${REQUIRE_EXPLICIT_DIR_ENV}=${setting.value} and no configuration was named, so this ` +
+    `would have read the default one, ${choice.path} — which on a machine with an install names the ` +
+    `live store and its credentials. Name one: ${CONFIG_FLAG} <absolute path>, or ${CONFIG_ENV}.`
+  );
 }
 
 /** The one line every entry point prints or records. Path first: it is the fact. */

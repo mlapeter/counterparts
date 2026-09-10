@@ -52,7 +52,7 @@ import {
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
 } from "../../src/core/counterpart.js";
-import { isWithin } from "../../src/core/store/paths.js";
+import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
 import type {
@@ -874,12 +874,19 @@ export function proseRows(dataDir: string): { rows: ProseRow[]; readErrors: stri
       prose_path: string;
       source: string | null;
       learned_on: string;
-    }>(ctx, "SELECT prose_path, source, learned_on FROM memories WHERE archived = 0").map((r) => ({
-      path: r.prose_path,
-      realpath: realpathOr(r.prose_path),
-      source: r.source,
-      learnedOn: r.learned_on,
-    }));
+    }>(ctx, "SELECT prose_path, source, learned_on FROM memories WHERE archived = 0").map((r) => {
+      // The row holds a STORE-RELATIVE path since store schema v5 (§5 G15), and
+      // an absolute one before it; `resolveStoredPath` reads both against the
+      // data dir this reader was pointed at, so a relative row is never taken
+      // against the reader's own working directory.
+      const path = resolveStoredPath(dataDir, r.prose_path);
+      return {
+        path,
+        realpath: realpathOr(path),
+        source: r.source,
+        learnedOn: r.learned_on,
+      };
+    });
     return { rows, readErrors: [...ctx.errors] };
   } finally {
     db.close();
@@ -1021,7 +1028,7 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
         quarantined += 1;
         continue;
       }
-      const body = proseBody(row.prose_path);
+      const body = proseBody(resolveStoredPath(dataDir, row.prose_path));
       if (body === null) continue;
       bytes += Buffer.byteLength(body, "utf8");
       elements += 1;

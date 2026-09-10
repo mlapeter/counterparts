@@ -438,3 +438,280 @@ a malformed one renders the bound, which is the safe direction.
 - **`happenedOn` from spans.** See above. `prospective/` reads it; deriving it would
   arm windows nobody claimed.
 - **Local dating.** Decision 1.
+
+## 2026-09-05 — `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`: the implicit default can be refused
+
+**The incident (LAUNCH-STATUS I21).** Overnight an agent opened the owner's live store
+by passing the wrong option name to a library call: `dir` was undefined, it had no
+`COUNTERPARTS_DATA_DIR`, and `dataDir()` did what it is documented to do — returned
+`~/.counterparts/store`. Read-only, nine titles printed to its own terminal, no write,
+no egress; and exactly the shape every guard in this module was built to catch, one
+directory over. `.counterparts` is deliberately NOT on `FORBIDDEN_ROOT_NAMES` — the store
+has to be able to open its own default — so the path guard (§5 G9) could not have fired,
+and `test/preload.ts`'s temp-home redirect protects only the test process. The owner
+ruled: add a guard, OFF by default, ON in this repo's agent shells.
+
+**The mechanism.** One environment variable, two new error codes. With
+`COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, `dataDir()` throws `IMPLICIT_DEFAULT_DIR_REFUSED`
+instead of returning the fallback, with `{ guard, dir, remedy }` in the detail so the
+message names all three without any caller composing it.
+
+**Reading the switch — three answers, not two.** It arms on `1`, `true` or `on`, trimmed
+and case-insensitive: a superset of the two `COUNTERPARTS_OBSERVER` accepts, so a person
+who exports `=true` or `=on` by analogy is protected. It stands DOWN on `0`, `false` or
+`off`, exactly as if unset. And it REFUSES anything else non-blank with
+`EXPLICIT_DIR_GUARD_MALFORMED`, at the same decision point (`explicitDirRequired`), with
+a sentence naming the value, the three words that arm it and the three that turn it off.
+
+Two review rounds shaped that. The first draft armed on exactly `1`, and the #80 review
+measured `=true`, `=yes`, `=on` and `= 1` all falling silently to the default: fail-open,
+the one direction a safety guard may not have. The fix over-corrected — it refused `0` and
+`false` too — and the owner ruled that back: a guard whose `=0` refuses trips the shell of
+the person it protects, which is the surprising choice, and refusing on junk keeps the
+fail-closed property without it. **Off means off; junk is a question this will not answer.**
+
+`COUNTERPARTS_OBSERVER` is deliberately NOT widened to the same set, though the parity
+argument runs both ways. It is matched exactly (`"1"` / `"true"`) in two places —
+`cli/commands.ts` and `mcp/bin/serve.ts#launchOptions` — and the second is on the live MCP
+server's launch path, which this change promises to leave instruction-for-instruction
+identical; giving observer a fail-closed arm is a behaviour change to an unrelated
+variable and wants its own ruling. So the guard is the superset, and says so. The guard is consulted
+only where it decides — a malformed value beside a named `dir` or a named configuration
+is not read at all, because the guard's one question is about the fallback. Every door
+the store has funnels through that one function — `Store.open`,
+`Counterpart.open`, `SpanBuffer`, `storeExists()` with no argument, the console's
+`resolveDir`, the dashboard — so the guard sits in one place. The env-set case returns
+before the guard is read: a process launched with `COUNTERPARTS_DATA_DIR` (the live MCP
+server) executes the instructions it executed before. `dataDir()` also gained an
+injectable `env` parameter (default `process.env`), which let `cli/commands.ts#resolveDir`
+drop the swap-the-variable-in-and-out-of-`process.env` shape it had, and lets a test
+construct the armed and unarmed cases without touching the process.
+
+**The second door, and why it is covered.** The reviewer of PR #72 named the configuration
+default as the other way into the live machine, and it is: a default-sourced
+`~/.counterparts/claude-code.json` NAMES a store (`install` always writes `dataDir`) and
+the credentials beside it, so the hook, the worker and the MCP server reach the live store
+and the live keys with `dataDir()` never called — and `install` builds `~/.counterparts`
+from `homedir()` itself and writes there. `adapters/config-path.ts#implicitConfigRefusal`
+is the same variable at that door: armed AND the configuration resolved to the default →
+a refusal string, chained after `namedConfigRefusal` in the three bins and applied by hand
+in the console's `install` branch. It is a separate function, not a clause in
+`resolveConfigPath`, because `rebrief` resolves through the resolver too, for a budget
+NUMBER against a store already named by `--dir`; refusing that would teach people to unset
+the guard. The line: **the guard refuses an implicit default that locates a store or
+writes the live base; a number read from the default config is neither.**
+
+**Not covered, on purpose.** `claude-code/primacy.ts` reads the parallel run's assignment
+file at `~/.memory-ab` by default — read-only, no store, and `test/store.test.ts` pins it
+read-only. `tools/parallel/bin/{preflight,daily,restart}.ts` carry the live paths as
+defaults by their own contract (every real path is a flag; the run directory's overlap
+guard needs them named). Neither goes through `dataDir()` and neither opens a store.
+
+**The gap between the two doors, and how it surfaces.** A NAMED configuration that names
+no store — `--config` at a file with only `injectionBudgetBytes` — and no
+`COUNTERPARTS_DATA_DIR`: `implicitConfigRefusal` is not its business, so the bins proceed
+and `loaded.dataDir ?? dataDir()` meets the STORE guard, thrown rather than returned. The
+refusal is right (a config that omits `dataDir` named where the keys are, not which
+memory); the first draft's rendering was not: the hook printed the raw `StoreError` JSON,
+whose remedy said `--dir` — a flag the hook does not have — and the worker exited 0 and
+the server exited 1 with nothing on stderr (#80 review, recommendations 3 and 4). Now
+`store/paths.ts#describeGuardRefusal(err, remedy)` renders both guard codes as one
+sentence with the SURFACE's own remedy: the console, the dashboard and the server say
+`--dir <path>, or COUNTERPARTS_DATA_DIR`; the hook and the worker say `Set "dataDir" in
+<the file they read>, or set COUNTERPARTS_DATA_DIR`. The worker's and the server's
+rejection handlers print that sentence (or, for any other error, its message) before
+their exit 0 / exit 1, where they printed nothing — the one place this PR widened two
+entry points' failure legibility, because the reason was sitting in the error the
+handler was discarding (`test/config-rule.test.ts`, "the WORKER and the MCP SERVER say why
+in that same gap", which spawns both as real processes).
+
+**THE SECOND INCIDENT, and the refusal it earned (2026-09-04, added in the #80 review
+round).** I21 was read-only and cost nine titles. The day before it, the same door was
+walked through in the other direction, with a WRITE at the end: a suite run that had lost
+`test/preload.ts`'s home mock resolved the owner's REAL `~/.counterparts/claude-code.json`
+and rewrote its `dataDir` to a temp path. That file is the one the hook, the worker and the MCP server
+read when nothing names another, so from that moment his live memory was a directory the
+OS was free to delete — and it recorded nothing for three days before anyone noticed.
+This PR is the prevention, and the mock is only half of it: a mock can be lost, and was.
+
+So `cli/install.ts#throwawayDefaultRefusal` refuses the shape itself, with no variable
+involved — the incident's shell had neither the guard nor the mock, so a refusal that
+needed either would not have been there. `install` will not write THE DEFAULT
+`~/.counterparts/claude-code.json` with a `dataDir` under a temp root (`os.tmpdir()`,
+`$TMPDIR`/`$TMP`/`$TEMP`, `/tmp` — each compared in both its spellings, because macOS
+hands out `/var/folders/…` and `/private/var/folders/…` for the same directory).
+`--config <elsewhere>` is the way through and moves the credentials and the store with
+it, so a scratch install is scratch all the way down; `--force` does not buy past it,
+because `--force` overwrites a file you named and this is the file nobody named.
+
+The refusal's third clause is what keeps the clean rooms working, and it is the honest
+answer to "key it on the REAL default path": it fires only when the CONFIG is **not**
+itself under a temp root. `tools/install-loop/run.sh` installs into a fake `$HOME`
+beneath `$TMPDIR` with no `--config`, so its default config and its store are both
+throwaway and both under the same base — a stranger's install, correctly measured, not a
+live default pointed at a temp store. The test suite is in the same position (the mocked
+home is minted under `os.tmpdir()`), which is why the refusal is provable only with an
+injected home outside the temp tree; both install-loop runs stayed 47/47 with it in.
+
+**Observation, recorded (#80 review, 5).** The guard is read from the INJECTED
+environment only: `dataDir(env)` and `cli/commands.ts#run(argv, { env })` read the object
+they were handed, so `run(["status"], { env: {} })` with `process.env` armed is not
+refused — it reaches the fallback, which in the suite is the mocked temp home. The real
+bin passes no `env` (`opts.env ?? process.env`), so no live surface is affected, and the
+preload's first layer still holds for a test that injects an empty environment; what the
+second layer promises — "a forgetful test is REFUSED" — is true of tests that do not
+inject one. OR-ing the injected env with `process.env` would close it at the cost of the
+"unarmed → today's behaviour" tests having to stand the process guard down around their
+bodies; left as is, and named here, so the choice is visible.
+
+**Follow-up, filed (#80 review, 6).** `tools/parallel/bin/restart.ts` still reaches a live
+path by naming nothing — its `--v2-data-dir` default is `join(homedir(), ".counterparts")`
+— and WRITES there. It is outside this guard by construction (an explicit dir built from
+`homedir()`, never `dataDir()`) and outside the ruling's scope; it is the incident's exact
+class with a write at the end, and wants its own ruling.
+
+**Where it is ON.** `test/preload.ts` (a forgetful test is now REFUSED, not redirected —
+the second layer under the temp-home; `test/preload.test.ts` asserts it is armed when a
+file starts, so a test that stood it down and forgot to re-arm it is caught), the demo
+seeder's CLI path, the visual loop, the recall bench's bin. The install loop UNSETS it
+inside its clean room: its fake HOME already makes the defaults throwaway, and the loop
+measures a stranger's environment — the stranger's path IS the defaults. One loop step
+arms it on purpose to prove the installed console and hook carry the refusal.
+
+**Cost.** With the variable unset, every function in the change returns the same value and
+performs the same side effects it did before, for every input, on every host. The MCP
+server's arm has zero new instructions; the hook's and the console's fallback arms each
+evaluate one new side-effect-free environment read. Surface-set hash unchanged
+(`c3af0bef00209ba6` on master and branch). Declared to the parallel run as ANYTHING ELSE
+riding today's owed restart rather than IDENTICAL — G12's first class is telemetry-only by
+its text, and a guard is not telemetry — with the value-identity argument recorded as the
+reach (`docs/PARALLEL-RUN-STATUS.md`, same date).
+## 2026-09-05 — a store directory is self-contained: the path columns are store-relative (schema v5)
+
+**The bug (finding I22, LAUNCH-STATUS G26).** `insertOne` wrote `staged.finalPath` —
+`join(dir, "prose", family, id + ".md")`, ABSOLUTE — into `memories.prose_path`, and
+`revise`/`supersede` wrote the same shape into `versions.path`. Every reader then handed
+the column straight to `readFileSync`, and `adapters/cli/removal.ts` handed it to
+`rmSync`. So a copied store — `cp -R`, a `counterparts backup`, a restored snapshot —
+opened fine, listed its own rows, and read the ORIGINAL's prose through them; a removal
+run in the copy reported success and deleted the original's file while the copy's own
+survived. `test/store-portable.test.ts` reproduces both against the pre-fix build: (a)
+delete the source's file, read through the copy → `PROSE_FILE_MISSING` naming the
+SOURCE's path; (b) remove through the copy → exit 0, no stderr, the copy's file still on
+disk. The owner's ruling: "a copied store should also include a copy of the prose files"
+— which `backup` and `cp -R` already did; the copy just never looked at them.
+
+**The representation.** One spelling per file, relative to the store root and
+POSIX-separated whatever the host: `prose/<family>/<id>.md` and
+`versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`). The absolute forms `paths.proseFile`
+/ `paths.versionFile` are `join(dir, stored.…)` of exactly those, so the two cannot
+drift. Every reader — the six in `index.ts`, `schemas/`, the console, removal, both
+dashboards, the parallel tool's raw-DB readers — resolves through one function,
+`resolveStoredPath(dir, stored)` (`Store.absolutePath` for callers holding a store).
+Four cases, each chosen: relative → `join(dir, …)`; absolute → PLACED against the
+opened dir by the migration's own rule (below), and only an unplaceable row — no
+`prose/` or `versions/` segment — is read as given; **`""` → `""`**; and anything that
+would land outside `<dir>/prose/` or `<dir>/versions/` once joined is refused by name
+(`STORED_PATH_ESCAPES`) and never returned. The `""` line is the one that mattered most
+in the first review pass: `join(dir, "")` is the store ROOT, and the removal path feeds
+the resolved value to `existsSync` + `rmSync`. A chased row's blanked pointer must
+resolve to nothing.
+
+**What the adversarial review changed (2026-09-05, PR #79 MERGE WITH CHANGES).** The
+first version returned an absolute row AS GIVEN, and the shipped G15 said "never as
+given" — the contract was ahead of the code. The reviewer reproduced the consequence: a
+v5 *instrument* on a v4 copy read the LIVE store's prose under the copy's ids (and
+returned the live store's edits, silently, when the two had diverged), threw
+`PROSE_FILE_MISSING` naming the source's path once the source was gone, and `verify`
+on the copy called five present files "missing" — until something WROTE to the copy.
+Constitution 7's catastrophe case (source gone, open the backup) is exactly where a
+read-only reader failed. The fix is seven lines: the resolver places an absolute row
+with `relativizeStoredPath` — pure, no stat, no write — and falls back to as-given only
+when unplaceable. A pre-v5 `counterparts backup` is therefore a valid revert artifact
+under any v5 reader, not only after a writer opens it. The second change is hardening
+the reviewer asked for: a hand-edited relative row such as `../ESCAPE/prose/x.md` was
+selected by the migration's predicate, returned unchanged, called "relative" by the
+census, and joined to an address outside the store. `isCanonicalRelativePath` now judges
+every join by where it LANDS — strictly under `prose/` or `versions/`, resolved before
+compared (scar §2.13) — on both the relative and the placed-absolute branch, so the two
+rules compose (`/x/prose/../../y` is caught after its tail is joined). The migration
+counts such a row `unplaceable` and leaves it; the census counts it `escaped`; reads
+refuse it by name. The guard is deliberately wider than the reviewer's minimum: a row
+naming `cache/cache.sqlite` or `tmp/…` resolves inside the store but outside its two
+canonical roots, and a removal that trusted it would have deleted box 3.
+
+**Why a schema bump (v5) rather than a tolerant no-bump.** The migration is data-only —
+no DDL moves — and every v5 reader accepts both spellings, so a tolerant scheme that
+converted opportunistically and never bumped would have worked for v5 code. What decided
+it is what v4 CODE does to a v5 store: `readProseFile("prose/…")` resolves against the
+process's working directory, so `removal.ts` gets `existsSync(rel) === false`, pushes
+`"prose"` to `chased`, and `verifyRemoved` reports `proseGone: true` while the file
+survives — a removal that lies, silently. With the bump, v4 code refuses a v5 store by
+name (`SCHEMA_AHEAD`). Loud beats silent. The cost is named in the PR: **the revert lever
+is one-way once the live store has opened under v5.** Checking master back out to a
+pre-v5 build after the first writer open leaves a store that build cannot open; the way
+back is a restore from a pre-v5 backup (whose rows the tail rule below places correctly
+under v5 again) or a hand rewrite of the two columns.
+
+**The observer read floor is the exception the bump earns.** Since 2026-08-25 an
+instrument refuses a store a schema behind (`STORE_UNINITIALIZED`) rather than migrate
+under the process that owns it. Kept for v3 and below — v3 lacks columns the readers
+select. Lifted for v4 (`OBSERVER_READ_FLOOR = 4`): the only thing v5 changed is a
+spelling every v5 reader accepts, so a v4 store reads correctly through a v5 observer,
+and refusing would have taken `status`, `verify`, `backup` and the dashboard away from
+the owner between the merge and the first writer open — precisely the window in which
+`verify` is meant to show the unmigrated count. (Without the floor, `dashboard.ts` would
+also have rendered that refusal as "No store at … run `counterparts init`", which is
+false.) A test holds the v4 database byte-identical across an observer open.
+
+**The migration, and its three properties.** `relativizeStoredPaths` runs inside the
+existing migrate-at-open transaction, on the two columns, for rows whose value is not
+blank and not already `prose/…` or `versions/…`. Per row: if the path lies under the
+opened dir, `relative()` is exact; otherwise the DEEPEST `/prose/` or `/versions/`
+segment keys the tail — the case that matters is a store written under one spelling and
+opened under another (`/var/…` vs `/private/var/…` on macOS; the parallel tool met this
+exact pair and grew `realpathOr` for it), and a backup restored to a new directory whose
+rows still name the old one. The tail after the store-level segment can never contain a
+second such segment (an id may not contain a slash). A row with neither segment is
+LEFT, not blanked and not guessed, and counted `unplaceable`. Whether the file exists
+at the new address is deliberately not consulted: the absolute address is wrong for a
+copied store whatever sits at it, and a missing file is a separate fact
+(`Store.pathCensus()` counts it separately; `verify` prints "N relative, M absolute
+(unmigrated), K missing files" for each column on a v4 store, and "(unplaceable)" in
+place of "(unmigrated)" on a v5 one — a leftover absolute row there WAS migrated and
+could not be placed, so "unmigrated" would be the wrong word).
+
+- *Idempotent by predicate, not only by latch.* The version row short-circuits a v5
+  open before the branch is reached; but two writers racing into the migrate branch on
+  the same v4 file both select "rows not yet relative", and the second finds none. A
+  test asserts the database is byte-identical across a second open.
+- *Recorded.* A conversion that touched anything appends one `store.migrate.paths` row
+  to `events` in the same transaction — from/to versions and four counts, never a path
+  (constitution 16; §5 G10). Its timestamp comes from the injected provenance clock,
+  threaded into `openOperational` as `now`, so `two-clocks.test.ts`'s count of ambient
+  `Date.now()` calls in `index.ts` stays at one.
+- *Cheap, measured.* On a synthetic store built under `mkdtemp` — 15,000 `memories`
+  rows and 2,000 `versions` rows holding absolute paths under the dir, stamped v4, no
+  prose files (the migration never stats them) — the first `Store.open()` took **79, 82,
+  67 ms** on three fresh stores, converting every row (`converted: 15000` / `2000`,
+  `unplaceable: 0`, one event); the steady-state open that followed measured under a
+  millisecond. That is one SELECT and one prepared UPDATE per row inside one transaction,
+  and it matters because the first writer open on the live store is a SessionStart hook
+  or the MCP server, not a console command with a progress line. It is the first
+  migrate-at-open that store will ever run: v4 dates from 2026-08-29 and the store was
+  created 2026-09-03.
+- *Re-decided at every bump.* `OBSERVER_READ_FLOOR` is a claim — "every reader of the
+  current version tolerates a floor-version store as it stands" — that v5 makes true for
+  v4 and a v6 column add would silently make false. `test/store.test.ts` pins the floor to
+  `SCHEMA_VERSION - 1`, so the next bump must raise it or drop it on purpose.
+
+**What `backup` and `export` do now.** `snapshot` already copied `prose/` and
+`versions/` whole and the database through `VACUUM INTO`; a snapshot restored anywhere
+now reads its own files (test (d), source wiped before the read). The plaintext `export`
+bundles `prose/` and the database but NOT `versions/`, so a restored export's version
+rows dangle — pre-existing, out of this change's scope, named here rather than fixed.
+
+**Brain analog: none.** This is the engineering floor (CONTRACT §2). What it protects is
+constitution line 6 — memory that "travels across hosts" cannot be pinned to one
+machine's directory tree — and line 7's "backups catch catastrophe", which was not true
+while a backup's rows pointed at the live store.

@@ -51,6 +51,11 @@ ended up with canonical state spread across a prose store plus half a dozen side
   2026-09-05).
 - **One content-address function**, so a raw span, a run record, and a rejected proposal
   join on the same key. [v1] §17.1.
+- **A store directory is self-contained.** Every file a row names is named RELATIVE to
+  the store root, so a copy, a move, or a restored backup reads and chases its own files
+  and never another store's (§5 G15; finding I22, 2026-09-05). Constitution line 6 —
+  local-first, portable — and line 7's "backups catch catastrophe" both rest on it: a
+  backup that still pointed at the live store was not a backup.
 
 ## 4. Drops / simplifies
 
@@ -71,6 +76,14 @@ ended up with canonical state spread across a prose store plus half a dozen side
      `counterparts migrate-cache` exist rather than a rebuild.
 - **The universal "the DB is a cache" rebuild contract is released** (owner rescope 1,
   settled) — it now covers box 3 only. Box 2 is canonical and is backed up as a database.
+  *One box-2 table is telemetry rather than memory and has bounded retention: the
+  durable event log (SEAMS item K). `pruneEvents({ limit })` deletes UNLATCHED rows older
+  than `retentionDays` lived days, oldest first, capped per call, and reports what went
+  and what is left; rows carrying a `dedup_key` — the replay latch, which every
+  prune / promotion / merge / unmerge / pressure / gate-chunk / band-transition record
+  carries — are kept at any age. `eventLogCensus()` is the read-only count of the same.
+  The caller is sleep's `log` phase (`sleep/` §5 G16, 2026-09-05); before that the method
+  had none.*
 - **Hand-serialized JSON sidecars are gone** (owner rescope 1, settled). All seven bugs in
   v1's 2026-08-18 verified-bug batch were structured-sidecar bugs, and the class refired
   2026-08-23; prose files never minted one (scar §2.1).
@@ -158,6 +171,49 @@ by reference only.
     could not answer "did the archival mechanisms ever pay for themselves" because nothing
     logged a read-back (log-audit §3). This is a v2 instrumentation requirement, not a
     preference.
+14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
+    `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
+    owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots
+    (G9) because the store must open its own default. So the fallback is a door with a lock:
+    with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed (`1`, `true` or `on` — trimmed and
+    case-insensitive, a superset of the set `COUNTERPARTS_OBSERVER` accepts), every resolution
+    that would have returned it throws `IMPLICIT_DEFAULT_DIR_REFUSED` before anything is created,
+    naming the guard, the directory and the remedy — and a named `dir` or a
+    `COUNTERPARTS_DATA_DIR` is unaffected. Absent, blank, or `0` / `false` / `off` means OFF,
+    behaviour unchanged; **the guard fails closed on anything else**, throwing
+    `EXPLICIT_DIR_GUARD_MALFORMED` at the same decision point rather than reading a word it does
+    not know as "off" (the #80 review measured `=true`, `=yes`, `=on` and `= 1` all falling open
+    under the first draft). Off means off and junk is a question this will not answer; the
+    variable is never set on an installed host. The same guard covers the configuration default in
+    `adapters/config-path.ts`, because a default-sourced `~/.counterparts/claude-code.json`
+    NAMES a store and `install` writes under that base. **Not covered, by design:** a
+    number read from the default config for a store already named (`rebrief`'s ceiling),
+    and the read-only instruments that carry the live paths as defaults by their own rule
+    (`claude-code/primacy.ts`, `tools/parallel/bin/*`). Armed by `test/preload.ts` for
+    the whole suite, so a forgetful test is REFUSED rather than redirected — the second
+    layer under the temp-home redirect (LAUNCH-STATUS I21, owner ruling 2026-09-05;
+    `NOTES.md` same date).
+15. **[M] A store directory is self-contained: copying or moving it never touches another
+    store's files.** `memories.prose_path` and `versions.path` hold store-relative POSIX
+    paths — `prose/<family>/<id>.md`, `versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`)
+    — and every read, write and chase resolves them against the OPENED directory
+    (`Store.absolutePath`), never against the process's working directory. A pre-v5
+    ABSOLUTE row is placed against the opened directory by the same rule the migration
+    uses, so an instrument on a v4 copy, backup or moved store reads that store's own
+    file; the one value read as given is an unplaceable one (no `prose/` or `versions/`
+    segment to key on). A blank pointer resolves to nothing, never to the store root, and
+    a value that would land outside `prose/` or `versions/` is refused by name
+    (`STORED_PATH_ESCAPES`) and never resolved. Tests copy a store, destroy the source's
+    file, and read through the copy — as a writer and as an instrument on a v4 copy;
+    remove through the copy and find the source intact; open a `backup` snapshot
+    standalone; and refuse a hand-edited `../ESCAPE/…` row
+    (`test/store-portable.test.ts`). *Added 2026-09-05 (schema v5), when finding I22 showed
+    an absolute `prose_path` made a copied store read and DELETE the source's prose. Rows
+    written before v5 are converted once, at the first writer open, inside the
+    migrate-at-open transaction; a row that cannot be placed is left and counted, and
+    `counterparts verify` prints the census. A v5 instrument may open a v4 store as it
+    stands (`OBSERVER_READ_FLOOR`), because the only thing v5 changed is a spelling every
+    v5 reader accepts.*
 
 ## 6. Scars honored
 

@@ -31,8 +31,8 @@
  *      written only when `--budget` says what it is; without it the config is
  *      written without the key and the printed steps say so out loud.
  */
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,7 +44,7 @@ export const DEFAULT_STORE_DIR = "store";
 // of these, would be a file the loader silently ignores and counts. The same
 // direction `mcp/bin/serve.ts` already takes for the same reason.
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
-import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
+import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
 import { DEFAULT_DATA_DIR_NAME, isWithin } from "../../core/store/index.js";
 
 /** The five host events one executable serves (`claude-code/bin/hook.ts`). */
@@ -205,6 +205,89 @@ export function layoutRefusal(layout: InstallLayout): string | null {
     `data dir ${layout.store}. The store's layout check refuses an unclassified file at ` +
     `open (§5 G11), so that store would never open again. Choose a --dir that is not ` +
     `${layout.base} or an ancestor of it — ${join(layout.base, DEFAULT_STORE_DIR)} is the default.`
+  );
+}
+
+/**
+ * The roots this machine hands out for THROWAWAY files: `os.tmpdir()`, the three
+ * variables that set it, and `/tmp`. Each is listed twice — as spelled and as
+ * realpath'd — because macOS spells the same directory `/var/folders/…` and
+ * `/private/var/folders/…` depending on who asked, and a prefix test that knows
+ * only one of the two silently answers "no".
+ */
+export function tempRoots(env: Record<string, string | undefined> = process.env): string[] {
+  const out: string[] = [];
+  const add = (value: string): void => {
+    if (!out.includes(value)) out.push(value);
+  };
+  for (const raw of [tmpdir(), env["TMPDIR"], env["TMP"], env["TEMP"], "/tmp"]) {
+    if (typeof raw !== "string" || raw.trim().length === 0) continue;
+    const abs = resolve(raw.trim());
+    add(abs);
+    try {
+      add(realpathSync(abs));
+    } catch {
+      // A root that is not there cannot contain anything; nothing to add.
+    }
+  }
+  return out;
+}
+
+/** True when `path` is one of the temp roots or lives under one. */
+function underTempRoot(path: string, roots: readonly string[]): boolean {
+  const abs = resolve(path);
+  return roots.some((root) => isWithin(root, abs));
+}
+
+/**
+ * Why this install may not write THE DEFAULT CONFIGURATION, or null.
+ *
+ * The one case, and it is a scar rather than a theory: on 2026-09-04 a suite run
+ * that had lost `test/preload.ts`'s home mock resolved the real
+ * `~/.counterparts/claude-code.json` and rewrote its `dataDir` to a temp path.
+ * The file is the one the hook, the worker and the MCP server read with NO flag,
+ * so from that moment the owner's live memory was a directory the OS was free to
+ * delete — and it recorded nothing for three days before anyone noticed. A
+ * throwaway store must never become the live default.
+ *
+ * So: the default configuration file will not be written with a `dataDir` under
+ * a temp root. `--config <somewhere else>` is the way through, and it moves the
+ * credentials and the store with it (`installLayout`), which is the whole point
+ * — a scratch install should be scratch all the way down.
+ *
+ * THE THIRD CLAUSE, and why the clean room still works: the refusal also
+ * requires that the CONFIGURATION not be under a temp root. `tools/install-loop/run.sh`
+ * installs into a fake `$HOME` beneath `$TMPDIR` with no `--config` at all, so
+ * its default config and its store are both throwaway and both under the same
+ * base — a stranger's install, correctly measured, not a live default pointed at
+ * a temp store. Keying on the store alone would refuse the loop; keying on the
+ * pair is what "the REAL default path" means on a machine where the temp dir can
+ * hold a whole home. Test-suite installs are in the same position (the mocked
+ * home is minted under `os.tmpdir()`), which is why this is provable only with
+ * an injected home outside the temp tree.
+ *
+ * Not bypassable by `--force`: `--force` says "overwrite the file I named", and
+ * the file this refuses to write is one nobody named.
+ */
+export function throwawayDefaultRefusal(
+  layout: InstallLayout,
+  env: Record<string, string | undefined> = process.env,
+  home: string = homedir(),
+): string | null {
+  const defaultConfig = defaultConfigPath(home);
+  if (resolve(layout.config) !== defaultConfig) return null;
+  const roots = tempRoots(env);
+  if (!underTempRoot(layout.store, roots)) return null;
+  if (underTempRoot(defaultConfig, roots)) return null;
+  return (
+    `refused: this would write the DEFAULT configuration, ${defaultConfig}, with a data dir ` +
+    `under the system temp directory (${layout.store}). That file is the one the hook, the ` +
+    "worker and the MCP server read when nothing names another, so a throwaway store would " +
+    "become this machine's live memory and the real one would stop being written to. " +
+    `Name a scratch install instead: ` +
+    `${CONFIG_FLAG} <absolute path outside ${join(home, DEFAULT_DATA_DIR_NAME)}>, which moves the ` +
+    "configuration, the credentials and the store together. A permanent store outside the temp " +
+    "dir is the other way through."
   );
 }
 

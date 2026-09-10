@@ -39,7 +39,7 @@ import type { CounterpartEvent, LiveVectors } from "../../src/core/counterpart.j
 import { band as liveBand } from "../../src/core/physics/index.js";
 import type { InterpretFn, Turn } from "../../src/core/remember/index.js";
 import type { IdentityCoreSpec } from "../../src/core/self/index.js";
-import { DATA_DIR_ENV, assertSafeDataDir } from "../../src/core/store/index.js";
+import { DATA_DIR_ENV, DEFAULT_RETENTION_DAYS, assertSafeDataDir } from "../../src/core/store/index.js";
 import type { Embedder } from "../../src/core/store/index.js";
 import type { CycleReport } from "../../src/core/sleep/index.js";
 
@@ -189,6 +189,16 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
     dir: storeDir,
     owner: true,
     budgetBytes: opts.budgetBytes,
+    // THE SCORER READS THE WHOLE RUN AT ITS END, and sleep's `log` phase runs
+    // DURING the run (`sessionEnd` → `runCycle`, in-process): on the default
+    // 90-lived-day window, a corpus with more than 90 active days would have its
+    // first days' unlatched rows — `gate.deposit` above all — swept out from
+    // under `depositRecordsOf` before it read them. So the replay store's window
+    // is the corpus itself plus the default as slack: nothing read at run end can
+    // age out mid-run, whatever the corpus's length, and a corpus shorter than
+    // the default behaves exactly as before (the cutoff never reaches a row).
+    // `gate.deposit` stays UNLATCHED on purpose — `sleep/NOTES.md` §15.
+    retentionDays: opts.corpus.days().length + DEFAULT_RETENTION_DAYS,
     ...(opts.identity === undefined ? {} : { identity: opts.identity }),
     ...(opts.embed === undefined ? {} : { embed: opts.embed }),
     ...(opts.liveVectors === undefined ? {} : { vectors: opts.liveVectors }),

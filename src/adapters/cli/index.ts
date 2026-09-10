@@ -47,6 +47,8 @@ export {
   DEFAULT_STORE_DIR,
   installLayout,
   layoutRefusal,
+  tempRoots,
+  throwawayDefaultRefusal,
   mcpCommand,
   runCommand,
   settingsBlock,

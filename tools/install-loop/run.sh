@@ -84,6 +84,17 @@ if [ -n "${COUNTERPARTS_CONFIG:-}" ]; then
   echo "The loop resolves its own configuration; it never honors an inherited one."
   exit 1
 fi
+# UNSET, not refused, and not armed: `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` makes
+# the store and the config resolver refuse their `~/.counterparts` defaults
+# (`store/paths.ts`, `adapters/config-path.ts#implicitConfigRefusal`). It is
+# exported in every agent shell of this repo, so the loop inherits it — and
+# inside the clean room it would fight the loop's own design: the stranger's
+# path IS the defaults (`counterparts install` with no `--config`, the hook
+# with no flag, `rebrief` falling back to the hooks' config), resolved in a HOME
+# that the guards above have already made throwaway. A stranger has no such
+# variable; the loop measures a stranger. One step below arms it on purpose,
+# to prove the installed console and hook carry the refusal.
+unset COUNTERPARTS_REQUIRE_EXPLICIT_DIR
 
 FAKE_HOME="$WORK/home"
 rm -rf "$FAKE_HOME"
@@ -387,6 +398,35 @@ if [ "$CODE" = "2" ] &&
   ok
 else
   no "a mistyped --dir was not refused, or something was written (exit $CODE, live $BEFORE_DEFAULT -> $AFTER_DEFAULT)" "$OUT"
+fi
+
+step "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 refuses an UNNAMED store and an UNNAMED config"
+# LAUNCH-STATUS I21, through the installed binaries rather than the source: an
+# agent's shell on a machine with an install exports this, and a command that
+# names no store must then refuse by name — before any open — rather than reach
+# `$HOME/.counterparts/store`. Three parts: the console refuses and names the
+# guard and the remedy; the hook stands down for the same reason (the default
+# config NAMES a store); and neither wrote a thing — the sessions count is the
+# tripwire. The loop's own environment stays unarmed (see the guard block).
+BEFORE_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+OUT=$(COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 counterparts status 2>&1)
+CODE=$?
+HOOK_OUT=$(payload SessionStart "install-loop-guard-$$" | COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 counterparts-hook 2>"$WORK/hook-guard.err")
+HOOK_CODE=$?
+AFTER_SESSIONS=$(ls "$STORE/sessions" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CODE" = "2" ] &&
+   printf '%s' "$OUT" | grep -q "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1" &&
+   printf '%s' "$OUT" | grep -q "$STORE" &&
+   printf '%s' "$OUT" | grep -q -- "--dir" &&
+   [ "$HOOK_CODE" = "0" ] && [ -z "$HOOK_OUT" ] &&
+   grep -q "stood down" "$WORK/hook-guard.err" &&
+   grep -q "COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1" "$WORK/hook-guard.err" &&
+   [ "$BEFORE_SESSIONS" = "$AFTER_SESSIONS" ]; then
+  ok
+else
+  no "the guard did not refuse the unnamed default (console exit $CODE, hook exit $HOOK_CODE, sessions $BEFORE_SESSIONS -> $AFTER_SESSIONS)" "$OUT
+$HOOK_OUT
+$(cat "$WORK/hook-guard.err")"
 fi
 
 step "note and recall NAME the store they wrote to or read from"

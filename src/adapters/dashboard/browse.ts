@@ -180,7 +180,7 @@ function renderOne(src: DashboardSource, id: string, opts: BrowseOptions): strin
   const facts: string[][] = [
     // The path, as a path: the owner opens the store itself, not a rendering of
     // it (constitution line 6, CONTRACT §3 "prose views the owner can open").
-    ["prose", row?.prose_path ?? "—"],
+    ["prose", row === undefined || row.prose_path === "" ? "—" : store.absolutePath(row.prose_path)],
     ["kind", physics.kind],
     // Live band first (arithmetic, what the engine acts on); the recorded
     // column is the birth/promotion record and says so (review F6).

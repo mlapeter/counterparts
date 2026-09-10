@@ -34,7 +34,7 @@ import {
   byteLength,
   readSentinel,
 } from "../src/core/self/index.js";
-import { PHASES, markerKey } from "../src/core/sleep/index.js";
+import { PHASES, TUNABLES as SLEEP_TUNABLES, markerKey } from "../src/core/sleep/index.js";
 import { findIdentityCore } from "../src/core/self/index.js";
 // Box 3 directly, for the two things `verify`'s guard is about: seeding a
 // vector the way the backfill seeds one, and counting what is still there.
@@ -46,6 +46,7 @@ import {
   setEmbedding,
 } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
+import { CONFIG_FLAG } from "../src/adapters/config-path.js";
 import { LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
@@ -63,6 +64,8 @@ import {
   OWNER_OPS,
   installLayout,
   layoutRefusal,
+  tempRoots,
+  throwawayDefaultRefusal,
   mcpCommand,
   openCounterpart,
   runCommand,
@@ -293,6 +296,100 @@ describe("init", () => {
     expect(code).toBe(EXIT.refused);
     expect(text(c.err)).toContain("DATA_DIR_FORBIDDEN");
     expect(existsSync(forbidden)).toBe(false);
+  });
+
+  test("with the explicit-dir guard armed, a command that names no store is REFUSED before any open, in a sentence (I21)", async () => {
+    // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is read from THIS invocation's
+    // environment (`resolveDir` → `dataDir(env)`), so the case is constructed
+    // here rather than inherited from the preload — and the unarmed case can be
+    // constructed the same way, below.
+    const fallback = join(homedir(), ".counterparts", "store");
+    const armed = { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+
+    const note = consoleWith();
+    expect(await run(["note", "This must not land anywhere."], { io: note.io, env: armed })).toBe(
+      EXIT.refused,
+    );
+    const err = text(note.err);
+    expect(err).toContain("refused:");
+    expect(err).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    expect(err).toContain(fallback);
+    expect(err).toContain("--dir");
+    expect(err).toContain(ENV);
+    expect(err).not.toContain("    at ");
+    // Not the raw `${code} ${detail}` line: the operator armed this on purpose
+    // and is owed a sentence, the way every other console refusal is one.
+    expect(err).not.toContain('{"guard"');
+    expect(text(note.out)).toBe("");
+    // `status` would only have READ the default; it refuses the same way.
+    const status = consoleWith();
+    expect(await run(["status"], { io: status.io, env: armed })).toBe(EXIT.refused);
+    expect(text(status.err)).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    // Nothing opened, nothing minted, nothing created — not even the parent.
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+
+    // Inherited from the process (the shape an agent shell produces): the
+    // preload arms it, the fixture's COUNTERPARTS_DATA_DIR is stood down for
+    // one call, and `run` with no `env` reads `process.env`.
+    delete process.env[ENV];
+    try {
+      const inherited = consoleWith();
+      expect(await run(["status"], { io: inherited.io })).toBe(EXIT.refused);
+      expect(text(inherited.err)).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    } finally {
+      process.env[ENV] = dir;
+    }
+
+    // Armed + `--dir`: opens. Armed + COUNTERPARTS_DATA_DIR: opens. The guard is
+    // about the fallback, not about a caller who said which store they meant.
+    expect(await run(["init", "--dir", dir], { io: consoleWith().io, env: armed })).toBe(EXIT.ok);
+    const byFlag = consoleWith();
+    expect(
+      await run(["note", "The espresso machine in the kitchen is a Rancilio Silvia.", "--dir", dir], {
+        io: byFlag.io,
+        env: armed,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(byFlag.out)).toContain(`Store: ${dir}`);
+    const byEnv = consoleWith();
+    expect(
+      await run(["note", "Postgres in dev listens on port 5433, not 5432."], {
+        io: byEnv.io,
+        env: { ...armed, [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(byEnv.out)).toContain(`Store: ${dir}`);
+
+    // Unarmed: today's behaviour, byte for byte. No store is named, the
+    // fallback resolves (to the temp home), and `note` says there is no store
+    // there — it still creates nothing on the way.
+    const unarmed = consoleWith();
+    expect(await run(["note", "Nowhere to land."], { io: unarmed.io, env: {} })).toBe(EXIT.failed);
+    expect(text(unarmed.err)).toContain(`no store at ${fallback}`);
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+
+    // A value the guard cannot read is REFUSED, in a sentence, rather than
+    // falling to the default (the #80 review's fail-open finding): `=yes` gets
+    // told the value and the two that work. Beside `--dir` it is not consulted.
+    const typo = consoleWith();
+    expect(await run(["status"], { io: typo.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "yes" } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(typo.err)).toContain("refused:");
+    expect(text(typo.err)).toContain("'yes'");
+    expect(text(typo.err)).toContain("1, true, on");
+    expect(text(typo.err)).not.toContain('{"guard"');
+    expect(existsSync(join(homedir(), ".counterparts"))).toBe(false);
+    const typoNamed = consoleWith();
+    expect(
+      await run(["status", "--dir", dir], { io: typoNamed.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "yes" } }),
+    ).toBe(EXIT.ok);
+    // And `true` arms, as it does for COUNTERPARTS_OBSERVER.
+    const byTrue = consoleWith();
+    expect(await run(["status"], { io: byTrue.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "true" } })).toBe(
+      EXIT.refused,
+    );
+    expect(text(byTrue.err)).toContain("COUNTERPARTS_REQUIRE_EXPLICIT_DIR=true");
   });
 
   test("--name seeds the identity core, through the same door install uses", async () => {
@@ -918,10 +1015,11 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const id = await noteThroughTheJotDoor(MARKER);
 
     const s = store();
-    const prosePath = s.row(id)?.prose_path ?? "";
+    const prosePath = s.absolutePath(s.row(id)?.prose_path ?? "");
     const ref = s.row(id)?.origin_ref ?? "";
     s.close();
     expect(ref).toMatch(/^prp_/);
+    expect(existsSync(prosePath)).toBe(true);
     rmSync(prosePath, { force: true });
 
     // The mark this chase runs on, on disk since long before the feature.
@@ -1247,8 +1345,9 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // address the buffer with, and the console says exactly that.
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "A pre-provenance memory." });
-    const prose = s.row(id)?.prose_path ?? "";
+    const prose = s.absolutePath(s.row(id)?.prose_path ?? "");
     s.close();
+    expect(existsSync(prose)).toBe(true);
     rmSync(prose, { force: true });
 
     const plan = consoleWith();
@@ -1325,6 +1424,14 @@ describe("verify", () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "fact", body: "The memory whose vector must survive a look." });
     s.put({ type: "memory", kind: "fact", body: "A second memory, with no vector of its own." });
+    // A durable log with history: three unlatched rows and one record from day
+    // 0, one row from today, and a clock that has moved past the window for the
+    // old ones — so the census has real numbers to print, and prints them
+    // without sweeping (this is a look, not the cycle).
+    for (let i = 0; i < 3; i++) s.appendEvent({ name: "recall.decision", day: 0, ref: `s${i}` });
+    s.appendEvent({ name: "memory.pruned", day: 0, ref: kept, dedupKey: `sleep.pruned.${kept}` });
+    for (let d = 1; d <= 91; d++) s.advanceClock(new Date(Date.UTC(2026, 0, d)).toISOString().slice(0, 10));
+    s.appendEvent({ name: "recall.decision", day: 91, ref: "today" });
     s.close();
     seedVector(kept);
 
@@ -1334,6 +1441,12 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Canonical rows: 2");
+    // The log, read-only: what is held, how old, and what the next sweep takes.
+    expect(printed).toContain("Events: 5 held (1 latched records)   oldest: lived day 0 (");
+    expect(printed).toContain("window: 90 lived days (cutoff day 1)");
+    expect(printed).toContain(
+      `past the window: 3 unlatched (the next sleep pass deletes 3, cap ${SLEEP_TUNABLES.BUDGETS.log} per pass), 1 latched records kept`,
+    );
     expect(printed).toContain("embeddings: 1");
     expect(printed).toContain("live memories with no vector: 1");
     // "live", not "canonical": since I13 the index covers the LIVE rows and an
@@ -3241,6 +3354,89 @@ describe("install", () => {
     );
     expect(text(c.err)).toContain("DATA_DIR_FORBIDDEN");
     expect(existsSync(forbidden)).toBe(false);
+  });
+
+  test("refuses to point the DEFAULT config at a throwaway store — the 2026-09-04 incident's shape", async () => {
+    // On 2026-09-04 a suite run that had lost `test/preload.ts`'s home mock
+    // rewrote the owner's real `~/.counterparts/claude-code.json` with a temp
+    // `dataDir`. That file is what the hook, the worker and the MCP server read
+    // with no flag, so his memory recorded nothing for three days. A throwaway
+    // store may not become the live default.
+    //
+    // The home here is deliberately OUTSIDE the temp tree — a home under
+    // `os.tmpdir()` is a clean room (the install loop's, this suite's), whose
+    // default config is throwaway too and is not what this protects. Nothing
+    // is ever created at it: the refusal comes before the first mkdir.
+    const home = join("/", `counterparts-not-a-real-home-${process.pid}`);
+    const store = join(outside, "throwaway", "store");
+    const c = consoleWith();
+    // env `{}` — the explicit-dir guard is NOT armed. The incident's shell had
+    // neither the guard nor the mock, so this refusal may not depend on either.
+    expect(await run(["install", "--dir", store, "--budget", "9000"], { io: c.io, env: {}, home })).toBe(
+      EXIT.refused,
+    );
+    const said = text(c.err);
+    expect(said).toContain("refused:");
+    expect(said).toContain(join(home, ".counterparts", CONFIG_FILE));
+    expect(said).toContain(store);
+    expect(said).toContain(CONFIG_FLAG);
+    expect(existsSync(home)).toBe(false);
+    expect(existsSync(store)).toBe(false);
+
+    // `--force` does not buy past it: `--force` overwrites a file you named,
+    // and this is the file nobody named.
+    const forced = consoleWith();
+    expect(
+      await run(["install", "--dir", store, "--force"], { io: forced.io, env: {}, home }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(home)).toBe(false);
+
+    // COUNTERPARTS_DATA_DIR is the same door and gets the same answer.
+    const viaEnv = consoleWith();
+    expect(
+      await run(["install"], { io: viaEnv.io, env: { COUNTERPARTS_DATA_DIR: store }, home }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(home)).toBe(false);
+
+    // `--config <elsewhere>` is the way through: it moves the configuration,
+    // the credentials and the store together, so the scratch install is scratch
+    // all the way down and the default file is untouched.
+    const named = join(outside, "throwaway-named", "claude-code.json");
+    const ok = consoleWith();
+    expect(
+      await run(["install", CONFIG_FLAG, named, "--budget", "9000"], { io: ok.io, env: {}, home }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(named)).toBe(true);
+    expect(existsSync(home)).toBe(false);
+
+    // The unit, stated directly. A store outside the temp tree is fine at the
+    // default config; a clean-room home (one UNDER the temp tree) is fine with
+    // a temp store, which is what keeps `tools/install-loop/run.sh` green.
+    expect(throwawayDefaultRefusal(installLayout(store, {}, home), {}, home)).not.toBe(null);
+    expect(
+      throwawayDefaultRefusal(installLayout(join(outside, "x"), {}, home), {}, home),
+    ).not.toBe(null);
+    expect(
+      throwawayDefaultRefusal(installLayout("/opt/counterparts/store", {}, home), {}, home),
+    ).toBe(null);
+    const cleanRoom = join(outside, "clean-home");
+    expect(
+      throwawayDefaultRefusal(installLayout(undefined, {}, cleanRoom), {}, cleanRoom),
+    ).toBe(null);
+    expect(
+      throwawayDefaultRefusal(installLayout(store, {}, cleanRoom), {}, cleanRoom),
+    ).toBe(null);
+    // A NAMED configuration is out of its business whatever the store is.
+    expect(
+      throwawayDefaultRefusal(installLayout(store, {}, home, named), {}, home),
+    ).toBe(null);
+
+    // The roots it compares against carry both spellings of the same directory,
+    // because macOS hands out `/var/folders/…` and `/private/var/folders/…` for
+    // it and a prefix test that knows one silently answers "no" to the other.
+    const roots = tempRoots({});
+    expect(roots.length).toBeGreaterThan(0);
+    expect(roots.some((r: string) => outside.startsWith(r))).toBe(true);
   });
 
   test("is an owner operation: an observer console refuses it", async () => {
