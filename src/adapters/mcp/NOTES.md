@@ -98,3 +98,51 @@ Two properties, both deliberate:
   absolute path to a file that is not there, which the first version honoured
   silently (`claude-code/NOTES.md` §11). The server also writes the file it
   read to stderr at every launch, before a byte of protocol: stdout is the wire.
+
+## 2026-09-10 — `COUNTERPARTS_OBSERVER` and `COUNTERPARTS_OWNER` learn the guard's vocabulary
+
+**The defect (LAUNCH-STATUS G39).** `launchOptions` matched both stance variables
+by exact, untrimmed string — `"1"` or `"true"` — through a single `flag()`
+closure. One directory over, `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` accepts
+`1|true|on`, trimmed and case-insensitive, and `store/paths.ts` describes itself
+in a comment as *"a SUPERSET of the two `COUNTERPARTS_OBSERVER` accepts"*. That
+sentence is an invitation to reason by analogy, and a person who did — exporting
+`COUNTERPARTS_OBSERVER=on`, or `=True`, or with a stray space — got an **ordinary**
+server: the stance they were trying to leave. The console had the identical bug
+in `cli/commands.ts`.
+
+**Why it was deferred, and why it is not any more.** #80 widened the guard and
+promised to leave this launch path instruction-for-instruction identical, so
+`store/NOTES.md` recorded the mismatch and said widening observer *"is a
+behaviour change to an unrelated variable and wants its own ruling"*. G39 is that
+ruling (HANDOFF 2026-09-08, follow-up 4).
+
+**The shape.** `adapters/stance-env.ts` — beside `config-path.ts`, at the level
+both the console and this entry point already share — imports
+`EXPLICIT_DIR_ARMING_VALUES` and `EXPLICIT_DIR_DISARMING_VALUES` rather than
+retyping them. Two lists that must agree and are written twice have already begun
+to disagree; that is what this whole entry is about.
+
+**The two fail directions are opposite, and both are "less power."** Observer
+collapses an unreadable value to **observer** — `docs/observer-mode.md` G5, "fail
+toward standing down", already mechanized in `core/observer.ts`, where a
+non-boolean stance field resolves to observer rather than to "encode anyway".
+Owner collapses it to **not owner**. Same helper, one line apart, because the
+polarity of the boolean is opposite: `owner` grants reach and `observer`
+withholds it, so least privilege is `false` for one and `true` for the other.
+
+Note that observer's junk handling is deliberately **not** the guard's. The
+explicit-dir guard REFUSES junk, because refusing is fail-closed for a thing
+whose job is to stop a run. A stance's job is to withhold writes, so standing
+down is fail-closed for it — and the failure is far cheaper: a refused MCP server
+answers nothing and the host reports only "MCP server failed", while a stood-down
+one answers every read. Junk is never silent either way: `launchOptions` returns
+`unreadable`, a list of ready-made lines, and `main` prints them on stderr before
+anything else (stdout is the wire). Keeping the printing outside `launchOptions`
+is what keeps that function the one thing here a test can call over a fresh
+object with no process involved.
+
+**Still owed, in core, for the owner:** three comments now describe the world
+before this ruling and call the guard's word lists a superset —
+`store/paths.ts` above `EXPLICIT_DIR_ARMING_VALUES`, `store/NOTES.md`
+2026-09-05, and `store/CONTRACT.md` §5. They are text, not behaviour.

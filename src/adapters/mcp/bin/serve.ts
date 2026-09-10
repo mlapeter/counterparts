@@ -46,6 +46,13 @@ import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { openServer } from "../index.js";
 import { serveStdio } from "../stdio.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
+import {
+  OBSERVER_ENV,
+  OWNER_ENV,
+  observerFromEnv,
+  ownerFromEnv,
+  unreadableStanceLine,
+} from "../../stance-env.js";
 
 /**
  * The same file `bin/hook.ts` and `bin/runner.ts` read by default. One
@@ -66,8 +73,12 @@ export const ENV = {
   session: "COUNTERPARTS_SESSION",
   scope: "COUNTERPARTS_SCOPE",
   dir: "COUNTERPARTS_DATA_DIR",
-  owner: "COUNTERPARTS_OWNER",
-  observer: "COUNTERPARTS_OBSERVER",
+  // The two stance names come from `adapters/stance-env.ts`, not from a second
+  // pair of string literals here. That module's whole argument is that two
+  // strings which must agree and are written twice have already begun to
+  // disagree — it would be a poor place to start a third copy (G39).
+  owner: OWNER_ENV,
+  observer: OBSERVER_ENV,
 } as const;
 
 export interface LaunchOptions {
@@ -76,6 +87,15 @@ export interface LaunchOptions {
   dir?: string;
   owner: boolean;
   observer: boolean;
+  /**
+   * One line per stance variable this launch could not read, ready for stderr.
+   * ALWAYS present, usually empty — a caller destructures it off before the
+   * rest goes to `openServer`, so the stance stays a pair of booleans and the
+   * complaint stays a string. Keeping it here rather than printing from inside
+   * `launchOptions` is what keeps that function pure: it is the one thing in
+   * this file a test can call over a fresh object with no process involved.
+   */
+  unreadable: readonly string[];
 }
 
 /** Flags beat environment; absent means absent, never a guessed default. */
@@ -99,8 +119,28 @@ export function launchOptions(
     },
     strict: false,
   });
-  const flag = (name: keyof typeof ENV): boolean =>
-    values[name] === true || env[ENV[name]] === "1" || env[ENV[name]] === "true";
+  // THE TWO STANCE VARIABLES ARE READ THE WAY THE GUARD NEXT DOOR IS READ
+  // (G39). This used to be one `flag()` closure matching `"1"` and `"true"`
+  // exactly, so `=on`, `=True` and `= 1 ` — the set
+  // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` documents — all fell silently to
+  // "ordinary session". `adapters/stance-env.ts` carries the shared reading and
+  // the argument for each fail direction: observer collapses junk to OBSERVER
+  // (`docs/observer-mode.md` G5, fail toward standing down), owner collapses it
+  // to NOT owner. Same helper, opposite boolean, because least privilege is the
+  // opposite boolean for a bit that grants reach and a bit that withholds it.
+  const observer = observerFromEnv(env, values["observer"] === true, ENV.observer);
+  const owner = ownerFromEnv(env, values["owner"] === true, ENV.owner);
+  const unreadable: string[] = [];
+  if (observer.malformed !== null) {
+    unreadable.push(
+      unreadableStanceLine(ENV.observer, observer.malformed, "standing down to observer stance"),
+    );
+  }
+  if (owner.malformed !== null) {
+    unreadable.push(
+      unreadableStanceLine(ENV.owner, owner.malformed, "this launch is NOT owner-stanced"),
+    );
+  }
   const session = (values["session"] as string | undefined) ?? env[ENV.session];
   const scope = (values["scope"] as string | undefined) ?? env[ENV.scope];
   const dir = (values["dir"] as string | undefined) ?? env[ENV.dir];
@@ -108,8 +148,9 @@ export function launchOptions(
     ...(session === undefined || session.length === 0 ? {} : { session }),
     ...(scope === undefined || scope.length === 0 ? {} : { scope }),
     ...(dir === undefined || dir.length === 0 ? {} : { dir }),
-    owner: flag("owner"),
-    observer: flag("observer"),
+    owner: owner.on,
+    observer: observer.on,
+    unreadable,
   };
 }
 
@@ -174,7 +215,12 @@ export function serverConfigChoice(
 }
 
 async function main(): Promise<void> {
-  const opts = launchOptions(process.argv.slice(2), process.env);
+  const { unreadable: stanceNotices, ...opts } = launchOptions(process.argv.slice(2), process.env);
+  // stderr, never stdout (stdout is the JSON-RPC wire), and BEFORE the config
+  // refusals: a stance variable nobody could read changed what this server may
+  // do, and the transcript has to say so even on a launch that then refuses for
+  // an unrelated reason (scar §2.4 — a path that discards something says what).
+  for (const line of stanceNotices) process.stderr.write(`${line}\n`);
   const choice = serverConfigChoice();
   // The second refusal is the explicit-dir guard (`config-path.ts#implicitConfigRefusal`):
   // armed, an UNNAMED configuration refuses the launch too — the default one is

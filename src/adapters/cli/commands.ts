@@ -90,6 +90,7 @@ import {
   resolveConfigPath,
 } from "../config-path.js";
 import type { ConfigChoice, ConfigSource } from "../config-path.js";
+import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../stance-env.js";
 import { exportStore } from "./export.js";
 import {
   BIN,
@@ -661,10 +662,22 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     return EXIT.refused;
   }
 
-  const observer =
-    parsed.flags["observer"] === true ||
-    env["COUNTERPARTS_OBSERVER"] === "1" ||
-    env["COUNTERPARTS_OBSERVER"] === "true";
+  // THE STANCE VARIABLE IS READ THE WAY THE GUARD NEXT DOOR IS READ (G39).
+  // This used to match `"1"` and `"true"` exactly, untrimmed, while
+  // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` — documented one directory over as the
+  // set to reason from — took `1|true|on` trimmed and case-insensitive. So
+  // `COUNTERPARTS_OBSERVER=on` looked like an instrument and was an owner
+  // console. `adapters/stance-env.ts` is now the one reading, and it collapses
+  // a value it cannot read to OBSERVER: `docs/observer-mode.md` G5, fail toward
+  // standing down. On this surface that is the cheap direction — a stood-down
+  // console still runs every read, and says which stance refused what.
+  const observerReading = observerFromEnv(env, parsed.flags["observer"] === true);
+  const observer = observerReading.on;
+  if (observerReading.malformed !== null) {
+    io.err(
+      unreadableStanceLine(OBSERVER_ENV, observerReading.malformed, "standing down to observer stance"),
+    );
+  }
   if (observer && OWNER_OPS.includes(command)) {
     // Distinguishable, not silent (scar §2.4): the console says which stance
     // refused and which command it refused, so a stood-down run is legible.

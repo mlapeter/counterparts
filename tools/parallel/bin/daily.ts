@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 // lives; nothing else comes with it.
 import { stopAsk } from "../../../src/adapters/claude-code/hooks.js";
 import { primacyReading } from "../assignment.js";
+import { v2DataDirGate } from "../live-stores.js";
 import { dailyRecord } from "../record.js";
 import type { Primacy, RunPhase } from "../types.js";
 import { RunDir } from "../writer.js";
@@ -27,6 +28,8 @@ interface Args {
   date: string;
   v1Dir: string;
   v2DataDir: string;
+  /** True once `--v2-data-dir` appeared on the command line (G39). */
+  v2DataDirNamed: boolean;
   engramDir: string;
   abDir: string;
   v2Config: string | null;
@@ -50,6 +53,8 @@ function usage(): never {
       "  --date <YYYY-MM-DD>   the lived day to record.",
       "  --v1-dir <dir>        v1's data dir (read-only).      default ~/.bansai",
       "  --v2-data-dir <dir>   v2's data dir (read-only).      default ~/.counterparts",
+      "                        The default is ANNOUNCED on stderr, and REFUSED",
+      "                        outright under COUNTERPARTS_REQUIRE_EXPLICIT_DIR.",
       "  --engram-dir <dir>    the third store — the run dir must be disjoint from it.",
       "  --ab-dir <dir>        the primacy assignment dir.     default ~/.memory-ab",
       "  --v2-config <file>    v2's adapter config JSON — hashed into run.json.",
@@ -76,6 +81,7 @@ function parseArgs(argv: readonly string[]): Args {
     date: "",
     v1Dir: join(home, ".bansai"),
     v2DataDir: join(home, ".counterparts"),
+    v2DataDirNamed: false,
     engramDir: join(home, ".claude-engram"),
     abDir: process.env["MEMORY_AB_DIR"] ?? join(home, ".memory-ab"),
     v2Config: null,
@@ -110,6 +116,7 @@ function parseArgs(argv: readonly string[]): Args {
         break;
       case "--v2-data-dir":
         args.v2DataDir = value;
+        args.v2DataDirNamed = true;
         break;
       case "--engram-dir":
         args.engramDir = value;
@@ -178,6 +185,14 @@ function readTextOr(path: string): string {
 
 function main(argv: readonly string[]): number {
   const args = parseArgs(argv);
+  // G39 — THE ONE LIVE PATH THAT MUST BE SAID OUT LOUD. This bin READS the v2
+  // store, so an unnamed `--v2-data-dir` is not merely a guard input here; it
+  // is the subject. Announced on stderr, and REFUSED when the explicit-dir
+  // guard is armed. `../live-stores.ts` carries the argument for keeping the
+  // default at all, and for why v2's is the only one of the four that needs it.
+  const gate = v2DataDirGate({ dir: args.v2DataDir, named: args.v2DataDirNamed });
+  for (const line of gate.lines) process.stderr.write(`${line}\n`);
+  if (gate.refused) return 2;
   // BEFORE ANY READ OR ANY MKDIR: a run directory that overlaps a live store is
   // refused outright (CONTRACT §5 G1). Opening it first also means a refusal
   // costs nothing — no directory is created, no store is opened.
