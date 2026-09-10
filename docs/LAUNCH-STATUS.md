@@ -1029,10 +1029,10 @@ read read-only from `~/counterparts-parallel-run/2026-09-03/` and are this sessi
 | G34 | Backup before the schema move | **DONE** | `~/counterparts-backup-2026-09-07/2026-09-10T14-13-00-341Z` — prose **15,541** files, versions **468**, `operational.sqlite` via `VACUUM INTO`, spans **58**. Kept until the run's verdict; this is the revert lever, since a pre-v5 build refuses a v5 store by name. |
 | G35 | Merge #82 with no session open, then ONE restart | **DONE** | Merged `2026-09-10T14:13:23Z` as `2b95f21`, no session open. Restart 4: `restarts.jsonl` line 4, `2026-09-10T14:15:48.392Z`, hash `c3af0bef00209ba6` unchanged, class anything-else. |
 | G36 | `verify --dir ~/.counterparts/store` after the merge | **DONE** | Output verbatim below. |
-| G37 | Restore `dataDir` in `~/.counterparts/claude-code.json` | **DONE 08:15 local** | The config's `dataDir` points at the live store again; the previous file is kept as `claude-code.json.bak-2026-09-07`. This is the end of the I29 window and, unknowingly, of I31's. |
+| G37 | Restore `dataDir` in `~/.counterparts/claude-code.json` | **DONE 08:15 local** | The config's `dataDir` points at the live store again, and a backup, `claude-code.json.bak-2026-09-07`, sits beside it (this session did not open either file and does not know which state that backup holds). This is the end of the I29 window and, unknowingly, of I31's. |
 | G25 | I21 explicit-dir guard (#80) | **CLOSED** | by the merge. |
 | G26 | I22 prose paths (#79) | **CLOSED** | by the merge; the conversion event is below. |
-| G27 | I23 events pruned (#81) | **CLOSED** | by the merge; the first pass deleted 0, as the arithmetic said. |
+| G27 | I23 events pruned (#81) | **CLOSED** | by the merge. Not yet exercised: the `log` phase runs inside a sleep cycle and the `verify` below was taken before the first Stop-boundary sleep pass, so 1,349 held / oldest lived day 184 is what the first pass will read, not a report of one that ran. It will delete 0. |
 | G6 | `backfill-claims --apply` on the live store | **CLOSED — nothing to apply** | The read-only dry run, 2026-09-10: "Authored memories with no claimed salience: 0 / Default floor to apply: 0.25 / Dry run. Nothing has changed." A carried-forward item since 2026-09-04, closed by finding the work already unnecessary rather than by doing it. |
 
 ### `counterparts verify --dir ~/.counterparts/store`, after the first wake (owner's output)

@@ -60,8 +60,10 @@ live store. Three of the six days carried turns well above the floor — 86, 60 
 §5, "What counts as a day" (line 236), glosses the class as "**thin** (below the floor)". The
 instrument's `thin` is wider than that gloss: the same paragraph defines `active` as *the primary
 side reached a boundary AND the day carried at least K turns*, so a day that clears the turn floor
-and misses the boundary half is `thin` too. Six days here prove it — the records say so in their
-own `why` field, and `turnFloor: 5` sits beside `turns: 86` on 09-05. The instrument is behaving as
+and misses the boundary half is `thin` too. **Three of the five thin days here prove it** — 09-05,
+09-07 and 09-09, at 86, 60 and 26 turns against a floor of 5; 09-06 and 09-08 carried 0 turns and
+are thin under either reading. The records say so in their own `why` field, and `turnFloor: 5` sits
+beside `turns: 86` on 09-05. The instrument is behaving as
 the definition specifies; the parenthetical gloss is the thing that is wrong. Filed as a wording
 fix owed to the CONTRACT, not as a finding against the run.
 
@@ -98,8 +100,8 @@ look at before any verdict is written.
 | `redLine` | `false` — `namedFinding` **`true`** |
 
 The instrument's own note: "v2→v1 3 v1 line(s) carrying a verbatim v2 line against 1502 v1 mint(s)
-that day — red-line above 0.1 (OQ4: v1 keeps v2's text by design)". Two orders of magnitude under
-the bar, in the direction the run expects to leak. **Named, not a red line.** 09-07 and 09-08 read
+that day — red-line above 0.1 (OQ4: v1 keeps v2's text by design)". Roughly fiftyfold under the
+bar, in the direction the run expects to leak. **Named, not a red line.** 09-07 and 09-08 read
 0 in both directions; 09-08 has no denominator at all (no v1 log), so its `ratioNote` records that
 any hit there would have been a red line until the denominator could be read.
 
@@ -590,6 +592,6 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - **Surface-set hash unchanged: `c3af0bef00209ba6`**, on every one of the three branch declarations above and in `run.json` after the restart. Nothing in the batch adds or renames a field of the per-turn surfacing decision, gate-chunk, gate-deposit or band-transition records.
 - **The single restart.** `restarts.jsonl` line 4: `restartedAt` **`2026-09-10T14:15:48.392Z`**, `date` 2026-09-10, `phase` P, reason "second core batch #79 #80 #81: prose paths relative (schema v5), explicit-dir guard, events pruned in sleep; surfaceSet c3af0bef00209ba6 unchanged; class anything-else; hooks restored to the live store", `clearedActiveDays {"0":1,"P":0}`. This is the reconciliation the three 2026-09-05 declarations each promised: they were written against "today's owed restart", they landed together, and there is one restart dated the merge day.
 - **The schema conversion happened as declared.** `store.migrate.paths` at `2026-09-10T14:16:03Z`: `from` 4, `to` 5, **15,541** prose paths converted, **468** version paths converted, **0** unplaceable. `verify` after the first wake reads "Prose paths: 15541 relative, 0 absolute (unplaceable), 0 missing files / Version paths: 468 relative, 0 absolute, 0 missing" (the owner's command output, relayed 2026-09-10; see LAUNCH-STATUS G36). The revert lever for v2's CODE is now one-way — a pre-v5 build refuses a v5 store by name — which is why G34's backup was taken first.
-- **#81's first pass deleted nothing, as the arithmetic said it would.** `verify`: "Events: 1349 held (104 latched) oldest lived day 184 (2026-09-03) window 90 lived days". The oldest row is 184 and the store has not lived 90 days past its first v2 event, so the cutoff catches no row. The pre-merge census read 1,342; the four extra rows are the merge day's own.
+- **#81's pass will delete nothing when it runs, as the arithmetic said.** `verify`: "Events: 1349 held (104 latched) oldest lived day 184 (2026-09-03) window 90 lived days". The oldest row is 184 against a lived day of 185, so the cutoff (day − 90) catches no row. **Not yet exercised:** the `log` phase runs inside a sleep cycle, and the `verify` above was taken before the first Stop-boundary sleep pass of the new session — so this is what the first pass will read, not a report of one that ran. The pre-merge census read 1,342; seven rows were added between that reading and this one.
 - **#80's guard is off on the live host and stays off.** It arms on `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`, which the hooks and the MCP server do not set. Where it IS set — the test preload, the demo seeder, the loops, the bench, every agent shell — the only behaviour that moves is a refusal before anything opens.
 - **The run's own clock.** `run.json` after the restart: `phaseRestart.date` 2026-09-10, `activeDays {"0":1,"P":0}`. The ≥ 7 Phase-P active days count from 2026-09-10, the first day the hooks and the live store agree (I29/I31, closed by G37 the same morning).
