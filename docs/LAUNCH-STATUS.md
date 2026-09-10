@@ -1216,3 +1216,25 @@ post-verdict plan for bansai (undefined in both run documents).
 ### Spend
 
 $0.00 by the session and its agents.
+
+## 2026-09-10, evening — the owner's rulings 5 and 6; flip prep; scope controls in flight
+
+Appended by the coordinating session at the end of the day. Every line is a merge the session
+ran or a ruling the owner gave in conversation.
+
+| What | State |
+|---|---|
+| **PROMOTE ruling for v1** | Recorded in `docs/PARALLEL-RUN-STATUS.md` ("Owner ruling, 2026-09-10 — what PROMOTE does to v1"): keep `~/.bansai` and `~/bansai` untouched and read-only; at the verdict remove bansai's two remaining hooks and the guard, any MCP registration, and the `parallel.enabled` knob; archive the assignment file after OQ7's watch list is written. |
+| **Flip checklist steps 3, 5, 6** | DONE ahead of the flip on the owner's ruling. PR #89 (master `af0a283`): `docs/launch-prompt-2026-09-03.md`, `docs/preflight-prompt-2026-09-03.md`, `docs/launch/repo-public-audit.md` left the tree (they stay in history, as ruled 09-04); five forward-looking `.gitignore` entries. PR #19's body no longer carries an absolute home path. Step 2's scanners were run on the resulting tree: no new class. PR #90 (master `49230ff`) then replaced four home paths that this week's entries had introduced into `HANDOFF.md` and this file. What remains in `absolute-home-path` is ten test fixtures with fake user names. |
+| `docs/overnight-prompt-2026-09-04.md` | Not on the checklist's delete list (written after it); contains no personal content. **Owner ruled 2026-09-10: it stays in the tree.** |
+| **Deletions** | Owner ruled: delete only what is empty. `~/.counterparts/x` removed (0 memories, 0 prose, 0 versions, verified first). The live-store snapshot, the temp-store snapshot and the 09-05 cache copy are KEPT and described in `~/counterparts-backups-NOTE.md`; the one kept worktree (`launch/w1-round9`, one WIP commit) stays with them. A live-store note memory points at that file. |
+| **G41–G43** | Owner ruled: build now. An Opus builder is on branch `feat/scope-controls` (adapter only): a host-level registry `<config dir>/scopes.json` with modes `on` / `observer` / `off` / `paused`, longest-prefix match; `counterparts scope <path> --on\|--observer\|--off\|--pause\|--resume`, `--list`; an MCP `scope` tool; hooks exit silently under `off`; a first-launch ask injected once into a new directory's SessionStart. **Default while unset = on** (today's behaviour; the alternative, observer-until-answered, is named in the PR body for the owner). Needs: adversarial review (Opus), preview-merge suite, install loop both ways, hash unchanged, then merge under the standing approval. |
+| **Model rule, restated** | Owner, 2026-09-10: agents and PR reviews on Opus; Fable only when judgment says it clearly matters. |
+
+Open for the owner after this entry: the site review session (G19 Vercel + domain after the
+flip, G30 hero polish, a critic pass on the ribbons hero), G15 (optional bench re-run), and the
+run's verdict when the seventh active day arrives.
+
+### Spend
+
+$0.00 by the session and its agents.
