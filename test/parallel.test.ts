@@ -3957,6 +3957,71 @@ describe("the v2 path is named, announced, or refused", () => {
     }
   });
 
+  /**
+   * A BLANK VALUE IS A MISSING VALUE (the #87 reviewer). The bins' parser
+   * already rules that "a value that starts with `--` is a MISSING value, not a
+   * value"; the other way a flag arrives carrying nothing is
+   * `--v2-data-dir "$LIVE"` with `LIVE` unset, which the shell hands over as an
+   * empty argument. `parseArgs` records that as NAMED, so before this the gate
+   * announced nothing and refused nothing — and `resolve("")`, the CURRENT
+   * WORKING DIRECTORY, became the live store the run dir's overlap check was
+   * measured against. One place answers it, the gate, for all three bins.
+   */
+  test("a BLANK --v2-data-dir is a MISSING one: ARMED, it is refused like the unnamed default", () => {
+    for (const dir of ["", " ", "\t\n "]) {
+      const gate = v2DataDirGate({ dir, named: true }, { [GUARD]: "1" });
+      expect(`${JSON.stringify(dir)} → ${gate.refused}`).toBe(`${JSON.stringify(dir)} → true`);
+      expect(gate.lines).toHaveLength(1);
+      expect(gate.lines[0]).toContain(GUARD);
+      expect(gate.lines[0]).toContain("--v2-data-dir");
+    }
+    // Only blank. A path with a space IN it is a path somebody typed.
+    expect(v2DataDirGate({ dir: "/tmp/two words", named: true }, { [GUARD]: "1" }).refused).toBe(
+      false,
+    );
+  });
+
+  test("a BLANK --v2-data-dir is a MISSING one: UNARMED, it is announced as the default", () => {
+    // Unarmed the default stands — but it stops being silent, exactly as when
+    // the flag was never typed. `gate.lines` is verbatim what the bin writes to
+    // stderr.
+    for (const env of [{}, { [GUARD]: "0" }, { [GUARD]: "off" }, { [GUARD]: "" }]) {
+      const gate = v2DataDirGate({ dir: "", named: true }, env);
+      expect(`${JSON.stringify(env)} → ${gate.refused}`).toBe(`${JSON.stringify(env)} → false`);
+      expect(gate.lines).toHaveLength(1);
+      expect(gate.lines[0]).toContain("NOTE");
+      expect(gate.lines[0]).toContain("--v2-data-dir");
+    }
+  });
+
+  test("all three BINS refuse a BLANK --v2-data-dir under the armed guard, having done nothing", () => {
+    // The bins' half of the same claim, held to the same standard as the
+    // unnamed case above: the refusal must cost NOTHING, so the run directory
+    // named does not exist before and must not exist after.
+    const binDir = join(dirname(fileURLToPath(import.meta.url)), "..", "tools", "parallel", "bin");
+    const cases: readonly (readonly [string, string, readonly string[]])[] = [
+      ["restart.ts", "", ["--date", "2026-09-10", "--reason", "a fix landed"]],
+      ["daily.ts", " ", ["--date", "2026-09-10"]],
+      ["preflight.ts", "", []],
+    ];
+    for (const [name, blank, extra] of cases) {
+      const runDir = join(root, `never-created-blank-${name}`);
+      expect(existsSync(runDir)).toBe(false);
+      const out = spawnSync(
+        process.execPath,
+        [join(binDir, name), "--run-dir", runDir, "--v2-data-dir", blank, ...extra],
+        { encoding: "utf8", env: { ...process.env, [GUARD]: "1" } },
+      );
+      expect(`${name} → ${out.status}: ${out.stderr}`).toContain("--v2-data-dir");
+      expect(`${name} → ${out.status}`).toBe(`${name} → 2`);
+      expect(`${name}: ${out.stderr}`).toContain(GUARD);
+      expect(`${name} created ${runDir}: ${existsSync(runDir)}`).toBe(
+        `${name} created ${runDir}: false`,
+      );
+      expect(`${name} stdout: ${out.stdout}`).toBe(`${name} stdout: `);
+    }
+  });
+
   test("only v2's path gets this — v1's and engram's are covered by the FORBIDDEN list instead", () => {
     // The asymmetry is the point, and it is structural rather than a judgement
     // call. `~/.bansai` and `~/.claude-engram` are on

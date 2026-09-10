@@ -36,6 +36,11 @@
  *     naming the flag. This is every agent shell in this repo and the loop, so
  *     the class of process that must never point at `~/.counterparts` by
  *     accident is exactly the class that cannot.
+ *   - BLANK: a flag typed with nothing in it (`--v2-data-dir "$LIVE"`, `LIVE`
+ *     unset) is a flag that was NOT typed — the bins' own parser doctrine, "a
+ *     value that starts with `--` is a MISSING value, not a value", applied to
+ *     the other way a value goes missing. Otherwise the guard says nothing and
+ *     `resolve("")` — the working directory — becomes the run's live store.
  *   - MALFORMED: refused too, with the guard's own sentence
  *     (`explicitDirMalformedRefusal`) — junk is a question this will not answer,
  *     and it is answered identically here and in the store so the two doors do
@@ -118,8 +123,20 @@ export function v2DataDirGate(
   choice: V2DataDirChoice,
   env: Record<string, string | undefined> = process.env,
 ): { readonly lines: readonly string[]; readonly refused: boolean } {
-  const refusal = v2DataDirRefusal(choice, env);
+  // A BLANK VALUE IS A MISSING VALUE, not a value — the bins' own parser
+  // doctrine ("a value that starts with `--` is a MISSING value, not a value")
+  // applied to the other way a flag arrives carrying nothing. The realistic
+  // vector is `--v2-data-dir "$LIVE"` with `LIVE` unset: the shell hands the
+  // bin an empty argument, `parseArgs` records it as NAMED, and a gate that
+  // believed that would announce nothing and refuse nothing — while
+  // `resolve("")`, the CURRENT WORKING DIRECTORY, quietly becomes the live
+  // store the run dir's overlap check is measured against. Whitespace is the
+  // same claim: `" "` names no directory either. Treating it as unnamed puts
+  // the guard back in front of it, which is the whole point of this module.
+  const said: V2DataDirChoice =
+    choice.named && choice.dir.trim().length === 0 ? { dir: choice.dir, named: false } : choice;
+  const refusal = v2DataDirRefusal(said, env);
   if (refusal !== null) return { lines: [refusal], refused: true };
-  const notice = v2DataDirNotice(choice);
+  const notice = v2DataDirNotice(said);
   return { lines: notice === null ? [] : [notice], refused: false };
 }
