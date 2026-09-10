@@ -46,7 +46,13 @@ import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { openServer } from "../index.js";
 import { serveStdio } from "../stdio.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
-import { observerFromEnv, ownerFromEnv, unreadableStanceLine } from "../../stance-env.js";
+import {
+  OBSERVER_ENV,
+  OWNER_ENV,
+  observerFromEnv,
+  ownerFromEnv,
+  unreadableStanceLine,
+} from "../../stance-env.js";
 
 /**
  * The same file `bin/hook.ts` and `bin/runner.ts` read by default. One
@@ -67,8 +73,12 @@ export const ENV = {
   session: "COUNTERPARTS_SESSION",
   scope: "COUNTERPARTS_SCOPE",
   dir: "COUNTERPARTS_DATA_DIR",
-  owner: "COUNTERPARTS_OWNER",
-  observer: "COUNTERPARTS_OBSERVER",
+  // The two stance names come from `adapters/stance-env.ts`, not from a second
+  // pair of string literals here. That module's whole argument is that two
+  // strings which must agree and are written twice have already begun to
+  // disagree — it would be a poor place to start a third copy (G39).
+  owner: OWNER_ENV,
+  observer: OBSERVER_ENV,
 } as const;
 
 export interface LaunchOptions {
