@@ -595,3 +595,24 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - **#81's pass will delete nothing when it runs, as the arithmetic said.** `verify`: "Events: 1349 held (104 latched) oldest lived day 184 (2026-09-03) window 90 lived days". The oldest row is 184 against a lived day of 185, so the cutoff (day − 90) catches no row. **Not yet exercised:** the `log` phase runs inside a sleep cycle, and the `verify` above was taken before the first Stop-boundary sleep pass of the new session — so this is what the first pass will read, not a report of one that ran. The pre-merge census read 1,342; seven rows were added between that reading and this one.
 - **#80's guard is off on the live host and stays off.** It arms on `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`, which the hooks and the MCP server do not set. Where it IS set — the test preload, the demo seeder, the loops, the bench, every agent shell — the only behaviour that moves is a refusal before anything opens.
 - **The run's own clock.** `run.json` after the restart: `phaseRestart.date` 2026-09-10, `activeDays {"0":1,"P":0}`. The ≥ 7 Phase-P active days count from 2026-09-10, the first day the hooks and the live store agree (I29/I31, closed by G37 the same morning).
+
+## Owner ruling, 2026-09-10 — what PROMOTE does to v1
+
+Neither this document nor `tools/parallel/CONTRACT.md` §7 said what happens to bansai (v1) on
+a PROMOTE verdict. The owner ruled on 2026-09-10: **keep everything, turn it off completely.**
+
+- **Kept, untouched, read-only:** `~/.bansai` (its store, logs and journal) and the `~/bansai`
+  repository — for later review or restoration. Nothing in either is deleted or rewritten.
+- **Turned off at the verdict:** bansai's two remaining hook entries (`session-start`,
+  `user-prompt-submit`; the three encoding hooks were already removed on 2026-09-10 under
+  G38) and their guard script; any bansai MCP registration; the `parallel.enabled` knob in
+  the live configuration (retired per `config.ts`'s own note); the primacy assignment file's
+  `override` is left as it is until the run directory's post-cutover watch list (OQ7) is
+  written, then the assignment file is archived into the run directory.
+- **Order on verdict day:** the day's daily record → verdict written into the run directory →
+  hooks removed with no session open → one `counterparts status` from a fresh session →
+  OQ7 watch list written. Revert after that point is a restore from the kept `~/.bansai`,
+  not a config flip.
+
+Recorded here so verdict day has a script; the CONTRACT is not amended (it is the design's
+record, and §7 stays as written).
