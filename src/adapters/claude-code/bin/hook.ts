@@ -25,6 +25,8 @@ import {
   resolveConfigPath,
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
+import { lookupScope, readScopes, scopesPath, stanceOfMode } from "../../scopes.js";
+import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { loadCredentials, permissionWarning } from "../credentials.js";
@@ -150,8 +152,49 @@ export function hookConfigChoice(
   return resolveConfigPath(argv, env as Record<string, string | undefined>);
 }
 
-export function toHookInput(payload: Record<string, unknown>): HookInput {
-  const scope = typeof payload["cwd"] === "string" ? resolve(payload["cwd"]) : process.cwd();
+/**
+ * WHICH DIRECTORY THIS SESSION IS IN — the one decision the scope registry and
+ * the session registry both key on, so it is made once, here.
+ *
+ * The hook PAYLOAD's `cwd` first: the host measured it on 2026-09-04 to be the
+ * project directory, and it is the only one of the three that is a fact about
+ * THIS event rather than about the process. `CLAUDE_PROJECT_DIR` second — the
+ * host exports it too, and it survives a payload that arrived unparsable.
+ * `process.cwd()` last, which is what the hook has always fallen back to.
+ */
+export function hookScope(
+  payload: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (typeof payload["cwd"] === "string" && payload["cwd"].length > 0) {
+    return resolve(payload["cwd"]);
+  }
+  const projectDir = env["CLAUDE_PROJECT_DIR"];
+  if (typeof projectDir === "string" && projectDir.length > 0) return resolve(projectDir);
+  return process.cwd();
+}
+
+/**
+ * THE SCOPE VERDICT for this event: which entry in `<config dir>/scopes.json`
+ * governs this directory, and whether the file itself could be read.
+ *
+ * Exported and injectable because the hook's most important new behaviour —
+ * `off` means nothing is opened at all — is decided from it before any store
+ * exists, and that has to be provable without a process.
+ */
+export function hookScopeVerdict(
+  configPath: string,
+  scope: string,
+): { verdict: ScopeVerdict; read: ScopeRead } {
+  const read = readScopes(scopesPath(configPath));
+  return { verdict: lookupScope(read.registry, scope), read };
+}
+
+export function toHookInput(
+  payload: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): HookInput {
+  const scope = hookScope(payload, env);
   const transcript = readTranscript(
     typeof payload["transcript_path"] === "string" ? payload["transcript_path"] : undefined,
   );
@@ -199,7 +242,31 @@ async function main(): Promise<void> {
     process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
     return;
   }
-  const { config, credentials, reason } = hostConfig(choice.path);
+  // WHICH DIRECTORY, AND WHAT THIS HOST WAS TOLD ABOUT IT — decided here,
+  // before a store is opened, because that ordering is the whole guarantee
+  // (`../CONTRACT.md` §5 G13): a directory set `off` produces no output and no
+  // write because nothing was ever constructed to produce either. An
+  // unreadable registry resolves to `unset` (⇒ on, today's behaviour) and is
+  // reported as a ring event once the adapter that owns the ring exists.
+  const scope = hookScope(payload);
+  const { verdict, read } = hookScopeVerdict(choice.path, scope);
+  if (stanceOfMode(verdict.mode) === "off") {
+    // Silent on BOTH channels, deliberately. `off` is an opt-out, not an
+    // observer stand-down: there is no store to log to without writing one, and
+    // UserPromptSubmit fires every turn, so a line per event would be a
+    // permanent noise floor in the host's log for a directory that asked to be
+    // left alone. The record that this happened is the registry itself, which
+    // `counterparts scope <path>` prints on demand.
+    return;
+  }
+  const { config: loaded, credentials, reason } = hostConfig(choice.path);
+  // THE COMBINATION: the most restrictive of what the configuration said and
+  // what the registry says (`adapters/scopes.ts#effectiveStance`, applied here
+  // by folding the registry's `observer` into the config the adapter opens on).
+  // It only ever adds restriction, which is why the three private directories
+  // running on an observer CONFIG are untouched by any of this.
+  const config: AdapterConfig =
+    verdict.mode === "observer" ? { ...loaded, observer: true } : loaded;
   // The third arm: a named file that parses but whose fields do not typecheck
   // resolves to observer, and an observer with no `dataDir` reads the DEFAULT
   // store. Standing down is the only answer that keeps the promise the flag
@@ -224,6 +291,12 @@ async function main(): Promise<void> {
     // instead. It is also pinned onto the worker's environment, so the child
     // reads the same file its parent did rather than resolving one of its own.
     configPath: choice.path,
+    // The verdict travels IN, for the same reason the credentials do: it is a
+    // fact about this process's startup, decided before anything opened, and
+    // the adapter's jobs with it are to record it and — when it is `unset` — to
+    // ask the question once (G41).
+    scope: verdict,
+    ...(read.error === null ? {} : { scopeUnreadable: read.error }),
   });
   try {
     // ONE read of the transcript, shared by the hook and the notice: `toHookInput`

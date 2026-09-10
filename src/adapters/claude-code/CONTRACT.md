@@ -242,6 +242,46 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     adapter as `reFired` and is refused there as well as at delivery: it spends no
     pacing slot, no day-cap slot, and leaves no row.
 
+19. **[M] A directory set `off` gets NO OUTPUT AND NO WRITE — because nothing is
+    constructed.** The scope registry (`adapters/scopes.ts`,
+    `<config dir>/scopes.json`, longest-prefix, added 2026-09-10 for owner asks
+    G41–G43) is read at the ENTRY POINT, from the file `config-path.ts` resolved,
+    before a store is opened: an `off` or `paused` directory returns from
+    `bin/hook.ts#main` with byte-for-byte empty stdout, empty stderr, no session
+    record, no capture, no spawn and no store. `guard()` carries the same predicate
+    at the seam so a caller who builds an adapter directly inherits it, but the
+    guarantee itself is the absence of construction, and the install loop proves it
+    on a real process against a real clean-room install.
+
+    It is SILENT on purpose, and that is a deliberate exception to "every stand-down
+    is observable" (`docs/observer-mode.md` G6): there is no ring to log to without
+    opening a store, and `UserPromptSubmit` fires every turn, so one line per event
+    would be a permanent noise floor in the host's log for a directory that asked to
+    be left alone. The record is the registry itself, and `counterparts scope <path>`
+    prints it. An `off` is not an instrument standing down; it is the owner saying
+    this directory is not part of the memory.
+
+20. **[M] Effective stance is the MOST RESTRICTIVE of the configuration's and the
+    registry's, and the registry only ever adds restriction.** `on < observer < off`
+    (`scopes.ts#effectiveStance`). A registry entry of `observer` folds into the
+    configuration the adapter opens on, so it IS the existing observer stance rather
+    than a second implementation of it; a configuration that already stood a session
+    down is never relaxed by a registry. The three private directories running on an
+    observer configuration and `COUNTERPARTS_OBSERVER` have no entry at all, and
+    behave exactly as they did before any of this existed.
+
+21. **[A] An UNSET directory raises the first-launch question once per session, and
+    never inside the wake.** `SCOPE_ASK` travels on `HookResult.ask`, which the host
+    delivery appends AFTER the injection — never inside it, because the wake's
+    sentinel states its own byte count and must remain its last line (G2, scar §2.3).
+    It is delivered only when it FITS the ceiling the host reported, wake bytes
+    included; with no room it is deferred with an event and the session record is left
+    unmarked, so the next session asks rather than the question being truncated or
+    smuggled past the limit. `SessionRecord.askedScope` is what makes "once" true
+    across a resume or a compaction. The WORDING is advisory; that an unset directory
+    raises the question exactly once and that any recorded mode ends it are the
+    mechanized parts.
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

@@ -93,6 +93,17 @@ export interface SessionRecord {
    * the id, the scope and the three timestamps.
    */
   readonly config?: string;
+  /**
+   * TRUE once this session has been asked the first-launch scope question
+   * (G41). Set by the SessionStart hook at the moment it puts the block into
+   * the model's context, and carried forward like `config`.
+   *
+   * It is here rather than in the scope registry because it is a fact about ONE
+   * SESSION, not about the directory: the registry stays `unset` until somebody
+   * answers, and asking twice in a session that resumed or compacted is the
+   * thing this flag exists to stop. Still host state, still no content.
+   */
+  readonly askedScope?: boolean;
 }
 
 /**
@@ -187,6 +198,9 @@ export function recordSession(
     /** The configuration the writing hook read. Carried forward when a later
      *  phase is written by a process that was told nothing. */
     config?: string;
+    /** Set once, when the first-launch scope question is delivered (G41).
+     *  Carried forward the same way, and never cleared by a later phase. */
+    askedScope?: boolean;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -212,6 +226,10 @@ export function recordSession(
       : prior?.config !== undefined
         ? { config: prior.config }
         : {}),
+    // ONE-WAY, like `endedAt`: a session that has been asked has been asked,
+    // and a later phase written by a process that knows nothing about the
+    // question must not un-ask it.
+    ...(input.askedScope === true || prior?.askedScope === true ? { askedScope: true } : {}),
   };
 
   try {
@@ -276,5 +294,8 @@ function parseRecord(raw: unknown): SessionRecord | null {
     lastBoundaryAt,
     endedAt,
     ...(typeof config === "string" && config.length > 0 ? { config } : {}),
+    // Optional for the same reason `config` is: every record written before
+    // 2026-09-10 lacks it, and "not asked" is exactly what its absence means.
+    ...(rec["askedScope"] === true ? { askedScope: true } : {}),
   };
 }

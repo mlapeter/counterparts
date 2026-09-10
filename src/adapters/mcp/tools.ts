@@ -33,7 +33,7 @@
  */
 import { RECALL_MAX_IDS } from "./deliberate.js";
 
-export type ToolName = "note" | "recall" | "status" | "session_end" | "chapter";
+export type ToolName = "note" | "recall" | "status" | "session_end" | "chapter" | "scope";
 
 /**
  * The tool vocabulary, ENUMERATED. Three deliberate verbs plus the TWO return
@@ -51,6 +51,16 @@ export type ToolName = "note" | "recall" | "status" | "session_end" | "chapter";
  * names the only legitimate inputs, those inputs must be reachable by
  * construction* — the same sentence that justified the ask now justifies its
  * door.
+ *
+ * **`scope` is the sixth, added 2026-09-10 (owner asks G41–G43).** It is the only
+ * tool that writes no memory at all: it reads and sets the HOST's own registry
+ * of which directories this memory is for. It exists because the first-launch
+ * question the SessionStart hook raises has the same problem every other ask on
+ * this host has had — a hook can put a question INTO the context and can
+ * receive nothing back (`claude-code/INTERFACE-GAPS.md` gap 7) — and because a
+ * directory switched `off` must be switchable back ON from inside a session:
+ * every other tool refuses there, so a door that refused too would be a door
+ * that locks from the outside.
  */
 export const TOOL_NAMES: readonly ToolName[] = [
   "note",
@@ -58,6 +68,7 @@ export const TOOL_NAMES: readonly ToolName[] = [
   "status",
   "session_end",
   "chapter",
+  "scope",
 ];
 
 /**
@@ -516,7 +527,69 @@ const CHAPTER: ToolSpec = {
   },
 };
 
-export const TOOLS: readonly ToolSpec[] = [NOTE, RECALL, STATUS, SESSION_END, CHAPTER];
+/**
+ * `scope`'s privileges. Every one of them is about what this tool does NOT
+ * touch: it is the only door here that writes no memory, and the only one that
+ * answers at all in a directory that has been switched off.
+ */
+const SCOPE: ToolSpec = {
+  name: "scope",
+  summary:
+    "Which directories this memory is for. Read what this one is set to — on, observer (reads only), off, paused, or unset — and set it when the user says. It changes the host's own configuration; it writes no memory and reads none.",
+  admission:
+    "Call it to READ when a session starts in a directory nothing is set for and the wake asks you to; call it to SET the moment the user answers 'remember here', 'just read', 'not here' or 'pause this'.",
+  negativeExamples: [
+    "Do NOT call it to remember something — that is `note`, and this tool stores no content of any kind.",
+    "Do NOT call it to set a directory the user has not been asked about; the question is theirs to answer, not yours to guess.",
+    "Do NOT call it repeatedly to check state; the setting changes only when somebody changes it.",
+  ],
+  privileges: [
+    {
+      claim:
+        "It only ever acts on the directory THIS session is running in. There is no argument for a path, so it cannot reach into another project's setting.",
+      mechanizedBy: "src/adapters/mcp/server.ts#scopeTool (this.scope, never an argument)",
+    },
+    {
+      claim:
+        "It writes the host's scope registry beside claude-code.json and touches no store: no memory is created, read, strengthened or removed by calling it.",
+      mechanizedBy: "src/adapters/scopes.ts#writeScopes (no Store, no Counterpart)",
+    },
+    {
+      claim:
+        "In a directory set to `off` it is the ONE tool that still answers — every other tool refuses with `scope-off` — so a session can always be given its memory back.",
+      mechanizedBy: "src/adapters/mcp/server.ts#call (scope-off refusal, scope exempted)",
+    },
+    {
+      claim:
+        "Under observer stance it READS and refuses to write, in the same sentence every other write refuses in.",
+      mechanizedBy: "src/adapters/mcp/server.ts#scopeTool -> standDown",
+    },
+    {
+      claim:
+        "A registry it cannot parse is never overwritten: it says what it could not read and changes nothing.",
+      mechanizedBy: "src/adapters/scopes.ts#readScopes -> src/adapters/mcp/server.ts#scopeTool",
+    },
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      mode: {
+        type: "string",
+        enum: ["on", "observer", "off", "pause", "resume"],
+        description:
+          "What to set this directory to. Omit to READ what it is set to now. `pause` is off-for-now and remembers what to go back to; `resume` undoes a pause or an off.",
+      },
+      note: {
+        type: "string",
+        description: "Optional: the user's own reason, recorded beside the setting.",
+      },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+};
+
+export const TOOLS: readonly ToolSpec[] = [NOTE, RECALL, STATUS, SESSION_END, CHAPTER, SCOPE];
 
 export function toolSpec(name: string): ToolSpec | undefined {
   return TOOLS.find((t) => t.name === name);

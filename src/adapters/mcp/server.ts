@@ -47,6 +47,16 @@ import type { ChapterResult, Counterpart, DepositResult } from "../../core/count
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
+import {
+  lookupScope,
+  readScopes,
+  ownEntry,
+  resumeTarget,
+  setScope,
+  stanceOfMode,
+  writeScopes,
+} from "../scopes.js";
+import type { ScopeMode, ScopeVerdict } from "../scopes.js";
 import { SESSION_TTL_MS, isLive, readSession, sameScope } from "../sessions.js";
 import {
   JOURNAL_GLOSS,
@@ -125,6 +135,19 @@ export interface McpServerOptions {
   registryDir?: string;
   /** **CAL.** Liveness window for a lazily-bound claim (`adapters/sessions.ts`). */
   sessionTtlMs?: number;
+  /**
+   * THE SCOPE REGISTRY this server consults — `<config dir>/scopes.json`,
+   * resolved by the entry point from the same `--config` rule everything else
+   * uses (`bin/serve.ts`). Absent means "nobody told us", which reads as `unset`
+   * and behaves exactly as this server always has.
+   *
+   * It is read PER CALL rather than pinned at construction, and deliberately:
+   * the file is a few hundred bytes, and a session whose directory was switched
+   * back on — from the console in another terminal, or by this server's own
+   * `scope` tool — must get its memory back without the host restarting the
+   * process. The launch stderr line is the one thing computed once.
+   */
+  scopesFile?: string;
   onEvent?: (e: McpEvent) => void;
   now?: () => number;
 }
@@ -188,6 +211,7 @@ export class McpServer {
 
   private readonly embedder: QuestionEmbedder | null;
   private readonly registryDir: string;
+  private readonly scopesFile: string | null;
   private readonly sessionTtlMs: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
   private readonly nowFn: () => number;
@@ -204,6 +228,8 @@ export class McpServer {
     this.scope = scope.scope;
     this.scopeSource = scope.source;
     this.registryDir = opts.registryDir ?? opts.counterpart.store.dir;
+    this.scopesFile =
+      opts.scopesFile !== undefined && opts.scopesFile.length > 0 ? opts.scopesFile : null;
     this.sessionTtlMs = opts.sessionTtlMs ?? SESSION_TTL_MS;
     this.observer = opts.counterpart.observer;
     // An observer is a non-owner regardless of what the host claimed
@@ -302,6 +328,18 @@ export class McpServer {
 
   /** Direct tool invocation, transport-free. The wire calls this; so do tests. */
   async call(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // THE SCOPE GATE, BEFORE EVERYTHING — before the observer stand-down and
+    // before any session bind. A directory somebody switched `off` gets no
+    // deposits, no reads and no census, and the refusal is NAMED (`scope-off`)
+    // so it is not mistaken for a broken server, an unbound session or a
+    // stand-down. The one exception is `scope` itself: every other tool
+    // refusing there means a door that refused too would lock from the outside,
+    // and turning a directory back on from inside the session that wants it is
+    // the whole point of the tool.
+    if (name !== "scope") {
+      const verdict = this.scopeVerdict();
+      if (stanceOfMode(verdict.mode) === "off") return this.refuseScopeOff(name, verdict);
+    }
     switch (name) {
       case "note":
         return this.noteTool(args);
@@ -313,9 +351,139 @@ export class McpServer {
         return this.sessionEndTool(args);
       case "chapter":
         return this.chapterTool(args);
+      case "scope":
+        return this.scopeTool(args);
       default:
         return this.refuse(name, "unknown-tool", { tool: name });
     }
+  }
+
+  // ── the scope registry ─────────────────────────────────────────────────────
+
+  /**
+   * What `<config dir>/scopes.json` says about THIS server's directory, read
+   * fresh. Absent registry, absent file, unreadable file: all `unset`, which is
+   * on — the same fail direction the hooks take, and for the same reason (a
+   * tool may not fail on host trivia).
+   */
+  private scopeVerdict(): ScopeVerdict {
+    if (this.scopesFile === null) return { mode: "unset", matched: null, entry: null };
+    return lookupScope(readScopes(this.scopesFile).registry, this.scope);
+  }
+
+  /** The named refusal every tool but `scope` gets in a directory set `off`. */
+  private refuseScopeOff(tool: string, verdict: ScopeVerdict): ToolResult {
+    this.emit("mcp.scope.off", undefined, { tool, matched: verdict.matched, mode: verdict.mode });
+    return this.refuse(tool, "scope-off", {
+      scope: this.scope,
+      ...(verdict.matched === null ? {} : { setBy: verdict.matched }),
+      detail:
+        verdict.mode === "paused"
+          ? "Counterparts is paused for this directory. Nothing is recorded or read here until it is resumed — call `scope` with mode `resume`, or run `counterparts scope . --resume`."
+          : "Counterparts is off for this directory. Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope . --on`.",
+    });
+  }
+
+  /**
+   * `scope` — read, or set, what this directory is for (owner asks G41–G43).
+   *
+   * The path is `this.scope` and there is no argument for one: a model that
+   * could name the directory could switch off a project it is not in. Reading
+   * is allowed in every stance, including observer and `off`, because "why did
+   * this session record nothing" must always be answerable; writing refuses
+   * under observer exactly as every other write does.
+   */
+  private scopeTool(args: Record<string, unknown>): ToolResult {
+    const mode = args["mode"];
+    const file = this.scopesFile;
+    const verdict = this.scopeVerdict();
+    const read = file === null ? null : readScopes(file);
+
+    if (mode === undefined) {
+      this.emit("mcp.scope.read", undefined, { mode: verdict.mode, matched: verdict.matched });
+      return this.result(
+        {
+          scope: this.scope,
+          mode: verdict.mode,
+          stance: stanceOfMode(verdict.mode),
+          ...(verdict.matched === null ? {} : { setBy: verdict.matched }),
+          ...(verdict.entry?.since === undefined ? {} : { since: verdict.entry.since }),
+          ...(verdict.entry?.note === undefined ? {} : { note: verdict.entry.note }),
+          ...(verdict.mode === "paused" ? { resumesTo: resumeTarget(verdict.entry) } : {}),
+          ...(file === null ? {} : { registry: file }),
+          detail:
+            verdict.mode === "unset"
+              ? "Nothing is set for this directory or any parent, so it is on by default. Ask the user before setting it."
+              : "This is what the host's scope registry says about this directory.",
+        },
+        false,
+      );
+    }
+
+    if (typeof mode !== "string" || !["on", "observer", "off", "pause", "resume"].includes(mode)) {
+      return this.refuse("scope", "mode-unusable", {
+        detail: "`mode` takes on, observer, off, pause or resume — or omit it to read the setting.",
+      });
+    }
+    if (this.observer) return this.standDown("scope");
+    if (file === null) {
+      return this.refuse("scope", "no-registry", {
+        detail:
+          "This server was launched without a scope registry to write, so it can only read. Use `counterparts scope <path> --on|--observer|--off` instead.",
+      });
+    }
+    if (read !== null && read.error !== null) {
+      return this.refuse("scope", "registry-unreadable", {
+        registry: file,
+        detail: `The registry could not be read — ${read.error}. Nothing was changed; a person has to fix it (\`counterparts scope <path> --off --force\` replaces it).`,
+      });
+    }
+
+    let target: ScopeMode;
+    if (mode === "resume") {
+      const own = ownEntry(read?.registry ?? null, this.scope);
+      if (own === null) {
+        return this.refuse("scope", "nothing-to-resume", {
+          detail:
+            verdict.entry === null
+              ? "Nothing is set for this directory, so it is already on."
+              : `Nothing is set for this directory itself — it inherits ${verdict.matched ?? "?"}. Set this one directly instead.`,
+        });
+      }
+      target = resumeTarget(own);
+    } else {
+      target = mode === "pause" ? "paused" : (mode as ScopeMode);
+    }
+
+    const next = setScope(read?.registry ?? null, this.scope, target, {
+      at: new Date(this.nowFn()).toISOString(),
+      ...(typeof args["note"] === "string" && args["note"].length > 0
+        ? { note: args["note"] }
+        : {}),
+    });
+    try {
+      writeScopes(file, next);
+    } catch (err) {
+      return this.refuse("scope", "registry-unwritable", {
+        registry: file,
+        detail: `The registry could not be written (${err instanceof Error ? err.message : String(err)}). Nothing was changed.`,
+      });
+    }
+    this.emit("mcp.scope.set", undefined, { mode: target, scope: this.scope });
+    return this.result(
+      {
+        set: true,
+        scope: this.scope,
+        mode: target,
+        stance: stanceOfMode(target),
+        registry: file,
+        detail:
+          target === "off" || target === "paused"
+            ? "This directory is no longer recorded or read. The hooks will produce nothing here and every other tool will refuse until it is turned back on — including in a new session, which is the point."
+            : "Recorded. This takes effect for the tools immediately, and for the hooks at the next session.",
+      },
+      false,
+    );
   }
 
   /**

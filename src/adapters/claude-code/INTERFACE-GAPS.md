@@ -203,36 +203,64 @@ into the wrapper.
    the heavy work is already detached. When something in the foreground can grow,
    this is the number it must be measured against.
 6. **On first launch in a new directory, nobody is asked whether this should be
-   on.** Owner's ask, 2026-09-10. The hooks are registered globally, so a project
-   directory that has never heard of Counterparts inherits capture, deposit and
-   the wake the first time a session opens in it. The honest default is a
-   question asked once per new directory and remembered — "on here?" — rather
-   than a silent yes. The host offers `SessionStart` as the place to ask and no
-   place to receive the answer (gap 7's problem, again), so the mechanism is
-   likely a written record plus an ask in the first wake, not a prompt.
-7. **Turning it OFF for one directory takes four moving parts.** Owner's ask,
-   2026-09-10 (the same conversation as 6). Today it is a project
-   `.claude/settings.json` with an `env` block naming an observer configuration
-   through `COUNTERPARTS_CONFIG` and setting `COUNTERPARTS_OBSERVER=1` —
-   **verified 2026-09-10 to reach both the hooks and this host's MCP servers**,
-   which is the part that was not obvious. Observer means the wake and recall are
-   delivered and nothing is captured or deposited. It works; it is a JSON file, a
-   second config file and two environment variables to say "not here". One flag,
-   one file, would be the size of the thing being asked for. (See also G39: the
-   guard and `COUNTERPARTS_OBSERVER` accept different value sets, which should be
-   one place.)
-8. **There is no pause/resume for a directory that is normally on.** Owner's ask,
-   2026-09-10. Item 7's mechanism is permanent by shape — you edit a file to opt
-   out and edit it back to opt in. The missing thing is the temporary version:
-   one session, or one afternoon, that the counterpart does not record, without
-   the directory changing its mind about what it is. `COUNTERPARTS_OBSERVER` is
-   the right underlying state; what is missing is a way to reach it that is not
-   an edit.
+   on. — CLOSED 2026-09-10 (G41).** The hooks are registered globally, so a
+   project directory that had never heard of Counterparts inherited capture,
+   deposit and the wake the first time a session opened in it.
+
+   The mechanism is the one this gap predicted: a written record plus an ask in
+   the first wake, not a prompt. `SessionStart` appends `SCOPE_ASK` — one short
+   block asking the model to ask the person, in plain words, and naming the
+   console line that records the answer — whenever the scope registry says
+   `unset`, at most once per session (`SessionRecord.askedScope`), and only when
+   it fits the ceiling the host reported. It rides `HookResult.ask` rather than
+   the injection, because the wake's sentinel states its own byte count and must
+   stay its last line (scar §2.3); when there is no room it defers with an event
+   and leaves the record unmarked, so the next session asks instead.
+
+   **What it does NOT close.** The default while unset is still ON, so the
+   session that raises the question is itself recorded. That is deliberate —
+   every directory the parallel run touches is unset, and defaulting to observer
+   would have muted the live run on the day it shipped — and it is the one
+   decision in this feature the owner was asked to confirm rather than told.
+7. **Turning it OFF for one directory takes four moving parts. — CLOSED
+   2026-09-10 (G42).** It was a project `.claude/settings.json` with an `env`
+   block naming an observer configuration through `COUNTERPARTS_CONFIG` and
+   setting `COUNTERPARTS_OBSERVER=1` — verified that day to reach both the hooks
+   and this host's MCP servers, which was the part that was not obvious. It
+   worked; it was a JSON file, a second config file and two environment variables
+   to say "not here".
+
+   It is now one line: `counterparts scope . --off`, writing one entry in
+   `<config dir>/scopes.json` (`adapters/scopes.ts`). `off` is stronger than the
+   old mechanism as well as shorter — the old one was observer, which still
+   delivered the wake and recall; this one produces no output and writes nothing,
+   because the entry point refuses before a store is opened (CONTRACT §5 G19).
+   `--observer` is the same word for the old behaviour, and `--on` puts it back.
+
+   **The old mechanism is untouched and still governs.** The stance the
+   configuration and the environment produce is combined with the registry's by
+   `effectiveStance`, most restrictive wins — so the three private directories,
+   which have no registry entry, behave exactly as they did. (G39's complaint —
+   that the guard and `COUNTERPARTS_OBSERVER` accepted different value sets — was
+   closed separately, in `adapters/stance-env.ts`.)
+
+8. **There is no pause/resume for a directory that is normally on. — CLOSED
+   2026-09-10 (G43).** `counterparts scope . --pause` is off-for-now and records
+   `resumeTo` — what the directory thought it was — so `--resume` puts back
+   `observer` where the directory was observer, and `on` where it was on or was
+   simply switched off. The directory never changes its mind about what it is;
+   the pause is the temporary version this gap asked for, and it is a command
+   rather than an edit. The MCP `scope` tool takes `pause` and `resume` too, so a
+   session can be paused from inside itself.
 
 **Host fact, 2026-09-10:** three private project directories are running in
 observer mode by the mechanism in item 7. Sessions there deliver wake and recall
 and capture nothing, by configuration. A daily record that reads few turns from
-those directories is reading the configuration working, not a fault.
+those directories is reading the configuration working, not a fault. **They are
+unchanged by the scope registry** — they hold no entry in it, and the combination
+rule only ever adds restriction — so the migration to `counterparts scope
+<path> --observer` is the owner's to make when they feel like it, not something
+this change did to them.
 
 ---
 

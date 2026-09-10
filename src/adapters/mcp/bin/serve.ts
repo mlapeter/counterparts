@@ -38,6 +38,7 @@ import {
   resolveConfigPath,
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
+import { effectiveStance, lookupScope, readScopes, scopesPath } from "../../scopes.js";
 import { loadConfig } from "../../claude-code/config.js";
 import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
 import type { CredentialLoad } from "../../claude-code/credentials.js";
@@ -204,7 +205,7 @@ export function questionEmbedder(
  *
  * **The store is NOT decided here.** It still comes from `--dir`, else
  * `COUNTERPARTS_DATA_DIR`, else the default — this file answers "whose keys and
- * whose embedder knob", which is the other half of the trap QUICKSTART §10.3
+ * whose embedder knob", which is the other half of the trap QUICKSTART §11.3
  * names, not the same half.
  */
 export function serverConfigChoice(
@@ -250,7 +251,49 @@ async function main(): Promise<void> {
   const warning = permissionWarning(credentialsFile, credentials);
   // stderr, never stdout: stdout is the JSON-RPC wire. Warned, never refused.
   if (warning !== null) process.stderr.write(`${warning}\n`);
-  const server = openServer({ ...opts, embedder });
+  // WHICH DIRECTORY, AND WHAT THE HOST WAS TOLD ABOUT IT. The registry sits
+  // beside the configuration this launch resolved, so `-e COUNTERPARTS_CONFIG=…`
+  // moves both together and a scratch install's scopes are its own.
+  //
+  // The server still STARTS in a directory set `off`: a server that refused to
+  // launch is reported by this host as "MCP server failed", which is a broken
+  // tool rather than a directory that asked to be left alone — and the `scope`
+  // tool is what turns it back on, so it has to be reachable. Every other tool
+  // refuses `scope-off`, per call, from the file as it stands at that moment.
+  const scopesFile = scopesPath(choice.path);
+  const scopeRead = readScopes(scopesFile);
+  const scopeVerdict = lookupScope(scopeRead.registry, opts.scope ?? process.cwd());
+  if (scopeRead.error !== null) {
+    process.stderr.write(
+      `[counterparts] scope registry ${scopesFile} could not be read — ${scopeRead.error}. Every directory reads as unset (on).\n`,
+    );
+  }
+  // ONE line at launch when this directory is not an ordinary one — the only
+  // channel this process has to the operator, and the difference between a
+  // muted server and a broken one (scar §2.4).
+  const stance = effectiveStance(opts.observer, scopeVerdict.mode);
+  if (stance !== "on" || scopeVerdict.mode !== "unset") {
+    process.stderr.write(
+      `[counterparts] scope: ${opts.scope ?? process.cwd()} is ${scopeVerdict.mode}` +
+        `${scopeVerdict.matched === null ? "" : ` (set by ${scopeVerdict.matched})`}` +
+        ` — this server runs ${stance}.\n`,
+    );
+  }
+  const server = openServer({
+    ...opts,
+    // THE COMBINATION, most restrictive wins: a registry that says `observer`
+    // stands the server down even when the configuration did not, and a
+    // configuration that already said so is never relaxed by a registry.
+    //
+    // `off` deliberately does NOT set the observer bit. Under observer every
+    // tool stands down INCLUDING `scope`'s write, and `scope` is the one door
+    // that has to keep working in an off directory or the switch only turns one
+    // way. Nothing is at risk: every other tool refuses `scope-off` one layer
+    // above, per call, before it can reach a store.
+    observer: stance === "observer" || opts.observer,
+    scopesFile,
+    embedder,
+  });
   try {
     await serveStdio(server, process.stdin, {
       write: (chunk) => {

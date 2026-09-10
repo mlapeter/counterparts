@@ -171,6 +171,81 @@ named.
 
 ---
 
+## 12. Per-directory scope, and the four things that decided its shape (2026-09-10)
+
+*Owner asks G41–G43, closing host gaps 6, 7 and 8 in `INTERFACE-GAPS.md`.*
+
+**The registry sits beside the CONFIGURATION, not inside the store.** A store is
+memory; this is host state about which directories memory is *for*, and — the
+load-bearing half — the hook has to decide `off` **before** anything opens. A
+registry inside the store could not answer that question without opening the
+thing it was about to refuse to touch. Beside `claude-code.json` also means
+`--config` and `COUNTERPARTS_CONFIG` move the two together for free, so a scratch
+install's scopes are that install's own, which is the property the whole
+config-path rule exists for.
+
+**`unset` means ON, and that is the choice to argue with.** Every directory the
+parallel run touches is unset, so a registry that defaulted to `observer` would
+have muted the live run on the day it shipped — a feature about consent that
+takes memory away without being asked is the same mistake in the other
+direction. The honest cost is that the first session in a genuinely new
+directory still records that session before anyone is asked; the ask goes out in
+that same session's wake, and the answer governs from the next one. The
+alternative — observer-until-answered — is one line (`stanceOfMode`'s default
+arm) and is named in the PR for the owner to take.
+
+**`off` is silent, and it is the one place this package chooses silence.**
+Everything else here is built on "a stand-down that says nothing is
+indistinguishable from a broken tool" (scar §2.4, observer-mode G6). Two facts
+overrode it: there is no ring to write to without opening a store, which is the
+thing `off` promises not to do; and `UserPromptSubmit` fires every turn, so one
+stderr line per event is a permanent noise floor in the host's log — in the one
+directory whose owner said *leave this alone*. The distinguishing record is the
+registry, which is a file a person wrote on purpose and which `counterparts
+scope <path>` reads back. The MCP server, which has an operator-facing stderr at
+LAUNCH and not per call, still prints its one line there.
+
+**The first-launch ask rides `HookResult.ask`, not the injection.** The obvious
+implementation — append the question to the wake text — was written first and
+broke three things at once: `bytes` no longer described the injection, the
+sentinel's stated byte count became a lie, and the sentinel stopped being the
+last line, which is exactly the truncation detector scar §2.3 paid for. `ask` is
+the field the host delivery already appends after the injection, so the question
+lands where it was asked to land and the bundle's own accounting is untouched.
+It is delivered only if it FITS the reported ceiling; when it does not, the
+session record is left unmarked and the next session asks. On this host today
+the wake is 8,859 bytes of a 9,000-byte ceiling and the block is 402, so the
+question DEFERS on every unset directory the owner has until the bundle has room.
+That is the honest answer to a ceiling and the event says so, but it means the
+headline behaviour is dormant here: the two other levers are a bounded overbudget
+(the ceiling is already an event rather than a truncation, `adapter.injection.
+overbudget`) and a shorter block, and even a terse one is ~170 bytes against 141
+of headroom. Named in the PR for the owner rather than left in a comment.
+
+**`counterparts scope --observer` is a MODE, not this console's stance.** The
+owner asked for those four words by name, and `--observer` was already a common
+flag meaning "stand this console down" — the two cannot share one flag on one
+command line. On `scope` alone the flag names the mode, the stance comes from
+`COUNTERPARTS_OBSERVER`, and the write half refuses under it in the same sentence
+an owner op refuses in. The help page prints a different sentence for that flag
+(`SCOPE_FLAG_HELP`) rather than the shared one, because a page that printed the
+shared sentence there would be printing something false. `scope` is deliberately
+NOT on `OWNER_OPS`: that list refuses a command whole, and an instrument must
+still be able to read the registry — "why did this session record nothing" has
+to be answerable from a stood-down console.
+
+**Paths are canonicalised deeper than `sessions.ts` needs.** `canonicalScope`
+realpaths a path that exists and resolves one that does not, which is right for
+comparing two live session directories. A PREFIX rule needs more: a key written
+from `/tmp/x` becomes `/private/tmp/x` on this host, while a query for a
+subdirectory that does not exist yet stays under `/tmp` — an ancestor that
+governs the parent and not the child. `canonicalScopePath` realpaths the deepest
+existing ancestor and appends the rest, and `setScope` replaces every key that
+canonicalises to the same directory, so a hand-edited spelling cannot leave two
+entries for one directory with `lookupScope` honouring whichever sorted first.
+
+---
+
 ## The week the worker never started (I32, 2026-09-11)
 
 A forced `install --force` on 2026-09-04 replaced `credentials.env` with the

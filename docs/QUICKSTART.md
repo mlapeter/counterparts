@@ -5,13 +5,14 @@ page's CONSOLE commands verbatim — each one is grepped out of this file before
 is executed, so a doc edit that changes one fails the loop — in a throwaway home
 directory with no copy of this repository on its PATH. It packs the tarball
 itself and feeds the hook its own payload. It cannot run `git clone`,
-`claude mcp add`, `export PATH` or Claude Code; §9 lists what that leaves
+`claude mcp add`, `export PATH` or Claude Code; §10 lists what that leaves
 unverified.
 
 No API key required. The scripted version of this page — install, configure,
-hook, note, recall, the MCP round trip, the removal plan and the session write — is
-47 checks and runs end to end in two to three seconds; the part that takes you time is §4,
-pasting two blocks into Claude Code's own configuration.
+hook, note, recall, the MCP round trip, the removal plan, the session write and the
+scope switch — is
+52 checks and runs end to end in two to three seconds; the part that takes you time is
+§4, pasting two blocks into Claude Code's own configuration.
 
 ---
 
@@ -328,7 +329,7 @@ launched from it has no command line you can put `--config` on, so a non-default
 configuration travels as a second `-e` — `-e COUNTERPARTS_CONFIG="/your/path"` —
 and `counterparts install --config` prints exactly that. The two answer different
 questions: `COUNTERPARTS_DATA_DIR` says which store, `COUNTERPARTS_CONFIG` says
-whose keys and whose embedder knob (§6, §10.3). The server prints the
+whose keys and whose embedder knob (§6, §11.3). The server prints the
 configuration it read on stderr at launch, before any protocol.
 
 Then **restart Claude Code**. Hooks are read at session start; MCP servers are
@@ -346,7 +347,7 @@ at most once in a while, ask you a question through the model. No hook ever fail
 your session — that is the one failure mode this adapter does not have. Every hook
 exits 0, with one deliberate exception: a Stop that has a question to ask exits 2
 and writes the ask to stderr, because on this host that is the channel the model
-actually reads (`hook.ts#hostDelivery`, measured; §9). That 2 is the feedback channel,
+actually reads (`hook.ts#hostDelivery`, measured; §10). That 2 is the feedback channel,
 not a failure.
 
 **The MCP server** is the deliberate half: `note` (remember this), `recall` (ask
@@ -748,7 +749,60 @@ hooks' and the MCP server's.
 
 ---
 
-## 8. Upgrading
+## 8. Which directories it remembers
+
+The hooks are registered once, globally, so a session in ANY directory is
+remembered by default. `counterparts scope` is where you say otherwise, one
+directory at a time. It writes the host's own registry — `scopes.json`, beside
+`claude-code.json`, so `--config` moves the two together — and it opens no
+store: it takes no `--dir` and works on a machine that has none yet.
+
+From inside the directory you mean:
+
+```
+counterparts scope . --off
+```
+
+and nothing there is recorded or read again: the hooks produce no output and
+write nothing at all, and every MCP tool refuses by name (`scope-off`). The
+other three modes:
+
+- `--on` — the default: capture, deposit, wake and recall, as everywhere else.
+- `--observer` — reads only. The wake and recall are delivered; nothing is
+  captured or deposited, and `note`, `session_end` and `chapter` stand down.
+  This is the same stance §6's observer configuration produces, said in one word.
+- `--pause` — off for now, remembering what to go back to.
+
+`--resume` undoes a pause, and turns an `--off` directory back on:
+
+```
+counterparts scope . --resume
+```
+
+To see what one directory resolves to and which entry decided it — a
+subdirectory inherits its nearest ancestor, so turning a project off turns off
+every worktree under it:
+
+```
+counterparts scope .
+```
+
+and for the whole registry, with the file it came from:
+
+```
+counterparts scope --list
+```
+
+Two more things worth knowing. **Nothing set means on**: a directory nobody has
+answered for behaves exactly as it did before any of this existed — which is why
+the first session in an unset directory asks you, once, which of the three you
+want, and records your answer with the command above. And `--note "<text>"`
+keeps the reason beside the entry, for the version of you that reads the list in
+six months.
+
+---
+
+## 9. Upgrading
 
 `git pull && npm pack` in the clone, then:
 
@@ -761,7 +815,7 @@ then restart every open Claude Code session (§5). Your store is untouched:
 
 ---
 
-## 9. What is actually verified, and what is not
+## 10. What is actually verified, and what is not
 
 The install loop (`tools/install-loop/run.sh`) runs in a throwaway HOME with no
 repo on its PATH and checks, every time:
@@ -822,7 +876,7 @@ rather than from a script.
 
 ---
 
-## 10. Known rough edges
+## 11. Known rough edges
 
 1. **Four entry points, two questions — and two deliberate exceptions.** WHICH
    STORE: `counterparts` and `counterparts-dashboard`'s **views** read `--dir` or
@@ -920,7 +974,7 @@ rather than from a script.
 
 ---
 
-## 11. If the terminal says something at session start
+## 12. If the terminal says something at session start
 
 Claude Code prints one line of its own when a session starts and Counterparts has
 found something RED:
