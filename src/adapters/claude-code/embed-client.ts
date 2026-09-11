@@ -507,10 +507,12 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
   };
 
   const fill = async (texts: readonly string[]): Promise<number> => {
+    // Per fill, not cumulative: the caller asks "what went wrong THIS run".
+    // BEFORE the early return, so a fill the cache answered entirely reports an
+    // empty list rather than the previous fill's codes.
+    lastFailures = [];
     const wanted = [...new Set(texts.filter((t) => t.length > 0 && !cache.has(keyOf(t))))];
     if (wanted.length === 0) return 0;
-    // Per fill, not cumulative: the caller asks "what went wrong THIS run".
-    lastFailures = [];
     let landed = 0;
     try {
       const batch = await client(wanted);

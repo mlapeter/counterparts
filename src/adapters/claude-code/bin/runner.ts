@@ -184,6 +184,11 @@ export async function runOnce(input: {
   // for a week while every visible surface read healthy.
   const hasInterpretCredential = (env[API_KEY_ENV] ?? "").trim().length > 0;
 
+  // ONE DATE FOR THE WHOLE RUN, resolved before the first step that could
+  // record anything. The `sweep.gate` row carries it; so must every failure row,
+  // or a replay with a pinned date would dedup against the wall clock instead.
+  const today = input.date ?? new Date().toISOString().slice(0, 10);
+
   let lag: LagReport | null = null;
   let backfill: BackfillReport | null = null;
   try {
@@ -217,11 +222,10 @@ export async function runOnce(input: {
     // DURABLE, now that the counterpart is open (I32): a vector step that failed
     // inside a detached process wrote to a ring that nothing ever read, and
     // stdio is ignored on this path by construction.
-    noteFailure(counterpart, emit, code, "vectors");
+    noteFailure(counterpart, emit, code, "vectors", today);
   }
 
   try {
-    const today = input.date ?? new Date().toISOString().slice(0, 10);
     // NO INTERPRETER IS BUILT when there is no key. Not a client that would
     // refuse at its first call — the sweep would then claim spans, hand them to
     // something that cannot read them, and the claim would have to be restored.
@@ -262,7 +266,7 @@ export async function runOnce(input: {
     // Durable before `close()` in the `finally` below — a worker that died at
     // the boundary is the failure a person most needs to be able to read
     // tomorrow, and this process's stderr goes nowhere (I32).
-    noteFailure(counterpart, emit, code, "sessionEnd");
+    noteFailure(counterpart, emit, code, "sessionEnd", today);
     return { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill };
   } finally {
     counterpart.close();
@@ -287,9 +291,9 @@ function noteFailure(
   emit: (name: string, data: Record<string, string | number | boolean | null>) => void,
   code: string,
   step: string,
+  date: string,
 ): void {
   if (counterpart.observer) return;
-  const date = new Date().toISOString().slice(0, 10);
   try {
     counterpart.noteAdapterEvent(
       RUNNER_FAILED_EVENT,

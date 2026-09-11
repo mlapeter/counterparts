@@ -787,8 +787,11 @@ export class ClaudeCodeAdapter {
     };
     const seat = interpretSeat(this.config, new Date(this.nowFn()).toISOString().slice(0, 10));
     if (!seat.usable) {
-      // A placeholder that expired is a decision nobody made; the worker's only
-      // job needs that seat, so it does not start (scar §2.15c).
+      // A placeholder that expired is a decision nobody made (scar §2.15c). It
+      // has never stopped the spawn and must not start to: the seat belongs to
+      // the SWEEP's model call, which is one of the worker's five jobs, and the
+      // interpret client refuses it by name at the far end. Said here so the
+      // ring carries the reason the sweep is about to decline.
       this.emit("adapter.spawn.seat", { seat: seat.seat, status: seat.status });
     }
     const plan = planSpawn({
