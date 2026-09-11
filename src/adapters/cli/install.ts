@@ -44,6 +44,7 @@ export const DEFAULT_STORE_DIR = "store";
 // of these, would be a file the loader silently ignores and counts. The same
 // direction `mcp/bin/serve.ts` already takes for the same reason.
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../claude-code/config.js";
+import { loadCredentials } from "../claude-code/credentials.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
 import { DEFAULT_DATA_DIR_NAME, isWithin } from "../../core/store/index.js";
 
@@ -320,6 +321,37 @@ export function configObject(input: ConfigInput): Record<string, unknown> {
   return out;
 }
 
+/**
+ * WHICH honored credential names an existing file actually holds. NAMES ONLY.
+ *
+ * THE 2026-09-04 INCIDENT, second half (I32). A forced install rewrote the
+ * owner's `credentials.env` with the template below. The file went from two keys
+ * to zero, the detached worker was refused at every boundary for a week, and the
+ * store's clock stopped while every visible surface read healthy. `--force` is
+ * consent to replace a file you are re-installing; it is not consent to destroy
+ * a secret that cannot be regenerated from anything on this machine.
+ *
+ * It reuses `loadCredentials` rather than parsing the file a second time — the
+ * quoting, the `export ` prefix, the CRLF, the first-occurrence rule are all
+ * there, and a second parser is how the two would come to disagree about what
+ * counts as a key. The scratch environment it fills is DISCARDED on this line:
+ * nothing from it is returned, printed, emitted or compared. What comes back is
+ * the list of NAMES, which is all any caller needs.
+ */
+export function credentialsHeld(path: string): string[] {
+  if (!existsSync(path)) return [];
+  const scratch: NodeJS.ProcessEnv = {};
+  try {
+    // `loaded` is "the file answered this name"; with an empty scratch env
+    // nothing can be `skippedPresent`, so this is the file's whole content.
+    return loadCredentials(path, scratch).loaded;
+  } catch {
+    // An unreadable file holds nothing we can vouch for; the ordinary write
+    // path decides what happens to it.
+    return [];
+  }
+}
+
 /** The template written into a fresh `credentials.env`. Names, never values. */
 export function credentialsTemplate(): string {
   return [
@@ -327,8 +359,9 @@ export function credentialsTemplate(): string {
     "# gap: a value already exported in the environment always wins.",
     "#",
     `# ${API_KEY_ENV}=...   the crash-recovery sweep's one model call.`,
-    `#                          Without it the sweep refuses NO_CREDENTIAL and`,
-    "#                          a crashed session's spans stay uninterpreted.",
+    "#                          Without it the worker still runs the day — clock,",
+    "#                          flush, cycle, briefing — and SKIPS the sweep, so a",
+    "#                          crashed session's spans stay uninterpreted.",
     `# ${EMBED_KEY_ENV}=...      embeddings. Without it (or without`,
     '#                          "embedder": { "enabled": true } in',
     "#                          claude-code.json) recall is lexical-only.",

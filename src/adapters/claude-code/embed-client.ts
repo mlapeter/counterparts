@@ -103,6 +103,13 @@ export interface ChunkFailure {
   readonly count: number;
   readonly code: EmbedRefusal;
   readonly status?: number;
+  /**
+   * True when the bisector narrowed a 400 down to THIS ONE INPUT: the item is
+   * the poison, not the batch. `count` is 1 on every such failure, and the
+   * caller can act on it — retire the id, repair the text — instead of retrying
+   * a whole chunk that will fail the same way forever (I33).
+   */
+  readonly item?: boolean;
 }
 
 export interface EmbedBatch {
@@ -187,53 +194,191 @@ export function embedClient(opts: EmbedClientOptions = {}): EmbedFn {
         break;
       }
       emit("embed.call", { chunk: index, from, count: slice.length, model: seat.id, seat: seat.status });
-      try {
-        const got = await callOnce(doFetch, key, seat.id, slice, opts.signal);
-        for (let i = 0; i < got.length; i += 1) {
-          vectors[from + i] = got[i] ?? null;
+      // THE BISECTING ATTEMPT (I33). One call for a healthy chunk; on a 400 —
+      // and only a 400 — it halves down to the offending item. Everything it
+      // records goes through the two collectors below, so the isolation unit
+      // changed without the caller's reading of `failures` changing.
+      const budget = { calls: callBudget(slice.length) };
+      await attempt(
+        {
+          doFetch,
+          key,
+          model: seat.id,
+          emit,
+          chunk: index,
+          budget,
+          ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+        },
+        slice,
+        from,
+        (at, vec) => {
+          vectors[at] = vec;
           returned += 1;
-        }
-        emit("embed.done", { chunk: index, count: got.length, dim: got[0]?.length ?? 0 });
-      } catch (err) {
-        // E1: THIS chunk fails. Its siblings do not, and the caller is told
-        // which one and why — a null vector with no reason is the shape v1's
-        // "one bad item failed the whole run" incident was made of.
-        const code: EmbedRefusal = aborted()
-          ? "ABORTED"
-          : err instanceof EmbedError
-            ? err.code
-            : "BAD_RESPONSE";
-        const status = err instanceof EmbedError ? err.detail["status"] : undefined;
-        const failure: ChunkFailure = {
-          chunk: index,
-          from,
-          count: slice.length,
-          code,
-          ...(typeof status === "number" ? { status } : {}),
-        };
-        failures.push(failure);
-        emit("embed.chunk.failed", {
-          chunk: index,
-          from,
-          count: slice.length,
-          code,
-          status: typeof status === "number" ? status : null,
-        });
-      }
+        },
+        (failure) => {
+          failures.push(failure);
+          emit("embed.chunk.failed", {
+            chunk: failure.chunk,
+            from: failure.from,
+            count: failure.count,
+            code: failure.code,
+            status: failure.status ?? null,
+            item: failure.item === true,
+          });
+        },
+        aborted,
+      );
     }
 
     return { model: seat.id, vectors, requested: texts.length, returned, chunks: chunk, failures };
   };
 }
 
+/**
+ * Make every input WELL-FORMED, for the request body and for nothing else.
+ *
+ * THE SURROGATE SCAR (I33). Two migrated memories carried a lone UTF-16
+ * surrogate in their title; `JSON.stringify` happily emits the escape, the
+ * provider answers `400 input is not valid UTF-8` for the WHOLE 64-text chunk,
+ * and because `missingVectors` returns a stable order the same head-64 was
+ * retried at every boundary for a week while 165 blind memories queued behind
+ * it.
+ *
+ * `toWellFormed()` is the runtime's own repair (bun has it; the regex is the
+ * fallback for a runtime that does not). A lone surrogate becomes U+FFFD — the
+ * same character the prose file's frontmatter already shows, so what gets
+ * embedded is what a reader sees.
+ *
+ * **THE BODY ONLY.** Nothing upstream is sanitized: the cache key
+ * (`createEmbedder`'s `keyOf`), `indexTextOf`, and `store.embedOne`'s lookup all
+ * stay on the ORIGINAL string. Sanitizing before the cache write would file the
+ * vector under a key the store never asks for, and the backfill would become a
+ * paid-for no-op that reports success — which is precisely the failure
+ * `vectors.ts` warns about two levels up.
+ */
+export function wellFormed(input: readonly string[]): { input: string[]; changed: number } {
+  let changed = 0;
+  const out = input.map((text) => {
+    const native = (text as unknown as { toWellFormed?: () => string }).toWellFormed;
+    const fixed =
+      typeof native === "function"
+        ? native.call(text)
+        : // Lone surrogates only: a high not followed by a low, or a low not
+          // preceded by a high. A well-formed pair is left exactly as it is.
+          text.replace(LONE_SURROGATE, "\uFFFD");
+    if (fixed !== text) changed += 1;
+    return fixed;
+  });
+  return { input: out, changed };
+}
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * The call budget one chunk's bisection may spend: `2·log2(n) + n`.
+ *
+ * A full binary split of n items costs at most 2n−1 calls, which for a 64-text
+ * chunk of entirely-poison inputs would be 127 round trips inside one detached
+ * worker's watchdog. This bound is generous for the real case (a handful of bad
+ * items) and hard for the pathological one; past it the remaining slice is
+ * recorded whole, exactly as a 500 would be.
+ */
+export function callBudget(n: number): number {
+  return Math.ceil(2 * Math.log2(Math.max(n, 2))) + n;
+}
+
+interface AttemptContext {
+  doFetch: FetchLike;
+  key: string;
+  model: string;
+  emit: EmitFn;
+  /** The ORIGINAL chunk index; a bisected half is still that chunk's failure. */
+  chunk: number;
+  budget: { calls: number };
+  signal?: AbortSignal;
+}
+
+/**
+ * One slice, and — on an HTTP 400 — its halves, recursively, down to one item.
+ *
+ * 400 ONLY. A 429, a 5xx, an abort or a malformed body says nothing about WHICH
+ * input is bad: the whole slice failed for a reason the slice does not own, and
+ * splitting it would just multiply the same failure (and, for a 429, the rate
+ * that caused it). A 400 is the opposite — the provider read the body and
+ * refused it — so the poison is in there, and halving finds it in log2(n) steps.
+ */
+async function attempt(
+  ctx: AttemptContext,
+  slice: readonly string[],
+  from: number,
+  land: (at: number, vec: number[]) => void,
+  fail: (failure: ChunkFailure) => void,
+  aborted: () => boolean,
+): Promise<void> {
+  if (slice.length === 0) return;
+  const whole = (code: EmbedRefusal, status?: number, item?: boolean): void => {
+    fail({
+      chunk: ctx.chunk,
+      from,
+      count: slice.length,
+      code,
+      ...(status === undefined ? {} : { status }),
+      ...(item === true ? { item: true } : {}),
+    });
+  };
+  if (ctx.budget.calls <= 0) {
+    // The bound, spent. Whatever is left is recorded the way a whole-chunk
+    // failure always was — never silently dropped.
+    whole("HTTP_ERROR", 400);
+    return;
+  }
+  ctx.budget.calls -= 1;
+  let err: unknown;
+  try {
+    const got = await callOnce(ctx, slice);
+    for (let i = 0; i < got.length; i += 1) {
+      const vec = got[i];
+      if (vec !== undefined) land(from + i, vec);
+    }
+    ctx.emit("embed.done", { chunk: ctx.chunk, count: got.length, dim: got[0]?.length ?? 0 });
+    return;
+  } catch (caught) {
+    err = caught;
+  }
+  // E1: THIS slice fails. Its siblings do not, and the caller is told which one
+  // and why — a null vector with no reason is the shape v1's "one bad item
+  // failed the whole run" incident was made of.
+  const code: EmbedRefusal = aborted()
+    ? "ABORTED"
+    : err instanceof EmbedError
+      ? err.code
+      : "BAD_RESPONSE";
+  const rawStatus = err instanceof EmbedError ? err.detail["status"] : undefined;
+  const status = typeof rawStatus === "number" ? rawStatus : undefined;
+  if (code !== "HTTP_ERROR" || status !== 400 || aborted()) {
+    whole(code, status);
+    return;
+  }
+  if (slice.length === 1) {
+    // THE POISON, alone and named. `item: true` is what lets the backfill count
+    // this id out instead of re-asking for it forever (I33).
+    whole(code, status, true);
+    return;
+  }
+  const mid = Math.ceil(slice.length / 2);
+  ctx.emit("embed.bisect", { chunk: ctx.chunk, from, count: slice.length, status: 400 });
+  await attempt(ctx, slice.slice(0, mid), from, land, fail, aborted);
+  await attempt(ctx, slice.slice(mid), from + mid, land, fail, aborted);
+}
+
 /** ONE request. Every failure here is an `EmbedError` so the caller can name it. */
-async function callOnce(
-  doFetch: FetchLike,
-  key: string,
-  model: string,
-  input: readonly string[],
-  signal?: AbortSignal,
-): Promise<number[][]> {
+async function callOnce(ctx: AttemptContext, input: readonly string[]): Promise<number[][]> {
+  const { doFetch, key, model } = ctx;
+  // THE BODY, AND ONLY THE BODY (I33 — see `wellFormed`).
+  const sanitized = wellFormed(input);
+  if (sanitized.changed > 0) {
+    ctx.emit("embed.sanitized", { chunk: ctx.chunk, count: sanitized.changed });
+  }
   const response = await doFetch(VOYAGE_ENDPOINT, {
     method: "POST",
     headers: {
@@ -242,8 +387,8 @@ async function callOnce(
       // every proxy between here and there.
       authorization: `Bearer ${key}`,
     },
-    body: JSON.stringify({ model, input }),
-    ...(signal === undefined ? {} : { signal }),
+    body: JSON.stringify({ model, input: sanitized.input }),
+    ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
   });
 
   if (!response.ok) throw new EmbedError("HTTP_ERROR", { status: response.status });
@@ -319,6 +464,16 @@ export interface EmbedderStats {
   readonly fetched: number;
   /** Texts the provider did not return a vector for, by any cause. */
   readonly failed: number;
+  /**
+   * The failures of the LAST fill, verbatim — reset at the start of each one.
+   *
+   * The codes used to exist only inside this module: `embed.partial` put them in
+   * an event, the event went to the runner's ring, and the ring died with the
+   * detached process. So `adapter.embed.backfill` carried `failed: 64` with no
+   * way to tell a 429 from a 400 from a dead seat, and I33 ran for a week
+   * looking like "the Voyage side is failing". The backfill persists these now.
+   */
+  readonly lastFailures: readonly ChunkFailure[];
 }
 
 export interface LiveEmbedderOptions extends EmbedClientOptions {
@@ -335,6 +490,7 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
   let misses = 0;
   let fetched = 0;
   let failed = 0;
+  let lastFailures: readonly ChunkFailure[] = [];
 
   const keyOf = (text: string): string => `${model}\0${hashText(text)}`;
 
@@ -353,6 +509,8 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
   const fill = async (texts: readonly string[]): Promise<number> => {
     const wanted = [...new Set(texts.filter((t) => t.length > 0 && !cache.has(keyOf(t))))];
     if (wanted.length === 0) return 0;
+    // Per fill, not cumulative: the caller asks "what went wrong THIS run".
+    lastFailures = [];
     let landed = 0;
     try {
       const batch = await client(wanted);
@@ -367,6 +525,7 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
         cache.set(keyOf(text), vec);
         landed += 1;
       }
+      lastFailures = batch.failures;
       if (batch.failures.length > 0) {
         emit("embed.partial", {
           chunks: batch.chunks,
@@ -374,7 +533,7 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
           codes: batch.failures.map((f) => f.code).join(","),
         });
       }
-    } catch {
+    } catch (err) {
       // A refusal the whole call shares (no key, dead seat, no fetch). It is
       // NULL to the caller: an embedder that cannot embed must never fail a
       // deposit — box 3 is rebuildable, a memory is not.
@@ -400,7 +559,14 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
       return cache.get(key) ?? null;
     },
     warm: fill,
-    stats: (): EmbedderStats => ({ hits, misses, cached: cache.size, fetched, failed }),
+    stats: (): EmbedderStats => ({
+      hits,
+      misses,
+      cached: cache.size,
+      fetched,
+      failed,
+      lastFailures: [...lastFailures],
+    }),
   };
 }
 

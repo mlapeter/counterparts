@@ -384,7 +384,7 @@ stderr, never refused.
 
 | key | what it buys | without it |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | the crash-recovery sweep's one model call | the sweep refuses `NO_CREDENTIAL`; a crashed session's captured spans stay uninterpreted. Nothing else changes — this is *not* the ordinary write path. |
+| `ANTHROPIC_API_KEY` | the crash-recovery sweep's one model call | the worker still runs the day — the clock, the flush, the semantic cue, the embedding backfill, the sleep cycle and the briefing — and SKIPS the sweep, writing `sweep.gate` with `reason: "no-credential"` so the skip is on the record. A crashed session's captured spans stay uninterpreted. Nothing else changes — this is *not* the ordinary write path. |
 | `VOYAGE_API_KEY` | embeddings | recall runs on the lexical channel alone (see below) |
 
 **No embed key is a supported mode, and the code says so, by name.** An embedding

@@ -25,9 +25,18 @@
  *   scar escalated from training a store to destroying its graph.
  *
  *   **§2.18 — the credential comes from the environment we PIN, not the shell we
- *   inherited.** If it is absent the plan refuses before the child exists,
- *   because a child that starts without it fails at the far end where nobody is
- *   looking.
+ *   inherited.** It travels on the child's environment like everything else here.
+ *   It is NOT a precondition of the spawn, and that changed on 2026-09-11 (I32):
+ *   for a week this file refused `NO_CREDENTIAL` at every boundary, and because
+ *   the worker never started, the lived-day clock never advanced, the sleep
+ *   cycle never ran, the Hebbian buffer never flushed and the day's ask cap —
+ *   keyed on that frozen clock — stayed spent. A refusal that stops FIVE jobs to
+ *   protect ONE of them is not a safety property; it is a single point of
+ *   failure with a name. The worker now starts whenever it has a data dir and a
+ *   sane watchdog, and the one step that needs the key (`runner.ts`'s sweep)
+ *   degrades and SAYS SO on a durable row. Nothing about that is a licence to
+ *   run blind: the refusals that remain are the ones where starting would be
+ *   wrong, not merely unproductive.
  *
  * `planSpawn` is pure and returns a checkable plan; `spawnDetached` is the six
  * lines that actually start a process. The split is deliberate: everything worth
@@ -39,7 +48,7 @@ import { TUNABLES as REMEMBER, validateWatchdog } from "../../core/remember/inde
 
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
 
-import { API_KEY_ENV, TUNABLES } from "./config.js";
+import { TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
@@ -73,7 +82,6 @@ export { CONFIG_ENV } from "../config-path.js";
 
 export type SpawnRefusal =
   | "NO_DATA_DIR"
-  | "NO_CREDENTIAL"
   | "WATCHDOG_NOT_FINITE"
   | "WATCHDOG_EXCEEDS_STALENESS"
   | "OBSERVER";
@@ -153,13 +161,10 @@ export function planSpawn(input: PlanInput): SpawnPlan {
         : "WATCHDOG_EXCEEDS_STALENESS",
     );
   }
-  const key = base[API_KEY_ENV];
-  if (key === undefined || key.trim().length === 0) {
-    // THE TWO-DAY STARVATION, refused up front. The worker's only job needs a
-    // model call; starting it without one buys a silent backlog.
-    return refuse("NO_CREDENTIAL");
-  }
-
+  // NO CREDENTIAL CHECK HERE, and the absence is the point. The key rides along
+  // on `env` like every other inherited value; whether it is there is the
+  // WORKER's question, one step at a time, because four of its five jobs do not
+  // need it (I32, and the header above).
   env[DATA_DIR_ENV] = config.dataDir;
   env[WATCHDOG_ENV] = String(timeoutMs);
   // Pinned LAST for the same reason the data dir is: a caller's exported

@@ -41,6 +41,8 @@ import {
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DELIVERED_EVENT,
+  SPAWN_FAILED_EVENT,
+  SPAWN_REFUSED_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
@@ -227,6 +229,19 @@ export function stopAsk(sessionId: string, chapter: number): string {
 
 const EVENT_RING = 500;
 
+/**
+ * Where the per-reason spawn refusal counters live: box 2's meta, under
+ * `adapter.spawn.refusals.<reason>`.
+ *
+ * In the STORE because scar E4's escalation is a claim about a HOST over time
+ * and a hook process lives for one turn. I32 is the bill for having kept it in
+ * an instance field: the worker was refused at every boundary for a week and
+ * `escalate` read false every single time, because every count was the first.
+ *
+ * Meta keys, not a schema change — the same shape `sleep.pruned.<id>` uses.
+ */
+export const SPAWN_REFUSAL_PREFIX = "adapter.spawn.refusals.";
+
 export class ClaudeCodeAdapter {
   readonly counterpart: Counterpart;
   readonly config: AdapterConfig;
@@ -245,8 +260,18 @@ export class ClaudeCodeAdapter {
   private readonly inFlight = new Set<string>();
   /** The sentinel the LAST render stated, per session — delivery's expectation. */
   private readonly expected = new Map<string, string | null>();
-  /** Consecutive identical spawn refusals, per reason (scar E4's escalation). */
-  private readonly spawnFailures = new Map<string, number>();
+  /**
+   * Consecutive identical spawn refusals, per reason (scar E4's escalation) —
+   * IN MEMORY ONLY when this adapter cannot write, which is the observer case.
+   *
+   * The durable copy lives in box 2's meta under `adapter.spawn.refusals.<reason>`
+   * and is the one that counts. This map used to BE the counter, and that is
+   * half of why I32 ran for a week: a hook process lives for one turn, so
+   * "consecutive" was always 1, `escalate` was always false, and scar E4's
+   * widening — a repeated refusal reaches a human — was inert on this host after
+   * shipping. An instrument still counts here and nowhere else (§15 G3).
+   */
+  private readonly volatileRefusals = new Map<string, number>();
 
   constructor(opts: AdapterOptions) {
     this.counterpart = opts.counterpart;
@@ -617,7 +642,18 @@ export class ClaudeCodeAdapter {
       // advance, no day-cap slot, no row — the previous pass already left one.
       if (input.reFired === true) return null;
       const substance = substanceOf(input.turns ?? []);
-      const chapter = this.counterpart.episodeAsk(input.sessionId, substance);
+      // THE DAY'S CAP IS CHARGED TO THE CALENDAR DATE, not the lived day (I32).
+      // `input.at` is the host's UTC ISO date — the same zone as every other
+      // `date` field in this store. The worker advances the lived-day clock, so
+      // keying the cap on it made the cap depend on the very machinery whose
+      // failure it then hid: a frozen clock meant `self.episode.day.185 = 4`
+      // forever, and the model was never asked for a chapter again.
+      const chapter = this.counterpart.episodeAsk(
+        input.sessionId,
+        substance,
+        undefined,
+        input.at,
+      );
       const outcome = chapter.asked
         ? "asked"
         : chapter.verdict.reason === "day-chapter-cap"
@@ -705,7 +741,13 @@ export class ClaudeCodeAdapter {
   /** The orphanable tail: bounded and measured, never pretended away (§13). */
   private noteTail(input: HookInput): void {
     try {
-      this.counterpart.noteOrphanTail(input.sessionId, substanceOf(input.turns ?? []));
+      // The same counter the ask above is charged to, for the same reason.
+      this.counterpart.noteOrphanTail(
+        input.sessionId,
+        substanceOf(input.turns ?? []),
+        undefined,
+        input.at,
+      );
     } catch (err) {
       this.emit("adapter.tail.failed", { code: codeOf(err) });
     }
@@ -713,8 +755,18 @@ export class ClaudeCodeAdapter {
 
   /**
    * The detached worker. The plan is checked BEFORE anything starts — watchdog
-   * against the staleness window, credential, data dir, stance — and a refusal
-   * that repeats ESCALATES rather than re-logging (scar E4's widening).
+   * against the staleness window, data dir, stance — and a refusal that repeats
+   * ESCALATES rather than re-logging (scar E4's widening).
+   *
+   * **The credential is NOT a precondition any more** (I32, 2026-09-11). The
+   * worker starts without one and degrades the single step that needs it; see
+   * `spawn.ts`'s §2.18 paragraph for why refusing was worse than running.
+   *
+   * **Every refusal and every failure now leaves a DURABLE row**, one per reason
+   * per calendar date, and the per-reason counter that decides escalation lives
+   * in box 2's meta rather than in this object. Both halves are the same repair:
+   * a hook process lives for one turn, so anything it knows about a repeated
+   * failure dies before the next hook could act on it.
    */
   private spawnWorker(input?: HookInput): SpawnOutcome {
     // The child is TOLD whose turn it just followed. Without it the worker can
@@ -739,7 +791,6 @@ export class ClaudeCodeAdapter {
       // job needs that seat, so it does not start (scar §2.15c).
       this.emit("adapter.spawn.seat", { seat: seat.seat, status: seat.status });
     }
-    const reasonKey = (r: string): number => this.spawnFailures.get(r) ?? 0;
     const plan = planSpawn({
       config: this.config,
       command: this.command,
@@ -747,7 +798,9 @@ export class ClaudeCodeAdapter {
       priorFailures: 0,
       ...bound,
     });
-    const prior = plan.ok ? 0 : reasonKey(plan.reason);
+    // The PERSISTED count, read before the replan: `escalate` is a claim about
+    // how often this has happened on this host, not about this process.
+    const prior = plan.ok ? 0 : this.refusalCount(plan.reason);
     const replanned = plan.ok
       ? plan
       : planSpawn({
@@ -761,9 +814,116 @@ export class ClaudeCodeAdapter {
       ...(this.spawner === undefined ? {} : { spawner: this.spawner }),
       onEvent: (name, data) => this.emit(name, data),
     });
-    if (outcome.started) this.spawnFailures.clear();
-    else this.spawnFailures.set(String(outcome.reason), prior + 1);
+    if (outcome.started) {
+      // A start clears the slate for every reason: whatever was wrong is not
+      // wrong now, and a counter that only ever climbed would escalate forever
+      // off one bad afternoon.
+      this.clearRefusals();
+      return outcome;
+    }
+    const count = this.bumpRefusal(String(outcome.reason));
+    this.noteSpawnRefusal(outcome, count, input);
     return outcome;
+  }
+
+  /**
+   * THE DURABLE ROW for a worker that did not start (I32).
+   *
+   * One row per reason per CALENDAR DATE — `dedupKey` does the gating at the
+   * store, so a refusal repeating at every boundary writes once and not three
+   * hundred times. `count` is the persisted counter AT THIS MOMENT, so the day's
+   * one row still says how deep the hole was by the time it was written; the
+   * live depth is `spawnRefusals()`.
+   *
+   * Never throws: this is the tail of a hook, and a hook may not fail the host
+   * (§5 G2). An observer writes nothing — `noteAdapterEvent` stands down at the
+   * core's own seam, and the counter above stayed in memory for the same reason.
+   */
+  private noteSpawnRefusal(outcome: SpawnOutcome, count: number, input?: HookInput): void {
+    if (this.observer) return;
+    const name = outcome.reason === "SPAWN_FAILED" ? SPAWN_FAILED_EVENT : SPAWN_REFUSED_EVENT;
+    const date = input?.at ?? null;
+    try {
+      this.counterpart.noteAdapterEvent(
+        name,
+        {
+          reason: String(outcome.reason),
+          code: outcome.code,
+          count,
+          escalate: outcome.escalate,
+          date,
+          session: input?.sessionId ?? null,
+        },
+        // No date is still one row per reason per RUN OF DAYS rather than per
+        // boundary: a caller that knows no date is a test or a bare invocation,
+        // and neither should be able to flood the log.
+        { dedupKey: `${name}:${String(outcome.reason)}:${date ?? "no-date"}` },
+      );
+    } catch (err) {
+      this.emit("adapter.spawn.record.failed", { code: codeOf(err) });
+    }
+  }
+
+  /**
+   * The per-reason refusal counters, as they stand. PR 2's session-start notice
+   * reads this — "your background worker has not started in four days" is a
+   * sentence somebody has to be able to say — and it is a read, never a write.
+   */
+  spawnRefusals(): Record<string, number> {
+    const out: Record<string, number> = {};
+    if (this.observer) {
+      for (const [reason, n] of this.volatileRefusals) out[reason] = n;
+      return out;
+    }
+    try {
+      for (const [key, value] of this.counterpart.store.metaWithPrefix(SPAWN_REFUSAL_PREFIX)) {
+        const n = Number(value);
+        if (n > 0) out[key.slice(SPAWN_REFUSAL_PREFIX.length)] = n;
+      }
+    } catch (err) {
+      this.emit("adapter.spawn.refusals.failed", { code: codeOf(err) });
+    }
+    return out;
+  }
+
+  private refusalCount(reason: string): number {
+    if (this.observer) return this.volatileRefusals.get(reason) ?? 0;
+    try {
+      return Number(this.counterpart.store.getMeta(`${SPAWN_REFUSAL_PREFIX}${reason}`) ?? "0");
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Returns the count AFTER this refusal. A meta write that loses the lock to
+   *  an overlapping runner costs the count, never the hook (§5 G2). */
+  private bumpRefusal(reason: string): number {
+    const next = this.refusalCount(reason) + 1;
+    if (this.observer) {
+      this.volatileRefusals.set(reason, next);
+      return next;
+    }
+    try {
+      this.counterpart.store.setMeta(`${SPAWN_REFUSAL_PREFIX}${reason}`, String(next));
+    } catch (err) {
+      this.emit("adapter.spawn.count.failed", { code: codeOf(err) });
+    }
+    return next;
+  }
+
+  private clearRefusals(): void {
+    this.volatileRefusals.clear();
+    if (this.observer) return;
+    try {
+      const store = this.counterpart.store;
+      for (const [key, value] of store.metaWithPrefix(SPAWN_REFUSAL_PREFIX)) {
+        // Zero, not deleted: `meta` has no delete on the write seam's allowlist,
+        // and a zero reads identically everywhere the counter is consulted.
+        if (value !== "0") store.setMeta(key, "0");
+      }
+    } catch (err) {
+      this.emit("adapter.spawn.count.failed", { code: codeOf(err) });
+    }
   }
 
   /**

@@ -30,13 +30,22 @@
  *   2. the Hebbian flush;
  *   3. the sleep cycle, whose last content write is the wake briefing.
  *
+ * **IT DEGRADES, STEP BY STEP; IT DOES NOT REFUSE** (I32, 2026-09-11). Exactly
+ * one of the five jobs above needs a model credential — the sweep — and until
+ * this date its absence refused the SPAWN, so a blanked credentials file stopped
+ * the clock, the flush, the cue, the backfill and the cycle for a week while
+ * every visible surface read healthy. Each step now asks its own question and
+ * records its own answer by name: the sweep's is `sweep.gate` with
+ * `reason: "no-credential"`, the vector steps' are `no-credentials` /
+ * `embedder-off`. A step that cannot run says so where tomorrow can read it.
+ *
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart } from "../../../core/counterpart.js";
+import { Counterpart, RUNNER_FAILED_EVENT } from "../../../core/counterpart.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 
 import {
@@ -57,7 +66,7 @@ import { openEmbedder } from "../index.js";
 import type { LiveEmbedder } from "../embed-client.js";
 import { interpretClient } from "../interpret-client.js";
 import type { FetchLike } from "../interpret-client.js";
-import { EMBED_KEY_ENV } from "../config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV } from "../config.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
 import { backfillVectors, laggedSemantic } from "../vectors.js";
 import type { BackfillReport, LagReport } from "../vectors.js";
@@ -83,6 +92,8 @@ export function runnerConfigChoice(
 
 export interface RunReport {
   readonly ran: boolean;
+  /** `ran` covers the keyless run too: the day HAPPENED, minus the sweep. The
+   *  step that did not is named on the durable `sweep.gate` row, not here. */
   readonly reason: "ran" | "no-data-dir" | "observer" | "failed";
   readonly swept: number;
   readonly minted: number;
@@ -160,6 +171,18 @@ export async function runOnce(input: {
   // NAME instead of as a failed call nobody can tell from an empty store.
   const env = input.env ?? process.env;
   const hasCredential = (env[EMBED_KEY_ENV] ?? "").trim().length > 0;
+  // THE INTERPRET CREDENTIAL, by PRESENCE only, and read here rather than
+  // refused at the spawn (I32). `runnerConfig` has already filled the gap from
+  // the configured credentials file, so this is the whole question. Its VALUE is
+  // never read, never logged, never compared.
+  //
+  // Four of this worker's five jobs — the cue, the backfill, the Hebbian flush
+  // and the sleep cycle (clock, decay, prune, dedup, consolidate, briefing) —
+  // need no model call at all. Only the crash-fallback sweep does. So a missing
+  // key costs the sweep and nothing else, and the sweep's own gate row says so
+  // by name. Refusing the whole run instead is what froze the lived-day clock
+  // for a week while every visible surface read healthy.
+  const hasInterpretCredential = (env[API_KEY_ENV] ?? "").trim().length > 0;
 
   let lag: LagReport | null = null;
   let backfill: BackfillReport | null = null;
@@ -189,22 +212,35 @@ export async function runOnce(input: {
     backfill = await backfillVectors({ counterpart, embedder, hasCredential, onEvent: emit });
   } catch (err) {
     // Neither step may cost the run. A cue is a nicety; the sweep is the day.
-    emit("vectors.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    const code = err instanceof Error ? err.name : "UNKNOWN";
+    emit("vectors.failed", { code });
+    // DURABLE, now that the counterpart is open (I32): a vector step that failed
+    // inside a detached process wrote to a ring that nothing ever read, and
+    // stdio is ignored on this path by construction.
+    noteFailure(counterpart, emit, code, "vectors");
   }
 
   try {
-    const interpret = interpretClient({
-      config,
-      ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-      ...(input.today === undefined ? {} : { today: input.today }),
-      ...(input.signal === undefined ? {} : { signal: input.signal }),
-      onEvent: emit,
-    });
     const today = input.date ?? new Date().toISOString().slice(0, 10);
+    // NO INTERPRETER IS BUILT when there is no key. Not a client that would
+    // refuse at its first call — the sweep would then claim spans, hand them to
+    // something that cannot read them, and the claim would have to be restored.
+    // The boundary is told "skipped, and why" instead, and everything that does
+    // not need a model still runs.
     const report = await counterpart.sessionEnd({
       date: today,
       at: today,
-      sweep: { interpret },
+      sweep: hasInterpretCredential
+        ? {
+            interpret: interpretClient({
+              config,
+              ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+              ...(input.today === undefined ? {} : { today: input.today }),
+              ...(input.signal === undefined ? {} : { signal: input.signal }),
+              onEvent: emit,
+            }),
+          }
+        : { skipped: "no-credential" },
     });
     const swept = report.sweeps.reduce((n, s) => n + s.spansSwept, 0);
     const minted = report.sweeps.reduce((n, s) => n + s.proposals, 0);
@@ -214,6 +250,7 @@ export async function runOnce(input: {
       swept,
       minted,
       edges: report.edges.reason,
+      interpret: hasInterpretCredential,
     });
     return { ran: true, reason: "ran", swept, minted, code: null, lag, backfill };
   } catch (err) {
@@ -222,9 +259,45 @@ export async function runOnce(input: {
         ? (err as { code: string }).code
         : "UNKNOWN";
     emit("runner.failed", { code });
+    // Durable before `close()` in the `finally` below — a worker that died at
+    // the boundary is the failure a person most needs to be able to read
+    // tomorrow, and this process's stderr goes nowhere (I32).
+    noteFailure(counterpart, emit, code, "sessionEnd");
     return { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill };
   } finally {
     counterpart.close();
+  }
+}
+
+/**
+ * One durable row for a step that failed inside the detached worker.
+ *
+ * Pre-open failures are NOT covered here and do not need to be: the parent's
+ * `adapter.spawn.refused` / `adapter.spawn.failed` row already says the worker
+ * never got as far as a store. This is the other half — it opened one, and then
+ * something went wrong where nobody was looking.
+ *
+ * `dedupKey` gates it to one row per step per calendar date, the same rule the
+ * spawn rows follow, so a failure that repeats at every boundary is a fact and
+ * not a flood. It never throws: a failed record may not turn a failed step into
+ * a failed process.
+ */
+function noteFailure(
+  counterpart: Counterpart,
+  emit: (name: string, data: Record<string, string | number | boolean | null>) => void,
+  code: string,
+  step: string,
+): void {
+  if (counterpart.observer) return;
+  const date = new Date().toISOString().slice(0, 10);
+  try {
+    counterpart.noteAdapterEvent(
+      RUNNER_FAILED_EVENT,
+      { code, step, date },
+      { dedupKey: `${RUNNER_FAILED_EVENT}:${step}:${date}` },
+    );
+  } catch (err) {
+    emit("runner.record.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
   }
 }
 

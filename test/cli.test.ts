@@ -3408,6 +3408,71 @@ describe("install", () => {
     ).toBe(9000);
   });
 
+  test("--force KEEPS a credentials file that holds a key (I32)", async () => {
+    // 2026-09-04, the second clobbered field. A forced install rewrote the
+    // owner's `credentials.env` with the template; the detached worker was then
+    // refused at every boundary for a week, the lived-day clock froze at 185,
+    // and every visible surface — wake, recall, capture, the daily — read
+    // healthy. A config is regenerable from this command's own flags. A key is
+    // not, and `--force` was typed to fix a config.
+    const home = fakeHome("force-keeps-key");
+    const store = join(outside, "force-keeps-key", "store");
+    const creds = join(home, ".counterparts", CREDENTIALS_FILE);
+    await run(["install", "--dir", store, "--budget", "9000"], {
+      io: consoleWith().io,
+      env: {},
+      home,
+    });
+    const SECRET = "sk-ant-A-KEY-NOBODY-CAN-REGENERATE";
+    writeFileSync(creds, `# mine\nANTHROPIC_API_KEY=${SECRET}\n`, { mode: 0o600 });
+
+    const forced = consoleWith();
+    expect(
+      await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+        io: forced.io,
+        env: {},
+        home,
+      }),
+    ).toBe(EXIT.ok);
+
+    // The file is untouched, and the key is still in it.
+    expect(readFileSync(creds, "utf8")).toContain(SECRET);
+    const printed = text(forced.out);
+    expect(printed).toContain("kept even under --force");
+    // NAMES ONLY. The command reads the file to count what it holds and must
+    // never print — or otherwise move — a value.
+    expect(printed).toContain("ANTHROPIC_API_KEY");
+    expect(printed).not.toContain(SECRET);
+    // And it does NOT tell the reader to pass --force: they just did, and that
+    // sentence would send them back into the incident.
+    expect(printed).not.toContain("pass --force to replace it");
+
+    // The CONFIG half of --force is unchanged: it is still overwritten.
+    const config = join(home, ".counterparts", CONFIG_FILE);
+    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234 }));
+    await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+      io: consoleWith().io,
+      env: {},
+      home,
+    });
+    expect(
+      (JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>)["injectionBudgetBytes"],
+    ).toBe(9000);
+    expect(readFileSync(creds, "utf8")).toContain(SECRET);
+
+    // A file holding NO key is still replaced — --force means what it says for
+    // a template nobody has filled in.
+    writeFileSync(creds, "# nothing in here but comments\n", { mode: 0o600 });
+    const again = consoleWith();
+    await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+      io: again.io,
+      env: {},
+      home,
+    });
+    expect(text(again.out)).toContain("replaced");
+    expect(readFileSync(creds, "utf8")).toContain("Counterparts reads exactly two names");
+  });
+
   test("refuses a forbidden data dir before a single file is written", async () => {
     const home = fakeHome("forbidden");
     const forbidden = join(homedir(), ".bansai", "cli-install-must-not-exist", "store");

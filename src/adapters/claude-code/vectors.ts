@@ -42,7 +42,7 @@ import { EMBED_BACKFILL_EVENT, SEMANTIC_LAG_EVENT } from "../../core/counterpart
 import type { Counterpart } from "../../core/counterpart.js";
 import { stripBoilerplate } from "../../core/recall/index.js";
 import type { SemanticReason } from "../../core/recall/index.js";
-import { indexTextOf } from "../../core/store/index.js";
+import { EMBED_FAILED_PREFIX, indexTextOf } from "../../core/store/index.js";
 
 import type { LiveEmbedder } from "./embed-client.js";
 
@@ -188,11 +188,25 @@ function clip(text: string, bytes: number): string {
 export interface BackfillReport {
   readonly embedded: number;
   readonly failed: number;
-  /** Live memories still without a vector AFTER this run. The number that must
-   *  fall run over run, and the one a coverage watch reads. */
+  /** Live memories still without a vector AFTER this run, EXCLUDING the ones the
+   *  store has given up on. The number that must fall run over run, and the one
+   *  a coverage watch reads; `skipped` is the other half of the same sum. */
   readonly remaining: number;
   readonly attempted: number;
   readonly reason: "ran" | "embedder-off" | "no-credentials" | "nothing-missing" | "observer";
+  /**
+   * WHY the failures failed: the distinct `code[:status]` pairs of this run,
+   * joined by commas, or `""` when nothing failed.
+   *
+   * I33's whole shape was that this field did not exist. The backfill row said
+   * `embedded: 0, failed: 64, reason: ran` for 32 consecutive runs; the HTTP 400
+   * that explained all of them lived in a detached process's ring, and the run
+   * read like a flaky provider rather than like two poisoned rows.
+   */
+  readonly codes: string;
+  /** Live memories the store has stopped offering: `embed.failed.<id>` at or
+   *  past `EMBED_SKIP_AFTER`. Named by `store.skippedVectorIds()`. */
+  readonly skipped: number;
 }
 
 /**
@@ -237,9 +251,26 @@ export async function backfillVectors(input: {
     embedded: number,
     failed: number,
     attempted: number,
+    codes = "",
   ): BackfillReport => {
     const remaining = store.unembeddedCount();
-    const report: BackfillReport = { embedded, failed, remaining, attempted, reason };
+    // Counted every run, including the refusals: "how many has this store given
+    // up on" is exactly the number a reader wants when `remaining` stops moving.
+    let skipped = 0;
+    try {
+      skipped = store.skippedVectorIds().length;
+    } catch {
+      // A read that failed costs the field, never the run.
+    }
+    const report: BackfillReport = {
+      embedded,
+      failed,
+      remaining,
+      attempted,
+      reason,
+      codes,
+      skipped,
+    };
     emit("vectors.backfill", { ...report });
     if (!counterpart.observer) {
       // Durable, because a coverage watch that lives in a detached process's
@@ -279,17 +310,67 @@ export async function backfillVectors(input: {
     // One batched call; a refusal leaves the cache as it was and every
     // `embedOne` below reports `vector: false`. Counted, not thrown.
   }
+  // The codes of the fill that just happened, before anything else can reset
+  // them. `stats()` is a read; `lastFailures` is per-fill by construction.
+  const codes = codesOf(input.embedder);
 
   let embedded = 0;
   let failed = 0;
   for (const id of wanted) {
+    let landed = false;
     try {
-      const out = store.embedOne(id);
-      if (out.vector) embedded += 1;
-      else failed += 1;
+      landed = store.embedOne(id).vector;
     } catch {
-      failed += 1;
+      landed = false;
     }
+    if (landed) embedded += 1;
+    else failed += 1;
+    // THE PER-ID GIVE-UP COUNTER (I33). An id that fails `EMBED_SKIP_AFTER`
+    // runs stops being offered by `missingVectors`, so one poisoned row cannot
+    // hold the head of a stable queue forever. Cleared the moment it lands —
+    // a repaired title, or a rebuild, puts the id straight back in the rotation.
+    noteEmbedOutcome(counterpart, store, id, landed, emit);
   }
-  return done("ran", embedded, failed, wanted.length);
+  return done("ran", embedded, failed, wanted.length, codes);
+}
+
+/** The distinct `code[:status]` pairs of the last fill, joined. Never text. */
+function codesOf(embedder: LiveEmbedder): string {
+  try {
+    const seen = new Set<string>();
+    for (const f of embedder.stats().lastFailures) {
+      seen.add(f.status === undefined ? f.code : `${f.code}:${String(f.status)}`);
+    }
+    return [...seen].join(",");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Move one id's failure counter. A meta write that loses box 2's lock to an
+ * overlapping runner costs the counter, never the run (I33 measured six
+ * overlapping workers at one boundary against a 5 s busy timeout).
+ */
+function noteEmbedOutcome(
+  counterpart: Counterpart,
+  store: Counterpart["store"],
+  id: string,
+  landed: boolean,
+  emit: Emit,
+): void {
+  if (counterpart.observer) return;
+  const key = `${EMBED_FAILED_PREFIX}${id}`;
+  try {
+    const now = Number(store.getMeta(key) ?? "0");
+    if (landed) {
+      // Zero rather than deleted: `meta` has no delete on the write seam's
+      // allowlist, and a zero reads identically everywhere it is consulted.
+      if (now !== 0) store.setMeta(key, "0");
+      return;
+    }
+    store.setMeta(key, String(now + 1));
+  } catch (err) {
+    emit("vectors.backfill.count.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
+  }
 }

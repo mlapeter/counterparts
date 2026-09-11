@@ -95,6 +95,7 @@ import { exportStore } from "./export.js";
 import {
   BIN,
   configObject,
+  credentialsHeld,
   credentialsTemplate,
   hookCommand,
   installLayout,
@@ -1080,11 +1081,32 @@ function installCommand(
     embedder,
   });
   const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
-  const creds = writeOnce(layout.credentials, credentialsTemplate(), { force, mode: 0o600 });
+  // `--force` MAY NOT BLANK A CREDENTIAL (I32 — 2026-09-04's second clobbered
+  // field). A forced install that day replaced a file holding two keys with the
+  // template below; the detached worker was refused at every boundary for the
+  // following week, the lived-day clock froze, and nothing visible said so. A
+  // config is regenerable from this command's own flags. A secret is not, and
+  // `--force` was typed to fix a config.
+  //
+  // NAMES ONLY, here and in the lines printed below: no value is read into this
+  // function, compared, or shown. (The #80 guard is a different one — it covers
+  // the temp-store `dataDir`, and it did not fire here.) The force is simply
+  // withdrawn for this one file, so the ordinary "kept" path answers, which is
+  // also what keeps the mode reporting in one place.
+  const held = force ? credentialsHeld(layout.credentials) : [];
+  const creds = writeOnce(layout.credentials, credentialsTemplate(), {
+    force: force && held.length === 0,
+    mode: 0o600,
+  });
 
   io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
   io.out(`  ${config.what} ${config.path}`);
   io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
+  if (held.length > 0) {
+    io.out(`    kept even under --force: it already holds ${held.join(" and ")}.`);
+    io.out("    A key cannot be regenerated from anything here. Delete the file by");
+    io.out("    hand if you really do mean to start over.");
+  }
   // The SAME sentence `init` prints, because the two commands did the same
   // thing: a page that calls them interchangeable and then has them say it
   // differently has made the reader do the comparison.
@@ -1105,7 +1127,10 @@ function installCommand(
     );
     io.out(`  and it points at your store with "dataDir": "${resolved}".`);
   }
-  if (config.what === "kept" || creds.what === "kept") {
+  // Not said of a credentials file kept BECAUSE it holds a key: --force is
+  // exactly what the reader just passed, and telling them to pass it again
+  // would send them back to the incident this guard exists to prevent.
+  if (config.what === "kept" || (creds.what === "kept" && held.length === 0)) {
     io.out("  (an existing file is never rewritten — pass --force to replace it)");
   }
   if (creds.mode !== undefined && creds.mode !== "600") {
@@ -1645,6 +1670,7 @@ function verifyCensus(dir: string, io: Io): number {
   let live: string[];
   let denied: string[];
   let unembedded: number;
+  let skippedVectors: string[];
   let pathsCensus: ReturnType<Store["pathCensus"]>;
   let schemaVersion: string | null;
   let log: EventLogCensus;
@@ -1655,6 +1681,11 @@ function verifyCensus(dir: string, io: Io): number {
     live = store.list({ archived: false });
     denied = store.deniedIds();
     unembedded = store.unembeddedCount();
+    // The other half of that sum since I33: ids the backfill has given up on
+    // after `EMBED_SKIP_AFTER` failed runs. They are excluded from the count
+    // above on purpose — it reports what is still actionable — so leaving them
+    // unprinted here would be the coverage watch quietly losing rows.
+    skippedVectors = store.skippedVectorIds();
     pathsCensus = store.pathCensus();
     schemaVersion = store.getMeta("schemaVersion") ?? null;
     log = store.eventLogCensus();
@@ -1733,6 +1764,12 @@ function verifyCensus(dir: string, io: Io): number {
       `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
   );
   io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
+  if (skippedVectors.length > 0) {
+    io.out(`  skipped after repeated embed failures: ${skippedVectors.length}`);
+    io.out(`    ${skippedVectors.join(", ")}`);
+    io.out("    Not counted above. Their text is refused by the embedder; repair it");
+    io.out("    (or rebuild box 3) and the counter clears on the next run that lands.");
+  }
   io.out(`  indexed but not live (archived or superseded): ${stale.length}`);
   io.out(`  vector format: ${vectorFormatLine(cache.counts.vectors)}`);
   if (missing.length === 0 && orphans.length === 0 && stale.length === 0) {
