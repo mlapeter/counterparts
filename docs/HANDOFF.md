@@ -19,12 +19,47 @@ The owner's one-sitting sheet is done and is no longer reading material.
 | bansai | **Encoding OFF since 2026-09-10** (G38 ruled): its Stop / SessionEnd / PreCompact hooks are gone from `~/.claude/settings.json`; session-start and user-prompt-submit remain, through the guard, so the daily's `muted-consistent` grade still reads. bansai's memory has a gap from 09-10 on, by decision. At the verdict, the PROMOTE script in PARALLEL-RUN-STATUS turns the rest off and keeps the store. |
 | Site | **Pushed** to a PRIVATE GitHub repository `counterparts-site` (G28 done); G29 fixed; G18 closed. Dev server stopped. Left for a review session with the owner: G30 hero polish, a critic pass on the ribbons hero (never reviewed), G19 Vercel + domain after the flip. |
 | Agents | None running. |
+| **I32 (found 2026-09-11)** | **`~/.counterparts/credentials.env` holds no key** (rewritten to the template by the 09-04 install, beside I29's `dataDir`). Every detached worker spawn since has been refused `NO_CREDENTIAL`: no sleep cycle, lived day stuck at 185 / last active 2026-09-04, every ask `capped`, no embeddings, no crash sweep. **G44: the owner restores the two keys AND `"embedder": { "enabled": true }` in `claude-code.json`** (the same install dropped it; found by the `~/random` session) and rules on the 78 un-encoded spans of 09-10/11 and on when the ≥ 7-day count starts. G45: make spawn refusals durable. See LAUNCH-STATUS 2026-09-11. **I33 (same day):** after G44 the embedding backfill is head-of-line blocked — two migrated memories carry a lone surrogate, Voyage 400s the whole 64-chunk, the same head-64 retries forever (also the true cause of the 09-04 failures). G46. |
+
+## 2026-09-11 midday — where the failsafes work stands (read this before the list below)
+
+**Both incidents are fixed by hand; the failsafes are in flight.** Keys and the embedder block were restored
+by the owner at ~10:40 local; the worker ran at the next boundary (lived day 186, sleep, cue, sweep, ask all
+evidenced); the parallel run's clock was RESTARTED from 2026-09-11 (`restarts.jsonl` line 5, owner ruling:
+count from the first day the full system ran). The embed backfill is still head-of-line blocked (I33) until
+PR 1 lands.
+
+**Owner decisions (2026-09-11):** the 78 un-encoded spans of 09-10 are let go (two closed sessions hold 62 of
+them; the third was still open and authored its own notes). The warning must reach the USER's terminal.
+PR order: (1) degrade-instead-of-refuse + durable refusals + ask cap on the calendar date + embedder
+poison-proofing + `install --force` keeps keys; (2) `doctor` + session-start notice + `credentials set`;
+(3) tests/loop hardening. PR #92 (scope controls) waits behind them and needs a rebase over `hooks.ts#spawnWorker`.
+
+**PR 1 is OPEN: #95** (`fix/degrade-durable-poison`, built by an Opus agent; builder-reported suite 1860 / 0, hash `c3af0bef00209ba6` unchanged, 27 files). NOT yet reviewed. Next: adversarial review on Opus (attack the bisector's call bound, the skip list's interaction with `remaining`, the dedup key when `input.at` is absent, the `no-credential` sweep row's effect on the daily's readers, the UTC-date cap), preview-merge suite, `tools/install-loop/run.sh` both ways, then the owner merges and runs ONE `restart.ts --date 2026-09-11`. The builder's worktree is at `.claude/worktrees/agent-a0a014ea8242891dc` (remove after merge). Originally built (worktree-isolated, spec in the
+coordinating session; six parts A–F, nine named tests). It is a CORE batch: adversarial review on Opus, G12
+declaration, owner merges, then ONE `restart.ts --date 2026-09-11` (a same-date re-restart keeps today as
+day 1; the surface hash is expected unchanged at `c3af0bef00209ba6` — verify). If the agent's PR is not open
+when you resume, look for the branch on origin and in `git worktree list`; if neither exists, rebuild from
+the spec in LAUNCH-STATUS G45/G46 and this section.
+
+**Measured for PR 2 (owner ran `scratchpad/notice-probe`, 12:43 local):** a SessionStart or UserPromptSubmit
+hook that exits 0 and prints JSON with `systemMessage` gets that text DISPLAYED in the user's terminal
+(`SessionStart:startup says: …`), non-blocking; `additionalContext` and stderr do not show. So `doctor`'s
+findings go out as `systemMessage` and the wake stays as context. `hook.ts` prints plain stdout today; the
+JSON form is the change.
+
+**Model note:** the session that did this work was downgraded from Fable mid-day after a misflag; the owner
+restarts on Fable at the next stopping point.
 
 ## The morning, in order
 
 1. **Read-only check that the config is still sane**: `grep dataDir ~/.counterparts/claude-code.json`.
    It must name `~/.counterparts/store`. This is the check that would have caught I29
    on day one; run it before anything else, every morning. Do not write to `~/.counterparts`.
+   **And the credentials** (I32): `grep -v '^\s*#' ~/.counterparts/credentials.env | grep -c .` must be
+   ≥ 1 (names only — never print the file). Then `sqlite3 -readonly ~/.counterparts/store/operational.sqlite
+   "select key,value from meta where key in ('livedDay','lastActiveDate')"`: `lastActiveDate` must be the
+   last day a session ran, or the worker is not running and every visible surface will still look healthy.
 2. **The daily record for the previous day** (standing permission from the owner, 2026-09-05) —
    `~/.bun/bin/bun tools/parallel/bin/daily.ts --run-dir ~/counterparts-parallel-run/2026-09-03 --date <YYYY-MM-DD> --phase P --v2-data-dir ~/.counterparts/store --v2-config ~/.counterparts/claude-code.json --v1-ritual ~/counterparts-parallel-run/2026-09-03/v1-ritual.txt`
    — with `--date 2026-09-10` today, and each morning for the day before. **Expect ACTIVE from

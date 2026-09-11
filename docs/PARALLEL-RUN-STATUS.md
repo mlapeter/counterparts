@@ -5,6 +5,25 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-11: 09-10 recorded ACTIVE, but the worker has not run on the live store since 09-04 (I32)
+
+*Appended 2026-09-11 morning. Numbers from `days/2026-09-10.json` and a read-only look at the live
+store's `meta` and `events` tables, on the owner's ask.*
+
+- **2026-09-10: ACTIVE.** 18 turns (floor 5), primacy VERIFIED, v1 pass (10 `session.end`, 40 `ab.muted`),
+  v2 pass (0 stop primacy, 27 episode-ask, 30 `adapter.boundary`), 10 memories created. Cross-encoding
+  v1→v2 0/2, v2→v1 1/4 against 1493 v1 mints, ratio 0.0007 — a named finding, no red-line. Four watches
+  `not-exercised`. `activeDays.P` = 1.
+- **But the day measured the foreground only.** `meta.livedDay` is still 185 and `lastActiveDate`
+  2026-09-04; all 27 asks were `capped: day-chapter-cap` (the day-185 cap of 4 was spent on 09-04); no
+  `sweep.gate` / `adapter.semantic.lag` / `adapter.embed.backfill` row since 2026-09-04 21:15. Cause:
+  `~/.counterparts/credentials.env` holds no key (the 09-04 install rewrote it to the template beside
+  `dataDir`, I29's unrecorded half) and hooks inherit none, so `planSpawn` refuses `NO_CREDENTIAL` at every
+  boundary; the same install also dropped the `embedder` block, so vectors stay off until it is restored. Full record: `docs/LAUNCH-STATUS.md` I32, G44, G45.
+- **Owner ruling wanted (G44):** whether the ≥ 7 Phase-P active days count from 2026-09-10 as recorded, or
+  from the first day the worker actually runs on the live store. The daily's `class` rule is unchanged; this
+  note is the caveat beside the number.
+
 ## State — 2026-09-10: the second core batch merged, restart #4, the run's clock starts again
 
 *Appended 2026-09-10. Every number below is copied from `~/counterparts-parallel-run/2026-09-03/`
