@@ -35,7 +35,7 @@ PR order: (1) degrade-instead-of-refuse + durable refusals + ask cap on the cale
 poison-proofing + `install --force` keeps keys; (2) `doctor` + session-start notice + `credentials set`;
 (3) tests/loop hardening. PR #92 (scope controls) waits behind them and needs a rebase over `hooks.ts#spawnWorker`.
 
-**PR 1 is being built by an Opus agent** on branch `fix/degrade-durable-poison` (worktree-isolated, spec in the
+**PR 1 is OPEN: #95** (`fix/degrade-durable-poison`, built by an Opus agent; builder-reported suite 1860 / 0, hash `c3af0bef00209ba6` unchanged, 27 files). NOT yet reviewed. Next: adversarial review on Opus (attack the bisector's call bound, the skip list's interaction with `remaining`, the dedup key when `input.at` is absent, the `no-credential` sweep row's effect on the daily's readers, the UTC-date cap), preview-merge suite, `tools/install-loop/run.sh` both ways, then the owner merges and runs ONE `restart.ts --date 2026-09-11`. The builder's worktree is at `.claude/worktrees/agent-a0a014ea8242891dc` (remove after merge). Originally built (worktree-isolated, spec in the
 coordinating session; six parts A–F, nine named tests). It is a CORE batch: adversarial review on Opus, G12
 declaration, owner merges, then ONE `restart.ts --date 2026-09-11` (a same-date re-restart keeps today as
 day 1; the surface hash is expected unchanged at `c3af0bef00209ba6` — verify). If the agent's PR is not open
