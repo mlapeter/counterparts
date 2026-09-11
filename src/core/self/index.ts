@@ -270,7 +270,7 @@ export class Self {
   /** Observer-only state that may never be deposited (observer-mode G3/G6). */
   private readonly volatileState = new Map<string, EpisodeState>();
   /** The day counter's observer arm: counted, never written (freeze doctrine). */
-  private readonly volatileDayAsks = new Map<number, number>();
+  private readonly volatileDayAsks = new Map<number | string, number>();
   private readonly volatileCounts = new Map<string, number>();
 
   constructor(opts: SelfOptions) {
@@ -675,24 +675,40 @@ export class Self {
   }
 
   /**
-   * Asks committed on this LIVED DAY, across every session it held. A read.
+   * Asks committed on this day, across every session it held. A read.
    *
    * The cap lives on the day rather than the session because the host opens a
    * session per invocation (2026-09-04): six sessions under a per-session cap
    * of six is thirty-six asks in a day v1 calibrated at about three.
+   *
+   * `date` (the host's calendar date, UTC) is the counter it is charged to when
+   * the caller knows one; `day` is the lived-day fallback for the callers that
+   * do not. See `episodes.ts#dayKey` for why the default moved (I32).
    */
-  dayAsks(day?: number): number {
-    const d = day ?? this.store.livedDay();
-    if (this.observer) return this.volatileDayAsks.get(d) ?? 0;
-    return Number(this.store.getMeta(dayKey(d)) ?? "0");
+  dayAsks(day?: number, date?: string): number {
+    const k = this.askCountKey(day, date);
+    if (this.observer) return this.volatileDayAsks.get(k) ?? 0;
+    return Number(this.store.getMeta(dayKey(k)) ?? "0");
+  }
+
+  /**
+   * WHICH counter this ask is charged to: the CALENDAR date when the caller
+   * supplies one, the lived day when nobody does (`episodes.ts#dayKey` carries
+   * the scar and the UTC decision). The lived-day key is not consulted at all
+   * once a date is given — reading both would let a frozen clock keep capping
+   * a calendar day it has nothing to do with, which is the whole of I32.
+   */
+  private askCountKey(day?: number, date?: string): number | string {
+    if (date !== undefined && date.length > 0) return date;
+    return day ?? this.store.livedDay();
   }
 
   /** Pure: is a chapter due? No state advances, nothing is written. */
-  askDue(sessionId: string, substance: Substance, day?: number): AskVerdict {
+  askDue(sessionId: string, substance: Substance, day?: number, date?: string): AskVerdict {
     const d = day ?? this.store.livedDay();
     return askDue(this.episodeState(sessionId, d), substance, this.tunables, {
       observer: this.observer,
-      dayAsks: this.dayAsks(d),
+      dayAsks: this.dayAsks(d, date),
     });
   }
 
@@ -701,12 +717,12 @@ export class Self {
    * blocks** (§13 G3–G4), so a crash cannot re-ask in a loop. The state write
    * happens here, before the caller ever hands the text to a model.
    */
-  openChapter(sessionId: string, substance: Substance, day?: number): ChapterAsk {
+  openChapter(sessionId: string, substance: Substance, day?: number, date?: string): ChapterAsk {
     const d = day ?? this.store.livedDay();
     const state = this.episodeState(sessionId, d);
     const verdict = askDue(state, substance, this.tunables, {
       observer: this.observer,
-      dayAsks: this.dayAsks(d),
+      dayAsks: this.dayAsks(d, date),
     });
     if (!verdict.due) {
       this.emit("self.episode.ask.skipped", sessionId, {
@@ -728,13 +744,13 @@ export class Self {
       lastDay: d,
     };
     this.persistState(advanced, "openChapter");
-    this.bumpDayAsks(d);
+    this.bumpDayAsks(d, date);
     this.emit("self.episode.ask", sessionId, {
       chapter: verdict.chapter,
       reason: verdict.reason,
       turns: substance.turns,
       bytes: substance.bytes,
-      dayAsks: this.dayAsks(d),
+      dayAsks: this.dayAsks(d, date),
     });
     return { asked: true, verdict, ask: askText(verdict.chapter), chapter: verdict.chapter };
   }
@@ -1029,8 +1045,11 @@ export class Self {
    * miss is measurable before anyone debates a reconstruction fallback — the
    * right shape for an unfixable gap: bound it, measure it, don't pretend.
    */
-  noteOrphanTail(sessionId: string, substance: Substance, day?: number): AskVerdict {
-    const verdict = this.askDue(sessionId, substance, day);
+  noteOrphanTail(sessionId: string, substance: Substance, day?: number, date?: string): AskVerdict {
+    // The SAME counter the ask is charged to. A tail verdict computed against
+    // the lived-day key while the ask used the calendar one would report
+    // `day-chapter-cap` for a day that has asks left (I32).
+    const verdict = this.askDue(sessionId, substance, day, date);
     this.emit("self.episode.tail", sessionId, {
       sinceTurns: verdict.sinceTurns,
       sinceBytes: verdict.sinceBytes,
@@ -1145,14 +1164,15 @@ export class Self {
    * what the cap is protecting is the OWNER'S ATTENTION: an ask the model
    * declined still cost the blocked moment it was delivered in.
    */
-  private bumpDayAsks(day: number): number {
+  private bumpDayAsks(day: number, date?: string): number {
+    const k = this.askCountKey(day, date);
     if (this.observer) {
-      const next = (this.volatileDayAsks.get(day) ?? 0) + 1;
-      this.volatileDayAsks.set(day, next);
+      const next = (this.volatileDayAsks.get(k) ?? 0) + 1;
+      this.volatileDayAsks.set(k, next);
       return next;
     }
-    const next = Number(this.store.getMeta(dayKey(day)) ?? "0") + 1;
-    this.store.setMeta(dayKey(day), String(next));
+    const next = Number(this.store.getMeta(dayKey(k)) ?? "0") + 1;
+    this.store.setMeta(dayKey(k), String(next));
     return next;
   }
 

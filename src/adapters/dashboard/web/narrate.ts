@@ -195,12 +195,40 @@ export const NARRATORS = {
       `I wrote something down; the ${acted.join(", ")} gate acted on it first, and it was kept.`,
     );
   },
+  // THE THREE SPAWN-SEAM RECORDS (I32). Amber on sight: each of them is the
+  // background half not running, and the whole reason they are durable is that
+  // for a week nobody could see it. `count` is the persisted per-reason counter
+  // at the moment of the row, so "the fourth time today" reads as such.
+  "adapter.spawn.refused": (t) => {
+    const reason = String(t.p["reason"] ?? "unnamed");
+    const count = n(t, "count") ?? 1;
+    return amber(
+      `My background worker did not start: ${reason}${count > 1 ? `, ${String(count)} times running` : ""}. The sleep cycle, the flush and the crash fallback all ride on it.`,
+    );
+  },
+  "adapter.spawn.failed": (t) =>
+    amber(
+      `My background worker could not be started at all — the system said ${String(t.p["code"] ?? "nothing")}.`,
+    ),
+  "adapter.runner.failed": (t) =>
+    amber(
+      `My background worker opened the store and then failed at ${String(t.p["step"] ?? "an unnamed step")} (${String(t.p["code"] ?? "no code")}).`,
+    ),
   "sweep.gate": (t) => {
     const scopes = n(t, "scopes") ?? 0;
     const ran = n(t, "ran") ?? 0;
     const skipped = n(t, "skippedNotCrashed") ?? 0;
     const quarantined = n(t, "quarantined") ?? 0;
     const swept = n(t, "swept") ?? 0;
+    // The SKIPPED row (I32): the worker ran the day — clock, flush, cycle — and
+    // deliberately did not sweep, because sweeping needs a model call it had no
+    // credential for. Saying "looked at 0 scopes and found nothing" of that
+    // would be the silence-as-health this row exists to prevent.
+    if (t.p["reason"] === "no-credential") {
+      return amber(
+        "I ran the day — the clock, the flush, the cycle — but skipped the crash fallback: there was no credential for the one model call it needs. Nothing was lost that a key would not fix.",
+      );
+    }
     if (quarantined > 0) {
       return amber(
         `The crash fallback quarantined ${quarantined} spans it could not safely read. That is the one outcome here worth looking at.`,
@@ -368,7 +396,10 @@ export const REF_KIND = {
   "adapter.primacy.deliver": "none",
   "adapter.primacy.standdown": "none",
   "adapter.recall": "none",
+  "adapter.runner.failed": "none",
   "adapter.semantic.lag": "none",
+  "adapter.spawn.failed": "none",
+  "adapter.spawn.refused": "none",
   "adapter.wake.delivered": "none",
   "adapter.wake.injected": "none",
   "band.promoted": "memory",
