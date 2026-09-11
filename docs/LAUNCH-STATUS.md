@@ -1303,6 +1303,30 @@ was reached, turns ≥ 5) — but it measured the foreground only. Whether Phase
 | G44 | **Restore the keys and the embedder**: add `ANTHROPIC_API_KEY=…` and `VOYAGE_API_KEY=…` lines to `~/.counterparts/credentials.env` (keep 0600), and add `"embedder": { "enabled": true }` to `~/.counterparts/claude-code.json` — exactly that shape: the block is read strictly, and anything else drops the whole config to observer and silences every hook. Hooks are fresh processes and pick it up at the next Stop; the MCP server only after a session restart. **Verification one boundary later** (read-only): `meta.livedDay` 186 and `lastActiveDate` today; new `adapter.semantic.lag`, `adapter.embed.backfill`, `sweep.gate` rows; the following Stop's `adapter.ask` not `capped`; `verify`'s no-vector count falling. Watch the first backfill row: the last one (09-04 21:15:07Z) read `embedded 0 / failed 64 / reason ran`, and 1,984 of 2,368 attempts failed that day — if that repeats, the Voyage side has a separate fault. Two rulings ride with it: replay the 78 spans of 09-10/11 or let them go; and whether the ≥ 7-day count restarts from the first worker day. | **open** |
 | G45 | **Make the refusal durable and the escalation real**: add `spawn.refused` / `spawn.escalated` / `spawn.failed` to the durable adapter events (payload: reason, count), and persist the per-reason refusal count in box 2 so E4's escalation survives the process. Also: `install --force` under a real HOME replaces `credentials.env` with the template — the #80 guard covers the temp-store `dataDir` only; a forced install should refuse to blank a credentials file that holds a key, or back it up beside itself. Adapter + CLI, not core. | open |
 
+### I33 — the embedding backfill is head-of-line blocked by two lone surrogates (found by the `~/random` session, 2026-09-11)
+
+After G44 the first backfill batch embedded 64 / 0 failed (10:43 local); every run since reads
+**0 embedded / 64 failed / reason `ran`** (11:05, 11:06, 11:08, 11:09 ×2, 11:19), `remaining` climbing
+165 → 177. The identical signature runs from **2026-09-04 10:43** onward (32 consecutive rows, `remaining`
+stuck at 196) — so the 09-04 failures this entry earlier attributed to "the Voyage side" were this bug, not
+the key. The peer pinned it on a scratch COPY of the store with an instrumented fetch: Voyage answers HTTP 400
+("input is not valid UTF-8") for the whole 64-text chunk because two MIGRATED memories carry a lone UTF-16
+surrogate in their title — `mem_2cb8f1055650590a` (skill) and `mem_8303716a18ab0654` (fact), both migrated
+2026-09-03, both blind; on disk the frontmatter title holds U+FFFD but the `payload:` JSON holds the literal
+`\ud83d` escape (verified: one occurrence in each file), so `parseProse` yields the lone surrogate. Stripping
+the two surrogates makes the same request return 200. The store-wide scan found exactly these two.
+
+Why it hid: the backfill's isolation unit is the whole batch (`BACKFILL_LIMIT` 64 < the client's chunk size),
+`missingVectors` orders the migrated group stably so the same head-64 is retried forever, and the chunk's
+HTTP code lives in the runner's ring (stdio ignored) — the persisted `adapter.embed.backfill` row carries counts
+only. The 1-text lag cue succeeds in every failing run, which is why semantic recall works while the backfill
+does not. Also noted, not the cause: several runners overlap at a boundary (`sweep.gate` `otherRefusals` 6 at
+11:08–11:09) against a 5 s `BUSY_TIMEOUT`.
+
+| # | NEEDS-OWNER | State |
+|---|---|---|
+| G46 | **Poison-proof the embedder**, in the failsafes batch: (1) `embed-client.ts` sanitizes every input with `toWellFormed()` before serialization (Bun has it); (2) on a chunk 400, retry per item or bisect so one poison item fails alone; (3) `missingVectors` skips ids that failed N times (a skip list distinct from `deniedIds`); (4) persist the chunk's code/status on `adapter.embed.backfill`; (5) a versioned title repair for the two ids — wording is the owner's, and it is a live-store write. | open |
+
 Also this morning: `days/2026-09-10.json` recorded (ACTIVE, above) under the standing permission;
 `activeDays.P` is now 1. The four watches still read `not-exercised`. `dataDir` check passed. Nothing
 else from the handoff list was touched (PR #92 unreviewed; site untouched, by the owner's word).
