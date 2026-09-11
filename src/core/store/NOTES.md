@@ -715,3 +715,39 @@ rows dangle — pre-existing, out of this change's scope, named here rather than
 constitution line 6 — memory that "travels across hosts" cannot be pinned to one
 machine's directory tree — and line 7's "backups catch catastrophe", which was not true
 while a backup's rows pointed at the live store.
+
+---
+
+## The backfill's give-up list lives in meta (I33, 2026-09-11)
+
+`missingVectors` returns a STABLE order — first-person material first, oldest
+first inside each group — and that order is a memory claim worth keeping. It is
+also, without a skip list, a head-of-line block waiting for one un-embeddable
+row: two migrated memories carrying a lone UTF-16 surrogate made the provider
+answer 400 for the whole 64-text chunk, and the same head-64 was re-asked at
+every boundary for a week while 165 blind memories waited behind them.
+
+**`embed.failed.<id>` in box 2's meta, `EMBED_SKIP_AFTER` = 3.** Meta keys, not a
+column and not a schema bump — the precedent is `sleep.pruned.<id>`, and the fact
+being recorded is about a retry loop, not about the memory. Three rather than one
+because a 429, a dropped socket or an aborted watchdog must not retire a row from
+the semantic channel; three consecutive whole-run failures is past transient.
+
+**A skip is not a denial, and the two must never merge.** `deniedIds()` is a
+REMOVAL: the row is dark, it must never come back, and a read of it is a refusal.
+A skipped id is live, recallable, lexically indexed and perfectly ordinary —
+only its vector is missing. `skippedVectorIds()` names them, `verify` prints
+them, and setting the counter back to zero (which a run that LANDS does) puts the
+id straight back in the rotation.
+
+**`unembeddedCount()` excludes them, and that is the honest reading.** The count
+exists so a coverage watch has a number that falls run over run; a number that
+can never fall because three rows in it can never be embedded is a watch that has
+quietly stopped meaning anything. The excluded rows are not hidden — the backfill
+row carries `skipped`, `verify` prints the ids beside the count — so the two
+numbers add up wherever a person actually reads them.
+
+**`metaWithPrefix(prefix)`** is the read that makes this affordable: one `LIKE`
+(with `%` and `_` escaped — callers pass a key prefix, not a pattern) instead of
+one `getMeta` per live memory. `sleep.pruned.<id>` has the same shape and the
+same potential reader.

@@ -389,3 +389,39 @@ instead of loud, and a split store is never what anyone wanted.
 refuses a store nobody named. Both of these stores were named, confidently, by two
 different files. A guard against silence does not catch two voices disagreeing;
 that needs a comparison, which is what the fix above is.
+
+---
+
+## What the spawn-seam repair still owes (I32/I33, 2026-09-11)
+
+1. **Nothing SAYS the worker has not run.** `spawnRefusals()` and the durable
+   `adapter.spawn.refused` rows make the fact readable; no surface reads them.
+   The session-start notice that turns "your background worker has not started
+   in four days" into a sentence the owner sees is PR 2, and until it lands the
+   evidence is there for whoever thinks to look — which is exactly the posture
+   that let I32 run for a week. `doctor`, the same notice's read-only twin,
+   is also PR 2.
+2. **No command restores a credential.** `install --force` now keeps a file that
+   holds a key (§E), but the repair for a file that does NOT is still "open an
+   editor". A `credentials set <NAME>` that writes one name at 0600 without ever
+   printing the value is PR 2.
+3. **The ask cap's day is UTC.** `input.at` is the host's UTC ISO date, chosen
+   because every other `date` field in the store is, and two clocks in one store
+   is a scar this repo already has a name for. The owner is at UTC−6, so their
+   day's ask allowance resets at 18:00 local. That is a DECISION to revisit with
+   a real per-owner zone, not a bug to patch here with a second clock.
+4. **The two poisoned titles are not repaired.** The embedder no longer chokes on
+   them and the backfill no longer stalls behind them, but `mem_2cb8f1055650590a`
+   and `mem_8303716a18ab0654` still hold a lone surrogate in their payload JSON,
+   and what gets embedded for them is the U+FFFD form. A versioned title repair
+   is a live-store write and the owner's wording (G46 item 5).
+5. **The refusal counter never decays on its own.** It is cleared by a spawn that
+   starts, and by nothing else. A host that refuses once, is fixed by hand, and
+   never reaches another boundary keeps a stale count until it does. Acceptable
+   — the counter's only consumer is an escalation that a start disarms — but it
+   is not a time series, and nothing should read it as one.
+6. **Overlapping runners contend for box 2.** I33 measured six workers at one
+   boundary against a 5 s `BUSY_TIMEOUT`. Every meta write this PR adds (the
+   refusal counters, the per-id embed failures) is wrapped so a lost lock costs
+   the counter and never the run — but the contention itself is unaddressed, and
+   a worker that skips its own increment is a counter that reads low.

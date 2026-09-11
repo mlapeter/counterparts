@@ -44,10 +44,21 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   the episode's, and the two fired on different Stops — about a dozen asks in a 13-turn
   evening. "New features do not get to grow it back into two" is the guarantee, and the
   feature was the return channel, not a second moment.*
-- **A detached worker that cannot run escalates rather than re-logging.** [engram E4's
-  widening] v1's runner starved for two days for one project scope because it expected to
-  inherit a credential from whatever shell launched the session; the backlog drained only
-  when someone noticed.
+- **A detached worker that cannot run escalates rather than re-logging, DURABLY.** [engram
+  E4's widening] v1's runner starved for two days for one project scope because it expected
+  to inherit a credential from whatever shell launched the session; the backlog drained
+  only when someone noticed. v2 repeated it for a WEEK (I32, 2026-09-11) because both
+  halves of the guarantee were ring-deep: the refusal left no durable row, and the
+  per-reason counter lived on an adapter instance that dies with its one-turn hook process,
+  so `escalate` read false at every one of a hundred boundaries. Since 2026-09-11 the
+  refusal writes `adapter.spawn.refused` / `adapter.spawn.failed` (one row per reason per
+  calendar date) and the counter lives in box 2's meta.
+- **A worker DEGRADES step by step; it does not refuse the run.** [I32] Exactly one of the
+  worker's five jobs needs a model credential. Refusing the spawn without one stopped the
+  other four — the lived-day clock, the Hebbian flush, the semantic cue, the embedding
+  backfill and the whole sleep cycle — and froze the day's ask cap with them. Each step now
+  asks its own question and records its own answer by name (`sweep.gate` with
+  `reason: "no-credential"`; `no-credentials` / `embedder-off` on the vector steps).
 - **The credential comes from the environment first and, where the host gives a process
   none, from the ONE file this package's own config names (`credentialsFile`).** [v1's
   `.env` fallback, ported as a scar rather than as code] Measured day 0 of the parallel

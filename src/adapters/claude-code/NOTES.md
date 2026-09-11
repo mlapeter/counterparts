@@ -168,3 +168,77 @@ for anything reading the ring in-process.
 the same reason (scar §2.13): a hook driven by `--config` that spawned a worker
 which then resolved the default file would sweep and sleep against a store nobody
 named.
+
+---
+
+## The week the worker never started (I32, 2026-09-11)
+
+A forced `install --force` on 2026-09-04 replaced `credentials.env` with the
+template — a file with zero non-comment lines. `planSpawn` refused
+`NO_CREDENTIAL` at every boundary for the seven days that followed, and nothing
+that happened next was visible from any surface a person looks at.
+
+**What the refusal actually cost.** The worker carries five jobs. Exactly one of
+them — the crash-fallback sweep — needs a model call. The other four are the
+lagged semantic cue, the embedding backfill, the Hebbian flush, and the sleep
+cycle (decay, prune, dedup, consolidate, briefing). The sleep cycle is also the
+only thing that advances the lived-day clock. So a missing key stopped the clock
+at 185; `self.episode.day.185 = 4` was the day's ask cap, spent on 09-04 and
+never reset, so all 39 Stops between the restore and the finding read
+`capped: day-chapter-cap` and the model was never asked for a chapter again;
+live memories without a vector rose from 219 to 229; and every turn's recall
+read `semantic: none`.
+
+Meanwhile the wake delivered, recall rendered, spans captured, `verify` was
+clean and the daily graded the day ACTIVE. **The foreground was healthy and the
+background had been dead for a week.**
+
+**Three repairs, and the third is the general one.**
+
+1. *Degrade, do not refuse.* The credential is no longer a spawn precondition.
+   `runner.ts` asks its own question at the one step that needs an answer and
+   passes `sweep: { skipped: "no-credential" }`, which still writes the gate row.
+   A guard that protects one job by stopping five is a single point of failure
+   with a name on it.
+2. *Durable refusals.* `spawn.refused` / `spawn.escalated` were ring-only, and a
+   hook process's ring lives for one turn. Scar §2.4 says the door that failed
+   must not look like the door nobody opened; at this seam it did. The refusal
+   now writes `adapter.spawn.refused`, latched one row per reason per calendar
+   date.
+3. *Persisted escalation.* `spawnFailures` was a `Map` on an adapter instance.
+   Every hook is a fresh process, so "consecutive refusals" was always 1 and
+   scar E4's widening — a repeated refusal reaches a human — was inert from the
+   day it shipped. The counter is in box 2's meta now
+   (`adapter.spawn.refusals.<reason>`), cleared when a spawn starts.
+
+**What is deliberately NOT here.** The refusal row's `count` is the counter at
+the moment the row was written, which for the first refusal of a date is 1. The
+row is evidence that it happened; `spawnRefusals()` and the meta counter are the
+evidence of how deep it got. A row per boundary would be three hundred rows a day
+saying the same thing, which is a different way of being unreadable.
+
+## Head-of-line, and why isolation units matter (I33, 2026-09-11)
+
+Two migrated memories carried a lone UTF-16 surrogate in their title. Voyage
+answers HTTP 400 for the whole chunk; `BACKFILL_LIMIT` (64) is smaller than the
+client's batch size, so the chunk WAS the batch; `missingVectors` returns a
+stable order, so the same head-64 was re-asked at every boundary for a week while
+165 blind memories queued behind it. Thirty-two consecutive `adapter.embed.backfill`
+rows read `0 embedded / 64 failed / reason: ran` — a row with no code on it, so
+it read as a flaky provider rather than as two bad bytes.
+
+Three changes, each needed on its own:
+
+- **Sanitize the request body.** `toWellFormed()`, in `callOnce`, and nowhere
+  else. The cache key and everything `store.embedOne` compares stay on the
+  ORIGINAL string: sanitizing before the cache write would file the vector under
+  a key the store never asks for, and the backfill would become a paid-for no-op
+  that reports success — the failure the file's own header warns about.
+- **Bisect a 400.** Only a 400: the provider read the body and refused it, so the
+  poison is in there. A 429 or a 500 says nothing about which input is bad, and
+  splitting a 429 multiplies the rate that caused it.
+- **Give up after three.** Sanitizing fixes THIS poison; the skip list is what
+  keeps the NEXT one from holding the queue. `embed.failed.<id>` in meta,
+  excluded from `missingVectors`, named by `skippedVectorIds()` and printed by
+  `verify` — a give-up nobody can read is indistinguishable from a coverage
+  number that has stopped meaning anything.
