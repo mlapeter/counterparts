@@ -21,6 +21,36 @@ The owner's one-sitting sheet is done and is no longer reading material.
 | Agents | None running. |
 | **I32 (found 2026-09-11)** | **`~/.counterparts/credentials.env` holds no key** (rewritten to the template by the 09-04 install, beside I29's `dataDir`). Every detached worker spawn since has been refused `NO_CREDENTIAL`: no sleep cycle, lived day stuck at 185 / last active 2026-09-04, every ask `capped`, no embeddings, no crash sweep. **G44: the owner restores the two keys AND `"embedder": { "enabled": true }` in `claude-code.json`** (the same install dropped it; found by the `~/random` session) and rules on the 78 un-encoded spans of 09-10/11 and on when the ≥ 7-day count starts. G45: make spawn refusals durable. See LAUNCH-STATUS 2026-09-11. **I33 (same day):** after G44 the embedding backfill is head-of-line blocked — two migrated memories carry a lone surrogate, Voyage 400s the whole 64-chunk, the same head-64 retries forever (also the true cause of the 09-04 failures). G46. |
 
+## 2026-09-11 midday — where the failsafes work stands (read this before the list below)
+
+**Both incidents are fixed by hand; the failsafes are in flight.** Keys and the embedder block were restored
+by the owner at ~10:40 local; the worker ran at the next boundary (lived day 186, sleep, cue, sweep, ask all
+evidenced); the parallel run's clock was RESTARTED from 2026-09-11 (`restarts.jsonl` line 5, owner ruling:
+count from the first day the full system ran). The embed backfill is still head-of-line blocked (I33) until
+PR 1 lands.
+
+**Owner decisions (2026-09-11):** the 78 un-encoded spans of 09-10 are let go (two closed sessions hold 62 of
+them; the third was still open and authored its own notes). The warning must reach the USER's terminal.
+PR order: (1) degrade-instead-of-refuse + durable refusals + ask cap on the calendar date + embedder
+poison-proofing + `install --force` keeps keys; (2) `doctor` + session-start notice + `credentials set`;
+(3) tests/loop hardening. PR #92 (scope controls) waits behind them and needs a rebase over `hooks.ts#spawnWorker`.
+
+**PR 1 is being built by an Opus agent** on branch `fix/degrade-durable-poison` (worktree-isolated, spec in the
+coordinating session; six parts A–F, nine named tests). It is a CORE batch: adversarial review on Opus, G12
+declaration, owner merges, then ONE `restart.ts --date 2026-09-11` (a same-date re-restart keeps today as
+day 1; the surface hash is expected unchanged at `c3af0bef00209ba6` — verify). If the agent's PR is not open
+when you resume, look for the branch on origin and in `git worktree list`; if neither exists, rebuild from
+the spec in LAUNCH-STATUS G45/G46 and this section.
+
+**Measured for PR 2 (owner ran `scratchpad/notice-probe`, 12:43 local):** a SessionStart or UserPromptSubmit
+hook that exits 0 and prints JSON with `systemMessage` gets that text DISPLAYED in the user's terminal
+(`SessionStart:startup says: …`), non-blocking; `additionalContext` and stderr do not show. So `doctor`'s
+findings go out as `systemMessage` and the wake stays as context. `hook.ts` prints plain stdout today; the
+JSON form is the change.
+
+**Model note:** the session that did this work was downgraded from Fable mid-day after a misflag; the owner
+restarts on Fable at the next stopping point.
+
 ## The morning, in order
 
 1. **Read-only check that the config is still sane**: `grep dataDir ~/.counterparts/claude-code.json`.
