@@ -19,7 +19,7 @@ store's `meta` and `events` tables, on the owner's ask.*
   `sweep.gate` / `adapter.semantic.lag` / `adapter.embed.backfill` row since 2026-09-04 21:15. Cause:
   `~/.counterparts/credentials.env` holds no key (the 09-04 install rewrote it to the template beside
   `dataDir`, I29's unrecorded half) and hooks inherit none, so `planSpawn` refuses `NO_CREDENTIAL` at every
-  boundary. Full record: `docs/LAUNCH-STATUS.md` I32, G44, G45.
+  boundary; the same install also dropped the `embedder` block, so vectors stay off until it is restored. Full record: `docs/LAUNCH-STATUS.md` I32, G44, G45.
 - **Owner ruling wanted (G44):** whether the ≥ 7 Phase-P active days count from 2026-09-10 as recorded, or
   from the first day the worker actually runs on the live store. The daily's `class` rule is unchanged; this
   note is the caveat beside the number.

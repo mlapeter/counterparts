@@ -1252,8 +1252,10 @@ pure in-process reproduction of `spawn.ts#planSpawn`. No live store was written;
 minted 10 memories on 09-10; `verify` is clean; the daily graded **2026-09-10 ACTIVE** (18 turns, primacy
 verified, no red-line, one named v2→v1 hit at ratio 0.0007).
 
-**What has not run.** No worker has opened the live store since **2026-09-04 21:15** (last `sweep.gate`,
-`adapter.semantic.lag`, `adapter.embed.backfill` rows). None of the 43 boundaries since the 09-10 restore
+**What has not run.** No worker has opened the live store since **2026-09-04 21:15:07Z** (last `sweep.gate`,
+`adapter.semantic.lag`, `adapter.embed.backfill` rows) — fifty seconds before the forced install rewrote the
+config and the credentials file (mtime 15:15:59 local = 21:15:59Z). All times in this entry are UTC unless
+marked local. None of the 43 boundaries since the 09-10 restore
 spawned one. Consequences, each a durable fact:
 
 - `meta.livedDay` = **185** and `meta.lastActiveDate` = **2026-09-04**: lived day 185 spans 09-04 → today.
@@ -1265,14 +1267,22 @@ spawned one. Consequences, each a durable fact:
   from 219 (09-05) to **229**; the 10 MCP deposits have none.
 - The crash-fallback sweep has not run, so nothing detects a crashed session.
 
-**Mechanism.** `~/.counterparts/credentials.env` (mode 600, mtime **2026-09-04 15:15**, 617 B) is exactly
+**Mechanism.** `~/.counterparts/credentials.env` (mode 600, mtime **2026-09-04 15:15:59 local**, 617 B) is exactly
 `install`'s `credentialsTemplate()` — **0 non-comment lines**. It was rewritten by the same forced install run
 that overwrote `dataDir` (I29, 15:15:59); I29 recorded only the `dataDir` half. Hook processes on this host
 carry neither key in their environment (measured 2026-09-03; re-checked today for sessions in this repo and
 `~/random`), so `planSpawn` refuses **`NO_CREDENTIAL`** at every boundary — reproduced in-process against the
 live config with the key unset: `credential load: loaded [] · spawn plan: false NO_CREDENTIAL escalate: false`.
-The temp store shows successful `gate.chunk` rows through 09-10 13:51 (bookkeeping scopes), so some terminals
-did carry a key in their environment; the two scopes active on the live store since 09-10 do not.
+The temp store shows successful `gate.chunk` rows through 09-10 13:51Z (07:51 local, bookkeeping scopes), so
+some terminals did carry a key in their environment; the two scopes active on the live store since 09-10 do not.
+
+**Third field (found by the `~/random` session's independent read-only verification, 2026-09-11).** The same
+install also dropped the `"embedder": { "enabled": true }` block from `claude-code.json` — `install` writes it
+only under `--embedder`, and `embed-client.ts` builds no client unless it is `true`, whatever the keys say.
+Evidence: the live store's 37 backfill rows on 09-04 read `reason: ran` (384 embedded, 1,984 failed — the
+Voyage side was already failing most batches); the temp store's five read `embedder-off`. So the forced install
+clobbered three fields: `dataDir` (G37, fixed 09-10), the credentials (this entry), and `embedder.enabled`
+(unfixed). `VOYAGE_API_KEY` alone changes nothing for embeddings or the semantic cue.
 
 **Why nobody saw it.** `spawn.refused` / `spawn.escalated` are ring-only (`AdapterDurableEventName` does not
 include them) — the one door that failed for a week left no durable row (scar §2.4 violated at the spawn
@@ -1290,7 +1300,7 @@ was reached, turns ≥ 5) — but it measured the foreground only. Whether Phase
 
 | # | NEEDS-OWNER | State |
 |---|---|---|
-| G44 | **Restore the keys**: add `ANTHROPIC_API_KEY=…` and `VOYAGE_API_KEY=…` lines to `~/.counterparts/credentials.env` (keep 0600). Hooks are fresh processes and pick it up at the next Stop; the MCP server only after a session restart. **Verification one boundary later** (read-only): `meta.livedDay` 186 and `lastActiveDate` today; new `adapter.semantic.lag`, `adapter.embed.backfill`, `sweep.gate` rows; the following Stop's `adapter.ask` not `capped`; `verify`'s no-vector count falling. Watch the first backfill row: the last one (09-04 21:15) read `embedded 0 / failed 64 / reason ran` — if that repeats, the Voyage side has a separate fault. Two rulings ride with it: replay the 78 spans of 09-10/11 or let them go; and whether the ≥ 7-day count restarts from the first worker day. | **open** |
+| G44 | **Restore the keys and the embedder**: add `ANTHROPIC_API_KEY=…` and `VOYAGE_API_KEY=…` lines to `~/.counterparts/credentials.env` (keep 0600), and add `"embedder": { "enabled": true }` to `~/.counterparts/claude-code.json` — exactly that shape: the block is read strictly, and anything else drops the whole config to observer and silences every hook. Hooks are fresh processes and pick it up at the next Stop; the MCP server only after a session restart. **Verification one boundary later** (read-only): `meta.livedDay` 186 and `lastActiveDate` today; new `adapter.semantic.lag`, `adapter.embed.backfill`, `sweep.gate` rows; the following Stop's `adapter.ask` not `capped`; `verify`'s no-vector count falling. Watch the first backfill row: the last one (09-04 21:15:07Z) read `embedded 0 / failed 64 / reason ran`, and 1,984 of 2,368 attempts failed that day — if that repeats, the Voyage side has a separate fault. Two rulings ride with it: replay the 78 spans of 09-10/11 or let them go; and whether the ≥ 7-day count restarts from the first worker day. | **open** |
 | G45 | **Make the refusal durable and the escalation real**: add `spawn.refused` / `spawn.escalated` / `spawn.failed` to the durable adapter events (payload: reason, count), and persist the per-reason refusal count in box 2 so E4's escalation survives the process. Also: `install --force` under a real HOME replaces `credentials.env` with the template — the #80 guard covers the temp-store `dataDir` only; a forced install should refuse to blank a credentials file that holds a key, or back it up beside itself. Adapter + CLI, not core. | open |
 
 Also this morning: `days/2026-09-10.json` recorded (ACTIVE, above) under the standing permission;
