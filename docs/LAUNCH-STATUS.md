@@ -1238,3 +1238,65 @@ run's verdict when the seventh active day arrives.
 ### Spend
 
 $0.00 by the session and its agents.
+
+## 2026-09-11, morning — I32: the background half has not run on the live store since 09-04
+
+Appended by the session that ran the morning check. Every number is from `~/.counterparts/store/operational.sqlite`
+(read-only, owner's ask "make sure the memory system is functioning"), the `days/2026-09-10.json` record, and a
+pure in-process reproduction of `spawn.ts#planSpawn`. No live store was written; no code changed.
+
+### I32 — the credentials file is empty, so every detached worker spawn is refused
+
+**What is visibly healthy.** The wake delivers (8,878 B, day 185); recall renders every turn (29 rows on 09-10,
+15 today); every Stop captures spans (27 boundaries / 54 spans on 09-10, 12 / 24 today); the MCP `note` door
+minted 10 memories on 09-10; `verify` is clean; the daily graded **2026-09-10 ACTIVE** (18 turns, primacy
+verified, no red-line, one named v2→v1 hit at ratio 0.0007).
+
+**What has not run.** No worker has opened the live store since **2026-09-04 21:15** (last `sweep.gate`,
+`adapter.semantic.lag`, `adapter.embed.backfill` rows). None of the 43 boundaries since the 09-10 restore
+spawned one. Consequences, each a durable fact:
+
+- `meta.livedDay` = **185** and `meta.lastActiveDate` = **2026-09-04**: lived day 185 spans 09-04 → today.
+  No sleep cycle (decay, prune, dedup, consolidate, briefing rewrite) has run on the live store since.
+- **Every `adapter.ask` since 09-10 is `capped: day-chapter-cap`** (27 on 09-10, 12 today) —
+  `meta.self.episode.day.185 = 4`, the daily cap, spent on 09-04 and never reset because the clock never
+  advanced. The session-end authorship ask has not reached the model since the restore.
+- `adapter.recall` reads `semantic: none` on every turn (no lagged cue); live memories without a vector rose
+  from 219 (09-05) to **229**; the 10 MCP deposits have none.
+- The crash-fallback sweep has not run, so nothing detects a crashed session.
+
+**Mechanism.** `~/.counterparts/credentials.env` (mode 600, mtime **2026-09-04 15:15**, 617 B) is exactly
+`install`'s `credentialsTemplate()` — **0 non-comment lines**. It was rewritten by the same forced install run
+that overwrote `dataDir` (I29, 15:15:59); I29 recorded only the `dataDir` half. Hook processes on this host
+carry neither key in their environment (measured 2026-09-03; re-checked today for sessions in this repo and
+`~/random`), so `planSpawn` refuses **`NO_CREDENTIAL`** at every boundary — reproduced in-process against the
+live config with the key unset: `credential load: loaded [] · spawn plan: false NO_CREDENTIAL escalate: false`.
+The temp store shows successful `gate.chunk` rows through 09-10 13:51 (bookkeeping scopes), so some terminals
+did carry a key in their environment; the two scopes active on the live store since 09-10 do not.
+
+**Why nobody saw it.** `spawn.refused` / `spawn.escalated` are ring-only (`AdapterDurableEventName` does not
+include them) — the one door that failed for a week left no durable row (scar §2.4 violated at the spawn
+seam). `spawnFailures` is instance state on an adapter that lives for one hook process, so scar E4's "a
+repeated refusal escalates" is inert on this host (`escalate: false` after any number of refusals).
+
+**Data at stake.** 78 spans captured 09-10/11 sit in `spans/` un-encoded: the model was never asked (capped)
+and `remember/fallback.ts` never sweeps a session that recorded `session-end` ("what it did not write is
+forgotten by design", constitution 3). Restoring the key does not recover them. Same shape as I29's
+"the owner chose not to replay" — the choice is the owner's (G44).
+
+**The run's count.** 09-10 is recorded ACTIVE, and the class is honest by the record's own rule (a boundary
+was reached, turns ≥ 5) — but it measured the foreground only. Whether Phase P's ≥ 7 days count from
+2026-09-10 or from the first day the worker runs is an owner ruling (G44).
+
+| # | NEEDS-OWNER | State |
+|---|---|---|
+| G44 | **Restore the keys**: add `ANTHROPIC_API_KEY=…` and `VOYAGE_API_KEY=…` lines to `~/.counterparts/credentials.env` (keep 0600). Hooks are fresh processes and pick it up at the next Stop; the MCP server only after a session restart. **Verification one boundary later** (read-only): `meta.livedDay` 186 and `lastActiveDate` today; new `adapter.semantic.lag`, `adapter.embed.backfill`, `sweep.gate` rows; the following Stop's `adapter.ask` not `capped`; `verify`'s no-vector count falling. Watch the first backfill row: the last one (09-04 21:15) read `embedded 0 / failed 64 / reason ran` — if that repeats, the Voyage side has a separate fault. Two rulings ride with it: replay the 78 spans of 09-10/11 or let them go; and whether the ≥ 7-day count restarts from the first worker day. | **open** |
+| G45 | **Make the refusal durable and the escalation real**: add `spawn.refused` / `spawn.escalated` / `spawn.failed` to the durable adapter events (payload: reason, count), and persist the per-reason refusal count in box 2 so E4's escalation survives the process. Also: `install --force` under a real HOME replaces `credentials.env` with the template — the #80 guard covers the temp-store `dataDir` only; a forced install should refuse to blank a credentials file that holds a key, or back it up beside itself. Adapter + CLI, not core. | open |
+
+Also this morning: `days/2026-09-10.json` recorded (ACTIVE, above) under the standing permission;
+`activeDays.P` is now 1. The four watches still read `not-exercised`. `dataDir` check passed. Nothing
+else from the handoff list was touched (PR #92 unreviewed; site untouched, by the owner's word).
+
+### Spend
+
+$0.00 by the session.
