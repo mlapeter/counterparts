@@ -2,9 +2,10 @@
 
 ## 2026-09-14 — read this first
 
-**State:** master `bbfea7c` + two PRs waiting on the owner: **#95** (core; reviewed on Opus, fixed, head
-`9ab3073`, suite 1867/0, hash unchanged, declaration recorded) and **#96** (instrument; the daily's turn source,
-suite 1857/0). Both merges were refused to the session by the classifier. **Owner, in order:** merge #96; merge #95;
+**State:** **#95 MERGED** as master `456a4fd` (2026-09-14T15:15Z; core; reviewed on Opus, fixed, head `9ab3073`,
+suite 1867/0, hash unchanged, declaration recorded) — LIVE at the next boundary, the restart is still owed. **#96**
+(instrument; the daily's turn source, suite 1857/0) and **#97** (this record) wait on the owner: the classifier
+refused those merges to the session. **Owner, in order:** merge #96 and #97;
 run ONE `restart.ts --date 2026-09-11` (same-date re-restart); optionally fix the one line in
 `~/counterparts-parallel-run/2026-09-03/bars.json` `why.activeDayTurnFloor`; rule on G47 (c) and G49 (taxscrub
 observer). Then PR 2 (`doctor`, `systemMessage` notice, `credentials set`) and the #92 rebase over
