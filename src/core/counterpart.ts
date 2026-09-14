@@ -1293,11 +1293,22 @@ export class Counterpart {
    */
   creditReferences(sessionId: string, input: CreditReferencesInput): CreditSummary {
     const day = this.store.livedDay();
+    const now = input.now ?? Date.now;
     const state = this.recall.gateState(sessionId);
     const candidates: ReferenceCandidate[] = [];
     let unreadable = 0;
+    let budgetExceeded = false;
+    // The prose reads are under the same deadline as the compare: a loud
+    // candidate never read is reported by the resolver as skipped-for-budget,
+    // not silently absent. (In practice the gate state's record cap bounds
+    // this loop, and loud surfacing is rare; the deadline is the tripwire.)
     for (const [id, rec] of Object.entries(state.surfaced)) {
       if (rec.tier !== "surfaced" || !rec.trains) continue;
+      if (input.deadline !== undefined && now() > input.deadline) {
+        budgetExceeded = true;
+        candidates.push({ id, tier: "surfaced", body: "" });
+        continue;
+      }
       try {
         candidates.push({ id, tier: "surfaced", body: this.store.readProse(id).body });
       } catch {
@@ -1311,15 +1322,25 @@ export class Counterpart {
       ...(input.deadline === undefined ? {} : { deadline: input.deadline }),
       ...(input.now === undefined ? {} : { now: input.now }),
     });
+    // An expansion is an ADDRESS the assistant typed into a tool call, and a
+    // well-shaped address can still name nothing: a typo, or a memory removed
+    // since it was footnoted. Physics would throw on it (`requireRow`) and take
+    // the whole boundary's credit down as `failed` — the reason the daily's
+    // readers alarm on. A bad address is a refusal, counted, not a failure.
+    const refused: Record<string, number> = {};
+    const uses = refs.uses.filter((u) => {
+      if (this.store.row(u.memoryId) !== undefined) return true;
+      refused["unknown-id"] = (refused["unknown-id"] ?? 0) + 1;
+      return false;
+    });
     const results = this.resolveUses(
       sessionId,
-      refs.uses.map((u) => ({ memoryId: u.memoryId, tier: "referenced" as const })),
+      uses.map((u) => ({ memoryId: u.memoryId, tier: "referenced" as const })),
     );
-    const refused: Record<string, number> = {};
     const ids: string[] = [];
     let credited = 0;
     results.forEach((r, i) => {
-      const id = refs.uses[i]?.memoryId;
+      const id = uses[i]?.memoryId;
       if (r.credited) {
         credited += 1;
         if (id !== undefined) ids.push(id);
@@ -1330,7 +1351,7 @@ export class Counterpart {
       const why = r.outcome?.reason ?? r.reason;
       refused[why] = (refused[why] ?? 0) + 1;
     });
-    const reason: CreditSummary["reason"] = refs.budgetExceeded
+    const reason: CreditSummary["reason"] = refs.budgetExceeded || budgetExceeded
       ? "budget-exceeded"
       : credited > 0
         ? "credited"
@@ -1488,6 +1509,13 @@ export class Counterpart {
    * Returns whether the fact is durable, and never throws — an observer refuses
    * at the store's own seam, and a stand-down that threw would cost the boundary
    * that follows it.
+   */
+  /**
+   * `data` is ids, counts, bytes, reasons, flags — and, since `recall.credit`,
+   * nested lists and maps of those. NEVER body text (store §5 G10). The type
+   * was a flat record until 2026-09-14 and that flatness was part of how G10
+   * was mechanized; it is now an instruction at this seam, so a caller adding a
+   * field here owes the same check the flat type used to make for free.
    */
   noteAdapterEvent(
     name: AdapterDurableEventName,

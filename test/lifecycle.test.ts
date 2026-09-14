@@ -262,6 +262,31 @@ describe("the lifecycle, through the adapter", () => {
     expect(creditRows(c).at(-1)?.reason).toBe("credited");
   });
 
+  test("a well-shaped id that names nothing is a refusal, not a failed boundary", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const id = await mint(a);
+    c.store.advanceClock("2026-01-02");
+    a.stop(
+      input({
+        sessionId: "s1",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Looked both up; one of them no longer exists." }],
+        // A typo'd id beside a real one, in the same call.
+        expansions: [{ atTurn: 3, ids: ["mem_000000000000", id] }],
+      }),
+    );
+    const row = creditRows(c).at(-1);
+    expect(row?.reason).toBe("credited");
+    expect(row?.ids).toEqual([id]);
+    expect(c.store.physicsOf(id).uses).toBe(1);
+    const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
+      refused?: Record<string, number>;
+    };
+    expect(payload.refused?.["unknown-id"]).toBe(1);
+  });
+
   test("a wake does not reinforce what it renders", async () => {
     const a = adapter();
     const c = a.counterpart;
