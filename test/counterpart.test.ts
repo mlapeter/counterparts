@@ -27,7 +27,7 @@ import {
 import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
-import { PHASES } from "../src/core/sleep/index.js";
+import { CycleKilled, PHASES } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -1297,6 +1297,48 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     expect(versions?.code).toBe("VERSIONS_BOOM");
     // The briefing ran after it, so the wake row is there too.
     expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(1);
+  });
+
+  test("a CLOCK that will not advance leaves the row with reason `clock-failed` and its code", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    (c.store as unknown as { advanceClock: () => never }).advanceClock = () => {
+      throw Object.assign(new Error("torn"), { code: "CLOCK_TORN" });
+    };
+
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("clock-failed");
+    expect(row["code"]).toBe("CLOCK_TORN");
+    // The cycle continued on the day the store already believed in: the other
+    // phases are still in the row, by name.
+    expect(phasesOf(row).map((p) => p.phase)).toEqual([...PHASES]);
+    expect(phasesOf(row).find((p) => p.phase === "clock")?.status).toBe("failed");
+  });
+
+  test("a cycle that THREW leaves a row saying so — and the throw still reaches the caller", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    // `CycleKilled` is the watchdog's hard kill wearing an exception's clothes:
+    // `sleep/` deliberately does not paper over it, and neither does this row.
+    (c.store as unknown as { advanceClock: () => never }).advanceClock = () => {
+      throw new CycleKilled({ phase: "clock", stage: "start" });
+    };
+
+    await expect(c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES })).rejects.toThrow(
+      CycleKilled,
+    );
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("threw");
+    expect(typeof row["code"]).toBe("string");
+    // No report existed to read phases out of, and the row says that by being
+    // empty rather than by naming phases nobody observed.
+    expect(row["phases"]).toEqual([]);
+    expect(row["date"]).toBe("2026-01-02");
+    // The render never happened, so there is no wake row to write.
+    expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(0);
   });
 
   test("an OBSERVER writes NEITHER row — an instrument leaves the world as it found it", async () => {

@@ -1746,43 +1746,52 @@ export class Counterpart {
     }));
     const clock = report?.phases.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";
-    const payload = {
-      // WHY this row exists, always present. `ran` is an ordinary cycle whatever
-      // it found; `clock-failed` is a cycle that ran on the day the store already
-      // believed in because the date would not advance; `threw` is a cycle that
-      // died — `CycleKilled`, the watchdog's hard kill — and left this row on its
-      // way out. An OBSERVER never reaches here: an instrument writes nothing.
-      reason: threwCode !== null ? "threw" : clockFailed ? "clock-failed" : "ran",
-      code: threwCode ?? (clockFailed ? clock.error ?? null : null),
-      // The CALENDAR date, always known here: `sessionEnd` resolves it once and
-      // hands the same string to the cycle and to this row, so unlike
-      // `sweep.gate` there is no null hole to attribute around.
-      date,
-      day: report?.day ?? this.store.livedDay(),
-      // EVERY phase by name, in the order the cycle executed them, so "which
-      // phase failed" is answerable from the row rather than from a ring.
-      phases,
-      promoted: report?.promoted.length ?? 0,
-      pruned: report?.pruned.length ?? 0,
-      merged: report?.merged.length ?? 0,
-      bandUp: report?.bandTransitions.filter((t) => t.direction === "up").length ?? 0,
-      bandDown: report?.bandTransitions.filter((t) => t.direction === "down").length ?? 0,
-      failed: phases.filter((p) => p.status === "failed").length,
-      // Briefing elements trimmed, from the render's own summary — 0 when the
-      // briefing phase did not render at all, which `phases` disambiguates.
-      trimmed: numberField(renderedEvent(briefing), TRIMMED_FIELD) ?? 0,
-    };
+    // WHY this row exists, always present. `ran` is an ordinary cycle whatever
+    // it found; `clock-failed` is a cycle that ran on the day the store already
+    // believed in because the date would not advance; `threw` is a cycle that
+    // died — `CycleKilled`, the watchdog's hard kill — and left this row on its
+    // way out. An OBSERVER never reaches here: an instrument writes nothing.
+    const reason = threwCode !== null ? "threw" : clockFailed ? "clock-failed" : "ran";
+    const failed = phases.filter((p) => p.status === "failed").length;
     let durable = true;
     try {
-      this.store.appendEvent({ name: SLEEP_CYCLE_EVENT, day: this.store.livedDay(), payload });
+      // EVERYTHING that touches the store is inside this try, the payload's own
+      // `day` read included. On the throw path the caller's exception is already
+      // in flight, and a recorder that threw a SECOND one here would replace the
+      // `CycleKilled` the boundary is required to propagate.
+      this.store.appendEvent({
+        name: SLEEP_CYCLE_EVENT,
+        day: this.store.livedDay(),
+        payload: {
+          reason,
+          code: threwCode ?? (clockFailed ? clock.error ?? null : null),
+          // The CALENDAR date, always known here: `sessionEnd` resolves it once
+          // and hands the same string to the cycle and to this row, so unlike
+          // `sweep.gate` there is no null hole to attribute around.
+          date,
+          day: report?.day ?? this.store.livedDay(),
+          // EVERY phase by name, in the order the cycle executed them, so "which
+          // phase failed" is answerable from the row rather than from a ring.
+          phases,
+          promoted: report?.promoted.length ?? 0,
+          pruned: report?.pruned.length ?? 0,
+          merged: report?.merged.length ?? 0,
+          bandUp: report?.bandTransitions.filter((t) => t.direction === "up").length ?? 0,
+          bandDown: report?.bandTransitions.filter((t) => t.direction === "down").length ?? 0,
+          failed,
+          // Briefing elements trimmed, from the render's own summary — 0 when the
+          // briefing phase did not render at all, which `phases` disambiguates.
+          trimmed: numberField(renderedEvent(briefing), TRIMMED_FIELD) ?? 0,
+        },
+      });
     } catch (err) {
       durable = false;
       this.emit("counterpart.sleep.cycle.failed", undefined, { code: errCode(err) });
     }
     this.emit("counterpart.sleep.cycle", undefined, {
-      reason: payload.reason,
-      day: payload.day,
-      failed: payload.failed,
+      reason,
+      day: report?.day ?? null,
+      failed,
       durable,
     });
   }
@@ -1803,34 +1812,41 @@ export class Counterpart {
     const rendered = renderedEvent(briefing);
     if (rendered === null) return;
     const trims = briefing.filter((e) => e.name === TRIM_EVENT);
-    const payload = {
-      reason: "rendered",
-      date,
-      day: numberField(rendered, "day") ?? this.store.livedDay(),
-      bytes: numberField(rendered, "bytes") ?? 0,
-      budget: numberField(rendered, "budget") ?? 0,
-      // What RENDERED, per lane, read off the render's own summary rather than
-      // recounted here — `rebrief()` reads the same event for the same reason.
-      counts: Object.fromEntries(
-        LANE_ORDER.map((lane) => [lane, numberField(rendered, lane) ?? 0]),
-      ),
-      trimmed: trims.slice(0, BRIEFING_TRIM_LOG_CAP).map((e) => ({
-        id: e.ref ?? null,
-        lane: stringField(e, "lane"),
-      })),
-      trimmedTotal: trims.length,
-    };
+    const bytes = numberField(rendered, "bytes") ?? 0;
     let durable = true;
     try {
-      this.store.appendEvent({ name: SELF_BRIEFING_EVENT, day: this.store.livedDay(), payload });
+      // Same rule as the cycle row above: every store read is inside the try,
+      // so a recorder can never be what throws out of a boundary.
+      this.store.appendEvent({
+        name: SELF_BRIEFING_EVENT,
+        day: this.store.livedDay(),
+        payload: {
+          reason: "rendered",
+          date,
+          day: numberField(rendered, "day") ?? this.store.livedDay(),
+          bytes,
+          budget: numberField(rendered, "budget") ?? 0,
+          // What RENDERED, per lane, read off the render's own summary rather
+          // than recounted here — `rebrief()` reads the same event, for the same
+          // reason: one place the lane counts exist.
+          counts: Object.fromEntries(
+            LANE_ORDER.map((lane) => [lane, numberField(rendered, lane) ?? 0]),
+          ),
+          trimmed: trims.slice(0, BRIEFING_TRIM_LOG_CAP).map((e) => ({
+            id: e.ref ?? null,
+            lane: stringField(e, "lane"),
+          })),
+          trimmedTotal: trims.length,
+        },
+      });
     } catch (err) {
       durable = false;
       this.emit("counterpart.self.briefing.failed", undefined, { code: errCode(err) });
     }
     this.emit("counterpart.self.briefing", undefined, {
-      day: payload.day,
-      bytes: payload.bytes,
-      trimmed: payload.trimmedTotal,
+      day: numberField(rendered, "day"),
+      bytes,
+      trimmed: trims.length,
       durable,
     });
   }

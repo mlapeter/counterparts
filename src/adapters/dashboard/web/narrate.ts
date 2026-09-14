@@ -271,14 +271,16 @@ export const NARRATORS = {
         `My nightly cycle died partway through (${String(t.p["code"] ?? "no code")}). What it had already finished stands; the rest is retried at the next boundary.`,
       );
     }
+    // BEFORE the generic failed-phase line, not after it: a failed clock IS a
+    // failed phase, so the generic branch would swallow this one entirely.
+    if (reason === "clock-failed") {
+      return amber(
+        "My nightly cycle could not advance its own clock, so it ran on the day the store already believed in. Everything else went ahead on that day.",
+      );
+    }
     if (failed > 0) {
       return amber(
         `My nightly cycle ran, but ${failed} phase${failed === 1 ? "" : "s"} failed — ${phaseNames(t, "failed")}. Those markers did not advance, so the work is retried tomorrow.`,
-      );
-    }
-    if (reason === "clock-failed") {
-      return amber(
-        "My nightly cycle could not advance its own clock, so it ran on the day the store already believed in. Everything else completed.",
       );
     }
     const promoted = n(t, "promoted") ?? 0;

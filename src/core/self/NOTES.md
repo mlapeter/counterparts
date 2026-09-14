@@ -372,6 +372,11 @@ row after the cycle returns. Payload: `reason: "rendered"`, `date`, `day`,
 module's constant, since the trim is this module's), with the full number beside
 it as `trimmedTotal`. No render, no row: the briefing phase is cadenced daily, so
 a second boundary on one lived day writes nothing and `sleep.cycle`'s own
-`phases` list says why. Unlatched, and pruned at the store's 90-lived-day window.
+`phases` list says why. **One case where `phases` does NOT say why, named rather
+than glossed:** a host that reported no ceiling makes `selfRenderer` refuse and
+return void, and `sleep/briefing.ts` counts a void render as `changed: 1`, so the
+phase reads `ran` while no row exists. The refusal is loud in its own right —
+`briefing.no-budget` — but it predates these rows and is not fixed by them.
+Unlatched, and pruned at the store's 90-lived-day window.
 `rebrief()` deliberately leaves NO row — it publishes over the store between
 boundaries and is the owner's lever, not the day's record.
