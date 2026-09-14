@@ -1334,3 +1334,69 @@ else from the handoff list was touched (PR #92 unreviewed; site untouched, by th
 ### Spend
 
 $0.00 by the session.
+
+## 2026-09-14 — health check three days after the hand fixes; I34 (the turn floor after G38); #95 reviewed and fixed; #96
+
+Appended by the session that ran the check on the owner's ask ("we've been using our memory system for a couple
+days since last fixes, can you check and see how it's doing"). Live store read read-only; dailies under the standing
+permission; the #95 review and its fixes on Opus in an isolated worktree; #96 built by the session.
+
+### What is healthy
+
+`dataDir`, both keys and the `embedder` block intact. `meta.livedDay` 187 / `lastActiveDate` 2026-09-13;
+every `sleep.marker.*` at 187. Worker rows at every boundary on 09-11 and 09-13 (`sweep.gate`,
+`adapter.semantic.lag`, `adapter.embed.backfill`); asks `asked` ×4 then `capped: day-chapter-cap`; 14
+session-end deposits on 09-13; wake 8,351 B of 9,000; recall footnotes on the first turn. 15,737 rows, 14,654
+live. 09-12: no capture, and the only sessions that day were in an observer directory — the configuration working.
+
+### I33, still open until #95 lands
+
+Every `adapter.embed.backfill` row since 2026-09-11 17:05Z: `embedded 0, failed 64`, `remaining` 165 → 208.
+211 live rows lack a vector (`cache.sqlite` left join), **including every row born on lived days 186 and 187** —
+the semantic channel is blind to everything learned since the keys came back.
+
+### I34 — the daily's turn floor counted a bansai row that G38 removed
+
+`record.ts`: `turns = v1.turns` = bansai `buffer.append` rows, written by `~/bansai/hooks/boundary.ts` — the
+Stop hook G38 removed on 2026-09-10. G38's record checked that `muted-consistent` (which needs only `ab.muted`)
+still read, and missed the second reader of the same hook. From 09-11 v1 logs only `ab.muted` and `session.start`,
+so the dailies for 09-11 and 09-13 graded THIN "0 conversational turns" against 47 and 18 v2 boundaries, and
+`activeDays.P` could never move. Same shape as the day-1 muted-consistent defect (PR #21): the instrument grading a
+ruling as a failed day. The general lesson: before a signal an instrument reads is removed, enumerate every reader
+of that event name, not the one named in the ruling.
+
+**Owner ruling 2026-09-14, option 1 of three** (the others: bansai's Stop hook back on with encoding off — a change
+in the read-only donor; or a transcript reader — new surface): when v1 is muted-consistent and logged no per-turn
+row, the floor is applied to v2's `adapter.recall` (one durable row per user prompt) and the record carries
+`turnSource`. **PR #96** (`fix/daily-turn-source-v2`, instrument only, suite 1857/0, five tests). Re-graded under the
+standing permission: 09-11 **ACTIVE** (40), 09-12 **THIN** (no session), 09-13 **ACTIVE** (13); `activeDays.P` 0 → 2.
+The classifier refused the merge from the session ("Merge Without Review"); the owner merges. `bars.json`
+`why.activeDayTurnFloor` still says "(v1 buffer.append events)" — the run dir is the owner's to edit.
+
+### #95 — adversarial review on Opus, MERGE WITH FIXES, fixes applied
+
+Head `8bbe0ee` → `9ab3073` (two commits, no trailers). Suite 1860/0 → **1867/0** on the head and on a preview
+merge with master; `tsc` clean; install-loop 47/47; hash `c3af0bef00209ba6` unchanged (verified by the session,
+not only by the agent). Found and fixed: (1) BLOCKER — `noteEmbedOutcome` bumped `embed.failed.<id>` for every
+non-landed id regardless of cause, so three whole-chunk 503/ABORTED runs retired healthy rows and
+`unembeddedCount()` read complete (reproduced); now only an item-attributable failure (`item: true`) counts.
+(2) BLOCKER — a skipped id had no way back and `verify` named a box-3 rebuild that does not touch the counter;
+now `verify --retry-skipped` clears the counters and the sentence says so. (3) 64 box-2 transactions per failing
+run → one `setMetaMany`. (6) budget-exhausted single remainder now `item: true`. (7) a whole-call refusal no longer
+reports `codes: ""`. Declaration in PARALLEL-RUN-STATUS. **After merge the owner runs ONE
+`restart.ts --date 2026-09-11`.**
+
+| # | NEEDS-OWNER | status |
+|---|---|---|
+| G47 | **#95 review residue.** (a) `tools/parallel/readers.ts` counts `sweep.gate` by name; a `no-credential` row looks like a real sweep to the daily — a reason split there, or drop the PR body's "the daily can tell" claim (it is the dashboard that can). (b) `record.ts#joinAvailable` can flip on a date whose only v2 rows carry no session (the new row is one). (c) G45 asked for `spawn.escalated`; the PR folds it into `escalate` on the refused row — sign off or ask for the row. (d) Adapter INTERFACE-GAPS item 7: failure attribution is per fill, not per id. | open |
+| G48 | **`sweep.gate.otherRefusals` is uninformative.** `crashedSessions()` never forgets a retired session, so every such scope answers `NOTHING_TO_SWEEP` forever and the counter reads 5–7 on every live day; the comment "nonzero with ran:0 is NOT a quiet day" is false. Split the row by reason (`nothingToSweep`, `belowMin`, `ioFailed`, `observer`). Also: `buffer.jsonl` for normally-ended sessions is never swept (by design) and has no prune path — 131 KB in the counterparts scope, 33 KB in random; growth only. | open |
+| G49 | **taxscrub capture.** The owner asked whether `~/random/taxscrub` (a local SSN/EIN scrubber for tax documents, meant never to pass real data through an LLM) should be captured at all. Checked 2026-09-14: its four crashed spans were swept at this session's first Stop (15 memories, all about the tool's design); the only identifier shapes in the whole session are the tool's fixtures (`123-45-6789` family), one of which sits in `spans/df02a1de17c7/assistant.jsonl` inside a sentence saying they are fixtures; none in prose or sqlite. Recommendation: the observer pattern the bookkeeping dirs use (project `.claude/settings.json` env → an observer config + `COUNTERPARTS_OBSERVER=1`), written only on the owner's word. | open |
+
+### Also seen
+
+An untracked `docs/IMPROVEMENTS.md` appeared in the main checkout at 09:04 local, written by another session; left
+alone and not committed here.
+
+### Spend
+
+$0.00 by the session; the review + fixes ran ~380k tokens on Opus.

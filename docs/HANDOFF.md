@@ -1,4 +1,23 @@
-# Handoff — resume here on 2026-09-11
+# Handoff — resume here on 2026-09-15
+
+## 2026-09-14 — read this first
+
+**State:** **#95 MERGED** as master `456a4fd` (2026-09-14T15:15Z; core; reviewed on Opus, fixed, head `9ab3073`,
+suite 1867/0, hash unchanged, declaration recorded) — LIVE at the next boundary, the restart is still owed. **#96**
+(instrument; the daily's turn source, suite 1857/0) and **#97** (this record) wait on the owner: the classifier
+refused those merges to the session. **Owner, in order:** merge #96 and #97;
+run ONE `restart.ts --date 2026-09-11` (same-date re-restart); optionally fix the one line in
+`~/counterparts-parallel-run/2026-09-03/bars.json` `why.activeDayTurnFloor`; rule on G47 (c) and G49 (taxscrub
+observer). Then PR 2 (`doctor`, `systemMessage` notice, `credentials set`) and the #92 rebase over
+`hooks.ts#spawnWorker`.
+
+**The morning check** is unchanged (below) plus: the first post-merge `adapter.embed.backfill` row must show
+`embedded > 0` and `codes` non-empty on any failure; `verify` must show a small `skipped` count (the two
+surrogate ids) and nothing else; the daily's `turns` line now prints its source — expect `v2:adapter.recall`.
+Record: LAUNCH-STATUS 2026-09-14 (I34, G47–G49), PARALLEL-RUN-STATUS state 2026-09-14 and the #95 declaration.
+
+---
+
 
 For the fresh session that continues the launch prep. Read in this order: `CLAUDE.md`, this file,
 the last two entries of `docs/LAUNCH-STATUS.md` (2026-09-05 → 09-07 and **2026-09-08 → 09-10**),
