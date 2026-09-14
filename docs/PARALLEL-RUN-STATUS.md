@@ -5,6 +5,26 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-14, evening: the credit seam is live (#99), the sleep cycle leaves rows (#100), restart #7
+
+*Appended by the coordinating session after the merges. Numbers from `gh pr view`, `restarts.jsonl` and the review
+reports; the live store was not opened for this entry.*
+
+- **U10, verified twice:** nothing born since launch had ever been credited with a use; `Recall.resolveUse` had no
+  adapter caller. LAUNCH-STATUS I35.
+- **Landed in plan order under two declarations (both recorded BEFORE merge, below):** #101 `b22b264` → #100
+  `10abffb` → #99 `8d7bd97`. Both core; both adversarially reviewed on Opus with every fix re-verified; hash
+  `c3af0bef00209ba6` unchanged throughout. **Restart #7**: `restartedAt` `2026-09-14T16:43:08.801Z`, `date`
+  2026-09-11 (same-date re-restart), `clearedActiveDays {0:1, P:2}` — kept, not lost. Master `8d7bd97`.
+- **What the instrument reads from tomorrow:** `sleep.cycle`, `self.briefing`, `recall.credit` in
+  `DURABLE_DETECTORS` with reason splits; the new watch **`memory.reinforced`** (post-launch = `source <> 'migrated'`,
+  live rows; `fail` when the oldest post-launch row is ≥ N_PROMOTION_DAYS old and none is reinforced). It is expected to
+  read **FAIL** on 2026-09-15 and to turn `pass` after the first `recall.credit:credited` row. The four older watches
+  still read `not-exercised`.
+- **Owner rulings recorded:** credit only on the referenced tier; identity lane rotates; R1 merge = uses only; R2 credit
+  per (session, memory, lived day); R3 quote window needs ≥ 3 content words. All landed inside #99 before its merge, so
+  the batch cost one restart.
+
 ## State — 2026-09-14: the worker runs; the referee had gone quiet (turn floor after G38); #95 reviewed and fixed
 
 *Appended 2026-09-14 by the session that ran the health check. Numbers from the live store read-only (owner's

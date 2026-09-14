@@ -1,6 +1,39 @@
 # Handoff — resume here on 2026-09-15
 
-## 2026-09-14 — read this first
+## 2026-09-14, evening — read this first
+
+**State:** master **`8d7bd97`**. Merged today in order: #95 (worker degrades, durable refusals, embedder
+poison-proof), #96 (daily turn source), #97/#98 (records), #101 (declaration), **#100** (U9: `sleep.cycle` +
+`self.briefing` rows, `memory.reinforced` watch, reader splits), **#99** (the credit seam: `recall.credit` row per
+boundary, dedup uses-only, credit per lived day, quote stopword floor, identity rotation). Two restarts run by the
+session on the owner's permission: #6 (15:25Z, for #95) and **#7 (16:43Z, for #100 + #99)**, both `--date 2026-09-11`,
+`activeDays {0:1, P:2}`. Full record: LAUNCH-STATUS 2026-09-14 (I34, I35, G47–G51), PARALLEL-RUN-STATUS's two
+2026-09-14 state sections and three declarations.
+
+**The morning check, 2026-09-15** (all read-only; the dailies under the standing permission with `--date 2026-09-14`):
+1. The three-part config check below, unchanged.
+2. `adapter.embed.backfill` rows since 15:15Z must show `embedded > 0` and non-empty `codes` on any failure; `verify`
+   must show a small `skipped` count (the two surrogate ids) — I33 finally draining.
+3. New rows per boundary since 16:43Z: `sleep.cycle` (phases named, `reason: ran`), `self.briefing`, and one
+   `recall.credit` per session-ending boundary. Any `recall.credit:failed` or `sleep.cycle:failed` is a finding.
+4. The daily's `turns` line prints `counted from v2:adapter.recall`; its watches print **`memory.reinforced`** — expect
+   `fail` until the first `recall.credit:credited` row, then `pass`. A red reading is the row we wanted. Until a session
+   EXPANDS a memory (recall with ids/handle) or QUOTES eight words with ≥ 3 content tokens of something that surfaced
+   loud, every `recall.credit` row reads `no-candidates` / `nothing-to-credit` — that is not a failure. The first
+   identity crossing for a post-launch memory needs three distinct credited days plus the next consolidate (cadence
+   3): not before ~2026-09-17 in the best case. The first post-merge wake renders the same three identity beliefs
+   once more; rotation shows from the second boundary. If `recall.credit:budget-exceeded` ever appears, the loud
+   candidates' prose reads under the 150 ms budget are the first suspect.
+5. Then: PR 2 (`doctor`, `systemMessage` notice, `credentials set`) and the #92 rebase over `hooks.ts` (which #95 and
+   #99 both rewrote). G50 (title-handle expansions earn no credit) is a small tool-side follow-up.
+
+**Process rule from today (G51):** one session per checkout. Another session was working in `~/counterparts` at the same
+time; this one moved to `.claude/worktrees/coord-docs` for docs and spawned agents into their own worktrees. If a
+peer session is in the main tree, do not check out there.
+
+---
+
+## 2026-09-14, midday — earlier state (superseded above)
 
 **State:** **#95 MERGED** as master `456a4fd` (2026-09-14T15:15Z; core; reviewed on Opus, fixed, head `9ab3073`,
 suite 1867/0, hash unchanged, declaration recorded) — LIVE at the next boundary, the restart is still owed. **#96** merged `f8a435d`, **#97** merged `c34439c`, the restart RUN (`restarts.jsonl` line 6, `--date 2026-09-11`,

@@ -1396,6 +1396,47 @@ reports `codes: ""`. Declaration in PARALLEL-RUN-STATUS. **After merge the owner
 
 **#96 merged `f8a435d`, #97 merged `c34439c`; the #95 restart RUN** — `restarts.jsonl` line 6, `2026-09-14T15:25:23.291Z`, `--date 2026-09-11`, same-date re-restart accepted, `activeDays` kept at `{0:1, P:2}`, surfaceSet `c3af0bef00209ba6`. G49 done (above). Still the owner's: `bars.json` wording; G47 (c).
 
+### Evening — I35 (U10): nothing minted since launch had ever been reinforced; the credit seam is wired (#99), the sleep cycle leaves rows (#100)
+
+Found by the `~/random` session's store audit (its write-up: the untracked `docs/IMPROVEMENTS.md`, U1–U10 and the
+"Plan of record for U6–U10"); **verified independently by this session read-only**: no adapter called
+`Recall.resolveUse` / `resolveUses` (core defined them; `mcp/deliberate.ts` said in prose it never calls them);
+every memory born on lived days 184–188 (1,755 rows, 1,378 live) had `uses 0 / reinforced_days 0`; dedup's merge
+bumped `uses` only. The consolidation gradient above episodic had only ever moved on imported credit (122 used / 116
+reinforced pre-launch rows). Same lesson a third time today: a gate that can say no must leave a row, and the
+reinforcement gate had said no silently since day zero.
+
+**Owner rulings (in this session, by the question prompt; confirmed in the `~/random` session):** the plan of record
+and the two-session split; credit ONLY on the referenced tier (expanded through the recall tool or quoted at content
+level — never named in prose, never surfaced/footnoted, never wake delivery); the identity lane rotates
+(least-recently-rendered) instead of competing in a ranker; and, from the #99 review — **R1** a dedup merge is not
+engagement (uses only, never a reinforced day); **R2** the credit gate is keyed to (session, memory, lived day), not
+once per session ever; **R3** the 8-word quote window needs ≥ 3 non-stopword tokens.
+
+**Landed, in plan order, one restart:** #101 (`b22b264`, G12 declaration for #100) → **#100 `10abffb`** (U9:
+`sleep.cycle` and `self.briefing` durable rows — phases named, throw rows carry the partial and NULL for unknown
+counts, `rebrief` leaves its own row; reader reason splits `sweep.gate:no-credential` (G47(a) closed) /
+`sleep.cycle:failed` / `recall.credit:credited|failed|budget-exceeded`; the **`memory.reinforced` watch**, the
+first that can go red) → **#99 `8d7bd97`** (`recall/reference.ts` resolver, `creditReferences` → `resolveUses` with
+per-use tolerance, `transcript.ts` lifts recall tool_use blocks into `expansions`, `hooks.ts#creditAtBoundary` on
+stop / session-end / pre-compact under a 150 ms budget, one `recall.credit` row per boundary, archived ids refused,
+whole wire under test; identity rotation with `self.rendered.<id>` stamps via `setMetaMany`; R1–R3). Both reviewed
+adversarially on Opus (MERGE WITH FIXES each; every fix landed and re-verified: #100 suite 1895/0, #99 suite 1918/0
+on a preview merge, hash `c3af0bef00209ba6` unchanged, no trailers). **Restart #7** run by the session on the owner's
+permission: `restarts.jsonl` line 7, `2026-09-14T16:43:08.801Z`, `--date 2026-09-11`, `activeDays` kept
+`{0:1, P:2}`. Master `8d7bd97`.
+
+**Expect tomorrow (the morning check gains three lines):** one `sleep.cycle` and one `self.briefing` row per
+boundary; one `recall.credit` row per session-ending boundary; **`memory.reinforced` reads FAIL** until the first
+`recall.credit:credited` row, then pass. A red watch is the row we wanted. Known reading notes: a re-fired blocked
+Stop writes a second `recall.credit` row (`no-candidates`, `turns: 0`), consistent with `adapter.boundary`.
+
+| # | NEEDS-OWNER | status |
+|---|---|---|
+| G47 | (a) closed by #100's reader split. (b), (c), (d) still open. | partly done |
+| G50 | **A title-handle expansion earns no credit.** `reference.ts` credits only literal `mem_` ids from recall tool_use input; `mcp/tools.ts` documents `handle` as "a memory id or exact handle" and `deliberate.ts` resolves a title to a body, so a deliberate expansion by title reads the whole memory and credits nothing (under-credit direction). Fix on the tool side: record the resolved id as expanded in gate state. | open |
+| G51 | **Process: two sessions in one checkout.** The `~/random` session and this one shared `~/counterparts`; a rebase there moved local master for a minute while this session had left HEAD on master. Nothing reached origin. Rule adopted for the day: one session per checkout; this session works only in `.claude/worktrees/`. Worth a line in CLAUDE.md or the handoff, the owner's call. | open |
+
 ### Also seen
 
 An untracked `docs/IMPROVEMENTS.md` appeared in the main checkout at 09:04 local, written by another session; left
