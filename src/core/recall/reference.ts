@@ -48,6 +48,30 @@
 
 export const QUOTE_WINDOW_WORDS = 8;
 
+/**
+ * Owner ruling 2026-09-14 (R3, review of #99): a matching window must carry at
+ * least this many NON-stopword tokens, or it is boilerplate, not a quote.
+ * Repro that forced it: body "I think it would be a good idea to keep …" and a
+ * reply "I think it would be a good idea to move on" share eight words and
+ * say nothing about the memory.
+ */
+export const QUOTE_CONTENT_WORDS = 3;
+
+/** Function words that carry no content. Small on purpose: the floor is a
+ *  guard against boilerplate, not a linguistics project. */
+export const STOPWORDS: ReadonlySet<string> = new Set([
+  "a", "an", "the", "and", "or", "but", "so", "if", "then", "than", "as", "at", "by", "for", "from",
+  "in", "into", "of", "on", "onto", "to", "up", "with", "without", "about", "over", "under",
+  "i", "me", "my", "we", "us", "our", "you", "your", "he", "him", "his", "she", "her", "it", "its",
+  "they", "them", "their", "this", "that", "these", "those", "there", "here", "what", "which", "who",
+  "is", "am", "are", "was", "were", "be", "been", "being", "do", "does", "did", "have", "has", "had",
+  "will", "would", "can", "could", "should", "may", "might", "must", "shall",
+  "not", "no", "yes", "just", "very", "really", "also", "too", "only", "still", "even", "again",
+  "think", "thought", "good", "idea", "keep", "make", "made", "get", "got", "go", "going", "want",
+  "like", "know", "see", "say", "said", "way", "thing", "things", "some", "any", "all", "more", "most",
+  "one", "two", "how", "when", "where", "why", "because", "well", "now", "let", "lets",
+]);
+
 /** A memory id as the store mints them. Anything else is not an address. */
 export const MEMORY_ID = /^mem_[0-9a-f]{12,16}$/;
 
@@ -99,8 +123,17 @@ export function normalizeWords(text: string): string[] {
     .filter((w) => w.length > 0);
 }
 
+/** Content tokens in a run of words: what is left after the stopwords. */
+export function contentWords(words: readonly string[]): number {
+  let n = 0;
+  for (const w of words) if (!STOPWORDS.has(w)) n += 1;
+  return n;
+}
+
 /**
- * True when some `window`-word run of `body` appears verbatim in `text`.
+ * True when some `window`-word run of `body` appears verbatim in `text` AND
+ * that run carries at least `QUOTE_CONTENT_WORDS` content tokens (R3). A run
+ * of function words shared by two sentences is boilerplate, not a quote.
  * O(|text| + |body|): the text's windows go into a set once, the body's are
  * looked up.
  */
@@ -111,7 +144,8 @@ export function quotesWindow(body: string, text: string, window: number = QUOTE_
   const seen = new Set<string>();
   for (let i = 0; i + window <= t.length; i++) seen.add(t.slice(i, i + window).join(" "));
   for (let i = 0; i + window <= b.length; i++) {
-    if (seen.has(b.slice(i, i + window).join(" "))) return true;
+    const run = b.slice(i, i + window);
+    if (seen.has(run.join(" ")) && contentWords(run) >= QUOTE_CONTENT_WORDS) return true;
   }
   return false;
 }

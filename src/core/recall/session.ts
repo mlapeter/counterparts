@@ -63,6 +63,11 @@ export interface SurfaceRecord {
 export interface CreditRecord {
   turn: number;
   tier: UseTier;
+  /** The lived day the credit landed. Owner ruling 2026-09-14 (R2, review of
+   *  #99): the never-downgrade check is per (session, memory, LIVED DAY), so a
+   *  session that spans days and uses the same memory each day credits it once
+   *  per day — physics' own occasion rule (§5.5) — not once ever. */
+  day: number;
 }
 
 export interface GateState {
@@ -144,7 +149,7 @@ export function loadGateState(store: Store, sessionId: string, max = Infinity): 
         trains: row.trains !== 0,
       };
     } else if (row.kind === "credited") {
-      credited[row.ref] = { turn: row.turn, tier: (row.tier ?? "referenced") as UseTier };
+      credited[row.ref] = { turn: row.turn, tier: (row.tier ?? "referenced") as UseTier, day: row.last_day };
     }
   }
 
@@ -211,7 +216,8 @@ export function saveGateState(store: Store, state: GateState, max: number): void
       kind: "credited",
       ref: id,
       turn: rec.turn,
-      lastDay: state.lastDay,
+      // The credit's OWN day, not the state's: this is what keys the gate.
+      lastDay: rec.day,
       tier: rec.tier,
     });
   }

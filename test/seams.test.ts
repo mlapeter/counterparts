@@ -146,7 +146,6 @@ function wrap(s: Store): SleepStore {
     setMeta: (k, v) => s.setMeta(k, v),
     archive: (id, r) => s.archive(id, r),
     updatePhysics: (id, p) => s.updatePhysics(id, p),
-    reinforce: (id, d, t) => s.reinforce(id, d, t),
     setBand: (id, b, d) => s.setBand(id, b, d),
     pruneSupersededVersions: () => s.pruneSupersededVersions(),
     appendEvent: (input) => s.appendEvent(input),
@@ -486,7 +485,7 @@ describe("SEAMS B — per-session gate state is a table, so two writers cannot d
     // one that dropped the other's records (scar §2.1).
     second.turn = 1;
     second.lastDay = 3;
-    second.credited["mem_bbbbbbbbbbbb"] = { turn: 1, tier: "referenced" };
+    second.credited["mem_bbbbbbbbbbbb"] = { turn: 1, tier: "referenced", day: 3 };
     saveGateState(b, second, 200);
 
     const reloaded = loadGateState(a, "s1");

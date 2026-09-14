@@ -399,6 +399,37 @@ describe("the lifecycle, through the adapter", () => {
     expect(c.store.physicsOf(last).uses).toBe(1);
   });
 
+  test("RULING R2: one session spanning three lived days, expanding the same memory each day, credits each day", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const id = await mint(a);
+    // ONE session id across three days — how the owner actually works. Before
+    // the ruling the gate's never-downgrade check was keyed to the session
+    // alone, so this credited once ever.
+    let turns = [...TURNS];
+    for (const [i, date] of ["2026-01-02", "2026-01-03", "2026-01-04"].entries()) {
+      c.store.advanceClock(date);
+      turns = [
+        ...turns,
+        { role: "user" as const, text: `Day ${i + 1}: remind me how the storage split works.` },
+        { role: "assistant" as const, text: `Day ${i + 1}: looked it up again; still the split, still no cache in the backups.` },
+      ];
+      a.stop(input({ sessionId: "s-long", at: date, turns, expansions: [{ atTurn: turns.length - 1, ids: [id] }] }));
+      expect(c.store.physicsOf(id).uses).toBe(i + 1);
+      expect(c.store.physicsOf(id).reinforcedDays).toBe(i + 1);
+      await c.sessionEnd({ date, at: date });
+    }
+    // And within ONE day the same memory still credits once.
+    turns = [...turns, { role: "user" as const, text: "Once more?" }, { role: "assistant" as const, text: "Once more, same day." }];
+    a.stop(input({ sessionId: "s-long", at: "2026-01-04", turns, expansions: [{ atTurn: turns.length - 1, ids: [id] }] }));
+    expect(c.store.physicsOf(id).uses).toBe(3);
+    const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
+      refused?: Record<string, number>;
+    };
+    expect(payload.refused?.["already-credited-at-or-above"]).toBe(1);
+  });
+
   test("a wake does not reinforce what it renders", async () => {
     const a = adapter();
     const c = a.counterpart;
@@ -553,6 +584,19 @@ describe("reference resolution (pure)", () => {
     expect(quotesWindow(body, "two three four five six seven eight")).toBe(false);
     expect(quotesWindow(body, "eight nine ten one two three four five")).toBe(false);
     expect(quotesWindow("short body", "short body")).toBe(false);
+  });
+
+  test("RULING R3: eight shared function words are boilerplate, not a quote; eight words with content are", () => {
+    const boiler = "I think it would be a good idea to keep the cache out of the backup set entirely.";
+    expect(quotesWindow(boiler, "I think it would be a good idea to move on to the next thing.")).toBe(false);
+    expect(quotesWindow(boiler, "As you said: a good idea to keep the cache out of the backup set.")).toBe(true);
+    // Reference resolution end to end, same fixture.
+    const r = resolveReferences({
+      assistantTurns: ["I think it would be a good idea to move on to the next thing."],
+      expansions: [],
+      candidates: [{ id: "mem_222222222222", tier: "surfaced", body: boiler }],
+    });
+    expect(r.uses).toEqual([]);
   });
 
   test("only what surfaced LOUD is quotable; a footnoted body quoted verbatim still credits nothing", () => {

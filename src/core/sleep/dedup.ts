@@ -288,6 +288,13 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
       continue;
     }
 
+    // OWNER RULING 2026-09-14 (R1, review of #99): a merge is NOT engagement.
+    // A duplicate authored again bumps `uses` (the record of the re-encounter,
+    // as before) and never a reinforced day: promotion to identity stays gated
+    // on the assistant EXPANDING or QUOTING a memory (recall §9.2), and three
+    // near-duplicate deposits on three days must not walk a memory into
+    // identity with zero use. `credit` says so on the record, so the row
+    // cannot be read as a physics credit that was refused.
     let credit = "not-applied";
     if (ctx.apply) {
       const originalRow = store.row(pair.originalId);
@@ -295,14 +302,9 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
         countSkip(out, "already-archived");
         continue;
       }
-      // A duplicate authored again is a re-encounter, and a re-encounter is a
-      // USE: it goes through `store.reinforce` → `creditUse` like every other
-      // credit, so it counts a distinct day (or is refused for the same reasons
-      // any credit is) instead of bumping `uses` behind physics' back. Before
-      // 2026-09-14 this was `updatePhysics({ uses: +delta })`, which never
-      // touched `reinforced_days`, so no duplicated memory could ever promote
-      // (IMPROVEMENTS U10). The credit's reason rides in the record.
-      credit = store.reinforce(pair.originalId, day, "referenced").reason;
+      const p = rowToPhysics(originalRow);
+      store.updatePhysics(pair.originalId, { uses: p.uses + verdict.effect.usesDelta });
+      credit = "uses-only";
     }
     const record: MergeRecord = {
       event: "memory.merged",
@@ -324,7 +326,7 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
         dedupKey: mergeRecordKey(pair.candidateId),
         payload: { ...record },
       });
-      // The WHOLE effect of a merge: the credit above, and the candidate's
+      // The WHOLE effect of a merge: the `uses` bump above, and the candidate's
       // exit. Never a rewrite, never a blend (§5.7).
       store.archive(pair.candidateId, MERGE_ARCHIVE_REASON);
     }

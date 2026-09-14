@@ -528,9 +528,14 @@ export class Recall {
       });
       return { credited: false, reason: "ambiguous-handle-trains-nothing", tier, w, outcome: null };
     }
+    const today = this.store.livedDay();
     const prior = state.credited[memoryId];
-    if (prior !== undefined && USE_TIER_WEIGHT[prior.tier] >= w) {
-      // Never downgrades an already-credited item (contract §5 G10).
+    // Never downgrades an already-credited item (contract §5 G10) — WITHIN A
+    // LIVED DAY. Owner ruling 2026-09-14 (R2): a session that spans days and
+    // uses the same memory on each is a distinct occasion each day, exactly as
+    // physics §5.5 counts it; keyed to the session alone, the first consumer
+    // of this gate (#99) credited a memory once EVER per session.
+    if (prior !== undefined && prior.day === today && USE_TIER_WEIGHT[prior.tier] >= w) {
       this.emit("recall.credit.refused", memoryId, {
         reason: "already-credited-at-or-above",
         tier,
@@ -539,9 +544,9 @@ export class Recall {
       return { credited: false, reason: "already-credited-at-or-above", tier, w, outcome: null };
     }
 
-    const outcome = this.store.reinforce(memoryId, this.store.livedDay(), tier);
+    const outcome = this.store.reinforce(memoryId, today, tier);
     if (outcome.credited) {
-      state.credited[memoryId] = { turn: state.turn, tier };
+      state.credited[memoryId] = { turn: state.turn, tier, day: today };
       this.persist(state, "resolveUse");
     }
     this.emit("recall.credit", memoryId, {
