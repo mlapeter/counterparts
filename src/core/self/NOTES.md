@@ -378,5 +378,10 @@ return void, and `sleep/briefing.ts` counts a void render as `changed: 1`, so th
 phase reads `ran` while no row exists. The refusal is loud in its own right —
 `briefing.no-budget` — but it predates these rows and is not fixed by them.
 Unlatched, and pruned at the store's 90-lived-day window.
-`rebrief()` deliberately leaves NO row — it publishes over the store between
-boundaries and is the owner's lever, not the day's record.
+`rebrief()` leaves one too, under `reason: "rebrief"`. It renders, trims and
+PUBLISHES, so a rebrief with no row would leave the last `self.briefing` in the
+store describing a bundle nobody is reading any more — the log reporting a wake
+that has been replaced. The reason keeps the two apart: the boundary's row is the
+day's record, the rebrief's is the owner pulling the lever mid-day, and a reader
+counting wake renders per day has to be able to tell them apart. A rebrief that
+REFUSES for want of a ceiling renders nothing and writes nothing.

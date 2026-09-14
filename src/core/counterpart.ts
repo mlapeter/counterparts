@@ -97,8 +97,8 @@ import type {
   WakeDelivery,
   WakeResult,
 } from "./self/index.js";
-import { runCycle } from "./sleep/index.js";
-import type { CycleReport, Phase } from "./sleep/index.js";
+import { cyclePartial, runCycle } from "./sleep/index.js";
+import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
 import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
 import type { Embedder, StoreEvent } from "./store/index.js";
 import { TUNABLES as PHYSICS } from "./physics/index.js";
@@ -1498,9 +1498,9 @@ export class Counterpart {
       // does not paper over, so the rows are written and the throw continues on
       // its way: the boundary's contract is unchanged, and the evidence that the
       // cycle started and died is no longer only in a ring that died with it.
-      const partial = this.takeBriefingEvents();
-      this.recordSleepCycle(null, date, partial, errCode(err));
-      this.recordSelfBriefing(partial, date);
+      const collected = this.takeBriefingEvents();
+      this.recordSleepCycle(null, date, collected, errCode(err), cyclePartial(err));
+      this.recordSelfBriefing(collected, date);
       throw err;
     }
     const briefingEvents = this.takeBriefingEvents();
@@ -1562,12 +1562,27 @@ export class Counterpart {
       ...(input.at === undefined ? {} : { at: input.at }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
-    const out = render({
-      store: this.store,
-      day,
-      observer: this.observer,
-      budgetBytes: composeBudget,
-    }) ?? { bytes: 0, elements: 0 };
+    // The collector, armed here for the same reason it is armed at a boundary:
+    // a rebrief RENDERS, TRIMS AND PUBLISHES, so without a row of its own the
+    // last `self.briefing` in the store describes a bundle that is no longer the
+    // published one — the log would be reporting a wake nobody is reading.
+    this.briefingEvents = [];
+    let out: { bytes?: number; elements?: number };
+    let collected: readonly CounterpartEvent[] = [];
+    try {
+      out = render({
+        store: this.store,
+        day,
+        observer: this.observer,
+        budgetBytes: composeBudget,
+      }) ?? { bytes: 0, elements: 0 };
+    } finally {
+      collected = this.takeBriefingEvents();
+    }
+    // `rebrief`, not `rendered`: the boundary's row is the DAY's record and this
+    // one is the owner pulling the lever mid-day. A reader counting wake renders
+    // per day must be able to tell them apart.
+    this.recordSelfBriefing(collected, this.store.today(), "rebrief");
     // The lane counts as the RENDER recorded them — the one place they exist,
     // rather than a second count taken here that could disagree with the event.
     const last = this.self.events("self.briefing.rendered").pop();
@@ -1736,15 +1751,23 @@ export class Counterpart {
     date: string,
     briefing: readonly CounterpartEvent[],
     threwCode: string | null,
+    partial: CyclePartial | null = null,
   ): void {
     if (this.observer) return;
-    const phases = (report?.phases ?? []).map((p) => ({
+    // On the throw path there is no report, and the phases that DID reach a
+    // verdict come out attached to the error (`sleep/types.ts#CyclePartial`).
+    // Everything the cycle never got round to counting is written as null rather
+    // than 0 below, so a night that died after seven phases can never be read as
+    // a quiet clean one.
+    const source = report?.phases ?? partial?.phases ?? [];
+    const known = report !== null;
+    const phases = source.map((p) => ({
       phase: p.phase,
       status: p.status,
       reason: p.reason,
       ...(p.error === undefined ? {} : { code: p.error }),
     }));
-    const clock = report?.phases.find((p) => p.phase === CLOCK_PHASE) ?? null;
+    const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";
     // WHY this row exists, always present. `ran` is an ordinary cycle whatever
     // it found; `clock-failed` is a cycle that ran on the day the store already
@@ -1752,6 +1775,8 @@ export class Counterpart {
     // died — `CycleKilled`, the watchdog's hard kill — and left this row on its
     // way out. An OBSERVER never reaches here: an instrument writes nothing.
     const reason = threwCode !== null ? "threw" : clockFailed ? "clock-failed" : "ran";
+    // The failures AMONG THE PHASES THIS ROW NAMES. On the throw path that is
+    // every phase that reached a verdict, which is what the row claims to be.
     const failed = phases.filter((p) => p.status === "failed").length;
     let durable = true;
     try {
@@ -1771,13 +1796,25 @@ export class Counterpart {
           date,
           day: report?.day ?? this.store.livedDay(),
           // EVERY phase by name, in the order the cycle executed them, so "which
-          // phase failed" is answerable from the row rather than from a ring.
+          // phase failed" is answerable from the row rather than from a ring. On
+          // a throw these are the phases that finished; `started` says how many
+          // the cycle had entered, so a phase that died mid-body is visible as
+          // the difference rather than as an absence.
           phases,
-          promoted: report?.promoted.length ?? 0,
-          pruned: report?.pruned.length ?? 0,
-          merged: report?.merged.length ?? 0,
-          bandUp: report?.bandTransitions.filter((t) => t.direction === "up").length ?? 0,
-          bandDown: report?.bandTransitions.filter((t) => t.direction === "down").length ?? 0,
+          started: (report?.order ?? partial?.order ?? []).length,
+          // WHERE THE KILL LANDED, when the thrower said (`CycleKilled` does).
+          failedPhase: partial?.phase ?? null,
+          stage: partial?.stage ?? null,
+          // NULL, NOT 0, for anything this run never finished counting. A zero
+          // here would read as "nothing was promoted, nothing failed" of a night
+          // that died before it could know either (scar §2.4).
+          promoted: known ? report.promoted.length : null,
+          pruned: known ? report.pruned.length : null,
+          merged: known ? report.merged.length : null,
+          bandUp: known ? report.bandTransitions.filter((t) => t.direction === "up").length : null,
+          bandDown: known
+            ? report.bandTransitions.filter((t) => t.direction === "down").length
+            : null,
           failed,
           // Briefing elements trimmed, from the render's own summary — 0 when the
           // briefing phase did not render at all, which `phases` disambiguates.
@@ -1807,7 +1844,11 @@ export class Counterpart {
    * `BRIEFING_TRIM_LOG_CAP` with the full number beside it, so a capped list is
    * never mistaken for the whole of it. Never briefing text.
    */
-  private recordSelfBriefing(briefing: readonly CounterpartEvent[], date: string): void {
+  private recordSelfBriefing(
+    briefing: readonly CounterpartEvent[],
+    date: string,
+    reason: "rendered" | "rebrief" = "rendered",
+  ): void {
     if (this.observer) return;
     const rendered = renderedEvent(briefing);
     if (rendered === null) return;
@@ -1821,7 +1862,7 @@ export class Counterpart {
         name: SELF_BRIEFING_EVENT,
         day: this.store.livedDay(),
         payload: {
-          reason: "rendered",
+          reason,
           date,
           day: numberField(rendered, "day") ?? this.store.livedDay(),
           bytes,
@@ -1844,6 +1885,7 @@ export class Counterpart {
       this.emit("counterpart.self.briefing.failed", undefined, { code: errCode(err) });
     }
     this.emit("counterpart.self.briefing", undefined, {
+      reason,
       day: numberField(rendered, "day"),
       bytes,
       trimmed: trims.length,

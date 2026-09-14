@@ -60,7 +60,7 @@ import type {
   StepStage,
   SymmetryCheck,
 } from "./types.js";
-import { BAND_TRANSITION_EVENT, CycleKilled, PHASES, emptyOutcome } from "./types.js";
+import { BAND_TRANSITION_EVENT, CycleKilled, PHASES, attachCyclePartial, emptyOutcome } from "./types.js";
 
 export interface SleepOptions {
   store: SleepStore;
@@ -360,6 +360,20 @@ export function runCycle(opts: SleepOptions): CycleReport {
       failed: reports.filter((p) => p.status === "failed").length,
     });
     return report;
+  } catch (err) {
+    // A CYCLE THAT DIES CARRIES ITS WORK OUT WITH IT (see `CyclePartial`).
+    // Degrade-don't-abort already covers a phase body that throws; what escapes
+    // here threw from OUTSIDE one — a marker advance, the clock, `onStep`'s hard
+    // kill — and the caller is left with an exception and no report. Without
+    // this, a recorder reading that exception writes a row of zeroes over a
+    // night in which seven phases ran, which is a fabricated zero (scar §2.4)
+    // arriving through a throw. Attaching cannot itself throw.
+    attachCyclePartial(err, {
+      phases: [...reports],
+      order: [...order],
+      ...(err instanceof CycleKilled ? { phase: err.phase, stage: err.stage } : {}),
+    });
+    throw err;
   } finally {
     // Only a cache this cycle created is this cycle's to close.
     if (injectedCache === undefined) cache?.close();

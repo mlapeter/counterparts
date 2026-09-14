@@ -889,7 +889,14 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // `session` are NOT: that is a payload this instrument cannot join, and
   // declaring silence from it would be inventing the very evidence the class
   // is supposed to rest on. Unreadable counts are the same case.
-  const v2DateRows = Object.values(v2.byNameForDate).reduce((n, x) => n + x, 0);
+  // ROWS, not counters: the reason splits (G47(a)) add a key BESIDE the total —
+  // `sweep.gate:no-credential` sits next to `sweep.gate` and counts a subset of
+  // the same rows — so summing every value double-counts every split row and
+  // inflates the number this note prints. A key with a ":" in it is a split, by
+  // the reader's own construction (`readers.ts#splitKeysOf`), never a name.
+  const v2DateRows = Object.entries(v2.byNameForDate)
+    .filter(([name]) => !name.includes(":"))
+    .reduce((n, [, x]) => n + x, 0);
   const sessionsSeen = Object.keys(v2.bySessionForDate).length;
   const joinAvailable = !v2Unreadable && (v2DateRows === 0 || sessionsSeen > 0);
   const silentSessionIds = joinAvailable

@@ -564,8 +564,12 @@ export const DURABLE_DETECTORS: readonly string[] = [
  * to carry a reason is a row the reader has to read the reason of.
  *
  * `byNameForDate["<name>"]` stays the TOTAL. `byNameForDate["<name>:<reason>"]`
- * is the subset. Nothing downstream is forced to know about the split, and a
- * reason not listed here is still inside the total.
+ * is the subset, and a reason not listed here is still inside the total.
+ *
+ * THE ONE THING DOWNSTREAM MUST KNOW: a split key counts rows that the total
+ * ALREADY counts, so anything summing the map's values has to skip them or it
+ * counts those rows twice. The marker is the ":" in the key — no event name has
+ * one — and `record.ts`'s `v2DateRows` filters on exactly that.
  */
 const REASON_SPLITS: Readonly<Record<string, readonly string[]>> = {
   "sweep.gate": ["no-credential"],
@@ -583,12 +587,21 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   if (reasons !== undefined && reason !== null && reasons.includes(reason)) {
     out.push(`${name}:${reason}`);
   }
-  // `sleep.cycle` splits on a COUNT, not on its reason: a cycle that ran end to
-  // end and lost one phase still reads `reason: "ran"` — degrade, don't abort —
-  // and the only place the loss shows is `failed`.
+  // `sleep.cycle:failed` is the ONE SPLIT THAT IS NOT A REASON LOOKUP, because
+  // a bad night reaches the row three different ways: a cycle that ran end to
+  // end and lost a phase still reads `reason: "ran"` (degrade, don't abort) and
+  // shows the loss only in `failed`; a cycle that died reads `threw`; a cycle
+  // whose clock would not advance reads `clock-failed`. An operator scanning for
+  // "did the cycle have a bad night" wants one number, so all three land here.
   if (name === SLEEP_CYCLE_EVENT) {
     const failed = payload["failed"];
-    if (typeof failed === "number" && failed > 0) out.push(`${name}:failed`);
+    if (
+      (typeof failed === "number" && failed > 0) ||
+      reason === "threw" ||
+      reason === "clock-failed"
+    ) {
+      out.push(`${name}:failed`);
+    }
   }
   return out;
 }

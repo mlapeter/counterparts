@@ -413,9 +413,14 @@ I32 shape exactly.
 number the daily printed, to a healthy quiet sweep. So `byNameForDate` now carries
 an extra key beside — never instead of — the total: `sweep.gate:no-credential`,
 `recall.credit:credited` / `:failed` / `:budget-exceeded`, and
-`sleep.cycle:failed`. The last splits on the COUNT rather than the reason, because
-a cycle that ran end to end and lost one phase still reads `reason: "ran"` —
-degrade, don't abort — and the loss shows only in `failed`.
+`sleep.cycle:failed`. The last is not a reason lookup: a bad night reaches the row
+three ways — a cycle that ran end to end and lost a phase still reads
+`reason: "ran"` (degrade, don't abort) and shows the loss only in `failed`, a
+cycle that died reads `threw`, and one whose clock would not advance reads
+`clock-failed` — and an operator asking "did the cycle have a bad night" wants one
+number, so all three land in that key. A split key counts rows the total already
+counts, so anything summing `byNameForDate` must skip the keys with a ":" in them
+or it counts those rows twice; `record.ts`'s `v2DateRows` does.
 
 Four detectors remain non-rows by design and are named in `nonDurable` rather
 than reported as zeros: `sleep.symmetry` (arithmetic over `band.transition`) and

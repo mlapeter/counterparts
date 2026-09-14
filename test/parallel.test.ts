@@ -1106,6 +1106,14 @@ describe("the v2 store reader", () => {
     // I32's whole point: a day of nothing but keyless runs is DISTINGUISHABLE
     // from a day of healthy quiet sweeps, in the numbers the daily prints.
     expect(readV2Day(data, "2026-09-15").byNameForDate["sweep.gate:no-credential"]).toBe(1);
+    // A SPLIT COUNTS ROWS THE TOTAL ALREADY COUNTS, so anything summing the map
+    // has to skip the ":" keys or it counts those rows twice. Three rows landed
+    // on this date, and three is what a row count must read.
+    const rows = Object.entries(day.byNameForDate)
+      .filter(([name]) => !name.includes(":"))
+      .reduce((n, [, x]) => n + x, 0);
+    expect(rows).toBe(3);
+    expect(Object.values(day.byNameForDate).reduce((n, x) => n + x, 0)).toBe(5);
   });
 
   test("sleep.cycle:failed splits on the COUNT, not the reason — a degraded cycle still reads `ran`", () => {
@@ -1131,6 +1139,33 @@ describe("the v2 store reader", () => {
     const day = readV2Day(data, "2026-09-14");
     expect(day.byNameForDate["sleep.cycle"]).toBe(2);
     expect(day.byNameForDate["sleep.cycle:failed"]).toBe(1);
+  });
+
+  test("sleep.cycle:failed also counts the cycles that THREW and the ones whose clock would not advance", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      // A cycle that died: `failed` is the count among the phases it finished,
+      // which can be 0 — and a bad night that reads as no bad night at all is
+      // exactly what this split exists to prevent.
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "threw", code: "DISK_FULL", date: "2026-09-14", day: 7, failed: 0, promoted: null, phases: [] },
+      });
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "clock-failed", code: "CLOCK_TORN", date: "2026-09-14", day: 7, failed: 1, phases: [] },
+      });
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "ran", date: "2026-09-14", day: 7, failed: 0, phases: [] },
+      });
+    });
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sleep.cycle"]).toBe(3);
+    expect(day.byNameForDate["sleep.cycle:failed"]).toBe(2);
   });
 
   test("recall.credit splits by reason — credited, failed and budget-exceeded, beside the total", () => {
@@ -2411,6 +2446,39 @@ describe("day classes", () => {
     const r = classOf(s);
     expect(r.flags).not.toContain("silent");
     expect(r.why).toContain("silent-session join was UNAVAILABLE");
+  });
+
+  test("the unavailable-join NOTE counts ROWS, not counters — a reason split must not double one", () => {
+    const s = scene(3);
+    v1Muted(s);
+    buildStore(s.v2Dir, (store) => {
+      // The same session-less shape as the test above, so the join is
+      // unavailable and the note fires at all.
+      for (const hook of ["session-start", "stop"]) {
+        store.appendEvent({
+          name: PRIMACY_DELIVER_EVENT,
+          day: 0,
+          payload: { hook, reason: "override-engram", system: "v2", date: DATE },
+        });
+      }
+      // Plus three sweep rows, two of them carrying the reason the reader
+      // splits on. FIVE rows landed on this date; `byNameForDate` holds seven
+      // VALUES over them, and a note saying "7 v2 row(s)" would be a count of
+      // counters dressed as a count of evidence.
+      for (const reason of ["ran", "no-credential", "no-credential"]) {
+        store.appendEvent({
+          name: "sweep.gate",
+          day: 0,
+          payload: { reason, scopes: 0, ran: 0, date: DATE },
+        });
+      }
+    });
+    const r = classOf(s);
+    expect(r.why).toContain("5 v2 row(s) for this date");
+    expect(r.why).not.toContain("7 v2 row(s)");
+    // And the split itself is still there to be read, beside the total.
+    expect(r.v2.byNameForDate["sweep.gate"]).toBe(3);
+    expect(r.v2.byNameForDate["sweep.gate:no-credential"]).toBe(2);
   });
 
   test("v2's BOUNDARY evidence is the stop hook only — a session-start deliver is not one", () => {

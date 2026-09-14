@@ -600,7 +600,19 @@ written by the composition root from the returned `CycleReport`, the same way
 opinion about the store's event log and should not grow one. Payload:
 `reason` (`ran` | `clock-failed` | `threw`) and `code`, `date`, `day`,
 `phases: [{ phase, status, reason, code? }]` for EVERY phase in the executed
-order, and the counts `promoted`, `pruned`, `merged`, `bandUp`, `bandDown`,
-`failed`, `trimmed`. Unlatched like `sweep.gate` — two boundaries in one lived
-day leave two rows, because the cycle really did run twice — and pruned with
-everything else at the store's 90-lived-day window.
+order, `started` (how many the cycle entered), `failedPhase`/`stage` when the
+thrower said, and the counts `promoted`, `pruned`, `merged`, `bandUp`,
+`bandDown`, `failed`, `trimmed`. Unlatched like `sweep.gate` — two boundaries in
+one lived day leave two rows, because the cycle really did run twice — and pruned
+with everything else at the store's 90-lived-day window.
+
+**And a cycle that DIES carries its work out with it** (`CyclePartial`, added in
+review of the same PR). Degrade-don't-abort covers a phase BODY that throws; a
+throw from outside one — a marker advance, the clock, `onStep`'s hard kill —
+escapes with no `CycleReport`, and the first version of the row read it as a
+quiet clean night: seven phases had run and the briefing had trimmed six
+elements, and the row said `phases: [], failed: 0, promoted: 0`. That is the
+fabricated zero (scar §2.4) arriving through an exception. `runCycle` now
+attaches the reports it had — plus `CycleKilled`'s phase and stage — to the
+escaping error as a non-enumerable symbol property, and the recorder writes
+`null`, never 0, for every count the run never finished taking.
