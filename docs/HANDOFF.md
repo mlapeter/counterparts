@@ -10,6 +10,18 @@ session on the owner's permission: #6 (15:25Z, for #95) and **#7 (16:43Z, for #1
 `activeDays {0:1, P:2}`. Full record: LAUNCH-STATUS 2026-09-14 (I34, I35, G47–G51), PARALLEL-RUN-STATUS's two
 2026-09-14 state sections and three declarations.
 
+**FIRST, 2026-09-15:** `~/.bun/bin/bun src/adapters/cli/bin/counterparts.ts doctor --config ~/.counterparts/claude-code.json`
+(read-only; names only; exit 1 on red). It replaces most of the list below with one screen: config, store, embedder,
+credentials by name, checkout grade, clock vs newest boundary, newest sweep / sleep / backfill / credit rows, spawn
+refusals, vectors. Then the list, for what doctor does not read.
+
+**Night state:** master **`a849696`**, shared checkout deployed at `a849696` (`tools/deploy-checkout.sh`), restart
+#8 at 18:29Z. Evening batch: #104 (peer: OQ4 header step 1 + `probe-oq4`, 150-B titles, session_end reasons), #105
+(`deploy-checkout.sh`), #106 (sweep reasons, band of record, honest header, session-bearing join), #108 (doctor,
+notice, credentials set, checkout guard). Record: LAUNCH-STATUS 2026-09-14 night (I36, I37, G51 done, G52–G54).
+**The batch rule now has a deploy step:** after the last merge and BEFORE the restart, `tools/deploy-checkout.sh`
+(prints the sha for the restart reason). Sessions started before a deploy keep their MCP server code until restarted.
+
 **The morning check, 2026-09-15** (all read-only; the dailies under the standing permission with `--date 2026-09-14`):
 1. The three-part config check below, unchanged.
 2. `adapter.embed.backfill` rows since 15:15Z must show `embedded > 0` and non-empty `codes` on any failure; `verify`

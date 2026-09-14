@@ -5,6 +5,27 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-14, night: the evening batch landed (#104, #105, #106, #108), deployed, restart #8
+
+*Appended by the coordinating session after the batch. Numbers from `gh pr view`, `restarts.jsonl`,
+`tools/deploy-checkout.sh`'s output and the two sessions' review reports; the live store was not opened for this
+entry.*
+
+- **Landed in order under four declarations, one restart:** #104 `1aed64c` (peer, OQ4 step 1 + probe + titles +
+  session_end reasons) → #105 `cbeb210` (deploy script, docs class) → #106 `598d72d` (G48, U8, U4, G47(b)) →
+  #108 `a849696` (doctor, notice, credentials, checkout guard). Each reviewed on Opus by the OTHER session; every
+  required fix landed and both sides re-verified. Hash `c3af0bef00209ba6` unchanged at every step.
+- **Restart #8**: `2026-09-14T18:29:13.705Z`, `date` 2026-09-11, `clearedActiveDays {0:1, P:2}` (kept), reason
+  names the four merges and the deploy sha. **Deploy step** (new, before the restart): `tools/deploy-checkout.sh`
+  moved the shared checkout `1aed64c` → `a849696`; between 17:00Z and 18:29Z every boundary ran `1aed64c` or
+  older while master moved three times — LAUNCH-STATUS I36.
+- **What the instrument reads from tomorrow:** `sweep.gate:refused` (NOISY_NOW only), `adapter.checkout:off-master`,
+  `recall.credit:*`, `sleep.cycle:failed`; the `memory.reinforced` watch (expected FAIL); `joinAvailable` on
+  session-bearing rows. Expected first live readings: `verify` band-of-record disagreement ~869 then 0 after the
+  first decay pass; the `sleep.cycle` decay entry with `reconciled`; one `adapter.checkout` row (reason
+  `master`); a SessionStart with a plain wake (nothing red) — if the terminal shows a `counterparts:` line, that
+  is the notice working.
+
 ## State — 2026-09-14, evening: the credit seam is live (#99), the sleep cycle leaves rows (#100), restart #7
 
 *Appended by the coordinating session after the merges. Numbers from `gh pr view`, `restarts.jsonl` and the review
