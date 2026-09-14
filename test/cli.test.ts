@@ -47,7 +47,7 @@ import {
 } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { CONFIG_FLAG } from "../src/adapters/config-path.js";
-import { LAYOUT, Store, paths } from "../src/core/store/index.js";
+import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
   CONFIG_FILE,
@@ -1493,6 +1493,53 @@ describe("verify", () => {
     const after = consoleWith();
     expect(await run(["verify"], { io: after.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(after.out)).toContain("indexed but not live (archived or superseded): 0");
+  });
+
+  test("--retry-skipped is the way BACK for an id the backfill gave up on", async () => {
+    // THE SKIP IS SELF-SEALING (I33). `missingVectors` stops offering an id once
+    // its `embed.failed` counter reaches the limit, so the backfill never tries
+    // it, so the counter can never be cleared by a run that lands — and
+    // `--rebuild` has no embedder to recompute a vector with and never touches
+    // box 2. Without this flag a repaired title had no door at all.
+    const s = store();
+    const stuck = s.put({ type: "memory", kind: "fact", body: "A memory with a poisoned title, once." });
+    const fine = s.put({ type: "memory", kind: "fact", body: "A memory nothing ever objected to." });
+    s.setMeta(`${EMBED_FAILED_PREFIX}${stuck}`, String(EMBED_SKIP_AFTER));
+    expect(s.skippedVectorIds()).toEqual([stuck]);
+    expect(s.missingVectors(64)).toEqual([fine]);
+    // The census says so, and names the remedy rather than one that cannot work.
+    s.close();
+
+    const census = consoleWith();
+    await run(["verify"], { io: census.io, env: { [ENV]: dir } });
+    const printed = text(census.out);
+    expect(printed).toContain("skipped after repeated embed failures: 1");
+    expect(printed).toContain("--retry-skipped");
+    expect(printed).not.toContain("rebuild box 3");
+
+    const c = consoleWith();
+    expect(await run(["verify", "--retry-skipped", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    const said = text(c.out);
+    expect(said).toContain("Embed-failure counters cleared: 1");
+    expect(said).toContain("Back in the backfill's rotation: 1");
+    expect(said).toContain(stuck);
+
+    const after = store();
+    expect(after.skippedVectorIds()).toEqual([]);
+    expect(after.missingVectors(64).sort()).toEqual([stuck, fine].sort());
+    // It cleared a counter and NOTHING else: both rows are still live and the
+    // one that was never stuck is untouched.
+    expect(after.list({ archived: false }).sort()).toEqual([stuck, fine].sort());
+    after.close();
+
+    // And on a store with nothing skipped it says so rather than inventing work.
+    const idle = consoleWith();
+    expect(await run(["verify", "--retry-skipped", "--dir", dir], { io: idle.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(idle.out)).toContain("Nothing was being skipped");
   });
 
   test("--rebuild REFUSES while box 3 holds vectors nothing here can recompute", async () => {
@@ -3666,6 +3713,7 @@ describe("a bulk write names its store with --dir, and nothing else names it", (
     ["repair-merged-beliefs --apply", ["repair-merged-beliefs", "--apply"]],
     ["verify --rebuild", ["verify", "--rebuild"]],
     ["verify --prune-index", ["verify", "--prune-index"]],
+    ["verify --retry-skipped", ["verify", "--retry-skipped"]],
     ["verify --drop-vectors", ["verify", "--drop-vectors"]],
   ];
 

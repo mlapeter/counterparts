@@ -729,7 +729,7 @@ To recap the two questions and their two answers. **Which store**: the console a
 the dashboard take `--dir` or `COUNTERPARTS_DATA_DIR` — with one exception, the
 console's bulk repairs (`migrate-cache --apply`, `repair-dates --apply`,
 `backfill-claims --apply`, `repair-merged-beliefs --apply`, and `verify` with
-`--rebuild`, `--prune-index` or `--drop-vectors`), which rewrite a whole store at
+`--rebuild`, `--prune-index`, `--retry-skipped` or `--drop-vectors`), which rewrite a whole store at
 once and take `--dir` alone, refusing a store named only by the variable; the MCP server takes
 `--dir` or `COUNTERPARTS_DATA_DIR`; the hook and its worker take neither and use
 the `dataDir` in the configuration they read, falling back to
@@ -826,7 +826,7 @@ rather than from a script.
    `COUNTERPARTS_DATA_DIR` only when it names no store. The first exception is
    the console's BULK REPAIRS — `migrate-cache --apply`, `repair-dates --apply`,
    `backfill-claims --apply`, `repair-merged-beliefs --apply`, and `verify` with
-   `--rebuild`, `--prune-index` or `--drop-vectors`. Each rewrites a whole store
+   `--rebuild`, `--prune-index`, `--retry-skipped` or `--drop-vectors`. Each rewrites a whole store
    in one go, so each takes `--dir` and **refuses** a store named only by the
    variable: an exported path is a shell's memory of where a store lives, not a
    sentence you typed about this rewrite. `--yes`, where a command has one, skips
