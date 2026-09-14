@@ -253,3 +253,149 @@ Three changes, each needed on its own:
   `verify --retry-skipped` is the door: it clears every counter, names the ids,
   and writes nothing else. `rebuildCache` is not that door; it has no embedder
   and never touches meta.
+
+## The warning reaches the terminal, and one command repairs it (I32's close, 2026-09-14)
+
+The owner's ruling on 2026-09-11 was one sentence: **the warning must reach the
+USER's terminal.** #95 made the spawn refusals durable and persisted the
+escalation counter; the evidence existed, and nothing said it out loud. This is
+the half that does.
+
+**The channel, measured and then documented.** The owner ran a probe on
+2026-09-11: a SessionStart hook that exits 0 and prints JSON with a top-level
+`systemMessage` gets that text DISPLAYED in the terminal (`SessionStart:startup
+says: …`), non-blocking, while `additionalContext` and stderr do not show. The
+current hooks reference — https://code.claude.com/docs/en/hooks (the old
+docs.claude.com path 301s there) — says the same thing and adds the rule that
+decides the shape: **when a hook's stdout parses as JSON, the raw stdout is NOT
+also added to context; only the JSON's fields are.** The exact names, verbatim
+from that page: `systemMessage` ("A message shown to Claude in the UI. For most
+events, this is added as a system message in the conversation."), and for
+SessionStart `hookSpecificOutput: { hookEventName: "SessionStart",
+additionalContext: "string to add to Claude's context" }`, with plain-text stdout
+added as context for `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`
+and `PostModelSwitch` and only those.
+
+So: the wake rides ENTIRELY in `additionalContext`, byte for byte what plain
+stdout would have carried, and **a day with nothing red prints the plain form it
+has printed since day 0**. The JSON wrapper is a transport that has been measured
+once, on one host, by one probe; a healthy session does not get to be the place
+it is tried again. `hostDelivery` stays pure, takes the notice as an argument,
+and a test holds the two forms to each other.
+
+**Red only, and only at SessionStart.** Amber is `doctor`'s to print; a notice
+that fired on one un-embedded memory is a notice people learn to scroll past, and
+the owner asked for a warning, not a nag. Nothing at all on
+`user-prompt-submit` — that hook fires every turn.
+
+**The reading is bounded and cannot fail the wake.** `doctor.ts` is one library,
+called by the console and by `ClaudeCodeAdapter#notice`, so the two cannot
+disagree about what red means. At session start it runs under a 150 ms budget
+(the credit seam's number, for the same reason), checked BETWEEN finding groups —
+config, credentials and the checkout first, because those carry I32's own
+signature — and what the budget cut off is a finding rather than an omission.
+Every failure returns null and leaves one `adapter.doctor.failed` ring row; an
+observer returns null before any read.
+
+**The one thing the console does differently from the hook, and it is the whole
+point.** The console loads the credentials file against a SCRATCH environment, so
+what it reports is what the FILE holds. Counting its own shell would have read
+green all week on the owner's machine — his `~/.zshrc` exports both names, and
+hook processes inherit neither (measured day 0). What the shell has and the file
+lacks is reported as its own clause instead. The hook hands in its own load,
+whose `skippedPresent` names what ITS environment answered, because there the
+environment is the environment the worker will be spawned with.
+
+**`credentials set` writes the value nowhere it can be read back.** Not argv
+(argv is shell history, and a key in shell history is a key on disk in plaintext
+forever), not stdout, not an error. stdin, or one named environment variable, and
+the console says `set <NAME> in <path>`. The mode is set twice — `writeFileSync`'s
+`mode` applies only on create, so `chmodSync` is what actually holds the 0600
+promise on a file that was already there.
+
+## Which checkout is live (2026-09-14)
+
+The hooks are invoked BY ABSOLUTE PATH out of `~/.claude/settings.json`, so the
+install tree's working state is the memory layer the owner is using. Twice in one
+day that mattered: a peer session developed a branch in that tree and it was live
+for seven minutes, and after a merge the tree sat DETACHED at an older sha for
+thirty minutes while "it's merged" was true of the remote and false of the
+machine.
+
+So `doctor` grades the checkout, and the grade is against the local
+`refs/remotes/origin/master` as last fetched — never the local `master` branch,
+and never by fetching (a network call on a foreground hook is the one thing the
+wake's contract forbids). HEAD IS origin/master, branch or detached, is GREEN:
+detached at origin/master is the deploy state, not a fault. An ancestor of it is
+AMBER (`behind`, with the count) — old code, but merged code. Anything else is
+RED, and tracked modifications are RED wherever HEAD sits. `--untracked-files=no`
+on purpose: the shared tree carries untracked files by design, and they change
+nothing about what runs.
+
+The root comes from the RUNNING CODE's own path (`import.meta.url` up to the
+package root) and from no configuration value — that is what makes the hook grade
+the install tree and a console run from a worktree grade the worktree, each
+correctly. Every git call is `spawnSync` and never throws; a git that will not
+answer, and a repository with no `origin/master`, are neutral and leave no row.
+
+**The reading has its OWN budget, and that is the correction the review forced.**
+`readCheckout` runs before `doctorFindings`, whose deadline starts when it is
+entered — so seven `spawnSync` calls at `CHECKOUT_TIMEOUT_MS` (2 s) each sat
+outside every budget this adapter had. Measured against a git shim that sleeps
+1.2 s: **7.81 s of foreground session start.** `CHECKOUT_BUDGET_MS` (1,000 ms) now
+bounds the whole reading, each call gets what is left of it, and past it the
+reading is `unreadable` with `timedOut` — a `timeout` ring row, and no durable
+row, because "we ran out of time" is not a state of the checkout. It is its own
+budget rather than a slice of the notice's 150 ms because five process spawns on
+a cold machine can exceed 150 ms on their own, and a grade that timed out every
+morning would be missing on exactly the mornings the tree HAS wandered.
+
+One durable `adapter.checkout` row per session start — reason, branch, short sha,
+tracked-modification count, `behindBy`, `originMaster`, date — latched per
+date+head+dirty+**reason**, so a day on master leaves one row and a day that
+wandered leaves one per state it wandered into. The reason belongs in the latch
+because the other three do not move when the grade does: a `git fetch` in the
+shared tree moves origin/master under the same clean head, so the morning's
+`master` becomes the afternoon's `behind` — and without it the day's record still
+said master. The daily's split is `adapter.checkout:off-master` (every reason but
+`master`), so "what code produced this day's numbers" is answerable from the
+record instead of from memory.
+
+## The notice is capped, and the wake outranks it (2026-09-14)
+
+The host caps every hook output string at 10,000 characters and replaces anything
+longer with a preview and a file path (code.claude.com/docs/en/hooks: "Hook output
+strings, including `additionalContext`, `systemMessage`, and plain stdout, are
+capped at 10,000 characters"). For PLAIN stdout that is survivable. For the JSON
+envelope it is fatal: replace the printed object with a preview and the stdout no
+longer parses, `additionalContext` is never read, and the whole wake is gone.
+
+The envelope is bigger than what it carries — JSON escaping costs a character per
+newline — and the measured case is close: a 9,038-byte wake plus a 352-character
+notice is **9,618 characters** of stdout. So two limits, both named:
+
+- `NOTICE_MAX_CHARS` (400) caps the notice itself, truncating with `…` and always
+  keeping the trailing `run: counterparts doctor` — what is cut is the
+  explanation, never the way to read all of it.
+- `ENVELOPE_MAX_CHARS` (9,500, in `bin/hook.ts`) decides the FORM. Over it, the
+  hook prints the plain wake and drops the notice, leaving an
+  `adapter.notice.dropped` ring row with both lengths.
+
+**The trade, stated plainly:** on a red day with a full wake the terminal may see
+nothing, and the warning lives only in `counterparts doctor` — which the notice's
+own last line is telling the owner to run anyway. The alternative is a session
+that starts with no memory at all, and memory is the thing the session cannot be
+had without.
+
+## "Newest row" can be unknown, and says so (2026-09-14)
+
+`Store.eventLog` is `ORDER BY seq ASC LIMIT` (the missing DESC read is filed in
+`cli/INTERFACE-GAPS` §10), so `doctor` finds the newest row of a name by widening
+a day-window ladder and trusting only a window that came back SHORTER than the
+limit. The unbounded window at the end of the ladder was exempt from that rule —
+so a name holding more than `NEWEST_LIMIT` (4,000) rows, all older than the widest
+window, was read off the 4,000th-OLDEST row and graded on it. A store that swept
+4,000 sleep cycles could be reported RED about a night long past. A full unbounded
+window is now UNKNOWN: a neutral finding that names what was not read and claims
+nothing about the store, because a confident wrong answer is the one thing a
+diagnostic may not produce.

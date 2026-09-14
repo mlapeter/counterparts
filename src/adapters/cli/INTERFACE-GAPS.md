@@ -277,3 +277,23 @@ all-clear, because "I did not find it" is not "it was never there".
 is what lets a memory whose prose is already gone still be chased. Only ONE
 blind spot is left — prose gone AND no hash — and it is still `unknown`, still
 counted `unchased: 1`.)*
+
+## 10. `Store.eventLog` orders ASCENDING, so "the newest row of this name" is not a query
+
+`doctor` (2026-09-14) asks the store one question over and over: what is the
+NEWEST `sleep.cycle` / `sweep.gate` / `adapter.embed.backfill` /
+`adapter.spawn.refused` row. `eventLog({ name, sinceDay, limit })` answers
+`ORDER BY seq ASC LIMIT ?`, which is the OLDEST N — so a name with more rows than
+the limit returns a window that does not contain the newest, and a caller that
+took `rows.at(-1)` would report last week's reading as today's, silently.
+
+`claude-code/doctor.ts#newestRows` closes it EXACTLY rather than approximately: a
+ladder of lived-day windows, narrowest first (today, 2, 7, 30, everything), and a
+window whose result is shorter than the limit was not truncated, so its last row
+is provably the newest in it. A full window is discarded rather than trusted.
+Cost: up to five queries where one `ORDER BY seq DESC LIMIT 1` would do, on a hot
+path bounded at 150 ms.
+
+**The ask**: `eventLog` takes an `order: "asc" | "desc"` (or a `newest: n`), and
+`newestRows` collapses to one call per name. Box 2's own business, it changes no
+behaviour, and it is the only reason that ladder exists.

@@ -553,6 +553,14 @@ export const DURABLE_DETECTORS: readonly string[] = [
   // shape all over again. Until that branch merges the count is simply 0, and
   // `memory.reinforced` is the watch that says what that 0 means.
   "recall.credit",
+  // WHICH CHECKOUT WAS LIVE (2026-09-14). The hooks are invoked by absolute
+  // path, so the install tree's working state is the code that ran that day —
+  // and a day the shared tree sat on somebody's unmerged branch is a day whose
+  // other numbers were produced by code that is not master. One row per session
+  // start, latched per date+head+dirty+reason (the reason is in the latch
+  // because a fetch moves origin/master under an unchanged head); the
+  // `:off-master` split below is the one an operator scans for.
+  "adapter.checkout",
   ...DURABLE_EXIT_EVENTS,
 ];
 
@@ -660,6 +668,13 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
     ) {
       out.push(`${name}:failed`);
     }
+  }
+  // `adapter.checkout:off-master` is the second non-lookup split, and for the
+  // same shape of reason: a tree that was not on clean master reaches the row
+  // three ways — `branch`, `dirty`, `detached` — and an operator asking "did
+  // anything but master run today" wants one number, not three.
+  if (name === "adapter.checkout" && reason !== null && reason !== "master") {
+    out.push(`${name}:off-master`);
   }
   return out;
 }

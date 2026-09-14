@@ -43,6 +43,24 @@ export {
 export type { CredentialLoad } from "./credentials.js";
 
 export {
+  CHECKOUT_BUDGET_MS,
+  CHECKOUT_TIMEOUT_MS,
+  NOTICE_MAX_CHARS,
+  NOTICE_TAIL,
+  SESSION_NOTICE_BUDGET_MS,
+  SEVERITIES,
+  anyRed,
+  checkoutIsGraded,
+  doctorFindings,
+  noticeMessage,
+  readCheckout,
+  reportJson,
+  reportLines,
+  worstFirst,
+} from "./doctor.js";
+export type { CheckoutReading, DoctorInput, Finding, GitRunner, Severity } from "./doctor.js";
+
+export {
   stopAsk,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,

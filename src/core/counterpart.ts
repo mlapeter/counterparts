@@ -341,6 +341,22 @@ export const RECALL_CREDIT_EVENT = "recall.credit";
 export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
+/**
+ * WHICH CHECKOUT WAS LIVE AT THIS SESSION START (2026-09-14).
+ *
+ * The host invokes the hooks by absolute path, so whatever the install tree has
+ * checked out is what runs against the owner's memory — a peer session's
+ * unmerged branch sitting in that tree was live for seven minutes before anyone
+ * noticed. One ids-only row per session start (`reason`, branch, short sha,
+ * count of tracked modifications), latched per date+head+dirty so a day on
+ * master leaves ONE row and a day that wandered leaves one per state.
+ *
+ * Here for the same narrow reason the two spawn names are: the dashboard's
+ * registries derive `DurableEventName` from these literals, so a durable event
+ * whose name lived in the adapter would fail the registry's totality silently.
+ * The core knows a string; it knows nothing about git.
+ */
+export const CHECKOUT_EVENT = "adapter.checkout";
 export interface CreditReferencesInput {
   readonly assistantTurns: readonly string[];
   readonly expansions: readonly string[];
@@ -380,6 +396,7 @@ export type AdapterDurableEventName =
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof CHECKOUT_EVENT
   | typeof RECALL_CREDIT_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */

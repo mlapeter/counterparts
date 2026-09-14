@@ -37,6 +37,7 @@
 import {
   ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
+  CHECKOUT_EVENT,
   Counterpart,
   RECALL_CREDIT_EVENT,
   PRIMACY_DELIVER_EVENT,
@@ -59,6 +60,8 @@ import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
 import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
+import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout } from "./doctor.js";
+import type { CheckoutReading } from "./doctor.js";
 import { primacy } from "./primacy.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
@@ -974,6 +977,130 @@ export class ClaudeCodeAdapter {
       this.emit("adapter.spawn.refusals.failed", { code: codeOf(err) });
     }
     return out;
+  }
+
+  /**
+   * THE ONE OR TWO LINES THE OWNER SEES AT SESSION START, or null.
+   *
+   * I32's closing move. #95 made the refusals durable and `doctor.ts` reads
+   * them; this is the surface that puts the worst RED finding where a human
+   * already looks — the terminal — instead of leaving it in a store for whoever
+   * thinks to ask (adapter INTERFACE-GAPS, "Nothing SAYS the worker has not
+   * run"). The owner's ruling, 2026-09-11: the warning must reach the USER's
+   * terminal.
+   *
+   * Three properties, each load-bearing:
+   *
+   *   - **Red only.** Amber belongs to `counterparts doctor`, which the owner
+   *     runs on purpose. A hook that spoke every time something was imperfect is
+   *     a hook people learn to scroll past.
+   *   - **An observer says nothing at all**, before any read: an instrument that
+   *     narrated the host it is measuring would be doing more than reading.
+   *   - **It cannot fail the wake** (§5 G2). Every failure — a store that will
+   *     not read, a clock that throws — returns null and leaves ONE ring event,
+   *     and the wake goes out on exactly the path it took yesterday.
+   *
+   * Bounded at `SESSION_NOTICE_BUDGET_MS` and checked between finding groups,
+   * because this runs inside a foreground hook.
+   */
+  notice(
+    input: HookInput,
+    opts: { budgetMs?: number; now?: () => number; checkout?: CheckoutReading } = {},
+  ): string | null {
+    if (this.observer) return null;
+    try {
+      const today = input.at ?? new Date(this.nowFn()).toISOString().slice(0, 10);
+      // WHICH CODE IS LIVE, read before anything else and RECORDED. The reading
+      // is bounded and never throws (`readCheckout`); the row is the mechanized
+      // half — a day on master leaves one latched row, and a day the tree
+      // wandered leaves one per state it wandered into.
+      const checkout = opts.checkout ?? readCheckout();
+      if (!checkoutIsGraded(checkout)) {
+        // git missing, slow, or no repository at all: nothing to record, and
+        // only a "git would not answer" is worth a ring row.
+        if (checkout.reason === "unreadable") {
+          // `why` separates the two silences: a git that answered "no
+          // origin/master" is a fact about the repository, and a git that ran
+          // out of `CHECKOUT_BUDGET_MS` is a fact about the machine — and only
+          // the second one means the grade is missing on a morning it mattered.
+          this.emit("adapter.checkout.unreadable", {
+            root: checkout.root,
+            why: checkout.timedOut ? "timeout" : "git",
+          });
+        }
+      } else {
+        try {
+          this.counterpart.noteAdapterEvent(
+            CHECKOUT_EVENT,
+            {
+              reason: checkout.reason,
+              branch: checkout.branch,
+              head: checkout.head,
+              dirty: checkout.dirty,
+              behindBy: checkout.behindBy,
+              originMaster: checkout.originMaster,
+              atMaster: checkout.atMaster,
+              date: today,
+            },
+            // THE REASON IS PART OF THE LATCH. Date, head and dirtiness alone
+            // let a day's first row stand for every later one: a `git fetch` in
+            // the shared tree moves origin/master, so the SAME clean head that
+            // graded `master` at breakfast grades `behind` by lunchtime — and
+            // the day's record would still say master. One row per state the
+            // tree was actually in, which is the claim the row is for.
+            {
+              dedupKey: `${CHECKOUT_EVENT}:${today}:${checkout.head ?? "none"}:${checkout.dirty}:${checkout.reason}`,
+            },
+          );
+        } catch (err) {
+          this.emit("adapter.checkout.record.failed", { code: codeOf(err) });
+        }
+      }
+      const findings = doctorFindings({
+        checkout,
+        configPath: this.configPath ?? "(none)",
+        // `bin/hook.ts` REFUSED an absent or unreadable NAMED configuration long
+        // before this line, so there is no reason left for this reading to
+        // re-derive: null says "the caller already vouched for the file".
+        configReason: null,
+        config: this.config,
+        dir: this.config.dataDir ?? "",
+        credentials: this.credentials ?? {
+          loaded: [],
+          skippedPresent: [],
+          ignoredLines: 0,
+          reason: "not-configured",
+          mode: null,
+          permissive: false,
+        },
+        credentialsPath: this.config.credentialsFile,
+        store: this.counterpart.store,
+        today,
+        refusals: this.spawnRefusals(),
+        budgetMs: opts.budgetMs ?? SESSION_NOTICE_BUDGET_MS,
+        ...(opts.now === undefined ? {} : { now: opts.now }),
+      });
+      return noticeMessage(findings);
+    } catch (err) {
+      // A reading that failed is not a session that failed. One ring row, so the
+      // silence is distinguishable from a clean bill of health (scar §2.4).
+      this.emit("adapter.doctor.failed", { code: codeOf(err) });
+      return null;
+    }
+  }
+
+  /**
+   * RECORD THAT THE TERMINAL DID NOT GET THE WARNING, and why.
+   *
+   * The host caps a hook's stdout at 10,000 characters, and over that it
+   * replaces the string with a preview — which makes the JSON envelope
+   * unparseable and drops the wake with it. `bin/hook.ts` therefore prints the
+   * PLAIN wake and throws the notice away when the envelope is too big
+   * (`ENVELOPE_MAX_CHARS`), and this is how that choice stays visible instead of
+   * looking like a healthy morning. Ids and counts only, like every other row.
+   */
+  noteNoticeDropped(chars: { noticeChars: number; envelopeChars: number; limitChars: number }): void {
+    this.emit("adapter.notice.dropped", { ...chars });
   }
 
   private refusalCount(reason: string): number {

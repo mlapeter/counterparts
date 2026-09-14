@@ -33,9 +33,39 @@ import { HOOKS, openAdapter } from "../index.js";
 import type { HookInput, HookName } from "../hooks.js";
 import { readTranscript } from "../transcript.js";
 
+/**
+ * The host's own spelling of the one event that carries a notice. It appears
+ * twice — as a key below, and as `hookSpecificOutput.hookEventName` in the JSON
+ * form — and the host matches that field against its own name, so the two
+ * spellings must be one constant.
+ */
+export const HOST_SESSION_START = "SessionStart";
+
+/**
+ * THE MOST STDOUT THIS HOOK MAY PRINT AS JSON, and why the number is 9,500.
+ *
+ * The host's own cap, verbatim (https://code.claude.com/docs/en/hooks): "Hook
+ * output strings, including `additionalContext`, `systemMessage`, and plain
+ * stdout, are capped at 10,000 characters. Output that exceeds this limit is
+ * saved to a file and replaced with a preview and file path."
+ *
+ * Which is survivable for PLAIN stdout — a truncated wake is still a wake — and
+ * fatal for the JSON form: replace the printed object with a preview and the
+ * stdout no longer parses as JSON, so `additionalContext` is never read and the
+ * ENTIRE WAKE is dropped. And the envelope is bigger than the wake it carries:
+ * JSON escaping turns every newline into two characters, so a 9,038-byte wake
+ * plus a 352-character notice measured 9,618 characters of stdout — one bad day
+ * away from losing the wake on exactly the morning something was red.
+ *
+ * So the JSON form is used only while it demonstrably fits, with 500 characters
+ * of margin for the escaping, and the fallback is the plain wake: the notice is
+ * what gets dropped, never the memory. `counterparts doctor` still prints it.
+ */
+export const ENVELOPE_MAX_CHARS = 9500;
+
 /** The host's event names, mapped to this adapter's. Host trivia, by definition. */
 const HOST_HOOKS: Record<string, HookName> = {
-  SessionStart: "session-start",
+  [HOST_SESSION_START]: "session-start",
   UserPromptSubmit: "user-prompt-submit",
   Stop: "stop",
   SessionEnd: "session-end",
@@ -196,8 +226,21 @@ async function main(): Promise<void> {
     configPath: choice.path,
   });
   try {
-    const result = adapter.hook(name, toHookInput(payload));
-    const delivery = hostDelivery(name, result, payload);
+    // ONE read of the transcript, shared by the hook and the notice: `toHookInput`
+    // opens and parses the transcript file, and calling it twice would pay for
+    // that twice on the hot path.
+    const input = toHookInput(payload);
+    const result = adapter.hook(name, input);
+    // THE NOTICE, AFTER THE WAKE AND ONLY AT SESSION START. Never on
+    // user-prompt-submit: the owner asked for a warning, not a nag. `notice()`
+    // is red-only, bounded, and returns null rather than throwing, so the line
+    // below cannot change what the wake does on a healthy day.
+    const notice = name === "session-start" ? adapter.notice(input) : null;
+    const delivery = hostDelivery(name, result, payload, notice);
+    // A notice the envelope could not carry leaves a row rather than nothing:
+    // "the terminal said nothing" and "there was nothing to say" are different
+    // facts about the same morning (scar §2.4).
+    if (delivery.dropped !== null) adapter.noteNoticeDropped(delivery.dropped);
     if (delivery.stdout.length > 0) process.stdout.write(delivery.stdout);
     if (delivery.stderr.length > 0) process.stderr.write(delivery.stderr);
     process.exitCode = delivery.exitCode;
@@ -220,24 +263,69 @@ async function main(): Promise<void> {
  *     with `stop_hook_active: true`; that re-fire must ask NOTHING or the ask
  *     loops forever (v1's anti-loop, kept here for the same reason).
  *
- * Pure, so the test proves the channel choice without a process.
+ * **The fourth channel, added 2026-09-14 for I32: `systemMessage`.** Documented
+ * at https://code.claude.com/docs/en/hooks (formerly
+ * docs.claude.com/en/docs/claude-code/hooks) and measured by the owner's own
+ * probe on 2026-09-11: a SessionStart hook that exits 0 and prints JSON with a
+ * top-level `systemMessage` gets that text DISPLAYED in the terminal
+ * (`SessionStart:startup says: …`), non-blocking, while `additionalContext` and
+ * stderr do not show. The doc also states the rule that makes this safe or
+ * dangerous depending on which form you print: **when stdout parses as JSON the
+ * raw stdout is NOT also added to context** — only the JSON's fields are. So the
+ * wake must ride ENTIRELY in `hookSpecificOutput.additionalContext`, byte for
+ * byte what plain stdout would have carried, and a day with nothing red prints
+ * the plain form it has printed since day 0 rather than a JSON wrapper nobody
+ * has measured on this host.
+ *
+ * Pure, so the test proves the channel choice without a process. `dropped` is
+ * how a pure function reports the one thing it cannot do itself: the caller
+ * turns it into the ring row that makes a silent terminal explicable.
  */
+export interface Delivery {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: 0 | 2;
+  /** Non-null when the notice was dropped to keep the wake whole. */
+  readonly dropped: { readonly noticeChars: number; readonly envelopeChars: number; readonly limitChars: number } | null;
+}
+
 export function hostDelivery(
   name: HookName,
   result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
-): { stdout: string; stderr: string; exitCode: 0 | 2 } {
+  /** The owner-facing warning, or null. Only SessionStart carries one. */
+  notice: string | null = null,
+): Delivery {
   const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
     const out = [result.injection ?? "", ask ?? ""].filter((s) => s.length > 0).join("\n\n");
-    return { stdout: out, stderr: "", exitCode: 0 };
+    if (name === "session-start" && notice !== null && notice.length > 0) {
+      const envelope = JSON.stringify({
+        systemMessage: notice,
+        hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
+      });
+      // THE WAKE WINS. Over `ENVELOPE_MAX_CHARS` the host would replace this
+      // whole string with a preview, the JSON would stop parsing, and the
+      // session would start with no memory at all — a worse outcome than not
+      // seeing the warning, which `counterparts doctor` prints on request.
+      if (envelope.length > ENVELOPE_MAX_CHARS) {
+        return {
+          stdout: out,
+          stderr: "",
+          exitCode: 0,
+          dropped: { noticeChars: notice.length, envelopeChars: envelope.length, limitChars: ENVELOPE_MAX_CHARS },
+        };
+      }
+      return { stdout: envelope, stderr: "", exitCode: 0, dropped: null };
+    }
+    return { stdout: out, stderr: "", exitCode: 0, dropped: null };
   }
   // The re-fire is refused twice on purpose: the adapter asks nothing on it, and
   // this channel would not carry it even if something did.
   if (payload["stop_hook_active"] === true || ask === null) {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return { stdout: "", stderr: "", exitCode: 0, dropped: null };
   }
-  return { stdout: "", stderr: ask, exitCode: 2 };
+  return { stdout: "", stderr: ask, exitCode: 2, dropped: null };
 }
 
 /** True only when this file is the process entry point — so a test may import

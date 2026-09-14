@@ -917,3 +917,101 @@ rather than from a script.
    The first prints the stand-down reason on stderr; the second finds a stale
    `COUNTERPARTS_CONFIG` exported into the environment Claude Code was launched
    from, which is the likeliest cause and the hardest to see.
+
+---
+
+## 11. If the terminal says something at session start
+
+Claude Code prints one line of its own when a session starts and Counterparts has
+found something RED:
+
+```
+SessionStart:startup says: counterparts: Credentials — …/credentials.env holds no key:
+ANTHROPIC_API_KEY is missing, so the worker will run without an interpreter; nothing is
+encoded. Run: counterparts credentials set ANTHROPIC_API_KEY …
+run: counterparts doctor
+```
+
+It is not an error and it blocks nothing: the wake still goes out on the same
+turn, unchanged. **Red only** — the notice fires for the things that mean part of
+the system is not running, never for the merely imperfect. Nothing red, and the
+hook prints exactly what it always printed.
+
+This exists because of a week in September 2026 when it did not. The credentials
+file had been rewritten to its template by a forced install; every detached
+worker was refused at every boundary; the lived-day clock froze, no sleep cycle
+ran, nothing was embedded, and every ask was capped against a day that never
+rolled over. Every visible surface — the wake, recall, capture, `verify`, the
+daily record — read healthy the whole time.
+
+### `counterparts doctor`
+
+The same reading, in full, on demand, and read-only. It opens the store in
+observer stance, writes nothing, and never prints a credential value:
+
+```
+counterparts doctor
+counterparts doctor --json          # the findings as JSON: ids, counts, severities
+```
+
+Worst first, one line of facts and one line naming the fix. Exit code **1** if
+anything is red, 0 otherwise, so a script can branch on `$?`. What it reads:
+
+| finding | red when |
+|---|---|
+| Config | the file the hooks read is missing or will not parse |
+| Store | there is no store where the config points |
+| Embedder | — (amber when `embedder.enabled` is not literally `true`) |
+| Stance | — (amber under `observer`) |
+| Credentials | `ANTHROPIC_API_KEY` is absent from the file (amber for the embed key, or a mode that is not 0600) |
+| Checkout | the checkout the hooks run is not an ancestor of `origin/master`, or has tracked modifications (amber when it is merely behind) |
+| Clock | — (amber when `lastActiveDate` is older than the newest boundary: sessions are ending and the worker is not running) |
+| Sweep / Sleep / Backfill / Credit | the newest `sleep.cycle` did not run, or the backfill embedded nothing twice running |
+| Spawn | the worker has been refused as many times in a row as the escalation threshold |
+| Vectors | — (amber while live memories have no vector) |
+
+Two things it does differently from every other command, and both matter. It
+reads the store the **configuration** names (`--dir` overrides it), because the
+question is whether the store the hooks open is healthy. And it reads the
+credentials from the **file**, against an empty environment — a doctor that
+counted your own shell would read green on a machine whose `~/.zshrc` exports
+both keys while every hook process, which inherits neither, stayed blind.
+
+### `counterparts credentials set <NAME>`
+
+The repair, in one command, with the value never touching your shell history:
+
+```
+printf '%s' "$KEY" | counterparts credentials set ANTHROPIC_API_KEY
+counterparts credentials set VOYAGE_API_KEY --from-env MY_VOYAGE_KEY
+counterparts credentials list
+```
+
+The value comes from stdin or from one named environment variable, never from the
+command line, and is never echoed or logged — the command prints
+`set ANTHROPIC_API_KEY in /…/credentials.env` and nothing else. It writes the file
+the configuration names, creating it 0600 or putting it back to 0600, replaces
+that name's line (the template's commented placeholder included) and keeps every
+other line and comment. `credentials list` says which of the two names the file
+holds — names only.
+
+Restarting is not required for the hooks: each is a fresh process and picks the
+file up at the next event. The MCP server reads it once, at launch, so a running
+session's `recall` keeps whatever it started with until the session restarts.
+
+### Two things to know about both
+
+**`doctor` will not open a store nobody named when the guard is armed.** In a
+shell exporting `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` — this repo's own sessions
+do — `counterparts doctor` refuses unless you name a configuration
+(`--config <path>`, or `COUNTERPARTS_CONFIG`) or a store (`--dir <path>`). A
+configuration found at the default path names the live store, and the guard is
+armed precisely so that nothing nobody named gets opened. Without the guard set,
+nothing changes: plain `counterparts doctor` reads the default configuration.
+
+**On a red day with a very long wake, the terminal may say nothing.** The host
+caps a hook's output at 10,000 characters, and past that it replaces the text
+with a preview — which would cost the session its whole wake. So when the wake
+plus the notice would not fit, the hook prints the wake alone and drops the
+notice (it leaves an `adapter.notice.dropped` row behind). `counterparts doctor`
+still prints the finding in full.
