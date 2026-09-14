@@ -1773,6 +1773,99 @@ describe("day classes", () => {
     expect(r.why).toContain("muted-consistent");
   });
 
+  // ── G38's defect (measured 2026-09-14): the referee went quiet ───────────
+  //
+  // The turn floor was committed against v1's per-turn capture row, written by
+  // bansai's Stop hook. G38 (2026-09-10) removed that hook to stop bansai's
+  // encoding; from 2026-09-11 every day read "0 conversational turns" against
+  // dozens of v2 boundaries, and the phase count could never move. Owner ruling
+  // 2026-09-14: when v1 is muted-consistent and logged no per-turn row, count
+  // v2's one durable row per user prompt, and say so on the record.
+  /** v1 after G38: muted, alive, and NO per-turn row anywhere. */
+  function v1MutedNoTurns(s: Scene): void {
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+      { seq: 3, session: "s1", type: "ab.muted", hook: "user_prompt_submit" },
+    ]);
+  }
+  /** v2's per-prompt recall row, the fallback's unit: one per user prompt. */
+  function v2Recall(s: Scene, n: number, date = DATE): void {
+    buildStore(s.v2Dir, (store) => {
+      for (let i = 0; i < n; i++) {
+        store.appendEvent({
+          name: "adapter.recall",
+          day: 0,
+          payload: { reason: "ok", surfaced: 0, footnotes: 1, bytes: 300, budget: 9000, observer: false, date, session: "s1" },
+        });
+      }
+    });
+  }
+
+  test("TURN SOURCE: a muted v1 with no per-turn row hands the floor to v2's per-prompt row, named on the record", () => {
+    const s = scene(3);
+    v1MutedNoTurns(s);
+    v2Delivering(s);
+    v2Recall(s, 4);
+    const r = classOf(s);
+    expect(r.boundaries.v1).toBe("muted-consistent");
+    expect(r.turnSource).toBe("v2:adapter.recall");
+    expect(r.turns).toBe(4);
+    expect(r.class).toBe("active");
+    expect(r.why).toContain("counted from v2:adapter.recall");
+  });
+
+  test("TURN SOURCE: the fallback still applies the floor — three prompts under K=5 is THIN", () => {
+    const s = scene(5);
+    v1MutedNoTurns(s);
+    v2Delivering(s);
+    v2Recall(s, 3);
+    const r = classOf(s);
+    expect(r.turnSource).toBe("v2:adapter.recall");
+    expect(r.turns).toBe(3);
+    expect(r.class).toBe("thin");
+    expect(r.why).toContain("3 conversational turn(s) (counted from v2:adapter.recall) is below the committed floor of 5");
+  });
+
+  test("TURN SOURCE: one v1 per-turn row keeps v1 the referee — v2's rows are not added to it", () => {
+    const s = scene(3);
+    v1Log(s.v1Dir, DATE, [
+      { seq: 0, session: "s1", type: "session.start" },
+      { seq: 1, session: "s1", type: "ab.muted", hook: "session_start" },
+      { seq: 2, session: "s1", type: "buffer.append" },
+    ]);
+    v2Delivering(s);
+    v2Recall(s, 9);
+    const r = classOf(s);
+    expect(r.turnSource).toBe("v1:buffer.append");
+    expect(r.turns).toBe(1);
+    expect(r.class).toBe("thin");
+  });
+
+  test("TURN SOURCE: a v1 nobody can show was alive gets no substitute — an absent log stays not-exercised and the day sinks", () => {
+    const s = scene(3);
+    v2Delivering(s);
+    v2Recall(s, 9);
+    const r = classOf(s);
+    expect(r.boundaries.v1).toBe("not-exercised");
+    expect(r.turnSource).toBe("v1:buffer.append");
+    expect(r.turns).toBe(0);
+    expect(r.class).toBe("thin");
+  });
+
+  test("TURN SOURCE: only the date's own recall rows count", () => {
+    const s = scene(3);
+    v1MutedNoTurns(s);
+    v2Delivering(s);
+    v2Recall(s, 2);
+    v2Recall(s, 5, "2026-09-05");
+    const r = classOf(s);
+    expect(r.turnSource).toBe("v2:adapter.recall");
+    expect(r.turns).toBe(2);
+    expect(r.class).toBe("thin");
+  });
+
   test("and THIN still follows the PRIMARY: the same muted v1, but v2 reached no boundary", () => {
     const s = scene(3);
     v1MutedNoStop(s);

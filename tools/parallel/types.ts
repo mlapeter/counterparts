@@ -248,6 +248,8 @@ export interface CrossEncodingMeter {
   readonly exposureDenominator: number | null;
 }
 
+export type TurnSource = "v1:buffer.append" | "v2:adapter.recall";
+
 export interface DailyRecord {
   readonly date: string;
   readonly phase: RunPhase;
@@ -259,6 +261,17 @@ export interface DailyRecord {
   /** The active-day floor this day was judged against (bars.json). */
   readonly turnFloor: number;
   readonly turns: number;
+  /**
+   * Which log the turns were counted from. `v1:buffer.append` is the
+   * committed source (bars.json): bansai's per-turn capture row, written by
+   * its Stop hook. `v2:adapter.recall` is the fallback taken ONLY when v1 is
+   * muted-consistent and logged no per-turn row at all — the state G38 put it
+   * in on 2026-09-10, when bansai's Stop hook was removed to stop its encoding
+   * and the referee went quiet with it. The fallback counts v2's one durable
+   * row per user prompt, so "turn" there means a prompt, not an assistant
+   * reply; the record names the source so the two are never read as one.
+   */
+  readonly turnSource: TurnSource;
   readonly v1: V1DayCounts;
   readonly v2: V2DayCounts;
   /** Both sides' boundary evidence, graded — the other half of `thin`. */
