@@ -1506,8 +1506,13 @@ interface CacheCensus {
  *     examined rows) this is 0, and a non-zero number means either no pass has
  *     run since this shipped or the store is larger than one pass and is still
  *     catching up, a budget's worth a day.
- *   - `unranked`  — live rows box 3 has never seen (born since the last pass).
- *     Not a disagreement: there is nothing to disagree with.
+ *   - `unranked`  — live rows box 3 has never seen. Not a disagreement: there is
+ *     nothing to disagree with. "Born since the last pass" is the ordinary
+ *     cause and NOT the only one — `verify --rebuild` drops the `ranking` table
+ *     with the rest of box 3 (`store/cache.ts#resetCache`) and repopulates only
+ *     the index, so straight after a rebuild this reads EVERY live row until the
+ *     next decay pass; a decay phase killed mid-body (`CycleKilled`, the
+ *     watchdog) leaves everything it had not reached unranked the same way.
  */
 interface BandOfRecordCensus {
   readonly rows: number;
@@ -1543,6 +1548,14 @@ function bandOfRecordLines(c: BandOfRecordCensus): string[] {
       "    The decay phase writes each band move back to `memories.band` (U8), so a pass that",
       "    its budget did not cut short leaves 0 here. A number that survives several boundaries",
       "    means no boundary has run since this store was built — or that the pass is truncating.",
+    );
+  }
+  if (c.unranked > 0) {
+    out.push(
+      "    Unranked rows are rows box 3 has not read yet: ones born since the last decay pass,",
+      "    everything after a `verify --rebuild` (the rebuild drops the ranking table and does not",
+      "    refill it), and whatever a decay phase killed mid-body never reached. The next boundary",
+      "    ranks them; a count that survives one is a decay phase that is not finishing.",
     );
   }
   return out;

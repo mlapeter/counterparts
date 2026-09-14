@@ -131,17 +131,32 @@ fired — and 869 live rows were semantic in the cache and episodic in the table
 The same decay pass emitted `band.transition` rows for moves the table went on
 denying. Three things settled the ruling:
 
-1. **Nothing gates on the column, so this is a reporting fix, not a new
-   authority.** `consolidate` builds physics with `rowToPhysics` and never reads
+1. **Two readers gate on the column, and the reconciliation can only move it
+   toward identity, so neither can lose a row.** The first draft of this note
+   said "nothing gates on it", and that was wrong — `store/NOTES.md` now
+   enumerates all of them. The two that gate: `revision.ts` routes a declaration
+   to the identity arm on `row.band === "identity" || target.promotedIdentity`,
+   and `self/identity.ts` lists a removed element as an identity absence on
+   `gone.wasPromotedIdentity || gone.band === "identity"` (the band a tombstone
+   captured at chase time, `store/owner-op-seam.ts`). Both are ORs with the
+   promotion flag, and `band()` answers `identity` **iff** `promotedIdentity`
+   (`physics/index.ts`: it is the function's first line, before any arithmetic),
+   so on a live row the reconciliation only ever writes the column INTO identity
+   — never out of it — and those two gates can only gain rows they should
+   already have had. The one path that can put `identity` in the column without
+   the flag is migration (`tools/migrate/plan.ts`: a v1 trace above the identity
+   gradient cut that v1 itself had retired arrives with `bandOf()` identity and
+   `promotedIdentity: false`), and it arrives ARCHIVED, which decay skips; only
+   the owner-op `unarchiveMerged` door could bring such a row back into the pass,
+   and then the column would be corrected to what the arithmetic says. The rest
+   only read: `consolidate` builds physics with `rowToPhysics` and never reads
    `band`; `schemas/` reads it and never writes it (§4 of its CONTRACT, and a
-   source scan); `self/identity.ts` selects `list({ band: "identity" })`, which
-   decay cannot change — `band()` answers "identity" only for a row
-   `promotedIdentity` already marks, and identity is decay-exempt, so the
-   identity set is byte-identical before and after. What DID read the stale
-   column and report it: the `status` MCP tool's `byBand`. The CLI census and the
-   dashboard had already routed around the column by computing the band
-   themselves and saying so in a comment — a workaround is evidence of the bug,
-   not a fix for it.
+   source scan); `self/identity.ts` also selects `list({ band: "identity" })`,
+   and identity is decay-exempt, so that set is byte-identical before and after.
+   What DID read the stale column and report it: the `status` MCP tool's
+   `byBand`. The CLI census and the dashboard had already routed around the
+   column by computing the band themselves and saying so in a comment — a
+   workaround is evidence of the bug, not a fix for it.
 2. **A surface that emits a transition must not contradict it.** Constitution 16:
    the system shows its workings. Two stores of the same fact, one of them
    wrong and both of them read, is the shape the parallel run keeps finding.
@@ -212,6 +227,21 @@ The three-way vocabulary that makes this legible (§5 G6, scar §2.4):
 | `ran-nothing-found` | `nothing-to-do` | it ran and there was nothing to do |
 | `did-not-run` | `already-done-today` / `not-due-this-cadence` / `observer-report` / `no-render-fn` | it never ran, and here is which |
 | `failed` | `failed` (+ `error` code) | it threw; the marker stands still |
+
+**`changed` is "rows this phase acted on", and the band reconciliation is one of
+them (U8, amended 2026-09-14).** The first cut counted the reconciliation in
+`DecayResult.bandsReconciled` only, and nothing durable read it: on the exact
+live shape — the column wrong and the ranking cache already right, so no row's
+cache "moved" — the pass issued 869 `UPDATE`s and then filed itself
+`ran-nothing-found` / `nothing-to-do`, and the `sleep.decay.materialized` ring
+event was skipped because no strength row was written. A row is now counted once,
+in whichever category is true (`changed` when its column was reconciled,
+`skipped.unchanged` when nothing about it moved at all), the count rides the
+phase outcome as `reconciled` onto the `PhaseReport` and the durable
+`sleep.cycle` row's decay entry, and the ring event fires when either half did
+work. The count is taken under OBSERVER too — only the write is gated on
+`PhaseCtx.apply`, which is what that flag's contract promises and what
+`sleep.observer.report`'s `would` rests on.
 
 ## 9. `CycleKilled` — why a crash needs its own class
 

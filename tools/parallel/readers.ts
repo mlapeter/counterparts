@@ -55,7 +55,7 @@ import {
   SLEEP_CYCLE_EVENT,
   SWEEP_GATE_EVENT,
 } from "../../src/core/counterpart.js";
-import { NOISY_SWEEP_REASONS } from "../../src/core/remember/index.js";
+import { NOISY_NOW_SWEEP_REASONS } from "../../src/core/remember/index.js";
 import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
@@ -622,19 +622,24 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   // The gate row's own `reason` is `ran` on every ordinary day; what divides a
   // quiet run from one worth reading is INSIDE it, in the per-reason `refusals`
   // map: `NO_CRASHED_SESSION` / `NOTHING_TO_SWEEP` / `NOTHING_UNCLAIMED` are the
-  // gate working, while `BELOW_MIN_CLAIM`, `IO_FAILED` and `OBSERVER` are a
-  // buffer that never drains, a filesystem that refused a claim, and a stance
-  // mismatch. The list is imported from the core so this reader cannot hold a
-  // stale copy of which reasons are quiet. A row written before the map existed
-  // contributes nothing here: `otherRefusals` read 5-7 every day (a retired
-  // crashed session answers `NOTHING_TO_SWEEP` forever), so counting it would
-  // reproduce exactly the false signal G48 was filed about.
+  // gate working, while `IO_FAILED` and `OBSERVER` are a filesystem that refused
+  // a claim and a stance mismatch — neither of which can be a normal day even
+  // once. `BELOW_MIN_CLAIM` is deliberately NOT here: it is permanent by
+  // construction (a small crashed leftover is restored to the buffer and the
+  // session is never forgotten), so a day counter that included it would read
+  // "refused" on every day for good — the same false signal G48 was filed
+  // about, in a new column. It reaches the daily as the row's own
+  // `chronicCandidates`, where a series can say whether it is chronic. The list
+  // is imported from the core so this reader cannot hold a stale copy. A row
+  // written before the map existed contributes nothing here: `otherRefusals`
+  // read 5-7 every day (a retired crashed session answers `NOTHING_TO_SWEEP`
+  // forever), so counting it would reproduce that signal too.
   if (name === SWEEP_GATE_EVENT) {
     const refusals = asRecord(payload["refusals"]);
     const noisy =
       refusals === null
         ? 0
-        : NOISY_SWEEP_REASONS.reduce((sum, r) => {
+        : NOISY_NOW_SWEEP_REASONS.reduce((sum, r) => {
             const x = refusals[r];
             return sum + (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0);
           }, 0);

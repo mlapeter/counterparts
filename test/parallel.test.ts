@@ -1128,8 +1128,8 @@ describe("the v2 store reader", () => {
         day: 7,
         payload: { reason: "ran", scopes: 7, ran: 0, otherRefusals: 2, refusals: quiet, date: "2026-09-14" },
       });
-      // One scope whose buffer never reaches its minimum: chronic, and the one
-      // shape worth reading.
+      // One scope whose claim the filesystem refused: never a normal day, not
+      // even once, so this is the row that raises the split.
       s.appendEvent({
         name: "sweep.gate",
         day: 7,
@@ -1138,6 +1138,24 @@ describe("the v2 store reader", () => {
           scopes: 7,
           ran: 0,
           otherRefusals: 3,
+          refusals: { ...quiet, NOTHING_TO_SWEEP: 1, IO_FAILED: 1 },
+          date: "2026-09-14",
+        },
+      });
+      // And one whose buffer never reaches its minimum. It raises NOTHING here:
+      // the leftover is restored and the crashed session is never forgotten, so
+      // the refusal repeats for good, and a day counter that took it would read
+      // "refused" every day forever — the false signal G48 was filed about,
+      // wearing a new name. `chronicCandidates` on the row is where it lives.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: {
+          reason: "ran",
+          scopes: 7,
+          ran: 0,
+          otherRefusals: 3,
+          chronicCandidates: 1,
           refusals: { ...quiet, NOTHING_TO_SWEEP: 1, BELOW_MIN_CLAIM: 1 },
           date: "2026-09-14",
         },
@@ -1153,13 +1171,15 @@ describe("the v2 store reader", () => {
     });
 
     const day = readV2Day(data, "2026-09-14");
-    expect(day.byNameForDate["sweep.gate"]).toBe(3);
+    expect(day.byNameForDate["sweep.gate"]).toBe(4);
+    // ONE of the four: the IO_FAILED row. Not the quiet one, not the
+    // BELOW_MIN_CLAIM one, and not the pre-G48 one.
     expect(day.byNameForDate["sweep.gate:refused"]).toBe(1);
-    // Beside the total, never instead of it: the row count still reads 3.
+    // Beside the total, never instead of it: the row count still reads 4.
     const rows = Object.entries(day.byNameForDate)
       .filter(([name]) => !name.includes(":"))
       .reduce((n, [, x]) => n + x, 0);
-    expect(rows).toBe(3);
+    expect(rows).toBe(4);
   });
 
   test("sleep.cycle:failed splits on the COUNT, not the reason — a degraded cycle still reads `ran`", () => {

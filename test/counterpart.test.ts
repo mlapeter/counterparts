@@ -1017,7 +1017,7 @@ describe("the crash gate — only a crashed session's transcript is ever read", 
     expect(swept["noisyRefusals"]).toBe(0);
   });
 
-  test("a BELOW_MIN_CLAIM refusal is NOT quiet, and the row says so by name", async () => {
+  test("a BELOW_MIN_CLAIM refusal is a CHRONIC CANDIDATE, counted apart from the alarm", async () => {
     const c = brain();
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
@@ -1031,10 +1031,22 @@ describe("the crash gate — only a crashed session's transcript is ever read", 
     const row = gateRows(c)[0] as Record<string, unknown>;
     const refusals = row["refusals"] as Record<string, number>;
     expect(refusals["BELOW_MIN_CLAIM"]).toBe(1);
-    expect(row["noisyRefusals"]).toBe(1);
+    // NOT the alarm. The leftover is restored to the buffer and the session is
+    // never forgotten, so this scope answers BELOW_MIN_CLAIM on every run from
+    // now on — and a reader that ambered on the first one would amber forever.
+    expect(row["noisyRefusals"]).toBe(0);
+    expect(row["chronicCandidates"]).toBe(1);
     // The number the comment used to call a bad day counts this one the same as
     // a retired crashed session — which is why it is no longer the reading.
     expect(row["otherRefusals"]).toBe(1);
+
+    // AND IT REPEATS, which is the whole argument: the same scope, the same
+    // refusal, with nothing new having crashed.
+    await c.sweepFallback({ interpret: counting(calls), minBytes: 10_000_000 });
+    const again = gateRows(c)[1] as Record<string, unknown>;
+    expect((again["refusals"] as Record<string, number>)["BELOW_MIN_CLAIM"]).toBe(1);
+    expect(again["noisyRefusals"]).toBe(0);
+    expect(again["chronicCandidates"]).toBe(1);
   });
 
   test("an OBSERVER writes no gate row at all", async () => {
@@ -1293,6 +1305,7 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     status: string;
     reason: string;
     code?: string;
+    reconciled?: number;
   }
   const phasesOf = (payload: Record<string, unknown>): PhaseLine[] =>
     payload["phases"] as PhaseLine[];
@@ -1348,6 +1361,39 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     expect(versions?.code).toBe("VERSIONS_BOOM");
     // The briefing ran after it, so the wake row is there too.
     expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(1);
+  });
+
+  test("a decay pass that ONLY reconciled the band column says `ran` and says how many (U8)", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    // Night one brings the ranking cache and the band column to physics.
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    const night1 = rowsOf(c, SLEEP_CYCLE_EVENT).find((r) => r["date"] === "2026-01-02");
+    const first = phasesOf(night1!).find((p) => p.phase === "decay");
+    expect(typeof first?.reconciled).toBe("number");
+
+    // Now the exact U8 shape: the CACHE stays right and the COLUMN is put
+    // wrong, so `moved` is false for every row and the pass's only work is the
+    // reconciliation. Before this fix it issued one UPDATE per row and then
+    // filed itself as `ran-nothing-found` / `nothing-to-do`.
+    const ids = c.store.list({ type: "memory", archived: false });
+    expect(ids.length).toBeGreaterThan(0);
+    const settled = new Map(ids.map((id) => [id, c.store.row(id)!.band]));
+    for (const [id, was] of settled) {
+      c.store.setBand(id, was === "semantic" ? "episodic" : "semantic", c.store.livedDay());
+    }
+
+    c.wake(BUDGET_BYTES);
+    await c.sessionEnd({ date: "2026-01-03", budgetBytes: BUDGET_BYTES });
+    const night2 = rowsOf(c, SLEEP_CYCLE_EVENT).find((r) => r["date"] === "2026-01-03");
+    const decay = phasesOf(night2!).find((p) => p.phase === "decay");
+    expect(decay?.status).toBe("ran");
+    expect(decay?.reason).toBe("completed");
+    // THE NUMBER, on the durable row — the count that reached nothing before.
+    expect(decay?.reconciled).toBe(ids.length);
+    // And the table agrees with the arithmetic again.
+    for (const [id, was] of settled) expect(c.store.row(id)?.band).toBe(was);
   });
 
   test("a CLOCK that will not advance leaves the row with reason `clock-failed` and its code", async () => {

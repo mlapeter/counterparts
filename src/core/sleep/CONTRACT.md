@@ -89,7 +89,9 @@ alone.
   box-2 `band` column is the exception and is the band of record — the decay pass writes a
   row's band back when the column disagrees with `band(m, d)`, so the table cannot contradict
   the `band.transition` rows the same pass emits. Strength is still cache-only, the write
-  fires only on disagreement, and `NOTES.md` §5 carries the reasoning.)*
+  fires only on disagreement, the reconciliation counts into the phase's `changed` and is
+  reported as `reconciled` on the phase report and the durable `sleep.cycle` row, and
+  `NOTES.md` §5 carries the reasoning.)*
 - **The accommodation phase, the ledger phase, and their forensics holds are gone** (owner
   decision, settled) — see `schemas/CONTRACT.md` §4.
 - **Hygiene's model-proposed gist merges are dropped in favour of physics dedup**: hash plus

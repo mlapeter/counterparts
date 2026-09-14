@@ -809,6 +809,25 @@ column means is only safe if the readers are known:
 | `adapters/dashboard/` (`browse.ts`, `status.ts`, `web/views.ts`) | computes live, shows the recorded column beside it | none; `recorded` now agrees after a pass |
 | `schemas/` | reads `band`, writes none (§4 of its CONTRACT; source scan) | none |
 | `sleep/consolidate.ts` | `rowToPhysics`, never `band` | none — promotion never gated on the column |
+| `revision.ts:310` | **GATES**: `row.band === "identity" \|\| target.promotedIdentity` routes a declaration to the identity arm | none in the losing direction — see the argument below |
+| `store/owner-op-seam.ts:213` → `self/identity.ts:388` | **GATES**: the removal tombstone captures `row.band` at chase time, and the enumeration lists a removed element as an identity absence on `gone.wasPromotedIdentity \|\| gone.band === "identity"` | none in the losing direction — see the argument below |
+
+**Two of them GATE, and the reconciliation is safe for both.** An earlier
+statement of this change said none of the readers gated on the column; that was
+wrong, and the two above are why the enumeration is worth keeping. Both are ORs
+with `promoted_identity`, and `band()` returns `identity` **iff**
+`promotedIdentity` — it is the first line of the function, before any arithmetic
+(`physics/index.ts`). So for a live row the reconciliation can only write the
+column INTO identity (a promoted row whose column had not caught up), never out
+of it, and a gate that fires on `band === "identity"` can only gain rows it
+should already have had. The single path that writes `identity` into the column
+without the flag is migration — `tools/migrate/plan.ts` hands a v1 trace above
+the identity gradient cut `bandOf()` identity while `promotedIdentity` stays
+false when v1 itself had retired the trace — and such a row is written ARCHIVED,
+which the decay pass skips outright. Only the owner-op `unarchiveMerged` door
+could put one back in front of the pass, and there the correction is the point:
+an un-merged row whose column claims identity it was never promoted to is
+exactly a column denying the arithmetic.
 
 **`band_day` means "the lived day the column was last brought to physics."** It
 has never been a crossing record: the latched `band.transition` row is, and it is

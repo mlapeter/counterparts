@@ -229,6 +229,9 @@ export function runCycle(opts: SleepOptions): CycleReport {
         skipped: result.skipped,
         budgetExhausted: result.budgetExhausted,
         skippedForBudget: result.skippedForBudget,
+        // Present only where the phase set it (the decay pass, U8). Copied like
+        // every other number here — this function invents no verdict.
+        ...(result.reconciled === undefined ? {} : { reconciled: result.reconciled }),
       };
 
       if (observer) {

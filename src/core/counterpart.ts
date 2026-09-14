@@ -59,7 +59,8 @@ import type {
   SemanticReason,
 } from "./recall/index.js";
 import {
-  NOISY_SWEEP_REASONS,
+  NOISY_IF_CHRONIC_SWEEP_REASONS,
+  NOISY_NOW_SWEEP_REASONS,
   SWEEP_REASONS,
   SpanBuffer,
   TUNABLES as REMEMBER,
@@ -206,7 +207,10 @@ export const RECALL_DECISION_EVENT = "recall.decision";
  * reading 5–7 on every single day: a session stays in the crashed set after it
  * is swept and retired, so its scope answers `NOTHING_TO_SWEEP` forever.
  * `remember/fallback.ts#QUIET_SWEEP_REASONS` is the division that replaces the
- * claim, and `noisyRefusals` is its sum.
+ * claim; `noisyRefusals` sums the reasons worth an alarm on the FIRST one
+ * (`NOISY_NOW_SWEEP_REASONS`), and `chronicCandidates` counts the one that is
+ * only worth reading if it repeats (`BELOW_MIN_CLAIM`, permanent by
+ * construction once a small crashed leftover exists).
  */
 export const SWEEP_GATE_EVENT = "sweep.gate";
 
@@ -1882,7 +1886,8 @@ export class Counterpart {
       SWEEP_REASONS.map((r) => [r, 0]),
     ) as Record<SweepReason, number>;
     for (const r of reports) refusals[r.reason] += 1;
-    const noisy = NOISY_SWEEP_REASONS.reduce((n, r) => n + refusals[r], 0);
+    const noisy = NOISY_NOW_SWEEP_REASONS.reduce((n, r) => n + refusals[r], 0);
+    const chronic = NOISY_IF_CHRONIC_SWEEP_REASONS.reduce((n, r) => n + refusals[r], 0);
     const payload = {
       // WHY this row exists, always present so a reader never has to infer it
       // from an absence: `ran` is an ordinary run (whatever it swept), and
@@ -1903,20 +1908,27 @@ export class Counterpart {
       otherRefusals: reports.length - ran - skipped,
       // THE READING, per reason and TOTAL over the reports (G48). Quiet:
       // `NO_CRASHED_SESSION`, `NOTHING_TO_SWEEP`, `NOTHING_UNCLAIMED` — the gate
-      // working, and the ordinary shape of every day. Worth a look:
-      // `BELOW_MIN_CLAIM` when it is chronic (a buffer that never reaches the
-      // minimum is a buffer that never drains), `IO_FAILED` (the filesystem
-      // refused a claim), `OBSERVER` (the buffer stood down under a root that
-      // did not — one flag sets both, so this is wiring). `SWEPT` is here too,
-      // so the map accounts for every report and not only the refusals. Chunk
-      // failures — `THREW`, `MALFORMED_RESULT`, `APPLY_FAILED` — are a level
-      // down, inside a run that DID happen: they reach the log as
+      // working, and the ordinary shape of every day. Worth an alarm now:
+      // `IO_FAILED` (the filesystem refused a claim), `OBSERVER` (the buffer
+      // stood down under a root that did not — one flag sets both, so this is
+      // wiring). Worth a look only if it repeats: `BELOW_MIN_CLAIM`. `SWEPT` is
+      // here too, so the map accounts for every report and not only the
+      // refusals. Chunk failures — `THREW`, `MALFORMED_RESULT`, `APPLY_FAILED` —
+      // are a level down, inside a run that DID happen: they reach the log as
       // `gate.chunk` / `remember.chunk.failed`, and `quarantined` below is
       // their durable count here.
       refusals,
-      // One number for "should the owner look", so nobody has to re-derive the
-      // quiet/not-quiet split to answer it.
+      // One number for "should the owner look NOW", so nobody has to re-derive
+      // the split to answer it. It counts `NOISY_NOW_SWEEP_REASONS` only.
       noisyRefusals: noisy,
+      // And one for "look if this is every day" (`NOISY_IF_CHRONIC_SWEEP_REASONS`,
+      // i.e. `BELOW_MIN_CLAIM`). It is DELIBERATELY not in `noisyRefusals`: a
+      // crashed session's leftover under the minimum is restored to the buffer
+      // and the session is never forgotten, so the refusal repeats forever, and
+      // a reader that ambered on the first one ambered on all of them. Whether
+      // it is chronic is a question about a RUN of these rows; this row reports
+      // its own count and says nothing more.
+      chronicCandidates: chronic,
       swept: reports.reduce((n, r) => n + r.spansSwept, 0),
       minted: reports.reduce((n, r) => n + r.proposals, 0),
       restored: reports.reduce((n, r) => n + r.spansRestored, 0),
@@ -1982,6 +1994,12 @@ export class Counterpart {
       status: p.status,
       reason: p.reason,
       ...(p.error === undefined ? {} : { code: p.error }),
+      // THE RECONCILIATION COUNT, on the one phase that has one (U8). Ids-only
+      // like everything else here — a number of rows, never a row. It is on the
+      // decay entry of every cycle that ran the phase, 0 included, because "the
+      // table had nothing wrong" and "this row cannot tell you" are different
+      // facts; a phase that did not run carries no field at all.
+      ...(p.reconciled === undefined ? {} : { reconciled: p.reconciled }),
     }));
     const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";

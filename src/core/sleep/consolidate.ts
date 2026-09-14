@@ -142,8 +142,12 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
       });
       store.updatePhysics(id, { promotedIdentity: true });
       // The band column in box 2 is canonical for a crossing (it is a decision,
-      // not a decay reading) — unlike the decay phase, which touches no canonical
-      // state at all.
+      // not a decay reading), and the crossing writes it FIRST. Since U8
+      // (2026-09-14) decay writes the same column too — it brings every other
+      // row to `band(m, d)` — so this is no longer the only writer; what it
+      // still is, is the only writer of `identity`. Decay touches no OTHER
+      // canonical state: no `uses`, no `lastUsedDay`, no prose (`sleep/NOTES.md`
+      // §5).
       store.setBand(id, "identity", day);
     }
     promoted.push(record);

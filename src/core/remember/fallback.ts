@@ -105,7 +105,8 @@ export type SweepReason = (typeof SWEEP_REASONS)[number];
  * (G48, 2026-09-14).
  *
  * The sweep is a crash fallback, so its healthy state is refusing, and the
- * refusals divide in two:
+ * refusals divide in THREE, not two — the third division is the correction the
+ * first reading of G48 needed (2026-09-14, same day):
  *
  *   - **Quiet.** `NO_CRASHED_SESSION` (nothing crashed in this scope),
  *     `NOTHING_TO_SWEEP` (a crashed session left nothing behind — which,
@@ -113,14 +114,20 @@ export type SweepReason = (typeof SWEEP_REASONS)[number];
  *     answer for every scope that was ever swept and retired), and
  *     `NOTHING_UNCLAIMED` (everything eligible was already authored, retired
  *     without a model call). All three are the gate working.
- *   - **Not quiet.** `BELOW_MIN_CLAIM` is fine once and a stuck buffer if it is
- *     chronic; `IO_FAILED` is a claim the filesystem refused; `OBSERVER` means
- *     the buffer stood down under a root that did not — the two stances are set
- *     from one flag (`counterpart.ts`), so a nonzero count here is a wiring
- *     fault, not a quiet day.
+ *   - **Not quiet, NOW.** `IO_FAILED` is a claim the filesystem refused;
+ *     `OBSERVER` means the buffer stood down under a root that did not — the two
+ *     stances are set from one flag (`counterpart.ts`), so a nonzero count is a
+ *     wiring fault. Neither can be a normal day even once.
+ *   - **Not quiet IF CHRONIC.** `BELOW_MIN_CLAIM` is fine once and a stuck
+ *     buffer if it repeats. It is PERMANENT BY CONSTRUCTION: a crashed session's
+ *     leftover under `MIN_CLAIM_BYTES` is restored to the buffer
+ *     (`spans.ts#claim`), `crashedSessions()` never forgets the session, so the
+ *     same scope answers `BELOW_MIN_CLAIM` on every run thereafter. Ambering on
+ *     the first one made one 200-byte leftover an amber dashboard forever, which
+ *     is the alarm that trains its reader to ignore it.
  *
- * `SWEPT` is not a refusal at all and is in neither list; it is counted beside
- * them so the per-reason map is TOTAL over the run's reports.
+ * `SWEPT` is not a refusal at all and is in none of the lists; it is counted
+ * beside them so the per-reason map is TOTAL over the run's reports.
  */
 export const QUIET_SWEEP_REASONS: readonly SweepReason[] = [
   "NO_CRASHED_SESSION",
@@ -128,11 +135,22 @@ export const QUIET_SWEEP_REASONS: readonly SweepReason[] = [
   "NOTHING_UNCLAIMED",
 ];
 
-/** The refusals that are worth a look: every reason that is neither quiet nor
- *  the sweep having run. Read by the gate row, the dashboard and the daily. */
-export const NOISY_SWEEP_REASONS: readonly SweepReason[] = SWEEP_REASONS.filter(
-  (r) => r !== "SWEPT" && !QUIET_SWEEP_REASONS.includes(r),
-);
+/**
+ * WORTH AN ALARM ON THE FIRST ONE. Read by the gate row's `noisyRefusals`, by
+ * the dashboard narrator's amber and by the daily's `sweep.gate:refused` split —
+ * all three of which are single-row readers, and a single row cannot tell a
+ * first time from a thousandth.
+ */
+export const NOISY_NOW_SWEEP_REASONS: readonly SweepReason[] = ["IO_FAILED", "OBSERVER"];
+
+/**
+ * WORTH A LOOK ONLY IF IT REPEATS. Counted onto the gate row as
+ * `chronicCandidates` and named neutrally by every one-row reader; whether it is
+ * chronic is a question about a RUN OF ROWS, which only a reader holding several
+ * days of them can answer (`tools/parallel/` reads the series; the dashboard and
+ * the daily do not).
+ */
+export const NOISY_IF_CHRONIC_SWEEP_REASONS: readonly SweepReason[] = ["BELOW_MIN_CLAIM"];
 
 export interface SweepReport {
   scope: string;

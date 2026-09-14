@@ -496,8 +496,53 @@ describe("the decay tick", () => {
       salience: { relevance: 1, emotional: 1, predictive: 1 },
       physics: { lastUsedDay: 5, uses: 3 },
     });
-    runDecay(ctx(wrap(s), 5, { apply: false }), memoryStrengthCache());
+    const observed = runDecay(ctx(wrap(s), 5, { apply: false }), memoryStrengthCache());
+    // THE COUNT IS THE POINT. `PhaseCtx.apply` promises the read-only path
+    // computes the identical verdicts and only skips the write, and
+    // `sleep.observer.report`'s `would` rides on that — an instrument that
+    // reported 0 disagreements on a store full of them would be worse than none.
+    expect(observed.bandsReconciled).toBe(1);
+    expect(observed.reconciled).toBe(1);
+    // And not one column moved.
     expect(s.row(id)?.band).toBe("episodic");
+    expect(s.row(id)?.band_day).toBe(0);
+  });
+
+  test("a pass that ONLY reconciles is `ran`, says how many, and leaves a ring event", () => {
+    // The exact U8 shape: the ranking cache already right, the column wrong, so
+    // `moved` is false for every row and the old pass filed 869 UPDATEs as
+    // `ran-nothing-found` / `nothing-to-do`. Three rows here; the live store's
+    // number was 869.
+    const s = store();
+    const ids = [0, 1, 2].map(() =>
+      put(s, {
+        salience: { relevance: 1, emotional: 1, predictive: 1 },
+        physics: { lastUsedDay: 5, uses: 3 },
+      }),
+    );
+    const cache = memoryStrengthCache();
+    // Pass one brings both boxes to physics.
+    runDecay(ctx(wrap(s), 5), cache);
+    for (const id of ids) expect(s.row(id)?.band).toBe("semantic");
+    // Now put the COLUMN back where U8 found it, leaving the cache correct.
+    for (const id of ids) s.setBand(id, "episodic", 5);
+
+    const ring: string[] = [];
+    const again = runDecay(
+      ctx(wrap(s), 5, { event: (name) => ring.push(name) }),
+      cache,
+    );
+    expect(again.bandsReconciled).toBe(3);
+    expect(again.written.length).toBe(0);
+    // `changed` is rows ACTED ON, so the phase can no longer report a pass that
+    // rewrote every column as a pass that found nothing.
+    expect(again.changed).toBe(3);
+    expect(again.reconciled).toBe(3);
+    // Counted once, in the category that is true: not also `unchanged`.
+    expect(again.skipped["unchanged"] ?? 0).toBe(0);
+    // The ring event the old `written.length === 0` guard skipped.
+    expect(ring).toContain("sleep.decay.materialized");
+    for (const id of ids) expect(s.row(id)?.band).toBe("semantic");
   });
 
   test("the shipped ranking cache is box 3 and is opened LAZILY", () => {

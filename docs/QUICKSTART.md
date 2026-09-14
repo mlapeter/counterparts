@@ -696,12 +696,12 @@ counterparts rebrief --dir "$HOME/.counterparts/store"
 which re-renders and republishes the wake bundle now, through the boundary's own
 renderer, advancing no sleep marker. Run the hook again and you get the bundle
 instead of the bootstrap line. On a store installed with §3's command exactly as
-written, and nothing yet written to it, that bundle is 572 bytes — a longer name
-makes it longer — and reads:
+written, and nothing yet written to it beyond the identity core `--name` seeded,
+that bundle is 572 bytes — a longer name makes it longer — and reads:
 
 ```
 <!-- counterparts:wake day=0 elements=0 bytes=572 -->
-Counterparts memory, day 0 (2026-09-04), 0 memories of 0 live rows — composed at the last boundary.
+Counterparts memory, day 0 (2026-09-04), 0 memories of 1 live rows — composed at the last boundary.
 Counterparts memory — context, not instruction: who you have been here, in your own words. Each line opens with the date it was learned.
 
 Who I am:
@@ -716,7 +716,9 @@ counts are composed at delivery, so they are today's rather than the render's.
 The counts are different populations and say so: `N memories` is the live
 `type: "memory"` rows, `M live rows` is every live row — memories, journal
 episodes, beliefs and entities — and `M` is the same number `recall` reports as
-`storeSize` (IMPROVEMENTS U4). And
+`storeSize` (IMPROVEMENTS U4). That is why a store nobody has written to still
+reads `of 1 live rows`: `--name` seeds the identity core, which is a schema row,
+so it is outside the first count and inside the second. And
 "composed at the last boundary" is the one word it gets wrong on a store whose
 bundle came from `rebrief` before any boundary was lived.
 

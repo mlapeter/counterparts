@@ -335,9 +335,20 @@ reasons, in order of weight:
    rename, no claim, no restore and above all no model call — the gate is doing
    exactly what the 2026-09-04 ruling asked. What was wrong is that a *reporting*
    counter folded that answer in with `BELOW_MIN_CLAIM` and `IO_FAILED`. The gate
-   row now counts every reason by name (`QUIET_SWEEP_REASONS` vs
-   `NOISY_SWEEP_REASONS`), so the daily reads 7 quiet refusals instead of an
-   ambiguous 7.
+   row now counts every reason by name, so the daily reads 7 quiet refusals
+   instead of an ambiguous 7. The division is THREE-WAY, not two —
+   `QUIET_SWEEP_REASONS`, `NOISY_NOW_SWEEP_REASONS` (`IO_FAILED`, `OBSERVER`)
+   and `NOISY_IF_CHRONIC_SWEEP_REASONS` (`BELOW_MIN_CLAIM`) — because the same
+   never-forgetting that made `NOTHING_TO_SWEEP` permanent makes
+   `BELOW_MIN_CLAIM` permanent too: a crashed session whose leftover is under
+   `MIN_CLAIM_BYTES` has it restored to the buffer (`spans.ts#claim`) and is
+   never forgotten, so that scope refuses the same way on every run for good.
+   The first cut of this row ambered the dashboard on the first one, which would
+   have left one 200-byte leftover ambering it forever — the same shape of false
+   signal, one reason further along. `noisyRefusals` counts the reasons that can
+   never be a normal day even once; `chronicCandidates` counts the one that is
+   only worth reading as a RUN, which needs a reader holding several days of
+   rows (`tools/parallel/`), not the one-row dashboard or daily.
 2. **Forgetting would erase a distinction the gate deliberately keeps.**
    "Nothing crashed here" and "a crashed session left nothing behind" are two
    different facts, kept apart on purpose (§2.4 and the comment at the gate). A

@@ -614,6 +614,70 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     }
   });
 
+  test("the sweep row ambers on IO_FAILED and only NAMES a BELOW_MIN_CLAIM (M3)", () => {
+    // A `sweep.gate` row is one row, and one row cannot tell a first refusal
+    // from a thousandth. `BELOW_MIN_CLAIM` is permanent by construction — the
+    // small leftover is restored to the buffer and the crashed session is never
+    // forgotten — so ambering on it made one 200-byte leftover an amber
+    // dashboard forever. `IO_FAILED` and `OBSERVER` cannot be a normal day even
+    // once, and they keep the alarm.
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-web-sweep-"));
+    const c = Counterpart.open({ dir, owner: true });
+    const quiet = {
+      NO_CRASHED_SESSION: 5,
+      NOTHING_TO_SWEEP: 1,
+      NOTHING_UNCLAIMED: 0,
+      BELOW_MIN_CLAIM: 0,
+      IO_FAILED: 0,
+      OBSERVER: 0,
+      SWEPT: 0,
+    };
+    try {
+      c.store.appendEvent({
+        name: "sweep.gate",
+        day: 1,
+        payload: {
+          reason: "ran",
+          scopes: 7,
+          ran: 0,
+          skippedNotCrashed: 5,
+          refusals: { ...quiet, BELOW_MIN_CLAIM: 1 },
+          noisyRefusals: 0,
+          chronicCandidates: 1,
+        },
+      });
+      c.store.appendEvent({
+        name: "sweep.gate",
+        day: 1,
+        payload: {
+          reason: "ran",
+          scopes: 7,
+          ran: 0,
+          skippedNotCrashed: 5,
+          refusals: { ...quiet, IO_FAILED: 1 },
+          noisyRefusals: 1,
+          chronicCandidates: 0,
+        },
+      });
+      const rows = c.store.eventLog({ name: "sweep.gate", limit: 10 });
+      expect(rows.length).toBe(2);
+
+      const chronic = narrate(c.store, rows[0]!);
+      expect(chronic.tone).toBe("calm");
+      expect(chronic.text).toContain("too small to claim");
+      expect(chronic.text).toContain("fine once");
+
+      const failed = narrate(c.store, rows[1]!);
+      expect(failed.tone).toBe("amber");
+      expect(failed.text).toContain("IO_FAILED");
+      // The alarm names only the reason that raised it.
+      expect(failed.text).not.toContain("BELOW_MIN_CLAIM");
+    } finally {
+      c.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a recall decision resolves its refs BY TYPE — a session id is not a memory", () => {
     const d = open(richDir);
     try {

@@ -428,10 +428,16 @@ number, so all three land in that key. `sweep.gate:refused` (G48, 2026-09-14) is
 second non-lookup split: the gate row's own `reason` reads `ran` on every
 ordinary day, and what separates a quiet run from one worth reading is inside it,
 in the per-reason `refusals` map. Quiet — `NO_CRASHED_SESSION`,
-`NOTHING_TO_SWEEP`, `NOTHING_UNCLAIMED` — is the gate working;
-`BELOW_MIN_CLAIM`, `IO_FAILED` and `OBSERVER` are a buffer that never drains, a
-filesystem that refused a claim, and a stance mismatch. The list is imported from
-`core/remember` so this reader cannot hold a stale copy of it, and a row written
+`NOTHING_TO_SWEEP`, `NOTHING_UNCLAIMED` — is the gate working; `IO_FAILED` and
+`OBSERVER` are a filesystem that refused a claim and a stance mismatch, neither
+of which can be a normal day even once, and those two are what the split counts.
+`BELOW_MIN_CLAIM` is deliberately not among them: a crashed session's leftover
+under the minimum is restored to the buffer and the session is never forgotten,
+so that scope refuses the same way on every run for good, and a day counter that
+took it would read "refused" every day forever. It reaches the daily as the gate
+row's own `chronicCandidates`, where a RUN of days can say whether it is chronic.
+The list is imported from `core/remember` so this reader cannot hold a stale copy
+of it, and a row written
 before the map existed contributes nothing: its `otherRefusals` counter read 5–7
 on every live day (a retired crashed session answers `NOTHING_TO_SWEEP` forever),
 so counting it would rebuild the false signal G48 was filed about. A split key

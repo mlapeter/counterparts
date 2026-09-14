@@ -102,6 +102,11 @@ export interface DecayResult extends PhaseOutcome {
    * this is "how many rows did the table have wrong". On a caught-up store it is
    * the same handful as the crossings; the first pass after this shipped carries
    * the whole backlog, which is the number worth seeing once.
+   *
+   * It is ALSO `PhaseOutcome.reconciled`, which is how it reaches the phase
+   * report and the durable `sleep.cycle` row; this field is the name the phase's
+   * own callers already use. Counted under observer too — only the write is
+   * gated on `apply`.
    */
   bandsReconciled: number;
 }
@@ -161,9 +166,17 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     // is what makes the reconciliation total: after a pass that was not cut
     // short by the budget, no live non-journal row's column contradicts the
     // arithmetic, which is exactly what `counterparts verify` now counts.
-    if (ctx.apply && row.band !== b) {
-      store.setBand(id, b, day);
+    //
+    // THE COUNT IS NOT GATED ON `apply`, only the WRITE is. `PhaseCtx.apply`'s
+    // contract is that the read-only path walks the identical code and computes
+    // the identical verdicts — it simply never reaches a write — and
+    // `sleep.observer.report`'s `would` rides on that. Counting inside the
+    // `apply` branch made an observer report 0 disagreements on a store with
+    // 869 of them, which is the one number an instrument exists to print.
+    const wrong = row.band !== b;
+    if (wrong) {
       bandsReconciled += 1;
+      if (ctx.apply) store.setBand(id, b, day);
     }
 
     const was = prior.get(id);
@@ -172,7 +185,14 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
       was.band !== b ||
       Math.abs(was.strength - s) >= TUNABLES.DECAY_QUANTUM;
     if (!moved) {
-      countSkip(out, "unchanged");
+      // A ROW THE PASS ACTED ON IS NOT AN UNCHANGED ROW, even when the cache had
+      // nothing to say about it. On the exact U8 shape — the column wrong and
+      // the ranking cache already right — `moved` is false for every row, and
+      // counting those as `unchanged` is what made `runCycle` issue 869 UPDATEs
+      // and then file the phase as `ran-nothing-found` / `nothing-to-do`. Either
+      // or, never both: the row is counted once, in the category that is true.
+      if (wrong) out.changed += 1;
+      else countSkip(out, "unchanged");
       continue;
     }
     // A CROSSING, not a first reading. `was === undefined` is the cache filling
@@ -200,8 +220,12 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     ctx.step("item", { index, id });
   }
 
-  if (ctx.apply && cache !== null && written.length > 0) {
-    cache.write(written);
+  // A PASS THAT ONLY RECONCILED STILL DID SOMETHING. The old guard asked the
+  // cache alone, so the U8 catch-up — 869 columns rewritten, no strength row
+  // moved — left no ring event at all, and the one pass worth watching was the
+  // one the log could not see.
+  if (ctx.apply && cache !== null && (written.length > 0 || bandsReconciled > 0)) {
+    if (written.length > 0) cache.write(written);
     ctx.event("sleep.decay.materialized", undefined, {
       rows: written.length,
       examined: out.examined,
@@ -209,5 +233,5 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
       day,
     });
   }
-  return { ...out, written, transitions, bandsReconciled };
+  return { ...out, reconciled: bandsReconciled, written, transitions, bandsReconciled };
 }
