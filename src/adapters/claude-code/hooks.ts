@@ -704,6 +704,8 @@ export class ClaudeCodeAdapter {
         refused: summary.refused,
         ids: summary.ids.slice(0, 64),
         idsTotal: summary.ids.length,
+        expandedIds: summary.expandedIds.slice(0, 64),
+        expandedTotal: summary.expandedIds.length,
         elapsedMs: this.nowFn() - started,
       });
     } catch (err) {

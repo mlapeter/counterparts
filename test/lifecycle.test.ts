@@ -329,6 +329,14 @@ describe("the lifecycle, through the adapter", () => {
     expect(row?.reason).toBe("credited");
     expect(row?.credited).toBe(1);
     expect(c.store.physicsOf(id).uses).toBe(1);
+    // The OQ4 probe's input rides on the same row: what was EXPANDED, whether
+    // or not it was credited.
+    const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
+      expandedIds?: string[];
+      expandedTotal?: number;
+    };
+    expect(payload.expandedIds).toEqual([id]);
+    expect(payload.expandedTotal).toBe(1);
   });
 
   test("an archived memory expanded by a stale id is refused, not revived", async () => {

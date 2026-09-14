@@ -31,7 +31,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import { Counterpart } from "../../core/counterpart.js";
+import { Counterpart, RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT } from "../../core/counterpart.js";
+import { PROBE_ROW_CEILING, probeOQ4, renderProbe } from "../../core/recall/probe.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 // `band` is imported rather than mirrored: the dashboard computes the live
 // band with this exact function, and two implementations of "which band is this
@@ -126,6 +127,7 @@ export const COMMANDS = [
   "repair-dates",
   "repair-merged-beliefs",
   "rebrief",
+  "probe-oq4",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -250,6 +252,11 @@ export function usage(): string {
     "                      ~/.counterparts/claude-code.json (where the hooks read).",
     "                      Never a config INSIDE the data dir — that store stops",
     "                      opening (§5 G11).",
+    "  probe-oq4           The OQ4 probe (recall CONTRACT §7): per calendar date, how",
+    "                      many footnotes were delivered and how many of those the",
+    "                      assistant later expanded by id, from recall.decision and",
+    "                      recall.credit rows. Read-only; the footnote header is the",
+    "                      one string the probe varies (recall/render.ts).",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
     "  --config <path>     ONE rule, every entry point: --config <absolute path>, else",
@@ -324,6 +331,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // console takes it for `note` or `recall`, which read no config at all — the
   // store comes from `--dir` there and nowhere else.
   rebrief: ["budget", "config"],
+  // Read-only, like `status`: rows in, a table out.
+  "probe-oq4": [],
 };
 
 /**
@@ -354,6 +363,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   "repair-merged-beliefs":
     "Put back beliefs and current-state rows the nightly dedup pass archived as duplicates of an ordinary memory. Dry run unless --apply. --apply requires --dir.",
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
+  "probe-oq4":
+    "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows. Read-only.",
 };
 
 /** The invocation line, where a command takes something that is not a flag. */
@@ -786,6 +797,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return repairMergedBeliefsCommand(dir, io, parsed.flags);
       case "rebrief":
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
+      case "probe-oq4":
+        return probeCommand(dir, io, typeof parsed.flags["dir"] === "string");
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -832,6 +845,40 @@ function describeDirRefusal(err: unknown): string {
  * inspectable on demand: a list, not a cadence" (§14.1 G9). The owner's console
  * is exactly where that list belongs.
  */
+/** `probe-oq4` — read-only; the same store-absent and open rules as `status`. */
+function probeCommand(dir: string, io: Io, namedDir: boolean): number {
+  if (!storeExists(dir)) {
+    io.err(`No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`);
+    return EXIT.usage;
+  }
+  let store: Store;
+  try {
+    store = Store.open({ dir, observer: true });
+  } catch (err) {
+    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    return EXIT.failed;
+  }
+  try {
+    // Explicit ceiling: `eventLog` defaults to 500 oldest-first, which would
+    // drop the newest rows — the side of the table the probe exists to read.
+    const decisions = store.eventLog({ name: RECALL_DECISION_EVENT, limit: PROBE_ROW_CEILING });
+    const credits = store.eventLog({ name: RECALL_CREDIT_EVENT, limit: PROBE_ROW_CEILING });
+    const rows = [...decisions, ...credits].map((r) => ({ name: r.name, day: r.day, payload: r.payload }));
+    for (const line of renderProbe(probeOQ4(rows))) io.out(line);
+    for (const [name, got] of [
+      [RECALL_DECISION_EVENT, decisions.length],
+      [RECALL_CREDIT_EVENT, credits.length],
+    ] as const) {
+      if (got >= PROBE_ROW_CEILING) {
+        io.err(`warning: ${name} hit the ${PROBE_ROW_CEILING}-row ceiling; the newest rows may be missing from this table`);
+      }
+    }
+    return EXIT.ok;
+  } finally {
+    store.close();
+  }
+}
+
 function statusCommand(dir: string, io: Io, namedDir: boolean): number {
   if (!storeExists(dir)) {
     // An instrument that MINTS a data dir by looking at one is a wart — and

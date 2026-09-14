@@ -23,17 +23,31 @@
  */
 
 /**
- * Framing is load-bearing and part of the spec (§9 G17). The
- * "quietly available / ignorable" phrasing is a DELIBERATE, still-open probe
- * question about its effect on model attention (contract §7 OQ4) — it is written
- * here once, as a constant, so that when the probe is finally run there is exactly
- * one string to change.
+ * THE OQ4 PROBE, STEP 0 → STEP 1. The "quietly available / ignorable" header
+ * was v1's deliberate, never-measured probe of whether footnotes are actually
+ * ignorable to a model (contract §7 OQ4). On 2026-09-14 the model, asked "what
+ * do you remember?", asserted counts and characterizations of five footnoted
+ * memories from their 80-byte titles without expanding one (IMPROVEMENTS U5):
+ * "ignorable" read as "not obligated", which is right for the ambient design
+ * and says nothing about what to do before RELYING on one. Step 1 keeps the
+ * word and adds the one instruction the failure lacked. The step-0 string is
+ * kept beside it so the owner can reverse the step with a one-line ruling; the
+ * measurement is `probe.ts` (`counterparts probe-oq4`), from rows the store
+ * already keeps, so the before/after reads off the same table.
+ */
+export const FOOTNOTE_HEADER_STEP_0 = "Quietly available (ignorable):";
+export const FOOTNOTE_HEADER_STEP_1 =
+  "Quietly available (ignorable; expand an id with recall before citing one):";
+
+/**
+ * Framing is load-bearing and part of the spec (§9 G17). The footnote header
+ * is the OQ4 probe's one string (above); everything else here is v1's.
  */
 export const FRAMING = {
   /** Content-free by construction: no ids, no bodies, no feeling named. */
   affect: "Something here carries weight.",
   surfacedHeader: "Came to mind:",
-  footnoteHeader: "Quietly available (ignorable):",
+  footnoteHeader: FOOTNOTE_HEADER_STEP_1,
   /**
    * ONE WORD, IN FRONT OF A CHAPTER (owner ruling, 2026-09-04 — LAUNCH-STATUS
    * §I14). A journal entry is the first-person ACCOUNT a memory was made from,

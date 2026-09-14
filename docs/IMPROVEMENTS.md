@@ -27,12 +27,45 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ---
 
+## U12 — Developing in the shared checkout is deploying (2026-09-14)
+
+**Status:** built by the counterparts session (its evening PR 2, part D); incident I36 in
+`LAUNCH-STATUS.md`; this entry is the pointer.
+
+**Where.** `~/counterparts` is both the repository and the runtime: the Claude Code hooks
+are fresh processes at every boundary and run whatever that tree has checked out; the MCP
+server keeps the code it loaded, so sessions started during a window run it too.
+
+**Observed.** The branch for U2/U3/U11 was developed in the shared checkout. Its footnote
+header and the new `recall.credit.expandedIds` field were live for every session from
+16:51Z to 16:58Z on 2026-09-14: one boundary fired (another session's), nothing credited,
+nothing expanded. Zero physics effect; the class is the point. Nothing refused it.
+
+**Rule.** The shared checkout stays at `origin/master`; nobody develops in it; all work in
+`.claude/worktrees/`. **Mechanized** in PR 2: `doctor` gains a `checkout` finding (red when
+not on master or dirty), the SessionStart notice shows it, and one durable ids-only
+`adapter.checkout` row per SessionStart lets the daily grade it.
+
+## U11 — session_end refused a kind outside the enum with a bare "malformed" (2026-09-14)
+
+**Status:** built (branch `fix/wake-leftover-titles-label-and-enum`).
+
+**Observed.** An entry with `kind: "project"` came back `{stored: false, reason: "malformed"}`
+and nothing else; the author had to guess which field. Intake knew (`KIND_UNKNOWN`) and the
+MCP server dropped it.
+
+**Built.** `DepositResult.malformed` carries intake's reason out; `session_end`'s per-entry
+outcome names it, and for `KIND_UNKNOWN` lists the kinds that exist.
+
 ## U10 — Nothing minted since launch has ever been reinforced; the promotion gradient has no input (2026-09-14)
 
-**Status:** built, in PR (branch `fix/credit-seam-and-identity-rotation`): `recall/reference.ts`,
-`Counterpart.creditReferences`, `hooks.ts#creditAtBoundary`, dedup routed through `creditUse`,
-`recall.credit` durable row; proof in `test/lifecycle.test.ts`. Awaiting review, owner merge,
-one restart.
+**Status:** built. Merged 2026-09-14 as master `8d7bd97` (PR #99, after #100/#101), restart #7 run
+the same day. `recall/reference.ts`, `Counterpart.creditReferences`, `hooks.ts#creditAtBoundary`,
+`recall.credit` durable row; proof in `test/lifecycle.test.ts`. Owner rulings folded in: credit only
+when expanded or quoted (eight words, at least three content words) from what surfaced loud; once per
+(session, memory, lived day); a dedup merge bumps `uses` only and never a reinforced day. First
+identity crossing for a post-launch memory is not possible before about 2026-09-17 (three credited
+days plus the next consolidate). The `memory.reinforced` watch reads FAIL until the first credited row.
 
 **Observed.** Every live memory born on days 184–188 (1,374 rows at 15:00Z;
 the counterparts session's independent read at 15:40Z: 1,378 live, 1,755
@@ -126,7 +159,29 @@ renamed or documented as "band at last consolidation."
 
 ## U7 — Yesterday's work is invisible in the wake: recency has no lane (2026-09-14)
 
-**Status:** open. Design question more than a bug.
+**Status:** recommendation drafted for the owner (below); not built.
+
+**Recommendation (2026-09-14, for the owner's ruling; the counterparts session to sanity-check
+against the self CONTRACT's lane vocabulary and the budget).** Do not add a sixth lane. Make
+`hints` recency-aware instead: sort hints by `strength × recencyBoost(age)` where the boost is
+2.0 on the birth day, decaying to 1.0 over `RECENCY_DAYS` (3) lived days. That is the whole
+change. No in-lane floor: `TRIM_ORDER` pops hints from the weak end, so a recency-first sort
+already makes recent hints the last to go within the lane, and no in-lane floor survives the
+lane trimming to 0 or 1, which is today's actual state (1 of 8 kept). So the honest claim is
+"yesterday is the last hint to fall silent", not "yesterday is never silent"; when hints trims
+out entirely, so does yesterday. Two known-bad inputs to `age`, to name in the ruling: bornDay
+is a lived-day counter, so 3 lived days is not 3 calendar days, and it was frozen at 185 from
+09-04 to 09-11 (I32), so a week of memories share one bornDay; U6 leaves the migrated bornDay
+artifact open. What this buys: no new lane, no new framing line, no change to
+identity/craft/threads/horizon. What it costs: one tunable and one line in the self CONTRACT §3
+("hints — everything else warm enough, strongest first" becomes "…strongest first, recent
+first among equals"), which is an owner ruling because it rewrites the lane's definition. What
+it does not do: reinforce anything (rendering never credits) or change the budget. Why the trim and not the floor: the ranking cache on day 188 held a
+three-day-old memory at 0.772, far above `WARM_FLOOR` 0.35, so recent memories do reach the
+hints pool; they are dropped because hints is the first lane `TRIM_ORDER` cuts and today's
+wake kept 1 of 8. A recency-first sort inside hints is the lever; a floor change is not.
+Rejected alternative: a "Recently:" lane — it duplicates hints' role and
+reintroduces the two-vocabulary problem NOTES §1 chose against.
 
 **Observed.** 171 memories were minted on days 186 and 187 (Sep 12 and 13),
 including the layers-and-postures thread the owner explicitly continued in order
@@ -154,9 +209,18 @@ happening; if no, the threads lane will only ever show the six migrated ones.
 
 ## U6 — The identity lane shows the same three memories every day (2026-09-14)
 
-**Status:** built, in the same PR as U10: the identity lane rotates (least-recently-rendered
-first, all twenty cycle), `Self.boundary` stamps what it kept. The leftover rule and the
-bornDay clock artifact are untouched and stay open below.
+**Status:** built, merged with U10 (master `8d7bd97`, 2026-09-14): the identity lane rotates
+(least-recently-rendered first, all twenty cycle), `Self.boundary` stamps what it kept. The first
+post-merge wake renders the same three once more (no stamps yet); rotation is visible from the second
+boundary.
+
+**The leftover rule: looked at 2026-09-14 and deliberately NOT changed.** `self/NOTES.md` §9 rule 4
+exists to keep the wake's element set a superset across budgets: refilling identity into slack a
+trimmed lane left behind would let a larger budget produce a set that is not a superset of a
+smaller one. That is a named property with a measurement behind it, and rotation removes the
+reason to want the change (every identity belief now renders within a week regardless of the
+free bytes). Stays open only as "if a wake is ever measured with > 1 KB free for days, revisit."
+The bornDay clock artifact stays open (a `date.repaired`-style pass, owner's call).
 
 **Observed.** 20 live identity-band memories; the wake rendered 3, all learned
 2026-09-03, and the sentinel said `identity=3` on a 9,000-byte budget. Three
@@ -255,7 +319,24 @@ stamping the header with the boundary time is the cheap fix.
 
 ## U3 — The "(ignorable)" footnote label: this session is a data point for OQ4 (2026-09-14)
 
-**Status:** open. Owner is considering a phrasing change.
+**Status:** built as a PROBE STEP (branch `fix/wake-leftover-titles-label-and-enum`), reversible by
+one string. `FRAMING.footnoteHeader` is now `FOOTNOTE_HEADER_STEP_1` ("…ignorable; expand an id with
+recall before citing one"); `FOOTNOTE_HEADER_STEP_0` is kept beside it. The metric lands in the same
+change: `src/core/recall/probe.ts` and `counterparts probe-oq4 --dir <store>` print, per calendar date,
+footnotes delivered vs. later expanded by id, from `recall.decision.footnotes[].id` and the new
+`recall.credit.expandedIds`. Step 0 ran live through 2026-09-14, with one leak: the branch was
+developed in the shared checkout, whose hooks are what every session runs, so step 1 was live
+from 16:51Z to 16:58Z (one boundary, zero expansions) before the checkout went back to master and
+the branch to a worktree. The step-1 side of the table starts at the merge. What is measured on the
+step-0 side: only 8d7bd97 → 16:51Z on 2026-09-14, a few hours — `expandedIds` did not exist before
+the credit seam, so earlier dates (423 footnotes delivered, 09-03 → 09-13) print "-", unmeasured, not
+zero, and stay out of the totals. The owner rules on the reading.
+
+**What the ruling should say that no doc does.** Step 1 turns the footnote header from
+context into an INSTRUCTION ("expand … before citing"). That is exactly the trade OQ4 asks
+about, and the probe is doing its job by making it; it deserves saying out loud when the owner
+rules on the reading, because the ambient design's premise is that recall is context, not
+instruction.
 
 **Where.** `src/core/recall/render.ts` `FRAMING.footnoteHeader`, currently
 `"Quietly available (ignorable):"`. The comment above it says the phrasing is a
@@ -289,8 +370,11 @@ third needs a transcript read. Run a few sessions on each string before ruling.
 
 ## U2 — Footnote titles are 80 bytes, and for migrated memories that cap is baked in (2026-09-14)
 
-**Status:** decided in part. Owner proposed raising the render cap to ~150; the
-migrated-title backfill (item 2) is low priority under the standing ruling.
+**Status:** built (branch `fix/wake-leftover-titles-label-and-enum`): `FOOTNOTE_TITLE_BYTES` 80 → 150.
+Migrated titles are stored at 80 characters and render as before, except those with a multi-byte
+character inside the 80 (clipped at 80 bytes until now), whose tail now renders; recall-bench numbers for them
+do not move; authored titles render whole, and the multi-byte-dash byte clip stops biting. The
+backfill (item 2) stays low priority under the standing ruling.
 
 **Where.** `src/core/recall/tunables.ts` `FOOTNOTE_TITLE_BYTES: 80`, applied by
 `clip(r.title, input.titleBytes)` in `render.ts`. Whole-injection budget
