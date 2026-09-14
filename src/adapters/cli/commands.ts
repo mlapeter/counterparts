@@ -26,7 +26,7 @@
  * `run()` returns an exit code and never calls `process.exit`, so every command
  * is testable against a temp dir with a faked console.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -59,13 +59,16 @@ import {
   EMBED_FAILED_PREFIX,
   ID_PREFIX,
   LAYOUT,
+  REQUIRE_EXPLICIT_DIR_ENV,
   SCHEMA_VERSION,
   Store,
+  StoreError,
   dataDir,
   dateOf,
   decodeVector,
   describeGuardRefusal,
   encodeVector,
+  explicitDirSetting,
   isWithin,
   paths,
   readProseFile,
@@ -862,7 +865,21 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // `COUNTERPARTS_DATA_DIR` would have declared the temp store healthy through
   // all of I29. So it is handled here, after the configuration is resolved and
   // before the generic `--dir` block.
+  //
+  // WHICH IS EXACTLY WHY THE EXPLICIT-DIR GUARD APPLIES TO IT HERE, in the same
+  // three lines `install` and `credentials` use. The first round of this PR left
+  // this branch out and the reviewer reproduced the consequence on the owner's
+  // own machine: `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 counterparts doctor`
+  // resolved the DEFAULT configuration, read its `dataDir` — the live store —
+  // and printed its paths, in a shell armed precisely so that nothing nobody
+  // named would open. A read is not exempt: the guard is about which store gets
+  // touched at all, not about who writes to it.
   if (command === "doctor") {
+    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
     try {
       return doctorCommand(parsed, io, env, named, opts.checkout);
     } catch (err) {
@@ -3402,6 +3419,17 @@ function spawnRefusalCounters(store: Store | null): Record<string, number> {
  *      which inherit neither (measured day 0), stayed blind. That is I32
  *      reproduced inside the diagnostic. What the shell has and the file lacks
  *      is reported as its own clause instead.
+ *
+ * **And what reading from the config does NOT buy it: an exemption.** With
+ * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, this command refuses unless a
+ * human named something — `--dir`, or a configuration by `--config` /
+ * `COUNTERPARTS_CONFIG`. A configuration found at the DEFAULT path names the
+ * live store on every machine with an install, so honouring its `dataDir` past
+ * the guard would be the guard's own failure mode wearing a diagnostic's face;
+ * the first round of this PR did exactly that and was caught reading the
+ * owner's live paths from an armed shell. Two doors enforce it: `run()`
+ * (`implicitConfigRefusal`, the same three lines `install` and `credentials`
+ * use) and the dir resolution below.
  */
 function doctorCommand(
   parsed: Parsed,
@@ -3416,12 +3444,31 @@ function doctorCommand(
   const credentials = loadCredentials(credentialsPath, {});
   const shellNames = CREDENTIAL_NAMES.filter((n) => (env[n] ?? "").trim().length > 0);
 
+  // WHICH STORE, under the guard. `--dir` is a name. A config the CALLER named
+  // (`--config`, `COUNTERPARTS_CONFIG`) is a name, and the `dataDir` inside it is
+  // named by extension. A config nobody named is NOT a name — and its `dataDir`
+  // field is the live store on every machine with an install, which is why the
+  // old shape here never reached `resolveDir` and so never met the guard at all.
+  //
+  // `run()` already refuses that case one door up (`implicitConfigRefusal`), and
+  // this is the second door rather than the first: `doctorCommand` is reachable
+  // without it — a caller inside this module, a future dispatch — and the whole
+  // finding was that one missing branch let a read at the live store through.
+  // The sentence is `verify`'s own, so the two doors say the same thing.
+  const namedConfig = named !== undefined && named.source !== "default";
+  const guard = explicitDirSetting(env);
   let dir: string;
   try {
-    dir =
-      typeof parsed.flags["dir"] === "string"
-        ? parsed.flags["dir"]
-        : (config.dataDir ?? resolveDir(env));
+    if (typeof parsed.flags["dir"] === "string") {
+      dir = parsed.flags["dir"];
+    } else if (config.dataDir !== undefined && !namedConfig && guard.armed) {
+      throw new StoreError("IMPLICIT_DEFAULT_DIR_REFUSED", {
+        guard: `${REQUIRE_EXPLICIT_DIR_ENV}=${guard.value}`,
+        dir: config.dataDir,
+      });
+    } else {
+      dir = config.dataDir ?? resolveDir(env);
+    }
   } catch (err) {
     // The explicit-dir guard, at exactly the door `verify`'s census meets it:
     // a store nobody named is refused here too.
@@ -3578,13 +3625,23 @@ async function credentialsCommand(
  *
  * Three cases, in order: an ACTIVE line for this name is replaced where it
  * stands; else the template's own COMMENTED placeholder (`# NAME=...`) becomes
- * the real line, in place, so the file reads the way `install` laid it out;
- * else the line is appended. Every other line — every comment, the other name,
- * anything the owner added — is preserved byte for byte.
+ * the real line — placed AFTER the indented comment lines that continue it, so
+ * the explanation still sits above the line it explains; else the line is
+ * appended. Every other line — every comment, the other name, anything the
+ * owner added — is preserved byte for byte.
  *
- * The mode is set twice on purpose: `writeFileSync`'s `mode` applies only when
- * the file is CREATED, so an existing file that was 0644 would keep its bits.
- * `chmodSync` is what actually holds the 0600 promise.
+ * **Written to a sibling and RENAMED over the target, never truncated in
+ * place.** `writeFileSync` on the target opens it `O_TRUNC`: a crash, a full
+ * disk or a kill between the truncate and the write leaves a file that exists
+ * and is EMPTY — which is I32's own shape (the credentials file was empty from
+ * 09-04, the worker refused `NO_CREDENTIAL` at every boundary for a week, and
+ * every surface read healthy). `rename` is atomic on one filesystem, so a reader
+ * sees the old file or the new one and never a zero-length one. The mode is set
+ * on the TEMP file — `writeFileSync`'s `mode` applies only when a file is
+ * created, so writing straight over an existing 0644 file would have held the
+ * secret at 0644 until the `chmod` after it — and rename carries the bits with
+ * the inode. The final `chmodSync` then holds the promise for the case where
+ * the temp file already existed with looser bits.
  */
 function writeCredential(path: string, name: string, value: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -3610,7 +3667,15 @@ function writeCredential(path: string, name: string, value: string): void {
   if (!replaced) {
     for (let i = 0; i < out.length; i += 1) {
       if (commented.test(out[i] ?? "")) {
-        out[i] = line;
+        // The placeholder OWNS the indented comment lines under it ("#" then
+        // four or more spaces — the template's own continuation shape). Putting
+        // the live line where the placeholder stood left them dangling under a
+        // secret, reading as if they explained it; the line goes after them
+        // instead, so `# NAME=... what it is / # <indent> why` stays a block.
+        let end = i;
+        while (/^#\s{4,}\S/.test(out[end + 1] ?? "")) end += 1;
+        out.splice(i, 1);
+        out.splice(end, 0, line);
         replaced = true;
         break;
       }
@@ -3621,6 +3686,11 @@ function writeCredential(path: string, name: string, value: string): void {
     out.push(line);
     out.push("");
   }
-  writeFileSync(path, out.join("\n"), { mode: 0o600 });
+  // Sibling, then rename: see the note above — the target is never observed
+  // truncated, and the secret is never on disk at anything but 0600.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, out.join("\n"), { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, path);
   chmodSync(path, 0o600);
 }

@@ -199,6 +199,13 @@ export interface CheckoutReading {
   readonly originMaster: string | null;
   /** True when HEAD IS origin/master — the deploy state, branch or not. */
   readonly atMaster: boolean;
+  /**
+   * True when the reading ran out of `CHECKOUT_BUDGET_MS` (or one call timed
+   * out), which forces `reason` to `unreadable`. It is its own field because the
+   * ring row distinguishes "git would not answer" from "git was too slow", and
+   * only the second one says something about the machine.
+   */
+  readonly timedOut: boolean;
 }
 
 /**
@@ -235,16 +242,45 @@ interface GitResult {
 
 export type GitRunner = (args: readonly string[]) => GitResult;
 
-/** Two seconds is generous for four local `git` reads and short enough that a
- *  wedged git costs a session start nothing it will notice. */
+/** The ceiling on ONE `git` call. Never the reading's cost: seven calls at two
+ *  seconds is fourteen seconds, which is what the reviewer measured against a
+ *  sleeping git shim (7.81 s) before `CHECKOUT_BUDGET_MS` existed. The budget
+ *  below is what actually bounds the reading; this is the per-call cap it
+ *  narrows. */
 export const CHECKOUT_TIMEOUT_MS = 2000;
 
-function gitIn(root: string, timeoutMs: number): GitRunner {
+/**
+ * THE WHOLE READING'S BUDGET — one second, and the reason it is not 150 ms.
+ *
+ * `readCheckout` runs BEFORE `doctorFindings`, whose own deadline starts when it
+ * is entered, so the git reads were outside every budget this adapter had: up to
+ * seven `spawnSync` calls, each free to take `CHECKOUT_TIMEOUT_MS`. A wedged git
+ * — a network filesystem, an index.lock, a fresh cold cache — could hold a
+ * foreground session start for fourteen seconds.
+ *
+ * It is its OWN budget rather than a share of `SESSION_NOTICE_BUDGET_MS`
+ * because the two measure different things. 150 ms is right for reading a store
+ * that is already open; five process spawns on a cold machine can exceed that on
+ * their own, and a checkout reading that timed out every morning would report
+ * `unreadable` on exactly the days the tree HAS wandered — the days the finding
+ * exists for. One second is the number that is long enough to be read and short
+ * enough that nobody notices it. Total worst case at session start:
+ * `CHECKOUT_BUDGET_MS` + `SESSION_NOTICE_BUDGET_MS` ≈ 1.15 s.
+ */
+export const CHECKOUT_BUDGET_MS = 1000;
+
+function gitIn(root: string, remainingMs: () => number, env: NodeJS.ProcessEnv): GitRunner {
   return (args: readonly string[]): GitResult => {
     const res = spawnSync("git", ["-C", root, ...args], {
-      timeout: timeoutMs,
+      timeout: remainingMs(),
       encoding: "utf8",
       windowsHide: true,
+      // The environment is passed rather than inherited by default for one
+      // reason: under bun a `spawnSync` with no `env` resolves the binary against
+      // the REAL environment, so a test cannot put a slow `git` on `PATH` and
+      // prove the budget against a spawn that actually blocks. Passing
+      // `process.env` is what inheriting already meant.
+      env,
     });
     if (res.error !== undefined && res.error !== null) {
       const code = (res.error as NodeJS.ErrnoException).code ?? "";
@@ -270,18 +306,59 @@ function gitIn(root: string, timeoutMs: number): GitRunner {
 export const ORIGIN_MASTER = "refs/remotes/origin/master";
 
 export function readCheckout(
-  opts: { root?: string | null; git?: GitRunner; timeoutMs?: number } = {},
+  opts: {
+    root?: string | null;
+    git?: GitRunner;
+    timeoutMs?: number;
+    budgetMs?: number;
+    /** Injectable clock, so the budget is provable without waiting for it. */
+    now?: () => number;
+    /** The environment the `git` calls run in; injectable so a test can put a
+     *  slow `git` on `PATH` and measure the real spawn path. */
+    env?: NodeJS.ProcessEnv;
+  } = {},
 ): CheckoutReading {
   const root = opts.root === undefined ? runningRoot() : opts.root;
-  const none = { branch: null, head: null, dirty: 0, behindBy: null, originMaster: null, atMaster: false };
+  const none = {
+    branch: null,
+    head: null,
+    dirty: 0,
+    behindBy: null,
+    originMaster: null,
+    atMaster: false,
+    timedOut: false,
+  };
   if (root === null) return { reason: "not-a-repo", root: "", ...none };
-  const git = opts.git ?? gitIn(root, opts.timeoutMs ?? CHECKOUT_TIMEOUT_MS);
+  // THE BUDGET, spent across every call rather than per call. Each git gets what
+  // is LEFT of it (capped at `CHECKOUT_TIMEOUT_MS`), and once it is gone no
+  // further call is made at all — a reading that has run out of time is
+  // `unreadable`, which is a state this adapter already knows how to say.
+  const now = opts.now ?? ((): number => Date.now());
+  const ceiling = opts.timeoutMs ?? CHECKOUT_TIMEOUT_MS;
+  const deadline = now() + (opts.budgetMs ?? CHECKOUT_BUDGET_MS);
+  let timedOut = false;
+  const run =
+    opts.git ?? gitIn(root, () => Math.max(1, Math.min(ceiling, deadline - now())), opts.env ?? process.env);
+  const git: GitRunner = (args) => {
+    if (timedOut || now() >= deadline) {
+      timedOut = true;
+      return { ok: false, out: "", failed: "timeout" };
+    }
+    const res = run(args);
+    if (res.failed === "timeout") timedOut = true;
+    return res;
+  };
 
   const gitDir = git(["rev-parse", "--git-dir"]);
   if (!gitDir.ok) {
     // `status` is git answering "this is not a repository" — an installed
     // package, and nothing to grade. Anything else is git not answering at all.
-    return { reason: gitDir.failed === "status" ? "not-a-repo" : "unreadable", root, ...none };
+    return {
+      reason: gitDir.failed === "status" ? "not-a-repo" : "unreadable",
+      root,
+      ...none,
+      timedOut,
+    };
   }
   const ref = git(["symbolic-ref", "-q", "--short", "HEAD"]);
   const branch = ref.ok && ref.out.trim().length > 0 ? ref.out.trim() : null;
@@ -301,13 +378,20 @@ export function readCheckout(
     // init) has nothing to grade against, and an empty repository has no HEAD.
     // Neutral, and no durable row: "we could not grade it" is not a state of
     // the checkout.
-    return { reason: "unreadable", root, branch, head, dirty, behindBy: null, originMaster, atMaster: false };
+    return { reason: "unreadable", root, branch, head, dirty, behindBy: null, originMaster, atMaster: false, timedOut };
   }
   const atMaster = head === originMaster;
   const ancestor = atMaster || git(["merge-base", "--is-ancestor", "HEAD", ORIGIN_MASTER]).ok;
   const countRead = ancestor && !atMaster ? git(["rev-list", "--count", `HEAD..${ORIGIN_MASTER}`]) : null;
   const behindBy =
     countRead !== null && countRead.ok ? (Number.parseInt(countRead.out.trim(), 10) || 0) : null;
+
+  // A reading that ran out of time is not a grade. Half the calls answered and
+  // half returned nothing, and "clean at origin/master" assembled out of
+  // silence is the one wrong answer this finding may not give.
+  if (timedOut) {
+    return { reason: "unreadable", root, branch, head, dirty, behindBy, originMaster, atMaster, timedOut };
+  }
 
   // ORDER IS THE GRADE. Tracked modifications are red wherever HEAD sits — they
   // are code that is in no branch at all. Then: at origin/master is the deploy
@@ -323,7 +407,7 @@ export function readCheckout(
           : branch === null
             ? "detached"
             : "branch";
-  return { reason, root, branch, head, dirty, behindBy, originMaster, atMaster };
+  return { reason, root, branch, head, dirty, behindBy, originMaster, atMaster, timedOut };
 }
 
 /** True when this reading is one the adapter records a durable row for. A
@@ -348,13 +432,28 @@ function finding(
 }
 
 /**
- * The newest rows of one event name, oldest-first, at most `count` of them.
+ * The newest rows of one event name, oldest-first, at most `count` of them —
+ * or `unknown`, which is a third answer and not a kind of empty.
  *
  * Exact, not approximate: see `WINDOWS`. A window that came back FULL is
  * discarded rather than trusted — its last row is the newest of the first
  * `NEWEST_LIMIT`, which is not the same claim.
+ *
+ * THE UNBOUNDED WINDOW IS NOT EXEMPT FROM THAT RULE, and the first round of this
+ * PR made it so. Once a name held `NEWEST_LIMIT` rows all older than the widest
+ * day window, every bounded window came back full and was skipped, the `null`
+ * window came back full too — and it alone was trusted, so `rows.slice(-count)`
+ * handed back the 4,000th-OLDEST row as "the newest". A store that swept its
+ * last 4,000 sleep cycles and ran fine since would have been read off a row from
+ * whenever that prefix ended: a confident wrong answer, which is the one thing a
+ * diagnostic may never produce. Unknown says so instead.
  */
-function newestRows(store: Store, name: string, count: number, livedDay: number): EventRow[] {
+interface NewestRead {
+  readonly rows: EventRow[];
+  readonly unknown: boolean;
+}
+
+function newestRows(store: Store, name: string, count: number, livedDay: number): NewestRead {
   for (const back of WINDOWS) {
     const rows = store.eventLog(
       back === null
@@ -362,10 +461,22 @@ function newestRows(store: Store, name: string, count: number, livedDay: number)
         : { name, sinceDay: Math.max(0, livedDay - back), limit: NEWEST_LIMIT },
     );
     if (rows.length === 0) continue;
-    if (rows.length >= NEWEST_LIMIT && back !== null) continue;
-    return rows.slice(-count);
+    if (rows.length >= NEWEST_LIMIT) {
+      if (back !== null) continue;
+      return { rows: [], unknown: true };
+    }
+    return { rows: rows.slice(-count), unknown: false };
   }
-  return [];
+  return { rows: [], unknown: false };
+}
+
+/** The one sentence for a name whose newest row cannot be determined. Neutral:
+ *  it names what was not read, and claims nothing about the store. */
+function undetermined(name: string): string {
+  return (
+    `newest ${name} row could not be determined: more than ${NEWEST_LIMIT} rows and no bounded window ` +
+    "came back short, so the newest one was not read"
+  );
 }
 
 function payloadOf(row: EventRow | undefined): Record<string, unknown> {
@@ -566,8 +677,17 @@ function clockFindings(input: DoctorInput, store: Store): Finding[] {
   // "" is not the same fact as "2026-09-04": collapsing them here is how a fresh
   // store would read as a frozen one.
   const lastActive = raw === undefined || raw.length === 0 ? null : raw;
-  const boundary = rowDate(newestRows(store, BOUNDARY_EVENT, 1, livedDay)[0]);
+  const read = newestRows(store, BOUNDARY_EVENT, 1, livedDay);
+  const boundary = rowDate(read.rows[0]);
   const data = { livedDay, lastActiveDate: lastActive, newestBoundary: boundary, today: input.today };
+  // Unknown is not "(none)": an unread newest boundary cannot be compared with
+  // the clock, so the comparison is not made and the line says why.
+  if (read.unknown) {
+    const facts =
+      `lived day ${livedDay}, lastActiveDate ${lastActive ?? "(unset)"}, today ${input.today} (UTC) — ` +
+      undetermined(BOUNDARY_EVENT);
+    return [finding("clock", "green", "Clock", facts, "", data)];
+  }
   const facts =
     `lived day ${livedDay}, lastActiveDate ${lastActive ?? "(unset)"}, ` +
     `newest boundary ${boundary ?? "(none)"}, today ${input.today} (UTC)`;
@@ -597,15 +717,24 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
    * have embedded, and three ambers on a fresh install teach the owner to read
    * amber as decoration.
    */
-  const lived = newestRows(store, BOUNDARY_EVENT, 1, livedDay).length > 0;
+  // `unknown` means the store holds MORE than `NEWEST_LIMIT` boundary rows, so
+  // it has certainly lived — the one thing this flag needs to know.
+  const boundaries = newestRows(store, BOUNDARY_EVENT, 1, livedDay);
+  const lived = boundaries.unknown || boundaries.rows.length > 0;
   /** The "no row yet" finding: amber once the store has lived, green before. */
   const absent = (key: string, title: string, what: string, fix: string): Finding =>
     lived
       ? finding(key, "amber", title, what, fix, { rows: 0 })
       : finding(key, "green", title, `${what} — and no boundary has been reached here yet`, "", { rows: 0 });
+  /** The "we could not read the newest one" finding: neutral, never a grade. */
+  const unread = (key: string, title: string, name: string): Finding =>
+    finding(key, "green", title, undetermined(name), "", { unknown: true });
 
-  const sweep = newestRows(store, SWEEP_GATE_EVENT, 1, livedDay)[0];
-  if (sweep === undefined) {
+  const sweepRead = newestRows(store, SWEEP_GATE_EVENT, 1, livedDay);
+  const sweep = sweepRead.rows[0];
+  if (sweepRead.unknown) {
+    out.push(unread("sweep", "Sweep", SWEEP_GATE_EVENT));
+  } else if (sweep === undefined) {
     out.push(absent("sweep", "Sweep", "no sweep.gate row — no worker has reached the crash sweep here", "Read the Spawn line below."));
   } else {
     const p = payloadOf(sweep);
@@ -622,8 +751,11 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     );
   }
 
-  const cycle = newestRows(store, SLEEP_CYCLE_EVENT, 1, livedDay)[0];
-  if (cycle === undefined) {
+  const cycleRead = newestRows(store, SLEEP_CYCLE_EVENT, 1, livedDay);
+  const cycle = cycleRead.rows[0];
+  if (cycleRead.unknown) {
+    out.push(unread("sleep", "Sleep", SLEEP_CYCLE_EVENT));
+  } else if (cycle === undefined) {
     out.push(absent("sleep", "Sleep", "no sleep.cycle row — no cycle has run here since the rows existed", "Read the Spawn line below."));
   } else {
     const p = payloadOf(cycle);
@@ -647,9 +779,12 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
   // TWO rows, because one bad backfill is a flaky provider and two in a row is
   // a poisoned input that will never clear itself (I33's whole shape: the same
   // head-64 chunk retried for 32 consecutive runs).
-  const backfills = newestRows(store, EMBED_BACKFILL_EVENT, 2, livedDay);
+  const backfillRead = newestRows(store, EMBED_BACKFILL_EVENT, 2, livedDay);
+  const backfills = backfillRead.rows;
   const newest = backfills[backfills.length - 1];
-  if (newest === undefined) {
+  if (backfillRead.unknown) {
+    out.push(unread("backfill", "Backfill", EMBED_BACKFILL_EVENT));
+  } else if (newest === undefined) {
     out.push(
       absent("backfill", "Backfill", "no adapter.embed.backfill row — nothing has been embedded here", "Read the Embedder and Credentials lines."),
     );
@@ -678,8 +813,11 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     );
   }
 
-  const credit = newestRows(store, RECALL_CREDIT_EVENT, 1, livedDay)[0];
-  if (credit !== undefined) {
+  const creditRead = newestRows(store, RECALL_CREDIT_EVENT, 1, livedDay);
+  const credit = creditRead.rows[0];
+  if (creditRead.unknown) {
+    out.push(unread("credit", "Credit", RECALL_CREDIT_EVENT));
+  } else if (credit !== undefined) {
     const p = payloadOf(credit);
     const reason = str(p, "reason") ?? "(none)";
     const detail = `newest recall.credit ${rowDate(credit) ?? "?"}: reason ${reason}, credited ${num(p, "credited") ?? 0} of ${num(p, "considered") ?? 0} considered`;
@@ -702,14 +840,16 @@ function spawnFindings(input: DoctorInput, store: Store): Finding[] {
   const entries = Object.entries(input.refusals).filter(([, n]) => n > 0);
   entries.sort((a, b) => b[1] - a[1]);
   const worst = entries[0];
-  const refused = newestRows(store, SPAWN_REFUSED_EVENT, 1, livedDay)[0];
-  const spawnFailed = newestRows(store, SPAWN_FAILED_EVENT, 1, livedDay)[0];
-  const runnerFailed = newestRows(store, RUNNER_FAILED_EVENT, 1, livedDay)[0];
-  const rowClause = [
-    refused === undefined ? null : `newest ${SPAWN_REFUSED_EVENT} ${rowDate(refused) ?? "?"} (${str(payloadOf(refused), "reason") ?? "?"})`,
-    spawnFailed === undefined ? null : `newest ${SPAWN_FAILED_EVENT} ${rowDate(spawnFailed) ?? "?"} (${str(payloadOf(spawnFailed), "reason") ?? "?"})`,
-    runnerFailed === undefined ? null : `newest ${RUNNER_FAILED_EVENT} ${rowDate(runnerFailed) ?? "?"} (${str(payloadOf(runnerFailed), "reason") ?? "?"})`,
-  ]
+  // The COUNTERS decide this finding; these three rows only explain it. An
+  // unreadable newest row says so in the clause rather than being dropped, which
+  // would read as "there is no such row".
+  const clause = (name: string): string | null => {
+    const read = newestRows(store, name, 1, livedDay);
+    if (read.unknown) return undetermined(name);
+    const row = read.rows[0];
+    return row === undefined ? null : `newest ${name} ${rowDate(row) ?? "?"} (${str(payloadOf(row), "reason") ?? "?"})`;
+  };
+  const rowClause = [clause(SPAWN_REFUSED_EVENT), clause(SPAWN_FAILED_EVENT), clause(RUNNER_FAILED_EVENT)]
     .filter((s): s is string => s !== null)
     .join("; ");
   const counts = entries.map(([reason, n]) => `${reason} ×${n}`).join(", ");
@@ -756,6 +896,7 @@ function checkoutFindings(reading: CheckoutReading): Finding[] {
     behindBy: reading.behindBy,
     originMaster: reading.originMaster,
     atMaster: reading.atMaster,
+    timedOut: reading.timedOut,
   };
   if (reading.reason === "not-a-repo") {
     return [finding("checkout", "green", "Checkout", "not a git checkout — an installed package, nothing to grade", "", data)];
@@ -766,9 +907,11 @@ function checkoutFindings(reading: CheckoutReading): Finding[] {
         "checkout",
         "green",
         "Checkout",
-        reading.head === null
-          ? `${reading.root} — git did not answer, so the checkout was not graded`
-          : `${reading.root} — no ${ORIGIN_MASTER} as last fetched, so there is nothing to grade against`,
+        reading.timedOut
+          ? `${reading.root} — git did not answer within ${CHECKOUT_BUDGET_MS} ms, so the checkout was not graded`
+          : reading.head === null
+            ? `${reading.root} — git did not answer, so the checkout was not graded`
+            : `${reading.root} — no ${ORIGIN_MASTER} as last fetched, so there is nothing to grade against`,
         "",
         data,
       ),
@@ -930,6 +1073,25 @@ export function anyRed(findings: readonly Finding[]): boolean {
   return findings.some((f) => f.severity === "red");
 }
 
+/** The last line of every notice, and the only part that is never truncated:
+ *  the repair is not a thing to remember. */
+export const NOTICE_TAIL = "run: counterparts doctor";
+
+/**
+ * How long a notice may be, in characters.
+ *
+ * The host caps EVERY hook output string at 10,000 characters and replaces
+ * anything longer with a preview and a file path
+ * (https://code.claude.com/docs/en/hooks: "Hook output strings, including
+ * `additionalContext`, `systemMessage`, and plain stdout, are capped at 10,000
+ * characters"). The notice rides in the same JSON object as the wake, so every
+ * character it spends is a character the wake cannot have — and the wake is the
+ * thing the session cannot do without. 400 is enough for a finding, its fix and
+ * the tail; a finding that needs more than that needs the console, which is what
+ * the tail says.
+ */
+export const NOTICE_MAX_CHARS = 400;
+
 /**
  * THE ONE OR TWO LINES THE OWNER SEES IN THE TERMINAL, or null.
  *
@@ -937,7 +1099,7 @@ export function anyRed(findings: readonly Finding[]): boolean {
  * warning, not a nag, and a notice that fires on a store with one un-embedded
  * memory is a notice people learn to scroll past. The last line is always the
  * same eight characters plus the command, so the repair is never a thing to
- * remember.
+ * remember — and it survives the cap, which the first line does not.
  */
 export function noticeMessage(findings: readonly Finding[]): string | null {
   const reds = worstFirst(findings).filter((f) => f.severity === "red");
@@ -946,5 +1108,10 @@ export function noticeMessage(findings: readonly Finding[]): string | null {
   const more =
     reds.length === 1 ? "" : ` (+${reds.length - 1} more: ${reds.slice(1).map((f) => f.title).join(", ")})`;
   const fix = first.fix.length === 0 ? "" : ` ${first.fix}`;
-  return `counterparts: ${first.title} — ${first.detail}.${fix}${more}\nrun: counterparts doctor`;
+  const head = `counterparts: ${first.title} — ${first.detail}.${fix}${more}`;
+  // The tail and its newline are reserved FIRST, so what is cut is always the
+  // explanation and never the way to get the whole of it.
+  const room = NOTICE_MAX_CHARS - NOTICE_TAIL.length - 1;
+  const line = head.length <= room ? head : `${head.slice(0, Math.max(0, room - 1))}…`;
+  return `${line}\n${NOTICE_TAIL}`;
 }

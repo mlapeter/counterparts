@@ -2966,22 +2966,23 @@ describe("the host's ask channel — measured on day 0 (2026-09-03), stderr + ex
       stdout: "<counterparts>wake</counterparts>",
       stderr: "",
       exitCode: 0,
+      dropped: null,
     });
     expect(hostDelivery("user-prompt-submit", R({ injection: "recall" }), {}).exitCode).toBe(0);
   });
 
   test("a Stop with an ask BLOCKS: the ask goes to stderr and the exit code is 2 (stdout reaches nobody on this host)", () => {
     const d = hostDelivery("stop", R({ ask: "Write what you learned, and the episode." }), {});
-    expect(d).toEqual({ stdout: "", stderr: "Write what you learned, and the episode.", exitCode: 2 });
+    expect(d).toEqual({ stdout: "", stderr: "Write what you learned, and the episode.", exitCode: 2, dropped: null });
   });
 
   test("a Stop with nothing to ask exits 0 and prints nothing", () => {
-    expect(hostDelivery("stop", R({}), {})).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+    expect(hostDelivery("stop", R({}), {})).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
   });
 
   test("the host's re-fired Stop (`stop_hook_active`) asks NOTHING — the anti-loop v1 carries for the same reason", () => {
     const d = hostDelivery("stop", R({ ask: "Write what you learned." }), { stop_hook_active: true });
-    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
   });
 });
 
@@ -3165,7 +3166,7 @@ describe("the one ask names the session and BOTH tools that take it", () => {
       { injection: "", ask: stopAsk("s1", 1) },
       { stop_hook_active: true },
     );
-    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+    expect(d).toEqual({ stdout: "", stderr: "", exitCode: 0, dropped: null });
   });
 });
 

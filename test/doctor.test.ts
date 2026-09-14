@@ -41,7 +41,10 @@ import {
 import { Store } from "../src/core/store/index.js";
 import {
   API_KEY_ENV,
+  CHECKOUT_BUDGET_MS,
   EMBED_KEY_ENV,
+  NOTICE_MAX_CHARS,
+  NOTICE_TAIL,
   SPAWN_REFUSAL_PREFIX,
   TUNABLES,
   anyRed,
@@ -54,7 +57,7 @@ import {
   reportLines,
 } from "../src/adapters/claude-code/index.js";
 import type { CheckoutReading, DoctorInput, Finding, GitRunner } from "../src/adapters/claude-code/index.js";
-import { hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
+import { ENVELOPE_MAX_CHARS, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import { EXIT, credentialsTemplate, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 
@@ -166,6 +169,7 @@ const onMaster: CheckoutReading = {
   behindBy: null,
   originMaster: "abc1234",
   atMaster: true,
+  timedOut: false,
 };
 
 // ── the findings ────────────────────────────────────────────────────────────
@@ -328,6 +332,38 @@ describe("doctor — the reading", () => {
       s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { reason: "ran", ran: 1, scopes: 2, date } });
     }
     expect(by(doctorFindings(input({ store: s })), "sweep").detail).toContain("2026-09-12");
+  });
+
+  /**
+   * THE ANSWER THAT WOULD HAVE BEEN CONFIDENTLY WRONG.
+   *
+   * `eventLog` is `ORDER BY seq ASC LIMIT`, so once a name holds more rows than
+   * the read's limit and they all sit outside every bounded day window, every
+   * window comes back FULL. The bounded ones were discarded for that reason and
+   * the unbounded one was not — so the read handed back the limit-th OLDEST row
+   * and the finding graded the store on it. Here the 4,000th row says a cycle
+   * threw and the newest says it ran: the old reading was red about a night a
+   * year ago, which is worse than not knowing.
+   */
+  test("more rows than the read's limit, none inside a window, is UNKNOWN — never the oldest row wearing the newest row's name", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    // Day 0, so every bounded window (0, 2, 7, 30 days back) spans them all and
+    // comes back at the limit — the shape a long-lived store reaches on its own.
+    for (let i = 0; i < 4001; i += 1) {
+      s.appendEvent({
+        name: SLEEP_CYCLE_EVENT,
+        day: 0,
+        payload: { reason: i === 3999 ? "threw" : "ran", failed: 0, date: "2026-09-14" },
+      });
+    }
+    const sleep = by(doctorFindings(input({ store: s })), "sleep");
+    expect(sleep.severity).toBe("green");
+    expect(sleep.detail).toContain("could not be determined");
+    expect(sleep.detail).toContain(SLEEP_CYCLE_EVENT);
+    expect(sleep.detail).not.toContain("threw");
   });
 
   test("spawn refusals at the escalation threshold are red and name the reason", () => {
@@ -592,6 +628,56 @@ describe("doctor — which checkout is running", () => {
     expect(timedOut.reason).toBe("unreadable");
   });
 
+  /**
+   * THE READING'S OWN BUDGET, measured against a git that really blocks.
+   *
+   * `readCheckout` runs BEFORE `doctorFindings`, so the notice's 150 ms never
+   * covered it: seven `spawnSync` calls at `CHECKOUT_TIMEOUT_MS` each is
+   * fourteen seconds of foreground session start, and the reviewer of this PR
+   * reproduced 7.81 s of it with a shim exactly like this one. The whole
+   * reading is now one budget, and what it costs when git will not answer is
+   * that budget once.
+   */
+  test("a git that sleeps costs ONE budget, not one timeout per call", () => {
+    const bin = mkdtempSync(join(tmpdir(), "counterparts-gitshim-"));
+    writeFileSync(join(bin, "git"), "#!/bin/sh\nsleep 1.2\necho never\n");
+    chmodSync(join(bin, "git"), 0o755);
+    const started = Date.now();
+    const reading = readCheckout({
+      root,
+      // The PATH is injected rather than mutated: `spawnSync` under bun resolves
+      // the binary against the environment it is GIVEN, and a test that mutated
+      // `process.env` would measure the developer's own git instead.
+      env: { ...process.env, PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+    });
+    const elapsed = Date.now() - started;
+    rmSync(bin, { recursive: true, force: true });
+    expect(reading.reason).toBe("unreadable");
+    expect(reading.timedOut).toBe(true);
+    // One budget plus the spawn itself — never the 8.4 s seven sleeping calls
+    // would have cost.
+    expect(elapsed).toBeLessThan(CHECKOUT_BUDGET_MS + 500);
+  });
+
+  test("once the budget is spent no further git call is made at all", () => {
+    let calls = 0;
+    let clock = 0;
+    const reading = readCheckout({
+      root: "/repo",
+      budgetMs: 100,
+      now: () => clock,
+      git: (args) => {
+        calls += 1;
+        clock += 60; // each call eats more than half the budget
+        return fakeGit(CLEAN)(args);
+      },
+    });
+    // Two calls fit inside 100 ms; the third finds the budget gone.
+    expect(calls).toBe(2);
+    expect(reading.reason).toBe("unreadable");
+    expect(reading.timedOut).toBe(true);
+  });
+
   test("no package root at all resolves to not-a-repo without running git", () => {
     let calls = 0;
     const reading = readCheckout({
@@ -708,7 +794,7 @@ describe("the session-start notice", () => {
     expect(a.events("adapter.doctor.failed").length).toBe(1);
   });
 
-  test("ONE durable checkout row per session start, latched per date, head and dirtiness", () => {
+  test("ONE durable checkout row per session start, latched per date, head, dirtiness and reason", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
@@ -742,6 +828,7 @@ describe("the session-start notice", () => {
       behindBy: null,
       originMaster: "abc1234",
       atMaster: false,
+      timedOut: false,
     };
     const notice = a.notice(hookInput, { checkout: onBranch });
     expect(notice).toContain("feat/x@def5678");
@@ -769,11 +856,100 @@ describe("the session-start notice", () => {
         behindBy: null,
         originMaster: null,
         atMaster: false,
+        timedOut: false,
       },
     });
     expect(a.events("adapter.checkout.unreadable").length).toBe(1);
+    expect(a.events("adapter.checkout.unreadable")[0]?.data["why"]).toBe("git");
     a.counterpart.close();
     expect(store().eventLog({ name: CHECKOUT_EVENT }).length).toBe(0);
+  });
+
+  /** A git that ran out of time says something different from a git that
+   *  answered: the row is the only place that difference survives. */
+  test("a checkout reading that ran out of its budget leaves a timeout ring row and no durable row", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const a = adapterOn();
+    a.notice(hookInput, {
+      checkout: {
+        reason: "unreadable",
+        root: "/repo",
+        branch: null,
+        head: null,
+        dirty: 0,
+        behindBy: null,
+        originMaster: null,
+        atMaster: false,
+        timedOut: true,
+      },
+    });
+    const rows = a.events("adapter.checkout.unreadable");
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.data["why"]).toBe("timeout");
+    a.counterpart.close();
+    expect(store().eventLog({ name: CHECKOUT_EVENT }).length).toBe(0);
+  });
+
+  /**
+   * THE LATCH HAS TO CARRY THE REASON. Same head, same clean tree, same day —
+   * and a `git fetch` in the shared tree between two sessions moves
+   * origin/master under it, so the morning's `master` becomes the afternoon's
+   * `behind`. Latching on date+head+dirty alone left the day's record saying
+   * `master` for a tree that spent the afternoon behind it.
+   */
+  test("a day that FLIPS from master to behind leaves two rows, not one latched master", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const a = adapterOn();
+    a.notice(hookInput, { checkout: onMaster });
+    // The fetch happened: the same clean head is now two commits behind.
+    a.notice(hookInput, {
+      checkout: { ...onMaster, reason: "behind", behindBy: 2, originMaster: "fff9999", atMaster: false },
+    });
+    a.notice(hookInput, { checkout: onMaster });
+    a.counterpart.close();
+    const rows = store().eventLog({ name: CHECKOUT_EVENT });
+    expect(rows.map((r) => (JSON.parse(r.payload ?? "{}") as { reason: string }).reason)).toEqual(["master", "behind"]);
+  });
+
+  /**
+   * THE NOTICE MAY NOT COST THE WAKE. The host caps every hook output string at
+   * 10,000 characters, so a notice is a tax on the one thing the session cannot
+   * start without — and `NOTICE_MAX_CHARS` is the ceiling on that tax. What is
+   * cut is the explanation; what survives is the way to read the whole of it.
+   */
+  test("a notice is capped and still ends with the command that prints the rest", () => {
+    const huge: Finding = {
+      key: "credentials",
+      severity: "red",
+      title: "Credentials",
+      detail: "d".repeat(5000),
+      fix: "f".repeat(500),
+      data: {},
+    };
+    const msg = noticeMessage([huge]);
+    expect(msg).not.toBe(null);
+    expect((msg ?? "").length).toBeLessThanOrEqual(NOTICE_MAX_CHARS);
+    expect((msg ?? "").endsWith("run: counterparts doctor")).toBe(true);
+    expect(msg).toContain("…");
+    // And a short one is untouched — the cap is a ceiling, not a format.
+    const small = noticeMessage([{ ...huge, detail: "no key", fix: "set it" }]);
+    expect(small).toBe("counterparts: Credentials — no key. set it\nrun: counterparts doctor");
+  });
+
+  test("a dropped notice is recorded with the lengths that dropped it", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const a = adapterOn();
+    a.noteNoticeDropped({ noticeChars: 352, envelopeChars: 9618, limitChars: ENVELOPE_MAX_CHARS });
+    const rows = a.events("adapter.notice.dropped");
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.data["envelopeChars"]).toBe(9618);
+    expect(rows[0]?.data["noticeChars"]).toBe(352);
   });
 });
 
@@ -812,6 +988,36 @@ describe("hostDelivery — the notice's channel", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toBe(plain);
     expect(out.stderr).toBe("");
     expect(out.exitCode).toBe(0);
+  });
+
+  /**
+   * THE RED DAY'S OWN TRAP, computed by the reviewer of this PR and reproduced
+   * here: the wake the live host injects is ~9 KB, JSON escaping adds a
+   * character per newline, and the envelope for a 9,038-byte wake plus a
+   * 352-character notice measures 9,618 characters — past `ENVELOPE_MAX_CHARS`
+   * and one bad morning from the host's 10,000-character cap, where the stdout
+   * is replaced with a preview, stops parsing as JSON, and takes the whole wake
+   * with it. So the notice is what gets dropped, never the memory.
+   */
+  test("an envelope that would not fit falls back to the PLAIN wake and says it dropped the notice", () => {
+    const wake = `${"w".repeat(68)}\n`.repeat(131).slice(0, 9038);
+    const notice = `${"n".repeat(352 - 1 - NOTICE_TAIL.length)}\n${NOTICE_TAIL}`;
+    expect(wake.length).toBe(9038);
+    expect(notice.length).toBe(352);
+    const out = hostDelivery("session-start", { injection: wake, ask: null }, {}, notice);
+    // The wake, byte for byte what the plain form would have printed.
+    expect(out.stdout).toBe(hostDelivery("session-start", { injection: wake, ask: null }, {}).stdout);
+    expect(out.stdout.startsWith("{")).toBe(false);
+    expect(out.dropped?.noticeChars).toBe(352);
+    expect(out.dropped?.envelopeChars).toBeGreaterThan(ENVELOPE_MAX_CHARS);
+    expect(out.dropped?.limitChars).toBe(ENVELOPE_MAX_CHARS);
+  });
+
+  test("an envelope that fits still carries both, and reports nothing dropped", () => {
+    const out = hostDelivery("session-start", wake, {}, `short\n${NOTICE_TAIL}`);
+    expect(out.stdout.startsWith("{")).toBe(true);
+    expect(out.stdout.length).toBeLessThanOrEqual(ENVELOPE_MAX_CHARS);
+    expect(out.dropped).toBe(null);
   });
 
   test("user-prompt-submit NEVER emits JSON, notice or no notice", () => {
@@ -930,6 +1136,53 @@ describe("counterparts doctor", () => {
     expect(c.err.join("\n")).toContain("--dir");
   });
 
+  /**
+   * THE CASE THE TEST ABOVE DOES NOT COVER, AND THE ONE THAT HAPPENED.
+   *
+   * That config names no `dataDir`, so the reading fell through to `resolveDir`
+   * and met the guard there. Every real machine's config DOES name one — that is
+   * what `install` writes — so the guard was never reached at all, and the
+   * reviewer ran `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 counterparts doctor` on
+   * the owner's own machine and watched it print his live paths. A configuration
+   * nobody named does not get to name the store.
+   */
+  test("a DEFAULT-LOCATED config that names a dataDir is refused under the guard, and reads nothing", async () => {
+    mintStore();
+    // Exactly where `resolveConfigPath` looks when nobody names one.
+    const defaultConfig = join(root, ".counterparts", "claude-code.json");
+    mkdirSync(join(root, ".counterparts"), { recursive: true });
+    writeFileSync(defaultConfig, JSON.stringify({ dataDir: dir, credentialsFile: credsPath }));
+    const c = consoleWith();
+    const code = await run(["doctor"], {
+      io: c.io,
+      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      home: root,
+      checkout: onMaster,
+    });
+    expect(code).toBe(EXIT.refused);
+    const said = c.err.join("\n");
+    expect(said).toContain("refused: COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1");
+    expect(said).toContain(defaultConfig);
+    // Nothing was read and nothing was printed about the store it named.
+    expect(c.out.join("\n")).toBe("");
+    expect(said).not.toContain(dir);
+  });
+
+  test("the guard does NOT refuse a configuration somebody named — that is the way through", async () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const c = consoleWith();
+    const code = await run(["doctor", `--config=${configPath}`], {
+      io: c.io,
+      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      home: root,
+      checkout: onMaster,
+    });
+    expect(code).toBe(EXIT.ok);
+    expect(c.out.join("\n")).toContain(dir);
+  });
+
   test("it writes nothing: the store is byte-for-byte what it was", async () => {
     mintStore();
     writeConfig();
@@ -994,6 +1247,36 @@ describe("counterparts credentials", () => {
     // The OTHER name's placeholder is untouched.
     expect(lines.some((l) => l.startsWith(`# ${EMBED_KEY_ENV}=`))).toBe(true);
     expect(loadCredentials(credsPath, {}).loaded).toEqual([API_KEY_ENV]);
+    // AND THE COMMENT BLOCK STILL READS AS ONE. The placeholder owns the
+    // indented lines under it ("Without it the worker…"); putting the live line
+    // where the placeholder stood left them dangling under a secret, as if they
+    // explained it. The line goes after them instead.
+    const at = lines.indexOf(`${API_KEY_ENV}=${SECRET}`);
+    expect(lines[at - 1]).toMatch(/^#\s{4,}\S/);
+    expect(lines[at + 1] ?? "").toStartWith(`# ${EMBED_KEY_ENV}=`);
+  });
+
+  /**
+   * I32'S OWN SHAPE, made impossible. The file was EMPTY from 09-04 — the
+   * worker refused `NO_CREDENTIAL` at every boundary for a week — and a
+   * truncate-then-write is one crash away from producing exactly that. The
+   * write goes to a sibling and is RENAMED over the target, so the file is
+   * never observed empty and the secret is never on disk at 0644.
+   */
+  test("the target is REPLACED, never truncated: a new inode, 0600, and no temp file left", async () => {
+    writeConfig();
+    // The hostile starting state: an existing file, world-readable, with content
+    // that must survive.
+    writeFileSync(credsPath, `# keep me\n${EMBED_KEY_ENV}=keep-me\n`, { mode: 0o644 });
+    const before = statSync(credsPath);
+    const r = await set(API_KEY_ENV, SECRET);
+    expect(r.code).toBe(EXIT.ok);
+    const after = statSync(credsPath);
+    // A rename, not a truncate: the path points at a different file than it did.
+    expect(after.ino).not.toBe(before.ino);
+    expect((after.mode & 0o777).toString(8)).toBe("600");
+    expect(existsSync(`${credsPath}.tmp`)).toBe(false);
+    expect(readFileSync(credsPath, "utf8")).toContain(`${EMBED_KEY_ENV}=keep-me`);
   });
 
   test("set on a file that already holds the name replaces that line and nothing else", async () => {

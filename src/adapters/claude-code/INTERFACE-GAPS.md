@@ -458,11 +458,14 @@ that needs a comparison, which is what the fix above is.
    adapter would fail the registry's totality silently. The core knows a string;
    it knows nothing about git. If that derivation ever moves, this line and the
    two above it should move with it.
-3. **The checkout reading is a git subprocess on a foreground hook.** Bounded
-   (`spawnSync`, 2 s, never throws, degrades to a neutral finding) and cheap in
-   practice, but it is still four to six `git` invocations per session start, and
-   it is the only place this adapter shells out at all. If it ever shows up in a
-   session-start measurement, the cheap fix is to read `.git/HEAD` and
+3. **The checkout reading is a git subprocess on a foreground hook.** Bounded by
+   `CHECKOUT_BUDGET_MS` (1 s for the WHOLE reading, each call taking what is left
+   of it, never throwing, degrading to a neutral finding) and cheap in practice,
+   but it is still four to seven `git` invocations per session start, and it is
+   the only place this adapter shells out at all. The budget is the answer to the
+   review of #108, which measured 7.81 s against a sleeping git when each call
+   had its own 2 s ceiling and nothing bounded the set. If it ever shows up in a
+   session-start measurement again, the cheap fix is to read `.git/HEAD` and
    `.git/refs/remotes/origin/master` directly and keep git for the ancestry test.
 4. **It grades `origin/master` AS LAST FETCHED, and never fetches.** A tree
    nobody has fetched in a week reads `master` while origin has moved on, which
@@ -474,3 +477,17 @@ that needs a comparison, which is what the fix above is.
    embedder off, vectors uncovered, a checkout quietly behind — tells nobody
    until somebody asks. That is the deliberate trade (a notice people mute is
    worth less than one they read), and it is a trade, not a property.
+6. **The notice loses to the wake, and the owner is not told when it does.** The
+   host caps a hook's stdout at 10,000 characters, so over `ENVELOPE_MAX_CHARS`
+   the hook prints the plain wake and drops the notice — which means the red day
+   with the longest wake is the day the terminal is most likely to stay silent.
+   All that is left behind is an `adapter.notice.dropped` ring row, and a ring row
+   dies with the process. Closing it properly means either a durable row (a write
+   on the wake's path, which §5 G2 argues against) or a second channel that is
+   not the wake's — neither was taken here.
+7. **Three findings cannot say "I do not know" — they say green.** `Severity` is
+   red / amber / green, so the unknown-newest-row reading (`undetermined`) is
+   reported as GREEN with a sentence that explains it is not a grade. Right for
+   the notice (unknown must not warn) and wrong for a reader counting greens. A
+   fourth severity is the honest shape, and it touches the report, the JSON, the
+   dashboard and every caller that partitions on three.

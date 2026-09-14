@@ -41,6 +41,28 @@ import { readTranscript } from "../transcript.js";
  */
 export const HOST_SESSION_START = "SessionStart";
 
+/**
+ * THE MOST STDOUT THIS HOOK MAY PRINT AS JSON, and why the number is 9,500.
+ *
+ * The host's own cap, verbatim (https://code.claude.com/docs/en/hooks): "Hook
+ * output strings, including `additionalContext`, `systemMessage`, and plain
+ * stdout, are capped at 10,000 characters. Output that exceeds this limit is
+ * saved to a file and replaced with a preview and file path."
+ *
+ * Which is survivable for PLAIN stdout — a truncated wake is still a wake — and
+ * fatal for the JSON form: replace the printed object with a preview and the
+ * stdout no longer parses as JSON, so `additionalContext` is never read and the
+ * ENTIRE WAKE is dropped. And the envelope is bigger than the wake it carries:
+ * JSON escaping turns every newline into two characters, so a 9,038-byte wake
+ * plus a 352-character notice measured 9,618 characters of stdout — one bad day
+ * away from losing the wake on exactly the morning something was red.
+ *
+ * So the JSON form is used only while it demonstrably fits, with 500 characters
+ * of margin for the escaping, and the fallback is the plain wake: the notice is
+ * what gets dropped, never the memory. `counterparts doctor` still prints it.
+ */
+export const ENVELOPE_MAX_CHARS = 9500;
+
 /** The host's event names, mapped to this adapter's. Host trivia, by definition. */
 const HOST_HOOKS: Record<string, HookName> = {
   [HOST_SESSION_START]: "session-start",
@@ -215,6 +237,10 @@ async function main(): Promise<void> {
     // below cannot change what the wake does on a healthy day.
     const notice = name === "session-start" ? adapter.notice(input) : null;
     const delivery = hostDelivery(name, result, payload, notice);
+    // A notice the envelope could not carry leaves a row rather than nothing:
+    // "the terminal said nothing" and "there was nothing to say" are different
+    // facts about the same morning (scar §2.4).
+    if (delivery.dropped !== null) adapter.noteNoticeDropped(delivery.dropped);
     if (delivery.stdout.length > 0) process.stdout.write(delivery.stdout);
     if (delivery.stderr.length > 0) process.stderr.write(delivery.stderr);
     process.exitCode = delivery.exitCode;
@@ -251,36 +277,55 @@ async function main(): Promise<void> {
  * the plain form it has printed since day 0 rather than a JSON wrapper nobody
  * has measured on this host.
  *
- * Pure, so the test proves the channel choice without a process.
+ * Pure, so the test proves the channel choice without a process. `dropped` is
+ * how a pure function reports the one thing it cannot do itself: the caller
+ * turns it into the ring row that makes a silent terminal explicable.
  */
+export interface Delivery {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: 0 | 2;
+  /** Non-null when the notice was dropped to keep the wake whole. */
+  readonly dropped: { readonly noticeChars: number; readonly envelopeChars: number; readonly limitChars: number } | null;
+}
+
 export function hostDelivery(
   name: HookName,
   result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
   /** The owner-facing warning, or null. Only SessionStart carries one. */
   notice: string | null = null,
-): { stdout: string; stderr: string; exitCode: 0 | 2 } {
+): Delivery {
   const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
     const out = [result.injection ?? "", ask ?? ""].filter((s) => s.length > 0).join("\n\n");
     if (name === "session-start" && notice !== null && notice.length > 0) {
-      return {
-        stdout: JSON.stringify({
-          systemMessage: notice,
-          hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
-        }),
-        stderr: "",
-        exitCode: 0,
-      };
+      const envelope = JSON.stringify({
+        systemMessage: notice,
+        hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
+      });
+      // THE WAKE WINS. Over `ENVELOPE_MAX_CHARS` the host would replace this
+      // whole string with a preview, the JSON would stop parsing, and the
+      // session would start with no memory at all — a worse outcome than not
+      // seeing the warning, which `counterparts doctor` prints on request.
+      if (envelope.length > ENVELOPE_MAX_CHARS) {
+        return {
+          stdout: out,
+          stderr: "",
+          exitCode: 0,
+          dropped: { noticeChars: notice.length, envelopeChars: envelope.length, limitChars: ENVELOPE_MAX_CHARS },
+        };
+      }
+      return { stdout: envelope, stderr: "", exitCode: 0, dropped: null };
     }
-    return { stdout: out, stderr: "", exitCode: 0 };
+    return { stdout: out, stderr: "", exitCode: 0, dropped: null };
   }
   // The re-fire is refused twice on purpose: the adapter asks nothing on it, and
   // this channel would not carry it even if something did.
   if (payload["stop_hook_active"] === true || ask === null) {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return { stdout: "", stderr: "", exitCode: 0, dropped: null };
   }
-  return { stdout: "", stderr: ask, exitCode: 2 };
+  return { stdout: "", stderr: ask, exitCode: 2, dropped: null };
 }
 
 /** True only when this file is the process entry point — so a test may import

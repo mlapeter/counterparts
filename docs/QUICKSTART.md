@@ -992,3 +992,20 @@ holds — names only.
 Restarting is not required for the hooks: each is a fresh process and picks the
 file up at the next event. The MCP server reads it once, at launch, so a running
 session's `recall` keeps whatever it started with until the session restarts.
+
+### Two things to know about both
+
+**`doctor` will not open a store nobody named when the guard is armed.** In a
+shell exporting `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` — this repo's own sessions
+do — `counterparts doctor` refuses unless you name a configuration
+(`--config <path>`, or `COUNTERPARTS_CONFIG`) or a store (`--dir <path>`). A
+configuration found at the default path names the live store, and the guard is
+armed precisely so that nothing nobody named gets opened. Without the guard set,
+nothing changes: plain `counterparts doctor` reads the default configuration.
+
+**On a red day with a very long wake, the terminal may say nothing.** The host
+caps a hook's output at 10,000 characters, and past that it replaces the text
+with a preview — which would cost the session its whole wake. So when the wake
+plus the notice would not fit, the hook prints the wake alone and drops the
+notice (it leaves an `adapter.notice.dropped` row behind). `counterparts doctor`
+still prints the finding in full.

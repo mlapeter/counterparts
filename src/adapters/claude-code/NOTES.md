@@ -335,13 +335,67 @@ nothing about what runs.
 The root comes from the RUNNING CODE's own path (`import.meta.url` up to the
 package root) and from no configuration value — that is what makes the hook grade
 the install tree and a console run from a worktree grade the worktree, each
-correctly. Every git call is `spawnSync` with a 2 s timeout and never throws; a
-git that will not answer, and a repository with no `origin/master`, are neutral
-and leave no row.
+correctly. Every git call is `spawnSync` and never throws; a git that will not
+answer, and a repository with no `origin/master`, are neutral and leave no row.
+
+**The reading has its OWN budget, and that is the correction the review forced.**
+`readCheckout` runs before `doctorFindings`, whose deadline starts when it is
+entered — so seven `spawnSync` calls at `CHECKOUT_TIMEOUT_MS` (2 s) each sat
+outside every budget this adapter had. Measured against a git shim that sleeps
+1.2 s: **7.81 s of foreground session start.** `CHECKOUT_BUDGET_MS` (1,000 ms) now
+bounds the whole reading, each call gets what is left of it, and past it the
+reading is `unreadable` with `timedOut` — a `timeout` ring row, and no durable
+row, because "we ran out of time" is not a state of the checkout. It is its own
+budget rather than a slice of the notice's 150 ms because five process spawns on
+a cold machine can exceed 150 ms on their own, and a grade that timed out every
+morning would be missing on exactly the mornings the tree HAS wandered.
 
 One durable `adapter.checkout` row per session start — reason, branch, short sha,
 tracked-modification count, `behindBy`, `originMaster`, date — latched per
-date+head+dirty, so a day on master leaves one row and a day that wandered leaves
-one per state. The daily's split is `adapter.checkout:off-master` (every reason
-but `master`), so "what code produced this day's numbers" is answerable from the
+date+head+dirty+**reason**, so a day on master leaves one row and a day that
+wandered leaves one per state it wandered into. The reason belongs in the latch
+because the other three do not move when the grade does: a `git fetch` in the
+shared tree moves origin/master under the same clean head, so the morning's
+`master` becomes the afternoon's `behind` — and without it the day's record still
+said master. The daily's split is `adapter.checkout:off-master` (every reason but
+`master`), so "what code produced this day's numbers" is answerable from the
 record instead of from memory.
+
+## The notice is capped, and the wake outranks it (2026-09-14)
+
+The host caps every hook output string at 10,000 characters and replaces anything
+longer with a preview and a file path (code.claude.com/docs/en/hooks: "Hook output
+strings, including `additionalContext`, `systemMessage`, and plain stdout, are
+capped at 10,000 characters"). For PLAIN stdout that is survivable. For the JSON
+envelope it is fatal: replace the printed object with a preview and the stdout no
+longer parses, `additionalContext` is never read, and the whole wake is gone.
+
+The envelope is bigger than what it carries — JSON escaping costs a character per
+newline — and the measured case is close: a 9,038-byte wake plus a 352-character
+notice is **9,618 characters** of stdout. So two limits, both named:
+
+- `NOTICE_MAX_CHARS` (400) caps the notice itself, truncating with `…` and always
+  keeping the trailing `run: counterparts doctor` — what is cut is the
+  explanation, never the way to read all of it.
+- `ENVELOPE_MAX_CHARS` (9,500, in `bin/hook.ts`) decides the FORM. Over it, the
+  hook prints the plain wake and drops the notice, leaving an
+  `adapter.notice.dropped` ring row with both lengths.
+
+**The trade, stated plainly:** on a red day with a full wake the terminal may see
+nothing, and the warning lives only in `counterparts doctor` — which the notice's
+own last line is telling the owner to run anyway. The alternative is a session
+that starts with no memory at all, and memory is the thing the session cannot be
+had without.
+
+## "Newest row" can be unknown, and says so (2026-09-14)
+
+`Store.eventLog` is `ORDER BY seq ASC LIMIT` (the missing DESC read is filed in
+`cli/INTERFACE-GAPS` §10), so `doctor` finds the newest row of a name by widening
+a day-window ladder and trusting only a window that came back SHORTER than the
+limit. The unbounded window at the end of the ladder was exempt from that rule —
+so a name holding more than `NEWEST_LIMIT` (4,000) rows, all older than the widest
+window, was read off the 4,000th-OLDEST row and graded on it. A store that swept
+4,000 sleep cycles could be reported RED about a night long past. A full unbounded
+window is now UNKNOWN: a neutral finding that names what was not read and claims
+nothing about the store, because a confident wrong answer is the one thing a
+diagnostic may not produce.

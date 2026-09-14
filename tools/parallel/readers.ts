@@ -555,8 +555,9 @@ export const DURABLE_DETECTORS: readonly string[] = [
   // path, so the install tree's working state is the code that ran that day —
   // and a day the shared tree sat on somebody's unmerged branch is a day whose
   // other numbers were produced by code that is not master. One row per session
-  // start, latched per date+head+dirty; the `:off-master` split below is the one
-  // an operator scans for.
+  // start, latched per date+head+dirty+reason (the reason is in the latch
+  // because a fetch moves origin/master under an unchanged head); the
+  // `:off-master` split below is the one an operator scans for.
   "adapter.checkout",
   ...DURABLE_EXIT_EVENTS,
 ];

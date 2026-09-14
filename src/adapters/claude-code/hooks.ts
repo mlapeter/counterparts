@@ -1018,7 +1018,16 @@ export class ClaudeCodeAdapter {
       if (!checkoutIsGraded(checkout)) {
         // git missing, slow, or no repository at all: nothing to record, and
         // only a "git would not answer" is worth a ring row.
-        if (checkout.reason === "unreadable") this.emit("adapter.checkout.unreadable", { root: checkout.root });
+        if (checkout.reason === "unreadable") {
+          // `why` separates the two silences: a git that answered "no
+          // origin/master" is a fact about the repository, and a git that ran
+          // out of `CHECKOUT_BUDGET_MS` is a fact about the machine — and only
+          // the second one means the grade is missing on a morning it mattered.
+          this.emit("adapter.checkout.unreadable", {
+            root: checkout.root,
+            why: checkout.timedOut ? "timeout" : "git",
+          });
+        }
       } else {
         try {
           this.counterpart.noteAdapterEvent(
@@ -1033,7 +1042,15 @@ export class ClaudeCodeAdapter {
               atMaster: checkout.atMaster,
               date: today,
             },
-            { dedupKey: `${CHECKOUT_EVENT}:${today}:${checkout.head ?? "none"}:${checkout.dirty}` },
+            // THE REASON IS PART OF THE LATCH. Date, head and dirtiness alone
+            // let a day's first row stand for every later one: a `git fetch` in
+            // the shared tree moves origin/master, so the SAME clean head that
+            // graded `master` at breakfast grades `behind` by lunchtime — and
+            // the day's record would still say master. One row per state the
+            // tree was actually in, which is the claim the row is for.
+            {
+              dedupKey: `${CHECKOUT_EVENT}:${today}:${checkout.head ?? "none"}:${checkout.dirty}:${checkout.reason}`,
+            },
           );
         } catch (err) {
           this.emit("adapter.checkout.record.failed", { code: codeOf(err) });
@@ -1070,6 +1087,20 @@ export class ClaudeCodeAdapter {
       this.emit("adapter.doctor.failed", { code: codeOf(err) });
       return null;
     }
+  }
+
+  /**
+   * RECORD THAT THE TERMINAL DID NOT GET THE WARNING, and why.
+   *
+   * The host caps a hook's stdout at 10,000 characters, and over that it
+   * replaces the string with a preview — which makes the JSON envelope
+   * unparseable and drops the wake with it. `bin/hook.ts` therefore prints the
+   * PLAIN wake and throws the notice away when the envelope is too big
+   * (`ENVELOPE_MAX_CHARS`), and this is how that choice stays visible instead of
+   * looking like a healthy morning. Ids and counts only, like every other row.
+   */
+  noteNoticeDropped(chars: { noticeChars: number; envelopeChars: number; limitChars: number }): void {
+    this.emit("adapter.notice.dropped", { ...chars });
   }
 
   private refusalCount(reason: string): number {
