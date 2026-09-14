@@ -1328,29 +1328,50 @@ export class Counterpart {
     // the whole boundary's credit down as `failed` — the reason the daily's
     // readers alarm on. A bad address is a refusal, counted, not a failure.
     const refused: Record<string, number> = {};
-    const uses = refs.uses.filter((u) => {
-      if (this.store.row(u.memoryId) !== undefined) return true;
-      refused["unknown-id"] = (refused["unknown-id"] ?? 0) + 1;
-      return false;
-    });
-    const results = this.resolveUses(
-      sessionId,
-      uses.map((u) => ({ memoryId: u.memoryId, tier: "referenced" as const })),
-    );
-    const ids: string[] = [];
-    let credited = 0;
-    results.forEach((r, i) => {
-      const id = uses[i]?.memoryId;
-      if (r.credited) {
-        credited += 1;
-        if (id !== undefined) ids.push(id);
-        return;
-      }
-      // The physics enum where physics refused, recall's own reason otherwise —
-      // both are closed sets the daily can split on.
-      const why = r.outcome?.reason ?? r.reason;
+    const refuse = (why: string): void => {
       refused[why] = (refused[why] ?? 0) + 1;
+    };
+    const uses = refs.uses.filter((u) => {
+      const row = this.store.row(u.memoryId);
+      if (row === undefined) {
+        refuse("unknown-id");
+        return false;
+      }
+      // `store.row` still answers for an archived row (merged, pruned): a
+      // stale footnote expanded after its memory left must not revive it.
+      if (row.archived === 1) {
+        refuse("archived");
+        return false;
+      }
+      return true;
     });
+    // ONE USE AT A TIME, each inside its own try. `resolveUse` reaches physics
+    // through `requireRow`, which consults the deny-list `store.row` does not:
+    // an id at removal stage `dark` passes the filter above and throws REMOVED
+    // there. Before this, one throw mid-batch left earlier credits standing,
+    // later uses never attempted, coactivation never run, and the row reading
+    // `failed` for a boundary that half-succeeded (review of #99, finding 1).
+    // A throw is a refusal keyed by its code; the batch goes on.
+    const ids: string[] = [];
+    const coactivated: Credited[] = [];
+    let credited = 0;
+    for (const u of uses) {
+      try {
+        const r = this.resolveUse(sessionId, u.memoryId, "referenced");
+        if (r.credited) {
+          credited += 1;
+          ids.push(u.memoryId);
+          coactivated.push({ id: u.memoryId, tier: "referenced" });
+          continue;
+        }
+        // The physics enum where physics refused, recall's own reason
+        // otherwise — both are closed sets the daily can split on.
+        refuse(r.outcome?.reason ?? r.reason);
+      } catch (err) {
+        refuse(errCode(err));
+      }
+    }
+    if (coactivated.length > 0) this.associate.coactivate(coactivated);
     const reason: CreditSummary["reason"] = refs.budgetExceeded || budgetExceeded
       ? "budget-exceeded"
       : credited > 0

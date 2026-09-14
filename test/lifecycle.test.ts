@@ -35,7 +35,9 @@ import {
 import { RENDERED_PREFIX } from "../src/core/self/index.js";
 import { ClaudeCodeAdapter, openAdapter, parseTranscript } from "../src/adapters/claude-code/index.js";
 import type { HookInput } from "../src/adapters/claude-code/index.js";
+import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import type { SpawnPlan } from "../src/adapters/claude-code/spawn.js";
+import { writeFileSync } from "node:fs";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const BUDGET_BYTES = 9000;
@@ -156,6 +158,7 @@ describe("the lifecycle, through the adapter", () => {
     // the first consolidate AFTER the third distinct reinforced day.
     expect(PHYSICS.N_PROMOTION_DAYS).toBe(3);
     let promotedOn: number | null = null;
+    const consolidateRanOn: number[] = [];
     let day = 1;
     for (; day <= 7 && promotedOn === null; day++) {
       const date = `2026-01-0${day + 1}`;
@@ -179,16 +182,19 @@ describe("the lifecycle, through the adapter", () => {
       expect(c.store.physicsOf(id).reinforcedDays).toBe(day);
       const report = await c.sessionEnd({ date, at: date });
       const consolidate = report.cycle.phases.find((p) => p.phase === "consolidate");
+      if (consolidate?.status === "ran") consolidateRanOn.push(day);
       if (c.store.physicsOf(id).promotedIdentity) {
         promotedOn = day;
         expect(consolidate?.status).toBe("ran");
       }
     }
 
-    // Promoted on the first consolidate after three distinct reinforced days,
-    // and never before them.
+    // Promoted on EXACTLY the first consolidate at or after the third distinct
+    // reinforced day — not a day earlier (insufficient days), not a day later
+    // (the crossing is decided the first time the phase looks).
     expect(promotedOn).not.toBe(null);
-    expect(promotedOn as number).toBeGreaterThanOrEqual(PHYSICS.N_PROMOTION_DAYS);
+    const firstEligibleConsolidate = consolidateRanOn.find((d) => d >= PHYSICS.N_PROMOTION_DAYS);
+    expect(promotedOn).toBe(firstEligibleConsolidate as number);
     const physics = c.store.physicsOf(id);
     expect(physics.reinforcedDays).toBe(promotedOn as number);
     expect(physics.uses).toBe(promotedOn as number);
@@ -285,6 +291,112 @@ describe("the lifecycle, through the adapter", () => {
       refused?: Record<string, number>;
     };
     expect(payload.refused?.["unknown-id"]).toBe(1);
+  });
+
+  test("THE WHOLE WIRE: a host Stop payload whose transcript holds a recall tool_use credits, through toHookInput", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const id = await mint(a);
+    c.store.advanceClock("2026-01-02");
+    // The transcript as this host writes it: JSONL, one entry per message,
+    // the assistant's recall call as a `tool_use` block in its content.
+    const line = (role: "user" | "assistant", content: unknown): string =>
+      JSON.stringify({ type: role, message: { role, content } });
+    const transcript = join(dir, "transcript.jsonl");
+    writeFileSync(
+      transcript,
+      [
+        ...TURNS.map((t) => line(t.role, t.text)),
+        line("assistant", [
+          { type: "tool_use", id: "toolu_1", name: "mcp__counterparts__recall", input: { ids: [id] } },
+        ]),
+        line("user", [{ type: "tool_result", tool_use_id: "toolu_1", content: "…the body…" }]),
+        line("assistant", "Read it. I still think the cache belongs in the backup set."),
+      ].join("\n"),
+    );
+    const input = toHookInput({
+      hook_event_name: "Stop",
+      session_id: "s1",
+      cwd: dir,
+      transcript_path: transcript,
+      stop_hook_active: false,
+    });
+    expect(input.turns?.length).toBe(4);
+    expect(input.expansions).toEqual([{ atTurn: 3, ids: [id] }]);
+    a.stop({ ...input, at: "2026-01-02" });
+    const row = creditRows(c).at(-1);
+    expect(row?.reason).toBe("credited");
+    expect(row?.credited).toBe(1);
+    expect(c.store.physicsOf(id).uses).toBe(1);
+  });
+
+  test("an archived memory expanded by a stale id is refused, not revived", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const id = await mint(a);
+    c.store.archive(id, "test: merged away");
+    c.store.advanceClock("2026-01-02");
+    a.stop(
+      input({
+        sessionId: "s1",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Looked it up." }],
+        expansions: [{ atTurn: 3, ids: [id] }],
+      }),
+    );
+    const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
+      reason?: string;
+      refused?: Record<string, number>;
+    };
+    expect(payload.reason).toBe("nothing-to-credit");
+    expect(payload.refused?.["archived"]).toBe(1);
+    expect(c.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("one use throwing mid-batch does not fail the boundary or drop the rest", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const first = await mint(a, "s0");
+    const second = await c.submitSessionEnd(
+      { content: "Backups cover canonical prose and the operational database, and deliberately skip the cache.", kind: "fact", claimed: 0.8 },
+      { session: "s0", scope: "proj" },
+    );
+    const other = second.memoryId as string;
+    const third = await c.submitSessionEnd(
+      { content: "The span buffer holds lived experience until judgment can happen later, without the host waiting.", kind: "fact", claimed: 0.8 },
+      { session: "s0", scope: "proj" },
+    );
+    const last = third.memoryId as string;
+    c.store.advanceClock("2026-01-02");
+    // The middle id passes the row filter and throws at physics: `reinforce`
+    // faulted for exactly that id.
+    const real = c.store.reinforce.bind(c.store);
+    c.store.reinforce = ((mid: string, day: number, tier: "referenced" | "surfaced" | "footnoted") => {
+      if (mid === other) throw new Error("REMOVED");
+      return real(mid, day, tier);
+    }) as typeof c.store.reinforce;
+    a.stop(
+      input({
+        sessionId: "s1",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Looked all three up." }],
+        expansions: [{ atTurn: 3, ids: [first, other, last] }],
+      }),
+    );
+    const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as {
+      reason?: string;
+      credited?: number;
+      ids?: string[];
+      refused?: Record<string, number>;
+    };
+    expect(payload.reason).toBe("credited");
+    expect(payload.credited).toBe(2);
+    expect(payload.ids).toEqual([first, last]);
+    expect(Object.values(payload.refused ?? {}).reduce((n, v) => n + v, 0)).toBe(1);
+    expect(c.store.physicsOf(last).uses).toBe(1);
   });
 
   test("a wake does not reinforce what it renders", async () => {

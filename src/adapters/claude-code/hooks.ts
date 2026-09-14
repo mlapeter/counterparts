@@ -661,6 +661,8 @@ export class ClaudeCodeAdapter {
    */
   private creditAtBoundary(input: HookInput, from: number, to: number): void {
     const started = this.nowFn();
+    // Read before the try: the failed row carries the day too.
+    const day = this.counterpart.store.livedDay();
     const turns = input.turns ?? [];
     const slice = turns.slice(Math.max(0, from), Math.max(from, to));
     const assistantTurns = slice
@@ -698,6 +700,7 @@ export class ClaudeCodeAdapter {
         credited: summary.credited,
         unresolvedHandles: summary.unresolvedHandles,
         skippedForBudget: summary.skippedForBudget,
+        unreadable: summary.unreadable,
         refused: summary.refused,
         ids: summary.ids.slice(0, 64),
         idsTotal: summary.ids.length,
@@ -710,6 +713,7 @@ export class ClaudeCodeAdapter {
         reason: "failed",
         session: input.sessionId,
         date: input.at ?? null,
+        day,
         code,
         turns: assistantTurns.length,
         expansions: expansions.length,
