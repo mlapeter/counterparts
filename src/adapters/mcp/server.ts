@@ -171,8 +171,10 @@ export function resolveScope(
 /** How this server learned which project it is serving. Reported at startup. */
 export type ScopeSource = "flag" | "cwd" | "store";
 
-/** The kind enum, for a refusal that names it (session_end, note). */
-const MEMORY_KINDS = ["self", "person", "entity", "skill", "place", "fact"] as const;
+/** The kind enum, for a refusal that names it (session_end). Derived from
+ *  `Kind` so that adding a kind without listing it here fails `tsc`. */
+const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, skill: true, place: true, fact: true };
+const MEMORY_KINDS = Object.keys(KIND_SET) as readonly Kind[];
 
 export class McpServer {
   readonly counterpart: Counterpart;

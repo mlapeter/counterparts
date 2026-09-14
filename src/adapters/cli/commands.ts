@@ -32,7 +32,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart, RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT } from "../../core/counterpart.js";
-import { probeOQ4, renderProbe } from "../../core/recall/probe.js";
+import { PROBE_ROW_CEILING, probeOQ4, renderProbe } from "../../core/recall/probe.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 // `band` is imported rather than mirrored: the dashboard computes the live
 // band with this exact function, and two implementations of "which band is this
@@ -859,11 +859,20 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
     return EXIT.failed;
   }
   try {
-    const rows = [
-      ...store.eventLog({ name: RECALL_DECISION_EVENT }),
-      ...store.eventLog({ name: RECALL_CREDIT_EVENT }),
-    ].map((r) => ({ name: r.name, day: r.day, payload: r.payload }));
+    // Explicit ceiling: `eventLog` defaults to 500 oldest-first, which would
+    // drop the newest rows — the side of the table the probe exists to read.
+    const decisions = store.eventLog({ name: RECALL_DECISION_EVENT, limit: PROBE_ROW_CEILING });
+    const credits = store.eventLog({ name: RECALL_CREDIT_EVENT, limit: PROBE_ROW_CEILING });
+    const rows = [...decisions, ...credits].map((r) => ({ name: r.name, day: r.day, payload: r.payload }));
     for (const line of renderProbe(probeOQ4(rows))) io.out(line);
+    for (const [name, got] of [
+      [RECALL_DECISION_EVENT, decisions.length],
+      [RECALL_CREDIT_EVENT, credits.length],
+    ] as const) {
+      if (got >= PROBE_ROW_CEILING) {
+        io.err(`warning: ${name} hit the ${PROBE_ROW_CEILING}-row ceiling; the newest rows may be missing from this table`);
+      }
+    }
     return EXIT.ok;
   } finally {
     store.close();

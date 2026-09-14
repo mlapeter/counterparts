@@ -73,12 +73,35 @@ describe("probeOQ4 (pure)", () => {
       loudDelivered: 1,
       expanded: 2,
       footnotesExpanded: 1,
+      credits: 1,
     });
-    expect(r.days.map((d) => [d.date, d.footnotesDelivered, d.footnotesExpanded, d.ratio])).toEqual([
-      ["2026-09-14", 4, 1, 0.25],
-      ["2026-09-15", 1, 0, 0],
+    expect(r.days.map((d) => [d.date, d.footnotesDelivered, d.footnotesExpanded, d.credits, d.ratio])).toEqual([
+      ["2026-09-14", 4, 1, 1, 0.25],
+      ["2026-09-15", 1, 0, 1, 0],
     ]);
     expect(r.totals).toEqual({ footnotesDelivered: 5, footnotesExpanded: 1, ratio: 0.2 });
+    expect(r.unmeasured).toEqual({ days: 0, footnotesDelivered: 0 });
+  });
+
+  test("a day with decision rows and NO credit row is unmeasured: '-', not 0.000, and out of the totals", () => {
+    // Review of #104, M1: before the credit seam nothing recorded expansions,
+    // so a day without a credit row says nothing about the behaviour.
+    const r = probeOQ4([
+      decision("s0", "2026-09-10", ["mem_a", "mem_b"]),
+      decision("s1", "2026-09-14", ["mem_c"]),
+      credit("s1", "2026-09-14", []),
+    ]);
+    expect(r.days.map((d) => [d.date, d.credits, d.ratio])).toEqual([
+      ["2026-09-10", 0, null],
+      ["2026-09-14", 1, 0],
+    ]);
+    expect(r.totals).toEqual({ footnotesDelivered: 1, footnotesExpanded: 0, ratio: 0 });
+    expect(r.unmeasured).toEqual({ days: 1, footnotesDelivered: 2 });
+    const text = renderProbe(r).join("\n");
+    expect(text).toMatch(/2026-09-10 .*   -$/m);
+    expect(text).toMatch(/2026-09-14 .*0\.000$/m);
+    expect(text).toContain("unmeasured: 1 day(s) with no recall.credit row, 2 footnotes delivered");
+    expect(text).toContain("measured: 1 footnotes delivered, 0 expanded in the same session (0.0%)");
   });
 
   test("an id expanded that was never footnoted does not count as a footnote expanded", () => {
@@ -137,7 +160,35 @@ describe("counterparts probe-oq4", () => {
     const text = c.out.join("\n");
     expect(text).toContain("OQ4 probe");
     expect(text).toContain("2026-09-14");
-    expect(text).toContain("2 footnotes delivered, 1 later expanded (50.0%)");
+    expect(text).toContain("measured: 2 footnotes delivered, 1 expanded in the same session (50.0%)");
+    expect(c.err).toEqual([]);
+  });
+
+  test("reads past the event log's 500-row default: the NEWEST date is on the table", async () => {
+    // Review of #104, H1: `eventLog` defaults to 500 rows oldest-first, so an
+    // unbounded read would have dropped exactly the step-1 side of the table.
+    const s = Store.open({ dir });
+    try {
+      for (let i = 0; i < 600; i++) {
+        const row = decision(`old-${i % 7}`, "2026-09-01", [`mem_${i}`]);
+        s.appendEvent({ name: row.name, day: 1, payload: JSON.parse(row.payload) as Record<string, unknown> });
+      }
+      for (let i = 0; i < 50; i++) {
+        const d = decision("new", "2026-09-20", ["mem_new"]);
+        const c = credit("new", "2026-09-20", ["mem_new"]);
+        s.appendEvent({ name: d.name, day: 20, payload: JSON.parse(d.payload) as Record<string, unknown> });
+        s.appendEvent({ name: c.name, day: 20, payload: JSON.parse(c.payload) as Record<string, unknown> });
+      }
+    } finally {
+      s.close();
+    }
+    const c = capture();
+    expect(await run(["probe-oq4", "--dir", dir], { io: c.io, env: {} })).toBe(EXIT.ok);
+    const text = c.out.join("\n");
+    expect(text).toContain("rows: 650 recall.decision, 50 recall.credit");
+    expect(text).toMatch(/2026-09-20 .*1\.000$/m);
+    expect(text).toContain("measured: 1 footnotes delivered, 1 expanded in the same session (100.0%)");
+    expect(text).toContain("unmeasured: 1 day(s) with no recall.credit row, 600 footnotes delivered");
     expect(c.err).toEqual([]);
   });
 

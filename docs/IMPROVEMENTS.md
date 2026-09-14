@@ -163,15 +163,20 @@ renamed or documented as "band at last consolidation."
 
 **Recommendation (2026-09-14, for the owner's ruling; the counterparts session to sanity-check
 against the self CONTRACT's lane vocabulary and the budget).** Do not add a sixth lane. Make
-`hints` recency-aware instead: rank hints by `strength × recencyBoost(day − bornDay)` where the
-boost is 2.0 on the birth day, decaying to 1.0 over `RECENCY_DAYS` (3) lived days, and reserve
-a floor of `HINTS_RECENT_MIN` (2) hints for memories born within that window when any exist, so
-the trim order can drop older hints before yesterday's. What this buys: yesterday is never
-silent when the store has something from yesterday, with no new lane, no new framing line, and
-no change to identity/craft/threads/horizon. What it costs: two tunables and one line in the
-self CONTRACT §3 ("hints — everything else warm enough, strongest first" becomes "…strongest
-first, with a recency floor"). What it does not do: reinforce anything (rendering never credits)
-or change the budget. Why the trim and not the floor: the ranking cache on day 188 held a
+`hints` recency-aware instead: sort hints by `strength × recencyBoost(age)` where the boost is
+2.0 on the birth day, decaying to 1.0 over `RECENCY_DAYS` (3) lived days. That is the whole
+change. No in-lane floor: `TRIM_ORDER` pops hints from the weak end, so a recency-first sort
+already makes recent hints the last to go within the lane, and no in-lane floor survives the
+lane trimming to 0 or 1, which is today's actual state (1 of 8 kept). So the honest claim is
+"yesterday is the last hint to fall silent", not "yesterday is never silent"; when hints trims
+out entirely, so does yesterday. Two known-bad inputs to `age`, to name in the ruling: bornDay
+is a lived-day counter, so 3 lived days is not 3 calendar days, and it was frozen at 185 from
+09-04 to 09-11 (I32), so a week of memories share one bornDay; U6 leaves the migrated bornDay
+artifact open. What this buys: no new lane, no new framing line, no change to
+identity/craft/threads/horizon. What it costs: one tunable and one line in the self CONTRACT §3
+("hints — everything else warm enough, strongest first" becomes "…strongest first, recent
+first among equals"), which is an owner ruling because it rewrites the lane's definition. What
+it does not do: reinforce anything (rendering never credits) or change the budget. Why the trim and not the floor: the ranking cache on day 188 held a
 three-day-old memory at 0.772, far above `WARM_FLOOR` 0.35, so recent memories do reach the
 hints pool; they are dropped because hints is the first lane `TRIM_ORDER` cuts and today's
 wake kept 1 of 8. A recency-first sort inside hints is the lever; a floor change is not.
@@ -322,8 +327,16 @@ footnotes delivered vs. later expanded by id, from `recall.decision.footnotes[].
 `recall.credit.expandedIds`. Step 0 ran live through 2026-09-14, with one leak: the branch was
 developed in the shared checkout, whose hooks are what every session runs, so step 1 was live
 from 16:51Z to 16:58Z (one boundary, zero expansions) before the checkout went back to master and
-the branch to a worktree. The step-1 side of the table starts at the merge. Baseline at 16:58Z:
-547 footnotes delivered since 2026-09-03, 0 ever expanded. The owner rules on the reading.
+the branch to a worktree. The step-1 side of the table starts at the merge. What is measured on the
+step-0 side: only 8d7bd97 → 16:51Z on 2026-09-14, a few hours — `expandedIds` did not exist before
+the credit seam, so earlier dates (423 footnotes delivered, 09-03 → 09-13) print "-", unmeasured, not
+zero, and stay out of the totals. The owner rules on the reading.
+
+**What the ruling should say that no doc does.** Step 1 turns the footnote header from
+context into an INSTRUCTION ("expand … before citing"). That is exactly the trade OQ4 asks
+about, and the probe is doing its job by making it; it deserves saying out loud when the owner
+rules on the reading, because the ambient design's premise is that recall is context, not
+instruction.
 
 **Where.** `src/core/recall/render.ts` `FRAMING.footnoteHeader`, currently
 `"Quietly available (ignorable):"`. The comment above it says the phrasing is a
@@ -358,7 +371,8 @@ third needs a transcript read. Run a few sessions on each string before ruling.
 ## U2 — Footnote titles are 80 bytes, and for migrated memories that cap is baked in (2026-09-14)
 
 **Status:** built (branch `fix/wake-leftover-titles-label-and-enum`): `FOOTNOTE_TITLE_BYTES` 80 → 150.
-Migrated titles are stored at 80 characters and render as before, so recall-bench numbers for them
+Migrated titles are stored at 80 characters and render as before, except those with a multi-byte
+character inside the 80 (clipped at 80 bytes until now), whose tail now renders; recall-bench numbers for them
 do not move; authored titles render whole, and the multi-byte-dash byte clip stops biting. The
 backfill (item 2) stays low priority under the standing ruling.
 
