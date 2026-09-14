@@ -27,11 +27,13 @@ import type {
   VersionRow,
 } from "../store/index.js";
 import type {
+  CreditOutcome,
   PromotionCrossing,
   PromotionReason,
   PruneRecord,
   PruneReason,
   SymmetryCheck,
+  UseTier,
 } from "../physics/index.js";
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,8 @@ export interface SleepStore {
   setMeta(key: string, value: string): void;
   archive(id: string, reason: string): void;
   updatePhysics(id: string, patch: Partial<MemoryPhysics>): void;
+  /** The ONE door to a use: `creditUse` behind the store seam (dedup's re-encounter). */
+  reinforce(id: string, day: number, tier: UseTier): CreditOutcome;
   setBand(id: string, band: Band, day: number): void;
   pruneSupersededVersions(): VersionPruneReport;
   /**
@@ -315,6 +319,14 @@ export interface MergeRecord {
   readonly originalId: string;
   readonly reason: string;
   readonly usesDelta: number;
+  /**
+   * What physics said to the re-encounter: `creditUse`'s reason (`credited`,
+   * `birth-day`, `already-credited-today`, …), `not-applied` under observer.
+   * Before 2026-09-14 the merge bumped `uses` directly and never touched
+   * `last_used_day` or `reinforced_days`, so a memory duplicated every day
+   * could not promote (IMPROVEMENTS U10). One door to physics, not two.
+   */
+  readonly credit: string;
 }
 
 /**

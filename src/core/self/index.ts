@@ -47,6 +47,7 @@ import { hashText } from "../store/index.js";
 import {
   IDENTITY_CORE_ROLE,
   byteLength,
+  RENDERED_PREFIX,
   enumerate,
   findIdentityCore,
   identityCoreName,
@@ -401,6 +402,14 @@ export class Self {
     }
 
     this.store.setMeta(BRIEFING_KEY, briefing.text);
+    // The rotation's memory: the identity ids this bundle KEPT, stamped with
+    // the day. Kept, not ranked — an element the budget trimmed did not render
+    // and keeps its place at the front of the next rotation.
+    if (briefing.kept.identity.length > 0) {
+      this.store.setMetaMany(
+        briefing.kept.identity.map((id) => [`${RENDERED_PREFIX}${id}`, String(req.day)] as const),
+      );
+    }
     this.emit("self.briefing.published", undefined, { bytes: briefing.bytes, hash });
     return { briefing, schema, published: true, reason: "published", hash };
   }
@@ -1088,6 +1097,7 @@ export class Self {
       protected: false,
       bornDay,
       personScoped: false,
+      lastRendered: -1,
     };
   }
 

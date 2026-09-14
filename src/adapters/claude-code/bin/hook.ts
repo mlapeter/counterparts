@@ -129,6 +129,7 @@ export function toHookInput(payload: Record<string, unknown>): HookInput {
     sessionId: typeof payload["session_id"] === "string" ? payload["session_id"] : "",
     scope,
     turns: transcript.turns,
+    expansions: transcript.expansions,
     // The host's re-fire of a blocked Stop, carried INTO the adapter and not
     // only handled at delivery: the pass that says nothing must also advance
     // nothing (`hooks.ts#askAtStop`).

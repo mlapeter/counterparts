@@ -165,6 +165,7 @@ function ranked(id: string): Ranked {
     protected: false,
     bornDay: 0,
     personScoped: false,
+    lastRendered: -1,
   };
 }
 

@@ -24,7 +24,13 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   before inventing another.
 - **Identity is re-inhabited, not retrieved** — core memories are constitutive, not
   competed for in a ranker — and the briefing is framed as **context, not instruction**.
-  [v1 §1]
+  [v1 §1] **Mechanized 2026-09-14: the identity lane ROTATES** (`identity.ts#byRotation`,
+  least-recently-rendered first, never-rendered ahead of everything; strength, born-day and
+  id only break ties), and `Self.boundary` stamps the ids it KEPT with the day
+  (`self.rendered.<id>`). Before this the lane sorted by strength and the owner's live store
+  rendered the same three of twenty identity beliefs every day (IMPROVEMENTS U6): eight tied
+  at the clamp, oldest-born won, and the oldest-born were the ones written on migration day
+  under a fresh clock.
 - **Zero compute, zero model calls, zero network at wake**; the cost was paid by the
   previous boundary, so cold-start cost is constant in store size. [v1 §1 G1]
 - **A composed byte budget, a declared trim order (v1: hints → craft → threads → horizon →

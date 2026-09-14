@@ -87,14 +87,19 @@ second definition is a leak waiting to happen — v1 shipped exactly that. If a 
 module needs the predicate, the store's own note says to MOVE `store/observer.ts` to
 `src/core/observer.ts`; recall will follow the move without changing behavior.
 
-## 5. Reference resolution (§9.2) has no home yet
+## 5. Reference resolution (§9.2) has no home yet — CLOSED 2026-09-14
 
 `Recall.resolveUse(sessionId, memoryId, tier)` routes a DECIDED tier to physics through
 the store seam. Deciding which memories the reply actually used — assistant turns only,
-no model, no file reads, precision over recall — is §9.2's rule and is not implemented
-anywhere. Whoever builds it (boundary adapter, most likely) calls this method; recall
-adds the two refusals that belong to the gate state it owns (ambiguous-handle, and never
-downgrade a credited item) and nothing else.
+no model, no file reads, precision over recall — is §9.2's rule and was not implemented
+anywhere. **Closed:** `recall/reference.ts` decides (pure; expansions from recall tool
+calls, verbatim eight-word windows against what surfaced loud), `Counterpart.creditReferences`
+applies it through `resolveUses`, and `adapters/claude-code/hooks.ts#creditAtBoundary` calls
+it on the slice capture just took, at every session-ending hook. Measured before the close
+(IMPROVEMENTS U10): 1,374 memories minted since launch, all at `uses = 0`. Proof:
+`test/lifecycle.test.ts` — the lifecycle through the adapter, the two fixtures (ids named
+in prose credit nothing; expanded-then-contradicted credits), the new-slice-only rule, and
+the wake not reinforcing what it renders.
 
 ## 6. Nothing computes the turn's embedding — CLOSED 2026-09-04, by moving it
 

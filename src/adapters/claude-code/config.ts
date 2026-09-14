@@ -132,6 +132,10 @@ export const TUNABLES = {
   /** Output headroom for the interpreter. A truncated JSON response is a
    *  failure, not data (scar E2) — headroom is how you stop paying for one. */
   MAX_OUTPUT_TOKENS: 16_000,
+  /** Reference resolution at a session-ending boundary (recall §9.2), ms. The
+   *  resolver stops between candidates past it and the row says so
+   *  (`recall.credit` reason `budget-exceeded`); nothing is truncated silently. */
+  CREDIT_BUDGET_MS: 150,
   /** Identical consecutive spawn failures before the worker ESCALATES instead
    *  of re-logging the same line forever (scar E4's widening). */
   ESCALATE_AFTER: 3,

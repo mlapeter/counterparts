@@ -192,24 +192,60 @@ export function classifyBlock(text: string): TurnSource {
   return INJECTED.test(text) ? "injected" : "conversation";
 }
 
+/**
+ * One deliberate-recall tool call, as evidence for reference resolution
+ * (recall CONTRACT §9.2). `atTurn` is the index of the NEXT conversational
+ * turn — the call sits between `turns[atTurn - 1]` and `turns[atTurn]` — so the
+ * boundary can slice expansions by the same cursor it slices turns with, and
+ * the turn list itself does not grow: a live session's cursor indexes into
+ * that list, and a tool call inserted as a turn would re-slice its uncaptured
+ * tail. `ids` are the raw `ids` / `handle` values from the call's input, not
+ * anything the assistant wrote in prose.
+ */
+export interface Expansion {
+  readonly atTurn: number;
+  readonly ids: readonly string[];
+}
+
 export interface TranscriptRead {
   readonly turns: Turn[];
   readonly ok: boolean;
   readonly reason: "read" | "absent" | "unreadable";
   /** Lines that were not JSON. Counted, never silently swallowed (scar §2.4). */
   readonly corrupt: number;
+  /** Deliberate-recall calls, in order, positioned against `turns`. */
+  readonly expansions: Expansion[];
+}
+
+/**
+ * The recall tool as this host names it: the MCP prefix and server name are
+ * the host's, the tool name is ours. Anchored on the suffix so a renamed
+ * server still matches and `recall_bench` or `recall.decision` never do.
+ */
+export const RECALL_TOOL_NAME = /(^|__)recall$/;
+
+/** The `ids` and `handle` fields of a recall call, as strings, in order. */
+export function expansionIdsOf(input: unknown): string[] {
+  if (input === null || typeof input !== "object") return [];
+  const i = input as Record<string, unknown>;
+  const out: string[] = [];
+  if (typeof i["handle"] === "string") out.push(i["handle"]);
+  if (Array.isArray(i["ids"])) {
+    for (const id of i["ids"]) if (typeof id === "string") out.push(id);
+  }
+  return out;
 }
 
 export function readTranscript(path: string | undefined): TranscriptRead {
   if (path === undefined || path.trim().length === 0) {
-    return { turns: [], ok: false, reason: "absent", corrupt: 0 };
+    return { turns: [], ok: false, reason: "absent", corrupt: 0, expansions: [] };
   }
-  if (!existsSync(path)) return { turns: [], ok: false, reason: "absent", corrupt: 0 };
+  if (!existsSync(path)) return { turns: [], ok: false, reason: "absent", corrupt: 0, expansions: [] };
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
-    return { turns: [], ok: false, reason: "unreadable", corrupt: 0 };
+    return { turns: [], ok: false, reason: "unreadable", corrupt: 0, expansions: [] };
   }
   return parseTranscript(raw);
 }
@@ -217,6 +253,7 @@ export function readTranscript(path: string | undefined): TranscriptRead {
 /** Exported so the parse is testable without a file (and it is the whole rule). */
 export function parseTranscript(raw: string): TranscriptRead {
   const turns: Turn[] = [];
+  const expansions: Expansion[] = [];
   let corrupt = 0;
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
@@ -232,14 +269,20 @@ export function parseTranscript(raw: string): TranscriptRead {
     if (role !== "user" && role !== "assistant") continue;
     const content = message?.["content"] ?? entry["content"];
     for (const piece of blocksOf(content, role)) {
+      // A recall call is the assistant's turn, kept as EVIDENCE beside the
+      // turn list rather than in it (see `Expansion`). Only the assistant
+      // calls tools; a user-role block never carries one.
+      if (piece.expansion !== undefined && role === "assistant" && piece.expansion.length > 0) {
+        expansions.push({ atTurn: turns.length, ids: piece.expansion });
+      }
       if (piece.text.trim().length === 0) continue;
       turns.push({ role, text: piece.text, source: piece.source });
     }
   }
-  return { turns, ok: true, reason: "read", corrupt };
+  return { turns, ok: true, reason: "read", corrupt, expansions };
 }
 
-type Piece = { text: string; source: TurnSource };
+type Piece = { text: string; source: TurnSource; expansion?: string[] };
 
 /**
  * One text block, classified and — where it carries peer messages — attributed.
@@ -277,7 +320,12 @@ function blocksOf(content: unknown, role: "user" | "assistant"): Piece[] {
     }
     // Everything below is the DECLARED blind spot, tagged rather than dropped
     // here so the drop happens at `remember/`'s one rule (`enters`).
-    if (type === "tool_result" || type === "tool_use") {
+    if (type === "tool_use") {
+      const name = b["name"];
+      const expansion =
+        typeof name === "string" && RECALL_TOOL_NAME.test(name) ? expansionIdsOf(b["input"]) : undefined;
+      out.push({ text: "", source: "tool", ...(expansion === undefined ? {} : { expansion }) });
+    } else if (type === "tool_result") {
       out.push({ text: "", source: "tool" });
     } else if (type === "image") {
       out.push({ text: "", source: "image" });
