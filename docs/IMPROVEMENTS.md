@@ -29,10 +29,13 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ## U10 — Nothing minted since launch has ever been reinforced; the promotion gradient has no input (2026-09-14)
 
-**Status:** built, in PR (branch `fix/credit-seam-and-identity-rotation`): `recall/reference.ts`,
-`Counterpart.creditReferences`, `hooks.ts#creditAtBoundary`, dedup routed through `creditUse`,
-`recall.credit` durable row; proof in `test/lifecycle.test.ts`. Awaiting review, owner merge,
-one restart.
+**Status:** built. Merged 2026-09-14 as master `8d7bd97` (PR #99, after #100/#101), restart #7 run
+the same day. `recall/reference.ts`, `Counterpart.creditReferences`, `hooks.ts#creditAtBoundary`,
+`recall.credit` durable row; proof in `test/lifecycle.test.ts`. Owner rulings folded in: credit only
+when expanded or quoted (eight words, at least three content words) from what surfaced loud; once per
+(session, memory, lived day); a dedup merge bumps `uses` only and never a reinforced day. First
+identity crossing for a post-launch memory is not possible before about 2026-09-17 (three credited
+days plus the next consolidate). The `memory.reinforced` watch reads FAIL until the first credited row.
 
 **Observed.** Every live memory born on days 184–188 (1,374 rows at 15:00Z;
 the counterparts session's independent read at 15:40Z: 1,378 live, 1,755
@@ -154,9 +157,10 @@ happening; if no, the threads lane will only ever show the six migrated ones.
 
 ## U6 — The identity lane shows the same three memories every day (2026-09-14)
 
-**Status:** built, in the same PR as U10: the identity lane rotates (least-recently-rendered
-first, all twenty cycle), `Self.boundary` stamps what it kept. The leftover rule and the
-bornDay clock artifact are untouched and stay open below.
+**Status:** built, merged with U10 (master `8d7bd97`, 2026-09-14): the identity lane rotates
+(least-recently-rendered first, all twenty cycle), `Self.boundary` stamps what it kept. The first
+post-merge wake renders the same three once more (no stamps yet); rotation is visible from the second
+boundary. The leftover rule and the bornDay clock artifact are untouched and stay open below.
 
 **Observed.** 20 live identity-band memories; the wake rendered 3, all learned
 2026-09-03, and the sentinel said `identity=3` on a 9,000-byte budget. Three
