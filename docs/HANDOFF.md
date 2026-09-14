@@ -17,7 +17,13 @@ session on the owner's permission: #6 (15:25Z, for #95) and **#7 (16:43Z, for #1
 3. New rows per boundary since 16:43Z: `sleep.cycle` (phases named, `reason: ran`), `self.briefing`, and one
    `recall.credit` per session-ending boundary. Any `recall.credit:failed` or `sleep.cycle:failed` is a finding.
 4. The daily's `turns` line prints `counted from v2:adapter.recall`; its watches print **`memory.reinforced`** — expect
-   `fail` until the first `recall.credit:credited` row, then `pass`. A red reading is the row we wanted.
+   `fail` until the first `recall.credit:credited` row, then `pass`. A red reading is the row we wanted. Until a session
+   EXPANDS a memory (recall with ids/handle) or QUOTES eight words with ≥ 3 content tokens of something that surfaced
+   loud, every `recall.credit` row reads `no-candidates` / `nothing-to-credit` — that is not a failure. The first
+   identity crossing for a post-launch memory needs three distinct credited days plus the next consolidate (cadence
+   3): not before ~2026-09-17 in the best case. The first post-merge wake renders the same three identity beliefs
+   once more; rotation shows from the second boundary. If `recall.credit:budget-exceeded` ever appears, the loud
+   candidates' prose reads under the 150 ms budget are the first suspect.
 5. Then: PR 2 (`doctor`, `systemMessage` notice, `credentials set`) and the #92 rebase over `hooks.ts` (which #95 and
    #99 both rewrote). G50 (title-handle expansions earn no credit) is a small tool-side follow-up.
 
