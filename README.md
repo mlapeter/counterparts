@@ -155,7 +155,7 @@ generated from a list of stated privileges, each naming the file that enforces i
 | `session_end` | Hand back what this session taught, as memories, in the AI's own words. |
 | `chapter` | Write this stretch of the session into the AI's own first-person journal, at any length. |
 
-**Your console** — `counterparts <command>`. Read-only: `status` and `recall`. `verify` is
+**Your console** — `counterparts <command>`. Read-only: `status`, `recall`, and `probe-oq4` (the footnote-header probe, recall CONTRACT §7). `verify` is
 a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
 which is why `verify` counts as a write and refuses under `--observer` even without the
 flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
