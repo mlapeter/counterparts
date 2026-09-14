@@ -26,7 +26,7 @@ ask), `days/2026-09-1{1,2,3}.json` written under the standing daily permission, 
   09-11 restart. `bars.json`'s `why` still says "(v1 buffer.append events)" — the owner's one-line edit.
 - **#95 reviewed on Opus (adversarial), MERGE WITH FIXES, fixes applied and pushed** (head `9ab3073`; suite 1867/0
   on the head and on a preview merge with master; install-loop 47/47; hash `c3af0bef00209ba6` unchanged). The
-  declaration is below. After it merges the owner runs ONE `restart.ts --date 2026-09-11` (same-date re-restart).
+  declaration is below. **Merged 2026-09-14T15:15Z as master `456a4fd`**; the owner runs ONE `restart.ts --date 2026-09-11` (same-date re-restart).
 - **Sweep row reading, corrected:** `sweep.gate.otherRefusals` is chronically 5–7 on the live run and it is
   `NOTHING_TO_SWEEP` for scopes whose crashed session was already retired (`crashedSessions` never forgets); the
   code comment "nonzero with ran:0 is NOT a quiet day" is false on every day of this run. Read `ran` and
