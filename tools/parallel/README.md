@@ -204,6 +204,20 @@ that the day carried at least K conversational turns. Everything else is recorde
 with a class and does **not** count toward a phase minimum: `thin`,
 `contaminated`, `mixed`, `silent`.
 
+**Where the turns are counted from** (`turnSource` on the record). The committed
+source is v1's per-turn capture row, `buffer.append` (`bars.json`), chosen because
+v1 was the system NOT under test — a broken v2 could not grade its own day. That row
+is written by bansai's Stop hook, and G38 (2026-09-10) removed that hook to stop its
+per-turn encoding; from 2026-09-11 every day read "0 conversational turns" against
+dozens of v2 boundaries and the phase count could never move — the instrument grading
+a ruling as a failed day, the muted-consistent defect's shape. Owner ruling
+2026-09-14: when v1 is **muted-consistent and logged no per-turn row at all**, the
+floor is applied to `adapter.recall`, v2's one durable row per USER PROMPT, and the
+record says `v2:adapter.recall`. The fallback is that narrow on purpose: one v1
+`buffer.append` keeps v1 the referee, and a v1 nobody can show was alive gets no
+substitute. Note the unit moves: a v1 turn is an assistant reply, a v2 turn is a
+prompt. The `why` line names the source either way.
+
 A day can match more than one, so every match is kept in `flags` and one wins
 `class` by a stated precedence: **mixed → contaminated → silent → thin →
 active**. Mixed goes first because a straddling session's later `ab.muted` *is*

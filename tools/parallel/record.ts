@@ -53,6 +53,7 @@ import type {
   PrimacyCheck,
   RunPhase,
   RunRecord,
+  TurnSource,
   Watch,
 } from "./types.js";
 
@@ -824,7 +825,6 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     : [];
   const silentSessions = silentSessionIds.length;
 
-  const turns = v1.turns;
   // v2's DURABLE boundary evidence, three witnesses: a primacy record from the
   // `stop` hook, the episode-ask record, and — since 2026-09-03 — the boundary's
   // own `adapter.boundary` row, which every session-ending path leaves
@@ -871,6 +871,29 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // its `stop` primacy record, so `v2StopBoundaries` counts stand-downs too.
   const v2Boundary: BoundaryGrade =
     v2Boundaries > 0 ? "pass" : !v2.present ? "not-exercised" : v2Unreadable ? "not-exercised" : "fail";
+  // ── the turn count, and WHICH log it came from ───────────────────────────
+  //
+  // The committed source is v1's per-turn capture row (bars.json:
+  // `buffer.append`), chosen on 2026-09-03 because v1 was the system NOT under
+  // test, so a broken v2 could not grade its own day. That witness rests on
+  // bansai's Stop hook, and G38 (2026-09-10) removed that hook to stop its
+  // per-turn encoding — leaving `ab.muted` and `session.start` only. From
+  // 2026-09-11 every day read "0 conversational turns" against 47 v2
+  // boundaries, and the phase count could never move: the instrument grading
+  // a ruling as a failed day, the same shape as the muted-consistent defect
+  // above (owner ruling 2026-09-14: count from v2's per-prompt row instead).
+  //
+  // The fallback is NARROW on purpose. It is taken only when v1 is
+  // muted-consistent — present, muted, alive, uncontaminated — AND logged no
+  // per-turn row at all. A v1 that logged even one `buffer.append` is still
+  // the referee, and a v1 nobody can show was alive gets no substitute: the
+  // day sinks on its boundary grade as before. What is counted is
+  // `adapter.recall`, v2's one durable row per USER PROMPT (the recall
+  // channel runs on every prompt, delivered or not), so the unit is a prompt
+  // rather than an assistant reply; `turnSource` on the record says which.
+  const v1TurnsAbsent = v1.turns === 0 && v1MutedConsistent;
+  const turnSource: TurnSource = v1TurnsAbsent ? "v2:adapter.recall" : "v1:buffer.append";
+  const turns = v1TurnsAbsent ? (v2.byNameForDate["adapter.recall"] ?? 0) : v1.turns;
   const primaryGrade = primacy === "v1" ? v1Boundary : v2Boundary;
   const mutedGrade = primacy === "v1" ? v2Boundary : v1Boundary;
   const bothReachedBoundary =
@@ -965,6 +988,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
 
   const why = whyOf(dayClass, {
     turns,
+    turnSource,
     floor: bars.activeDayTurnFloor,
     bothReachedBoundary,
     boundaries,
@@ -1038,6 +1062,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     why,
     turnFloor: bars.activeDayTurnFloor,
     turns,
+    turnSource,
     v1,
     v2,
     boundaries,
@@ -1116,6 +1141,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
 
 interface WhyFacts {
   turns: number;
+  turnSource: TurnSource;
   floor: number;
   bothReachedBoundary: boolean;
   boundaries: BoundaryEvidence;
@@ -1149,7 +1175,7 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
       return `${f.mutedAtStart} v1 session(s) were muted at session start and ${f.silentSessions} of them carry NO v2 delivery record for that same session id — nobody spoke into them. The state G4 cannot see by counting extra voices, so it is counted by its absence. PER-SESSION JOIN: v2's durable adapter payloads carry \`session\`, the host session id v1 stamps too, so this is a join rather than a difference of counts. A stand-down is not speaking.`;
     case "thin":
       if (f.bothReachedBoundary) {
-        return `${f.turns} conversational turn(s) is below the committed floor of ${f.floor}`;
+        return `${f.turns} conversational turn(s) (counted from ${f.turnSource}) is below the committed floor of ${f.floor}`;
       }
       if (f.boundaries.primaryGrade !== "pass") {
         if (!f.v2Present && f.boundaries.primary === "v2") {
@@ -1163,7 +1189,7 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
       return `the MUTED side's boundary evidence graded ${f.boundaries.mutedGrade} — ${f.boundaries.note}`;
     case "active":
       return (
-        `the primary (${f.boundaries.primary}) reached a boundary and the muted side graded ${f.boundaries.mutedGrade} (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s), at or above the committed floor of ${f.floor}` +
+        `the primary (${f.boundaries.primary}) reached a boundary and the muted side graded ${f.boundaries.mutedGrade} (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s) (counted from ${f.turnSource}), at or above the committed floor of ${f.floor}` +
         (f.joinAvailable
           ? ""
           : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2DateRows} v2 row(s) for this date, none carrying a session id), so this day is not evidence that nobody was left unspoken to`)

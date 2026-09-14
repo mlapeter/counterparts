@@ -250,7 +250,7 @@ function main(argv: readonly string[]): number {
   out.push("=".repeat(78));
   out.push(`  ${pad("class", 18)}${r.class.toUpperCase()}  [flags: ${r.flags.join(", ")}]`);
   out.push(`  ${pad("why", 18)}${r.why}`);
-  out.push(`  ${pad("turns", 18)}${r.turns} (floor K=${r.turnFloor})`);
+  out.push(`  ${pad("turns", 18)}${r.turns} (floor K=${r.turnFloor}, counted from ${r.turnSource})`);
   // The primacy READING, always shown. An unverified primacy is the one that
   // graded eight days wrong, so it says so on its face rather than sitting in
   // the JSON (§5 G3).
