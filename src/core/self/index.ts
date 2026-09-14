@@ -63,6 +63,7 @@ import type {
   SchemaBytesReport,
 } from "./identity.js";
 import {
+  BRIEFING_TRIM_LOG_CAP,
   FRAMING,
   LANE_ORDER,
   TRIM_ORDER,
@@ -1244,4 +1245,4 @@ export type {
   Substance,
   UseTier,
 };
-export { COUNTER_PREFIX, FRAMING, FROZEN_KINDS, LANE_ORDER, TRIM_ORDER };
+export { BRIEFING_TRIM_LOG_CAP, COUNTER_PREFIX, FRAMING, FROZEN_KINDS, LANE_ORDER, TRIM_ORDER };

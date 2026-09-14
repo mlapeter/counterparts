@@ -53,7 +53,9 @@ import {
   addressLines,
   crossEncoding,
   dailyRecord,
+  gradeReinforced,
 } from "../tools/parallel/record.js";
+import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
 import {
   hookModel,
   overlaps,
@@ -1054,6 +1056,257 @@ describe("the v2 store reader", () => {
     expect(day.memories.createdBySource).toEqual({ authored: 1, fallback: 1 });
   });
 
+  // ── the U9 rows and the reason splits (G47(a)) ───────────────────────────
+  test("sleep.cycle and self.briefing rows are counted by their payload DATE", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "ran", date: "2026-09-14", day: 7, phases: [], failed: 0 },
+      });
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 8,
+        payload: { reason: "ran", date: "2026-09-15", day: 8, phases: [], failed: 0 },
+      });
+      s.appendEvent({
+        name: "self.briefing",
+        day: 7,
+        payload: { reason: "rendered", date: "2026-09-14", day: 7, bytes: 800, trimmedTotal: 2 },
+      });
+    });
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sleep.cycle"]).toBe(1);
+    expect(day.byNameForDate["self.briefing"]).toBe(1);
+    expect(readV2Day(data, "2026-09-15").byNameForDate["sleep.cycle"]).toBe(1);
+    expect(readV2Day(data, "2026-09-15").byNameForDate["self.briefing"]).toBeUndefined();
+  });
+
+  test("sweep.gate:no-credential counts ONLY the keyless runs, and the total still counts them all", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      for (const reason of ["ran", "no-credential", "no-credential"]) {
+        s.appendEvent({
+          name: "sweep.gate",
+          day: 7,
+          payload: { reason, scopes: 0, ran: 0, date: "2026-09-14" },
+        });
+      }
+      // A different day's keyless run must not leak into this one's split.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 8,
+        payload: { reason: "no-credential", scopes: 0, ran: 0, date: "2026-09-15" },
+      });
+    });
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sweep.gate"]).toBe(3);
+    expect(day.byNameForDate["sweep.gate:no-credential"]).toBe(2);
+    // I32's whole point: a day of nothing but keyless runs is DISTINGUISHABLE
+    // from a day of healthy quiet sweeps, in the numbers the daily prints.
+    expect(readV2Day(data, "2026-09-15").byNameForDate["sweep.gate:no-credential"]).toBe(1);
+    // A SPLIT COUNTS ROWS THE TOTAL ALREADY COUNTS, so anything summing the map
+    // has to skip the ":" keys or it counts those rows twice. Three rows landed
+    // on this date, and three is what a row count must read.
+    const rows = Object.entries(day.byNameForDate)
+      .filter(([name]) => !name.includes(":"))
+      .reduce((n, [, x]) => n + x, 0);
+    expect(rows).toBe(3);
+    expect(Object.values(day.byNameForDate).reduce((n, x) => n + x, 0)).toBe(5);
+  });
+
+  test("sleep.cycle:failed splits on the COUNT, not the reason — a degraded cycle still reads `ran`", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "ran", date: "2026-09-14", day: 7, failed: 0, phases: [] },
+      });
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: {
+          reason: "ran",
+          date: "2026-09-14",
+          day: 7,
+          failed: 2,
+          phases: [{ phase: "dedup", status: "failed", reason: "failed", code: "BOOM" }],
+        },
+      });
+    });
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sleep.cycle"]).toBe(2);
+    expect(day.byNameForDate["sleep.cycle:failed"]).toBe(1);
+  });
+
+  test("sleep.cycle:failed also counts the cycles that THREW and the ones whose clock would not advance", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      // A cycle that died: `failed` is the count among the phases it finished,
+      // which can be 0 — and a bad night that reads as no bad night at all is
+      // exactly what this split exists to prevent.
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "threw", code: "DISK_FULL", date: "2026-09-14", day: 7, failed: 0, promoted: null, phases: [] },
+      });
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "clock-failed", code: "CLOCK_TORN", date: "2026-09-14", day: 7, failed: 1, phases: [] },
+      });
+      s.appendEvent({
+        name: "sleep.cycle",
+        day: 7,
+        payload: { reason: "ran", date: "2026-09-14", day: 7, failed: 0, phases: [] },
+      });
+    });
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sleep.cycle"]).toBe(3);
+    expect(day.byNameForDate["sleep.cycle:failed"]).toBe(2);
+  });
+
+  test("recall.credit splits by reason — credited, failed and budget-exceeded, beside the total", () => {
+    const data = dir("v2");
+    const row = (reason: string, n: number): void => {
+      buildStore(data, (s) => {
+        for (let i = 0; i < n; i += 1) {
+          s.appendEvent({
+            name: "recall.credit",
+            day: 7,
+            payload: {
+              reason,
+              date: "2026-09-14",
+              day: 7,
+              session: `s${i}`,
+              considered: 3,
+              credited: reason === "credited" ? 1 : 0,
+              ids: [],
+              idsTotal: 0,
+            },
+          });
+        }
+      });
+    };
+    row("credited", 2);
+    row("nothing-to-credit", 3);
+    row("failed", 1);
+    row("budget-exceeded", 1);
+
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["recall.credit"]).toBe(7);
+    expect(day.byNameForDate["recall.credit:credited"]).toBe(2);
+    expect(day.byNameForDate["recall.credit:failed"]).toBe(1);
+    expect(day.byNameForDate["recall.credit:budget-exceeded"]).toBe(1);
+    // An ordinary quiet reason gets no key of its own: it lives in the total.
+    expect(day.byNameForDate["recall.credit:nothing-to-credit"]).toBeUndefined();
+  });
+
+  // ── `memory.reinforced`: the first watch that can go red (U10) ───────────
+  //
+  // Three fixture stores, read through `readV2Day` and graded through the
+  // watch's own rule, so the test exercises the reader and the grader together
+  // rather than hand-building a `postLaunch` reading the reader might not
+  // produce.
+  describe("the memory.reinforced watch", () => {
+    /** Walk the store's clock forward `days` lived days and return the last. */
+    function ageBy(s: Store, days: number): number {
+      let day = s.livedDay();
+      for (let i = 1; i <= days; i += 1) {
+        day = s.advanceClock(`2026-09-${String(10 + i).padStart(2, "0")}`);
+      }
+      return day;
+    }
+
+    test("PASS when a post-launch row carries reinforced_days >= 1", () => {
+      const data = dir("v2");
+      let day = 0;
+      buildStore(data, (s) => {
+        const id = s.put({ type: "memory", kind: "fact", body: "A row this store minted itself.", source: "authored" });
+        day = ageBy(s, PHYSICS.N_PROMOTION_DAYS + 1);
+        expect(s.reinforce(id, day).credited).toBe(true);
+      });
+      const post = readV2Day(data, "2026-09-14").memories.postLaunch;
+      expect(post.rows).toBe(1);
+      expect(post.reinforced).toBe(1);
+      const w = gradeReinforced(post, day);
+      expect(w.value).toBe("pass");
+      expect(w.reason).toContain("reinforced_days");
+    });
+
+    test("FAIL when post-launch rows are old enough to have been reinforced and none has been", () => {
+      const data = dir("v2");
+      let day = 0;
+      buildStore(data, (s) => {
+        s.put({ type: "memory", kind: "fact", body: "One this store minted and never used.", source: "authored" });
+        s.put({ type: "memory", kind: "fact", body: "A swept one, equally untouched.", source: "fallback" });
+        // Imported rows are NOT post-launch, however reinforced they are.
+        s.put({ type: "memory", kind: "fact", body: "An imported row from v1.", source: "migrated" });
+        day = ageBy(s, PHYSICS.N_PROMOTION_DAYS + 1);
+      });
+      const post = readV2Day(data, "2026-09-14").memories.postLaunch;
+      expect(post.rows).toBe(2);
+      expect(post.reinforced).toBe(0);
+      const w = gradeReinforced(post, day);
+      expect(w.value).toBe("fail");
+      // The reason names the counts and points at the entry that opened it.
+      expect(w.reason).toContain("2 post-launch rows");
+      expect(w.reason).toContain("IMPROVEMENTS U10");
+    });
+
+    test("NOT-EXERCISED when the oldest post-launch row is younger than N_PROMOTION_DAYS", () => {
+      const data = dir("v2");
+      let day = 0;
+      buildStore(data, (s) => {
+        s.put({ type: "memory", kind: "fact", body: "Minted this morning, and nothing has had a chance.", source: "authored" });
+        day = ageBy(s, PHYSICS.N_PROMOTION_DAYS - 1);
+      });
+      const post = readV2Day(data, "2026-09-14").memories.postLaunch;
+      expect(post.rows).toBe(1);
+      const w = gradeReinforced(post, day);
+      expect(w.value).toBe("not-exercised");
+      expect(w.reason).toContain("N_PROMOTION_DAYS");
+    });
+
+    test("NOT-EXERCISED when nothing post-launch exists at all — a migrated-only store", () => {
+      const data = dir("v2");
+      buildStore(data, (s) => {
+        s.put({ type: "memory", kind: "fact", body: "Everything here came from v1.", source: "migrated" });
+      });
+      const post = readV2Day(data, "2026-09-14").memories.postLaunch;
+      expect(post.rows).toBe(0);
+      expect(gradeReinforced(post, 9).value).toBe("not-exercised");
+    });
+
+    test("the AGE test reads the OLDEST post-launch row, not the newest — a store that mints daily must still be gradeable", () => {
+      const data = dir("v2");
+      let day = 0;
+      buildStore(data, (s) => {
+        s.put({ type: "memory", kind: "fact", body: "An old untouched row this store minted.", source: "authored" });
+        day = ageBy(s, PHYSICS.N_PROMOTION_DAYS + 2);
+        // Today's mint. On a newest-row rule this single row would hold the
+        // watch at not-exercised forever, on every live store, every day.
+        s.put({ type: "memory", kind: "fact", body: "And one minted today.", source: "authored" });
+      });
+      const post = readV2Day(data, "2026-09-14").memories.postLaunch;
+      expect(post.newestBirthDay).toBe(day);
+      expect(post.oldestBirthDay).toBeLessThan(day);
+      expect(gradeReinforced(post, day).value).toBe("fail");
+    });
+
+    test("the predicate the reading counted travels WITH the reading", () => {
+      const data = dir("v2");
+      buildStore(data, (s) => {
+        s.put({ type: "memory", kind: "fact", body: "A row.", source: "authored" });
+      });
+      const post = readV2Day(data, "2026-09-14").memories.postLaunch;
+      expect(post.predicate).toContain("migrated");
+      expect(post.predicate).toContain("archived = 0");
+    });
+  });
+
   test("an absent store reads absent — never a store that happens to be empty", () => {
     const day = readV2Day(join(root, "no-such-store"), "2026-09-04");
     expect(day.present).toBe(false);
@@ -1928,20 +2181,24 @@ describe("day classes", () => {
     expect(r.class).toBe("thin");
   });
 
-  // ── the four watches box 2 cannot carry: named values, never a bare list ──
-  test("every non-durable watch renders a NAMED VALUE with a reason, and none can be a pass", () => {
+  // ── the watches box 2 cannot carry: named values, never a bare list ──
+  test("every non-durable watch renders a NAMED VALUE with a reason, and the four readingless ones can never pass", () => {
     const s = scene(3);
     v1MutedNoStop(s);
     v2Delivering(s);
     const r = classOf(s);
     // Total over the reader's own list — no watch may be silently dropped.
     expect(r.watches.map((w) => w.detector)).toEqual([...r.v2.nonDurable]);
-    expect(r.watches.length).toBe(4);
     for (const w of r.watches) {
-      // Named against the DETECTOR, so a failure says which watch went green.
-      expect(`${w.detector}=${w.value}`).toBe(
-        `${w.detector}=${w.value === "needs-rater" ? "needs-rater" : "not-exercised"}`,
-      );
+      // `memory.reinforced` is the FIFTH, and the only one with a reading of its
+      // own: it can pass and it can fail. The other four hold no reading, so
+      // green is unreachable for them by construction (§5 G13).
+      if (w.detector !== "memory.reinforced") {
+        // Named against the DETECTOR, so a failure says which watch went green.
+        expect(`${w.detector}=${w.value}`).toBe(
+          `${w.detector}=${w.value === "needs-rater" ? "needs-rater" : "not-exercised"}`,
+        );
+      }
       expect(w.reason.length).toBeGreaterThan(40);
     }
     const pressure = r.watches.find((w) => w.detector === "self.schema.pressure");
@@ -2189,6 +2446,39 @@ describe("day classes", () => {
     const r = classOf(s);
     expect(r.flags).not.toContain("silent");
     expect(r.why).toContain("silent-session join was UNAVAILABLE");
+  });
+
+  test("the unavailable-join NOTE counts ROWS, not counters — a reason split must not double one", () => {
+    const s = scene(3);
+    v1Muted(s);
+    buildStore(s.v2Dir, (store) => {
+      // The same session-less shape as the test above, so the join is
+      // unavailable and the note fires at all.
+      for (const hook of ["session-start", "stop"]) {
+        store.appendEvent({
+          name: PRIMACY_DELIVER_EVENT,
+          day: 0,
+          payload: { hook, reason: "override-engram", system: "v2", date: DATE },
+        });
+      }
+      // Plus three sweep rows, two of them carrying the reason the reader
+      // splits on. FIVE rows landed on this date; `byNameForDate` holds seven
+      // VALUES over them, and a note saying "7 v2 row(s)" would be a count of
+      // counters dressed as a count of evidence.
+      for (const reason of ["ran", "no-credential", "no-credential"]) {
+        store.appendEvent({
+          name: "sweep.gate",
+          day: 0,
+          payload: { reason, scopes: 0, ran: 0, date: DATE },
+        });
+      }
+    });
+    const r = classOf(s);
+    expect(r.why).toContain("5 v2 row(s) for this date");
+    expect(r.why).not.toContain("7 v2 row(s)");
+    // And the split itself is still there to be read, beside the total.
+    expect(r.v2.byNameForDate["sweep.gate"]).toBe(3);
+    expect(r.v2.byNameForDate["sweep.gate:no-credential"]).toBe(2);
   });
 
   test("v2's BOUNDARY evidence is the stop hook only — a session-start deliver is not one", () => {
@@ -2955,6 +3245,10 @@ describe("the primacy guard — a stale run.json never grades a day", () => {
     expect(healed.status).toBe(0);
     expect(healed.stdout).toContain("ACTIVE");
     expect(healed.stdout).toContain("muted-consistent");
+    // The fifth watch prints its own line, value and reason, like the other
+    // four — a detector added to the reader that the daily never printed would
+    // be a reading nobody takes (§5 G13).
+    expect(healed.stdout).toContain("memory.reinforced");
     expect(existsSync(join(g.runDir, "days", `${DATE}.json`))).toBe(true);
   });
 });

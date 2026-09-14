@@ -41,7 +41,9 @@ import {
   RECALL_DECISION_EVENT,
   RECALL_DELIVERED_EVENT,
   RUNNER_FAILED_EVENT,
+  SELF_BRIEFING_EVENT,
   SEMANTIC_LAG_EVENT,
+  SLEEP_CYCLE_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
@@ -99,6 +101,8 @@ export type DurableEventName =
   | typeof GATE_DEPOSIT_EVENT
   | typeof RECALL_DECISION_EVENT
   | typeof SWEEP_GATE_EVENT
+  | typeof SLEEP_CYCLE_EVENT
+  | typeof SELF_BRIEFING_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -147,6 +151,12 @@ export const DURABLE_EVENTS = {
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief or an identity element took a credited challenge",
   "sweep.gate": "the crash fallback ran its gate (scopes looked at, scopes skipped as nothing-crashed, spans swept)",
+  // The two U9 rows: until 2026-09-14 the whole sleep cycle and the whole wake
+  // render lived in an in-process ring that died with the worker, so "did the
+  // cycle run today, did every phase succeed, what did the wake trim" could not
+  // be answered from the store at all.
+  "sleep.cycle": "the consolidation cycle ran (every phase by name, with its status, and the run's counts)",
+  "self.briefing": "the wake briefing was re-rendered (what rendered per lane, and which elements the trim dropped)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

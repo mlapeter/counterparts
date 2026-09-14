@@ -344,6 +344,13 @@ export const EVENT_NODE = {
   "gate.deposit": "encode",
   // The fallback's own record, including the runs that swept nothing.
   "sweep.gate": "sweep",
+  // The cycle's own record (U9). Same call as the four above: the honest answer
+  // to "who did this" is the phase that ran, and the run is the whole of sleep.
+  "sleep.cycle": "sleep",
+  // The wake render's record. It is `self/`'s composition and `sleep/`'s order,
+  // but what the row DESCRIBES is the bundle — what rendered, what was trimmed —
+  // so it lights the node the owner will actually read it against.
+  "self.briefing": "wake",
   // Retrieval: the decision, and the adapter's composed injection.
   "recall.decision": "recall",
   "adapter.recall": "recall",

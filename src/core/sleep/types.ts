@@ -233,6 +233,54 @@ export class CycleKilled extends Error {
   }
 }
 
+/**
+ * WHAT A CYCLE THAT DIES CARRIES OUT WITH IT.
+ *
+ * Degrade-don't-abort covers a phase that throws; it does not cover a throw from
+ * OUTSIDE a phase body — a marker advance, the clock, a hard kill from `onStep`.
+ * When one of those escapes there is no `CycleReport`, and a recorder with
+ * nothing to read writes a row of zeroes: seven phases that ran, a briefing that
+ * trimmed six elements, and a row that says `failed: 0, promoted: 0`. A week
+ * later that reads as a quiet clean night. It is the fabricated-zero failure
+ * (scar §2.4) arriving through an exception.
+ *
+ * So the escaping error carries the reports the cycle HAD, plus where the kill
+ * landed when the thrower said. The attachment is a symbol property, not a
+ * field: the error belongs to whoever threw it, and this must never collide with
+ * something they put there themselves.
+ */
+export interface CyclePartial {
+  /** The phases that reached a verdict before the throw, in executed order. */
+  readonly phases: readonly PhaseReport[];
+  /** Every phase the cycle STARTED, which is one longer when it died mid-phase. */
+  readonly order: readonly Phase[];
+  /** Where the kill landed, when the error said (`CycleKilled` does). */
+  readonly phase?: Phase;
+  readonly stage?: StepStage;
+}
+
+const CYCLE_PARTIAL = Symbol.for("counterparts.sleep.cyclePartial");
+
+export function attachCyclePartial(err: unknown, partial: CyclePartial): void {
+  if (err === null || (typeof err !== "object" && typeof err !== "function")) return;
+  try {
+    Object.defineProperty(err, CYCLE_PARTIAL, {
+      value: partial,
+      enumerable: false,
+      configurable: true,
+    });
+  } catch {
+    // A frozen error is still an error. Losing the attachment costs detail on
+    // one row; throwing here would replace the exception the caller must see.
+  }
+}
+
+export function cyclePartial(err: unknown): CyclePartial | null {
+  if (err === null || (typeof err !== "object" && typeof err !== "function")) return null;
+  const v = (err as Record<symbol, unknown>)[CYCLE_PARTIAL];
+  return v === undefined ? null : (v as CyclePartial);
+}
+
 // ---------------------------------------------------------------------------
 // Telemetry
 // ---------------------------------------------------------------------------

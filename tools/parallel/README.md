@@ -398,14 +398,43 @@ cannot be counted after the fact (§5 G2). This reader also counts
 `versions` row and the old join against `versions.archived_at` could only ever
 return a fabricated zero.
 
-Two remain non-rows by design and are named in `nonDurable` rather than reported
-as zeros: `sleep.symmetry` (arithmetic over `band.transition`) and
-`self.schema.*` (`schemaBytes` over the rows). **Each is now GRADED**, on the day
+Since 2026-09-14 it also counts the two U9 rows, `sleep.cycle` and
+`self.briefing` — one per cycle run and one per wake render, both carrying the
+calendar `date` in their payload. Before them, the whole sleep cycle and the
+whole wake render lived in a ring that died with the worker, and the only durable
+evidence a cycle had run was its side effects, which a cycle that promoted,
+pruned and merged nothing does not leave. `recall.credit` is counted too, ahead
+of the branch that writes it (the §9.2 credit seam): a detector added after the
+mechanism ships cannot say whether the first live boundary fired, which is the
+I32 shape exactly.
+
+**Reason splits (G47(a)).** Counting by NAME alone hid the keyless day: one
+`sweep.gate` row a day saying `reason: "no-credential"` looked identical, in every
+number the daily printed, to a healthy quiet sweep. So `byNameForDate` now carries
+an extra key beside — never instead of — the total: `sweep.gate:no-credential`,
+`recall.credit:credited` / `:failed` / `:budget-exceeded`, and
+`sleep.cycle:failed`. The last is not a reason lookup: a bad night reaches the row
+three ways — a cycle that ran end to end and lost a phase still reads
+`reason: "ran"` (degrade, don't abort) and shows the loss only in `failed`, a
+cycle that died reads `threw`, and one whose clock would not advance reads
+`clock-failed` — and an operator asking "did the cycle have a bad night" wants one
+number, so all three land in that key. A split key counts rows the total already
+counts, so anything summing `byNameForDate` must skip the keys with a ":" in them
+or it counts those rows twice; `record.ts`'s `v2DateRows` does.
+
+Four detectors remain non-rows by design and are named in `nonDurable` rather
+than reported as zeros: `sleep.symmetry` (arithmetic over `band.transition`) and
+`self.schema.*` (`schemaBytes` over the rows). A fifth, `memory.reinforced`, is
+recomputed read-only from the `memories` table. **Each is GRADED**, on the day
 record as `watches` and one line each in the daily's output — a value from the
 four-value vocabulary plus the reason for it, never the bare comma-separated name
 list that used to print (a string an operator reads past is not a verdict). `pass`
-is unreachable for all four: a watch with no reading behind it can never render
-green (§5 G13).
+is unreachable for the first four: a watch with no reading behind it can never
+render green (§5 G13). **`memory.reinforced` is the first watch here that can
+actually go red** — it has a reading of its own, and on the live store today it is
+expected to read `fail` until the credit seam lands. A `pass` on it should follow
+the first `recall.credit:credited` row: that row is the wiring firing, this watch
+is the consequence landing in the table.
 
 | watch | value | why |
 |---|---|---|
@@ -413,10 +442,11 @@ green (§5 G13).
 | `self.schema.pressure` | `not-exercised` | no durable revision-pressure row exists in this build. **The revision-pressure path is being wired in a separate PR; once it lands this watch has durable `revision.pressure` events to read and its grading rule in `record.ts` should move with it.** |
 | `self.schema.tripped` | `not-exercised` | the trip is `schemaBytes` over the self rows, recomputed read-only by the preflight's `store.schemaBytes` check; the daily takes no reading of its own |
 | `self.schema.quarantined` | `not-exercised` | the F8 fallback quarantine is subtracted INSIDE `schemaBytes`; the SPAN quarantine ledger is a different thing and IS on the day record, as `quarantine` |
+| `memory.reinforced` | `pass` / `fail` / `not-exercised` — **the one that can go red** | IMPROVEMENTS U10: has anything minted on this store since launch ever been reinforced? POST-LAUNCH is `source IS NOT NULL AND source <> 'migrated'` over live rows — `source` is the store's own record of who minted a row, `migrated` is the v1 importer's stamp, and NULL is a pre-v4 row that predates this store's minting path. `pass` when ≥ 1 of them carries `reinforced_days ≥ 1`; `not-exercised` when there are none, or when the OLDEST of them is younger than `N_PROMOTION_DAYS` (imported from physics, never restated) — deliberately the oldest and not the newest, because a store that mints at every boundary always has a newest row zero days old and a newest-row rule would hold this watch at `not-exercised` forever; otherwise `fail`, naming the counts and pointing at U10 |
 
 The table is built by walking the reader's own `nonDurable` list, so a detector
 added there with no grading rule still gets a row — `needs-rater`, saying exactly
-that — rather than vanishing. A third,
+that — rather than vanishing. One more detector,
 `remember.span.quarantined`, is **recomputed here**: the line count of every
 scope's `quarantine.jsonl`, on the day record as `quarantine`. Lines only — a
 quarantined span is verbatim lived text.

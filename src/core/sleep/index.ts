@@ -86,8 +86,9 @@ export type { BriefingContext, BriefingOutcome, BriefingResult, RenderFn } from 
 export { LOG_SWEEP_EVENT, LOG_SWEEP_SKIPS, runLogSweep } from "./log.js";
 export type { LogSweepResult, LogSweepSkip } from "./log.js";
 
-export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, countSkip, emptyOutcome, isJournal, isSchemaRow, phaseReport } from "./types.js";
+export { BAND_TRANSITION_EVENT, BAND_TRANSITION_FIELDS, CycleKilled, PHASES, attachCyclePartial, countSkip, cyclePartial, emptyOutcome, isJournal, isSchemaRow, phaseReport } from "./types.js";
 export type {
+  CyclePartial,
   CycleReport,
   CycleStep,
   KindCensus,

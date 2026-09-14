@@ -17,10 +17,17 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart, SWEEP_GATE_EVENT, surfaceSetFields } from "../src/core/counterpart.js";
+import {
+  Counterpart,
+  SELF_BRIEFING_EVENT,
+  SLEEP_CYCLE_EVENT,
+  SWEEP_GATE_EVENT,
+  surfaceSetFields,
+} from "../src/core/counterpart.js";
 import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
-import { BOOTSTRAP } from "../src/core/self/index.js";
+import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
+import { CycleKilled, PHASES } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -1209,5 +1216,319 @@ describe("birth by mention is AMBIENT through the composition (cli gaps §8 clos
     expect(untitled.deposited).toBe(true);
     expect(c.events("counterpart.mention").length).toBe(0);
     c.close();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE TWO U9 ROWS — the cycle and the wake render, durable
+//
+// `sleep/cycle.ts` emits `sleep.cycle.start`, `sleep.cycle.done` and
+// `sleep.phase.failed` into an in-process ring that dies with the worker, and
+// `self/` emits `self.briefing.trim` into another one. From the store nobody
+// could answer "did the cycle run today, did every phase succeed, what did the
+// wake trim" (IMPROVEMENTS U9). These are the rows that answer it, in the shape
+// `sweep.gate` already has: one row per run, `reason` always present, ids-only
+// payloads, an append that fails costing the ROW and never the caller.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the sleep cycle and the wake render each leave one durable row", () => {
+  function rowsOf(c: Counterpart, name: string): Record<string, unknown>[] {
+    return c.store
+      .eventLog({ name, limit: 100 })
+      .map((row) => JSON.parse(row.payload ?? "{}") as Record<string, unknown>);
+  }
+
+  interface PhaseLine {
+    phase: string;
+    status: string;
+    reason: string;
+    code?: string;
+  }
+  const phasesOf = (payload: Record<string, unknown>): PhaseLine[] =>
+    payload["phases"] as PhaseLine[];
+
+  test("ONE sleep.cycle row per boundary, naming every phase in the cycle's order, none failed", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+
+    const rows = rowsOf(c, SLEEP_CYCLE_EVENT);
+    expect(rows.length).toBe(1);
+    const row = rows[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("ran");
+    expect(row["date"]).toBe("2026-01-02");
+    expect(typeof row["day"]).toBe("number");
+    // EVERY phase, by name, in the order the cycle ran them — that is the whole
+    // question the row exists to answer, and a count would not answer it.
+    expect(phasesOf(row).map((p) => p.phase)).toEqual([...PHASES]);
+    // `ok` is not a status this codebase has: the report's vocabulary is
+    // ran / ran-nothing-found / did-not-run / failed, copied verbatim.
+    expect(phasesOf(row).filter((p) => p.status === "failed")).toEqual([]);
+    expect(row["failed"]).toBe(0);
+    expect(row["code"]).toBe(null);
+    for (const count of ["promoted", "pruned", "merged", "bandUp", "bandDown", "trimmed"]) {
+      expect(typeof row[count]).toBe("number");
+    }
+  });
+
+  test("a phase that THROWS is named `failed` in the row with its code, and the cycle still completes", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    // The `versions` phase calls exactly this, and nothing else does.
+    const boom = Object.assign(new Error("no"), { code: "VERSIONS_BOOM" });
+    (c.store as unknown as { pruneSupersededVersions: () => never }).pruneSupersededVersions =
+      () => {
+        throw boom;
+      };
+
+    const report = await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    // Degrade, don't abort: the boundary returned, and the phases after the
+    // failed one still ran.
+    expect(report.cycle.phases.length).toBe(PHASES.length);
+
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("ran");
+    expect(row["failed"]).toBe(1);
+    const versions = phasesOf(row).find((p) => p.phase === "versions");
+    expect(versions?.status).toBe("failed");
+    // `reason` for a failure is the literal word "failed"; the WHY is the code.
+    expect(versions?.reason).toBe("failed");
+    expect(versions?.code).toBe("VERSIONS_BOOM");
+    // The briefing ran after it, so the wake row is there too.
+    expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(1);
+  });
+
+  test("a CLOCK that will not advance leaves the row with reason `clock-failed` and its code", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    (c.store as unknown as { advanceClock: () => never }).advanceClock = () => {
+      throw Object.assign(new Error("torn"), { code: "CLOCK_TORN" });
+    };
+
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("clock-failed");
+    expect(row["code"]).toBe("CLOCK_TORN");
+    // The cycle continued on the day the store already believed in: the other
+    // phases are still in the row, by name.
+    expect(phasesOf(row).map((p) => p.phase)).toEqual([...PHASES]);
+    expect(phasesOf(row).find((p) => p.phase === "clock")?.status).toBe("failed");
+  });
+
+  test("a cycle that THREW leaves a row saying so — and the throw still reaches the caller", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    // `CycleKilled` is the watchdog's hard kill wearing an exception's clothes:
+    // `sleep/` deliberately does not paper over it, and neither does this row.
+    (c.store as unknown as { advanceClock: () => never }).advanceClock = () => {
+      throw new CycleKilled({ phase: "clock", stage: "start" });
+    };
+
+    await expect(c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES })).rejects.toThrow(
+      CycleKilled,
+    );
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("threw");
+    expect(typeof row["code"]).toBe("string");
+    // No report existed to read phases out of, and the row says that by being
+    // empty rather than by naming phases nobody observed.
+    expect(row["phases"]).toEqual([]);
+    expect(row["date"]).toBe("2026-01-02");
+    // The render never happened, so there is no wake row to write.
+    expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(0);
+  });
+
+  test("a cycle that dies AFTER seven phases says so — the row never reads as a quiet clean night", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    await c.submitSessionEnd(
+      {
+        content: "The storage split keeps canonical prose in markdown files, which any editor can read.",
+        kind: "fact",
+        salience: { relevance: 0.9, emotional: 0.7, predictive: 0.8 },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    // The LAST phase's marker advance, which runs outside the phase body's own
+    // degrade-don't-abort wrapper: seven phases have finished and the briefing
+    // has trimmed by the time this throws.
+    const realSetMeta = c.store.setMeta.bind(c.store);
+    (c.store as unknown as { setMeta: typeof realSetMeta }).setMeta = (key, value) => {
+      if (key === "sleep.marker.log") throw Object.assign(new Error("gone"), { code: "DISK_FULL" });
+      realSetMeta(key, value);
+    };
+
+    await expect(
+      c.sessionEnd({ date: "2026-01-02", budgetBytes: SMALL_BUDGET_BYTES }),
+    ).rejects.toThrow();
+
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("threw");
+    expect(row["code"]).toBe("DISK_FULL");
+    // The work it DID do, by name — the whole point. Not an empty list.
+    expect(phasesOf(row).map((p) => p.phase)).toEqual(PHASES.slice(0, PHASES.length - 1));
+    // And how many it had entered, so the phase that died is the difference.
+    expect(row["started"]).toBe(PHASES.length);
+    // NULL, not 0: this cycle never finished counting these, and a zero would
+    // read a week later as "nothing was promoted, nothing was pruned".
+    for (const count of ["promoted", "pruned", "merged", "bandUp", "bandDown"]) {
+      expect(row[count]).toBe(null);
+    }
+    // What IS known stays known: the briefing ran, and its trim is real.
+    expect(row["trimmed"]).toBe(c.events("self.briefing.trim").length);
+    expect(row["trimmed"]).toBeGreaterThan(0);
+    expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(1);
+  });
+
+  test("a CycleKilled names where the kill landed — the phase and the stage", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    const realSetMeta = c.store.setMeta.bind(c.store);
+    (c.store as unknown as { setMeta: typeof realSetMeta }).setMeta = (key, value) => {
+      if (key === "sleep.marker.dedup") throw new CycleKilled({ phase: "dedup", stage: "marked" });
+      realSetMeta(key, value);
+    };
+
+    await expect(c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES })).rejects.toThrow(
+      CycleKilled,
+    );
+    const row = rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("threw");
+    expect(row["failedPhase"]).toBe("dedup");
+    expect(row["stage"]).toBe("marked");
+  });
+
+  test("an OBSERVER writes NEITHER row — an instrument leaves the world as it found it", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    c.close();
+
+    const watcher = brain({ dir, observer: true });
+    const before = {
+      cycle: rowsOf(watcher, SLEEP_CYCLE_EVENT).length,
+      briefing: rowsOf(watcher, SELF_BRIEFING_EVENT).length,
+    };
+    await watcher.sessionEnd({ date: "2026-01-03", budgetBytes: BUDGET_BYTES });
+    expect(rowsOf(watcher, SLEEP_CYCLE_EVENT).length).toBe(before.cycle);
+    expect(rowsOf(watcher, SELF_BRIEFING_EVENT).length).toBe(before.briefing);
+  });
+
+  test("the self.briefing row's lane counts and trimmed ids ARE the render's own — not a second count", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    await c.submitSessionEnd(
+      {
+        content: "The storage split keeps canonical prose in markdown files, which any editor can read.",
+        kind: "fact",
+        salience: { relevance: 0.9, emotional: 0.7, predictive: 0.8 },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    // A ceiling small enough that the trim order has to act.
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: SMALL_BUDGET_BYTES });
+
+    const rows = rowsOf(c, SELF_BRIEFING_EVENT);
+    expect(rows.length).toBe(1);
+    const row = rows[0] as Record<string, unknown>;
+    expect(row["reason"]).toBe("rendered");
+    expect(row["date"]).toBe("2026-01-02");
+    expect(row["budget"]).toBe(SMALL_BUDGET_BYTES - PREFACE_RESERVE_BYTES);
+
+    // The render's own summary, in this process's ring, is the reference: the
+    // row must restate it rather than recount the lanes a second time.
+    const rendered = c.events("self.briefing.rendered").pop();
+    expect(rendered).toBeDefined();
+    expect(row["bytes"]).toBe(rendered?.data?.["bytes"]);
+    const counts = row["counts"] as Record<string, number>;
+    expect(Object.keys(counts)).toEqual([...LANE_ORDER]);
+    for (const lane of LANE_ORDER) {
+      expect(counts[lane]).toBe(rendered?.data?.[lane] as number);
+    }
+
+    const trims = c.events("self.briefing.trim");
+    expect(trims.length).toBeGreaterThan(0);
+    expect(row["trimmedTotal"]).toBe(trims.length);
+    expect(row["trimmed"]).toEqual(
+      trims.map((e) => ({ id: e.ref ?? null, lane: e.data?.["lane"] ?? null })),
+    );
+    // And the cycle row's `trimmed` count is the same reading.
+    expect((rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>)["trimmed"]).toBe(
+      trims.length,
+    );
+  });
+
+  test("REBRIEF publishes a new bundle, so it leaves its own row — reason `rebrief`", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    await c.submitSessionEnd(
+      {
+        content: "The storage split keeps canonical prose in markdown files, which any editor can read.",
+        kind: "fact",
+        salience: { relevance: 0.9, emotional: 0.7, predictive: 0.8 },
+      },
+      { session: "s1", scope: "proj" },
+    );
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    expect(rowsOf(c, SELF_BRIEFING_EVENT).length).toBe(1);
+
+    // The owner pulls the lever at a tighter ceiling: this RENDERS, TRIMS and
+    // PUBLISHES, so without a row the last one in the store would describe a
+    // bundle nobody is reading any more.
+    const report = c.rebrief({ budgetBytes: SMALL_BUDGET_BYTES });
+    expect(report.published).toBe(true);
+
+    const rows = rowsOf(c, SELF_BRIEFING_EVENT);
+    expect(rows.length).toBe(2);
+    const row = rows[1] as Record<string, unknown>;
+    // Named apart from the boundary's row: one is the DAY's record, this is the
+    // owner mid-day, and a reader counting wake renders must tell them apart.
+    expect(row["reason"]).toBe("rebrief");
+    expect(row["bytes"]).toBe(report.bytes);
+    expect(row["budget"]).toBe(SMALL_BUDGET_BYTES - PREFACE_RESERVE_BYTES);
+    expect((row["counts"] as Record<string, number>)["identity"]).toBe(
+      report.counts["identity"] ?? 0,
+    );
+    expect(typeof row["trimmedTotal"]).toBe("number");
+  });
+
+  test("a rebrief that REFUSES for want of a ceiling renders nothing and leaves no row", () => {
+    const blind = brain();
+    seed(blind);
+    expect(blind.rebrief().rendered).toBe(false);
+    expect(rowsOf(blind, SELF_BRIEFING_EVENT).length).toBe(0);
+  });
+
+  test("a failed appendEvent costs the ROW, never the boundary", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    const real = c.store.appendEvent.bind(c.store);
+    (c.store as unknown as { appendEvent: typeof real }).appendEvent = (input) => {
+      if (input.name === SLEEP_CYCLE_EVENT || input.name === SELF_BRIEFING_EVENT) {
+        throw Object.assign(new Error("locked"), { code: "SQLITE_BUSY" });
+      }
+      return real(input);
+    };
+
+    // The boundary RETURNS — that is the guarantee.
+    const report = await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    expect(report.cycle.phases.length).toBe(PHASES.length);
+    expect(c.events("counterpart.sleep.cycle.failed")[0]?.data?.["code"]).toBe("SQLITE_BUSY");
+    expect(c.events("counterpart.self.briefing.failed")[0]?.data?.["code"]).toBe("SQLITE_BUSY");
+    // And the ring event says the row did not land, rather than implying it did.
+    expect(c.events("counterpart.sleep.cycle")[0]?.data?.["durable"]).toBe(false);
+    expect(c.events("counterpart.self.briefing")[0]?.data?.["durable"]).toBe(false);
   });
 });
