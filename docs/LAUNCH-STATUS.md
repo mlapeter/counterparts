@@ -1437,6 +1437,87 @@ Stop writes a second `recall.credit` row (`no-candidates`, `turns: 0`), consiste
 | G50 | **A title-handle expansion earns no credit.** `reference.ts` credits only literal `mem_` ids from recall tool_use input; `mcp/tools.ts` documents `handle` as "a memory id or exact handle" and `deliberate.ts` resolves a title to a body, so a deliberate expansion by title reads the whole memory and credits nothing (under-credit direction). Fix on the tool side: record the resolved id as expanded in gate state. | open |
 | G51 | **Process: two sessions in one checkout.** The `~/random` session and this one shared `~/counterparts`; a rebase there moved local master for a minute while this session had left HEAD on master. Nothing reached origin. Rule adopted for the day: one session per checkout; this session works only in `.claude/worktrees/`. Worth a line in CLAUDE.md or the handoff, the owner's call. | open |
 
+### Night — the evening batch (#104, #105, #106, #108), I36, I37, restart #8
+
+Two sessions working in parallel on the owner's standing instruction ("continue working with the other session to
+fix and improve the things you can"), by the seams each held: the `~/random` session on self/ and recall render,
+this one on the store, the daily and the adapter. Every PR was adversarially reviewed on Opus by the OTHER session
+(MERGE WITH FIXES each; every required fix landed and was re-verified by both sides), declared before merge, and
+landed in order; ONE restart at the end.
+
+- **#104 `1aed64c`** (peer): OQ4 footnote-header probe step 1 with the metric (`probe-oq4`, `expandedIds` on
+  `recall.credit`), footnote titles 80 → 150 B for new memories, session_end names the malformed reason and the
+  kind enum. Review fixes: the probe read only the OLDEST 500 rows per name (would have gone blind within weeks in
+  the direction that discredits the new header); a day with no credit rows printed 0.000 instead of "-"; migrated
+  titles with a multi-byte char inside 80 do render their tail now.
+- **#105 `cbeb210`** (peer): `tools/deploy-checkout.sh` — the move that makes a merge live (see I36).
+- **#106 `598d72d`** (this session): `sweep.gate` refusals by reason + `noisyRefusals` (IO_FAILED/OBSERVER) +
+  `chronicCandidates` (BELOW_MIN_CLAIM, permanent by construction for a sub-minimum crashed leftover — fine once,
+  never ambers alone) — G48 done; band of record: the decay phase writes `memories.band`/`band_day` back so the
+  column follows physics, counted durably as `reconciled` on the `sleep.cycle` phase entry, `verify` census
+  `band of record: N disagree` (U8 done; expect ~869 on the first live `verify`, 0 after the first decay pass);
+  wake header "N memories of M live rows" (U4 done); `joinAvailable` keyed to session-bearing rows (G47(b) done).
+- **#108 `a849696`** (this session): PR 2 from the 09-11 rulings — `counterparts doctor` (read-only, worst-first,
+  exit 1 on red), the SessionStart `systemMessage` notice (JSON only on a red finding, plain stdout byte-identical
+  otherwise; notice ≤ 400 chars; envelope > 9,500 chars falls back to the plain wake because the host's 10,000-char
+  cap would drop the WAKE), `credentials set <NAME>` (stdin or --from-env, never argv, tmp-0600-rename) and
+  `credentials list`, and the checkout guard (I36 below). **I32's decision "the warning must reach the USER's
+  terminal" is met.**
+- **Restart #8**: `restarts.jsonl` line 8, `2026-09-14T18:29:13.705Z`, `--date 2026-09-11`, `activeDays` kept
+  `{0:1, P:2}`, hash `c3af0bef00209ba6` unchanged all day. **Deployed** by `tools/deploy-checkout.sh`: shared
+  checkout `1aed64c` → `a849696` (14 behind → 0), recorded in the restart reason. Master `a849696`.
+
+### I36 — developing in the shared checkout is deploying; merging is not
+
+The checkout at `~/counterparts` is ALSO the runtime: the Claude Code hooks are fresh processes at every boundary
+and run whatever that tree has checked out; an MCP server started there keeps the code it loaded. Two halves,
+both measured today:
+
+1. **16:51Z–16:58Z.** The `~/random` session developed #104 in the shared checkout. `render.ts` was written at
+   16:51Z; one boundary ran on it (this session's, 16:57Z: a `recall.credit` row, `nothing-to-credit`, zero
+   expansions); the tree went back to `e0f4a34` at 16:58Z. Step 1 of the OQ4 header and `expandedIds` were live,
+   unmerged, for seven minutes. Physics effect: none. The MCP servers were NOT affected (a running server keeps the
+   code it loaded; only a session started in the window would have). The probe aggregates by date, so 2026-09-14
+   reads as step 0 with the leak named in the declaration.
+2. **17:14Z–17:30Z, and again 18:03Z–18:29Z.** #104 merged at 17:14:08Z while the shared tree sat detached at
+   `e0f4a34`; every boundary ran the previous commit until the peer moved it to `1aed64c` at ~17:30Z (sixteen
+   minutes). The same gap reopened when #106 merged at 18:03Z and closed at the deploy step at 18:29Z (#108 merged
+   at 18:28:49Z and was deployed within the same minute). **A merge deploys nothing until the checkout moves.**
+3. **~18:45Z, this session, two minutes.** Flipping IMPROVEMENTS statuses, this session edited
+   `docs/IMPROVEMENTS.md` in the shared checkout believing it untracked — it has been tracked since #104. The
+   tracked-dirty state lasted until the next command noticed it; the change was moved to a worktree branch (this
+   PR) and the file restored. A docs file changes nothing that runs, but the guard would have read it RED, which is
+   the guard working.
+
+The rule, both halves: the shared checkout stays at `origin/master` AND moves when master moves; nobody develops in
+it; all work in `.claude/worktrees/`. Mechanized in this batch: `tools/deploy-checkout.sh` (#105) is the move —
+fetch, refuse a dirty tree / a linked worktree / a stray detached HEAD, detach at `origin/master`, print the sha
+for the restart reason — and `doctor` (#108) grades the checkout every SessionStart against the local
+`origin/master` as last fetched (green at it, amber behind, red off it or tracked-dirty), leaving one durable
+`adapter.checkout` row per (date, head, dirty, reason) that the daily splits as `adapter.checkout:off-master`.
+G51 is closed by this; the process row stays as the rule.
+
+### I37 — the first cut of `doctor` bypassed the explicit-dir guard, and a reviewer opened the live store once
+
+`doctor` was the only `readsConfig` command without `implicitConfigRefusal`, and its store resolution
+(`--dir ?? config.dataDir ?? resolveDir(env)`) never reached the guard when the default config names `dataDir`
+(every real machine). `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 counterparts doctor` printed the owner's live paths.
+**Disclosure:** reproducing it, the Opus reviewer opened `~/.counterparts/store` ONCE in observer stance
+(`Store.open({ observer: true })`: no DDL, no migration, no writer lock; `operational.sqlite` md5 identical before
+and after) and read `claude-code.json` and the credential NAMES. Nothing written — but the rule is "never open the
+live store from a session without the owner's word", and it was crossed by the tool built to guard it. Fixed before
+merge: the guard at two doors (the `install`/`credentials` refusal in `run()`, plus an in-function refusal in
+`verify`'s words), and a test whose default-located config DOES name a `dataDir` — the first cut's test used one
+without, and gave false assurance. Class: the same as I29 (a default path that resolves to the owner's data): every
+new command that can name a store must be walked through the guard's test table, not only the doors it copies.
+
+| # | NEEDS-OWNER | status |
+|---|---|---|
+| G51 | closed by `tools/deploy-checkout.sh` + `doctor`'s checkout grade (#105, #108); the rule text lives in HANDOFF. | done |
+| G52 | **`doctor`'s undetermined readings report GREEN with a sentence** because `Severity` has no "unknown"; a dropped notice (envelope over the host cap) leaves only a ring row. Both named in the adapter's INTERFACE-GAPS. Add an "unknown" severity and a durable `adapter.notice.dropped` row, or accept. | open |
+| G53 | **U7 recency-aware hints** — recommendation in IMPROVEMENTS U7 (sort inside hints by recency, no floor, no sixth lane; bornDay's two known-bad inputs named). Rewrites self CONTRACT §3 "hints — strongest first", so it is a ruling, not a fix. | open |
+| G54 | **The OQ4 step change turns the footnote header from context into an INSTRUCTION** ("expand an id with recall before citing one"). That is the trade OQ4 asks about and the probe doing its job; it deserves a stated ruling rather than absorption. Reversible by one string (`FOOTNOTE_HEADER_STEP_0` kept). | open |
+
 ### Also seen
 
 An untracked `docs/IMPROVEMENTS.md` appeared in the main checkout at 09:04 local, written by another session; left

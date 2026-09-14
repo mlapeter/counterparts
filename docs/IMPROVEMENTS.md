@@ -29,7 +29,7 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ## U12 — Developing in the shared checkout is deploying (2026-09-14)
 
-**Status:** built by the counterparts session (its evening PR 2, part D); incident I36 in
+**Status:** merged 2026-09-14 as master `a849696` (PR #108, part D: the checkout grade, the `adapter.checkout` row, the `adapter.checkout:off-master` split) and `tools/deploy-checkout.sh` (PR #105); incident I36 in
 `LAUNCH-STATUS.md`; this entry is the pointer.
 
 **Where.** `~/counterparts` is both the repository and the runtime: the Claude Code hooks
@@ -48,7 +48,7 @@ not on master or dirty), the SessionStart notice shows it, and one durable ids-o
 
 ## U11 — session_end refused a kind outside the enum with a bare "malformed" (2026-09-14)
 
-**Status:** built (branch `fix/wake-leftover-titles-label-and-enum`).
+**Status:** merged 2026-09-14 as master `1aed64c` (PR #104).
 
 **Observed.** An entry with `kind: "project"` came back `{stored: false, reason: "malformed"}`
 and nothing else; the author had to guess which field. Intake knew (`KIND_UNKNOWN`) and the
@@ -117,7 +117,7 @@ should count as one reinforced day on its birth day; today it does not.
 
 ## U9 — Sleep-cycle events live in an in-process ring and never reach the events table (2026-09-14)
 
-**Status:** open. Same shape as the I32 lesson (a gate that says no must leave a row).
+**Status:** merged 2026-09-14 as master `10abffb` (PR #100): one `sleep.cycle` row per cycle (phases named, throw rows carry the partial), one `self.briefing` row per wake render (and per rebrief); the daily reads both. Same shape as the I32 lesson (a gate that says no must leave a row).
 
 **Observed.** The `events` table holds no `sleep.*` rows at all, though
 `cycle.ts` emits `sleep.cycle.start`, `sleep.cycle.done`, `sleep.phase.failed`
@@ -135,7 +135,7 @@ summary row. One row per cycle with per-phase ok/failed is enough.
 
 ## U8 — Ranking cache and operational table disagree on band for ~870 memories (2026-09-14)
 
-**Status:** open. Unknown whether a bug or two deliberately different meanings.
+**Status:** merged 2026-09-14 as master `598d72d` (PR #106): the table follows physics — the decay phase writes `memories.band`/`band_day` back when the column disagrees, counted as `reconciled` on the `sleep.cycle` row; `verify` census `band of record: N disagree` (expect ~869 on the first live run, 0 after the first decay pass).
 
 **Observed.** `cache/cache.sqlite` `ranking` (written by the decay phase, day
 188) says 1,054 memories are semantic. `operational.sqlite` `memories.band` says
@@ -296,7 +296,7 @@ footnote in the same session, per footnote delivered.
 
 ## U4 — Wake memory count and recall `storeSize` differ by ~700 (2026-09-14)
 
-**Status:** open. Unknown whether stale or a different denominator.
+**Status:** merged 2026-09-14 as master `598d72d` (PR #106): a different denominator, not stale — the header counted `type: "memory"` live rows, recall's `storeSize` every live row incl. journal episodes and schema rows; the header now says "N memories of M live rows".
 
 **Observed.** Wake header: "14,002 memories — composed at the last boundary."
 Recall's `storeSize` in the same session: 14,701 on turn 3, 14,706 on turn 4.
@@ -319,7 +319,7 @@ stamping the header with the boundary time is the cheap fix.
 
 ## U3 — The "(ignorable)" footnote label: this session is a data point for OQ4 (2026-09-14)
 
-**Status:** built as a PROBE STEP (branch `fix/wake-leftover-titles-label-and-enum`), reversible by
+**Status:** merged 2026-09-14 as master `1aed64c` (PR #104) as a PROBE STEP, reversible by
 one string. `FRAMING.footnoteHeader` is now `FOOTNOTE_HEADER_STEP_1` ("…ignorable; expand an id with
 recall before citing one"); `FOOTNOTE_HEADER_STEP_0` is kept beside it. The metric lands in the same
 change: `src/core/recall/probe.ts` and `counterparts probe-oq4 --dir <store>` print, per calendar date,
@@ -370,7 +370,7 @@ third needs a transcript read. Run a few sessions on each string before ruling.
 
 ## U2 — Footnote titles are 80 bytes, and for migrated memories that cap is baked in (2026-09-14)
 
-**Status:** built (branch `fix/wake-leftover-titles-label-and-enum`): `FOOTNOTE_TITLE_BYTES` 80 → 150.
+**Status:** merged 2026-09-14 as master `1aed64c` (PR #104): `FOOTNOTE_TITLE_BYTES` 80 → 150.
 Migrated titles are stored at 80 characters and render as before, except those with a multi-byte
 character inside the 80 (clipped at 80 bytes until now), whose tail now renders; recall-bench numbers for them
 do not move; authored titles render whole, and the multi-byte-dash byte clip stops biting. The

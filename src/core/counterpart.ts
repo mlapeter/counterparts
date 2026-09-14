@@ -348,7 +348,7 @@ export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
  * checked out is what runs against the owner's memory — a peer session's
  * unmerged branch sitting in that tree was live for seven minutes before anyone
  * noticed. One ids-only row per session start (`reason`, branch, short sha,
- * count of tracked modifications), latched per date+head+dirty so a day on
+ * count of tracked modifications), latched per date+head+dirty+reason so a day on
  * master leaves ONE row and a day that wandered leaves one per state.
  *
  * Here for the same narrow reason the two spawn names are: the dashboard's
