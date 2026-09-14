@@ -631,8 +631,13 @@ export const WAKE_SYSTEM = "Counterparts";
  * preface's OWN cap, asserted by a test at the widest plausible day, date and
  * store size — one number, not a lane cap that can drift from what it bounds.
  * Structural, not tunable: the renderer must reserve exactly what delivery adds.
+ *
+ * Raised 128 → 160 on 2026-09-14 with U4's second number: the widest line is now
+ * 126 bytes (a six-digit day and a billion rows on both counts), and a cap two
+ * bytes above its own worst case is a cap that fails the first time the line
+ * gains a word.
  */
-export const PREFACE_RESERVE_BYTES = 128;
+export const PREFACE_RESERVE_BYTES = 160;
 
 export interface PrefaceFacts {
   /** Which memory system composed and is delivering this. */
@@ -641,8 +646,26 @@ export interface PrefaceFacts {
   readonly day: number;
   /** Today's calendar date as the HOST reports it. Absent ⇒ no date is stated. */
   readonly date?: string;
-  /** Live memories in the store AT DELIVERY, not at the render. */
+  /** Live memories in the store AT DELIVERY, not at the render:
+   *  `countMemories({ type: "memory", archived: false })`. */
   readonly memories: number;
+  /**
+   * EVERY live row at delivery — memories, journal episodes, beliefs and
+   * entities: `countMemories({ archived: false })` (IMPROVEMENTS U4).
+   *
+   * The header said "14,002 memories" while recall said "considered 41 of 14,701
+   * live rows" in the same session, and nothing on either surface said why the
+   * two differed by ~700. Both numbers were right and neither was labelled: the
+   * header counts `type: "memory"` rows, recall's `storeSize` is
+   * `list({ archived: false }).length`, the same WHERE minus the type clause, so
+   * the gap is exactly the live episodes and schema rows (superseded rows are
+   * `archived = 1` and are outside both). Stating both, in recall's own words —
+   * "live rows" — is what makes the model's two readings one vocabulary.
+   *
+   * Required, not optional: a line that sometimes carries the second number and
+   * sometimes does not is a line whose absence a reader has to interpret.
+   */
+  readonly liveRows: number;
 }
 
 /** Thousands, hand-rolled: `toLocaleString` varies with the runtime's ICU. */
@@ -656,10 +679,14 @@ export function groupDigits(n: number): string {
   return n < 0 ? `-${out}` : out;
 }
 
-/** One line, under `PREFACE_RESERVE_BYTES`, stating what the body cannot. */
+/** One line, under `PREFACE_RESERVE_BYTES`, stating what the body cannot — and
+ *  saying WHICH population each of its two counts is (U4). */
 export function prefaceLine(f: PrefaceFacts): string {
   const when = f.date === undefined ? `day ${f.day}` : `day ${f.day} (${f.date})`;
-  return `${f.system} memory, ${when}, ${groupDigits(f.memories)} memories — composed at the last boundary.`;
+  return (
+    `${f.system} memory, ${when}, ${groupDigits(f.memories)} memories of ` +
+    `${groupDigits(f.liveRows)} live rows — composed at the last boundary.`
+  );
 }
 
 export interface PrefacedBundle {

@@ -1950,12 +1950,46 @@ describe("wake: publish, deliver, reconcile", () => {
     expect(preface).toContain("2026-09-04");
     expect(preface).toContain(`day ${s.livedDay()}`);
     expect(preface).toContain(`${s.countMemories({ type: "memory", archived: false })} memories`);
+    // BOTH POPULATIONS, NAMED (U4). The header's own count is `type: "memory"`
+    // rows; recall's `storeSize` is every live row, the same filter without the
+    // type clause — so the line states that number too, in recall's own words,
+    // and a reader comparing the two surfaces is not left to guess at ~700.
+    expect(preface).toContain(`of ${s.countMemories({ archived: false })} live rows`);
     expect(byteLength(preface)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
     // The framing names the system in the BODY too, not only in the comment.
     expect(FRAMING.context).toContain(WAKE_SYSTEM);
 
     // Composed at delivery: the published row never learns about it.
     expect(s.getMeta(BRIEFING_KEY)).toBe(published.briefing.text);
+  });
+
+  test("the header's two counts are the WAKE's and RECALL's, and the journal explains the gap (U4)", () => {
+    const s = store();
+    identity(s, "The header has to say which population it counted.");
+    s.put({ type: "memory", kind: "fact", body: "An ordinary memory that is not an episode." });
+    // The two populations that live in the same table and are not memories:
+    // an episode (the journal — a SOURCE, outside every sleep phase) and a
+    // schema row (a belief or an entity). Both are live rows; neither is a
+    // memory, and the ~700 gap U4 found was exactly these.
+    s.put({ type: "episode", kind: "self", body: "What happened today, in the owner's voice." });
+    s.put({ type: "schema", kind: "entity", body: "Counterparts — the memory layer this store belongs to." });
+
+    const self = new Self({ store: s });
+    self.boundary({ budgetBytes: 8_000, day: 0 });
+    const preface = self.wake({ date: "2026-09-04" }).preface as string;
+
+    const memories = s.countMemories({ type: "memory", archived: false });
+    const liveRows = s.countMemories({ archived: false });
+    expect(memories).toBe(2);
+    expect(liveRows).toBe(4);
+    expect(preface).toContain("2 memories of 4 live rows");
+    // RECALL'S OWN DENOMINATOR, spelled the way `deliberate.ts` spells it. If
+    // these two ever diverge the header is quoting a number nobody else has.
+    expect(liveRows).toBe(s.list({ archived: false }).length);
+    // An archived row is outside BOTH counts — including a superseded one,
+    // which `supersede()` archives — so neither number silently includes it.
+    s.archive(s.list({ type: "memory", archived: false })[1] as string, "test");
+    expect(s.countMemories({ archived: false })).toBe(3);
   });
 
   test("a prefaced bundle states its OWN bytes at both ends, inside the reserve", () => {
@@ -1984,14 +2018,17 @@ describe("wake: publish, deliver, reconcile", () => {
       day: 999_999,
       date: "2026-09-04",
       memories: 999_999_999,
+      liveRows: 999_999_999,
     });
     expect(byteLength(worst)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
-    expect(worst).toContain("999,999,999 memories");
+    expect(worst).toContain("999,999,999 memories of 999,999,999 live rows");
     expect(groupDigits(15_409)).toBe("15,409");
     expect(groupDigits(0)).toBe("0");
     // No date reported by the host is a preface without one, never an invented
     // date and never a crash.
-    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2 })).toContain("day 1, 2 memories");
+    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, liveRows: 3 })).toContain(
+      "day 1, 2 memories of 3 live rows",
+    );
   });
 
   test("a DAMAGED bundle is delivered as found — a preface never rewrites a byte count", () => {

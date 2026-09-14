@@ -1000,7 +1000,7 @@ describe("the crash gate — only a crashed session's transcript is ever read", 
     expect(Object.keys(refusals).sort()).toEqual([...SWEEP_REASONS].sort());
     // TOTAL over the reports — the map accounts for the whole run, refusals and
     // sweeps alike, so `scopes` can be re-derived from it.
-    expect(Object.values(refusals).reduce((a, b) => a + b, 0)).toBe(row["scopes"]);
+    expect(Object.values(refusals).reduce((a, b) => a + b, 0)).toBe(row["scopes"] as number);
     expect(refusals["NO_CRASHED_SESSION"]).toBe(1);
     expect(refusals["SWEPT"]).toBe(0);
     // The quiet day the live run kept mistaking for a busy one: the old
