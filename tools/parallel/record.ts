@@ -884,11 +884,23 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   };
   const mutedAtStart = v1.mutedAtSessionStart.length;
   const v2SessionStarts = deliverHooks["session-start"] ?? 0;
-  // IS THE JOIN AVAILABLE AT ALL? Zero v2 rows for the date is a real answer —
-  // v2 spoke nowhere, so every muted session was silent. Rows that carry no
-  // `session` are NOT: that is a payload this instrument cannot join, and
-  // declaring silence from it would be inventing the very evidence the class
-  // is supposed to rest on. Unreadable counts are the same case.
+  // IS THE JOIN AVAILABLE AT ALL? The question is about the rows that are
+  // SUPPOSED to carry a session id — the per-session adapter records plus
+  // `recall.decision` and `recall.credit`, enumerated in
+  // `readers.ts#SESSION_BEARING_EVENTS`. None of them for this date is a real
+  // answer: there was nothing per-session to join, so nothing about a muted v1
+  // session is being smuggled past. Some of them and NO session id is the
+  // unavailable case: a payload this instrument cannot join, and declaring
+  // silence from it would invent the evidence the class rests on. Unreadable
+  // counts are the same case.
+  //
+  // WHY NOT EVERY ROW ON THE DATE (G47(b)). `sweep.gate`, `sleep.cycle` and
+  // `self.briefing` are WORKER rows and carry no session by design, so a day
+  // whose only v2 rows were the worker's read as join-unavailable — and the
+  // whole silent-session class went unmeasured on exactly the days v2 was
+  // quietest. The total is still reported below, because "how many v2 rows did
+  // this date hold" is what an operator reading the note wants to see.
+  //
   // ROWS, not counters: the reason splits (G47(a)) add a key BESIDE the total —
   // `sweep.gate:no-credential` sits next to `sweep.gate` and counts a subset of
   // the same rows — so summing every value double-counts every split row and
@@ -897,8 +909,9 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const v2DateRows = Object.entries(v2.byNameForDate)
     .filter(([name]) => !name.includes(":"))
     .reduce((n, [, x]) => n + x, 0);
+  const v2JoinableRows = v2.sessionBearingRowsForDate;
   const sessionsSeen = Object.keys(v2.bySessionForDate).length;
-  const joinAvailable = !v2Unreadable && (v2DateRows === 0 || sessionsSeen > 0);
+  const joinAvailable = !v2Unreadable && (v2JoinableRows === 0 || sessionsSeen > 0);
   const silentSessionIds = joinAvailable
     ? v1.mutedAtSessionStart.filter((session) => !spokeInto(session))
     : [];
@@ -1086,6 +1099,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     v2AskBoundaries,
     joinAvailable,
     v2DateRows,
+    v2JoinableRows,
   });
 
   // ── the created-vs-exited tally, per kind, per system ─────────────────────
@@ -1238,7 +1252,11 @@ interface WhyFacts {
   v2StopBoundaries: number;
   v2AskBoundaries: number;
   joinAvailable: boolean;
+  /** Every durable v2 row attributed to this date — the total an operator reads. */
   v2DateRows: number;
+  /** The subset of those from names that carry a session id, which is the only
+   *  population the per-session join can be performed over (G47(b)). */
+  v2JoinableRows: number;
 }
 
 function whyOf(cls: DayClass, f: WhyFacts): string {
@@ -1272,7 +1290,7 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
         `the primary (${f.boundaries.primary}) reached a boundary and the muted side graded ${f.boundaries.mutedGrade} (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s) (counted from ${f.turnSource}), at or above the committed floor of ${f.floor}` +
         (f.joinAvailable
           ? ""
-          : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2DateRows} v2 row(s) for this date, none carrying a session id), so this day is not evidence that nobody was left unspoken to`)
+          : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2JoinableRows} of ${f.v2DateRows} v2 row(s) for this date come from names that carry a session id, and none of them carried one), so this day is not evidence that nobody was left unspoken to`)
       );
   }
 }

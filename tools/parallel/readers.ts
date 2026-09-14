@@ -581,6 +581,35 @@ const REASON_SPLITS: Readonly<Record<string, readonly string[]>> = {
   "recall.credit": ["credited", "failed", "budget-exceeded"],
 };
 
+/**
+ * THE NAMES WHOSE PAYLOAD CARRIES A SESSION ID *and* a calendar date — the rows
+ * a per-session join for a date can actually be performed over (G47(b)).
+ *
+ * Read off the emit sites, not off the names: the adapter's records all go
+ * through `hooks.ts#record` / `#deliveryVerdict`, which stamp
+ * `{ ...data, date, session }` (hooks.ts:587 and :569); `recall.decision` puts
+ * `session: d.sessionId` in its payload beside `date`
+ * (`counterpart.ts#recallDecisionRecord`); `recall.credit` is written by
+ * `hooks.ts#creditAtBoundary` with both. Everything else in `DURABLE_DETECTORS`
+ * is a WORKER row and carries no session — `sweep.gate`, `sleep.cycle`,
+ * `self.briefing`, `band.transition`, `memory.pruned`, `memory.merged` — and
+ * `gate.chunk` carries a session but NO date, so it is never attributed to a
+ * date here at all.
+ */
+export const SESSION_BEARING_EVENTS: readonly string[] = [
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  "adapter.wake.injected",
+  "adapter.wake.delivered",
+  "adapter.recall",
+  "adapter.ask",
+  "adapter.episode.ask",
+  "adapter.authorship.ask",
+  "adapter.boundary",
+  RECALL_DECISION_EVENT,
+  "recall.credit",
+];
+
 /** The split keys one row contributes, beside its name. */
 function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   const out: string[] = [];
@@ -765,6 +794,7 @@ const EMPTY_V2 = (path: string): V2DayCounts => ({
   byNameForDate: {},
   primacyByHook: { deliver: {}, standdown: {} },
   bySessionForDate: {},
+  sessionBearingRowsForDate: 0,
   byNameForLivedDay: {},
   livedDayRead: null,
   nonDurable: [...NON_DURABLE_DETECTORS],
@@ -842,6 +872,7 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
     const deliver: Record<string, number> = {};
     const standdown: Record<string, number> = {};
     const bySessionForDate: Record<string, Record<string, number>> = {};
+    let sessionBearingRowsForDate = 0;
     const exitedRefs: { ref: string | null; name: string }[] = [];
 
     for (const row of events) {
@@ -859,6 +890,11 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       // it). So date attribution runs off the payload for those.
       if (payload["date"] === date) {
         bump(byNameForDate, row.name);
+        // Counted by NAME, not by "did this row happen to carry a session":
+        // the question downstream is whether rows that SHOULD carry one are
+        // present, so a row whose session field went missing has to raise the
+        // join's unavailability rather than quietly excuse it (G47(b)).
+        if (SESSION_BEARING_EVENTS.includes(row.name)) sessionBearingRowsForDate += 1;
         // Beside the total, never instead of it (G47(a)) — see `REASON_SPLITS`.
         for (const key of splitKeysOf(row.name, payload)) bump(byNameForDate, key);
         const hook = str(payload["hook"]) ?? "unknown";
@@ -972,6 +1008,7 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       byNameForDate,
       primacyByHook: { deliver, standdown },
       bySessionForDate,
+      sessionBearingRowsForDate,
       byNameForLivedDay,
       livedDayRead: livedDay,
       nonDurable: [...NON_DURABLE_DETECTORS],

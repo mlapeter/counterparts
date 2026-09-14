@@ -284,7 +284,13 @@ What the record names on its face rather than hiding:
   on its log lines — so a v1 session muted at start is silent when no v2
   *delivery* record names it. A stand-down is not speaking. Where v2's rows carry
   no session id at all the join is reported **UNAVAILABLE** rather than resolved
-  as silence.
+  as silence — but only rows from names that are *supposed* to carry one are
+  asked (`readers.ts#SESSION_BEARING_EVENTS`, counted as
+  `sessionBearingRowsForDate`). The worker's rows — `sweep.gate`, `sleep.cycle`,
+  `self.briefing` — carry no session by design, and counting them made the join
+  read unavailable on exactly the days v2 was quietest (G47(b), fixed
+  2026-09-14). The note still prints the date's total row count beside the
+  joinable one.
 - **v2's durable boundary evidence is the `stop` hook's primacy record and the
   episode-ask record.** `session-end` and `pre-compact` reach `claim()` but never
   `deliveryVerdict`, and their own `adapter.boundary` event is **ring-only** — it

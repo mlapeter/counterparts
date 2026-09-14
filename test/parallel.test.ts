@@ -2494,6 +2494,38 @@ describe("day classes", () => {
     expect(r.why).toContain("silent-session join was UNAVAILABLE");
   });
 
+  test("WORKER rows carry no session BY DESIGN, and do not make the join unavailable (G47(b))", () => {
+    const s = scene(3);
+    v1Muted(s);
+    // A day whose only v2 rows are the worker's: the sweep gate, the cycle and
+    // the wake render. None of them carries a session id, and none of them ever
+    // could — they are not per-session records. Counting them as "rows for this
+    // date with no session" made `joinAvailable` false, and the silent-session
+    // class went unmeasured on exactly the days v2 was quietest.
+    buildStore(s.v2Dir, (store) => {
+      store.appendEvent({
+        name: "sweep.gate",
+        day: 0,
+        payload: { reason: "ran", scopes: 2, ran: 0, date: DATE },
+      });
+      store.appendEvent({
+        name: "sleep.cycle",
+        day: 0,
+        payload: { reason: "ran", failed: 0, phases: [], date: DATE },
+      });
+      store.appendEvent({ name: "self.briefing", day: 0, payload: { bytes: 10, date: DATE } });
+    });
+
+    const r = classOf(s);
+    // The muted v1 session got no v2 delivery, and that IS knowable here.
+    expect(r.class).toBe("silent");
+    expect(r.why).not.toContain("silent-session join was UNAVAILABLE");
+    // The three rows are still counted; what changed is which of them the join's
+    // availability is asked about.
+    expect(r.v2.sessionBearingRowsForDate).toBe(0);
+    expect(Object.keys(r.v2.bySessionForDate).length).toBe(0);
+  });
+
   test("the unavailable-join NOTE counts ROWS, not counters — a reason split must not double one", () => {
     const s = scene(3);
     v1Muted(s);
