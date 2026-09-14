@@ -152,7 +152,11 @@ silent when the store has something from yesterday, with no new lane, no new fra
 no change to identity/craft/threads/horizon. What it costs: two tunables and one line in the
 self CONTRACT §3 ("hints — everything else warm enough, strongest first" becomes "…strongest
 first, with a recency floor"). What it does not do: reinforce anything (rendering never credits)
-or change the budget. Rejected alternative: a "Recently:" lane — it duplicates hints' role and
+or change the budget. Why the trim and not the floor: the ranking cache on day 188 held a
+three-day-old memory at 0.772, far above `WARM_FLOOR` 0.35, so recent memories do reach the
+hints pool; they are dropped because hints is the first lane `TRIM_ORDER` cuts and today's
+wake kept 1 of 8. A recency-first sort inside hints is the lever; a floor change is not.
+Rejected alternative: a "Recently:" lane — it duplicates hints' role and
 reintroduces the two-vocabulary problem NOTES §1 chose against.
 
 **Observed.** 171 memories were minted on days 186 and 187 (Sep 12 and 13),
@@ -296,8 +300,11 @@ one string. `FRAMING.footnoteHeader` is now `FOOTNOTE_HEADER_STEP_1` ("…ignora
 recall before citing one"); `FOOTNOTE_HEADER_STEP_0` is kept beside it. The metric lands in the same
 change: `src/core/recall/probe.ts` and `counterparts probe-oq4 --dir <store>` print, per calendar date,
 footnotes delivered vs. later expanded by id, from `recall.decision.footnotes[].id` and the new
-`recall.credit.expandedIds`. Step 0 ran live through 2026-09-14; the day of the restart is the
-before/after line. The owner rules on the reading.
+`recall.credit.expandedIds`. Step 0 ran live through 2026-09-14, with one leak: the branch was
+developed in the shared checkout, whose hooks are what every session runs, so step 1 was live
+from 16:51Z to 16:58Z (one boundary, zero expansions) before the checkout went back to master and
+the branch to a worktree. The step-1 side of the table starts at the merge. Baseline at 16:58Z:
+547 footnotes delivered since 2026-09-03, 0 ever expanded. The owner rules on the reading.
 
 **Where.** `src/core/recall/render.ts` `FRAMING.footnoteHeader`, currently
 `"Quietly available (ignorable):"`. The comment above it says the phrasing is a
