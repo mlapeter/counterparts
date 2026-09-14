@@ -27,6 +27,25 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ---
 
+## U12 — Developing in the shared checkout is deploying (2026-09-14)
+
+**Status:** built by the counterparts session (its evening PR 2, part D); incident I36 in
+`LAUNCH-STATUS.md`; this entry is the pointer.
+
+**Where.** `~/counterparts` is both the repository and the runtime: the Claude Code hooks
+are fresh processes at every boundary and run whatever that tree has checked out; the MCP
+server keeps the code it loaded, so sessions started during a window run it too.
+
+**Observed.** The branch for U2/U3/U11 was developed in the shared checkout. Its footnote
+header and the new `recall.credit.expandedIds` field were live for every session from
+16:51Z to 16:58Z on 2026-09-14: one boundary fired (another session's), nothing credited,
+nothing expanded. Zero physics effect; the class is the point. Nothing refused it.
+
+**Rule.** The shared checkout stays at `origin/master`; nobody develops in it; all work in
+`.claude/worktrees/`. **Mechanized** in PR 2: `doctor` gains a `checkout` finding (red when
+not on master or dirty), the SessionStart notice shows it, and one durable ids-only
+`adapter.checkout` row per SessionStart lets the daily grade it.
+
 ## U11 — session_end refused a kind outside the enum with a bare "malformed" (2026-09-14)
 
 **Status:** built (branch `fix/wake-leftover-titles-label-and-enum`).
