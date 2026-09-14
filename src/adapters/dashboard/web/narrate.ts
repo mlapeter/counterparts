@@ -228,6 +228,28 @@ export const NARRATORS = {
     amber(
       `My background worker opened the store and then failed at ${String(t.p["step"] ?? "an unnamed step")} (${String(t.p["code"] ?? "no code")}).`,
     ),
+  "recall.credit": (t) => {
+    const credited = n(t, "credited") ?? 0;
+    const expanded = n(t, "expanded") ?? 0;
+    const quoted = n(t, "quoted") ?? 0;
+    const reason = s(t, "reason");
+    if (reason === "failed") {
+      return amber(
+        `A session ended and I could not decide which memories its replies had used (${s(t, "code") ?? "no code"}); nothing was credited.`,
+      );
+    }
+    if (reason === "budget-exceeded") {
+      return amber(
+        `A session ended and I ran out of time deciding what its replies had used: ${credited} credited, ${n(t, "skippedForBudget") ?? 0} never compared.`,
+      );
+    }
+    if (credited > 0) {
+      return notable(
+        `A session ended and ${credited} ${credited === 1 ? "memory" : "memories"} it actually used got stronger (${expanded} expanded, ${quoted} quoted).`,
+      );
+    }
+    return calm("A session ended; its replies used nothing I had brought to mind, so nothing got stronger.");
+  },
   "sweep.gate": (t) => {
     const scopes = n(t, "scopes") ?? 0;
     const ran = n(t, "ran") ?? 0;
@@ -489,6 +511,7 @@ export const REF_KIND = {
   // BUNDLE. The ids they do carry (the trimmed elements) ride in the payload.
   "sleep.cycle": "none",
   "self.briefing": "none",
+  "recall.credit": "none",
 } as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
 
 function subjectOf(store: Store, row: EventRow): string | null {

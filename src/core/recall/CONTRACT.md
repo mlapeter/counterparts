@@ -103,7 +103,16 @@ reply actually used reconsolidates, where in humans every retrieval does.
   for an aggregation question. [v1 §9.1 G3]
 - **Reference resolution reads the assistant's turns only, uses no model and no file reads,
   and its bar is precision over recall** — a false "used" pollutes learning permanently while
-  a miss merely leaves weak credit. [v1 §9.2]
+  a miss merely leaves weak credit. [v1 §9.2] **Built 2026-09-14 (`reference.ts`, wired at
+  the session-ending boundary by the claude-code adapter), under the owner's rule of the same
+  day: a memory is credited when the assistant EXPANDED it through deliberate recall (`ids`
+  or `handle` on the tool call — the call is an assistant turn; ids are never parsed out of
+  prose) or QUOTED it at content level (eight consecutive words of the body, verbatim, in one
+  assistant turn; only a memory that surfaced LOUD is quotable, since a footnote showed the
+  model nothing but a title). Never for being named, surfaced, footnoted, or rendered in a
+  wake; the `surfaced` and `footnoted` use tiers stay unused by this consumer. Agreement is
+  not judged: a memory expanded and then argued with is credited. One durable row per
+  boundary, `recall.credit`, with a `reason` readers split on.**
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate, still-open probe question. [v1 §9 G17]
 - **A chapter is recallable and is LABELED, at every door.** An `epi_` row is the

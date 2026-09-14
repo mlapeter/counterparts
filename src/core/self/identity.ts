@@ -35,6 +35,25 @@ export interface Ranked {
   readonly bornDay: number;
   /** Threads only: person-scoped debts trim last (behavioral-spec §1 G4). */
   readonly personScoped: boolean;
+  /** Lived day this element last rendered in a wake; -1 never. Identity only. */
+  readonly lastRendered: number;
+}
+
+/**
+ * Meta key prefix for "this identity element last rendered on lived day N".
+ * Written by `Self.boundary` for the identity ids it KEPT (rendered, not
+ * merely ranked), read once per scan. The rotation below is the whole
+ * consumer.
+ */
+export const RENDERED_PREFIX = "self.rendered.";
+
+export function lastRenderedOf(store: Store): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, value] of store.metaWithPrefix(RENDERED_PREFIX)) {
+    const day = Number.parseInt(value, 10);
+    if (Number.isFinite(day)) out.set(key.slice(RENDERED_PREFIX.length), day);
+  }
+  return out;
 }
 
 export interface Scanned {
@@ -49,6 +68,7 @@ export interface Scanned {
    *  row whose provenance was never recorded. Carried here because the render
    *  dates a MIGRATED element differently — its encode date is an upper bound. */
   readonly source: string | null;
+  readonly lastRendered: number;
 }
 
 /**
@@ -57,6 +77,7 @@ export interface Scanned {
  */
 export function scanActive(store: Store, day: number): Scanned[] {
   const out: Scanned[] = [];
+  const rendered = lastRenderedOf(store);
   for (const id of store.list({ type: "memory", archived: false })) {
     const row = store.row(id);
     if (row === undefined) continue;
@@ -80,6 +101,7 @@ export function scanActive(store: Store, day: number): Scanned[] {
       strength: strength(physics, day),
       unresolved: doc.meta["unresolved"] === true,
       source: row.source,
+      lastRendered: rendered.get(id) ?? -1,
     });
   }
   return out;
@@ -89,6 +111,22 @@ function byStrength(a: Ranked, b: Ranked): number {
   if (b.strength !== a.strength) return b.strength - a.strength;
   if (a.bornDay !== b.bornDay) return a.bornDay - b.bornDay;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Identity ROTATES; it does not rank (CONTRACT §3: "re-inhabited, not
+ * retrieved — core memories are constitutive, not competed for in a ranker").
+ * Least-recently-rendered first, never-rendered ahead of everything, and only
+ * then strength, born-day, id. Measured 2026-09-14 on the owner's store
+ * (IMPROVEMENTS U6): eight identity elements tied at strength 1.0, the tie
+ * broke oldest-born-first, the three winners were the three written on
+ * migration day under a fresh clock, and 17 of 20 identity beliefs had never
+ * rendered. A strength sort with a smarter tie-break would rotate the eight;
+ * this rotates all of them.
+ */
+function byRotation(a: Ranked, b: Ranked): number {
+  if (a.lastRendered !== b.lastRendered) return a.lastRendered - b.lastRendered;
+  return byStrength(a, b);
 }
 
 /**
@@ -112,6 +150,7 @@ function rank(s: Scanned, lane: LaneName): Ranked {
     protected: s.physics.protected,
     bornDay: s.doc.bornDay,
     personScoped: s.kind === "person",
+    lastRendered: s.lastRendered,
   };
 }
 
@@ -126,8 +165,8 @@ export interface Lanes {
 /**
  * The contract's ordering, in one place:
  *
- *   identity — every identity-band memory, strongest first (ties: older first,
- *              then id). Protected elements are INCLUDED: §14.1 G2's no-render
+ *   identity — every identity-band memory, least-recently-rendered first
+ *              (`byRotation`); strength, born-day and id only break ties. Protected elements are INCLUDED: §14.1 G2's no-render
  *              rule guards the interpreter's schema slices — the falsification
  *              path — not the owner-facing wake (NOTES.md #2).
  *   craft    — skill-kind, not already in identity, above the warm floor. The
@@ -167,7 +206,7 @@ export function rankLanes(
     hints.push(rank(s, "hints"));
   }
 
-  identity.sort(byStrength);
+  identity.sort(byRotation);
   craft.sort(byStrength);
   threads.sort(byThreadAge);
   hints.sort(byStrength);

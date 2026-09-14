@@ -288,6 +288,24 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
       continue;
     }
 
+    // OWNER RULING 2026-09-14 (R1, review of #99): a merge is NOT engagement.
+    // A duplicate authored again bumps `uses` (the record of the re-encounter,
+    // as before) and never a reinforced day: promotion to identity stays gated
+    // on the assistant EXPANDING or QUOTING a memory (recall §9.2), and three
+    // near-duplicate deposits on three days must not walk a memory into
+    // identity with zero use. `credit` says so on the record, so the row
+    // cannot be read as a physics credit that was refused.
+    let credit = "not-applied";
+    if (ctx.apply) {
+      const originalRow = store.row(pair.originalId);
+      if (originalRow === undefined) {
+        countSkip(out, "already-archived");
+        continue;
+      }
+      const p = rowToPhysics(originalRow);
+      store.updatePhysics(pair.originalId, { uses: p.uses + verdict.effect.usesDelta });
+      credit = "uses-only";
+    }
     const record: MergeRecord = {
       event: "memory.merged",
       day,
@@ -295,13 +313,9 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
       originalId: pair.originalId,
       reason: verdict.reason,
       usesDelta: verdict.effect.usesDelta,
+      credit,
     };
     if (ctx.apply) {
-      const originalRow = store.row(pair.originalId);
-      if (originalRow === undefined) {
-        countSkip(out, "already-archived");
-        continue;
-      }
       // Record first, exactly as the prune does: a merge nobody could account
       // for afterwards is a silent loss of a memory's separate existence.
       store.setMeta(mergeRecordKey(pair.candidateId), JSON.stringify(record));
@@ -312,9 +326,8 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
         dedupKey: mergeRecordKey(pair.candidateId),
         payload: { ...record },
       });
-      const p = rowToPhysics(originalRow);
-      // The WHOLE effect of a merge. Never a rewrite, never a blend (§5.7).
-      store.updatePhysics(pair.originalId, { uses: p.uses + verdict.effect.usesDelta });
+      // The WHOLE effect of a merge: the `uses` bump above, and the candidate's
+      // exit. Never a rewrite, never a blend (§5.7).
       store.archive(pair.candidateId, MERGE_ARCHIVE_REASON);
     }
     live.delete(pair.candidateId);

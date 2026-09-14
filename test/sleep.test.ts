@@ -1507,13 +1507,21 @@ describe("dedup leaves a revision's successor alone", () => {
     // choice of original is the challenger and this test is not a coin flip.
     const twin = put(s, { id: "mem_ffffffffffff", body: BODY, physics: { birthDay: 1, lastUsedDay: 1 } });
     const usesBefore = s.physicsOf(challengerId).uses;
+    const daysBefore = s.physicsOf(challengerId).reinforcedDays ?? 0;
+    const lastUsedBefore = s.physicsOf(challengerId).lastUsedDay;
 
-    const out = runDedup(ctx(wrap(s), 1));
+    const out = runDedup(ctx(wrap(s), 2));
     expect(out.merged.map((m) => m.candidateId)).toEqual([twin]);
     expect(out.merged[0]?.originalId).toBe(challengerId);
     expect(out.merged[0]?.reason).toBe("identical-content-hash");
     expect(out.merged[0]?.usesDelta).toBe(1);
+    expect(out.merged[0]?.credit).toBe("uses-only");
     expect(s.physicsOf(challengerId).uses).toBe(usesBefore + 1);
+    // Owner ruling 2026-09-14 (R1): a merge is a re-encounter on the record,
+    // NOT engagement — no reinforced day, no last-used day. Promotion stays
+    // gated on the assistant expanding or quoting a memory (recall §9.2).
+    expect(s.physicsOf(challengerId).reinforcedDays ?? 0).toBe(daysBefore);
+    expect(s.physicsOf(challengerId).lastUsedDay).toBe(lastUsedBefore);
     expect(s.row(twin)?.archived).toBe(1);
     // The successor is a `sch_` row and never joins the group at all now; the
     // ordinary pair it used to sit beside merges exactly as before, which is

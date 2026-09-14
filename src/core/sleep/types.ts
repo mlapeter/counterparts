@@ -315,6 +315,13 @@ export interface MergeRecord {
   readonly originalId: string;
   readonly reason: string;
   readonly usesDelta: number;
+  /**
+   * What the merge did to the original's physics: `uses-only` (owner ruling
+   * 2026-09-14, R1 — a merge is a re-encounter on the record, not engagement,
+   * so it never counts a reinforced day and can never promote a memory by
+   * itself), or `not-applied` under observer.
+   */
+  readonly credit: string;
 }
 
 /**

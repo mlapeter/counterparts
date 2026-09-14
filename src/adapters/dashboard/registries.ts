@@ -38,6 +38,7 @@ import {
   GATE_DEPOSIT_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
+  RECALL_CREDIT_EVENT,
   RECALL_DECISION_EVENT,
   RECALL_DELIVERED_EVENT,
   RUNNER_FAILED_EVENT,
@@ -103,6 +104,7 @@ export type DurableEventName =
   | typeof SWEEP_GATE_EVENT
   | typeof SLEEP_CYCLE_EVENT
   | typeof SELF_BRIEFING_EVENT
+  | typeof RECALL_CREDIT_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -157,6 +159,7 @@ export const DURABLE_EVENTS = {
   // be answered from the store at all.
   "sleep.cycle": "the consolidation cycle ran (every phase by name, with its status, and the run's counts)",
   "self.briefing": "the wake briefing was re-rendered (what rendered per lane, and which elements the trim dropped)",
+  "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

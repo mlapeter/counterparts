@@ -351,6 +351,8 @@ export const EVENT_NODE = {
   // but what the row DESCRIBES is the bundle — what rendered, what was trimmed —
   // so it lights the node the owner will actually read it against.
   "self.briefing": "wake",
+  // Reference resolution: the boundary's credit decision (recall §9.2).
+  "recall.credit": "recall",
   // Retrieval: the decision, and the adapter's composed injection.
   "recall.decision": "recall",
   "adapter.recall": "recall",

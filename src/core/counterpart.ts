@@ -48,6 +48,8 @@ import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
 import { Prospective } from "./prospective/index.js";
 import { Recall, loadGateState, loadSessionSemantic, saveSessionSemantic } from "./recall/index.js";
+import { resolveReferences } from "./recall/reference.js";
+import type { ReferenceCandidate } from "./recall/reference.js";
 import type {
   CandidateVerdict,
   CreditResult,
@@ -302,9 +304,40 @@ export const SEMANTIC_LAG_EVENT = "adapter.semantic.lag";
  * — so the row is evidence that it happened and the counter is evidence of how
  * often (adapter `NOTES.md`, I32).
  */
+/**
+ * One row per session-ending boundary: what reference resolution (recall §9.2)
+ * decided and what physics did with it. `reason` is the split the daily's
+ * readers use — `credited` / `nothing-to-credit` / `no-candidates` /
+ * `budget-exceeded` / `failed` — so the `memory.reinforced` watch's fail → pass
+ * is readable from the store, not inferred. Ids only, never body text.
+ */
+export const RECALL_CREDIT_EVENT = "recall.credit";
 export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
+export interface CreditReferencesInput {
+  readonly assistantTurns: readonly string[];
+  readonly expansions: readonly string[];
+  readonly deadline?: number;
+  readonly now?: () => number;
+}
+
+export interface CreditSummary {
+  readonly reason: "credited" | "nothing-to-credit" | "no-candidates" | "budget-exceeded" | "failed";
+  readonly day: number;
+  readonly considered: number;
+  readonly expanded: number;
+  readonly quoted: number;
+  readonly credited: number;
+  readonly unresolvedHandles: number;
+  readonly skippedForBudget: number;
+  /** Loud candidates whose prose would not read. Counted, never silently skipped. */
+  readonly unreadable: number;
+  /** Refusals keyed by the physics `CreditReason` (or recall's own gate reason). */
+  readonly refused: Record<string, number>;
+  readonly ids: string[];
+}
+
 export type AdapterDurableEventName =
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -317,7 +350,8 @@ export type AdapterDurableEventName =
   | typeof SEMANTIC_LAG_EVENT
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
-  | typeof RUNNER_FAILED_EVENT;
+  | typeof RUNNER_FAILED_EVENT
+  | typeof RECALL_CREDIT_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
@@ -1249,6 +1283,126 @@ export class Counterpart {
    * fired together in one reply is buffered as co-activation, flushed at the
    * boundary. `associate/` refuses a set of fewer than two on its own terms.
    */
+  /**
+   * THE CREDIT SEAM, decided and applied in one call (recall §9.2; INTERFACE-GAPS
+   * §5, closed). Candidates are what this session surfaced LOUD — read from the
+   * gate state, bodies from prose — plus whatever the assistant expanded by id.
+   * Decision is `reference.ts` (pure); credit is `resolveUses` (the gate state's
+   * two refusals, then physics). Nothing here trains on a footnote, a wake line
+   * or a name in prose.
+   */
+  creditReferences(sessionId: string, input: CreditReferencesInput): CreditSummary {
+    const day = this.store.livedDay();
+    const now = input.now ?? Date.now;
+    const state = this.recall.gateState(sessionId);
+    const candidates: ReferenceCandidate[] = [];
+    let unreadable = 0;
+    let budgetExceeded = false;
+    // The prose reads are under the same deadline as the compare: a loud
+    // candidate never read is reported by the resolver as skipped-for-budget,
+    // not silently absent. (In practice the gate state's record cap bounds
+    // this loop, and loud surfacing is rare; the deadline is the tripwire.)
+    for (const [id, rec] of Object.entries(state.surfaced)) {
+      if (rec.tier !== "surfaced" || !rec.trains) continue;
+      if (input.deadline !== undefined && now() > input.deadline) {
+        budgetExceeded = true;
+        candidates.push({ id, tier: "surfaced", body: "" });
+        continue;
+      }
+      try {
+        candidates.push({ id, tier: "surfaced", body: this.store.readProse(id).body });
+      } catch {
+        unreadable += 1;
+      }
+    }
+    const refs = resolveReferences({
+      assistantTurns: input.assistantTurns,
+      expansions: input.expansions,
+      candidates,
+      ...(input.deadline === undefined ? {} : { deadline: input.deadline }),
+      ...(input.now === undefined ? {} : { now: input.now }),
+    });
+    // An expansion is an ADDRESS the assistant typed into a tool call, and a
+    // well-shaped address can still name nothing: a typo, or a memory removed
+    // since it was footnoted. Physics would throw on it (`requireRow`) and take
+    // the whole boundary's credit down as `failed` — the reason the daily's
+    // readers alarm on. A bad address is a refusal, counted, not a failure.
+    const refused: Record<string, number> = {};
+    const refuse = (why: string): void => {
+      refused[why] = (refused[why] ?? 0) + 1;
+    };
+    const uses = refs.uses.filter((u) => {
+      const row = this.store.row(u.memoryId);
+      if (row === undefined) {
+        refuse("unknown-id");
+        return false;
+      }
+      // `store.row` still answers for an archived row (merged, pruned): a
+      // stale footnote expanded after its memory left must not revive it.
+      if (row.archived === 1) {
+        refuse("archived");
+        return false;
+      }
+      return true;
+    });
+    // ONE USE AT A TIME, each inside its own try. `resolveUse` reaches physics
+    // through `requireRow`, which consults the deny-list `store.row` does not:
+    // an id at removal stage `dark` passes the filter above and throws REMOVED
+    // there. Before this, one throw mid-batch left earlier credits standing,
+    // later uses never attempted, coactivation never run, and the row reading
+    // `failed` for a boundary that half-succeeded (review of #99, finding 1).
+    // A throw is a refusal keyed by its code; the batch goes on.
+    const ids: string[] = [];
+    const coactivated: Credited[] = [];
+    let credited = 0;
+    for (const u of uses) {
+      try {
+        const r = this.resolveUse(sessionId, u.memoryId, "referenced");
+        if (r.credited) {
+          credited += 1;
+          ids.push(u.memoryId);
+          coactivated.push({ id: u.memoryId, tier: "referenced" });
+          continue;
+        }
+        // The physics enum where physics refused, recall's own reason
+        // otherwise — both are closed sets the daily can split on.
+        refuse(r.outcome?.reason ?? r.reason);
+      } catch (err) {
+        refuse(errCode(err));
+      }
+    }
+    if (coactivated.length > 0) this.associate.coactivate(coactivated);
+    const reason: CreditSummary["reason"] = refs.budgetExceeded || budgetExceeded
+      ? "budget-exceeded"
+      : credited > 0
+        ? "credited"
+        : candidates.length === 0 && refs.uses.length === 0
+          ? "no-candidates"
+          : "nothing-to-credit";
+    const summary: CreditSummary = {
+      reason,
+      day,
+      considered: refs.considered,
+      expanded: refs.expanded,
+      quoted: refs.quoted,
+      credited,
+      unresolvedHandles: refs.unresolvedHandles,
+      skippedForBudget: refs.skippedForBudget,
+      unreadable,
+      refused,
+      ids,
+    };
+    this.emit("counterpart.credit", sessionId, {
+      reason,
+      day,
+      considered: summary.considered,
+      expanded: summary.expanded,
+      quoted: summary.quoted,
+      credited,
+    });
+    return summary;
+  }
+
   resolveUses(
     sessionId: string,
     uses: readonly { memoryId: string; tier: UseTier }[],
@@ -1377,9 +1531,16 @@ export class Counterpart {
    * at the store's own seam, and a stand-down that threw would cost the boundary
    * that follows it.
    */
+  /**
+   * `data` is ids, counts, bytes, reasons, flags — and, since `recall.credit`,
+   * nested lists and maps of those. NEVER body text (store §5 G10). The type
+   * was a flat record until 2026-09-14 and that flatness was part of how G10
+   * was mechanized; it is now an instruction at this seam, so a caller adding a
+   * field here owes the same check the flat type used to make for free.
+   */
   noteAdapterEvent(
     name: AdapterDurableEventName,
-    data: Record<string, string | number | boolean | null>,
+    data: Record<string, unknown>,
     opts: { dedupKey?: string } = {},
   ): boolean {
     if (this.observer) {

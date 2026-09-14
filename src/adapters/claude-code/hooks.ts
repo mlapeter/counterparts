@@ -38,6 +38,7 @@ import {
   ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   Counterpart,
+  RECALL_CREDIT_EVENT,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DELIVERED_EVENT,
@@ -61,6 +62,7 @@ import type { CredentialLoad } from "./credentials.js";
 import { primacy } from "./primacy.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
+import type { Expansion } from "./transcript.js";
 
 /** Every hook this adapter installs, by the name it is wired under. */
 export const HOOKS = [
@@ -96,6 +98,8 @@ export interface HookInput {
   readonly scope: string;
   /** The transcript slice the host can see. The cursor decides what is new. */
   readonly turns?: readonly HostTurn[];
+  /** Deliberate-recall calls positioned against `turns` (`transcript.ts#Expansion`). */
+  readonly expansions?: readonly Expansion[];
   /** What the user typed this turn (`user-prompt-submit`). */
   readonly prompt?: string;
   /** The last line the host actually placed in context — delivery, not render. */
@@ -604,6 +608,9 @@ export class ClaudeCodeAdapter {
       scope: input.scope,
       kind: BOUNDARY_KIND[hook],
     });
+    // Reference resolution (recall §9.2) over the SAME slice capture just took:
+    // the cursor is the one authority on what is new, for credit as for spans.
+    this.creditAtBoundary(input, captured.cursorBefore, captured.cursorAfter);
     this.record(BOUNDARY_EVENT, input, {
       hook,
       kind: record.kind,
@@ -636,6 +643,84 @@ export class ClaudeCodeAdapter {
    *     second condition to a single ask.
    *   - **The re-fired Stop asks nothing and advances nothing.**
    */
+  /**
+   * THE CREDIT SEAM — the consumer recall INTERFACE-GAPS §5 said had no home.
+   *
+   * Assistant `conversation` turns and deliberate-recall calls from the new
+   * slice go to `Counterpart.creditReferences`, which decides (`reference.ts`)
+   * and credits (`resolveUses`). One durable row per boundary, `recall.credit`,
+   * with a `reason` the daily's readers split on: `credited` is the signal the
+   * `memory.reinforced` watch turns green on; `failed` and `budget-exceeded`
+   * are the ones to alarm on. A boundary that credits nothing still leaves its
+   * row (`nothing-to-credit` / `no-candidates`) — silence must never masquerade
+   * as health, and a seam that only wrote rows when it worked would be the ring
+   * this repo already learned from (I32).
+   *
+   * Never fails the boundary: telemetry may not fail the host (§1 G7), and a
+   * credit that could not be decided is a `failed` row, not a lost capture.
+   */
+  private creditAtBoundary(input: HookInput, from: number, to: number): void {
+    const started = this.nowFn();
+    // Read before the try: the failed row carries the day too.
+    const day = this.counterpart.store.livedDay();
+    const turns = input.turns ?? [];
+    const slice = turns.slice(Math.max(0, from), Math.max(from, to));
+    const assistantTurns = slice
+      .filter((t) => t.role === "assistant" && (t.source === undefined || t.source === "conversation"))
+      .map((t) => t.text);
+    // Half-open on the left: a call positioned AT `from` sat before the first
+    // new turn and belonged to the previous slice, which already judged it.
+    const expansions = (input.expansions ?? [])
+      .filter((e) => e.atTurn > from && e.atTurn <= to)
+      .flatMap((e) => [...e.ids]);
+    try {
+      const summary = this.counterpart.creditReferences(input.sessionId, {
+        assistantTurns,
+        expansions,
+        deadline: started + TUNABLES.CREDIT_BUDGET_MS,
+        now: this.nowFn,
+      });
+      this.emit(RECALL_CREDIT_EVENT, {
+        reason: summary.reason,
+        considered: summary.considered,
+        expanded: summary.expanded,
+        quoted: summary.quoted,
+        credited: summary.credited,
+        elapsedMs: this.nowFn() - started,
+      });
+      this.counterpart.noteAdapterEvent(RECALL_CREDIT_EVENT, {
+        reason: summary.reason,
+        session: input.sessionId,
+        date: input.at ?? null,
+        day: summary.day,
+        turns: assistantTurns.length,
+        considered: summary.considered,
+        expanded: summary.expanded,
+        quoted: summary.quoted,
+        credited: summary.credited,
+        unresolvedHandles: summary.unresolvedHandles,
+        skippedForBudget: summary.skippedForBudget,
+        unreadable: summary.unreadable,
+        refused: summary.refused,
+        ids: summary.ids.slice(0, 64),
+        idsTotal: summary.ids.length,
+        elapsedMs: this.nowFn() - started,
+      });
+    } catch (err) {
+      const code = codeOf(err);
+      this.emit(RECALL_CREDIT_EVENT, { reason: "failed", code });
+      this.counterpart.noteAdapterEvent(RECALL_CREDIT_EVENT, {
+        reason: "failed",
+        session: input.sessionId,
+        date: input.at ?? null,
+        day,
+        code,
+        turns: assistantTurns.length,
+        expansions: expansions.length,
+      });
+    }
+  }
+
   private askAtStop(input: HookInput): string | null {
     try {
       // The host's re-fire of a blocked Stop. Nothing is evaluated: no pacing
