@@ -1479,10 +1479,15 @@ both measured today:
    unmerged, for seven minutes. Physics effect: none. The MCP servers were NOT affected (a running server keeps the
    code it loaded; only a session started in the window would have). The probe aggregates by date, so 2026-09-14
    reads as step 0 with the leak named in the declaration.
-2. **17:00Z–17:30Z, and again until 18:29Z.** #104 merged at ~17:00Z while the shared tree sat detached at
-   `e0f4a34`; every boundary ran the previous commit until the peer moved it to `1aed64c` at 17:30Z. The same gap
-   reopened after #106 and #108 until the deploy step at 18:29Z. **A merge deploys nothing until the checkout
-   moves.**
+2. **17:14Z–17:30Z, and again 18:03Z–18:29Z.** #104 merged at 17:14:08Z while the shared tree sat detached at
+   `e0f4a34`; every boundary ran the previous commit until the peer moved it to `1aed64c` at ~17:30Z (sixteen
+   minutes). The same gap reopened when #106 merged at 18:03Z and closed at the deploy step at 18:29Z (#108 merged
+   at 18:28:49Z and was deployed within the same minute). **A merge deploys nothing until the checkout moves.**
+3. **~18:45Z, this session, two minutes.** Flipping IMPROVEMENTS statuses, this session edited
+   `docs/IMPROVEMENTS.md` in the shared checkout believing it untracked — it has been tracked since #104. The
+   tracked-dirty state lasted until the next command noticed it; the change was moved to a worktree branch (this
+   PR) and the file restored. A docs file changes nothing that runs, but the guard would have read it RED, which is
+   the guard working.
 
 The rule, both halves: the shared checkout stays at `origin/master` AND moves when master moves; nobody develops in
 it; all work in `.claude/worktrees/`. Mechanized in this batch: `tools/deploy-checkout.sh` (#105) is the move —
