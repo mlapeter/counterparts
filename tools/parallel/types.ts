@@ -383,6 +383,20 @@ export interface V2DayCounts {
    * difference of counts.
    */
   readonly bySessionForDate: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  /**
+   * Rows for this date from the names that are SUPPOSED to carry a session id
+   * (`readers.ts#SESSION_BEARING_EVENTS`) — the per-session adapter records plus
+   * `recall.decision` and `recall.credit`.
+   *
+   * It exists because `record.ts` asks one question of it: is the silent-session
+   * join available at all? "Some v2 row exists for this date" cannot answer that
+   * — `sweep.gate`, `sleep.cycle` and `self.briefing` are worker rows and carry
+   * no session by design, so a date holding only those would read as a join this
+   * instrument could not perform, and a real silent session would be reported as
+   * unmeasurable (G47(b)). This count is zero on such a date, which is the
+   * honest answer: there was nothing per-session to join in the first place.
+   */
+  readonly sessionBearingRowsForDate: number;
   /** Durable rows counted by the store's LIVED-day column, when one was given. */
   readonly byNameForLivedDay: Readonly<Record<string, number>>;
   readonly livedDayRead: number | null;

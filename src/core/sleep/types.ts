@@ -191,6 +191,14 @@ export interface PhaseReport {
    * arrears — the marker still advances, and tomorrow starts fresh.
    */
   readonly skippedForBudget: number;
+  /**
+   * Rows whose canonical column this phase reconciled with the arithmetic —
+   * present on the decay phase (U8) and absent everywhere else. It is counted
+   * into `changed` (a reconciled row IS a row the phase acted on) and reported
+   * separately, because "869 rows the table had wrong" and "869 rows that
+   * crossed a band" are different facts (scar §2.4).
+   */
+  readonly reconciled?: number;
   readonly markerBefore: number;
   readonly markerAfter: number;
   /** Machine-readable failure code. Present only when `status === "failed"`. */
@@ -451,6 +459,15 @@ export interface PhaseOutcome {
   skipped: Record<string, number>;
   budgetExhausted: boolean;
   skippedForBudget: number;
+  /**
+   * OPTIONAL, and only the decay phase sets it: rows whose CANONICAL column the
+   * phase brought back to the arithmetic, as opposed to items it acted on
+   * (`changed`). It rides the outcome rather than the phase's own result type
+   * because `runPhase` is what writes the report, and a number that never
+   * reaches the report reaches nothing durable either — which was exactly U8's
+   * defect (`decay.ts#DecayResult.bandsReconciled`).
+   */
+  reconciled?: number;
 }
 
 export function emptyOutcome(): PhaseOutcome {

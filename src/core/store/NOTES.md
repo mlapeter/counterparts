@@ -780,3 +780,61 @@ numbers add up wherever a person actually reads them.
 (with `%` and `_` escaped — callers pass a key prefix, not a pattern) instead of
 one `getMeta` per live memory. `sleep.pruned.<id>` has the same shape and the
 same potential reader.
+
+## `memories.band` is the band of record, and decay keeps it true (U8, 2026-09-14)
+
+**What the column meant until now, in practice: nothing anybody could trust.**
+Every row is inserted `episodic` (`insertOne`, `input.band ?? "episodic"`);
+`setBand` was called from exactly one place, `sleep/consolidate.ts` at the
+identity crossing. Nothing ever wrote `semantic`. On the live store that read
+`1,054` semantic rows in the ranking cache against `185` in the table, all of
+them stamped `band_day = 184` — the one day a promotion ever fired — and 869 live
+rows semantic in box 3 and episodic in box 2 at the same instant.
+
+**The ruling: the table follows physics.** `sleep/decay.ts` now writes a row's
+band back to `memories.band` / `band_day` whenever the column disagrees with
+`band(m, d)`, in the same pass that emits the `band.transition` rows — so the
+canonical column cannot contradict the crossing records the system publishes
+about it. The reasoning, and why this is not the materialize-decay churn v2
+declined, is in `sleep/NOTES.md` §5.
+
+**Who reads the column, as of this PR** — enumerated, because changing what a
+column means is only safe if the readers are known:
+
+| reader | reads | effect of the change |
+| --- | --- | --- |
+| `self/identity.ts` (`list({ band: "identity" })`, `row.band !== "identity"`) | the identity band, as a set | none: `band()` answers `identity` only for a `promotedIdentity` row, which `consolidate` already stamped, and identity is decay-exempt |
+| `adapters/mcp/server.ts` `status.byBand` | the column, directly | **fixed**: it stops reporting a fossil |
+| `adapters/cli/commands.ts` `status` | computes the band from physics and says so in a comment | none; the workaround is now redundant rather than wrong |
+| `adapters/dashboard/` (`browse.ts`, `status.ts`, `web/views.ts`) | computes live, shows the recorded column beside it | none; `recorded` now agrees after a pass |
+| `schemas/` | reads `band`, writes none (§4 of its CONTRACT; source scan) | none |
+| `sleep/consolidate.ts` | `rowToPhysics`, never `band` | none — promotion never gated on the column |
+| `revision.ts:310` | **GATES**: `row.band === "identity" \|\| target.promotedIdentity` routes a declaration to the identity arm | none in the losing direction — see the argument below |
+| `store/owner-op-seam.ts:213` → `self/identity.ts:388` | **GATES**: the removal tombstone captures `row.band` at chase time, and the enumeration lists a removed element as an identity absence on `gone.wasPromotedIdentity \|\| gone.band === "identity"` | none in the losing direction — see the argument below |
+
+**Two of them GATE, and the reconciliation is safe for both.** An earlier
+statement of this change said none of the readers gated on the column; that was
+wrong, and the two above are why the enumeration is worth keeping. Both are ORs
+with `promoted_identity`, and `band()` returns `identity` **iff**
+`promotedIdentity` — it is the first line of the function, before any arithmetic
+(`physics/index.ts`). So for a live row the reconciliation can only write the
+column INTO identity (a promoted row whose column had not caught up), never out
+of it, and a gate that fires on `band === "identity"` can only gain rows it
+should already have had. The single path that writes `identity` into the column
+without the flag is migration — `tools/migrate/plan.ts` hands a v1 trace above
+the identity gradient cut `bandOf()` identity while `promotedIdentity` stays
+false when v1 itself had retired the trace — and such a row is written ARCHIVED,
+which the decay pass skips outright. Only the owner-op `unarchiveMerged` door
+could put one back in front of the pass, and there the correction is the point:
+an un-merged row whose column claims identity it was never promoted to is
+exactly a column denying the arithmetic.
+
+**`band_day` means "the lived day the column was last brought to physics."** It
+has never been a crossing record: the latched `band.transition` row is, and it is
+the one a reader should join on. The first pass after this ships stamps the whole
+backlog with one day, which is the honest reading of what happened — the column
+was reconciled that day.
+
+**Checked, not believed:** `counterparts verify` counts live non-journal rows
+whose column disagrees with box 3 (`cli/commands.ts#bandOfRecordCensus`), and it
+is 0 after a decay pass that its budget did not cut short.

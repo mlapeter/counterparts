@@ -11,9 +11,14 @@
  *
  *   - **A replayed day is a no-op BY CONSTRUCTION** (§4, owner rescope 1), not by
  *     a per-item stamp. Same state, same day ⇒ same number ⇒ the same row.
- *   - **Canonical state is untouched by decay.** No `uses`, no band column in
- *     box 2, no prose. A decay pass that mutated canonical state would be v1's
- *     materialize-decay churn, which v2 got as an open choice and declined.
+ *   - **Canonical state takes no decay STEP.** No `uses`, no prose, and no
+ *     strength anywhere but here. A decay pass that materialized strength into
+ *     canonical state would be v1's materialize-decay churn, which v2 got as an
+ *     open choice and declined. *(Amended 2026-09-14, U8: the box-2 `band`
+ *     column is reconciled by the same pass — it is the band of record, and a
+ *     table that contradicted the cache was reported as fact by the `status`
+ *     tool for 869 rows. One UPDATE per disagreeing row, never a strength
+ *     write; `sleep/NOTES.md` §5.)*
  *
  * **SEAMS item J closed 2026-08-25:** `Store` now owns a `ranking` table inside
  * `cache/cache.sqlite`, and `storeRankingCache()` below is the shipped default —

@@ -2,14 +2,28 @@
  * The decay tick — synaptic downscaling, as a cache refresh.
  *
  * What this phase does: recompute `strength(m, d)` and `band(m, d)` for every
- * live memory and materialize the result into the ranking cache (box 3).
+ * live memory and materialize the result into the ranking cache (box 3) — and,
+ * since 2026-09-14, write each row's band back to the box-2 `band` column when
+ * the column disagrees with the arithmetic.
  *
- * What it does NOT do, and cannot: touch canonical state. Strength is a pure
- * function of stored state and the lived day, so there is no "step" to apply and
- * nothing to double-apply. `uses`, `lastUsedDay`, the box-2 band column, and the
- * prose are all untouched. v1 materialized decay into canonical files (~1.9K
- * file writes a day); v2 received that as an open choice with the evidence
- * attached (behavioral-spec §11) and declined it.
+ * What it does NOT do, and cannot: apply a decay STEP to canonical state.
+ * Strength is a pure function of stored state and the lived day, so there is no
+ * "step" to apply and nothing to double-apply. `uses`, `lastUsedDay` and the
+ * prose are untouched. v1 materialized decay into canonical files (~1.9K file
+ * writes a day); v2 received that as an open choice with the evidence attached
+ * (behavioral-spec §11) and declined it, and still declines it.
+ *
+ * THE BAND COLUMN IS THE ONE EXCEPTION, and it is a reconciliation rather than a
+ * materialization (IMPROVEMENTS U8, 2026-09-14). `band(m, d)` is the same pure
+ * function either way; the column existed as a fossil — episodic at mint,
+ * identity at promotion, and never "semantic" — so on the live store 869 rows
+ * were semantic in the cache and episodic in the table, and every surface that
+ * read the column (the `status` tool's `byBand`) reported a number the system
+ * itself did not believe. A pass that EMITS `band.transition` rows and leaves
+ * the table contradicting them is a pass that lies in two places at once
+ * (constitution 16). So: one UPDATE per row whose column is wrong, never a
+ * strength write, never a row that already agrees — a caught-up store writes a
+ * handful a day, and a replayed day writes nothing at all. See `NOTES.md` §5.
  *
  * THE SKIP LIST IS BEHAVIOR, and each skip is reported separately (§3, v1 §11
  * G5). Note what "skipped" means here: because the recompute is arithmetic, an
@@ -81,6 +95,20 @@ export interface DecayResult extends PhaseOutcome {
    * decision anybody makes: it is the arithmetic falling back under `THETA_SEM`.
    */
   transitions: readonly BandTransition[];
+  /**
+   * Rows whose box-2 `band` column disagreed with `band(m, d)` and was brought
+   * to it this pass (U8). It is a RECONCILIATION count, not a crossing count:
+   * `transitions` is the crossing record and is read off the cache diff, while
+   * this is "how many rows did the table have wrong". On a caught-up store it is
+   * the same handful as the crossings; the first pass after this shipped carries
+   * the whole backlog, which is the number worth seeing once.
+   *
+   * It is ALSO `PhaseOutcome.reconciled`, which is how it reaches the phase
+   * report and the durable `sleep.cycle` row; this field is the name the phase's
+   * own callers already use. Counted under observer too — only the write is
+   * gated on `apply`.
+   */
+  bandsReconciled: number;
 }
 
 export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResult {
@@ -92,6 +120,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   const prior = cache === null ? new Map<string, StrengthRow>() : cache.readAll();
   const written: StrengthRow[] = [];
   const transitions: BandTransition[] = [];
+  let bandsReconciled = 0;
   const ids = store.list();
 
   let index = 0;
@@ -130,13 +159,40 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     if (p.lastUsedDay === day) countSkip(out, "reinforced-today");
     if (s < PHYSICS.PHI_PRUNE) countSkip(out, "at-floor");
 
+    // THE BAND OF RECORD (U8), and why it is here rather than inside the
+    // `moved` branch below. `moved` is a question about the CACHE — has this row
+    // changed since its last reading — and a row whose cache was right all along
+    // while the table was wrong answers "no" forever. Asking the column directly
+    // is what makes the reconciliation total: after a pass that was not cut
+    // short by the budget, no live non-journal row's column contradicts the
+    // arithmetic, which is exactly what `counterparts verify` now counts.
+    //
+    // THE COUNT IS NOT GATED ON `apply`, only the WRITE is. `PhaseCtx.apply`'s
+    // contract is that the read-only path walks the identical code and computes
+    // the identical verdicts — it simply never reaches a write — and
+    // `sleep.observer.report`'s `would` rides on that. Counting inside the
+    // `apply` branch made an observer report 0 disagreements on a store with
+    // 869 of them, which is the one number an instrument exists to print.
+    const wrong = row.band !== b;
+    if (wrong) {
+      bandsReconciled += 1;
+      if (ctx.apply) store.setBand(id, b, day);
+    }
+
     const was = prior.get(id);
     const moved =
       was === undefined ||
       was.band !== b ||
       Math.abs(was.strength - s) >= TUNABLES.DECAY_QUANTUM;
     if (!moved) {
-      countSkip(out, "unchanged");
+      // A ROW THE PASS ACTED ON IS NOT AN UNCHANGED ROW, even when the cache had
+      // nothing to say about it. On the exact U8 shape — the column wrong and
+      // the ranking cache already right — `moved` is false for every row, and
+      // counting those as `unchanged` is what made `runCycle` issue 869 UPDATEs
+      // and then file the phase as `ran-nothing-found` / `nothing-to-do`. Either
+      // or, never both: the row is counted once, in the category that is true.
+      if (wrong) out.changed += 1;
+      else countSkip(out, "unchanged");
       continue;
     }
     // A CROSSING, not a first reading. `was === undefined` is the cache filling
@@ -164,13 +220,18 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     ctx.step("item", { index, id });
   }
 
-  if (ctx.apply && cache !== null && written.length > 0) {
-    cache.write(written);
+  // A PASS THAT ONLY RECONCILED STILL DID SOMETHING. The old guard asked the
+  // cache alone, so the U8 catch-up — 869 columns rewritten, no strength row
+  // moved — left no ring event at all, and the one pass worth watching was the
+  // one the log could not see.
+  if (ctx.apply && cache !== null && (written.length > 0 || bandsReconciled > 0)) {
+    if (written.length > 0) cache.write(written);
     ctx.event("sleep.decay.materialized", undefined, {
       rows: written.length,
       examined: out.examined,
+      bandsReconciled,
       day,
     });
   }
-  return { ...out, written, transitions };
+  return { ...out, reconciled: bandsReconciled, written, transitions, bandsReconciled };
 }

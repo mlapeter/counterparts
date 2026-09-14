@@ -475,6 +475,10 @@ export class Self {
             day: this.store.livedDay(),
             ...(delivery.date === undefined ? {} : { date: delivery.date }),
             memories: this.store.countMemories({ type: "memory", archived: false }),
+            // THE SECOND NUMBER, and it is recall's own denominator (U4): the
+            // same filter minus the type clause, so "live rows" here and
+            // `storeSize` there cannot mean two things.
+            liveRows: this.store.countMemories({ archived: false }),
           });
     const delivered = preface === null ? null : applyPreface(raw, preface);
     this.emit("self.wake", undefined, {

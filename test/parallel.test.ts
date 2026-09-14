@@ -1116,6 +1116,72 @@ describe("the v2 store reader", () => {
     expect(Object.values(day.byNameForDate).reduce((n, x) => n + x, 0)).toBe(5);
   });
 
+  test("sweep.gate:refused splits on the REASON MAP, and a pre-G48 row raises nothing", () => {
+    const data = dir("v2");
+    const quiet = { NO_CRASHED_SESSION: 5, NOTHING_TO_SWEEP: 2, NOTHING_UNCLAIMED: 0, BELOW_MIN_CLAIM: 0, IO_FAILED: 0, OBSERVER: 0, SWEPT: 0 };
+    buildStore(data, (s) => {
+      // An ordinary day: seven scopes refused, every one of them quiet. The
+      // reading G48 replaced — `otherRefusals` — would have read 2 here and
+      // called it a bad day.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: { reason: "ran", scopes: 7, ran: 0, otherRefusals: 2, refusals: quiet, date: "2026-09-14" },
+      });
+      // One scope whose claim the filesystem refused: never a normal day, not
+      // even once, so this is the row that raises the split.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: {
+          reason: "ran",
+          scopes: 7,
+          ran: 0,
+          otherRefusals: 3,
+          refusals: { ...quiet, NOTHING_TO_SWEEP: 1, IO_FAILED: 1 },
+          date: "2026-09-14",
+        },
+      });
+      // And one whose buffer never reaches its minimum. It raises NOTHING here:
+      // the leftover is restored and the crashed session is never forgotten, so
+      // the refusal repeats for good, and a day counter that took it would read
+      // "refused" every day forever — the false signal G48 was filed about,
+      // wearing a new name. `chronicCandidates` on the row is where it lives.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: {
+          reason: "ran",
+          scopes: 7,
+          ran: 0,
+          otherRefusals: 3,
+          chronicCandidates: 1,
+          refusals: { ...quiet, NOTHING_TO_SWEEP: 1, BELOW_MIN_CLAIM: 1 },
+          date: "2026-09-14",
+        },
+      });
+      // A row written BEFORE the map existed. Its `otherRefusals` cannot tell a
+      // stuck buffer from a retired crashed session, so it contributes nothing:
+      // counting it would rebuild exactly the false signal G48 was filed about.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: { reason: "ran", scopes: 7, ran: 0, otherRefusals: 6, date: "2026-09-14" },
+      });
+    });
+
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sweep.gate"]).toBe(4);
+    // ONE of the four: the IO_FAILED row. Not the quiet one, not the
+    // BELOW_MIN_CLAIM one, and not the pre-G48 one.
+    expect(day.byNameForDate["sweep.gate:refused"]).toBe(1);
+    // Beside the total, never instead of it: the row count still reads 4.
+    const rows = Object.entries(day.byNameForDate)
+      .filter(([name]) => !name.includes(":"))
+      .reduce((n, [, x]) => n + x, 0);
+    expect(rows).toBe(4);
+  });
+
   test("sleep.cycle:failed splits on the COUNT, not the reason — a degraded cycle still reads `ran`", () => {
     const data = dir("v2");
     buildStore(data, (s) => {
@@ -2446,6 +2512,38 @@ describe("day classes", () => {
     const r = classOf(s);
     expect(r.flags).not.toContain("silent");
     expect(r.why).toContain("silent-session join was UNAVAILABLE");
+  });
+
+  test("WORKER rows carry no session BY DESIGN, and do not make the join unavailable (G47(b))", () => {
+    const s = scene(3);
+    v1Muted(s);
+    // A day whose only v2 rows are the worker's: the sweep gate, the cycle and
+    // the wake render. None of them carries a session id, and none of them ever
+    // could — they are not per-session records. Counting them as "rows for this
+    // date with no session" made `joinAvailable` false, and the silent-session
+    // class went unmeasured on exactly the days v2 was quietest.
+    buildStore(s.v2Dir, (store) => {
+      store.appendEvent({
+        name: "sweep.gate",
+        day: 0,
+        payload: { reason: "ran", scopes: 2, ran: 0, date: DATE },
+      });
+      store.appendEvent({
+        name: "sleep.cycle",
+        day: 0,
+        payload: { reason: "ran", failed: 0, phases: [], date: DATE },
+      });
+      store.appendEvent({ name: "self.briefing", day: 0, payload: { bytes: 10, date: DATE } });
+    });
+
+    const r = classOf(s);
+    // The muted v1 session got no v2 delivery, and that IS knowable here.
+    expect(r.class).toBe("silent");
+    expect(r.why).not.toContain("silent-session join was UNAVAILABLE");
+    // The three rows are still counted; what changed is which of them the join's
+    // availability is asked about.
+    expect(r.v2.sessionBearingRowsForDate).toBe(0);
+    expect(Object.keys(r.v2.bySessionForDate).length).toBe(0);
   });
 
   test("the unavailable-join NOTE counts ROWS, not counters — a reason split must not double one", () => {

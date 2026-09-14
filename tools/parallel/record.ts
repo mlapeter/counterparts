@@ -884,11 +884,33 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   };
   const mutedAtStart = v1.mutedAtSessionStart.length;
   const v2SessionStarts = deliverHooks["session-start"] ?? 0;
-  // IS THE JOIN AVAILABLE AT ALL? Zero v2 rows for the date is a real answer —
-  // v2 spoke nowhere, so every muted session was silent. Rows that carry no
-  // `session` are NOT: that is a payload this instrument cannot join, and
-  // declaring silence from it would be inventing the very evidence the class
-  // is supposed to rest on. Unreadable counts are the same case.
+  // IS THE JOIN AVAILABLE AT ALL? The question is about the rows that are
+  // SUPPOSED to carry a session id — the per-session adapter records plus
+  // `recall.decision` and `recall.credit`, enumerated in
+  // `readers.ts#SESSION_BEARING_EVENTS`. None of them for this date is a real
+  // answer: there was nothing per-session to join, so nothing about a muted v1
+  // session is being smuggled past. Some of them and NO session id is the
+  // unavailable case: a payload this instrument cannot join, and declaring
+  // silence from it would invent the evidence the class rests on. Unreadable
+  // counts are the same case.
+  //
+  // THE "NONE OF THEM" CASE IS TWO CASES, and the note below says which. Either
+  // this date has no v2 rows at all (nothing ran), or it has only WORKER rows —
+  // `sweep.gate`, `sleep.cycle`, `self.briefing`, which carry no session by
+  // design. Both make the join vacuously available and therefore score every
+  // muted v1 session as silent: a date with three muted sessions and nothing but
+  // worker rows reads `silentSessions: 3`. That is deliberate — nobody spoke
+  // into those sessions, and the worker rows are not a voice — but it is a
+  // reading an operator should be able to tell apart from a join over real
+  // per-session evidence, so the flag note names the basis.
+  //
+  // WHY NOT EVERY ROW ON THE DATE (G47(b)). `sweep.gate`, `sleep.cycle` and
+  // `self.briefing` are WORKER rows and carry no session by design, so a day
+  // whose only v2 rows were the worker's read as join-unavailable — and the
+  // whole silent-session class went unmeasured on exactly the days v2 was
+  // quietest. The total is still reported below, because "how many v2 rows did
+  // this date hold" is what an operator reading the note wants to see.
+  //
   // ROWS, not counters: the reason splits (G47(a)) add a key BESIDE the total —
   // `sweep.gate:no-credential` sits next to `sweep.gate` and counts a subset of
   // the same rows — so summing every value double-counts every split row and
@@ -897,8 +919,9 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   const v2DateRows = Object.entries(v2.byNameForDate)
     .filter(([name]) => !name.includes(":"))
     .reduce((n, [, x]) => n + x, 0);
+  const v2JoinableRows = v2.sessionBearingRowsForDate;
   const sessionsSeen = Object.keys(v2.bySessionForDate).length;
-  const joinAvailable = !v2Unreadable && (v2DateRows === 0 || sessionsSeen > 0);
+  const joinAvailable = !v2Unreadable && (v2JoinableRows === 0 || sessionsSeen > 0);
   const silentSessionIds = joinAvailable
     ? v1.mutedAtSessionStart.filter((session) => !spokeInto(session))
     : [];
@@ -1086,6 +1109,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
     v2AskBoundaries,
     joinAvailable,
     v2DateRows,
+    v2JoinableRows,
   });
 
   // ── the created-vs-exited tally, per kind, per system ─────────────────────
@@ -1238,7 +1262,11 @@ interface WhyFacts {
   v2StopBoundaries: number;
   v2AskBoundaries: number;
   joinAvailable: boolean;
+  /** Every durable v2 row attributed to this date — the total an operator reads. */
   v2DateRows: number;
+  /** The subset of those from names that carry a session id, which is the only
+   *  population the per-session join can be performed over (G47(b)). */
+  v2JoinableRows: number;
 }
 
 function whyOf(cls: DayClass, f: WhyFacts): string {
@@ -1251,8 +1279,21 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
       return f.v1Contaminated
         ? "the MUTED v1 side emitted a wake, an inject-phase surface decision, or an episode ask (§5 G4)"
         : "the MUTED v2 side recorded a durable adapter.primacy.deliver or delivery record (§5 G4)";
-    case "silent":
-      return `${f.mutedAtStart} v1 session(s) were muted at session start and ${f.silentSessions} of them carry NO v2 delivery record for that same session id — nobody spoke into them. The state G4 cannot see by counting extra voices, so it is counted by its absence. PER-SESSION JOIN: v2's durable adapter payloads carry \`session\`, the host session id v1 stamps too, so this is a join rather than a difference of counts. A stand-down is not speaking.`;
+    case "silent": {
+      // WHICH JOIN THIS WAS. `v2JoinableRows === 0` means no v2 row for the date
+      // carries a session id at all, and that splits in two: no v2 rows
+      // whatsoever, or worker rows only (`sweep.gate`, `sleep.cycle`,
+      // `self.briefing` carry no session by design, G47(b)). Both score every
+      // muted session silent, correctly, and neither is a join over per-session
+      // evidence — so the note says so rather than letting the two read alike.
+      const basis =
+        f.v2JoinableRows > 0
+          ? `PER-SESSION JOIN: v2's durable adapter payloads carry \`session\`, the host session id v1 stamps too, so this is a join rather than a difference of counts (${f.v2JoinableRows} of ${f.v2DateRows} v2 row(s) for this date carry one).`
+          : f.v2DateRows === 0
+            ? "NO JOIN WAS NEEDED: v2 left no durable row for this date at all, so there was nothing per-session to join and every muted session is silent by absence."
+            : `NO JOIN WAS NEEDED: all ${f.v2DateRows} v2 row(s) for this date are WORKER rows (sweep.gate, sleep.cycle, self.briefing), which carry no session by design, so there was nothing per-session to join and every muted session is silent by absence.`;
+      return `${f.mutedAtStart} v1 session(s) were muted at session start and ${f.silentSessions} of them carry NO v2 delivery record for that same session id — nobody spoke into them. The state G4 cannot see by counting extra voices, so it is counted by its absence. ${basis} A stand-down is not speaking.`;
+    }
     case "thin":
       if (f.bothReachedBoundary) {
         return `${f.turns} conversational turn(s) (counted from ${f.turnSource}) is below the committed floor of ${f.floor}`;
@@ -1272,7 +1313,7 @@ function whyOf(cls: DayClass, f: WhyFacts): string {
         `the primary (${f.boundaries.primary}) reached a boundary and the muted side graded ${f.boundaries.mutedGrade} (v2 by ${f.v2StopBoundaries} stop-hook primacy record(s) and ${f.v2AskBoundaries} episode-ask record(s)) and the day carried ${f.turns} turn(s) (counted from ${f.turnSource}), at or above the committed floor of ${f.floor}` +
         (f.joinAvailable
           ? ""
-          : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2DateRows} v2 row(s) for this date, none carrying a session id), so this day is not evidence that nobody was left unspoken to`)
+          : ` — NOTE: the silent-session join was UNAVAILABLE (${f.v2JoinableRows} of ${f.v2DateRows} v2 row(s) for this date come from names that carry a session id, and none of them carried one), so this day is not evidence that nobody was left unspoken to`)
       );
   }
 }

@@ -312,3 +312,59 @@ name was the second, explicitly deferred half of cli/INTERFACE-GAPS §9.
 forgetting — decay, interference, failure to consolidate. It is the one
 operation biological memory has no counterpart for: excision on demand. That is
 why it is a seam nobody can reach by accident rather than a phase of sleep.
+
+## 15. 2026-09-14 — `crashedSessions()` still never forgets, and that is the answer to G48
+
+**The finding.** A session leaves the crashed set only by ending normally, which
+a crashed session by definition never does. So once a scope has been swept and
+retired, `crashedSessions()` keeps naming its session forever, `crashedPending()`
+finds no spans behind it, and the sweep answers `NOTHING_TO_SWEEP` on that scope
+every day for the life of the store. On the live run that was 5–7 scopes a day,
+counted into the gate row's `otherRefusals` under a comment claiming a nonzero
+count "is NOT a quiet day".
+
+**What was considered.** Dropping a session from the crashed set once all of its
+spans are consumed — a `retired` marker, or a set filtered by "still holds spans
+in the buffer or a claim file".
+
+**What was done instead: the reading was fixed, not the mechanism.** Three
+reasons, in order of weight:
+
+1. **The mechanism is already correct and the row was the thing lying.**
+   `crashedPending()` returns `spans: 0` for a retired session, so it costs no
+   rename, no claim, no restore and above all no model call — the gate is doing
+   exactly what the 2026-09-04 ruling asked. What was wrong is that a *reporting*
+   counter folded that answer in with `BELOW_MIN_CLAIM` and `IO_FAILED`. The gate
+   row now counts every reason by name, so the daily reads 7 quiet refusals
+   instead of an ambiguous 7. The division is THREE-WAY, not two —
+   `QUIET_SWEEP_REASONS`, `NOISY_NOW_SWEEP_REASONS` (`IO_FAILED`, `OBSERVER`)
+   and `NOISY_IF_CHRONIC_SWEEP_REASONS` (`BELOW_MIN_CLAIM`) — because the same
+   never-forgetting that made `NOTHING_TO_SWEEP` permanent makes
+   `BELOW_MIN_CLAIM` permanent too: a crashed session whose leftover is under
+   `MIN_CLAIM_BYTES` has it restored to the buffer (`spans.ts#claim`) and is
+   never forgotten, so that scope refuses the same way on every run for good.
+   The first cut of this row ambered the dashboard on the first one, which would
+   have left one 200-byte leftover ambering it forever — the same shape of false
+   signal, one reason further along. `noisyRefusals` counts the reasons that can
+   never be a normal day even once; `chronicCandidates` counts the one that is
+   only worth reading as a RUN, which needs a reader holding several days of
+   rows (`tools/parallel/`), not the one-row dashboard or daily.
+2. **Forgetting would erase a distinction the gate deliberately keeps.**
+   "Nothing crashed here" and "a crashed session left nothing behind" are two
+   different facts, kept apart on purpose (§2.4 and the comment at the gate). A
+   retired session that stopped being crashed would answer `NO_CRASHED_SESSION`
+   — which is *not* what happened, and the day a crashed session's spans go
+   missing for some other reason is the day that difference matters.
+3. **Forgetting needs new durable state, which is complexity bought in
+   anticipation.** "All its spans are consumed" is not readable from the
+   boundaries file; it needs either a per-session retired marker (a new record
+   whose own staleness is a new failure mode) or a span scan folded into a
+   function whose callers expect it to be cheap. Amendment 15: the simplest rule
+   that could work has not yet failed — the set's only cost is that
+   `crashedPending()` walks a scope's spans, which it does anyway.
+
+**Left open, and named rather than closed:** G48's other half — `buffer.jsonl`
+for a normally-ended session is never swept (by design) and has no prune path,
+so it only grows (131 KB in the counterparts scope on 2026-09-14). That is a
+retention question for the buffer, not a gate question, and nothing here touches
+it.

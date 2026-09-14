@@ -961,11 +961,15 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
       if (row.type === "schema") schemas += 1;
       else memories += 1;
       byKind[row.kind] = (byKind[row.kind] ?? 0) + 1;
-      // THE LIVE BAND, computed, never the stored column. `memories.band` is a
-      // birth fossil — episodic at mint, identity at promotion, and never
-      // "semantic" — so reading it reported `episodic 128 / semantic 0` where
-      // the dashboard, which does this arithmetic, reported `54 / 74`
-      // (LAUNCH-STATUS §I10). Same helper, same day, same answer.
+      // THE LIVE BAND, computed, never the stored column. Until 2026-09-14
+      // `memories.band` was a birth fossil — episodic at mint, identity at
+      // promotion, and never "semantic" — so reading it reported
+      // `episodic 128 / semantic 0` where the dashboard, which does this
+      // arithmetic, reported `54 / 74` (LAUNCH-STATUS §I10). Same helper, same
+      // day, same answer. The column is now reconciled by the decay pass (U8,
+      // `sleep/decay.ts`), so it agrees after a boundary — and this stays
+      // computed anyway, because it must be right BEFORE the first boundary of
+      // the day and on a store whose last pass hit its budget.
       let liveBand: Band = row.band;
       try {
         liveBand = band(store.physicsOf(id), day);
@@ -1529,6 +1533,81 @@ interface CacheCensus {
   readonly why: string | null;
 }
 
+/**
+ * THE BAND OF RECORD, RECONCILED (IMPROVEMENTS U8, 2026-09-14).
+ *
+ * `memories.band` is canonical and the ranking cache's `band` is derived, and
+ * until this PR nothing kept them together: the decay phase wrote its reading
+ * into box 3 alone, so on the live store 869 rows were semantic in the cache and
+ * episodic in the table while the same pass emitted `band.transition` rows
+ * saying they had moved. The ruling is that the TABLE FOLLOWS PHYSICS —
+ * `sleep/decay.ts` now writes each row's band back when the column disagrees —
+ * and this census is how that is checked rather than believed.
+ *
+ * THREE NUMBERS, because they are three different facts (scar §2.4):
+ *   - `rows`      — live, non-journal rows: the population the column describes.
+ *     The journal is not a memory and never earns a band (`sleep/types.ts`), and
+ *     an archived or superseded row is deliberately outside box 3.
+ *   - `disagree`  — the column contradicts the cache. After a decay pass that was
+ *     not cut short by its budget (`sleep/tunables.ts` `BUDGETS.decay`, 20,000
+ *     examined rows) this is 0, and a non-zero number means either no pass has
+ *     run since this shipped or the store is larger than one pass and is still
+ *     catching up, a budget's worth a day.
+ *   - `unranked`  — live rows box 3 has never seen. Not a disagreement: there is
+ *     nothing to disagree with. "Born since the last pass" is the ordinary
+ *     cause and NOT the only one — `verify --rebuild` drops the `ranking` table
+ *     with the rest of box 3 (`store/cache.ts#resetCache`) and repopulates only
+ *     the index, so straight after a rebuild this reads EVERY live row until the
+ *     next decay pass; a decay phase killed mid-body (`CycleKilled`, the
+ *     watchdog) leaves everything it had not reached unranked the same way.
+ */
+interface BandOfRecordCensus {
+  readonly rows: number;
+  readonly disagree: number;
+  readonly unranked: number;
+}
+
+function bandOfRecordCensus(store: Store): BandOfRecordCensus {
+  const ranking = store.rankingAll();
+  const denied = new Set(store.deniedIds());
+  let rows = 0;
+  let disagree = 0;
+  let unranked = 0;
+  for (const id of store.list({ archived: false })) {
+    if (denied.has(id)) continue;
+    const row = store.row(id);
+    if (row === undefined || isJournal(row)) continue;
+    rows += 1;
+    const ranked = ranking.get(id);
+    if (ranked === undefined) unranked += 1;
+    else if (ranked.band !== row.band) disagree += 1;
+  }
+  return { rows, disagree, unranked };
+}
+
+function bandOfRecordLines(c: BandOfRecordCensus): string[] {
+  const out = [
+    `  band of record: ${c.disagree} of ${c.rows} live rows disagree with the ranking cache` +
+      `   (${c.unranked} not yet ranked)`,
+  ];
+  if (c.disagree > 0) {
+    out.push(
+      "    The decay phase writes each band move back to `memories.band` (U8), so a pass that",
+      "    its budget did not cut short leaves 0 here. A number that survives several boundaries",
+      "    means no boundary has run since this store was built — or that the pass is truncating.",
+    );
+  }
+  if (c.unranked > 0) {
+    out.push(
+      "    Unranked rows are rows box 3 has not read yet: ones born since the last decay pass,",
+      "    everything after a `verify --rebuild` (the rebuild drops the ranking table and does not",
+      "    refill it), and whatever a decay phase killed mid-body never reached. The next boundary",
+      "    ranks them; a count that survives one is a decay phase that is not finishing.",
+    );
+  }
+  return out;
+}
+
 function censusCache(dir: string): CacheCensus {
   const path = paths.cache(dir);
   if (!existsSync(path)) return { path, present: false, counts: null, why: "never built" };
@@ -1773,6 +1852,7 @@ function verifyCensus(dir: string, io: Io): number {
   let pathsCensus: ReturnType<Store["pathCensus"]>;
   let schemaVersion: string | null;
   let log: EventLogCensus;
+  let bands: BandOfRecordCensus;
   try {
     canonical = store.list();
     // What the INDEX is supposed to cover, since I13: the live rows. An
@@ -1788,6 +1868,7 @@ function verifyCensus(dir: string, io: Io): number {
     pathsCensus = store.pathCensus();
     schemaVersion = store.getMeta("schemaVersion") ?? null;
     log = store.eventLogCensus();
+    bands = bandOfRecordCensus(store);
   } finally {
     store.close();
   }
@@ -1863,6 +1944,7 @@ function verifyCensus(dir: string, io: Io): number {
       `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
   );
   io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
+  for (const line of bandOfRecordLines(bands)) io.out(line);
   if (skippedVectors.length > 0) {
     io.out(`  skipped after repeated embed failures: ${skippedVectors.length}`);
     io.out(`    ${skippedVectors.join(", ")}`);

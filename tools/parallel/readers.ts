@@ -53,7 +53,9 @@ import {
   RECALL_DECISION_EVENT,
   SELF_BRIEFING_EVENT,
   SLEEP_CYCLE_EVENT,
+  SWEEP_GATE_EVENT,
 } from "../../src/core/counterpart.js";
+import { NOISY_NOW_SWEEP_REASONS } from "../../src/core/remember/index.js";
 import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
@@ -529,7 +531,7 @@ export const DURABLE_DETECTORS: readonly string[] = [
   // only sweeps that READ something, and after the crash-fallback ruling the
   // ordinary day has none — so without this row a healthy quiet sweep and a
   // dead worker produce the same zero on the daily.
-  "sweep.gate",
+  SWEEP_GATE_EVENT,
   "band.transition",
   // The two U9 rows (2026-09-14). Until they existed, the whole sleep cycle and
   // the whole wake render lived in a ring that died with the worker, and the
@@ -579,6 +581,35 @@ const REASON_SPLITS: Readonly<Record<string, readonly string[]>> = {
   "recall.credit": ["credited", "failed", "budget-exceeded"],
 };
 
+/**
+ * THE NAMES WHOSE PAYLOAD CARRIES A SESSION ID *and* a calendar date — the rows
+ * a per-session join for a date can actually be performed over (G47(b)).
+ *
+ * Read off the emit sites, not off the names: the adapter's records all go
+ * through `hooks.ts#record` / `#deliveryVerdict`, which stamp
+ * `{ ...data, date, session }` (hooks.ts:587 and :569); `recall.decision` puts
+ * `session: d.sessionId` in its payload beside `date`
+ * (`counterpart.ts#recallDecisionRecord`); `recall.credit` is written by
+ * `hooks.ts#creditAtBoundary` with both. Everything else in `DURABLE_DETECTORS`
+ * is a WORKER row and carries no session — `sweep.gate`, `sleep.cycle`,
+ * `self.briefing`, `band.transition`, `memory.pruned`, `memory.merged` — and
+ * `gate.chunk` carries a session but NO date, so it is never attributed to a
+ * date here at all.
+ */
+export const SESSION_BEARING_EVENTS: readonly string[] = [
+  PRIMACY_DELIVER_EVENT,
+  PRIMACY_STANDDOWN_EVENT,
+  "adapter.wake.injected",
+  "adapter.wake.delivered",
+  "adapter.recall",
+  "adapter.ask",
+  "adapter.episode.ask",
+  "adapter.authorship.ask",
+  "adapter.boundary",
+  RECALL_DECISION_EVENT,
+  "recall.credit",
+];
+
 /** The split keys one row contributes, beside its name. */
 function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   const out: string[] = [];
@@ -586,6 +617,33 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   const reasons = REASON_SPLITS[name];
   if (reasons !== undefined && reason !== null && reasons.includes(reason)) {
     out.push(`${name}:${reason}`);
+  }
+  // `sweep.gate:refused` is the SECOND split that is not a reason lookup (G48).
+  // The gate row's own `reason` is `ran` on every ordinary day; what divides a
+  // quiet run from one worth reading is INSIDE it, in the per-reason `refusals`
+  // map: `NO_CRASHED_SESSION` / `NOTHING_TO_SWEEP` / `NOTHING_UNCLAIMED` are the
+  // gate working, while `IO_FAILED` and `OBSERVER` are a filesystem that refused
+  // a claim and a stance mismatch — neither of which can be a normal day even
+  // once. `BELOW_MIN_CLAIM` is deliberately NOT here: it is permanent by
+  // construction (a small crashed leftover is restored to the buffer and the
+  // session is never forgotten), so a day counter that included it would read
+  // "refused" on every day for good — the same false signal G48 was filed
+  // about, in a new column. It reaches the daily as the row's own
+  // `chronicCandidates`, where a series can say whether it is chronic. The list
+  // is imported from the core so this reader cannot hold a stale copy. A row
+  // written before the map existed contributes nothing here: `otherRefusals`
+  // read 5-7 every day (a retired crashed session answers `NOTHING_TO_SWEEP`
+  // forever), so counting it would reproduce that signal too.
+  if (name === SWEEP_GATE_EVENT) {
+    const refusals = asRecord(payload["refusals"]);
+    const noisy =
+      refusals === null
+        ? 0
+        : NOISY_NOW_SWEEP_REASONS.reduce((sum, r) => {
+            const x = refusals[r];
+            return sum + (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0);
+          }, 0);
+    if (noisy > 0) out.push(`${name}:refused`);
   }
   // `sleep.cycle:failed` is the ONE SPLIT THAT IS NOT A REASON LOOKUP, because
   // a bad night reaches the row three different ways: a cycle that ran end to
@@ -741,6 +799,7 @@ const EMPTY_V2 = (path: string): V2DayCounts => ({
   byNameForDate: {},
   primacyByHook: { deliver: {}, standdown: {} },
   bySessionForDate: {},
+  sessionBearingRowsForDate: 0,
   byNameForLivedDay: {},
   livedDayRead: null,
   nonDurable: [...NON_DURABLE_DETECTORS],
@@ -818,6 +877,7 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
     const deliver: Record<string, number> = {};
     const standdown: Record<string, number> = {};
     const bySessionForDate: Record<string, Record<string, number>> = {};
+    let sessionBearingRowsForDate = 0;
     const exitedRefs: { ref: string | null; name: string }[] = [];
 
     for (const row of events) {
@@ -835,6 +895,11 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       // it). So date attribution runs off the payload for those.
       if (payload["date"] === date) {
         bump(byNameForDate, row.name);
+        // Counted by NAME, not by "did this row happen to carry a session":
+        // the question downstream is whether rows that SHOULD carry one are
+        // present, so a row whose session field went missing has to raise the
+        // join's unavailability rather than quietly excuse it (G47(b)).
+        if (SESSION_BEARING_EVENTS.includes(row.name)) sessionBearingRowsForDate += 1;
         // Beside the total, never instead of it (G47(a)) — see `REASON_SPLITS`.
         for (const key of splitKeysOf(row.name, payload)) bump(byNameForDate, key);
         const hook = str(payload["hook"]) ?? "unknown";
@@ -948,6 +1013,7 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       byNameForDate,
       primacyByHook: { deliver, standdown },
       bySessionForDate,
+      sessionBearingRowsForDate,
       byNameForLivedDay,
       livedDayRead: livedDay,
       nonDurable: [...NON_DURABLE_DETECTORS],

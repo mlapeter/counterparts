@@ -383,7 +383,9 @@ describe("the decay tick", () => {
     expect(row?.band).toBe(band(p, 5));
     expect(row?.day).toBe(5);
     // Not one canonical field moved: strength is a pure function, so there is
-    // no step to apply and nothing to write back.
+    // no step to apply and nothing to write back. The `band` COLUMN is the one
+    // exception the pass may touch (U8, tested below) — this row's column and
+    // its arithmetic already agree, so there is nothing to reconcile either.
     expect(JSON.stringify(s.row(id))).toBe(before);
   });
 
@@ -430,6 +432,117 @@ describe("the decay tick", () => {
     // far less than DECAY_QUANTUM, so the row is left alone.
     expect(after.changed).toBe(0);
     expect(after.skipped["unchanged"]).toBe(1);
+  });
+
+  // ── the band of record (IMPROVEMENTS U8) ──────────────────────────────────
+  test("the box-2 band column FOLLOWS PHYSICS: the pass writes back what it reads", () => {
+    const events: StoreEvent[] = [];
+    const s = store({ onEvent: (e) => events.push(e) });
+    // Strong enough to be semantic on day 5, and minted `episodic` like every
+    // row: exactly the 869-row shape the live store was found in (U8).
+    const id = put(s, {
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      physics: { lastUsedDay: 5, uses: 3 },
+    });
+    expect(s.row(id)?.band).toBe("episodic");
+    expect(band(rowToPhysics(s.row(id)!), 5)).toBe("semantic");
+
+    const cache = memoryStrengthCache();
+    const first = runDecay(ctx(wrap(s), 5), cache);
+
+    expect(first.bandsReconciled).toBe(1);
+    expect(s.row(id)?.band).toBe("semantic");
+    // `band_day` is the day the column was brought to physics, not a crossing.
+    expect(s.row(id)?.band_day).toBe(5);
+    // The cache and the table now say the same thing — the U8 invariant.
+    expect(cache.rows.get(id)?.band).toBe("semantic");
+
+    // A REPLAYED DAY WRITES NOTHING: same state, same day, same answer, and the
+    // column already agrees, so there is no second UPDATE.
+    const before = events.filter((e) => e.name === "store.band").length;
+    const second = runDecay(ctx(wrap(s), 5), cache);
+    expect(second.bandsReconciled).toBe(0);
+    expect(events.filter((e) => e.name === "store.band").length).toBe(before);
+  });
+
+  test("a DEMOTION reaches the table too, and the table agrees with the transition it emits", () => {
+    const s = store();
+    const id = put(s, {
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      physics: { lastUsedDay: 5, uses: 3 },
+    });
+    const cache = memoryStrengthCache();
+    runDecay(ctx(wrap(s), 5), cache);
+    expect(s.row(id)?.band).toBe("semantic");
+
+    // Three hundred lived days later the same row is under THETA_SEM, which is
+    // the only way a semantic→episodic move ever happens (nobody decides it).
+    const later = runDecay(ctx(wrap(s), 305), cache);
+    const moved = later.transitions.filter((t) => t.id === id);
+    expect(moved.length).toBe(1);
+    expect(moved[0]?.from).toBe("semantic");
+    expect(moved[0]?.to).toBe("episodic");
+    expect(moved[0]?.direction).toBe("down");
+    // THE POINT: the column says what the transition says. Before U8 the pass
+    // emitted the row and left the table denying it.
+    expect(s.row(id)?.band).toBe(moved[0]?.to);
+    expect(s.row(id)?.band_day).toBe(305);
+    expect(later.bandsReconciled).toBe(1);
+  });
+
+  test("an OBSERVER pass counts the disagreement and writes no column", () => {
+    const s = store();
+    const id = put(s, {
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      physics: { lastUsedDay: 5, uses: 3 },
+    });
+    const observed = runDecay(ctx(wrap(s), 5, { apply: false }), memoryStrengthCache());
+    // THE COUNT IS THE POINT. `PhaseCtx.apply` promises the read-only path
+    // computes the identical verdicts and only skips the write, and
+    // `sleep.observer.report`'s `would` rides on that — an instrument that
+    // reported 0 disagreements on a store full of them would be worse than none.
+    expect(observed.bandsReconciled).toBe(1);
+    expect(observed.reconciled).toBe(1);
+    // And not one column moved.
+    expect(s.row(id)?.band).toBe("episodic");
+    expect(s.row(id)?.band_day).toBe(0);
+  });
+
+  test("a pass that ONLY reconciles is `ran`, says how many, and leaves a ring event", () => {
+    // The exact U8 shape: the ranking cache already right, the column wrong, so
+    // `moved` is false for every row and the old pass filed 869 UPDATEs as
+    // `ran-nothing-found` / `nothing-to-do`. Three rows here; the live store's
+    // number was 869.
+    const s = store();
+    const ids = [0, 1, 2].map(() =>
+      put(s, {
+        salience: { relevance: 1, emotional: 1, predictive: 1 },
+        physics: { lastUsedDay: 5, uses: 3 },
+      }),
+    );
+    const cache = memoryStrengthCache();
+    // Pass one brings both boxes to physics.
+    runDecay(ctx(wrap(s), 5), cache);
+    for (const id of ids) expect(s.row(id)?.band).toBe("semantic");
+    // Now put the COLUMN back where U8 found it, leaving the cache correct.
+    for (const id of ids) s.setBand(id, "episodic", 5);
+
+    const ring: string[] = [];
+    const again = runDecay(
+      ctx(wrap(s), 5, { event: (name) => ring.push(name) }),
+      cache,
+    );
+    expect(again.bandsReconciled).toBe(3);
+    expect(again.written.length).toBe(0);
+    // `changed` is rows ACTED ON, so the phase can no longer report a pass that
+    // rewrote every column as a pass that found nothing.
+    expect(again.changed).toBe(3);
+    expect(again.reconciled).toBe(3);
+    // Counted once, in the category that is true: not also `unchanged`.
+    expect(again.skipped["unchanged"] ?? 0).toBe(0);
+    // The ring event the old `written.length === 0` guard skipped.
+    expect(ring).toContain("sleep.decay.materialized");
+    for (const id of ids) expect(s.row(id)?.band).toBe("semantic");
   });
 
   test("the shipped ranking cache is box 3 and is opened LAZILY", () => {

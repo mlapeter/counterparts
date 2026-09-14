@@ -31,6 +31,10 @@
  * (scar §2.17), and `test/dashboard-web.test.ts` asserts the same property at
  * runtime for anyone reading the test instead of the type.
  */
+import {
+  NOISY_IF_CHRONIC_SWEEP_REASONS,
+  NOISY_NOW_SWEEP_REASONS,
+} from "../../../core/remember/index.js";
 import { BAND_TRANSITION_FIELDS } from "../../../core/sleep/index.js";
 import type { EventRow, Store } from "../../../core/store/index.js";
 import { num } from "../layout.js";
@@ -60,6 +64,18 @@ type Teller = (t: Told) => Narration;
 const calm = (text: string): Narration => ({ text, tone: "calm" });
 const notable = (text: string): Narration => ({ text, tone: "notable" });
 const amber = (text: string): Narration => ({ text, tone: "amber" });
+
+/** The gate row's per-reason map (G48), or `null` for a row written before it
+ *  existed — an absence this file must never read as a pile of zeros. */
+function refusalsOf(t: Told): Record<string, number> | null {
+  const v = t.p["refusals"];
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const out: Record<string, number> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof x === "number" && Number.isFinite(x)) out[k] = x;
+  }
+  return out;
+}
 
 function n(t: Told, key: string): number | null {
   const v = t.p[key];
@@ -256,6 +272,34 @@ export const NARRATORS = {
     const skipped = n(t, "skippedNotCrashed") ?? 0;
     const quarantined = n(t, "quarantined") ?? 0;
     const swept = n(t, "swept") ?? 0;
+    // THE REFUSALS WORTH A LOOK (G48). Read from the per-reason map, and NEVER
+    // from `otherRefusals`: that counter reads 5-7 on an ordinary day, because a
+    // session stays in the crashed set after it is retired and its scope answers
+    // `NOTHING_TO_SWEEP` for good. A row written before this shipped carries no
+    // map and gets no amber it cannot support — the old number could not tell a
+    // stuck buffer from a quiet one, so neither can a reader of it.
+    //
+    // AND THE AMBER IS ONLY THE FIRST HALF (M3). `BELOW_MIN_CLAIM` is permanent
+    // by construction — a crashed session's leftover under `MIN_CLAIM_BYTES` is
+    // restored to the buffer and the session is never forgotten, so the same
+    // scope refuses that way on every run for good. This narrator holds ONE row
+    // and cannot tell a first refusal from a thousandth, so ambering on it made
+    // one 200-byte leftover an amber dashboard forever. It is named instead, in
+    // the ordinary line, and the alarm is kept for the reasons that cannot be a
+    // normal day even once: IO_FAILED and OBSERVER.
+    const refusals = refusalsOf(t);
+    const sum = (rs: readonly string[]): number =>
+      refusals === null ? 0 : rs.reduce((acc, r) => acc + (refusals[r] ?? 0), 0);
+    const noisy = sum(NOISY_NOW_SWEEP_REASONS);
+    // Derived from the MAP, not from the row's own `chronicCandidates`, so a row
+    // written between G48 and this fix — map present, counter absent — still
+    // gets the sentence.
+    const chronic = sum(NOISY_IF_CHRONIC_SWEEP_REASONS);
+    const chronicNote =
+      chronic === 0
+        ? ""
+        : ` ${chronic} scope${chronic === 1 ? "" : "s"} held a buffer too small to claim` +
+          " — fine once, a buffer that never drains if it is every day.";
     // The SKIPPED row (I32): the worker ran the day — clock, flush, cycle — and
     // deliberately did not sweep, because sweeping needs a model call it had no
     // credential for. Saying "looked at 0 scopes and found nothing" of that
@@ -270,13 +314,21 @@ export const NARRATORS = {
         `The crash fallback quarantined ${quarantined} spans it could not safely read. That is the one outcome here worth looking at.`,
       );
     }
+    if (noisy > 0) {
+      const named = NOISY_NOW_SWEEP_REASONS.filter((r) => (refusals?.[r] ?? 0) > 0)
+        .map((r) => `${r} ${refusals?.[r] ?? 0}`)
+        .join(", ");
+      return amber(
+        `The crash fallback refused ${noisy} of ${scopes} scopes for a reason that is never a normal day: ${named}. A claim the filesystem refused is not a quiet day, and a buffer that stood down under a root that did not is wiring.${chronicNote}`,
+      );
+    }
     if (ran === 0) {
       return calm(
-        `The crash fallback ran and found nothing to do: ${scopes} scopes looked at, ${skipped} of them with nothing crashed. This line is here to prove the silence is real.`,
+        `The crash fallback ran and found nothing to do: ${scopes} scopes looked at, ${skipped} of them with nothing crashed. This line is here to prove the silence is real.${chronicNote}`,
       );
     }
     return notable(
-      `The crash fallback picked up after a session that ended badly — ${swept} spans swept from ${ran} of ${scopes} scopes.`,
+      `The crash fallback picked up after a session that ended badly — ${swept} spans swept from ${ran} of ${scopes} scopes.${chronicNote}`,
     );
   },
 
