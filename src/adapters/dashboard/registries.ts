@@ -40,7 +40,10 @@ import {
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
   RECALL_DELIVERED_EVENT,
+  RUNNER_FAILED_EVENT,
   SEMANTIC_LAG_EVENT,
+  SPAWN_FAILED_EVENT,
+  SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
@@ -107,7 +110,10 @@ export type DurableEventName =
   | typeof AUTHORSHIP_ASK_EVENT
   | typeof ADAPTER_ASK_EVENT
   | typeof EMBED_BACKFILL_EVENT
-  | typeof SEMANTIC_LAG_EVENT;
+  | typeof SEMANTIC_LAG_EVENT
+  | typeof SPAWN_REFUSED_EVENT
+  | typeof SPAWN_FAILED_EVENT
+  | typeof RUNNER_FAILED_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -119,6 +125,12 @@ export const DURABLE_EVENTS = {
   "adapter.boundary": "a session-ending path reached the boundary (spans captured, cursor moved)",
   "adapter.embed.backfill": "the worker gave vectors to memories that had none (embedded, remaining, failed)",
   "adapter.semantic.lag": "the worker left next turn's semantic cue (or named why it could not)",
+  // The spawn seam's three, durable since 2026-09-11 (I32): for a week the
+  // worker was refused at every boundary and the only record was a ring that
+  // died with the hook process. One row per reason per date.
+  "adapter.runner.failed": "the detached worker failed after opening the store (which step, and the code)",
+  "adapter.spawn.failed": "the detached worker could not be started at all (the OS said why)",
+  "adapter.spawn.refused": "the detached worker was not started, by name (and how many times running)",
   "adapter.episode.ask": "HISTORICAL: the episode half of the old two-ask Stop",
   "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
   "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",

@@ -715,3 +715,68 @@ rows dangle — pre-existing, out of this change's scope, named here rather than
 constitution line 6 — memory that "travels across hosts" cannot be pinned to one
 machine's directory tree — and line 7's "backups catch catastrophe", which was not true
 while a backup's rows pointed at the live store.
+
+---
+
+## The backfill's give-up list lives in meta (I33, 2026-09-11)
+
+`missingVectors` returns a STABLE order — first-person material first, oldest
+first inside each group — and that order is a memory claim worth keeping. It is
+also, without a skip list, a head-of-line block waiting for one un-embeddable
+row: two migrated memories carrying a lone UTF-16 surrogate made the provider
+answer 400 for the whole 64-text chunk, and the same head-64 was re-asked at
+every boundary for a week while 165 blind memories waited behind them.
+
+**`embed.failed.<id>` in box 2's meta, `EMBED_SKIP_AFTER` = 3.** Meta keys, not a
+column and not a schema bump — the precedent is `sleep.pruned.<id>`, and the fact
+being recorded is about a retry loop, not about the memory.
+
+**Only an ITEM-ATTRIBUTABLE failure may move it, and "three" was never the guard
+that made that true.** The first cut counted every failure and said three in a
+row was past transient. It is not: a 429, a dead socket or — worst — the detached
+worker's own watchdog abort fails the WHOLE window every time it happens, so
+three bad boundaries retired sixty-four healthy rows and `unembeddedCount` then
+read COMPLETE. That is I33 inverted, with the coverage watch failing in the
+optimistic direction, and a 503 test now pins it shut. The counter moves only
+when the last fill blamed ONE INPUT — a 400 the bisector narrowed to a single
+item (`ChunkFailure.item`). Three is still the limit because even a 400 can be
+answered for a reason that is not the text.
+
+The gate is per FILL rather than per id: a `ChunkFailure`'s offsets address the
+embedder's own deduped batch, not the backfill's ids, so a fill that mixed an
+isolated 400 with a 500 elsewhere still charges the 500's victims. Bounded by a
+run that saw poison at all, and named in the adapter's INTERFACE-GAPS.
+
+**The moves are ONE transaction.** `setMetaMany` exists for this: one `setMeta`
+per id was one lock acquisition per id, on exactly the run where things are
+already going wrong, at a boundary where the adapter has measured six
+overlapping workers against a 5 s busy timeout. A run where everything lands
+writes nothing at all.
+
+**A skip is not a denial, and the two must never merge.** `deniedIds()` is a
+REMOVAL: the row is dark, it must never come back, and a read of it is a refusal.
+A skipped id is live, recallable, lexically indexed and perfectly ordinary —
+only its vector is missing. `skippedVectorIds()` names them, `verify` prints
+them, and setting the counter back to zero puts the id straight back in the
+rotation.
+
+**The skip is self-sealing, so it needs a door of its own.** A run that LANDS
+clears the counter — but a skipped id is never offered to a run again, so it
+cannot land; and `rebuildCache` has no embedder to recompute a vector with and
+never touches meta. The first cut of `verify` printed "repair it (or rebuild box
+3) and the counter clears on the next run that lands", and neither half of that
+was reachable. `counterparts verify --dir <store> --retry-skipped` is the remedy:
+it clears every `embed.failed` counter, names how many and which ids, writes
+nothing else, and lets the next boundary decide again on the evidence.
+
+**`unembeddedCount()` excludes them, and that is the honest reading.** The count
+exists so a coverage watch has a number that falls run over run; a number that
+can never fall because three rows in it can never be embedded is a watch that has
+quietly stopped meaning anything. The excluded rows are not hidden — the backfill
+row carries `skipped`, `verify` prints the ids beside the count — so the two
+numbers add up wherever a person actually reads them.
+
+**`metaWithPrefix(prefix)`** is the read that makes this affordable: one `LIKE`
+(with `%` and `_` escaped — callers pass a key prefix, not a pattern) instead of
+one `getMeta` per live memory. `sleep.pruned.<id>` has the same shape and the
+same potential reader.

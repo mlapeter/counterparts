@@ -48,6 +48,7 @@ export {
   ClaudeCodeAdapter,
   HOOKS,
   SESSION_ENDING,
+  SPAWN_REFUSAL_PREFIX,
   substanceOf,
 } from "./hooks.js";
 export type {
@@ -63,7 +64,14 @@ export type {
 export { InterpretError, SYSTEM_PROMPT, extractJson, interpretClient, readStream } from "./interpret-client.js";
 export type { FetchLike, InterpretClientOptions, InterpretRefusal, StreamRead } from "./interpret-client.js";
 
-export { EmbedError, createEmbedder, embedClient, openEmbedder } from "./embed-client.js";
+export {
+  EmbedError,
+  callBudget,
+  createEmbedder,
+  embedClient,
+  openEmbedder,
+  wellFormed,
+} from "./embed-client.js";
 export type {
   ChunkFailure,
   EmbedBatch,

@@ -362,6 +362,12 @@ export const EVENT_NODE = {
   "adapter.episode.ask": "self",
   // The worker giving vectors to memories that had none: box 3's business.
   "adapter.embed.backfill": "store",
+  // The three spawn-seam records (I32). The worker carries the crash fallback,
+  // the flush and the cycle; when it cannot start or cannot finish, the node
+  // that did not happen is the sweep's.
+  "adapter.spawn.refused": "sweep",
+  "adapter.spawn.failed": "sweep",
+  "adapter.runner.failed": "sweep",
   // A credited challenge, from either arm (belief or identity element).
   "revision.pressure": "schemas",
 } as const satisfies Record<DurableEventName, NodeKey>;

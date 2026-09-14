@@ -178,12 +178,28 @@ export function stateKey(sessionId: string): string {
 }
 
 /**
- * The per-LIVED-DAY ask counter's key. A day, not a session, because the host
- * opens a session per invocation: v1's calibration ("a work day gets about
- * three chapters", behavioral-spec §13 G1) is stated in days, and a per-session
- * cap silently multiplies it by however many times the owner typed `claude`.
+ * The per-DAY ask counter's key. A day, not a session, because the host opens a
+ * session per invocation: v1's calibration ("a work day gets about three
+ * chapters", behavioral-spec §13 G1) is stated in days, and a per-session cap
+ * silently multiplies it by however many times the owner typed `claude`.
+ *
+ * **WHICH day changed on 2026-09-11 (I32), and the reason is a scar.** The key
+ * used to be the LIVED day — the store's own clock, which advances only inside
+ * the sleep cycle the detached worker runs. When the worker could not start,
+ * that clock froze at 185 while the calendar kept going, so `self.episode.day.185`
+ * stayed at its cap of 4 for a week and the model was never asked for a chapter
+ * again. A cap whose reset depends on the machinery it is capping is a cap that
+ * can be spent forever.
+ *
+ * So: the CALENDAR date when the caller supplies one (`self.episode.day.2026-09-11`),
+ * the lived day when nobody does. The date is the hook's `input.at`, which is a
+ * **UTC** ISO date — the same zone as every other `date` field in this store, on
+ * purpose: two clocks in one store is the scar this repo already has a name for.
+ * The consequence is real and named rather than hidden: an owner at UTC−6 gets
+ * their day's asks reset at 18:00 local. That is a decision to revisit with a
+ * proper per-owner zone, not a bug to patch here with a second clock.
  */
-export function dayKey(day: number): string {
+export function dayKey(day: number | string): string {
   return `self.episode.day.${String(day)}`;
 }
 

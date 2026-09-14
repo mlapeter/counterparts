@@ -156,8 +156,8 @@ export interface AdapterConfig {
    * Measured on day 0 of the parallel run: this host's hook processes carry
    * neither documented name, even with both exported in the owner's shell rc —
    * the host's process environment is not the login shell's. So a `process.env`
-   * that answers in a terminal answers nothing in a hook, and every spawn
-   * refuses `NO_CREDENTIAL` while the embedder never opens.
+   * that answers in a terminal answers nothing in a hook: the worker's sweep
+   * would skip itself at every boundary and the embedder would never open.
    *
    * The rules, mechanized in `credentials.ts`:
    *

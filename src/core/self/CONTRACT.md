@@ -264,7 +264,9 @@ preface at its widest plausible day, date and store size against the same consta
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and the regrow
-window run on lived days — and, from 2026-09-04, the chapter CAP does too) · **the journal
+window run on lived days; the chapter CAP ran on them too from 2026-09-04, and moved to the
+CALENDAR DATE on 2026-09-11 — the lived-day clock advances only inside the sleep cycle a
+detached worker runs, so a worker that could not start left the cap spent forever, I32) · **the journal
 is neither a memory nor a duplicate of one** (every sleep phase walked every row: dedup
 merged the first real ingestion into its own journal at the boundary that minted it, and
 prune would have archived all 224 migrated episodes at the floor — one predicate,

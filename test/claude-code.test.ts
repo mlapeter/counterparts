@@ -13,7 +13,7 @@
  * Hermetic by construction (CLAUDE.md): a fresh temp data dir per test, removed
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,9 +24,11 @@ import {
   Counterpart,
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
+  RUNNER_FAILED_EVENT,
+  SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
-import { indexTextOf } from "../src/core/store/index.js";
+import { EMBED_SKIP_AFTER, indexTextOf } from "../src/core/store/index.js";
 import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
 import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
@@ -54,6 +56,7 @@ import {
   attributePeers,
   capabilities,
   classifyBlock,
+  callBudget,
   createEmbedder,
   embedClient,
   extractJson,
@@ -75,6 +78,7 @@ import {
   primacy,
   readAssignment,
   seatStatus,
+  SPAWN_REFUSAL_PREFIX,
   spawnDetached,
   substanceOf,
 } from "../src/adapters/claude-code/index.js";
@@ -216,6 +220,11 @@ const BIG_TURNS: HookInput["turns"] = Array.from({ length: 14 }, (_, i) => ({
   role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
   text: `Turn ${i}: ${"a real exchange with enough substance in it to pace a ritual honestly, said at the length people actually work at, which is what the byte half of the threshold is measuring rather than the turn half. ".repeat(2)}`,
 }));
+
+/** A lone UTF-16 surrogate, the thing I33's two migrated titles carried. No
+ *  `g` flag: `.test()` on a global regex carries `lastIndex` between calls and
+ *  would quietly skip every other input. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 function input(over: Partial<HookInput> = {}): HookInput {
   return { sessionId: "s1", scope: "proj", turns: TURNS, at: "2026-01-02", ...over };
@@ -751,20 +760,88 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     expect(tooLong.reason).toBe("WATCHDOG_EXCEEDS_STALENESS");
   });
 
-  test("a worker that CANNOT START escalates rather than re-logging (scar E4's widening)", () => {
-    delete process.env[API_KEY_ENV];
+  test("a refusal is DURABLE once per reason per date, and the count survives the process (I32)", () => {
+    // TWO adapter instances over one store, because that is the shape of the
+    // bug: a hook is a fresh process, so a counter living in adapter state was
+    // always at 1 and `escalate` was always false. On the live host the worker
+    // was refused at every boundary for a week and E4's widening never fired.
     const { a } = adapter();
-    let last = a.stop(input({ sessionId: "no-key-1" })).spawn;
-    expect(last?.started).toBe(false);
-    expect(last?.reason).toBe("NO_CREDENTIAL");
+    const refusing = (): ClaudeCodeAdapter =>
+      new ClaudeCodeAdapter({
+        counterpart: a.counterpart,
+        // The store is real; the SPAWN's data dir is the thing that is missing.
+        config: config({ dataDir: "" }),
+        spawner: fakeSpawner().spawner,
+      });
+
+    const first = refusing();
+    let last = first.stop(input({ sessionId: "no-dir-1" })).spawn;
+    expect({ started: last?.started, reason: last?.reason, escalate: last?.escalate }).toEqual({
+      started: false,
+      reason: "NO_DATA_DIR",
+      escalate: false,
+    });
+    for (let i = 2; i < TUNABLES.ESCALATE_AFTER; i += 1) {
+      last = first.stop(input({ sessionId: `no-dir-${i}` })).spawn;
+    }
     expect(last?.escalate).toBe(false);
 
-    for (let i = 2; i <= TUNABLES.ESCALATE_AFTER; i += 1) {
-      last = a.stop(input({ sessionId: `no-key-${i}` })).spawn;
-    }
-    // The nth identical failure is an ESCALATION, not the same line again.
+    // A SECOND instance — a new hook process, as far as the counter is
+    // concerned — reaches the threshold, because the count is in the store.
+    const second = refusing();
+    last = second.stop(input({ sessionId: "no-dir-next" })).spawn;
     expect(last?.escalate).toBe(true);
-    expect(a.events("spawn.escalated").length).toBeGreaterThan(0);
+    expect(second.spawnRefusals()["NO_DATA_DIR"]).toBe(TUNABLES.ESCALATE_AFTER);
+    expect(a.counterpart.store.getMeta(`${SPAWN_REFUSAL_PREFIX}NO_DATA_DIR`)).toBe(
+      String(TUNABLES.ESCALATE_AFTER),
+    );
+
+    // ONE ROW, for ESCALATE_AFTER refusals of one reason on one date. The row
+    // is the evidence that it happened; the counter is how deep it got.
+    const rows = a.counterpart.store
+      .eventLog({ name: SPAWN_REFUSED_EVENT, limit: 20 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect({ reason: rows[0]?.["reason"], date: rows[0]?.["date"], count: rows[0]?.["count"] }).toEqual({
+      reason: "NO_DATA_DIR",
+      date: "2026-01-02",
+      count: 1,
+    });
+    // A different DATE is a different row: a refusal that runs for a week is
+    // seven rows, not one and not seven hundred.
+    second.stop(input({ sessionId: "no-dir-tomorrow", at: "2026-01-03" }));
+    expect(a.counterpart.store.eventLog({ name: SPAWN_REFUSED_EVENT, limit: 20 }).length).toBe(2);
+
+    // And a start clears the slate — whatever was wrong is not wrong now.
+    a.stop(input({ sessionId: "healthy" }));
+    expect(a.spawnRefusals()["NO_DATA_DIR"] ?? 0).toBe(0);
+  });
+
+  test("a STUCK lived day does not cap the next CALENDAR date (I32)", () => {
+    const { a } = adapter();
+    const store = a.counterpart.store;
+    // The live store's exact shape on 2026-09-11: the worker had not run since
+    // 09-04, so the lived-day clock sat at one number while the calendar moved,
+    // and that day's ask counter was at its cap and could never be reset —
+    // because only the sleep cycle the worker runs advances the clock.
+    const stuck = store.livedDay();
+    const stuckKey = `self.episode.day.${String(stuck)}`;
+    store.setMeta(stuckKey, "99");
+
+    const result = a.stop(input({ sessionId: "s-new-day", turns: BIG_TURNS, at: "2026-03-09" }));
+    // The ask goes out: a new calendar date has its own allowance.
+    expect(result.ask).not.toBe(null);
+    expect(store.getMeta("self.episode.day.2026-03-09")).toBe("1");
+    // AND THE OLD KEY IS NOT READ. Consulting both would let a frozen clock go
+    // on capping a calendar day it has nothing to do with, which is the bug.
+    expect(store.getMeta(stuckKey)).toBe("99");
+
+    // The durable ask row agrees — `capped` is what 27 Stops read on the live
+    // store while the model was never actually asked.
+    const rows = store
+      .eventLog({ name: "adapter.ask", limit: 5 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.at(-1)?.["outcome"]).toBe("asked");
   });
 
   test("an observer spawns NO worker, and says so (§15 G3)", () => {
@@ -1076,6 +1153,89 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
     const woke = next.sessionStart(input());
     expect(woke.ok).toBe(true);
     expect(woke.injection).toContain("rebuildable");
+  });
+
+  test("a worker with NO KEY still runs the day, and the gate row says why it did not sweep", async () => {
+    // I32, pinned. For a week this worker never started at all, so the lived-day
+    // clock froze at 185, the sleep cycle never ran, and the per-lived-day ask
+    // cap — spent under that frozen day — was never reset. Every one of those is
+    // work that needs no model call.
+    const { a } = adapter();
+    a.stop(input());
+    const before = a.counterpart.store.livedDay();
+    a.counterpart.close();
+    open.length = 0;
+    goQuiet();
+
+    let sockets = 0;
+    const report = await runOnce({
+      config: config(),
+      today: "2026-01-03",
+      date: "2026-01-03",
+      // The host hands this process NO credential — the exact I32 condition.
+      env: {},
+      // A tripwire, not a fake: any call at all fails this test.
+      fetch: async () => {
+        sockets += 1;
+        throw new Error("a keyless worker opened a socket");
+      },
+    });
+    expect(sockets).toBe(0);
+    expect({ ran: report.ran, reason: report.reason }).toEqual({ ran: true, reason: "ran" });
+
+    const after = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(after.counterpart);
+    // THE DAY HAPPENED: the clock moved and the cycle ran.
+    expect(after.counterpart.store.livedDay()).toBeGreaterThan(before);
+    expect(after.counterpart.store.getMeta("lastActiveDate")).toBe("2026-01-03");
+    // And the one step that did not is EVIDENCED, by name, on a durable row
+    // whose counts read as a quiet day rather than as a suspicious one.
+    const rows = after.counterpart.store
+      .eventLog({ name: SWEEP_GATE_EVENT, limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect({
+      reason: rows[0]?.["reason"],
+      ran: rows[0]?.["ran"],
+      scopes: rows[0]?.["scopes"],
+      otherRefusals: rows[0]?.["otherRefusals"],
+      date: rows[0]?.["date"],
+    }).toEqual({ reason: "no-credential", ran: 0, scopes: 0, otherRefusals: 0, date: "2026-01-03" });
+  });
+
+  test("a sessionEnd that THROWS leaves a durable adapter.runner.failed row (I32)", async () => {
+    const { a } = adapter();
+    a.stop(input());
+    a.counterpart.close();
+    open.length = 0;
+
+    // Past the store's own door, so the parent's spawn row does not cover it:
+    // this is the half of the worker that only a row written from inside can
+    // report, because the process's stderr goes nowhere (stdio: ignore).
+    const spy = spyOn(Counterpart.prototype, "sessionEnd").mockImplementation(() => {
+      throw Object.assign(new Error("the boundary fell over"), { code: "TEST_BOUNDARY" });
+    });
+    try {
+      const report = await runOnce({ config: config(), date: "2026-01-02", fetch: async () => okResponse(streamed("[]")) });
+      expect({ ran: report.ran, reason: report.reason, code: report.code }).toEqual({
+        ran: false,
+        reason: "failed",
+        code: "TEST_BOUNDARY",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    const after = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(after.counterpart);
+    const rows = after.counterpart.store
+      .eventLog({ name: RUNNER_FAILED_EVENT, limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect({ code: rows[0]?.["code"], step: rows[0]?.["step"] }).toEqual({
+      code: "TEST_BOUNDARY",
+      step: "sessionEnd",
+    });
   });
 
   test("a run with no data dir refuses by name and opens nothing", async () => {
@@ -1891,7 +2051,11 @@ describe("embed-client — the request, the batches, and every refusal by name",
 
   test("large input is CHUNKED, and one poisoned item fails only its own chunk (scar E1)", async () => {
     const texts = Array.from({ length: 6 }, (_, i) => `memory number ${i}`);
-    const { calls, fetch } = voyageFetch({ poison: "memory number 3", status: 400 });
+    // 500, not 400, since I33: a 400 is now BISECTED down to the offending item
+    // (see "a 400 BISECTS to the poison item" below). Everything this test
+    // states — chunking, per-chunk isolation, the named failure — is unchanged
+    // for every other code, which is the half E1 was always about.
+    const { calls, fetch } = voyageFetch({ poison: "memory number 3", status: 500 });
     const events: { name: string; data: Record<string, unknown> }[] = [];
     const client = embedClient({
       config: config(),
@@ -1913,11 +2077,96 @@ describe("embed-client — the request, the batches, and every refusal by name",
     expect(batch.returned).toBe(4);
     // And the failure NAMES itself — which chunk, where it started, and why.
     expect(batch.failures).toEqual([
-      { chunk: 1, from: 2, count: 2, code: "HTTP_ERROR", status: 400 },
+      { chunk: 1, from: 2, count: 2, code: "HTTP_ERROR", status: 500 },
     ]);
     expect(events.filter((e) => e.name === "embed.chunk.failed").length).toBe(1);
     // Telemetry is content-by-reference: no embedded text in any payload.
     expect(JSON.stringify(events)).not.toContain("memory number");
+  });
+
+  test("a LONE SURROGATE is repaired in the request body only, and all 64 land (I33)", async () => {
+    // The two migrated memories that blocked the live backfill for a week each
+    // carried one of these in the title: the prose file's frontmatter shows
+    // U+FFFD, but the `payload:` JSON holds the literal escape, so `parseProse`
+    // yields the lone surrogate and `JSON.stringify` puts it on the wire.
+    const poisoned = "a memory about \ud83d the migration";
+    const texts = [poisoned, ...Array.from({ length: 63 }, (_, i) => `memory number ${i}`)];
+    const sent: string[] = [];
+    const events: { name: string; data: Record<string, unknown> }[] = [];
+    const fetch: FetchLike = async (_url: string, init: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init.body)) as { input: string[] };
+      sent.push(...body.input);
+      // THE PROVIDER'S OWN RULE, enforced by the fake: it answered 400 "input is
+      // not valid UTF-8" for the whole chunk, which is what made the head of a
+      // stable queue un-embeddable forever.
+      for (const t of body.input) expect(LONE_SURROGATE.test(t)).toBe(false);
+      return new Response(
+        JSON.stringify({ data: body.input.map((t) => ({ embedding: vectorFor(t) })) }),
+        { status: 200 },
+      );
+    };
+    const live = createEmbedder({
+      config: config(),
+      fetch,
+      batchSize: 64,
+      onEvent: (name, data) => events.push({ name, data }),
+    });
+    expect(await live.warm(texts)).toBe(64);
+    expect(sent.length).toBe(64);
+    expect(sent).not.toContain(poisoned);
+    expect(events.filter((e) => e.name === "embed.sanitized").length).toBe(1);
+    expect(events.find((e) => e.name === "embed.sanitized")?.data["count"]).toBe(1);
+
+    // THE CACHE STAYS ON THE ORIGINAL STRING, and this is the load-bearing half.
+    // `store.embedOne` looks a vector up by `indexTextOf(title, body)` — the
+    // unrepaired text — so a cache written under the repaired key would miss on
+    // every lookup and the backfill would become a paid-for no-op reporting
+    // success, which is the exact failure `vectors.ts` warns about.
+    expect(live.embed(poisoned)).not.toBe(null);
+    expect(live.stats().failed).toBe(0);
+  });
+
+  test("a 400 BISECTS to the poison item: 63 land, one fails alone (I33)", async () => {
+    const texts = Array.from({ length: 64 }, (_, i) => `memory number ${i}`);
+    // A sentinel, not a surrogate: after the repair above, a lone surrogate
+    // never reaches the provider, so a test of the bisector needs poison the
+    // sanitizer does not touch.
+    const { calls, fetch } = voyageFetch({ poison: "memory number 17", status: 400 });
+    const events: { name: string; data: Record<string, unknown> }[] = [];
+    const client = embedClient({
+      config: config(),
+      fetch,
+      batchSize: 64,
+      onEvent: (name, data) => events.push({ name, data }),
+    });
+    const batch = await client(texts);
+
+    expect(batch.returned).toBe(63);
+    expect(batch.vectors[17]).toBe(null);
+    expect(batch.vectors[16]).toEqual(vectorFor("memory number 16"));
+    expect(batch.vectors[18]).toEqual(vectorFor("memory number 18"));
+    // ONE failure, and it names the ITEM — which is what lets a caller retire an
+    // id instead of re-asking for a chunk that will fail the same way forever.
+    expect(batch.failures).toEqual([
+      { chunk: 0, from: 17, count: 1, code: "HTTP_ERROR", status: 400, item: true },
+    ]);
+    // BOUNDED. Halving is logarithmic; a per-item retry would be 64 calls.
+    expect(calls.length).toBeLessThanOrEqual(callBudget(64));
+    expect(calls.length).toBeLessThan(20);
+    expect(events.filter((e) => e.name === "embed.bisect").length).toBeGreaterThan(0);
+    expect(JSON.stringify(events)).not.toContain("memory number");
+  });
+
+  test("a 429 or a 500 is NOT bisected — the slice does not own that failure", async () => {
+    const texts = Array.from({ length: 8 }, (_, i) => `memory number ${i}`);
+    for (const status of [429, 503]) {
+      const { calls, fetch } = voyageFetch({ poison: "memory number 3", status });
+      const batch = await embedClient({ config: config(), fetch, batchSize: 8 })(texts);
+      // One call, one whole-chunk failure. Splitting a 429 would multiply the
+      // rate that caused it, and a 500 says nothing about WHICH input is bad.
+      expect(calls.length).toBe(1);
+      expect(batch.failures).toEqual([{ chunk: 0, from: 0, count: 8, code: "HTTP_ERROR", status }]);
+    }
   });
 
   test("a SHORT response is a failure, not data — vectors are never misaligned", async () => {
@@ -2055,7 +2304,9 @@ describe("the live embedder — a sync face over an async client, and an honest 
 
   test("`warm` fetches a whole batch at once, and a poisoned chunk costs only itself", async () => {
     const texts = ["alpha thought", "beta thought", "gamma thought", "delta thought"];
-    const { calls, fetch } = voyageFetch({ poison: "gamma thought" });
+    // 500 for the same reason as above: this test is about a chunk costing only
+    // itself, not about the 400 bisector.
+    const { calls, fetch } = voyageFetch({ poison: "gamma thought", status: 500 });
     const live = createEmbedder({ config: config(), fetch, batchSize: 2 });
     const landed = await live.warm(texts);
 
@@ -2567,18 +2818,26 @@ describe("credentials — the environment first, then the ONE file the config na
     return { cfg, creds };
   }
 
-  test("THE DAY-0 FAILURE, pinned: an empty hook environment refuses every spawn", () => {
-    // What the host actually hands a hook process. Without the file this is the
-    // whole run: no worker, no interpretation, and the parallel run measures
-    // nothing while looking healthy.
+  test("THE DAY-0 FAILURE, pinned: an empty hook environment still STARTS the worker (I32)", () => {
+    // What the host actually hands a hook process: neither documented name.
+    //
+    // Until 2026-09-11 this was a refusal — `NO_CREDENTIAL`, before the child
+    // existed — and that refusal is what I32 is. A blanked `credentials.env`
+    // stopped the lived-day clock, the sleep cycle, the Hebbian flush, the
+    // semantic cue and the embedding backfill for a week, to protect the ONE
+    // step that actually needed a key. The plan readies now; the sweep is the
+    // only thing that degrades, and it says so on its own durable row.
     const cfg = join(host, "claude-code.json");
     writeFileSync(cfg, JSON.stringify({ dataDir: dir, owner: true }));
     const env: NodeJS.ProcessEnv = {};
     const { config: c, credentials } = hostConfig(cfg, env);
     expect(credentials.reason).toBe("not-configured");
     const plan = planSpawn({ config: c, command: "/bin/true", args: [], baseEnv: env });
-    expect(plan.ok).toBe(false);
-    expect(plan.reason).toBe("NO_CREDENTIAL");
+    expect(plan.ok).toBe(true);
+    expect(plan.reason).toBe("ready");
+    // And the key is simply not in the child's environment — absent, not faked.
+    expect(plan.env[API_KEY_ENV]).toBeUndefined();
+    expect(plan.env[DATA_DIR_ENV]).toBe(dir);
   });
 
   test("hostConfig fills the gap: capabilities say 'file' and planSpawn READIES", () => {
@@ -2961,7 +3220,7 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
         }
         return texts.length;
       },
-      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0, lastFailures: [] }),
     };
   }
 
@@ -2973,7 +3232,7 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
       embed: () => null,
       vector: async () => null,
       warm: async () => 0,
-      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0 }),
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
     };
   }
 
@@ -3216,7 +3475,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
         }
         return texts.length;
       },
-      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0, lastFailures: [] }),
     };
   }
 
@@ -3297,7 +3556,7 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
         for (const t of texts) cache.set(`mangled:${t}`, vectorFor(t));
         return texts.length;
       },
-      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0 }),
+      stats: () => ({ hits: 0, misses: 0, cached: cache.size, fetched: 0, failed: 0, lastFailures: [] }),
     };
     const c = brain(wrong);
     c.store.put({ type: "memory", kind: "fact", body: "A memory whose vector will be cached wrong." });
@@ -3331,6 +3590,156 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     const method = body.slice(0, body.indexOf("\n  }\n"));
     expect(method).toContain("setEmbedding(");
     expect(method).not.toContain("indexDoc(");
+  });
+
+  test("an id that fails EMBED_SKIP_AFTER runs leaves the queue, and is named (I33)", async () => {
+    // The head-of-line block, in miniature. `missingVectors` returns a stable
+    // order, so a row the provider will never accept is offered first at every
+    // boundary forever and everything behind it stays blind. On the live store
+    // that was 32 consecutive runs of `0 embedded / 64 failed` while `remaining`
+    // climbed.
+    const failures = [{ chunk: 0, from: 0, count: 1, code: "HTTP_ERROR" as const, status: 400, item: true }];
+    const refuses: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 1, failed: 1, lastFailures: failures }),
+    };
+    const c = brain(refuses);
+    const poisoned = c.store.put({ type: "memory", kind: "fact", body: "A memory the embedder will not take." });
+
+    for (let run = 1; run <= EMBED_SKIP_AFTER; run += 1) {
+      const report = await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+      expect(report.failed).toBe(1);
+      // THE CODE TRAVELS NOW. Without it the row read `failed: 1, reason: ran`
+      // and a week of 400s looked like a flaky provider.
+      expect(report.codes).toBe("HTTP_ERROR:400");
+      expect(report.skipped).toBe(run < EMBED_SKIP_AFTER ? 0 : 1);
+    }
+
+    // Off the queue, and NAMED rather than silently gone.
+    expect(c.store.missingVectors(64)).toEqual([]);
+    expect(c.store.skippedVectorIds()).toEqual([poisoned]);
+    expect(c.store.unembeddedCount()).toBe(0);
+    expect((await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true })).reason).toBe(
+      "nothing-missing",
+    );
+
+    // The durable row carries both fields, so tomorrow can read the give-up.
+    const rows = c.store
+      .eventLog({ name: "adapter.embed.backfill", limit: 10 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.at(-1)?.["skipped"]).toBe(1);
+    expect(rows.at(-2)?.["codes"]).toBe("HTTP_ERROR:400");
+
+    // A SKIP IS NOT A REMOVAL. Clear the counter and the id is back in the
+    // rotation, unarchived and never dark.
+    //
+    // THE SKIP IS SELF-SEALING, which is why clearing it needs a door of its
+    // own. A run that LANDS clears the counter — but a skipped id is never
+    // offered to a run again, so it cannot land; and `rebuildCache` has no
+    // embedder to recompute a vector with and never touches box 2's meta. The
+    // remedy is `verify --retry-skipped` (exercised in `cli.test.ts`), and this
+    // line is the same write it makes.
+    c.store.setMeta(`embed.failed.${poisoned}`, "0");
+    expect(c.store.missingVectors(64)).toEqual([poisoned]);
+    expect(c.store.skippedVectorIds()).toEqual([]);
+  });
+
+  test("a WHOLE-CHUNK failure retires nothing, however often it repeats", async () => {
+    // I33 INVERTED, and refused. A 503 — or a 429, or the watchdog's abort —
+    // says nothing about WHICH input is bad. Counting it toward the give-up
+    // counter meant three bad boundaries retired a whole healthy window, and
+    // `unembeddedCount` then read COMPLETE while those memories stayed blind:
+    // the coverage watch failing in the optimistic direction, which is the one
+    // direction a watch may never fail in.
+    const failures = [{ chunk: 0, from: 0, count: 3, code: "HTTP_ERROR" as const, status: 503 }];
+    const refuses: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 3, failed: 3, lastFailures: failures }),
+    };
+    const c = brain(refuses);
+    const ids = [1, 2, 3].map((n) =>
+      c.store.put({ type: "memory", kind: "fact", body: `A perfectly healthy memory, number ${n}.` }),
+    );
+
+    for (let run = 1; run <= EMBED_SKIP_AFTER + 1; run += 1) {
+      const report = await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+      expect(report.failed).toBe(3);
+      // The CODE still travels — the row says what happened, it just does not
+      // blame the rows for it.
+      expect(report.codes).toBe("HTTP_ERROR:503");
+      expect(report.skipped).toBe(0);
+      expect(report.remaining).toBe(3);
+    }
+
+    expect(c.store.skippedVectorIds()).toEqual([]);
+    expect(c.store.missingVectors(64).sort()).toEqual([...ids].sort());
+    // The number a coverage watch reads never lied about these three.
+    expect(c.store.unembeddedCount()).toBe(3);
+  });
+
+  test("a whole-call refusal still names its code on the durable row", async () => {
+    // The one path `codes` was blind to: `embedClient` throws BEFORE it opens a
+    // socket (no key, dead seat, no `fetch`), so no `ChunkFailure` was ever
+    // built and `lastFailures` stayed empty — `failed: N, codes: ""`, which is
+    // the unreadable row the field exists to abolish.
+    const thrower = createEmbedder({
+      client: async () => {
+        throw new EmbedError("NO_FETCH", {});
+      },
+    });
+    const c = brain(thrower);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory nothing can reach the provider for." });
+    const report = await backfillVectors({ counterpart: c, embedder: thrower, hasCredential: true });
+    expect(report.failed).toBe(1);
+    expect(report.codes).toBe("NO_FETCH");
+    // And it is NOT item-attributable: a refusal that never reached the provider
+    // cannot have been about the text.
+    expect(report.skipped).toBe(0);
+    expect(c.store.skippedVectorIds()).toEqual([]);
+  });
+
+  test("a fill's counter moves are ONE box-2 transaction, and a healthy run writes none", async () => {
+    // §5 G2, measured: one `setMeta` per id was one lock acquisition per id, at
+    // a boundary where six workers may already be contending, on exactly the run
+    // where things are going wrong.
+    const failures = [
+      { chunk: 0, from: 0, count: 1, code: "HTTP_ERROR" as const, status: 400, item: true },
+    ];
+    const refuses: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 3, failed: 3, lastFailures: failures }),
+    };
+    const c = brain(refuses);
+    for (const n of [1, 2, 3]) {
+      c.store.put({ type: "memory", kind: "fact", body: `A memory the embedder refuses, number ${n}.` });
+    }
+    const before = c.store.events("store.meta").length;
+    await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+    const metaWrites = c.store.events("store.meta").slice(before);
+    expect(metaWrites.length).toBe(1);
+    expect(metaWrites[0]?.data?.count).toBe(3);
+  });
+
+  test("a run where everything lands writes NO counter at all", async () => {
+    // The common case must cost nothing: every counter is already zero, and a
+    // write that sets zero to zero is a lock acquisition bought for nothing.
+    const good = counting();
+    const c = brain(good);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory that embeds on the first ask." });
+    const before = c.store.events("store.meta").length;
+    const ran = await backfillVectors({ counterpart: c, embedder: good, hasCredential: true });
+    expect(ran.embedded).toBe(1);
+    expect(ran.failed).toBe(0);
+    expect(c.store.events("store.meta").length).toBe(before);
   });
 
   test("off, and refused, are two records — never one zero (scar §2.4)", async () => {

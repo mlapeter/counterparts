@@ -4,9 +4,14 @@
  * MEASURED, day 0 of the parallel run: this host's hook processes carry neither
  * `ANTHROPIC_API_KEY` nor `VOYAGE_API_KEY`, even with both exported in the
  * owner's `~/.zshrc`. The host's process environment is not the login shell's.
- * A v2 that reads `process.env` and nothing else therefore refuses every spawn
- * (`planSpawn` → `NO_CREDENTIAL`) and never opens the embedder: the run is
- * blind, and blind on day 0 is a run that measured nothing.
+ * A v2 that reads `process.env` and nothing else therefore never opens the
+ * embedder, and its worker skips the crash-fallback sweep at every boundary:
+ * the run is blind, and blind on day 0 is a run that measured nothing.
+ *
+ * Until 2026-09-11 the consequence was worse than blind — `planSpawn` refused
+ * the whole spawn on the missing key, so an EMPTY file stopped the clock, the
+ * sleep cycle and the day's ask cap as well (I32). The worker degrades one step
+ * at a time now; this file is still the thing that keeps it from having to.
  *
  * §2.18 is also the FIX, not just the diagnosis. The scar says a guarantee
  * carried by something you don't own is not a guarantee, and the CONTRACT's

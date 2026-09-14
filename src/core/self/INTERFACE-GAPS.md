@@ -186,3 +186,35 @@ since the experiencer knows what it left hanging; (2) something closes them, or 
 worse than nothing within a week; (3) optionally, a migration pass that re-reads v1's own
 open-thread list and flags the memories it can still resolve — cheap, one-shot, and it is
 the only way the pre-migration years get a threads lane at all.
+
+---
+
+## The cap's day is UTC, and that is a decision (I32, 2026-09-11)
+
+The chapter cap now keys on the calendar date a caller supplies. On this host
+that date is the hook's `input.at` — `new Date().toISOString().slice(0, 10)`,
+UTC — chosen so that it matches every other `date` field in the store rather
+than introducing a second clock.
+
+For an owner at UTC−6 this means the day's ask allowance resets at 18:00 local,
+in the middle of an evening's work. Nobody has decided that is right; it is what
+falls out of having one zone. The alternatives, none taken here:
+
+1. a `timezone` in the adapter config, applied where `input.at` is composed —
+   one place, one field, and the store's other dates stay UTC (they are records
+   of when something happened, not of whose day it was);
+2. the owner's identity core carries the zone, and `self/` resolves the key —
+   more correct in principle, and it puts a host concern inside core;
+3. leave it, and revisit only if a reset mid-evening is ever actually felt.
+
+What must NOT happen is the cap silently reading one zone while the gate rows
+beside it read another. If this changes, it changes in one place and the change
+is named.
+
+## The tail verdict and the ask now share a counter
+
+`noteOrphanTail` takes the same optional `date` and passes it to `askDue`, so the
+"what did the last ask not cover" telemetry is computed against the counter the
+ask was actually charged to. Threading it was two lines; not threading it would
+have left a ring line reporting `day-chapter-cap` for a day with asks left, which
+is the shape of finding this bug twice.

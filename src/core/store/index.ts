@@ -414,6 +414,29 @@ export interface RemovalNote {
  * equals the set of sites that consult the observer predicate, and that each one
  * refuses under observer (observer-mode.md G6: every stand-down is observable).
  */
+/**
+ * The backfill's give-up counter: `embed.failed.<id>` in box 2's meta, and the
+ * number of ITEM-ATTRIBUTABLE failures after which `missingVectors` stops
+ * offering that id.
+ *
+ * **Only the failures the provider blamed on the item itself may move it** — a
+ * 400 the bisector narrowed down to one input (`ChunkFailure.item`). A 429, a
+ * 5xx, a dropped socket, an aborted watchdog or a malformed body says nothing
+ * about WHICH input is bad, and counting those was I33 inverted: three bad
+ * boundaries in a row would retire a whole healthy window and `unembeddedCount`
+ * — the coverage watch — would then read COMPLETE while those memories stayed
+ * blind. Three rather than one because even a 400 can be answered for a reason
+ * that is not the text.
+ *
+ * Written by whoever runs the backfill (`adapters/claude-code/vectors.ts`),
+ * cleared the moment an id embeds, and cleared wholesale by
+ * `counterparts verify --retry-skipped` — which is the remedy a repaired title
+ * needs, because a skipped id is never offered again and so can never clear
+ * itself. Meta keys only — no schema bump (precedent: `sleep.pruned.<id>`).
+ */
+export const EMBED_FAILED_PREFIX = "embed.failed.";
+export const EMBED_SKIP_AFTER = 3;
+
 export const WRITE_METHODS = [
   "put",
   "putMany",
@@ -428,6 +451,7 @@ export const WRITE_METHODS = [
   "setProspective",
   "advanceClock",
   "setMeta",
+  "setMetaMany",
   "setGateRecords",
   "pruneGateSessions",
   "appendEvent",
@@ -977,6 +1001,30 @@ export class Store {
     this.emit("store.meta", undefined, { key });
   }
 
+  /**
+   * Many meta rows, ONE transaction and one ring line.
+   *
+   * `setMeta` in a loop is one write transaction — one lock acquisition — per
+   * key, and the caller this exists for moves a whole window's worth of the
+   * backfill's give-up counters at a boundary where the adapter has measured six
+   * overlapping workers against a 5 s busy timeout (adapter `NOTES.md`, I33).
+   * One `mutate` is one acquisition and rolls back as a unit: the same bargain
+   * `linkMany` and `setRanking` already make, and the reason the ring gets a
+   * count here rather than N identical `key` lines.
+   *
+   * Keys repeated within one call resolve last-wins, as `INSERT OR REPLACE` does
+   * anywhere else. An empty list still crosses the stance check, because a
+   * stand-down that depends on how much work there was is not a stand-down.
+   */
+  setMetaMany(entries: readonly (readonly [string, string])[]): void {
+    this.mutate("setMetaMany", () => {
+      for (const [key, value] of entries) {
+        this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value);
+      }
+    });
+    this.emit("store.meta", undefined, { count: entries.length });
+  }
+
   // ── box 2: per-session gate state (SEAMS item B) ───────────────────────────
 
   /**
@@ -1499,12 +1547,49 @@ export class Store {
    * what is embedded, and they are separate files by design.
    */
   missingVectors(limit = 64): string[] {
+    return this.unembeddedIds(limit, false);
+  }
+
+  /**
+   * The ids a backfill has given up on — `EMBED_SKIP_AFTER` failed runs each.
+   *
+   * THE HEAD-OF-LINE SCAR (I33, 2026-09-11). Two migrated memories carried a
+   * lone UTF-16 surrogate in their title; the provider answered 400 for the
+   * whole 64-text chunk; `missingVectors` returns a STABLE order, so the same
+   * head-64 was retried at every boundary for a week and 165 blind memories
+   * behind them never got a turn. A skip list is the general fix: whatever the
+   * poison is, an id that has failed three runs stops holding the queue.
+   *
+   * Distinct from `deniedIds()` by design. A denial is a REMOVAL — the row is
+   * dark and must never come back. A skip is an operational give-up on ONE
+   * channel: the memory is live, recallable, and lexically indexed; only its
+   * vector is missing, and a repair (or a rebuild) clears the counter.
+   *
+   * Kept in box 2's meta rather than a column, because it is a fact about a
+   * retry loop and not about the memory — same shape as `sleep.pruned.<id>`,
+   * and no schema bump.
+   */
+  skippedVectorIds(): string[] {
+    return this.unembeddedIds(Number.MAX_SAFE_INTEGER, true);
+  }
+
+  /**
+   * Live memories with no vector, in backfill order. `skipped` selects WHICH
+   * half: the ones a backfill should try (false) or the ones it has given up on
+   * (true). One query, one order, two readings — a second copy of this walk is
+   * how the two lists would drift.
+   */
+  private unembeddedIds(limit: number, skipped: boolean): string[] {
     const embedded = new Set(
       this.cache.all<{ memory_id: string }>("SELECT memory_id FROM embeddings").map(
         (r) => r.memory_id,
       ),
     );
     const denied = new Set(this.deniedIds());
+    // ONE read of the failure counters per call, not one per candidate row.
+    const failures = this.metaWithPrefix(EMBED_FAILED_PREFIX);
+    const givenUp = (id: string): boolean =>
+      Number(failures.get(`${EMBED_FAILED_PREFIX}${id}`) ?? "0") >= EMBED_SKIP_AFTER;
     const rows = this.ops.all<{ id: string }>(
       `SELECT id FROM memories
         WHERE archived = 0 AND superseded_by IS NULL
@@ -1514,16 +1599,45 @@ export class Store {
     const out: string[] = [];
     for (const r of rows) {
       if (embedded.has(r.id) || denied.has(r.id)) continue;
+      if (givenUp(r.id) !== skipped) continue;
       out.push(r.id);
       if (out.length >= limit) break;
     }
     return out;
   }
 
-  /** How many live memories still have no vector — the denominator a coverage
-   *  watch needs, and the number that must fall run over run. */
+  /**
+   * How many live memories a backfill could still act on — the denominator a
+   * coverage watch needs, and the number that must fall run over run.
+   *
+   * Since I33 it EXCLUDES the give-up list, because the number's job is to say
+   * what is actionable: a count that never falls because three ids in it can
+   * never be embedded is a watch that has stopped meaning anything. The excluded
+   * ids are not hidden — `skippedVectorIds()` names them, the backfill row
+   * carries `skipped`, and `verify` prints both, so the two numbers add up on
+   * the page where an owner reads them.
+   */
   unembeddedCount(): number {
     return this.missingVectors(Number.MAX_SAFE_INTEGER).length;
+  }
+
+  /**
+   * Every meta row under one key prefix. A read; nothing is created.
+   *
+   * The meta table is this store's general-purpose key space, and two of its
+   * inhabitants are per-id counters (`sleep.pruned.<id>`, `embed.failed.<id>`)
+   * whose readers want the whole family at once. One `LIKE` beats N `getMeta`
+   * calls in a loop over every live memory, which is what the alternative was.
+   * `_` and `%` in the prefix are escaped: the caller passes a key prefix, not
+   * a pattern.
+   */
+  metaWithPrefix(prefix: string): Map<string, string> {
+    const pattern = `${prefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = this.ops.all<{ key: string; value: string }>(
+      `SELECT key, value FROM meta WHERE key LIKE ? ESCAPE '\\'`,
+      pattern,
+    );
+    return new Map(rows.map((r) => [r.key, r.value]));
   }
 
   /**

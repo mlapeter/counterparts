@@ -248,6 +248,26 @@ export const EMBED_BACKFILL_EVENT = "adapter.embed.backfill";
 /** The lagged semantic cue the worker computed for the next turn — off, refused,
  *  or stored with a hit count. Three records, never one silence (scar §2.4). */
 export const SEMANTIC_LAG_EVENT = "adapter.semantic.lag";
+/**
+ * THE THREE SPAWN-SEAM RECORDS, durable since 2026-09-11 (I32).
+ *
+ * For a week the detached worker was refused at every boundary and NOTHING
+ * durable said so: the refusal lived in the hook process's ring, and a hook
+ * process lives for one turn. Every visible surface — wake, recall, capture,
+ * the daily — read healthy while the clock, the sleep cycle and the ask cap
+ * were all frozen. Scar §2.4 says a door that failed must not be indistinguishable
+ * from a door nobody opened; these are that door's rows.
+ *
+ * They are the one durable family that carries a `dedupKey` (one row per reason
+ * per calendar date), because a refusal that repeats at every boundary would
+ * otherwise write the same line hundreds of times a day. The COUNT is not in the
+ * row — it is the persisted per-reason counter the adapter keeps in box 2's meta
+ * — so the row is evidence that it happened and the counter is evidence of how
+ * often (adapter `NOTES.md`, I32).
+ */
+export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
+export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
+export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
 export type AdapterDurableEventName =
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -257,7 +277,10 @@ export type AdapterDurableEventName =
   | typeof BOUNDARY_EVENT
   | typeof ADAPTER_ASK_EVENT
   | typeof EMBED_BACKFILL_EVENT
-  | typeof SEMANTIC_LAG_EVENT;
+  | typeof SEMANTIC_LAG_EVENT
+  | typeof SPAWN_REFUSED_EVENT
+  | typeof SPAWN_FAILED_EVENT
+  | typeof RUNNER_FAILED_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */
 export interface CounterpartEvent {
@@ -375,14 +398,30 @@ export interface SweepEntry {
   date?: string;
 }
 
+/**
+ * "The sweep did not run, and here is why" — a caller's way to say SKIPPED
+ * rather than to say nothing.
+ *
+ * Added 2026-09-11 (I32). Until then `sweep: undefined` meant "no sweep", and
+ * no sweep meant NO `sweep.gate` ROW AT ALL: a boundary whose worker could not
+ * make a model call left exactly the same trace as a boundary nobody reached.
+ * The gate row exists so silence is evidenced (constitution 16); a run that
+ * skipped the sweep on purpose still owes the record, with the reason on it.
+ */
+export interface SweepSkipped {
+  /** Why the caller did not sweep. One name, and it lands on the gate row. */
+  readonly skipped: "no-credential";
+}
+
 export interface SessionEndInput {
   /** The calendar date this cycle belongs to; `sleep/` defaults to today, UTC. */
   date?: string;
   /** The calendar date the horizon lane asks about. Absent ⇒ no horizon lane. */
   at?: string;
   /** When present, the crash fallback runs BEFORE the cycle, so anything it
-   *  mints is inside the boundary that decays, consolidates and re-renders. */
-  sweep?: SweepEntry;
+   *  mints is inside the boundary that decays, consolidates and re-renders.
+   *  A `SweepSkipped` runs no sweep and still writes the gate row, named. */
+  sweep?: SweepEntry | SweepSkipped;
   /** Override the ceiling reported at wake, for this boundary only. */
   budgetBytes?: number;
 }
@@ -1148,8 +1187,15 @@ export class Counterpart {
   // ── episodes ───────────────────────────────────────────────────────────────
 
   /** ONE ask, and the advance is committed before it blocks (§13 G3–G4). */
-  episodeAsk(sessionId: string, substance: { turns: number; bytes: number }, day?: number): ChapterAsk {
-    return this.self.openChapter(sessionId, substance, day);
+  episodeAsk(
+    sessionId: string,
+    substance: { turns: number; bytes: number },
+    day?: number,
+    /** The host's calendar date (UTC). The day's ask cap is charged to it when
+     *  present — see `self/episodes.ts#dayKey` and I32. */
+    date?: string,
+  ): ChapterAsk {
+    return this.self.openChapter(sessionId, substance, day, date);
   }
 
   /**
@@ -1204,8 +1250,13 @@ export class Counterpart {
   }
 
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */
-  noteOrphanTail(sessionId: string, substance: { turns: number; bytes: number }, day?: number): void {
-    this.self.noteOrphanTail(sessionId, substance, day);
+  noteOrphanTail(
+    sessionId: string,
+    substance: { turns: number; bytes: number },
+    day?: number,
+    date?: string,
+  ): void {
+    this.self.noteOrphanTail(sessionId, substance, day, date);
   }
 
   /**
@@ -1218,22 +1269,41 @@ export class Counterpart {
    * two names above may cross into box 2, addressed by name and carrying their
    * own calendar date in the payload.
    *
-   * No `dedupKey`: these ACCUMULATE (a day has many hooks), unlike the day-gated
-   * records the replay latch exists for. Returns whether the row landed, and
-   * never throws — an observer refuses at the store's own seam, and a stand-down
-   * that threw would cost the boundary that follows it.
+   * Most of these ACCUMULATE (a day has many hooks) and pass no `dedupKey`. The
+   * exception, added 2026-09-11 with the spawn-seam records (I32): a caller may
+   * supply one, and then the row lands AT MOST ONCE for that key — the store's
+   * `INSERT OR IGNORE` latch. A refusal that repeats at every boundary needs
+   * exactly one row per reason per date; the count belongs in the adapter's
+   * persisted counter, not in three hundred identical rows.
+   *
+   * **A deduped write is a SUCCESS.** `appendEvent` returns 0 when the latch
+   * refused, and "the row is already durable" is the outcome the caller asked
+   * for — reporting it as a failure would make an adapter retry something that
+   * cannot be retried, or emit a failure line for a healthy path.
+   *
+   * Returns whether the fact is durable, and never throws — an observer refuses
+   * at the store's own seam, and a stand-down that threw would cost the boundary
+   * that follows it.
    */
   noteAdapterEvent(
     name: AdapterDurableEventName,
     data: Record<string, string | number | boolean | null>,
+    opts: { dedupKey?: string } = {},
   ): boolean {
     if (this.observer) {
       this.emit("counterpart.adapter.standdown", undefined, { name });
       return false;
     }
     try {
-      const seq = this.store.appendEvent({ name, day: this.store.livedDay(), payload: data });
-      return seq > 0;
+      const seq = this.store.appendEvent({
+        name,
+        day: this.store.livedDay(),
+        payload: data,
+        ...(opts.dedupKey === undefined ? {} : { dedupKey: opts.dedupKey }),
+      });
+      // 0 with a latch means "already there", which is durable; 0 without one
+      // would be a store that wrote nothing, and there is no such path.
+      return seq > 0 || opts.dedupKey !== undefined;
     } catch (err) {
       this.emit("counterpart.adapter.event.failed", undefined, { name, code: errCode(err) });
       return false;
@@ -1274,13 +1344,20 @@ export class Counterpart {
     const composeBudget =
       budgetBytes === null ? null : Math.max(budgetBytes - PREFACE_RESERVE_BYTES, 0);
 
+    // Three states, not two (I32): swept, skipped-and-said-so, or not asked for.
+    // The middle one still writes the gate row — `ran: 0, scopes: 0`, with the
+    // reason — so a keyless day is an EVIDENCED quiet day rather than an absence
+    // the daily cannot tell from a dead worker.
+    const skipped =
+      input.sweep !== undefined && "skipped" in input.sweep ? input.sweep.skipped : null;
     const sweeps =
-      input.sweep === undefined
+      input.sweep === undefined || skipped !== null
         ? []
         : await this.sweepFallback({
             ...(input.date === undefined ? {} : { date: input.date }),
-            ...input.sweep,
+            ...(input.sweep as SweepEntry),
           });
+    if (skipped !== null) this.recordSweepGate([], input.date ?? null, skipped);
     const edges = this.associate.flush();
     // THE EPISODE DOOR, before the cycle: an episode ingested here is inside the
     // boundary that decays it, consolidates it and renders the briefing around
@@ -1478,11 +1555,21 @@ export class Counterpart {
    * Guarded the way `recordDecision` is — a lock lost to a concurrent process
    * must cost the ROW, never the sweep — and an observer writes nothing.
    */
-  private recordSweepGate(reports: readonly SweepReport[], date: string | null): void {
+  private recordSweepGate(
+    reports: readonly SweepReport[],
+    date: string | null,
+    reason: "ran" | SweepSkipped["skipped"] = "ran",
+  ): void {
     if (this.observer) return;
     const ran = reports.filter((r) => r.ran).length;
     const skipped = reports.filter((r) => r.reason === "NO_CRASHED_SESSION").length;
     const payload = {
+      // WHY this row exists, always present so a reader never has to infer it
+      // from an absence: `ran` is an ordinary run (whatever it swept), and
+      // anything else is a run that deliberately did not sweep and said so.
+      // `reason: "no-credential"` with `ran: 0, scopes: 0, otherRefusals: 0` is
+      // the keyless day — quiet, not suspicious (I32).
+      reason,
       scopes: reports.length,
       ran,
       skippedNotCrashed: skipped,

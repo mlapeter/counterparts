@@ -47,7 +47,7 @@ import {
 } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { CONFIG_FLAG } from "../src/adapters/config-path.js";
-import { LAYOUT, Store, paths } from "../src/core/store/index.js";
+import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
   CONFIG_FILE,
@@ -1493,6 +1493,53 @@ describe("verify", () => {
     const after = consoleWith();
     expect(await run(["verify"], { io: after.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(text(after.out)).toContain("indexed but not live (archived or superseded): 0");
+  });
+
+  test("--retry-skipped is the way BACK for an id the backfill gave up on", async () => {
+    // THE SKIP IS SELF-SEALING (I33). `missingVectors` stops offering an id once
+    // its `embed.failed` counter reaches the limit, so the backfill never tries
+    // it, so the counter can never be cleared by a run that lands — and
+    // `--rebuild` has no embedder to recompute a vector with and never touches
+    // box 2. Without this flag a repaired title had no door at all.
+    const s = store();
+    const stuck = s.put({ type: "memory", kind: "fact", body: "A memory with a poisoned title, once." });
+    const fine = s.put({ type: "memory", kind: "fact", body: "A memory nothing ever objected to." });
+    s.setMeta(`${EMBED_FAILED_PREFIX}${stuck}`, String(EMBED_SKIP_AFTER));
+    expect(s.skippedVectorIds()).toEqual([stuck]);
+    expect(s.missingVectors(64)).toEqual([fine]);
+    // The census says so, and names the remedy rather than one that cannot work.
+    s.close();
+
+    const census = consoleWith();
+    await run(["verify"], { io: census.io, env: { [ENV]: dir } });
+    const printed = text(census.out);
+    expect(printed).toContain("skipped after repeated embed failures: 1");
+    expect(printed).toContain("--retry-skipped");
+    expect(printed).not.toContain("rebuild box 3");
+
+    const c = consoleWith();
+    expect(await run(["verify", "--retry-skipped", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    const said = text(c.out);
+    expect(said).toContain("Embed-failure counters cleared: 1");
+    expect(said).toContain("Back in the backfill's rotation: 1");
+    expect(said).toContain(stuck);
+
+    const after = store();
+    expect(after.skippedVectorIds()).toEqual([]);
+    expect(after.missingVectors(64).sort()).toEqual([stuck, fine].sort());
+    // It cleared a counter and NOTHING else: both rows are still live and the
+    // one that was never stuck is untouched.
+    expect(after.list({ archived: false }).sort()).toEqual([stuck, fine].sort());
+    after.close();
+
+    // And on a store with nothing skipped it says so rather than inventing work.
+    const idle = consoleWith();
+    expect(await run(["verify", "--retry-skipped", "--dir", dir], { io: idle.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(idle.out)).toContain("Nothing was being skipped");
   });
 
   test("--rebuild REFUSES while box 3 holds vectors nothing here can recompute", async () => {
@@ -3408,6 +3455,71 @@ describe("install", () => {
     ).toBe(9000);
   });
 
+  test("--force KEEPS a credentials file that holds a key (I32)", async () => {
+    // 2026-09-04, the second clobbered field. A forced install rewrote the
+    // owner's `credentials.env` with the template; the detached worker was then
+    // refused at every boundary for a week, the lived-day clock froze at 185,
+    // and every visible surface — wake, recall, capture, the daily — read
+    // healthy. A config is regenerable from this command's own flags. A key is
+    // not, and `--force` was typed to fix a config.
+    const home = fakeHome("force-keeps-key");
+    const store = join(outside, "force-keeps-key", "store");
+    const creds = join(home, ".counterparts", CREDENTIALS_FILE);
+    await run(["install", "--dir", store, "--budget", "9000"], {
+      io: consoleWith().io,
+      env: {},
+      home,
+    });
+    const SECRET = "sk-ant-A-KEY-NOBODY-CAN-REGENERATE";
+    writeFileSync(creds, `# mine\nANTHROPIC_API_KEY=${SECRET}\n`, { mode: 0o600 });
+
+    const forced = consoleWith();
+    expect(
+      await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+        io: forced.io,
+        env: {},
+        home,
+      }),
+    ).toBe(EXIT.ok);
+
+    // The file is untouched, and the key is still in it.
+    expect(readFileSync(creds, "utf8")).toContain(SECRET);
+    const printed = text(forced.out);
+    expect(printed).toContain("kept even under --force");
+    // NAMES ONLY. The command reads the file to count what it holds and must
+    // never print — or otherwise move — a value.
+    expect(printed).toContain("ANTHROPIC_API_KEY");
+    expect(printed).not.toContain(SECRET);
+    // And it does NOT tell the reader to pass --force: they just did, and that
+    // sentence would send them back into the incident.
+    expect(printed).not.toContain("pass --force to replace it");
+
+    // The CONFIG half of --force is unchanged: it is still overwritten.
+    const config = join(home, ".counterparts", CONFIG_FILE);
+    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: 1234 }));
+    await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+      io: consoleWith().io,
+      env: {},
+      home,
+    });
+    expect(
+      (JSON.parse(readFileSync(config, "utf8")) as Record<string, unknown>)["injectionBudgetBytes"],
+    ).toBe(9000);
+    expect(readFileSync(creds, "utf8")).toContain(SECRET);
+
+    // A file holding NO key is still replaced — --force means what it says for
+    // a template nobody has filled in.
+    writeFileSync(creds, "# nothing in here but comments\n", { mode: 0o600 });
+    const again = consoleWith();
+    await run(["install", "--dir", store, "--budget", "9000", "--force"], {
+      io: again.io,
+      env: {},
+      home,
+    });
+    expect(text(again.out)).toContain("replaced");
+    expect(readFileSync(creds, "utf8")).toContain("Counterparts reads exactly two names");
+  });
+
   test("refuses a forbidden data dir before a single file is written", async () => {
     const home = fakeHome("forbidden");
     const forbidden = join(homedir(), ".bansai", "cli-install-must-not-exist", "store");
@@ -3601,6 +3713,7 @@ describe("a bulk write names its store with --dir, and nothing else names it", (
     ["repair-merged-beliefs --apply", ["repair-merged-beliefs", "--apply"]],
     ["verify --rebuild", ["verify", "--rebuild"]],
     ["verify --prune-index", ["verify", "--prune-index"]],
+    ["verify --retry-skipped", ["verify", "--retry-skipped"]],
     ["verify --drop-vectors", ["verify", "--drop-vectors"]],
   ];
 

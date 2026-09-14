@@ -55,6 +55,7 @@ import { convertVectorBatch, countNonFinite, openCache, vectorFormats } from "..
 import {
   CACHE_SCHEMA_VERSION,
   DATA_DIR_ENV,
+  EMBED_FAILED_PREFIX,
   ID_PREFIX,
   LAYOUT,
   SCHEMA_VERSION,
@@ -95,6 +96,7 @@ import { exportStore } from "./export.js";
 import {
   BIN,
   configObject,
+  credentialsHeld,
   credentialsTemplate,
   hookCommand,
   installLayout,
@@ -212,8 +214,10 @@ export function usage(): string {
     "                      leaves every vector where it is.",
     "                      --prune-index takes archived and superseded rows out of",
     "                      the text index and keeps the embeddings.",
-    "                      --rebuild, --prune-index and --drop-vectors are the writing",
-    "                      half, and each needs the store NAMED by --dir.",
+    "                      --retry-skipped puts the ids the backfill gave up on back",
+    "                      in the rotation, and changes nothing else.",
+    "                      --rebuild, --prune-index, --retry-skipped and --drop-vectors",
+    "                      are the writing half, and each needs the store NAMED by --dir.",
     "  migrate-cache       Convert the cache's vectors from JSON text to float32",
     "                      BLOBs, in place, and compact the file. The dry run is",
     "                      read-only; --apply converts, needs the store NAMED by",
@@ -307,7 +311,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // across every project on the machine is how one removal reaches into work
   // nobody named. The dry run lists what it WOULD match; this flag performs it.
   remove: ["confirm", "reason", "strike-by-content-across-scopes"],
-  verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors"],
+  verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors", "retry-skipped"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
   "repair-dates": ["apply", "dry-run", "confidence", "import-day", "sample"],
@@ -341,7 +345,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   backup: "Snapshot: prose plus the canonical DB via VACUUM INTO. The cache is excluded.",
   remove: "The loud removal. Dry run unless --confirm.",
   verify:
-    "Census of the cache against canonical state. Read-only unless --rebuild or --prune-index. --rebuild, --prune-index and --drop-vectors require --dir.",
+    "Census of the cache against canonical state. Read-only unless --rebuild, --prune-index or --retry-skipped. --rebuild, --prune-index, --retry-skipped and --drop-vectors require --dir.",
   "migrate-cache":
     "Convert the cache's vectors from JSON text to float32 BLOBs, in place, and compact the file. Dry run — read-only — unless --apply. --apply requires --dir.",
   "backfill-claims": "Give unclaimed AUTHORED memories the default claimed floor. Dry run unless --apply. --apply requires --dir.",
@@ -391,6 +395,8 @@ const FLAG_HELP: Record<string, string> = {
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   "prune-index": "take the archived and superseded rows out of the text index, keeping the embeddings",
   "keep-vectors": "rebuild the text index and leave every vector where it is",
+  "retry-skipped":
+    "put the ids the backfill gave up on back in the rotation: it clears every embed.failed counter and changes nothing else",
   apply: "actually do it — without this, it is a dry run",
   config:
     "an absolute path to the host configuration, instead of ~/.counterparts/claude-code.json ($COUNTERPARTS_CONFIG says the same); install WRITES it there, rebrief reads it",
@@ -1080,11 +1086,32 @@ function installCommand(
     embedder,
   });
   const config = writeOnce(layout.config, `${JSON.stringify(body, null, 2)}\n`, { force });
-  const creds = writeOnce(layout.credentials, credentialsTemplate(), { force, mode: 0o600 });
+  // `--force` MAY NOT BLANK A CREDENTIAL (I32 — 2026-09-04's second clobbered
+  // field). A forced install that day replaced a file holding two keys with the
+  // template below; the detached worker was refused at every boundary for the
+  // following week, the lived-day clock froze, and nothing visible said so. A
+  // config is regenerable from this command's own flags. A secret is not, and
+  // `--force` was typed to fix a config.
+  //
+  // NAMES ONLY, here and in the lines printed below: no value is read into this
+  // function, compared, or shown. (The #80 guard is a different one — it covers
+  // the temp-store `dataDir`, and it did not fire here.) The force is simply
+  // withdrawn for this one file, so the ordinary "kept" path answers, which is
+  // also what keeps the mode reporting in one place.
+  const held = force ? credentialsHeld(layout.credentials) : [];
+  const creds = writeOnce(layout.credentials, credentialsTemplate(), {
+    force: force && held.length === 0,
+    mode: 0o600,
+  });
 
   io.out(existed ? `Store already present at ${resolved}.` : `Created a store at ${resolved}.`);
   io.out(`  ${config.what} ${config.path}`);
   io.out(`  ${creds.what} ${creds.path} (mode ${creds.mode ?? "?"})`);
+  if (held.length > 0) {
+    io.out(`    kept even under --force: it already holds ${held.join(" and ")}.`);
+    io.out("    A key cannot be regenerated from anything here. Delete the file by");
+    io.out("    hand if you really do mean to start over.");
+  }
   // The SAME sentence `init` prints, because the two commands did the same
   // thing: a page that calls them interchangeable and then has them say it
   // differently has made the reader do the comparison.
@@ -1105,7 +1132,10 @@ function installCommand(
     );
     io.out(`  and it points at your store with "dataDir": "${resolved}".`);
   }
-  if (config.what === "kept" || creds.what === "kept") {
+  // Not said of a credentials file kept BECAUSE it holds a key: --force is
+  // exactly what the reader just passed, and telling them to pass it again
+  // would send them back to the incident this guard exists to prevent.
+  if (config.what === "kept" || (creds.what === "kept" && held.length === 0)) {
     io.out("  (an existing file is never rewritten — pass --force to replace it)");
   }
   if (creds.mode !== undefined && creds.mode !== "600") {
@@ -1554,12 +1584,17 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
             "verify --prune-index",
             "deletes every archived and superseded row from the text index",
           ] as const)
-        : flags["drop-vectors"] === true
+        : flags["retry-skipped"] === true
           ? ([
-              "verify --drop-vectors",
-              "stands as consent to lose embeddings this console has no embedder to recompute",
+              "verify --retry-skipped",
+              "clears every embed.failed counter, so the backfill offers those ids again",
             ] as const)
-          : null;
+          : flags["drop-vectors"] === true
+            ? ([
+                "verify --drop-vectors",
+                "stands as consent to lose embeddings this console has no embedder to recompute",
+              ] as const)
+            : null;
   if (writing !== null) {
     const refusal = requireDirFlagForBulkWrite(dir, io, flags, writing[0], writing[1]);
     if (refusal !== null) return refusal;
@@ -1570,6 +1605,7 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
   }
   if (flags["rebuild"] !== true) {
     if (flags["prune-index"] === true) return verifyPruneIndex(dir, io);
+    if (flags["retry-skipped"] === true) return verifyRetrySkipped(dir, io);
     return verifyCensus(dir, io);
   }
   // Both at once is a command line that contradicts itself, and guessing which
@@ -1602,6 +1638,47 @@ function verifyPruneIndex(dir: string, io: Io): number {
       removed === 0
         ? "The index already held live rows only."
         : "Embeddings are untouched — this repair never resets box 3.",
+    );
+    return EXIT.ok;
+  } finally {
+    store.close();
+  }
+}
+
+/**
+ * `--retry-skipped` — the way BACK for an id the backfill gave up on.
+ *
+ * A skip is not a denial: the memory is live, recallable and lexically indexed,
+ * and only its vector is missing. But the skip is self-sealing —
+ * `missingVectors` stops offering the id, so the backfill never tries it, so the
+ * counter that caused the skip can never be cleared by a run that lands. Until
+ * this flag the only remedy was editing box 2 by hand, and `verify` printed a
+ * remedy ("repair it, or rebuild box 3") that could not work: a rebuild has no
+ * embedder to recompute anything and never touches meta.
+ *
+ * So: clear every counter, name how many, and let the next boundary's backfill
+ * decide again on the evidence. It writes nothing but those rows — no prose, no
+ * index, no embeddings — which is why it is the one writing verify flag that can
+ * lose nothing.
+ */
+function verifyRetrySkipped(dir: string, io: Io): number {
+  const store = Store.open({ dir });
+  try {
+    const skipped = store.skippedVectorIds();
+    const held = store.metaWithPrefix(EMBED_FAILED_PREFIX);
+    const moves: [string, string][] = [];
+    for (const [key, value] of held) {
+      if (value !== "0") moves.push([key, "0"]);
+    }
+    if (moves.length > 0) store.setMetaMany(moves);
+    io.out(`Store: ${dir}`);
+    io.out(`Embed-failure counters cleared: ${moves.length}`);
+    io.out(`Back in the backfill's rotation: ${skipped.length}`);
+    if (skipped.length > 0) io.out(`  ${skipped.join(", ")}`);
+    io.out(
+      moves.length === 0
+        ? "Nothing was being skipped; the backfill was already offering every live row."
+        : "Nothing else changed. If the text is still poison they will be skipped again.",
     );
     return EXIT.ok;
   } finally {
@@ -1645,6 +1722,7 @@ function verifyCensus(dir: string, io: Io): number {
   let live: string[];
   let denied: string[];
   let unembedded: number;
+  let skippedVectors: string[];
   let pathsCensus: ReturnType<Store["pathCensus"]>;
   let schemaVersion: string | null;
   let log: EventLogCensus;
@@ -1655,6 +1733,11 @@ function verifyCensus(dir: string, io: Io): number {
     live = store.list({ archived: false });
     denied = store.deniedIds();
     unembedded = store.unembeddedCount();
+    // The other half of that sum since I33: ids the backfill has given up on
+    // after `EMBED_SKIP_AFTER` failed runs. They are excluded from the count
+    // above on purpose — it reports what is still actionable — so leaving them
+    // unprinted here would be the coverage watch quietly losing rows.
+    skippedVectors = store.skippedVectorIds();
     pathsCensus = store.pathCensus();
     schemaVersion = store.getMeta("schemaVersion") ?? null;
     log = store.eventLogCensus();
@@ -1733,6 +1816,14 @@ function verifyCensus(dir: string, io: Io): number {
       `document lengths: ${cache.counts.lengths}   ranking rows: ${cache.counts.ranking}`,
   );
   io.out(`  embeddings: ${cache.counts.embeddings}   live memories with no vector: ${unembedded}`);
+  if (skippedVectors.length > 0) {
+    io.out(`  skipped after repeated embed failures: ${skippedVectors.length}`);
+    io.out(`    ${skippedVectors.join(", ")}`);
+    io.out("    Not counted above: the backfill stopped offering them, so they cannot");
+    io.out("    clear themselves by landing. Repair the text if it is the cause, then");
+    io.out("    counterparts verify --dir <store> --retry-skipped puts them back in the");
+    io.out("    rotation for the next boundary.");
+  }
   io.out(`  indexed but not live (archived or superseded): ${stale.length}`);
   io.out(`  vector format: ${vectorFormatLine(cache.counts.vectors)}`);
   if (missing.length === 0 && orphans.length === 0 && stale.length === 0) {

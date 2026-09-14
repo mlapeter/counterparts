@@ -321,3 +321,39 @@ thing one refactor later.
   defect and not a privilege boundary — but constitution 6 promises the prose is
   hand-editable, and a paste accident is the whole distance to it. `flatten(name)`, inside
   `identityCoreLine`, where the line is built.
+
+---
+
+## The day cap moved off the lived day (I32, 2026-09-11)
+
+`dayKey` keyed the chapter cap on the store's LIVED day from 2026-09-04, and the
+reasoning was sound as far as it went: E8 says episode pacing and the regrow
+window run on lived days, and a per-session cap multiplies itself by however many
+times the owner typed `claude`.
+
+What it missed is WHO ADVANCES THAT CLOCK. The lived day moves inside the sleep
+cycle, and the sleep cycle runs only in the detached worker. So the cap's reset
+depended on the machinery whose failure the cap would then hide — and on
+2026-09-04 that machinery stopped. The clock froze at 185 for seven days,
+`self.episode.day.185` sat at its cap of 4, and every Stop from then on read
+`capped: day-chapter-cap`. Thirty-nine asks that a person was present for were
+never made, and the store's own record says they were "capped", which is true and
+tells you nothing.
+
+**The rule now:** the CALENDAR date when the caller supplies one, the lived day
+when nobody does. The fallback is not politeness to old callers — it is the right
+answer for a replay driver or a seeded run, where "today" is a fiction and the
+lived day is the only honest clock in the room.
+
+**What is deliberately unchanged.** Episode PACING and the regrow window still
+run on lived days (E8 stands). Only the CAP moved, because only the cap is a
+promise about a person's attention on a particular afternoon, and afternoons are
+calendar things.
+
+**The zone, stated rather than assumed.** The date is the hook's `input.at`,
+which is `new Date().toISOString().slice(0, 10)` — UTC. That is the same zone as
+every other `date` field in this store, and one clock beats two. The price is
+real: an owner at UTC−6 gets their day's asks back at 18:00 local. Named in
+`dayKey`, in the adapter's INTERFACE-GAPS, and in the PR that made the change, so
+that when someone wants a per-owner zone they are changing a decision rather than
+discovering one.
