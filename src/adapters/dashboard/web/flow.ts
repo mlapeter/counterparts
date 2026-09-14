@@ -377,6 +377,10 @@ export const EVENT_NODE = {
   "adapter.spawn.refused": "sweep",
   "adapter.spawn.failed": "sweep",
   "adapter.runner.failed": "sweep",
+  // Which checkout was live at a session start. It belongs to the SESSION node:
+  // it is a fact about the process the host started, recorded on the way in,
+  // before anything was read or written.
+  "adapter.checkout": "session",
   // A credited challenge, from either arm (belief or identity element).
   "revision.pressure": "schemas",
 } as const satisfies Record<DurableEventName, NodeKey>;

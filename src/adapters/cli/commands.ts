@@ -26,9 +26,9 @@
  * `run()` returns an exit code and never calls `process.exit`, so every command
  * is testable against a temp dir with a faked console.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { Counterpart, RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT } from "../../core/counterpart.js";
@@ -93,9 +93,21 @@ import {
 } from "../config-path.js";
 import type { ConfigChoice, ConfigSource } from "../config-path.js";
 import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../stance-env.js";
+// THE HOST ADAPTER'S OWN READINGS, imported rather than re-derived — the same
+// direction `install.ts` already takes (`../claude-code/config.js`). `doctor`
+// and `credentials` are the console's face on the file and the store that
+// adapter owns, and a console with its own idea of "which names are credentials"
+// or "what counts as red" is exactly the drift I32 ran inside of.
+import { CREDENTIAL_NAMES, loadCredentials } from "../claude-code/credentials.js";
+import { SPAWN_REFUSAL_PREFIX } from "../claude-code/hooks.js";
+import { loadConfig } from "../claude-code/config.js";
+import type { AdapterConfig } from "../claude-code/config.js";
+import { anyRed, doctorFindings, readCheckout, reportJson, reportLines } from "../claude-code/doctor.js";
+import type { CheckoutReading } from "../claude-code/doctor.js";
 import { exportStore } from "./export.js";
 import {
   BIN,
+  CREDENTIALS_FILE,
   configObject,
   credentialsHeld,
   credentialsTemplate,
@@ -128,6 +140,10 @@ export const COMMANDS = [
   "repair-merged-beliefs",
   "rebrief",
   "probe-oq4",
+  // I32's two: the reading that says whether the background half is alive, and
+  // the one-command repair for the file whose emptiness stopped it.
+  "doctor",
+  "credentials",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -152,6 +168,14 @@ export const OWNER_OPS: readonly Command[] = [
   // never gets a plan from a console that could not have carried it out.
   "repair-merged-beliefs",
   "rebrief",
+  // `credentials` WRITES a key into the file every entry point reads, and an
+  // instrument does not hand the host it is measuring a credential. `doctor`
+  // stays off this list beside `status` and `recall`: it is a read.
+  //
+  // The whole command stands down, `credentials list` included — the stance
+  // gate is per command, and `list` paying for `set`'s rule is the cheap
+  // direction: the names are in the file, and `doctor` prints them anyway.
+  "credentials",
 ];
 
 export const EXIT = {
@@ -182,6 +206,26 @@ export interface RunOptions {
    * is here rather than in a mocked `os` module.
    */
   home?: string;
+  /**
+   * STANDARD INPUT, as a seam — `credentials set` is the one command whose
+   * argument must never be argv, so it reads the value from here.
+   *
+   * `isTty` is the host telling us whether a human is at the keyboard: with no
+   * pipe the command REFUSES and names the two ways in, rather than hanging on
+   * a terminal the owner will have to Ctrl-C. Injected so a test can prove the
+   * whole path — including "the value never appears in the output" — without a
+   * subprocess.
+   */
+  stdin?: { isTty: boolean; read: () => Promise<string> };
+  /**
+   * WHICH CHECKOUT IS RUNNING, for `doctor`. Real runs never pass it — the
+   * reading derives itself from the running code's own path, which is the whole
+   * point of the finding. The TESTS always do, because the suite runs inside a
+   * git checkout that is by definition on a branch and dirty while somebody is
+   * working in it, and a test whose verdict depended on that would pass and fail
+   * with the developer's `git status`.
+   */
+  checkout?: CheckoutReading;
 }
 
 export function usage(): string {
@@ -243,6 +287,17 @@ export function usage(): string {
     "                      pass archived as duplicates of an ordinary memory, and",
     "                      put them back. Dry run unless --apply, which needs the",
     "                      store NAMED by --dir.",
+    "  doctor              Is the background half alive? Read-only. The config, the",
+    "                      credentials BY NAME, the two clocks, the newest sweep,",
+    "                      sleep, backfill and credit rows, the spawn refusals and",
+    "                      the vector coverage — worst first, each with the one line",
+    "                      that fixes it. Exit 1 if anything is red. --json.",
+    "  credentials set <NAME>",
+    "                      Put one key in the credentials file the config names,",
+    "                      0600, without it ever touching your shell history: the",
+    "                      value comes from stdin or from --from-env <VAR>, never",
+    "                      from the command line, and is never printed back.",
+    "                      'credentials list' says which names the file holds.",
     "  rebrief             Re-render and republish the wake bundle NOW, through the",
     "                      boundary's own renderer. Advances no sleep marker and runs",
     "                      no other sleep phase. Needs an injection ceiling, and says",
@@ -333,6 +388,14 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rebrief: ["budget", "config"],
   // Read-only, like `status`: rows in, a table out.
   "probe-oq4": [],
+  // `doctor` takes `--config` for the same reason `rebrief` does: it reports on
+  // the host configuration, and on a machine with two of them the reading is
+  // about whichever one the hooks read.
+  doctor: ["config", "json"],
+  // `--stdin` and `--from-env` are the only two ways a value gets in. There is
+  // deliberately no `--value`: a flag is argv, argv is shell history, and a
+  // credential in shell history is a credential on disk in plaintext forever.
+  credentials: ["config", "stdin", "from-env"],
 };
 
 /**
@@ -365,6 +428,10 @@ export const COMMAND_BLURB: Record<Command, string> = {
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
   "probe-oq4":
     "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows. Read-only.",
+  doctor:
+    "Is the background half alive? The config, the credentials by name, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
+  credentials:
+    "Put one key in the credentials file the config names, 0600, with the value from stdin or --from-env and never from the command line. 'credentials list' says which names the file holds.",
 };
 
 /** The invocation line, where a command takes something that is not a flag. */
@@ -372,6 +439,7 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   note: ' "<text>"',
   recall: ' "<question>"',
   remove: " <id>",
+  credentials: " set <NAME> | list",
 };
 
 /**
@@ -394,7 +462,10 @@ const FLAG_HELP: Record<string, string> = {
   title: "a title for the memory, instead of one taken from its first line",
   salience: "0..1 — how much this one matters",
   id: "one memory, by id, instead of a question",
-  json: "the tool's own payload rather than the console's rendering",
+  // TWO COMMANDS, ONE SENTENCE (`recall --json` is the MCP tool's payload,
+  // `doctor --json` is the findings): the table is keyed by flag NAME, so the
+  // sentence has to be true of both.
+  json: "machine-readable output — the structured payload rather than the console's rendering",
   out: "the directory to write into",
   passphrase: "encrypt the export with this secret",
   plaintext: "do not encrypt the export (said on purpose, never by default)",
@@ -421,6 +492,8 @@ const FLAG_HELP: Record<string, string> = {
   // was false of `note` and of `migrate-cache` itself). `migrate-cache` is the
   // one command left with a `--yes`, and `--apply` there does require `--dir`.
   yes: "skip the typed confirmation, and nothing else — it never stands in for --dir, which --apply requires",
+  stdin: "read the value from standard input (the default whenever stdin is not a terminal)",
+  "from-env": "read the value from this environment variable instead of from stdin",
 };
 
 /**
@@ -472,6 +545,7 @@ const VALUED_FLAGS: readonly string[] = [
   "confidence",
   "import-day",
   "sample",
+  "from-env",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -624,6 +698,11 @@ export function parse(argv: readonly string[]): Parsed {
       confidence: { type: "string" },
       "import-day": { type: "string" },
       sample: { type: "string" },
+      // `credentials`' two. Declared for the reason every valued flag here is:
+      // an undeclared `--from-env` arrives as the BOOLEAN true, and a command
+      // that read that as "absent" would fall through to stdin and hang.
+      stdin: { type: "boolean" },
+      "from-env": { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -713,7 +792,13 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // `COUNTERPARTS_CONFIG` in somebody's shell must not refuse a command that
   // would never have looked at it — a guard that fires on the innocent case is
   // one people learn to unset rather than to read.
-  const readsConfig = command === "install" || command === "rebrief";
+  const readsConfig =
+    command === "install" ||
+    command === "rebrief" ||
+    // `doctor` REPORTS on a host configuration and `credentials` writes the file
+    // one names, so both resolve it by the same rule as the other two.
+    command === "doctor" ||
+    command === "credentials";
   const named = readsConfig
     ? resolveConfigPath(
         typeof parsed.flags["config"] === "string" ? [`--config=${parsed.flags["config"]}`] : [],
@@ -747,6 +832,41 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
       io.err(`install failed: ${String((err as Error).message ?? err)}`);
+      return EXIT.failed;
+    }
+  }
+
+  // `credentials` OPENS NO STORE, so it must not go through `resolveDir` below:
+  // a command that refused for want of a `--dir` it never reads would be a
+  // guard firing on the innocent case, which is the shape people learn to work
+  // around. The explicit-dir rule still applies to it one door over — the
+  // CONFIG it writes beside is the one that names the live store, so an UNNAMED
+  // configuration is refused here exactly as it is for `install`.
+  if (command === "credentials") {
+    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
+    try {
+      return await credentialsCommand(parsed, io, env, named, opts.stdin);
+    } catch (err) {
+      io.err(`credentials failed: ${String((err as Error).message ?? err)}`);
+      return EXIT.failed;
+    }
+  }
+
+  // `doctor` resolves its store differently from every other command, and the
+  // difference is the whole point: it reads the store the CONFIG names, because
+  // that is the one the hooks open. A doctor that only ever read
+  // `COUNTERPARTS_DATA_DIR` would have declared the temp store healthy through
+  // all of I29. So it is handled here, after the configuration is resolved and
+  // before the generic `--dir` block.
+  if (command === "doctor") {
+    try {
+      return doctorCommand(parsed, io, env, named, opts.checkout);
+    } catch (err) {
+      io.err(`doctor failed: ${String((err as Error).message ?? err)}`);
       return EXIT.failed;
     }
   }
@@ -3196,4 +3316,311 @@ export function openCounterpart(
   // console does not get a second way to mint an identity core; it gets the
   // one way, with a name from a flag instead of from `claude-code.json`.
   return Counterpart.open({ dir, observer, ...(identity === undefined ? {} : { identity }) });
+}
+
+// ── doctor / credentials ────────────────────────────────────────────────────
+
+/**
+ * `doctor`'s exit code when anything is RED.
+ *
+ * It is the same number as `EXIT.usage` and it means something else: not "you
+ * typed this wrong" but "the store you asked about has a red finding". A
+ * separate constant rather than a sixth member of `EXIT`, because `EXIT` is this
+ * console's vocabulary for how a COMMAND went and this is a verdict about a
+ * STORE. Both renderings use it, so a script can branch on `$?` without parsing
+ * either.
+ */
+export const DOCTOR_RED_EXIT = 1;
+
+/**
+ * The host configuration at `path`, read the way every entry point reads it,
+ * with the three readings kept distinct.
+ *
+ * `loadConfig(undefined)` says "absent", which is the right answer for a file
+ * that is not there and the WRONG one for a file that is there and will not
+ * parse — so the parse failure is caught here and named. Both resolve to a
+ * config `doctor` can still report on; neither throws.
+ */
+function hostConfigFor(path: string): {
+  config: AdapterConfig;
+  reason: "loaded" | "absent" | "unreadable";
+} {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    const load = loadConfig(undefined);
+    return { config: load.config, reason: "absent" };
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    // The same direction `loadConfig` takes for a file it cannot understand:
+    // observer, and say so. A config that will not parse silences every hook.
+    return { config: { observer: true }, reason: "unreadable" };
+  }
+  const load = loadConfig(raw);
+  return { config: load.config, reason: load.reason };
+}
+
+/** Where the credentials live for a given configuration: the file the config
+ *  NAMES, else the one `install` writes beside it. */
+function credentialsPathFor(configPath: string, config: AdapterConfig): string {
+  return config.credentialsFile ?? join(dirname(configPath), CREDENTIALS_FILE);
+}
+
+/** The persisted per-reason spawn refusal counters, as `doctor` wants them. */
+function spawnRefusalCounters(store: Store | null): Record<string, number> {
+  if (store === null) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of store.metaWithPrefix(SPAWN_REFUSAL_PREFIX)) {
+    const n = Number(value);
+    if (n > 0) out[key.slice(SPAWN_REFUSAL_PREFIX.length)] = n;
+  }
+  return out;
+}
+
+/**
+ * `doctor` — the reading that would have caught I32 on day one.
+ *
+ * Read-only, all the way down: the store is opened in OBSERVER stance, box 3 is
+ * never opened at all, and nothing here writes a row. The findings, the
+ * severities and the fix sentences live in `claude-code/doctor.ts` and are the
+ * SAME ones the session-start notice reads, so the terminal warning and this
+ * report cannot say different things about one store.
+ *
+ * Two things it does differently from every other command, both deliberate:
+ *
+ *   1. **The store comes from the CONFIG first.** `--dir` overrides it and the
+ *      environment is the last resort, because the question `doctor` answers is
+ *      "is the store the HOOKS open healthy" — and through all of I29 the
+ *      answer for the store the environment named was yes.
+ *   2. **The credentials are read from the FILE, against a scratch environment.**
+ *      A console that counted its own shell would read green on the owner's
+ *      machine — his `~/.zshrc` exports both names — while the hook processes,
+ *      which inherit neither (measured day 0), stayed blind. That is I32
+ *      reproduced inside the diagnostic. What the shell has and the file lacks
+ *      is reported as its own clause instead.
+ */
+function doctorCommand(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  named?: ConfigChoice,
+  checkout?: CheckoutReading,
+): number {
+  const configPath = named?.path ?? defaultConfigPath();
+  const { config, reason } = hostConfigFor(configPath);
+  const credentialsPath = credentialsPathFor(configPath, config);
+  const credentials = loadCredentials(credentialsPath, {});
+  const shellNames = CREDENTIAL_NAMES.filter((n) => (env[n] ?? "").trim().length > 0);
+
+  let dir: string;
+  try {
+    dir =
+      typeof parsed.flags["dir"] === "string"
+        ? parsed.flags["dir"]
+        : (config.dataDir ?? resolveDir(env));
+  } catch (err) {
+    // The explicit-dir guard, at exactly the door `verify`'s census meets it:
+    // a store nobody named is refused here too.
+    io.err(describeDirRefusal(err));
+    return EXIT.refused;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  let store: Store | null = null;
+  try {
+    if (storeExists(dir)) store = Store.open({ dir, observer: true });
+    const findings = doctorFindings({
+      configPath,
+      configReason: reason,
+      config,
+      dir,
+      credentials,
+      credentialsPath,
+      shellNames,
+      store,
+      today,
+      refusals: spawnRefusalCounters(store),
+      // WHICH CHECKOUT THIS CONSOLE IS RUNNING. From a worktree it grades the
+      // worktree, which is the right answer for a command somebody typed; the
+      // hook grades the tree the host invokes by absolute path, which is the
+      // one that is live on the owner's memory.
+      checkout: checkout ?? readCheckout(),
+    });
+    if (parsed.flags["json"] === true) {
+      io.out(JSON.stringify(reportJson(findings, today), null, 2));
+    } else {
+      for (const line of reportLines(findings, today)) io.out(line);
+    }
+    return anyRed(findings) ? DOCTOR_RED_EXIT : EXIT.ok;
+  } finally {
+    store?.close();
+  }
+}
+
+/**
+ * `credentials set <NAME>` and `credentials list` — the repair I32 did not have.
+ *
+ * The rule that shapes every line of it: **the value never appears anywhere a
+ * value can be read back.** Not in argv (argv is shell history, and a key in
+ * shell history is a key on disk in plaintext forever), not in the output, not
+ * in an error. It arrives on stdin or out of one named environment variable,
+ * goes into the file at 0600, and the console says one sentence naming the NAME
+ * and the PATH.
+ *
+ * **Why the bulk-write `--dir` rule does not apply here.** That rule
+ * (`requireDirFlagForBulkWrite`) is about a command that rewrites a STORE nobody
+ * named. This one opens no store; it writes one line into the credentials file
+ * the CONFIGURATION names — so the guard that applies is the configuration one,
+ * and `run()` applies it: with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` armed, an
+ * UNNAMED configuration is refused before this function is reached, exactly as
+ * it is for `install`.
+ */
+async function credentialsCommand(
+  parsed: Parsed,
+  io: Io,
+  env: Record<string, string | undefined>,
+  named?: ConfigChoice,
+  stdin?: { isTty: boolean; read: () => Promise<string> },
+): Promise<number> {
+  const configPath = named?.path ?? defaultConfigPath();
+  const { config } = hostConfigFor(configPath);
+  const path = credentialsPathFor(configPath, config);
+  const allowed = CREDENTIAL_NAMES.join(", ");
+  const sub = parsed.positional[0];
+
+  if (sub === "list") {
+    io.out(`credentials: ${path}`);
+    if (!existsSync(path)) {
+      io.out("  (no such file — counterparts credentials set <NAME> creates it, 0600)");
+      return EXIT.ok;
+    }
+    // NAMES ONLY, from the loader's own reading of the file (`credentialsHeld`
+    // runs it against a scratch environment, so what it returns is what the FILE
+    // answers — never what this shell happens to export).
+    const held = credentialsHeld(path);
+    for (const name of CREDENTIAL_NAMES) {
+      io.out(`  ${name.padEnd(20)} ${held.includes(name) ? "present" : "missing"}`);
+    }
+    return EXIT.ok;
+  }
+
+  if (sub !== "set") {
+    io.err(
+      `refused: 'credentials' takes 'set <NAME>' or 'list'${sub === undefined ? ", and neither was given" : `, not '${sub}'`}.`,
+    );
+    return EXIT.usage;
+  }
+
+  const name = parsed.positional[1];
+  if (name === undefined || !CREDENTIAL_NAMES.includes(name)) {
+    io.err(
+      `refused: ${name === undefined ? "no name was given" : `'${name}' is not a credential this package reads`}. The names are: ${allowed}.`,
+    );
+    io.err("Nothing was written.");
+    return EXIT.usage;
+  }
+
+  const fromEnv = typeof parsed.flags["from-env"] === "string" ? parsed.flags["from-env"] : null;
+  let raw: string;
+  if (fromEnv !== null) {
+    const value = env[fromEnv];
+    if (value === undefined) {
+      io.err(`refused: $${fromEnv} is not set in this environment. Nothing was written.`);
+      return EXIT.refused;
+    }
+    raw = value;
+  } else {
+    if (stdin === undefined) {
+      io.err(
+        `refused: no standard input to read ${name} from. Pipe the value in, or use --from-env <VAR>.`,
+      );
+      return EXIT.usage;
+    }
+    if (stdin.isTty && parsed.flags["stdin"] !== true) {
+      // A terminal with nothing piped into it would BLOCK, and a console that
+      // hangs waiting for a secret is a console people Ctrl-C before typing the
+      // key on the command line instead.
+      io.err(
+        `refused: stdin is a terminal. Pipe the value in (printf '%s' "$KEY" | counterparts credentials set ${name}), use --from-env <VAR>, or pass --stdin to type it here.`,
+      );
+      return EXIT.usage;
+    }
+    raw = await stdin.read();
+  }
+
+  // ONE trailing newline is the shell's, not the owner's: `printf '%s\n'`, a
+  // here-string and an editor all add one. The rest is trimmed for the same
+  // reason `loadCredentials` trims what it reads back — the writer and the
+  // reader must agree about what the value IS.
+  const value = raw.replace(/\r?\n$/, "").trim();
+  if (value.length === 0) {
+    io.err(`refused: the value for ${name} is empty. Nothing was written.`);
+    return EXIT.refused;
+  }
+  if (value.includes("\n") || value.includes("\r")) {
+    // A value with a newline in it would mint a SECOND line in the file, which
+    // the loader reads as a malformed entry and counts — silently.
+    io.err(`refused: the value for ${name} spans more than one line. Nothing was written.`);
+    return EXIT.refused;
+  }
+
+  writeCredential(path, name, value);
+  io.out(`set ${name} in ${path}`);
+  return EXIT.ok;
+}
+
+/**
+ * Write one name into the credentials file, keeping every other line.
+ *
+ * Three cases, in order: an ACTIVE line for this name is replaced where it
+ * stands; else the template's own COMMENTED placeholder (`# NAME=...`) becomes
+ * the real line, in place, so the file reads the way `install` laid it out;
+ * else the line is appended. Every other line — every comment, the other name,
+ * anything the owner added — is preserved byte for byte.
+ *
+ * The mode is set twice on purpose: `writeFileSync`'s `mode` applies only when
+ * the file is CREATED, so an existing file that was 0644 would keep its bits.
+ * `chmodSync` is what actually holds the 0600 promise.
+ */
+function writeCredential(path: string, name: string, value: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const line = `${name}=${value}`;
+  let text = "";
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    /* absent is ordinary: this command is how the file comes to exist */
+  }
+  // The names are `CREDENTIAL_NAMES` members, so there is nothing to escape.
+  const active = new RegExp(`^\\s*(export\\s+)?${name}\\s*=`);
+  const commented = new RegExp(`^\\s*#\\s*(export\\s+)?${name}\\s*=`);
+  const out = text.length === 0 ? [] : text.split("\n");
+  let replaced = false;
+  for (let i = 0; i < out.length; i += 1) {
+    if (active.test(out[i] ?? "")) {
+      out[i] = line;
+      replaced = true;
+      break;
+    }
+  }
+  if (!replaced) {
+    for (let i = 0; i < out.length; i += 1) {
+      if (commented.test(out[i] ?? "")) {
+        out[i] = line;
+        replaced = true;
+        break;
+      }
+    }
+  }
+  if (!replaced) {
+    while (out.length > 0 && (out[out.length - 1] ?? "").trim().length === 0) out.pop();
+    out.push(line);
+    out.push("");
+  }
+  writeFileSync(path, out.join("\n"), { mode: 0o600 });
+  chmodSync(path, 0o600);
 }

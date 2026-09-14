@@ -18,6 +18,14 @@ import { fileURLToPath } from "node:url";
 
 import { run } from "../commands.js";
 
+/** Everything piped in, as one string. Never logged, never echoed: the one
+ *  caller is `credentials set`, and what comes through here is a secret. */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk as Buffer));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 function ask(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolveAnswer) => {
@@ -41,6 +49,11 @@ async function main(): Promise<number> {
       // a human is there; absent, the prompt is not offered at all.
       ...(process.stdin.isTTY ? { prompt: ask } : {}),
     },
+    // STANDARD INPUT, for the one command that takes its argument that way
+    // (`credentials set`, whose value must never be argv). Read lazily: nothing
+    // touches stdin unless a command asks for it, so every other command
+    // behaves exactly as it did.
+    stdin: { isTty: process.stdin.isTTY === true, read: readStdin },
   });
 }
 

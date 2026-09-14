@@ -1083,6 +1083,36 @@ describe("the v2 store reader", () => {
     expect(readV2Day(data, "2026-09-15").byNameForDate["self.briefing"]).toBeUndefined();
   });
 
+  /**
+   * WHICH CODE RAN THAT DAY. The hooks are invoked by absolute path, so the
+   * install tree's working state is the code that produced every other number on
+   * the day record — and that tree has both sat on a peer session's unmerged
+   * branch and, after a merge, stayed at the old sha for half an hour. Every
+   * reason but `master` lands in the one split an operator scans for.
+   */
+  test("adapter.checkout:off-master counts every reason but master, and the total counts them all", () => {
+    const data = dir("v2");
+    buildStore(data, (s) => {
+      for (const reason of ["master", "behind", "branch", "dirty"]) {
+        s.appendEvent({
+          name: "adapter.checkout",
+          day: 7,
+          payload: { reason, branch: "x", head: `sha${reason}`, dirty: 0, date: "2026-09-14" },
+        });
+      }
+      s.appendEvent({
+        name: "adapter.checkout",
+        day: 8,
+        payload: { reason: "master", branch: "master", head: "abc", dirty: 0, date: "2026-09-15" },
+      });
+    });
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["adapter.checkout"]).toBe(4);
+    expect(day.byNameForDate["adapter.checkout:off-master"]).toBe(3);
+    // A day that never left origin/master contributes no split at all.
+    expect(readV2Day(data, "2026-09-15").byNameForDate["adapter.checkout:off-master"]).toBeUndefined();
+  });
+
   test("sweep.gate:no-credential counts ONLY the keyless runs, and the total still counts them all", () => {
     const data = dir("v2");
     buildStore(data, (s) => {

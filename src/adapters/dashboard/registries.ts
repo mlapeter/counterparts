@@ -32,6 +32,7 @@ import {
   ADAPTER_ASK_EVENT,
   AUTHORSHIP_ASK_EVENT,
   BOUNDARY_EVENT,
+  CHECKOUT_EVENT,
   EMBED_BACKFILL_EVENT,
   EPISODE_ASK_EVENT,
   GATE_CHUNK_EVENT,
@@ -119,7 +120,8 @@ export type DurableEventName =
   | typeof SEMANTIC_LAG_EVENT
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
-  | typeof RUNNER_FAILED_EVENT;
+  | typeof RUNNER_FAILED_EVENT
+  | typeof CHECKOUT_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -137,6 +139,10 @@ export const DURABLE_EVENTS = {
   "adapter.runner.failed": "the detached worker failed after opening the store (which step, and the code)",
   "adapter.spawn.failed": "the detached worker could not be started at all (the OS said why)",
   "adapter.spawn.refused": "the detached worker was not started, by name (and how many times running)",
+  // Which CODE was live at a session start (2026-09-14): the hooks run whatever
+  // the install tree has checked out, so a peer session's unmerged branch in
+  // that tree is the memory layer the owner is using.
+  "adapter.checkout": "which checkout the hooks were running at session start (branch, short sha, tracked modifications)",
   "adapter.episode.ask": "HISTORICAL: the episode half of the old two-ask Stop",
   "adapter.primacy.deliver": "a hook delivered while the parallel run was on",
   "adapter.primacy.standdown": "a hook withheld delivery so the other system could speak",

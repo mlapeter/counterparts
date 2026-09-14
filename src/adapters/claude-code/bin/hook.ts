@@ -33,9 +33,17 @@ import { HOOKS, openAdapter } from "../index.js";
 import type { HookInput, HookName } from "../hooks.js";
 import { readTranscript } from "../transcript.js";
 
+/**
+ * The host's own spelling of the one event that carries a notice. It appears
+ * twice — as a key below, and as `hookSpecificOutput.hookEventName` in the JSON
+ * form — and the host matches that field against its own name, so the two
+ * spellings must be one constant.
+ */
+export const HOST_SESSION_START = "SessionStart";
+
 /** The host's event names, mapped to this adapter's. Host trivia, by definition. */
 const HOST_HOOKS: Record<string, HookName> = {
-  SessionStart: "session-start",
+  [HOST_SESSION_START]: "session-start",
   UserPromptSubmit: "user-prompt-submit",
   Stop: "stop",
   SessionEnd: "session-end",
@@ -196,8 +204,17 @@ async function main(): Promise<void> {
     configPath: choice.path,
   });
   try {
-    const result = adapter.hook(name, toHookInput(payload));
-    const delivery = hostDelivery(name, result, payload);
+    // ONE read of the transcript, shared by the hook and the notice: `toHookInput`
+    // opens and parses the transcript file, and calling it twice would pay for
+    // that twice on the hot path.
+    const input = toHookInput(payload);
+    const result = adapter.hook(name, input);
+    // THE NOTICE, AFTER THE WAKE AND ONLY AT SESSION START. Never on
+    // user-prompt-submit: the owner asked for a warning, not a nag. `notice()`
+    // is red-only, bounded, and returns null rather than throwing, so the line
+    // below cannot change what the wake does on a healthy day.
+    const notice = name === "session-start" ? adapter.notice(input) : null;
+    const delivery = hostDelivery(name, result, payload, notice);
     if (delivery.stdout.length > 0) process.stdout.write(delivery.stdout);
     if (delivery.stderr.length > 0) process.stderr.write(delivery.stderr);
     process.exitCode = delivery.exitCode;
@@ -220,16 +237,42 @@ async function main(): Promise<void> {
  *     with `stop_hook_active: true`; that re-fire must ask NOTHING or the ask
  *     loops forever (v1's anti-loop, kept here for the same reason).
  *
+ * **The fourth channel, added 2026-09-14 for I32: `systemMessage`.** Documented
+ * at https://code.claude.com/docs/en/hooks (formerly
+ * docs.claude.com/en/docs/claude-code/hooks) and measured by the owner's own
+ * probe on 2026-09-11: a SessionStart hook that exits 0 and prints JSON with a
+ * top-level `systemMessage` gets that text DISPLAYED in the terminal
+ * (`SessionStart:startup says: …`), non-blocking, while `additionalContext` and
+ * stderr do not show. The doc also states the rule that makes this safe or
+ * dangerous depending on which form you print: **when stdout parses as JSON the
+ * raw stdout is NOT also added to context** — only the JSON's fields are. So the
+ * wake must ride ENTIRELY in `hookSpecificOutput.additionalContext`, byte for
+ * byte what plain stdout would have carried, and a day with nothing red prints
+ * the plain form it has printed since day 0 rather than a JSON wrapper nobody
+ * has measured on this host.
+ *
  * Pure, so the test proves the channel choice without a process.
  */
 export function hostDelivery(
   name: HookName,
   result: { injection: string | null; ask: string | null },
   payload: Record<string, unknown>,
+  /** The owner-facing warning, or null. Only SessionStart carries one. */
+  notice: string | null = null,
 ): { stdout: string; stderr: string; exitCode: 0 | 2 } {
   const ask = result.ask !== null && result.ask.length > 0 ? result.ask : null;
   if (name !== "stop") {
     const out = [result.injection ?? "", ask ?? ""].filter((s) => s.length > 0).join("\n\n");
+    if (name === "session-start" && notice !== null && notice.length > 0) {
+      return {
+        stdout: JSON.stringify({
+          systemMessage: notice,
+          hookSpecificOutput: { hookEventName: HOST_SESSION_START, additionalContext: out },
+        }),
+        stderr: "",
+        exitCode: 0,
+      };
+    }
     return { stdout: out, stderr: "", exitCode: 0 };
   }
   // The re-fire is refused twice on purpose: the adapter asks nothing on it, and

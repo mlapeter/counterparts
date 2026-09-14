@@ -228,6 +228,23 @@ export const NARRATORS = {
     amber(
       `My background worker opened the store and then failed at ${String(t.p["step"] ?? "an unnamed step")} (${String(t.p["code"] ?? "no code")}).`,
     ),
+  // WHICH CODE WAS LIVE. Calm on master, amber otherwise: the hooks run whatever
+  // the install tree has checked out, so a branch sitting in it is not a
+  // development state — it is the memory layer that ran that day.
+  "adapter.checkout": (t) => {
+    const reason = s(t, "reason") ?? "unnamed";
+    const where = `${s(t, "branch") ?? "a detached HEAD"}@${s(t, "head") ?? "?"}`;
+    const dirty = n(t, "dirty") ?? 0;
+    if (reason === "master") return calm(`I started at origin/master (${where}), with a clean tree.`);
+    if (reason === "behind") {
+      return amber(
+        `I started ${String(n(t, "behindBy") ?? 0)} commits behind origin/master (${where}) — the merge had landed and this checkout had not moved.`,
+      );
+    }
+    return amber(
+      `I started on ${where}${dirty > 0 ? `, ${String(dirty)} tracked file${dirty === 1 ? "" : "s"} modified` : ""} — not origin/master. Whatever is checked out there is what ran.`,
+    );
+  },
   "recall.credit": (t) => {
     const credited = n(t, "credited") ?? 0;
     const expanded = n(t, "expanded") ?? 0;
@@ -491,6 +508,7 @@ export const REF_KIND = {
   "adapter.semantic.lag": "none",
   "adapter.spawn.failed": "none",
   "adapter.spawn.refused": "none",
+  "adapter.checkout": "none",
   "adapter.wake.delivered": "none",
   "adapter.wake.injected": "none",
   "band.promoted": "memory",

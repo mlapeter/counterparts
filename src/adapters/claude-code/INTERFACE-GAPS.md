@@ -394,17 +394,23 @@ that needs a comparison, which is what the fix above is.
 
 ## What the spawn-seam repair still owes (I32/I33, 2026-09-11)
 
-1. **Nothing SAYS the worker has not run.** `spawnRefusals()` and the durable
-   `adapter.spawn.refused` rows make the fact readable; no surface reads them.
-   The session-start notice that turns "your background worker has not started
-   in four days" into a sentence the owner sees is PR 2, and until it lands the
-   evidence is there for whoever thinks to look — which is exactly the posture
-   that let I32 run for a week. `doctor`, the same notice's read-only twin,
-   is also PR 2.
-2. **No command restores a credential.** `install --force` now keeps a file that
-   holds a key (§E), but the repair for a file that does NOT is still "open an
-   editor". A `credentials set <NAME>` that writes one name at 0600 without ever
-   printing the value is PR 2.
+1. **Nothing SAYS the worker has not run — CLOSED 2026-09-14.** `spawnRefusals()`
+   and the durable `adapter.spawn.refused` rows made the fact readable and no
+   surface read them, which is exactly the posture that let I32 run for a week.
+   Both surfaces now exist and share one library (`doctor.ts`), so they cannot
+   disagree: `ClaudeCodeAdapter#notice` puts the worst RED finding in the
+   owner's terminal at SessionStart as the hook's `systemMessage` (red only, no
+   nag; amber is the console's), and `counterparts doctor` prints the whole
+   reading read-only, exit 1 on any red. The counters are read by `doctor`'s
+   Spawn finding, which goes red at `TUNABLES.ESCALATE_AFTER` and names the
+   reason. See NOTES, "The warning reaches the terminal".
+2. **No command restores a credential — CLOSED 2026-09-14.**
+   `counterparts credentials set <NAME>` writes one name into the file the
+   configuration names, at 0600, with the value from stdin or `--from-env <VAR>`
+   and never from argv, never echoed, never logged. It replaces that name's line
+   (the template's commented placeholder included) and keeps every other line and
+   comment; `credentials list` says which names the file holds. `install --force`
+   keeping a file that holds a key (§E) was the other half.
 3. **The ask cap's day is UTC.** `input.at` is the host's UTC ISO date, chosen
    because every other `date` field in the store is, and two clocks in one store
    is a scar this repo already has a name for. The owner is at UTC−6, so their
@@ -437,3 +443,34 @@ that needs a comparison, which is what the fix above is.
    elsewhere therefore still charges the 500's victims. Closing it means carrying
    the failing texts' hashes out of `EmbedderStats` — a new surface, and the
    cache-key hygiene rules apply to it, so it was not taken here.
+
+## What `doctor` and the checkout finding still owe (2026-09-14)
+
+1. **`Store.eventLog` has no descending read**, so "the newest row of this name"
+   costs a ladder of lived-day windows instead of one query. Filed in full as
+   `cli/INTERFACE-GAPS` §10, where the console's other asks against `store/`
+   live; the workaround is exact, not approximate, and the cost is up to five
+   queries on a 150 ms hot path.
+2. **`adapter.checkout` is a durable name in `core/counterpart.ts`.** The third
+   time the core has learned a string for an adapter's sake, and for the same
+   narrow reason the spawn names did: `dashboard/registries.ts` derives
+   `DurableEventName` from these literals, so a durable event named in the
+   adapter would fail the registry's totality silently. The core knows a string;
+   it knows nothing about git. If that derivation ever moves, this line and the
+   two above it should move with it.
+3. **The checkout reading is a git subprocess on a foreground hook.** Bounded
+   (`spawnSync`, 2 s, never throws, degrades to a neutral finding) and cheap in
+   practice, but it is still four to six `git` invocations per session start, and
+   it is the only place this adapter shells out at all. If it ever shows up in a
+   session-start measurement, the cheap fix is to read `.git/HEAD` and
+   `.git/refs/remotes/origin/master` directly and keep git for the ancestry test.
+4. **It grades `origin/master` AS LAST FETCHED, and never fetches.** A tree
+   nobody has fetched in a week reads `master` while origin has moved on, which
+   is the exact failure the `behind` grade exists to catch — one layer earlier
+   than this reading can see. The honest fix is a fetch somebody else performs
+   (a cron, the merge itself), not a network call on the wake's path.
+5. **The notice is red-only and says so, which means AMBER has exactly one
+   reader: the owner running `doctor`.** A store that sits amber for a month —
+   embedder off, vectors uncovered, a checkout quietly behind — tells nobody
+   until somebody asks. That is the deliberate trade (a notice people mute is
+   worth less than one they read), and it is a trade, not a property.
