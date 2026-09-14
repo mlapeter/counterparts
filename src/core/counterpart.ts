@@ -88,7 +88,7 @@ import type {
 import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
 import { Schemas } from "./schemas/index.js";
-import { LANE_ORDER, PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
+import { BRIEFING_TRIM_LOG_CAP, LANE_ORDER, PREFACE_RESERVE_BYTES, Self } from "./self/index.js";
 import type {
   ChapterAppend,
   ChapterAsk,
@@ -98,7 +98,7 @@ import type {
   WakeResult,
 } from "./self/index.js";
 import { runCycle } from "./sleep/index.js";
-import type { CycleReport } from "./sleep/index.js";
+import type { CycleReport, Phase } from "./sleep/index.js";
 import { Store, assertSafeDataDir, hashText, indexTextOf } from "./store/index.js";
 import type { Embedder, StoreEvent } from "./store/index.js";
 import { TUNABLES as PHYSICS } from "./physics/index.js";
@@ -186,6 +186,43 @@ export const RECALL_DECISION_EVENT = "recall.decision";
  * swept and minted when it did run.
  */
 export const SWEEP_GATE_EVENT = "sweep.gate";
+
+/**
+ * THE CYCLE'S OWN RECORD — one row per `runCycle()` call at a boundary.
+ *
+ * `sleep/cycle.ts` emits `sleep.cycle.start`, `sleep.cycle.done`,
+ * `sleep.phase.failed` and the rest into an in-process ring (`EVENT_RING`) that
+ * dies with the worker, so from the store nobody could answer "did the cycle run
+ * today, and did every phase succeed" (IMPROVEMENTS U9). Only the side effects
+ * other modules record — `band.transition`, `memory.pruned` — proved it had run,
+ * and a cycle whose every phase was skipped leaves none of those. Same lesson as
+ * I32: every gate that can say no must leave a row where a later reader looks.
+ *
+ * One row, from the `CycleReport`: `reason` first and always, every phase by NAME
+ * with the status and reason the report gave it, and the run's counts. Ids and
+ * numbers; never text.
+ *
+ * UNLATCHED, like `sweep.gate`: no `dedupKey`, so two boundaries on one lived day
+ * leave two rows — which is the truth, since the cycle really did run twice. The
+ * rows age out with every other row in the log, at the store's 90-LIVED-DAY
+ * window (`sleep/log.ts`, `Store.pruneEvents`).
+ */
+export const SLEEP_CYCLE_EVENT = "sleep.cycle";
+
+/**
+ * THE WAKE RENDER'S OWN RECORD — one row per briefing render at a boundary.
+ *
+ * The other half of U9: `self.briefing.trim` fires once per trimmed element and
+ * `self.briefing.rendered` carries the lane counts, and both lived only in the
+ * ring, so "what did the wake trim today, and what actually rendered" was not a
+ * question the store could answer either. `self/` has no store handle and must
+ * not grow one, so the row is written HERE, from what the cycle's render emitted.
+ *
+ * Lane counts for what RENDERED, ids-only for what was trimmed (capped at
+ * `BRIEFING_TRIM_LOG_CAP`, with the full count beside it). Never briefing text.
+ * Unlatched and 90-lived-day-pruned, exactly like `sleep.cycle` above.
+ */
+export const SELF_BRIEFING_EVENT = "self.briefing";
 
 /**
  * The durable events an ADAPTER may write, and the whole list of them.
@@ -486,6 +523,38 @@ const DEFAULT_KIND: Kind = "fact";
 const SWEPT_SOURCE: ProposalSource = "session-end";
 
 const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
+
+/**
+ * The names the two durable U9 rows are read out of, spelled once.
+ *
+ * They are `self/`'s event names, not new vocabulary: this root copies what the
+ * render emitted and states no rule about it. `CLOCK_PHASE` is likewise a
+ * `Phase`, so a phase `sleep/` renames fails `tsc` here rather than turning
+ * `sleep.cycle`'s `reason` into a permanent `ran`.
+ */
+const RENDERED_EVENT = "self.briefing.rendered";
+const TRIM_EVENT = "self.briefing.trim";
+const TRIMMED_FIELD = "trimmed";
+const CLOCK_PHASE: Phase = "clock";
+
+/** The render's own summary for this cycle, or null when it did not render. */
+function renderedEvent(events: readonly CounterpartEvent[]): CounterpartEvent | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (e !== undefined && e.name === RENDERED_EVENT) return e;
+  }
+  return null;
+}
+
+function numberField(event: CounterpartEvent | null, key: string): number | null {
+  const v = event?.data?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function stringField(event: CounterpartEvent, key: string): string | null {
+  const v = event.data?.[key];
+  return typeof v === "string" ? v : null;
+}
 
 /**
  * The chunk gate's own record, as it is PERSISTED (store `events`, SEAMS K).
@@ -822,6 +891,21 @@ export class Counterpart {
   private readonly onEvent: ((e: CounterpartEvent) => void) | undefined;
   private readonly nowFn: () => number;
   private readonly ring: CounterpartEvent[] = [];
+  /**
+   * THE BRIEFING COLLECTOR, and the seam `self.briefing` is written from.
+   *
+   * Null except for the span of one `runCycle()` call. `self/` emits
+   * `self.briefing.trim` per trimmed id and `self.briefing.rendered` with the
+   * lane counts; both arrive through the SELF relay wired in the constructor
+   * below — not through `selfRenderer`'s own `onEvent`, which carries only the
+   * no-budget refusal. Arming a field for the cycle and reading it after is the
+   * cheapest seam that is also honest about scope: the alternative, filtering
+   * this root's ring afterwards, cannot tell this boundary's render from the
+   * previous one in a long-lived process, and the alternative on the other side
+   * — appending from inside `self/` — is not available at all, because `self/`
+   * holds no store handle and must not grow one (SEAMS G).
+   */
+  private briefingEvents: CounterpartEvent[] | null = null;
 
   private constructor(opts: CounterpartOptions) {
     // THE PATH GUARD, BEFORE ANYTHING OPENS (scar §2.13). `dataDir()` asserts
@@ -899,7 +983,15 @@ export class Counterpart {
     this.self = new Self({
       store: this.store,
       gate: episodeGate(),
-      onEvent: (e) => this.relay("self", e),
+      // The relay, plus the one tap the durable briefing row is read from. The
+      // tap is inert whenever `briefingEvents` is null, which is everywhere but
+      // inside a boundary's cycle.
+      onEvent: (e) => {
+        if (this.briefingEvents !== null && e.name.startsWith(SELF_BRIEFING_EVENT)) {
+          this.briefingEvents.push({ ...e });
+        }
+        this.relay("self", e);
+      },
       now: this.nowFn,
     });
     this.recall = new Recall({
@@ -1377,20 +1469,43 @@ export class Counterpart {
       ...(input.at === undefined ? {} : { at: input.at }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
-    const cycle = runCycle({
-      store: this.store,
-      render,
-      // The PHYSICS date key, and the host's to supply — every live entry point
-      // passes one (`hook.ts`, `runner.ts`, the demo seeder, the replay driver).
-      // When one does not, the fallback is THIS SESSION'S clock rather than
-      // `sleep/cycle.ts#todayDate()`'s ambient read: a boundary is the one place
-      // the two clocks touch, and a seeded run whose caller forgot the date would
-      // otherwise advance the lived-day clock with a date from a different year
-      // than everything the same run wrote (§I7).
-      date: input.date ?? this.store.today(),
-      ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
-      onEvent: (e) => this.relay("sleep", e),
-    });
+    // The PHYSICS date key, and the host's to supply — every live entry point
+    // passes one (`hook.ts`, `runner.ts`, the demo seeder, the replay driver).
+    // When one does not, the fallback is THIS SESSION'S clock rather than
+    // `sleep/cycle.ts#todayDate()`'s ambient read: a boundary is the one place
+    // the two clocks touch, and a seeded run whose caller forgot the date would
+    // otherwise advance the lived-day clock with a date from a different year
+    // than everything the same run wrote (§I7). Resolved ONCE and handed to both
+    // the cycle and the two recorders below, so the rows cannot date themselves
+    // differently from the run they describe — `sweep.gate`'s nullable `date` is
+    // a hole this pair does not have.
+    const date = input.date ?? this.store.today();
+    // Armed for the cycle and taken back on BOTH exits: see the field's own
+    // note. `self/`'s briefing events are the only thing it collects.
+    this.briefingEvents = [];
+    let cycle: CycleReport;
+    try {
+      cycle = runCycle({
+        store: this.store,
+        render,
+        date,
+        ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
+        onEvent: (e) => this.relay("sleep", e),
+      });
+    } catch (err) {
+      // A cycle that THREW still leaves a row. `CycleKilled` — a process kill
+      // wearing an exception's clothes — is the one thing `sleep/` deliberately
+      // does not paper over, so the rows are written and the throw continues on
+      // its way: the boundary's contract is unchanged, and the evidence that the
+      // cycle started and died is no longer only in a ring that died with it.
+      const partial = this.takeBriefingEvents();
+      this.recordSleepCycle(null, date, partial, errCode(err));
+      this.recordSelfBriefing(partial, date);
+      throw err;
+    }
+    const briefingEvents = this.takeBriefingEvents();
+    this.recordSleepCycle(cycle, date, briefingEvents, null);
+    this.recordSelfBriefing(briefingEvents, date);
 
     this.emit("counterpart.sessionEnd", undefined, {
       day: cycle.day,
@@ -1594,6 +1709,130 @@ export class Counterpart {
       this.emit("counterpart.sweep.gate.failed", undefined, { code: errCode(err) });
     }
     this.emit("counterpart.sweep.gate", undefined, { ...payload, durable });
+  }
+
+  /** Disarm the collector and hand back what it caught. See the field's note. */
+  private takeBriefingEvents(): readonly CounterpartEvent[] {
+    const out = this.briefingEvents ?? [];
+    this.briefingEvents = null;
+    return out;
+  }
+
+  /**
+   * ONE durable row per cycle run (`SLEEP_CYCLE_EVENT`, IMPROVEMENTS U9).
+   *
+   * Written from the `CycleReport` and from nothing else: this root re-derives
+   * no phase verdict and invents no status vocabulary — `phase`, `status` and
+   * `reason` are copied off the report verbatim, so a phase whose outcome
+   * `sleep/` renames renames itself here too. A failed phase carries `code`
+   * beside them, because `reason` for a failure is the literal word `failed` and
+   * the WHY is in the report's `error`.
+   *
+   * Guarded exactly as `recordSweepGate` is: an observer writes nothing, and an
+   * append that fails costs the ROW and never the boundary.
+   */
+  private recordSleepCycle(
+    report: CycleReport | null,
+    date: string,
+    briefing: readonly CounterpartEvent[],
+    threwCode: string | null,
+  ): void {
+    if (this.observer) return;
+    const phases = (report?.phases ?? []).map((p) => ({
+      phase: p.phase,
+      status: p.status,
+      reason: p.reason,
+      ...(p.error === undefined ? {} : { code: p.error }),
+    }));
+    const clock = report?.phases.find((p) => p.phase === CLOCK_PHASE) ?? null;
+    const clockFailed = clock !== null && clock.status === "failed";
+    const payload = {
+      // WHY this row exists, always present. `ran` is an ordinary cycle whatever
+      // it found; `clock-failed` is a cycle that ran on the day the store already
+      // believed in because the date would not advance; `threw` is a cycle that
+      // died — `CycleKilled`, the watchdog's hard kill — and left this row on its
+      // way out. An OBSERVER never reaches here: an instrument writes nothing.
+      reason: threwCode !== null ? "threw" : clockFailed ? "clock-failed" : "ran",
+      code: threwCode ?? (clockFailed ? clock.error ?? null : null),
+      // The CALENDAR date, always known here: `sessionEnd` resolves it once and
+      // hands the same string to the cycle and to this row, so unlike
+      // `sweep.gate` there is no null hole to attribute around.
+      date,
+      day: report?.day ?? this.store.livedDay(),
+      // EVERY phase by name, in the order the cycle executed them, so "which
+      // phase failed" is answerable from the row rather than from a ring.
+      phases,
+      promoted: report?.promoted.length ?? 0,
+      pruned: report?.pruned.length ?? 0,
+      merged: report?.merged.length ?? 0,
+      bandUp: report?.bandTransitions.filter((t) => t.direction === "up").length ?? 0,
+      bandDown: report?.bandTransitions.filter((t) => t.direction === "down").length ?? 0,
+      failed: phases.filter((p) => p.status === "failed").length,
+      // Briefing elements trimmed, from the render's own summary — 0 when the
+      // briefing phase did not render at all, which `phases` disambiguates.
+      trimmed: numberField(renderedEvent(briefing), TRIMMED_FIELD) ?? 0,
+    };
+    let durable = true;
+    try {
+      this.store.appendEvent({ name: SLEEP_CYCLE_EVENT, day: this.store.livedDay(), payload });
+    } catch (err) {
+      durable = false;
+      this.emit("counterpart.sleep.cycle.failed", undefined, { code: errCode(err) });
+    }
+    this.emit("counterpart.sleep.cycle", undefined, {
+      reason: payload.reason,
+      day: payload.day,
+      failed: payload.failed,
+      durable,
+    });
+  }
+
+  /**
+   * ONE durable row per wake render (`SELF_BRIEFING_EVENT`, IMPROVEMENTS U9).
+   *
+   * No render, no row: the briefing phase is cadenced daily, so a second
+   * boundary on one lived day renders nothing and this writes nothing — an
+   * absence that `sleep.cycle`'s own `phases` already explains by name.
+   *
+   * Ids and counts. The trim list is capped at `self/`'s
+   * `BRIEFING_TRIM_LOG_CAP` with the full number beside it, so a capped list is
+   * never mistaken for the whole of it. Never briefing text.
+   */
+  private recordSelfBriefing(briefing: readonly CounterpartEvent[], date: string): void {
+    if (this.observer) return;
+    const rendered = renderedEvent(briefing);
+    if (rendered === null) return;
+    const trims = briefing.filter((e) => e.name === TRIM_EVENT);
+    const payload = {
+      reason: "rendered",
+      date,
+      day: numberField(rendered, "day") ?? this.store.livedDay(),
+      bytes: numberField(rendered, "bytes") ?? 0,
+      budget: numberField(rendered, "budget") ?? 0,
+      // What RENDERED, per lane, read off the render's own summary rather than
+      // recounted here — `rebrief()` reads the same event for the same reason.
+      counts: Object.fromEntries(
+        LANE_ORDER.map((lane) => [lane, numberField(rendered, lane) ?? 0]),
+      ),
+      trimmed: trims.slice(0, BRIEFING_TRIM_LOG_CAP).map((e) => ({
+        id: e.ref ?? null,
+        lane: stringField(e, "lane"),
+      })),
+      trimmedTotal: trims.length,
+    };
+    let durable = true;
+    try {
+      this.store.appendEvent({ name: SELF_BRIEFING_EVENT, day: this.store.livedDay(), payload });
+    } catch (err) {
+      durable = false;
+      this.emit("counterpart.self.briefing.failed", undefined, { code: errCode(err) });
+    }
+    this.emit("counterpart.self.briefing", undefined, {
+      day: payload.day,
+      bytes: payload.bytes,
+      trimmed: payload.trimmedTotal,
+      durable,
+    });
   }
 
   /**

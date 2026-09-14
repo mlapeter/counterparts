@@ -410,6 +410,30 @@ export interface V2DayCounts {
     /** How the number above was obtained — or why there is none. */
     readonly exitedNote: string;
     readonly archivedTotal: number;
+    /**
+     * `memory.reinforced`'s reading (IMPROVEMENTS U10), recomputed read-only
+     * from the `memories` table rather than counted out of a row — there is no
+     * row, and there is not going to be one: "has anything this store minted
+     * ever been reinforced" is a fact about the table's state.
+     *
+     * POST-LAUNCH means born on this store rather than imported by the v1
+     * migration; `predicate` carries the exact rule in words, so a reading is
+     * never separable from what it counted. The two birth days bound the set in
+     * LIVED days, which is what lets the grader say "nothing could have been
+     * reinforced yet" without inventing a launch date.
+     */
+    readonly postLaunch: {
+      readonly rows: number;
+      /** Rows with `reinforced_days >= 1` — the promotion gradient's own input. */
+      readonly reinforced: number;
+      /** Rows with `uses >= 1`. Can exceed `reinforced` — `sleep/dedup.ts` bumps
+       *  `uses` through `updatePhysics`, which sets no reinforced day (U10's
+       *  "two doors, one skips physics"). */
+      readonly used: number;
+      readonly oldestBirthDay: number | null;
+      readonly newestBirthDay: number | null;
+      readonly predicate: string;
+    };
   };
 }
 

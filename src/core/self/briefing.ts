@@ -58,6 +58,20 @@ export const LANE_ORDER: readonly LaneName[] = [
 ];
 
 /**
+ * How many trimmed ids the DURABLE briefing row carries (`self.briefing`, written
+ * by the composition root after the cycle's briefing phase). The row is evidence
+ * that the wake trimmed, and which lanes lost — not an archive of every id a
+ * pathological boundary could drop. The full number always rides beside the list
+ * as `trimmedTotal`, so a capped list is never mistaken for the whole of it.
+ *
+ * It lives HERE because the trim is `self/`'s: `self/` decides what a trim IS and
+ * emits one `self.briefing.trim` per id. The root that writes the row states no
+ * rule of its own and cannot spell a number at all (`counterpart.ts`'s scanner
+ * test), so the cap has to have a home, and this is the module that owns it.
+ */
+export const BRIEFING_TRIM_LOG_CAP = 64;
+
+/**
  * The declared trim order — v1's, verbatim (contract §3): hints → craft →
  * threads → horizon → identity LAST. Craft before threads so craft can never
  * displace core; identity last because identity is the thing the briefing is for.

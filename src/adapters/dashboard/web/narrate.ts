@@ -102,6 +102,20 @@ function idsIn(t: Told, key: string): string[] {
   return out;
 }
 
+/** The phases in `sleep.cycle`'s `phases` list that carry one status, by NAME.
+ *  A count without names sends the owner back to the raw payload. */
+function phaseNames(t: Told, status: string): string {
+  const v = t.p["phases"];
+  if (!Array.isArray(v)) return "unnamed";
+  const names: string[] = [];
+  for (const item of v) {
+    if (item === null || typeof item !== "object") continue;
+    const p = item as { phase?: unknown; status?: unknown };
+    if (p.status === status && typeof p.phase === "string") names.push(p.phase);
+  }
+  return names.length === 0 ? "unnamed" : names.join(", ");
+}
+
 /** "X", "X and Y", "X, Y and 3 more" — a list a person reads, not a JSON array. */
 function nameSome(t: Told, ids: readonly string[], cap = 2): string {
   const named = ids.slice(0, cap).map((id) => `“${shortOf(t.store, id, 62)}”`);
@@ -241,6 +255,59 @@ export const NARRATORS = {
     }
     return notable(
       `The crash fallback picked up after a session that ended badly — ${swept} spans swept from ${ran} of ${scopes} scopes.`,
+    );
+  },
+
+  /**
+   * THE CYCLE'S OWN ROW (U9). Amber when a phase failed, and NAMED: a cycle that
+   * lost consolidation is not a cycle that ran, and the whole point of the row is
+   * that the failure is still readable a week later, out of the store.
+   */
+  "sleep.cycle": (t) => {
+    const failed = n(t, "failed") ?? 0;
+    const reason = String(t.p["reason"] ?? "ran");
+    if (reason === "threw") {
+      return amber(
+        `My nightly cycle died partway through (${String(t.p["code"] ?? "no code")}). What it had already finished stands; the rest is retried at the next boundary.`,
+      );
+    }
+    if (failed > 0) {
+      return amber(
+        `My nightly cycle ran, but ${failed} phase${failed === 1 ? "" : "s"} failed — ${phaseNames(t, "failed")}. Those markers did not advance, so the work is retried tomorrow.`,
+      );
+    }
+    if (reason === "clock-failed") {
+      return amber(
+        "My nightly cycle could not advance its own clock, so it ran on the day the store already believed in. Everything else completed.",
+      );
+    }
+    const promoted = n(t, "promoted") ?? 0;
+    const pruned = n(t, "pruned") ?? 0;
+    const merged = n(t, "merged") ?? 0;
+    if (promoted + pruned + merged === 0) {
+      return calm(
+        "My nightly cycle ran end to end and changed nothing worth naming — nothing promoted, nothing let go, nothing merged. This line is here to prove the quiet is real.",
+      );
+    }
+    return notable(
+      `My nightly cycle ran: ${promoted} promoted, ${pruned} let go, ${merged} merged.`,
+    );
+  },
+  /**
+   * THE WAKE RENDER'S ROW (U9). Neutral by rule: a trim is the budget working,
+   * not a fault — the wake is SUPPOSED to be smaller than everything it knows,
+   * and amber is reserved for "look at this" (see the tone note in the header).
+   */
+  "self.briefing": (t) => {
+    const bytes = n(t, "bytes") ?? 0;
+    const budget = n(t, "budget") ?? 0;
+    const trimmed = n(t, "trimmedTotal") ?? 0;
+    const where = budget > 0 ? ` of the ${num(budget)} bytes the host said it could carry` : "";
+    if (trimmed === 0) {
+      return calm(`I rewrote my wake: ${num(bytes)} bytes${where}, with nothing trimmed.`);
+    }
+    return calm(
+      `I rewrote my wake: ${num(bytes)} bytes${where}, after setting aside ${trimmed} element${trimmed === 1 ? "" : "s"} that would not fit.`,
     );
   },
 
@@ -416,6 +483,10 @@ export const REF_KIND = {
   "recall.decision": "session",
   "revision.pressure": "memory",
   "sweep.gate": "none",
+  // Neither U9 row points at a memory: one describes a RUN, the other the wake
+  // BUNDLE. The ids they do carry (the trimmed elements) ride in the payload.
+  "sleep.cycle": "none",
+  "self.briefing": "none",
 } as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
 
 function subjectOf(store: Store, row: EventRow): string | null {

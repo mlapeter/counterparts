@@ -19,6 +19,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { TUNABLES as PHYSICS } from "../../src/core/physics/index.js";
 import { contentAddress } from "../replay/corpus.js";
 
 import { readBars } from "./preflight.js";
@@ -49,6 +50,7 @@ import type {
   DailyRecord,
   DayClass,
   PhaseRestart,
+  V2DayCounts,
   Primacy,
   PrimacyCheck,
   RunPhase,
@@ -575,6 +577,76 @@ export class RecordError extends Error {
  * record is evidence (§5 G10, "red-lines halt and PRESERVE"); the operator is
  * told, and the file is left exactly as it was found.
  */
+/**
+ * `memory.reinforced` — THE FIRST WATCH THAT CAN ACTUALLY GO RED (U10).
+ *
+ * The other four can only ever read `not-exercised` or `needs-rater`: each is a
+ * reading somebody else holds, and a watch with nothing behind it can never
+ * render green — or red. This one has a reading of its own, taken read-only off
+ * the `memories` table, and it is the standing question U10 opened: has anything
+ * minted on this store since launch ever been reinforced? Identity promotion
+ * needs `N_PROMOTION_DAYS` distinct reinforced days and the semantic band needs
+ * strength a fresh memory loses within a day or two, so an answer of "none,
+ * ever" means the whole consolidation gradient above episodic is inert for
+ * everything Counterparts has learned by itself.
+ *
+ * `N_PROMOTION_DAYS` is IMPORTED from physics rather than spelled here. A second
+ * copy of that number in the instrument is the divergence this whole tool exists
+ * to catch; importing a constant shares no arithmetic (surface.ts makes the same
+ * argument about importing a field list).
+ *
+ * ONE DELIBERATE DEVIATION from the spec this was written to, stated here rather
+ * than buried: the "too young to have been reinforced" test runs on the OLDEST
+ * post-launch row, not the newest. On a store that mints memories at every
+ * boundary — which is every live store — the newest row is always zero days old,
+ * so a newest-row test would read `not-exercised` forever and the watch could
+ * never go red on the very condition it was built to find. "Nothing could have
+ * been reinforced yet" is a true statement about a whole set only when the
+ * OLDEST member of it is too young.
+ */
+export function gradeReinforced(
+  post: V2DayCounts["memories"]["postLaunch"],
+  livedDayNow: number | null,
+): Watch {
+  const detector = "memory.reinforced";
+  const counted = `${post.rows} post-launch row(s) — ${post.predicate}`;
+  if (post.rows === 0) {
+    return {
+      detector,
+      value: "not-exercised",
+      reason: `no post-launch rows at all (${post.predicate}): this store has minted nothing of its own, so there is nothing that could have been reinforced`,
+    };
+  }
+  if (post.reinforced > 0) {
+    return {
+      detector,
+      value: "pass",
+      reason: `${post.reinforced} of ${counted} carry reinforced_days ≥ 1 (${post.used} carry uses ≥ 1): the promotion gradient has input`,
+    };
+  }
+  const age =
+    livedDayNow === null || post.oldestBirthDay === null ? null : livedDayNow - post.oldestBirthDay;
+  if (age === null) {
+    return {
+      detector,
+      value: "not-exercised",
+      reason: `${counted}, none reinforced — but the store's livedDay meta could not be read, so how old the oldest of them is cannot be established and a fail here would be a verdict on an unread clock`,
+    };
+  }
+  if (age < PHYSICS.N_PROMOTION_DAYS) {
+    return {
+      detector,
+      value: "not-exercised",
+      reason: `${counted}, none reinforced — the OLDEST of them is ${age} lived day(s) old and identity promotion counts reinforcement on N_PROMOTION_DAYS=${PHYSICS.N_PROMOTION_DAYS} distinct days, so nothing could have been reinforced yet`,
+    };
+  }
+  return {
+    detector,
+    value: "fail",
+    reason: `${post.rows} post-launch rows, ${post.reinforced} with reinforced_days ≥ 1, ${post.used} with uses ≥ 1 — the promotion gradient has no input; see IMPROVEMENTS U10 (the oldest is ${age} lived day(s) old, past N_PROMOTION_DAYS=${PHYSICS.N_PROMOTION_DAYS})`,
+  };
+}
+
 export function readRunRecord(runDir: string): RunRecord | null {
   const path = join(runDir, "run.json");
   if (!existsSync(path)) return null;
@@ -927,6 +999,7 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // applied to this table).
   const bandTransitions = v2.byNameForLivedDay["band.transition"] ?? 0;
   const graded: Record<string, Watch> = {
+    "memory.reinforced": gradeReinforced(v2.memories.postLaunch, v2.livedDayNow),
     "sleep.symmetry":
       bandTransitions > 0
         ? {

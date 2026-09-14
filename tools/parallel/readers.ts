@@ -51,6 +51,8 @@ import {
   PRIMACY_DELIVER_EVENT,
   PRIMACY_STANDDOWN_EVENT,
   RECALL_DECISION_EVENT,
+  SELF_BRIEFING_EVENT,
+  SLEEP_CYCLE_EVENT,
 } from "../../src/core/counterpart.js";
 import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
@@ -447,6 +449,12 @@ export const NON_DURABLE_DETECTORS: readonly string[] = [
   "self.schema.pressure",
   "self.schema.tripped",
   "self.schema.quarantined",
+  // IMPROVEMENTS U10, and the FIFTH watch — the first one here that can
+  // actually go red. It is not a row and never will be: "has anything minted on
+  // this store ever been reinforced" is a question about the `memories` table's
+  // own state, recomputed read-only by `readV2Day` (see `postLaunch` below), not
+  // an event anybody emits. The grading rule is `record.ts#gradeReinforced`.
+  "memory.reinforced",
 ];
 
 /**
@@ -482,11 +490,13 @@ export function readQuarantineLines(dataDir: string): {
 }
 
 /**
- * The durable names this reader counts. All exist in `DURABLE_EVENTS`. The four
- * delivery records became durable on 2026-09-03 for exactly this reader's
- * sake: on any day v2 is the muted side they are the contamination detectors
- * on v2's side (§5 G4),
- * and each carries `date` and `session` in its payload.
+ * The durable names this reader counts. All exist in `DURABLE_EVENTS` except
+ * `recall.credit`, whose row another branch is landing and whose absence is
+ * counted as a 0 with a watch behind it rather than as a name nobody looked for
+ * (see the list itself). The four delivery records became durable on 2026-09-03
+ * for exactly this reader's sake: on any day v2 is the muted side they are the
+ * contamination detectors on v2's side (§5 G4), and each carries `date` and
+ * `session` in its payload.
  */
 /**
  * The two durable events that record a memory LEAVING the live set.
@@ -521,12 +531,67 @@ export const DURABLE_DETECTORS: readonly string[] = [
   // dead worker produce the same zero on the daily.
   "sweep.gate",
   "band.transition",
+  // The two U9 rows (2026-09-14). Until they existed, the whole sleep cycle and
+  // the whole wake render lived in a ring that died with the worker, and the
+  // only durable evidence a cycle had run was its side effects — which a cycle
+  // that promoted, pruned and merged nothing does not leave. Both carry the
+  // calendar `date` in their payload, so both attribute by date like the
+  // adapter rows rather than by the lived-day column.
+  SLEEP_CYCLE_EVENT,
+  SELF_BRIEFING_EVENT,
   // Precondition 9's evidence: the per-turn surfacing decision, durable. The
   // S→P preflight reads its presence out of the store rather than taking the
   // CONTRACT's word that it is persisted (replay INTERFACE-GAPS §7).
   RECALL_DECISION_EVENT,
+  // THE ONE NAME HERE THAT IS NOT YET IN `DURABLE_EVENTS`: the §9.2 credit
+  // seam's row, written by the branch that wires retrospective credit at the
+  // boundary (IMPROVEMENTS U10, plan of record item 3). It is counted from day
+  // one on purpose — the alternative is landing the credit path and then
+  // discovering the instrument could not see whether it fired, which is the I32
+  // shape all over again. Until that branch merges the count is simply 0, and
+  // `memory.reinforced` is the watch that says what that 0 means.
+  "recall.credit",
   ...DURABLE_EXIT_EVENTS,
 ];
+
+/**
+ * REASON SPLITS (G47(a)) — one extra key per interesting reason, beside the
+ * total and never instead of it.
+ *
+ * The daily counted `sweep.gate` by NAME, so the keyless day I32 found — 1 row
+ * a day saying `reason: "no-credential"` — was indistinguishable from a healthy
+ * quiet sweep in every number the instrument printed. A row whose whole point is
+ * to carry a reason is a row the reader has to read the reason of.
+ *
+ * `byNameForDate["<name>"]` stays the TOTAL. `byNameForDate["<name>:<reason>"]`
+ * is the subset. Nothing downstream is forced to know about the split, and a
+ * reason not listed here is still inside the total.
+ */
+const REASON_SPLITS: Readonly<Record<string, readonly string[]>> = {
+  "sweep.gate": ["no-credential"],
+  // The credit seam's own row: it fired and credited, it failed, or it ran out
+  // of budget before it could decide. `nothing-to-credit` and `no-candidates`
+  // are ordinary quiet and stay inside the total.
+  "recall.credit": ["credited", "failed", "budget-exceeded"],
+};
+
+/** The split keys one row contributes, beside its name. */
+function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const reason = str(payload["reason"]);
+  const reasons = REASON_SPLITS[name];
+  if (reasons !== undefined && reason !== null && reasons.includes(reason)) {
+    out.push(`${name}:${reason}`);
+  }
+  // `sleep.cycle` splits on a COUNT, not on its reason: a cycle that ran end to
+  // end and lost one phase still reads `reason: "ran"` — degrade, don't abort —
+  // and the only place the loss shows is `failed`.
+  if (name === SLEEP_CYCLE_EVENT) {
+    const failed = payload["failed"];
+    if (typeof failed === "number" && failed > 0) out.push(`${name}:failed`);
+  }
+  return out;
+}
 
 export function v2StorePath(dataDir: string): string {
   return join(dataDir, "operational.sqlite");
@@ -625,6 +690,30 @@ function rowsOf<T>(ctx: { db: RawDb; errors: string[] }, sql: string, ...args: u
   }
 }
 
+/**
+ * "BORN ON THIS STORE", from the store's own columns, for `memory.reinforced`.
+ *
+ * The `memories` table has no launch flag and no `origin` column — it has
+ * `source`, `birth_day` and the three `origin_*` provenance fields. `birth_day`
+ * is a LIVED-day counter that the v1 importer also writes (it back-dates every
+ * imported row), so a day threshold over it would need a launch day from
+ * somewhere outside the store and would be wrong the moment the clock was
+ * repaired. `source` is the column that actually records WHO MINTED A ROW
+ * (`core/types.ts#MEMORY_SOURCES`): `migrated` is the v1 importer's stamp, and
+ * NULL is a pre-v4 row whose source was never recorded — which is to say a row
+ * that predates this store's own minting path. Everything else — `authored`,
+ * `fallback`, `episode`, `accommodation` — is a row Counterparts minted itself.
+ *
+ * So: `source IS NOT NULL AND source <> 'migrated'`, over LIVE rows. The same
+ * spelling `record.ts`'s cross-encoding meter already uses for "kept".
+ */
+const POST_LAUNCH_PREDICATE =
+  "live rows (archived = 0) with source IS NOT NULL AND source <> 'migrated' — `source` is the store's own record of who minted a row, `migrated` is the v1 importer's stamp and NULL is a pre-v4 row that predates this store's minting path";
+
+function isPostLaunch(source: string | null): boolean {
+  return source !== null && source !== "migrated";
+}
+
 const EMPTY_V2 = (path: string): V2DayCounts => ({
   present: false,
   path,
@@ -653,6 +742,14 @@ const EMPTY_V2 = (path: string): V2DayCounts => ({
     exitedByKind: {},
     exitedNote: "no store was opened",
     archivedTotal: 0,
+    postLaunch: {
+      rows: 0,
+      reinforced: 0,
+      used: 0,
+      oldestBirthDay: null,
+      newestBirthDay: null,
+      predicate: POST_LAUNCH_PREDICATE,
+    },
   },
 });
 
@@ -725,6 +822,8 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       // it). So date attribution runs off the payload for those.
       if (payload["date"] === date) {
         bump(byNameForDate, row.name);
+        // Beside the total, never instead of it (G47(a)) — see `REASON_SPLITS`.
+        for (const key of splitKeysOf(row.name, payload)) bump(byNameForDate, key);
         const hook = str(payload["hook"]) ?? "unknown";
         if (row.name === PRIMACY_DELIVER_EVENT) bump(deliver, hook);
         if (row.name === PRIMACY_STANDDOWN_EVENT) bump(standdown, hook);
@@ -752,7 +851,14 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       source: string | null;
       learned_on: string;
       archived: number;
-    }>(ctx, "SELECT id, kind, source, learned_on, archived FROM memories");
+      birth_day: number;
+      reinforced_days: number;
+      uses: number;
+    }>(
+      ctx,
+      `SELECT id, kind, source, learned_on, archived, birth_day, reinforced_days, uses
+         FROM memories`,
+    );
 
     const byKind: Record<string, number> = {};
     const bySource: Record<string, number> = {};
@@ -760,6 +866,12 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
     const createdBySource: Record<string, number> = {};
     let createdOnDate = 0;
     let archivedTotal = 0;
+    // ── the post-launch reinforcement reading (`memory.reinforced`, U10) ─────
+    let postRows = 0;
+    let postReinforced = 0;
+    let postUsed = 0;
+    let oldestBirthDay: number | null = null;
+    let newestBirthDay: number | null = null;
     for (const m of memories) {
       bump(byKind, m.kind);
       // A NULL source is "unrecorded", never defaulted (core/types.ts).
@@ -775,6 +887,13 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
         createdOnDate += 1;
         bump(createdByKind, m.kind);
         bump(createdBySource, source);
+      }
+      if (m.archived === 0 && isPostLaunch(m.source)) {
+        postRows += 1;
+        if (m.reinforced_days >= 1) postReinforced += 1;
+        if (m.uses >= 1) postUsed += 1;
+        if (oldestBirthDay === null || m.birth_day < oldestBirthDay) oldestBirthDay = m.birth_day;
+        if (newestBirthDay === null || m.birth_day > newestBirthDay) newestBirthDay = m.birth_day;
       }
     }
 
@@ -830,6 +949,14 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
         exitedByKind,
         exitedNote,
         archivedTotal,
+        postLaunch: {
+          rows: postRows,
+          reinforced: postReinforced,
+          used: postUsed,
+          oldestBirthDay,
+          newestBirthDay,
+          predicate: POST_LAUNCH_PREDICATE,
+        },
       },
     };
   } finally {

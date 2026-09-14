@@ -357,3 +357,21 @@ real: an owner at UTC−6 gets their day's asks back at 18:00 local. Named in
 `dayKey`, in the adapter's INTERFACE-GAPS, and in the PR that made the change, so
 that when someone wants a per-owner zone they are changing a decision rather than
 discovering one.
+
+**The wake render now leaves ONE durable row per boundary (`self.briefing`,
+2026-09-14, IMPROVEMENTS U9).** `self.briefing.trim` fires once per trimmed
+element and `self.briefing.rendered` carries the lane counts, and both lived
+only in this module's ring, so "what did the wake trim today, and what actually
+rendered" was not answerable from the store. **The row is not written here.**
+`self/` holds no store handle and must not grow one (SEAMS G), so the
+composition root collects what the cycle's render emitted — through the SELF
+relay it already wires, armed for the span of one `runCycle` — and appends the
+row after the cycle returns. Payload: `reason: "rendered"`, `date`, `day`,
+`bytes`, `budget`, `counts` per lane in `LANE_ORDER` for what RENDERED, and
+`trimmed: [{ id, lane }]` — ids only, capped at `BRIEFING_TRIM_LOG_CAP` (this
+module's constant, since the trim is this module's), with the full number beside
+it as `trimmedTotal`. No render, no row: the briefing phase is cadenced daily, so
+a second boundary on one lived day writes nothing and `sleep.cycle`'s own
+`phases` list says why. Unlatched, and pruned at the store's 90-lived-day window.
+`rebrief()` deliberately leaves NO row — it publishes over the store between
+boundaries and is the owner's lever, not the day's record.

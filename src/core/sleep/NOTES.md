@@ -587,3 +587,20 @@ collapses repeats would change the "two refusals are two events" semantics
 `test/gate-records.test.ts` protects. Readers that need it past the window size
 their own store's `retentionDays` instead — which is what the replay driver now
 does (`tools/replay/driver.ts`).
+
+**The cycle now leaves ONE durable row per run (`sleep.cycle`, 2026-09-14,
+IMPROVEMENTS U9).** Everything this module emits — `sleep.cycle.start`,
+`sleep.cycle.done`, `sleep.phase.failed` — lives in an in-process `EVENT_RING`
+that dies with the worker, so "did the cycle run today, and did every phase
+succeed" was not a question the store could answer; the only durable evidence
+was the SIDE EFFECTS other phases wrote (`band.transition`, `memory.pruned`),
+which a quiet cycle does not leave at all. `sleep/` did not change: the row is
+written by the composition root from the returned `CycleReport`, the same way
+`sweep.gate` is written from the sweep reports, because this module has no
+opinion about the store's event log and should not grow one. Payload:
+`reason` (`ran` | `clock-failed` | `threw`) and `code`, `date`, `day`,
+`phases: [{ phase, status, reason, code? }]` for EVERY phase in the executed
+order, and the counts `promoted`, `pruned`, `merged`, `bandUp`, `bandDown`,
+`failed`, `trimmed`. Unlatched like `sweep.gate` — two boundaries in one lived
+day leave two rows, because the cycle really did run twice — and pruned with
+everything else at the store's 90-lived-day window.
