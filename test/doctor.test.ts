@@ -641,6 +641,37 @@ describe("the session-start notice", () => {
     expect(notice).not.toContain(SECRET);
   });
 
+  /**
+   * THE HOOK'S OWN BLINDNESS, ruled out.
+   *
+   * The hook hands `notice()` the load it performed against `process.env`, which
+   * raises the obvious worry: a terminal that launched Claude Code with
+   * `ANTHROPIC_API_KEY` exported would put the name in `skippedPresent` and the
+   * notice would read green off a blank file — I32 reproduced one process along.
+   * It cannot: `loadCredentials` only ever pushes a name onto `loaded` or
+   * `skippedPresent` if the FILE holds a line for it, so a template file answers
+   * nothing whatever the environment carries. Asserted here rather than reasoned
+   * about, because the whole PR turns on it.
+   */
+  test("a key in the hook process's environment does NOT make a blank file read green", () => {
+    mintStore();
+    writeConfig();
+    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: SECRET, [EMBED_KEY_ENV]: SECRET };
+    const load = loadCredentials(credsPath, env);
+    expect(load.loaded).toEqual([]);
+    expect(load.skippedPresent).toEqual([]);
+    const a = openAdapter(
+      { dataDir: dir, credentialsFile: credsPath, injectionBudgetBytes: 9000 },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), credentials: load, configPath },
+    );
+    open.push(a.counterpart);
+    const notice = a.notice(hookInput, { checkout: onMaster });
+    expect(notice).not.toBe(null);
+    expect(notice).toContain(API_KEY_ENV);
+    expect(notice).not.toContain(SECRET);
+  });
+
   test("a healthy store produces no notice at all", () => {
     mintStore();
     writeConfig();

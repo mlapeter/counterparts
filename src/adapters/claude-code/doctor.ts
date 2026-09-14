@@ -117,18 +117,23 @@ export interface DoctorInput {
    *     would read green on the owner's machine — his `~/.zshrc` exports both
    *     names — while the hook processes, which inherit neither (measured day 0),
    *     stayed blind. That is I32 reproduced inside the diagnostic.
-   *   - The **hook** hands in its own load, whose `skippedPresent` names the
-   *     variables ITS process environment already answered. There the
-   *     environment is the right answer, because it is the environment the
-   *     worker will be spawned with.
+   *   - The **hook** hands in the load it already performed against its own
+   *     `process.env` — and that is ALSO a reading of the file, which is what
+   *     makes the two agree. `loadCredentials` pushes a name onto `loaded` or
+   *     onto `skippedPresent` only when the FILE holds a line for it
+   *     (`skippedPresent` means "the file offered this and the environment had
+   *     already answered it"), so a template file answers nothing whatever the
+   *     environment carries, and a hook launched from a shell that exports both
+   *     keys still goes red on a blank file. Asserted in `test/doctor.test.ts`,
+   *     because the whole PR turns on it.
    */
   readonly credentials: CredentialLoad;
   readonly credentialsPath: string | undefined;
   /**
    * Names the CALLER's environment answers, when the caller is the console.
-   * Reported as one extra clause when the file lacks a name the shell has —
-   * the exact gap that made I32 invisible. Empty from the hook, whose load
-   * already accounts for its environment.
+   * Reported as one extra clause on the finding for THAT NAME when the file
+   * lacks it — "I have that key" and "the hooks have that key" are two different
+   * facts, and the gap between them is what made I32 invisible.
    */
   readonly shellNames?: readonly string[];
   /** Null when there is no store at `dir` — the store findings then say so. */
@@ -482,11 +487,20 @@ function credentialFindings(input: DoctorInput): Finding[] {
   const present = [...load.loaded, ...load.skippedPresent];
   const missing = CREDENTIAL_NAMES.filter((n) => !present.includes(n));
   const path = input.credentialsPath ?? "(no credentialsFile in the config)";
-  const shellOnly = (input.shellNames ?? []).filter((n) => !present.includes(n));
-  const shellClause =
-    shellOnly.length === 0
-      ? ""
-      : ` — your shell exports ${shellOnly.join(", ")}, and hook processes do not inherit it`;
+  /**
+   * The clause for THE NAME THIS FINDING IS ABOUT, and no other: "your shell
+   * exports VOYAGE_API_KEY" hung on a red about `ANTHROPIC_API_KEY` reads as a
+   * non-sequitur and teaches the reader to skip the line.
+   *
+   * It is the sentence that closes I32 on the owner's own machine: his
+   * `~/.zshrc` exports both names, hook processes inherit neither (measured day
+   * 0), so "I have that key" and "the hooks have that key" are two different
+   * facts and this is where they are told apart.
+   */
+  const shellClause = (name: string): string =>
+    (input.shellNames ?? []).includes(name) && !present.includes(name)
+      ? ` — your shell exports ${name}, and hook processes do not inherit it`
+      : "";
   const where = `${path}${load.mode === null ? "" : ` (mode ${load.mode})`}`;
   const holds = present.length === 0 ? "holds no key" : `holds ${present.join(", ")}`;
   const out: Finding[] = [];
@@ -497,7 +511,7 @@ function credentialFindings(input: DoctorInput): Finding[] {
         "credentials",
         "red",
         "Credentials",
-        `${where} ${holds}: ${API_KEY_ENV} is missing, so the worker will run without an interpreter; nothing is encoded${shellClause}`,
+        `${where} ${holds}: ${API_KEY_ENV} is missing, so the worker will run without an interpreter; nothing is encoded${shellClause(API_KEY_ENV)}`,
         `Run: counterparts credentials set ${API_KEY_ENV} (the value on stdin; it is never echoed).`,
         { path, mode: load.mode, reason: load.reason, present: present.join(","), missing: missing.join(",") },
       ),
@@ -508,7 +522,7 @@ function credentialFindings(input: DoctorInput): Finding[] {
         "credentials",
         "amber",
         "Credentials",
-        `${where} ${holds}: ${EMBED_KEY_ENV} is missing, so nothing is embedded${shellClause}`,
+        `${where} ${holds}: ${EMBED_KEY_ENV} is missing, so nothing is embedded${shellClause(EMBED_KEY_ENV)}`,
         `Run: counterparts credentials set ${EMBED_KEY_ENV} (the value on stdin; it is never echoed).`,
         { path, mode: load.mode, reason: load.reason, present: present.join(","), missing: missing.join(",") },
       ),
