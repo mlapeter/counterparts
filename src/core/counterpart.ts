@@ -58,7 +58,18 @@ import type {
   RecallResult,
   SemanticReason,
 } from "./recall/index.js";
-import { SpanBuffer, TUNABLES as REMEMBER, errCode, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
+import {
+  NOISY_SWEEP_REASONS,
+  SWEEP_REASONS,
+  SpanBuffer,
+  TUNABLES as REMEMBER,
+  errCode,
+  intake,
+  resolveUpdates,
+  submitProposal,
+  sweep,
+  sweepAll,
+} from "./remember/index.js";
 import type {
   BoundaryKind,
   BoundaryRecord,
@@ -70,6 +81,7 @@ import type {
   Span,
   SubmitResult,
   SweepChunk,
+  SweepReason,
   SweepReport,
   Turn as CapturedTurn,
   UpdatesResolution,
@@ -186,6 +198,15 @@ export const RECALL_DECISION_EVENT = "recall.decision";
  * everything. So the run says how many scopes it looked at, how many held a
  * crashed session, how many it skipped for `NO_CRASHED_SESSION`, and what it
  * swept and minted when it did run.
+ *
+ * SINCE 2026-09-14 (G48) THE ROW IS TOTAL BY REASON: `refusals` counts every
+ * report by its `SweepReason`, zeros included, `SWEPT` included. The first cut
+ * had one bucket for everything that was not `NO_CRASHED_SESSION` and a comment
+ * claiming a nonzero bucket was a bad day — which the live run disproved by
+ * reading 5–7 on every single day: a session stays in the crashed set after it
+ * is swept and retired, so its scope answers `NOTHING_TO_SWEEP` forever.
+ * `remember/fallback.ts#QUIET_SWEEP_REASONS` is the division that replaces the
+ * claim, and `noisyRefusals` is its sum.
  */
 export const SWEEP_GATE_EVENT = "sweep.gate";
 
@@ -1854,6 +1875,14 @@ export class Counterpart {
     if (this.observer) return;
     const ran = reports.filter((r) => r.ran).length;
     const skipped = reports.filter((r) => r.reason === "NO_CRASHED_SESSION").length;
+    // EVERY REASON, ZEROED FIRST (G48). A key that is present at 0 says "this
+    // did not happen today"; a key that is absent says "this reader cannot tell",
+    // and the two are different facts (scar §2.4, the `DECAY_SKIPS` pattern).
+    const refusals: Record<SweepReason, number> = Object.fromEntries(
+      SWEEP_REASONS.map((r) => [r, 0]),
+    ) as Record<SweepReason, number>;
+    for (const r of reports) refusals[r.reason] += 1;
+    const noisy = NOISY_SWEEP_REASONS.reduce((n, r) => n + refusals[r], 0);
     const payload = {
       // WHY this row exists, always present so a reader never has to infer it
       // from an absence: `ran` is an ordinary run (whatever it swept), and
@@ -1864,9 +1893,30 @@ export class Counterpart {
       scopes: reports.length,
       ran,
       skippedNotCrashed: skipped,
-      // Every other refusal in one number: below-min claims, empty buffers, a
-      // failed restore. Nonzero here with `ran: 0` is NOT a quiet day.
+      // KEPT, and no longer the reading (G48). Every refusal that is not
+      // `NO_CRASHED_SESSION`, in one number — which the comment here used to
+      // call "NOT a quiet day", and that was false. `crashedSessions()` never
+      // forgets a session once it was swept and retired, so every such scope
+      // answers `NOTHING_TO_SWEEP` forever: on the live run this counter read
+      // 5–7 EVERY day and meant nothing. It stays because readers and rows
+      // already written use it.
       otherRefusals: reports.length - ran - skipped,
+      // THE READING, per reason and TOTAL over the reports (G48). Quiet:
+      // `NO_CRASHED_SESSION`, `NOTHING_TO_SWEEP`, `NOTHING_UNCLAIMED` — the gate
+      // working, and the ordinary shape of every day. Worth a look:
+      // `BELOW_MIN_CLAIM` when it is chronic (a buffer that never reaches the
+      // minimum is a buffer that never drains), `IO_FAILED` (the filesystem
+      // refused a claim), `OBSERVER` (the buffer stood down under a root that
+      // did not — one flag sets both, so this is wiring). `SWEPT` is here too,
+      // so the map accounts for every report and not only the refusals. Chunk
+      // failures — `THREW`, `MALFORMED_RESULT`, `APPLY_FAILED` — are a level
+      // down, inside a run that DID happen: they reach the log as
+      // `gate.chunk` / `remember.chunk.failed`, and `quarantined` below is
+      // their durable count here.
+      refusals,
+      // One number for "should the owner look", so nobody has to re-derive the
+      // quiet/not-quiet split to answer it.
+      noisyRefusals: noisy,
       swept: reports.reduce((n, r) => n + r.spansSwept, 0),
       minted: reports.reduce((n, r) => n + r.proposals, 0),
       restored: reports.reduce((n, r) => n + r.spansRestored, 0),
@@ -1884,7 +1934,12 @@ export class Counterpart {
       durable = false;
       this.emit("counterpart.sweep.gate.failed", undefined, { code: errCode(err) });
     }
-    this.emit("counterpart.sweep.gate", undefined, { ...payload, durable });
+    // The in-process ring takes scalars only, so the per-reason MAP is a durable
+    // field and `noisyRefusals` is the ring's reading of it — the same division
+    // `sleep.cycle` makes with its `phases` (structure in the row, the number a
+    // live listener acts on in the ring).
+    const { refusals: _refusals, ...ring } = payload;
+    this.emit("counterpart.sweep.gate", undefined, { ...ring, durable });
   }
 
   /** Disarm the collector and hand back what it caught. See the field's note. */

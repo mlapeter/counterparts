@@ -24,7 +24,7 @@ import {
   SWEEP_GATE_EVENT,
   surfaceSetFields,
 } from "../src/core/counterpart.js";
-import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
+import { SWEEP_REASONS, TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
 import { CycleKilled, PHASES } from "../src/core/sleep/index.js";
@@ -984,6 +984,57 @@ describe("the crash gate — only a crashed session's transcript is ever read", 
       skipped: 0,
       minted: 1,
     });
+  });
+
+  test("the row is TOTAL BY REASON: every SweepReason counted, zeros included (G48)", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    const calls = { n: 0 };
+    await c.sweepFallback({ interpret: counting(calls) });
+
+    const row = gateRows(c)[0] as Record<string, unknown>;
+    const refusals = row["refusals"] as Record<string, number>;
+    // EVERY reason is a key, even at zero: "did not happen" and "this reader
+    // cannot tell" are different facts (scar section 2.4).
+    expect(Object.keys(refusals).sort()).toEqual([...SWEEP_REASONS].sort());
+    // TOTAL over the reports — the map accounts for the whole run, refusals and
+    // sweeps alike, so `scopes` can be re-derived from it.
+    expect(Object.values(refusals).reduce((a, b) => a + b, 0)).toBe(row["scopes"]);
+    expect(refusals["NO_CRASHED_SESSION"]).toBe(1);
+    expect(refusals["SWEPT"]).toBe(0);
+    // The quiet day the live run kept mistaking for a busy one: the old
+    // `otherRefusals` counter said nothing, and `noisyRefusals` says zero.
+    expect(row["noisyRefusals"]).toBe(0);
+    // KEPT for the readers and the rows already written (never removed).
+    expect(row["otherRefusals"]).toBe(0);
+
+    // A scope that DID sweep lands under `SWEPT`, not among the refusals.
+    goQuiet();
+    await c.sweepFallback({ interpret: counting(calls) });
+    const swept = gateRows(c)[1] as Record<string, unknown>;
+    expect((swept["refusals"] as Record<string, number>)["SWEPT"]).toBe(1);
+    expect(swept["noisyRefusals"]).toBe(0);
+  });
+
+  test("a BELOW_MIN_CLAIM refusal is NOT quiet, and the row says so by name", async () => {
+    const c = brain();
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+    goQuiet();
+    const calls = { n: 0 };
+    // A minimum no buffer of this size can reach: the claim is refused before a
+    // model is ever asked, which is the chronic case G48 wants visible.
+    await c.sweepFallback({ interpret: counting(calls), minBytes: 10_000_000 });
+    expect(calls.n).toBe(0);
+
+    const row = gateRows(c)[0] as Record<string, unknown>;
+    const refusals = row["refusals"] as Record<string, number>;
+    expect(refusals["BELOW_MIN_CLAIM"]).toBe(1);
+    expect(row["noisyRefusals"]).toBe(1);
+    // The number the comment used to call a bad day counts this one the same as
+    // a retired crashed session — which is why it is no longer the reading.
+    expect(row["otherRefusals"]).toBe(1);
   });
 
   test("an OBSERVER writes no gate row at all", async () => {

@@ -83,14 +83,56 @@ export interface ChunkOutcome {
   code: string | null;
 }
 
-export type SweepReason =
-  | "OBSERVER"
-  | "NO_CRASHED_SESSION"
-  | "NOTHING_TO_SWEEP"
-  | "NOTHING_UNCLAIMED"
-  | "BELOW_MIN_CLAIM"
-  | "IO_FAILED"
-  | "SWEPT";
+/**
+ * EVERY WAY A SWEEP CAN END, as a runtime list — so a per-reason count can zero
+ * every key before it counts anything and an absent reason is distinguishable
+ * from one that never fired (scar §2.4, the `DECAY_SKIPS` pattern).
+ */
+export const SWEEP_REASONS = [
+  "OBSERVER",
+  "NO_CRASHED_SESSION",
+  "NOTHING_TO_SWEEP",
+  "NOTHING_UNCLAIMED",
+  "BELOW_MIN_CLAIM",
+  "IO_FAILED",
+  "SWEPT",
+] as const;
+
+export type SweepReason = (typeof SWEEP_REASONS)[number];
+
+/**
+ * THE QUIET REASONS — the ones whose ordinary count is "most of them, every day"
+ * (G48, 2026-09-14).
+ *
+ * The sweep is a crash fallback, so its healthy state is refusing, and the
+ * refusals divide in two:
+ *
+ *   - **Quiet.** `NO_CRASHED_SESSION` (nothing crashed in this scope),
+ *     `NOTHING_TO_SWEEP` (a crashed session left nothing behind — which,
+ *     because `crashedSessions()` never forgets a session, is the permanent
+ *     answer for every scope that was ever swept and retired), and
+ *     `NOTHING_UNCLAIMED` (everything eligible was already authored, retired
+ *     without a model call). All three are the gate working.
+ *   - **Not quiet.** `BELOW_MIN_CLAIM` is fine once and a stuck buffer if it is
+ *     chronic; `IO_FAILED` is a claim the filesystem refused; `OBSERVER` means
+ *     the buffer stood down under a root that did not — the two stances are set
+ *     from one flag (`counterpart.ts`), so a nonzero count here is a wiring
+ *     fault, not a quiet day.
+ *
+ * `SWEPT` is not a refusal at all and is in neither list; it is counted beside
+ * them so the per-reason map is TOTAL over the run's reports.
+ */
+export const QUIET_SWEEP_REASONS: readonly SweepReason[] = [
+  "NO_CRASHED_SESSION",
+  "NOTHING_TO_SWEEP",
+  "NOTHING_UNCLAIMED",
+];
+
+/** The refusals that are worth a look: every reason that is neither quiet nor
+ *  the sweep having run. Read by the gate row, the dashboard and the daily. */
+export const NOISY_SWEEP_REASONS: readonly SweepReason[] = SWEEP_REASONS.filter(
+  (r) => r !== "SWEPT" && !QUIET_SWEEP_REASONS.includes(r),
+);
 
 export interface SweepReport {
   scope: string;

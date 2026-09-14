@@ -53,7 +53,9 @@ import {
   RECALL_DECISION_EVENT,
   SELF_BRIEFING_EVENT,
   SLEEP_CYCLE_EVENT,
+  SWEEP_GATE_EVENT,
 } from "../../src/core/counterpart.js";
+import { NOISY_SWEEP_REASONS } from "../../src/core/remember/index.js";
 import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
@@ -529,7 +531,7 @@ export const DURABLE_DETECTORS: readonly string[] = [
   // only sweeps that READ something, and after the crash-fallback ruling the
   // ordinary day has none — so without this row a healthy quiet sweep and a
   // dead worker produce the same zero on the daily.
-  "sweep.gate",
+  SWEEP_GATE_EVENT,
   "band.transition",
   // The two U9 rows (2026-09-14). Until they existed, the whole sleep cycle and
   // the whole wake render lived in a ring that died with the worker, and the
@@ -586,6 +588,28 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   const reasons = REASON_SPLITS[name];
   if (reasons !== undefined && reason !== null && reasons.includes(reason)) {
     out.push(`${name}:${reason}`);
+  }
+  // `sweep.gate:refused` is the SECOND split that is not a reason lookup (G48).
+  // The gate row's own `reason` is `ran` on every ordinary day; what divides a
+  // quiet run from one worth reading is INSIDE it, in the per-reason `refusals`
+  // map: `NO_CRASHED_SESSION` / `NOTHING_TO_SWEEP` / `NOTHING_UNCLAIMED` are the
+  // gate working, while `BELOW_MIN_CLAIM`, `IO_FAILED` and `OBSERVER` are a
+  // buffer that never drains, a filesystem that refused a claim, and a stance
+  // mismatch. The list is imported from the core so this reader cannot hold a
+  // stale copy of which reasons are quiet. A row written before the map existed
+  // contributes nothing here: `otherRefusals` read 5-7 every day (a retired
+  // crashed session answers `NOTHING_TO_SWEEP` forever), so counting it would
+  // reproduce exactly the false signal G48 was filed about.
+  if (name === SWEEP_GATE_EVENT) {
+    const refusals = asRecord(payload["refusals"]);
+    const noisy =
+      refusals === null
+        ? 0
+        : NOISY_SWEEP_REASONS.reduce((sum, r) => {
+            const x = refusals[r];
+            return sum + (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : 0);
+          }, 0);
+    if (noisy > 0) out.push(`${name}:refused`);
   }
   // `sleep.cycle:failed` is the ONE SPLIT THAT IS NOT A REASON LOOKUP, because
   // a bad night reaches the row three different ways: a cycle that ran end to

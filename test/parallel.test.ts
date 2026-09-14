@@ -1116,6 +1116,52 @@ describe("the v2 store reader", () => {
     expect(Object.values(day.byNameForDate).reduce((n, x) => n + x, 0)).toBe(5);
   });
 
+  test("sweep.gate:refused splits on the REASON MAP, and a pre-G48 row raises nothing", () => {
+    const data = dir("v2");
+    const quiet = { NO_CRASHED_SESSION: 5, NOTHING_TO_SWEEP: 2, NOTHING_UNCLAIMED: 0, BELOW_MIN_CLAIM: 0, IO_FAILED: 0, OBSERVER: 0, SWEPT: 0 };
+    buildStore(data, (s) => {
+      // An ordinary day: seven scopes refused, every one of them quiet. The
+      // reading G48 replaced — `otherRefusals` — would have read 2 here and
+      // called it a bad day.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: { reason: "ran", scopes: 7, ran: 0, otherRefusals: 2, refusals: quiet, date: "2026-09-14" },
+      });
+      // One scope whose buffer never reaches its minimum: chronic, and the one
+      // shape worth reading.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: {
+          reason: "ran",
+          scopes: 7,
+          ran: 0,
+          otherRefusals: 3,
+          refusals: { ...quiet, NOTHING_TO_SWEEP: 1, BELOW_MIN_CLAIM: 1 },
+          date: "2026-09-14",
+        },
+      });
+      // A row written BEFORE the map existed. Its `otherRefusals` cannot tell a
+      // stuck buffer from a retired crashed session, so it contributes nothing:
+      // counting it would rebuild exactly the false signal G48 was filed about.
+      s.appendEvent({
+        name: "sweep.gate",
+        day: 7,
+        payload: { reason: "ran", scopes: 7, ran: 0, otherRefusals: 6, date: "2026-09-14" },
+      });
+    });
+
+    const day = readV2Day(data, "2026-09-14");
+    expect(day.byNameForDate["sweep.gate"]).toBe(3);
+    expect(day.byNameForDate["sweep.gate:refused"]).toBe(1);
+    // Beside the total, never instead of it: the row count still reads 3.
+    const rows = Object.entries(day.byNameForDate)
+      .filter(([name]) => !name.includes(":"))
+      .reduce((n, [, x]) => n + x, 0);
+    expect(rows).toBe(3);
+  });
+
   test("sleep.cycle:failed splits on the COUNT, not the reason — a degraded cycle still reads `ran`", () => {
     const data = dir("v2");
     buildStore(data, (s) => {

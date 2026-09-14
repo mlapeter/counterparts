@@ -85,7 +85,11 @@ alone.
 - **The daily materialize-decay pass is released** (owner rescope 1, settled). Strength is a
   pure function of stored state and the clock (`physics/` §5.4); this module refreshes the
   cached column used for ranking. Because the number is derived, a replayed day is a no-op by
-  construction rather than by a per-item stamp.
+  construction rather than by a per-item stamp. *(Amended 2026-09-14, IMPROVEMENTS U8: the
+  box-2 `band` column is the exception and is the band of record — the decay pass writes a
+  row's band back when the column disagrees with `band(m, d)`, so the table cannot contradict
+  the `band.transition` rows the same pass emits. Strength is still cache-only, the write
+  fires only on disagreement, and `NOTES.md` §5 carries the reasoning.)*
 - **The accommodation phase, the ledger phase, and their forensics holds are gone** (owner
   decision, settled) — see `schemas/CONTRACT.md` §4.
 - **Hygiene's model-proposed gist merges are dropped in favour of physics dedup**: hash plus

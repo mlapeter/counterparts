@@ -152,7 +152,7 @@ export const DURABLE_EVENTS = {
   "memory.unmerged": "the owner put back a row a merge had archived (repair-merged-beliefs)",
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief or an identity element took a credited challenge",
-  "sweep.gate": "the crash fallback ran its gate (scopes looked at, scopes skipped as nothing-crashed, spans swept)",
+  "sweep.gate": "the crash fallback ran its gate (scopes looked at, every scope's refusal counted by reason, spans swept)",
   // The two U9 rows: until 2026-09-14 the whole sleep cycle and the whole wake
   // render lived in an in-process ring that died with the worker, so "did the
   // cycle run today, did every phase succeed, what did the wake trim" could not

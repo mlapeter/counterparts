@@ -106,23 +106,60 @@ The two deliberate choices inside it:
   cycle is closing. Worth a second look when the adapter fixes the boundary's
   exact ordering.
 
-## 5. Decay writes the CACHE and nothing else
+## 5. Decay writes the CACHE, and reconciles ONE canonical column
 
-The brief is explicit and the contract agrees (§4, owner rescope 1): canonical
-state is untouched by decay. So:
+The brief is explicit and the contract agrees (§4, owner rescope 1): the daily
+materialize-decay pass is released, and canonical state takes no decay STEP. So:
 
-- No `uses`, no `lastUsedDay`, no prose, and **no box-2 `band` column write** in
-  the decay phase. Band movement caused by fading lives in the ranking cache.
-- The box-2 `band` column IS written by `consolidate`, on promotion only — a
-  crossing is a decision, not a decay reading, and the two must not share a
-  writer. This is the one place the two phases' authority differs and it is
-  deliberate.
+- No `uses`, no `lastUsedDay`, no prose write in the decay phase. Strength lives
+  in the ranking cache and nowhere else.
 - v1 materialized decay into canonical files (~1.9K writes/day) and ratified it
   on the grounds that "a memory stating its own current strength is directly
   trustworthy". v2 received that as an open choice with the evidence attached
   (behavioral-spec §11) and declined it: strength is a pure function, so the
   cached number is derived and a replayed day is a no-op **by construction**
   rather than by a per-item stamp.
+
+**Amended 2026-09-14 (IMPROVEMENTS U8) — the box-2 `band` column is the band of
+record, and decay keeps it true.** Until this date the column was written by
+`consolidate` on promotion only, on the reasoning that "a crossing is a decision,
+not a decay reading, and the two must not share a writer". That reasoning was
+sound about the CROSSING and wrong about the COLUMN, and the live store showed
+the cost: `ranking` said 1,054 memories were semantic while `memories.band` said
+185 — every one stamped `band_day = 184`, the single day `band.promoted` ever
+fired — and 869 live rows were semantic in the cache and episodic in the table.
+The same decay pass emitted `band.transition` rows for moves the table went on
+denying. Three things settled the ruling:
+
+1. **Nothing gates on the column, so this is a reporting fix, not a new
+   authority.** `consolidate` builds physics with `rowToPhysics` and never reads
+   `band`; `schemas/` reads it and never writes it (§4 of its CONTRACT, and a
+   source scan); `self/identity.ts` selects `list({ band: "identity" })`, which
+   decay cannot change — `band()` answers "identity" only for a row
+   `promotedIdentity` already marks, and identity is decay-exempt, so the
+   identity set is byte-identical before and after. What DID read the stale
+   column and report it: the `status` MCP tool's `byBand`. The CLI census and the
+   dashboard had already routed around the column by computing the band
+   themselves and saying so in a comment — a workaround is evidence of the bug,
+   not a fix for it.
+2. **A surface that emits a transition must not contradict it.** Constitution 16:
+   the system shows its workings. Two stores of the same fact, one of them
+   wrong and both of them read, is the shape the parallel run keeps finding.
+3. **It is not v1's churn.** The write fires only when the column disagrees with
+   `band(m, d)` — a handful of rows a day once caught up, zero on a replayed day,
+   and one catch-up pass for the backlog. Strength, the number that actually
+   moves every day for every row, is still cache-only. (The first catch-up pass
+   on a large store is ~900 single-statement `UPDATE`s under `synchronous =
+   FULL`; it happens once, inside a boundary that already writes per row.)
+
+`consolidate` still writes the column at the identity crossing, and still writes
+it FIRST — the crossing is its decision. Decay now brings every other row to the
+arithmetic. `band_day` therefore means **"the lived day the column was last
+brought to physics"**, which is what it always meant for promotions and now means
+for everything; the crossing's own record is the latched `band.transition` row,
+never this column. `counterparts verify` counts the disagreement
+(`cli/commands.ts#bandOfRecordCensus`) so the invariant is checked rather than
+believed, and `DecayResult.bandsReconciled` reports it per pass.
 
 **The skip list is reported, not branched on.** An identity-band memory is not
 skipped by an `if`; `physics.decay()` returns `D = 1` for it and the arithmetic

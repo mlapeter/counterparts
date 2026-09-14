@@ -432,6 +432,72 @@ describe("the decay tick", () => {
     expect(after.skipped["unchanged"]).toBe(1);
   });
 
+  // ── the band of record (IMPROVEMENTS U8) ──────────────────────────────────
+  test("the box-2 band column FOLLOWS PHYSICS: the pass writes back what it reads", () => {
+    const events: StoreEvent[] = [];
+    const s = store({ onEvent: (e) => events.push(e) });
+    // Strong enough to be semantic on day 5, and minted `episodic` like every
+    // row: exactly the 869-row shape the live store was found in (U8).
+    const id = put(s, {
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      physics: { lastUsedDay: 5, uses: 3 },
+    });
+    expect(s.row(id)?.band).toBe("episodic");
+    expect(band(rowToPhysics(s.row(id)!), 5)).toBe("semantic");
+
+    const cache = memoryStrengthCache();
+    const first = runDecay(ctx(wrap(s), 5), cache);
+
+    expect(first.bandsReconciled).toBe(1);
+    expect(s.row(id)?.band).toBe("semantic");
+    // `band_day` is the day the column was brought to physics, not a crossing.
+    expect(s.row(id)?.band_day).toBe(5);
+    // The cache and the table now say the same thing — the U8 invariant.
+    expect(cache.rows.get(id)?.band).toBe("semantic");
+
+    // A REPLAYED DAY WRITES NOTHING: same state, same day, same answer, and the
+    // column already agrees, so there is no second UPDATE.
+    const before = events.filter((e) => e.name === "store.band").length;
+    const second = runDecay(ctx(wrap(s), 5), cache);
+    expect(second.bandsReconciled).toBe(0);
+    expect(events.filter((e) => e.name === "store.band").length).toBe(before);
+  });
+
+  test("a DEMOTION reaches the table too, and the table agrees with the transition it emits", () => {
+    const s = store();
+    const id = put(s, {
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      physics: { lastUsedDay: 5, uses: 3 },
+    });
+    const cache = memoryStrengthCache();
+    runDecay(ctx(wrap(s), 5), cache);
+    expect(s.row(id)?.band).toBe("semantic");
+
+    // Three hundred lived days later the same row is under THETA_SEM, which is
+    // the only way a semantic→episodic move ever happens (nobody decides it).
+    const later = runDecay(ctx(wrap(s), 305), cache);
+    const moved = later.transitions.filter((t) => t.id === id);
+    expect(moved.length).toBe(1);
+    expect(moved[0]?.from).toBe("semantic");
+    expect(moved[0]?.to).toBe("episodic");
+    expect(moved[0]?.direction).toBe("down");
+    // THE POINT: the column says what the transition says. Before U8 the pass
+    // emitted the row and left the table denying it.
+    expect(s.row(id)?.band).toBe(moved[0]?.to);
+    expect(s.row(id)?.band_day).toBe(305);
+    expect(later.bandsReconciled).toBe(1);
+  });
+
+  test("an OBSERVER pass counts the disagreement and writes no column", () => {
+    const s = store();
+    const id = put(s, {
+      salience: { relevance: 1, emotional: 1, predictive: 1 },
+      physics: { lastUsedDay: 5, uses: 3 },
+    });
+    runDecay(ctx(wrap(s), 5, { apply: false }), memoryStrengthCache());
+    expect(s.row(id)?.band).toBe("episodic");
+  });
+
   test("the shipped ranking cache is box 3 and is opened LAZILY", () => {
     const s = store();
     put(s);

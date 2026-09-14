@@ -418,9 +418,20 @@ three ways — a cycle that ran end to end and lost a phase still reads
 `reason: "ran"` (degrade, don't abort) and shows the loss only in `failed`, a
 cycle that died reads `threw`, and one whose clock would not advance reads
 `clock-failed` — and an operator asking "did the cycle have a bad night" wants one
-number, so all three land in that key. A split key counts rows the total already
-counts, so anything summing `byNameForDate` must skip the keys with a ":" in them
-or it counts those rows twice; `record.ts`'s `v2DateRows` does.
+number, so all three land in that key. `sweep.gate:refused` (G48, 2026-09-14) is the
+second non-lookup split: the gate row's own `reason` reads `ran` on every
+ordinary day, and what separates a quiet run from one worth reading is inside it,
+in the per-reason `refusals` map. Quiet — `NO_CRASHED_SESSION`,
+`NOTHING_TO_SWEEP`, `NOTHING_UNCLAIMED` — is the gate working;
+`BELOW_MIN_CLAIM`, `IO_FAILED` and `OBSERVER` are a buffer that never drains, a
+filesystem that refused a claim, and a stance mismatch. The list is imported from
+`core/remember` so this reader cannot hold a stale copy of it, and a row written
+before the map existed contributes nothing: its `otherRefusals` counter read 5–7
+on every live day (a retired crashed session answers `NOTHING_TO_SWEEP` forever),
+so counting it would rebuild the false signal G48 was filed about. A split key
+counts rows the total already counts, so anything summing `byNameForDate` must
+skip the keys with a ":" in them or it counts those rows twice; `record.ts`'s
+`v2DateRows` does.
 
 Four detectors remain non-rows by design and are named in `nonDurable` rather
 than reported as zeros: `sleep.symmetry` (arithmetic over `band.transition`) and

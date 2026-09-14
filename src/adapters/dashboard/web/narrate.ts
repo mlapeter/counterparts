@@ -31,6 +31,7 @@
  * (scar §2.17), and `test/dashboard-web.test.ts` asserts the same property at
  * runtime for anyone reading the test instead of the type.
  */
+import { NOISY_SWEEP_REASONS } from "../../../core/remember/index.js";
 import { BAND_TRANSITION_FIELDS } from "../../../core/sleep/index.js";
 import type { EventRow, Store } from "../../../core/store/index.js";
 import { num } from "../layout.js";
@@ -60,6 +61,18 @@ type Teller = (t: Told) => Narration;
 const calm = (text: string): Narration => ({ text, tone: "calm" });
 const notable = (text: string): Narration => ({ text, tone: "notable" });
 const amber = (text: string): Narration => ({ text, tone: "amber" });
+
+/** The gate row's per-reason map (G48), or `null` for a row written before it
+ *  existed — an absence this file must never read as a pile of zeros. */
+function refusalsOf(t: Told): Record<string, number> | null {
+  const v = t.p["refusals"];
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
+  const out: Record<string, number> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof x === "number" && Number.isFinite(x)) out[k] = x;
+  }
+  return out;
+}
 
 function n(t: Told, key: string): number | null {
   const v = t.p[key];
@@ -256,6 +269,17 @@ export const NARRATORS = {
     const skipped = n(t, "skippedNotCrashed") ?? 0;
     const quarantined = n(t, "quarantined") ?? 0;
     const swept = n(t, "swept") ?? 0;
+    // THE REFUSALS WORTH A LOOK (G48). Read from the per-reason map, and NEVER
+    // from `otherRefusals`: that counter reads 5-7 on an ordinary day, because a
+    // session stays in the crashed set after it is retired and its scope answers
+    // `NOTHING_TO_SWEEP` for good. A row written before this shipped carries no
+    // map and gets no amber it cannot support - the old number could not tell a
+    // stuck buffer from a quiet one, so neither can a reader of it.
+    const refusals = refusalsOf(t);
+    const noisy =
+      refusals === null
+        ? 0
+        : NOISY_SWEEP_REASONS.reduce((sum, r) => sum + (refusals[r] ?? 0), 0);
     // The SKIPPED row (I32): the worker ran the day — clock, flush, cycle — and
     // deliberately did not sweep, because sweeping needs a model call it had no
     // credential for. Saying "looked at 0 scopes and found nothing" of that
@@ -268,6 +292,14 @@ export const NARRATORS = {
     if (quarantined > 0) {
       return amber(
         `The crash fallback quarantined ${quarantined} spans it could not safely read. That is the one outcome here worth looking at.`,
+      );
+    }
+    if (noisy > 0) {
+      const named = NOISY_SWEEP_REASONS.filter((r) => (refusals?.[r] ?? 0) > 0)
+        .map((r) => `${r} ${refusals?.[r] ?? 0}`)
+        .join(", ");
+      return amber(
+        `The crash fallback refused ${noisy} of ${scopes} scopes for a reason worth reading: ${named}. A buffer that never reaches its minimum never drains, and a claim the filesystem refused is not a quiet day.`,
       );
     }
     if (ran === 0) {

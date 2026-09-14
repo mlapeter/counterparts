@@ -78,7 +78,15 @@ export type {
   UpdatesResolution,
 } from "./updates.js";
 
-export { OK_STOP_REASONS, chunkSpans, sweep, sweepAll } from "./fallback.js";
+export {
+  NOISY_SWEEP_REASONS,
+  OK_STOP_REASONS,
+  QUIET_SWEEP_REASONS,
+  SWEEP_REASONS,
+  chunkSpans,
+  sweep,
+  sweepAll,
+} from "./fallback.js";
 export type {
   ApplyFn,
   ChunkOutcome,
