@@ -237,8 +237,19 @@ Three changes, each needed on its own:
 - **Bisect a 400.** Only a 400: the provider read the body and refused it, so the
   poison is in there. A 429 or a 500 says nothing about which input is bad, and
   splitting a 429 multiplies the rate that caused it.
-- **Give up after three.** Sanitizing fixes THIS poison; the skip list is what
-  keeps the NEXT one from holding the queue. `embed.failed.<id>` in meta,
-  excluded from `missingVectors`, named by `skippedVectorIds()` and printed by
-  `verify` — a give-up nobody can read is indistinguishable from a coverage
-  number that has stopped meaning anything.
+- **Give up after three, but only on the item's own failures.** Sanitizing fixes
+  THIS poison; the skip list is what keeps the NEXT one from holding the queue.
+  `embed.failed.<id>` in meta, excluded from `missingVectors`, named by
+  `skippedVectorIds()` and printed by `verify` — a give-up nobody can read is
+  indistinguishable from a coverage number that has stopped meaning anything.
+  The counter climbs ONLY when the fill blamed one input (a 400 the bisector
+  narrowed to a single item). The first cut counted every failure, and that made
+  the watchdog's own abort — which fails the whole window, every time — retire
+  sixty-four healthy rows after three bad boundaries while `unembeddedCount`
+  read COMPLETE: I33 inverted, and the coverage watch failing upward, which is
+  the one direction it may never fail in.
+- **A skip needs a way out that a skip cannot close.** The counter is cleared by
+  a run that lands, and a skipped id is never offered to a run — so
+  `verify --retry-skipped` is the door: it clears every counter, names the ids,
+  and writes nothing else. `rebuildCache` is not that door; it has no embedder
+  and never touches meta.

@@ -314,8 +314,37 @@ export async function backfillVectors(input: {
   // them. `stats()` is a read; `lastFailures` is per-fill by construction.
   const codes = codesOf(input.embedder);
 
+  // WHOSE FAULT WAS IT. The give-up counter may only move on a failure the
+  // PROVIDER blamed on the item: a 400 the bisector narrowed to one input. A
+  // 429, a 5xx, a dead socket or an aborted watchdog is a fact about the RUN,
+  // and counting those was I33 inverted — three bad boundaries in a row retired
+  // a whole healthy window and `unembeddedCount` then read COMPLETE while those
+  // memories stayed blind.
+  //
+  // The gate is per FILL, not per id, because a `ChunkFailure`'s offsets are
+  // into the embedder's own deduped batch and do not address these ids. So a
+  // fill that mixed an isolated 400 with a 500 elsewhere still charges the 500's
+  // victims — strictly better than charging every failure, and the residue is
+  // bounded by a run that saw poison at all. It is named in INTERFACE-GAPS.
+  const itemBlamed = itemAttributable(input.embedder);
+  // ONE read of the counters, not one per id — the same bargain `missingVectors`
+  // makes two levels down.
+  let counters: Map<string, string>;
+  try {
+    counters = store.metaWithPrefix(EMBED_FAILED_PREFIX);
+  } catch {
+    counters = new Map<string, string>();
+  }
+
   let embedded = 0;
   let failed = 0;
+  // THE PER-ID GIVE-UP COUNTER (I33). An id that fails `EMBED_SKIP_AFTER` runs
+  // ON ITS OWN TEXT stops being offered by `missingVectors`, so one poisoned row
+  // cannot hold the head of a stable queue forever. Cleared the moment it lands,
+  // and by `verify --retry-skipped` — which is the remedy a repaired title
+  // needs, because a skipped id is never offered again and so cannot clear
+  // itself. Staged here and written as ONE transaction below.
+  const moves: [string, string][] = [];
   for (const id of wanted) {
     let landed = false;
     try {
@@ -325,13 +354,28 @@ export async function backfillVectors(input: {
     }
     if (landed) embedded += 1;
     else failed += 1;
-    // THE PER-ID GIVE-UP COUNTER (I33). An id that fails `EMBED_SKIP_AFTER`
-    // runs stops being offered by `missingVectors`, so one poisoned row cannot
-    // hold the head of a stable queue forever. Cleared the moment it lands —
-    // a repaired title, or a rebuild, puts the id straight back in the rotation.
-    noteEmbedOutcome(counterpart, store, id, landed, emit);
+    const key = `${EMBED_FAILED_PREFIX}${id}`;
+    const now = Number(counters.get(key) ?? "0");
+    if (landed) {
+      // Zero rather than deleted: `meta` has no delete on the write seam's
+      // allowlist, and a zero reads identically everywhere it is consulted.
+      // Nothing is written for the healthy case, which is every id on a good day.
+      if (now !== 0) moves.push([key, "0"]);
+    } else if (itemBlamed) {
+      moves.push([key, String(now + 1)]);
+    }
   }
+  writeCounters(counterpart, store, moves, emit);
   return done("ran", embedded, failed, wanted.length, codes);
+}
+
+/** Did the last fill blame any ONE INPUT? Only then may a counter climb. */
+function itemAttributable(embedder: LiveEmbedder): boolean {
+  try {
+    return embedder.stats().lastFailures.some((f) => f.item === true);
+  } catch {
+    return false;
+  }
 }
 
 /** The distinct `code[:status]` pairs of the last fill, joined. Never text. */
@@ -348,28 +392,23 @@ function codesOf(embedder: LiveEmbedder): string {
 }
 
 /**
- * Move one id's failure counter. A meta write that loses box 2's lock to an
- * overlapping runner costs the counter, never the run (I33 measured six
- * overlapping workers at one boundary against a 5 s busy timeout).
+ * The run's counter moves, as ONE box-2 transaction.
+ *
+ * One `setMeta` per id was one write transaction — one lock acquisition — per
+ * id, at a boundary where this adapter has measured six overlapping workers
+ * against a 5 s busy timeout, and on exactly the run where things are already
+ * going wrong. A write that loses that lock costs the counters, never the run
+ * (§5 G2), which is why the whole thing sits inside one `try`.
  */
-function noteEmbedOutcome(
+function writeCounters(
   counterpart: Counterpart,
   store: Counterpart["store"],
-  id: string,
-  landed: boolean,
+  moves: readonly (readonly [string, string])[],
   emit: Emit,
 ): void {
-  if (counterpart.observer) return;
-  const key = `${EMBED_FAILED_PREFIX}${id}`;
+  if (counterpart.observer || moves.length === 0) return;
   try {
-    const now = Number(store.getMeta(key) ?? "0");
-    if (landed) {
-      // Zero rather than deleted: `meta` has no delete on the write seam's
-      // allowlist, and a zero reads identically everywhere it is consulted.
-      if (now !== 0) store.setMeta(key, "0");
-      return;
-    }
-    store.setMeta(key, String(now + 1));
+    store.setMetaMany(moves);
   } catch (err) {
     emit("vectors.backfill.count.failed", { code: err instanceof Error ? err.name : "UNKNOWN" });
   }

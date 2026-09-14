@@ -329,7 +329,14 @@ async function attempt(
   if (ctx.budget.calls <= 0) {
     // The bound, spent. Whatever is left is recorded the way a whole-chunk
     // failure always was — never silently dropped.
-    whole("HTTP_ERROR", 400);
+    //
+    // A remainder of ONE is still an item failure, and says so. Everything above
+    // this line got here because a 400 named its slice, so a single survivor of
+    // that descent is the poison whether or not the budget lasted long enough to
+    // ask one more time — and `vectors.ts` gates its give-up counter on exactly
+    // this flag, so leaving it off here would make the counter depend on how
+    // many calls the bisector happened to have left.
+    whole("HTTP_ERROR", 400, slice.length === 1);
     return;
   }
   ctx.budget.calls -= 1;
@@ -536,6 +543,21 @@ export function createEmbedder(opts: LiveEmbedderOptions = {}): LiveEmbedder {
         });
       }
     } catch (err) {
+      // THE WHOLE CALL REFUSED, and it still owes a code (I33's own lesson,
+      // applied to the one path that was exempt from it). `embedClient` throws
+      // before it opens a socket for a missing key, a dead seat or no `fetch`,
+      // so `failures` was never built and `lastFailures` stayed EMPTY — which is
+      // how `adapter.embed.backfill` came to carry `failed: 64, codes: ""`, the
+      // unreadable row that field exists to abolish. One synthetic whole-slice
+      // entry, carrying the code and nothing else it cannot vouch for.
+      lastFailures = [
+        {
+          chunk: 0,
+          from: 0,
+          count: wanted.length,
+          code: err instanceof EmbedError ? err.code : "BAD_RESPONSE",
+        },
+      ];
       // A refusal the whole call shares (no key, dead seat, no fetch). It is
       // NULL to the caller: an embedder that cannot embed must never fail a
       // deposit — box 3 is rebuildable, a memory is not.

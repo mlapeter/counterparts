@@ -424,4 +424,16 @@ that needs a comparison, which is what the fix above is.
    boundary against a 5 s `BUSY_TIMEOUT`. Every meta write this PR adds (the
    refusal counters, the per-id embed failures) is wrapped so a lost lock costs
    the counter and never the run — but the contention itself is unaddressed, and
-   a worker that skips its own increment is a counter that reads low.
+   a worker that skips its own increment is a counter that reads low. The
+   embed counters are at least down to ONE transaction per run
+   (`Store.setMetaMany`) rather than one per id; the spawn counter still takes
+   its own.
+7. **The give-up gate is per FILL, not per id.** `embed.failed.<id>` may only
+   climb when the last fill blamed one input — a 400 the bisector narrowed to a
+   single item — which is what stops a 503 or a watchdog abort from retiring a
+   healthy window. But a `ChunkFailure` carries offsets into the embedder's own
+   deduped batch, which do not address the backfill's ids, so the test is "did
+   this fill see poison at all". A fill that mixed an isolated 400 with a 500
+   elsewhere therefore still charges the 500's victims. Closing it means carrying
+   the failing texts' hashes out of `EmbedderStats` — a new surface, and the
+   cache-key hygiene rules apply to it, so it was not taken here.

@@ -3633,12 +3633,113 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
     expect(rows.at(-1)?.["skipped"]).toBe(1);
     expect(rows.at(-2)?.["codes"]).toBe("HTTP_ERROR:400");
 
-    // A SKIP IS NOT A REMOVAL. Clear the counter — which is what a run that
-    // LANDS does, and what a repaired title or a rebuild leads to — and the id
-    // is back in the rotation, unarchived and never dark.
+    // A SKIP IS NOT A REMOVAL. Clear the counter and the id is back in the
+    // rotation, unarchived and never dark.
+    //
+    // THE SKIP IS SELF-SEALING, which is why clearing it needs a door of its
+    // own. A run that LANDS clears the counter — but a skipped id is never
+    // offered to a run again, so it cannot land; and `rebuildCache` has no
+    // embedder to recompute a vector with and never touches box 2's meta. The
+    // remedy is `verify --retry-skipped` (exercised in `cli.test.ts`), and this
+    // line is the same write it makes.
     c.store.setMeta(`embed.failed.${poisoned}`, "0");
     expect(c.store.missingVectors(64)).toEqual([poisoned]);
     expect(c.store.skippedVectorIds()).toEqual([]);
+  });
+
+  test("a WHOLE-CHUNK failure retires nothing, however often it repeats", async () => {
+    // I33 INVERTED, and refused. A 503 — or a 429, or the watchdog's abort —
+    // says nothing about WHICH input is bad. Counting it toward the give-up
+    // counter meant three bad boundaries retired a whole healthy window, and
+    // `unembeddedCount` then read COMPLETE while those memories stayed blind:
+    // the coverage watch failing in the optimistic direction, which is the one
+    // direction a watch may never fail in.
+    const failures = [{ chunk: 0, from: 0, count: 3, code: "HTTP_ERROR" as const, status: 503 }];
+    const refuses: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 3, failed: 3, lastFailures: failures }),
+    };
+    const c = brain(refuses);
+    const ids = [1, 2, 3].map((n) =>
+      c.store.put({ type: "memory", kind: "fact", body: `A perfectly healthy memory, number ${n}.` }),
+    );
+
+    for (let run = 1; run <= EMBED_SKIP_AFTER + 1; run += 1) {
+      const report = await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+      expect(report.failed).toBe(3);
+      // The CODE still travels — the row says what happened, it just does not
+      // blame the rows for it.
+      expect(report.codes).toBe("HTTP_ERROR:503");
+      expect(report.skipped).toBe(0);
+      expect(report.remaining).toBe(3);
+    }
+
+    expect(c.store.skippedVectorIds()).toEqual([]);
+    expect(c.store.missingVectors(64).sort()).toEqual([...ids].sort());
+    // The number a coverage watch reads never lied about these three.
+    expect(c.store.unembeddedCount()).toBe(3);
+  });
+
+  test("a whole-call refusal still names its code on the durable row", async () => {
+    // The one path `codes` was blind to: `embedClient` throws BEFORE it opens a
+    // socket (no key, dead seat, no `fetch`), so no `ChunkFailure` was ever
+    // built and `lastFailures` stayed empty — `failed: N, codes: ""`, which is
+    // the unreadable row the field exists to abolish.
+    const thrower = createEmbedder({
+      client: async () => {
+        throw new EmbedError("NO_FETCH", {});
+      },
+    });
+    const c = brain(thrower);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory nothing can reach the provider for." });
+    const report = await backfillVectors({ counterpart: c, embedder: thrower, hasCredential: true });
+    expect(report.failed).toBe(1);
+    expect(report.codes).toBe("NO_FETCH");
+    // And it is NOT item-attributable: a refusal that never reached the provider
+    // cannot have been about the text.
+    expect(report.skipped).toBe(0);
+    expect(c.store.skippedVectorIds()).toEqual([]);
+  });
+
+  test("a fill's counter moves are ONE box-2 transaction, and a healthy run writes none", async () => {
+    // §5 G2, measured: one `setMeta` per id was one lock acquisition per id, at
+    // a boundary where six workers may already be contending, on exactly the run
+    // where things are going wrong.
+    const failures = [
+      { chunk: 0, from: 0, count: 1, code: "HTTP_ERROR" as const, status: 400, item: true },
+    ];
+    const refuses: LiveEmbedder = {
+      model: "test-embed-1",
+      embed: () => null,
+      vector: async () => null,
+      warm: async () => 0,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 3, failed: 3, lastFailures: failures }),
+    };
+    const c = brain(refuses);
+    for (const n of [1, 2, 3]) {
+      c.store.put({ type: "memory", kind: "fact", body: `A memory the embedder refuses, number ${n}.` });
+    }
+    const before = c.store.events("store.meta").length;
+    await backfillVectors({ counterpart: c, embedder: refuses, hasCredential: true });
+    const metaWrites = c.store.events("store.meta").slice(before);
+    expect(metaWrites.length).toBe(1);
+    expect(metaWrites[0]?.data?.count).toBe(3);
+  });
+
+  test("a run where everything lands writes NO counter at all", async () => {
+    // The common case must cost nothing: every counter is already zero, and a
+    // write that sets zero to zero is a lock acquisition bought for nothing.
+    const good = counting();
+    const c = brain(good);
+    c.store.put({ type: "memory", kind: "fact", body: "A memory that embeds on the first ask." });
+    const before = c.store.events("store.meta").length;
+    const ran = await backfillVectors({ counterpart: c, embedder: good, hasCredential: true });
+    expect(ran.embedded).toBe(1);
+    expect(ran.failed).toBe(0);
+    expect(c.store.events("store.meta").length).toBe(before);
   });
 
   test("off, and refused, are two records — never one zero (scar §2.4)", async () => {

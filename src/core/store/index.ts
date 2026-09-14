@@ -416,13 +416,23 @@ export interface RemovalNote {
  */
 /**
  * The backfill's give-up counter: `embed.failed.<id>` in box 2's meta, and the
- * number of failed runs after which `missingVectors` stops offering that id.
+ * number of ITEM-ATTRIBUTABLE failures after which `missingVectors` stops
+ * offering that id.
  *
- * Three, not one: a 429, a dropped socket or an aborted watchdog must not
- * retire a memory from the semantic channel, and three consecutive whole-run
- * failures is past the point where the cause is transient. Written by whoever
- * runs the backfill (`adapters/claude-code/vectors.ts`), cleared the moment an
- * id embeds. Meta keys only — no schema bump (precedent: `sleep.pruned.<id>`).
+ * **Only the failures the provider blamed on the item itself may move it** — a
+ * 400 the bisector narrowed down to one input (`ChunkFailure.item`). A 429, a
+ * 5xx, a dropped socket, an aborted watchdog or a malformed body says nothing
+ * about WHICH input is bad, and counting those was I33 inverted: three bad
+ * boundaries in a row would retire a whole healthy window and `unembeddedCount`
+ * — the coverage watch — would then read COMPLETE while those memories stayed
+ * blind. Three rather than one because even a 400 can be answered for a reason
+ * that is not the text.
+ *
+ * Written by whoever runs the backfill (`adapters/claude-code/vectors.ts`),
+ * cleared the moment an id embeds, and cleared wholesale by
+ * `counterparts verify --retry-skipped` — which is the remedy a repaired title
+ * needs, because a skipped id is never offered again and so can never clear
+ * itself. Meta keys only — no schema bump (precedent: `sleep.pruned.<id>`).
  */
 export const EMBED_FAILED_PREFIX = "embed.failed.";
 export const EMBED_SKIP_AFTER = 3;
@@ -441,6 +451,7 @@ export const WRITE_METHODS = [
   "setProspective",
   "advanceClock",
   "setMeta",
+  "setMetaMany",
   "setGateRecords",
   "pruneGateSessions",
   "appendEvent",
@@ -988,6 +999,30 @@ export class Store {
       this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value);
     });
     this.emit("store.meta", undefined, { key });
+  }
+
+  /**
+   * Many meta rows, ONE transaction and one ring line.
+   *
+   * `setMeta` in a loop is one write transaction — one lock acquisition — per
+   * key, and the caller this exists for moves a whole window's worth of the
+   * backfill's give-up counters at a boundary where the adapter has measured six
+   * overlapping workers against a 5 s busy timeout (adapter `NOTES.md`, I33).
+   * One `mutate` is one acquisition and rolls back as a unit: the same bargain
+   * `linkMany` and `setRanking` already make, and the reason the ring gets a
+   * count here rather than N identical `key` lines.
+   *
+   * Keys repeated within one call resolve last-wins, as `INSERT OR REPLACE` does
+   * anywhere else. An empty list still crosses the stance check, because a
+   * stand-down that depends on how much work there was is not a stand-down.
+   */
+  setMetaMany(entries: readonly (readonly [string, string])[]): void {
+    this.mutate("setMetaMany", () => {
+      for (const [key, value] of entries) {
+        this.ops.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, value);
+      }
+    });
+    this.emit("store.meta", undefined, { count: entries.length });
   }
 
   // ── box 2: per-session gate state (SEAMS item B) ───────────────────────────

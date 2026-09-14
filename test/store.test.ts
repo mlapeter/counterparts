@@ -1327,6 +1327,7 @@ describe("observer mode is enforced at the store seam", () => {
     ],
     advanceClock: ["2026-08-26"],
     setMeta: ["k", "v"],
+    setMetaMany: [[["k", "v"]]],
     setGateRecords: [[{ sessionId: "s1", kind: "surfaced", ref: "mem_000000000000", turn: 1, lastDay: 0 }]],
     pruneGateSessions: [],
     appendEvent: [{ name: "probe", day: 0 }],
