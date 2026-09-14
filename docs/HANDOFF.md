@@ -145,8 +145,16 @@ restarts on Fable at the next stopping point.
   `~/.claude/hooks/bansai-guard.sh` with an opt-out list. **Do not edit either without the owner.**
   A daily that reads few turns from those directories is reading the configuration working.
 - Core changes: adversarial review + G12 declaration in `docs/PARALLEL-RUN-STATUS.md` + the owner
-  merges + ONE `restart.ts` per batch. Pre-integrate a batch (like #75 and #82) when PRs share
-  seams.
+  merges + **deploy the shared checkout** + ONE `restart.ts` per batch. Pre-integrate a batch (like
+  #75 and #82) when PRs share seams.
+- **A merge deploys nothing until the shared checkout moves** (I36, 2026-09-14: #104 sat merged for
+  thirty minutes while every boundary ran the previous commit; earlier that day an unmerged branch
+  checked out there was live for seven minutes). The hooks run whatever `~/counterparts` has checked
+  out. So, in order, after the batch's last merge and BEFORE its restart: `tools/deploy-checkout.sh`
+  (fetches, refuses a dirty tree or a linked worktree, detaches at `origin/master`, prints the sha),
+  then `restart.ts` with that sha in the reason. Nobody develops in the shared checkout; all work is
+  in `.claude/worktrees/`. `doctor` grades the checkout (green at origin/master, amber behind, red
+  off it or dirty), so a missed deploy is visible the next morning even if this line is forgotten.
 - Merge only after a preview-merge suite run; PR bodies via `--body-file`; the classifier blocks
   batched writes to the live store even with permission — single commands sometimes pass, the owner
   runs the rest.
