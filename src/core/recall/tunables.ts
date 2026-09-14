@@ -134,7 +134,12 @@ export interface RecallTunables {
   BUDGET_BYTES: number;
   /** Bytes of gist rendered per surfaced item before elision. CAL. */
   GIST_BYTES: number;
-  /** Bytes of title rendered per footnote. CAL. */
+  /** Bytes of title rendered per footnote. CAL. 80 → 150 on 2026-09-14
+   *  (IMPROVEMENTS U2): a title authored at session_end runs past 80 and was
+   *  clipped mid-clause, and an 80-character title with one multi-byte dash
+   *  lost its tail to the byte cap. Migrated titles are STORED at 80
+   *  characters and render exactly as before. Six footnotes at 150 bytes plus
+   *  ids and framing is ~1,100 bytes against a 2,048 default budget. */
   FOOTNOTE_TITLE_BYTES: number;
   /** Fraction of the budget above which a pressure tripwire fires (scar §2.4:
    *  every budget gets an event when it is approached, not only when it blows). */
@@ -294,7 +299,7 @@ export const TUNABLES: RecallTunables = {
 
   BUDGET_BYTES: 2048,
   GIST_BYTES: 240,
-  FOOTNOTE_TITLE_BYTES: 80,
+  FOOTNOTE_TITLE_BYTES: 150,
   BUDGET_PRESSURE: 0.9,
   // 250 → 1200 on day 0 of the parallel run (2026-09-03): the first recall in a
   // fresh process — every hook is one — measured 794–819 ms warming the page

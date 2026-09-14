@@ -171,6 +171,9 @@ export function resolveScope(
 /** How this server learned which project it is serving. Reported at startup. */
 export type ScopeSource = "flag" | "cwd" | "store";
 
+/** The kind enum, for a refusal that names it (session_end, note). */
+const MEMORY_KINDS = ["self", "person", "entity", "skill", "place", "fact"] as const;
+
 export class McpServer {
   readonly counterpart: Counterpart;
   /** The session the HOST named at launch, if it could. Never changes. */
@@ -670,11 +673,18 @@ export class McpServer {
         continue;
       }
       if (result.deposited) deposited += 1;
+      // A refusal names what to fix. `malformed` alone sent the author back to
+      // guess (IMPROVEMENTS U11: a kind outside the enum came back as a bare
+      // "malformed"); intake's own reason rides out, and an unknown kind lists
+      // the kinds that exist.
+      const malformed = result.malformed ?? null;
       outcomes.push({
         stored: result.deposited,
         reason: result.reason,
         ...(result.memoryId === null ? {} : { id: result.memoryId }),
         ...(result.gate === null ? {} : { gate: result.gate }),
+        ...(malformed === null ? {} : { malformed }),
+        ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
       });
     }
     this.emit("mcp.session_end", session, {

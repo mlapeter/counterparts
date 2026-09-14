@@ -114,7 +114,8 @@ reply actually used reconsolidates, where in humans every retrieval does.
   not judged: a memory expanded and then argued with is credited. One durable row per
   boundary, `recall.credit`, with a `reason` readers split on.**
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
-  available / ignorable" phrasing is a deliberate, still-open probe question. [v1 §9 G17]
+  available / ignorable" phrasing is a deliberate probe question, at step 1 since 2026-09-14
+  (§7 OQ4). [v1 §9 G17]
 - **A chapter is recallable and is LABELED, at every door.** An `epi_` row is the
   first-person account a memory was made from, not a memory: it sits outside every sleep
   phase (`sleep/types.ts#isJournal`) and the physics beside it is recorded, never acted on.
@@ -251,7 +252,14 @@ decision record carries ids, never bodies).
 3. **Does `associate/` fold in here** (traversal), with its arithmetic going to `physics/`?
    The module map's standing check-in question; owned by `associate/`.
 4. **Is the "quietly available / ignorable" framing actually ignorable to a model?** v1
-   shipped it as a deliberate probe question and never answered it.
+   shipped it as a deliberate probe question and never answered it. **Probe advanced one
+   step 2026-09-14:** step 0 (`render.ts#FOOTNOTE_HEADER_STEP_0`, the string above) ran
+   live to that date; step 1 keeps "ignorable" and adds "expand an id with recall before
+   citing one", after the model was measured asserting counts and characterizations of
+   five footnoted memories from their titles without expanding any (IMPROVEMENTS U5). The
+   measurement is `probe.ts` / `counterparts probe-oq4`: per calendar date, footnotes
+   delivered (`recall.decision`) vs. later expanded by id (`recall.credit.expandedIds`).
+   Reversible by one string; the owner rules on the reading, not this file.
 5. ~~**The absolute floors have never fired in v2, and the loud tier needs them.**~~
    **ANSWERED 2026-09-04. The floors are in cue units now, and the "cue-count half" was
    never a second half — it was a broken measurement.**

@@ -60,6 +60,7 @@ import type {
 } from "./recall/index.js";
 import { SpanBuffer, TUNABLES as REMEMBER, errCode, intake, resolveUpdates, submitProposal, sweep, sweepAll } from "./remember/index.js";
 import type {
+  MalformedReason,
   BoundaryKind,
   BoundaryRecord,
   CaptureResult,
@@ -336,6 +337,9 @@ export interface CreditSummary {
   /** Refusals keyed by the physics `CreditReason` (or recall's own gate reason). */
   readonly refused: Record<string, number>;
   readonly ids: string[];
+  /** Every id the assistant EXPANDED this boundary, credited or refused — the
+   *  OQ4 probe's input (`recall/probe.ts`): footnotes delivered ∩ later expanded. */
+  readonly expandedIds: string[];
 }
 
 export type AdapterDurableEventName =
@@ -449,6 +453,10 @@ export interface DepositResult {
   readonly gate: string | null;
   /** Span hashes this deposit took off the sweep's input pile. */
   readonly covers: readonly string[];
+  /** Intake's own name for a malformed draft (`KIND_UNKNOWN`, `CONTENT_EMPTY`,
+   *  …), when that is why it was refused. A bare "malformed" told the author
+   *  nothing to fix (IMPROVEMENTS U11). */
+  readonly malformed?: MalformedReason | null;
 }
 
 export interface SweepEntry {
@@ -1382,6 +1390,7 @@ export class Counterpart {
     const summary: CreditSummary = {
       reason,
       day,
+      expandedIds: refs.uses.filter((u) => u.how === "expanded").map((u) => u.memoryId),
       considered: refs.considered,
       expanded: refs.expanded,
       quoted: refs.quoted,
@@ -2305,7 +2314,7 @@ export class Counterpart {
         malformed: result.malformed,
       });
       this.recordDeposit(result, ctx, source, null);
-      return none(reason, result.gate);
+      return { ...none(reason, result.gate), malformed: result.malformed };
     }
 
     const proposal = result.proposal;

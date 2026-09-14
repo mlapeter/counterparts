@@ -690,6 +690,17 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - **Owner choices this PR makes, named so they can be narrowed:** credit on the `referenced` tier only; identity rotation ahead of strength (all twenty cycle, not just the eight tied at 1.0); `QUOTE_WINDOW_WORDS` = 8 and the 150 ms budget are tunables, not contract.
 - **Consequence: the phase clock restarts** (class anything-else). Budget for a same-date re-restart if the U9 PR lands the same day; the two share one restart if merged together.
 
+**2026-09-14 (evening batch), declared before merge — `fix/wake-leftover-titles-label-and-enum` (IMPROVEMENTS U2 footnote title cap, U3 the OQ4 probe advanced one step with its metric, U11 session_end names a malformed reason; U6 leftover rule examined and left as is). Class: ANYTHING ELSE. Rides the evening batch's ONE restart with the counterparts session's core/adapter PRs; no restart of its own.**
+
+- **Why not "red-line fix".** Nothing on G10's list. Two rendering changes and one tool-result field.
+- **Why not "identical".** What the store surfaces changes on every turn with footnotes: the header string (U3) and the title width (U2, authored titles only). What the store holds changes by one field on `recall.credit` (`expandedIds`, `expandedTotal`, ids only, capped 64).
+- **Surface-set hash:** `c3af0bef00209ba6` on master `e0f4a34` and on this branch — no hashed record touched; `recall.decision` unchanged.
+- **U3 is the OQ4 probe, advanced one step, not a fix.** `render.ts` keeps `FOOTNOTE_HEADER_STEP_0` ("Quietly available (ignorable):", live through 2026-09-14) beside `FOOTNOTE_HEADER_STEP_1` (adds "expand an id with recall before citing one"); `FRAMING.footnoteHeader` points at step 1. Reversal is one line and one ruling. The measurement lands in the same PR: `recall/probe.ts` + `counterparts probe-oq4`, per calendar date, footnotes delivered (`recall.decision.footnotes[].id`) vs. later expanded (`recall.credit.expandedIds`). The restart date is the before/after line; there is no step-0 baseline for `expandedIds` (the field is new), so the step-0 side of the table reads from the day #99 landed (`recall.credit` rows from 8d7bd97 onward) — a few hours, named as thin.
+- **U2:** `FOOTNOTE_TITLE_BYTES` 80 → 150. Migrated titles are STORED at 80 characters and render exactly as before, so the recall bench's numbers for them do not move; authored titles render whole; a title with a multi-byte dash no longer loses its tail to the byte cap. Six footnotes at 150 bytes plus ids and framing ≈ 1,100 bytes against the 2,048 default; the composed budget and trim order are untouched.
+- **U6 leftover rule: examined, NOT changed.** `self/NOTES.md` §9 rule 4 keeps the element set a superset across budgets; rotation (#99) removes the reason to want the change. Recorded in IMPROVEMENTS U6.
+- **U11:** `DepositResult.malformed` (optional, intake's `MalformedReason`); `session_end`'s per-entry outcome names it and, for `KIND_UNKNOWN`, lists the kinds. Tool-result shape gains two optional fields; nothing durable.
+- **Expected first readings:** the recall block's footnote header changes on the first turn after the restart — the parallel-run transcript canary matches on `counterparts:recall` markers, not the header text, so nothing trips; `counterparts probe-oq4 --dir ~/.counterparts/store` prints a table from the day #99 landed onward.
+
 ## Owner ruling, 2026-09-10 — what PROMOTE does to v1
 
 Neither this document nor `tools/parallel/CONTRACT.md` §7 said what happens to bansai (v1) on

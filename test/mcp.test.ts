@@ -669,6 +669,26 @@ describe("the tool-description audit", () => {
     );
   });
 
+  test("a kind outside the enum is refused by NAME, with the kinds that exist (IMPROVEMENTS U11)", async () => {
+    const s = server();
+    const body = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [
+          { content: "Plan of record for the credit seam, awaiting the owner's ruling on order and split.", kind: "project" },
+          { content: "A sibling entry with a kind that exists, which still lands.", kind: "fact" },
+        ],
+      }),
+    );
+    const outcomes = body["outcomes"] as Record<string, unknown>[];
+    expect(outcomes[0]?.["stored"]).toBe(false);
+    expect(outcomes[0]?.["reason"]).toBe("malformed");
+    expect(outcomes[0]?.["malformed"]).toBe("KIND_UNKNOWN");
+    expect(outcomes[0]?.["kinds"]).toEqual(["self", "person", "entity", "skill", "place", "fact"]);
+    expect(outcomes[1]?.["stored"]).toBe(true);
+    expect(outcomes[1]?.["malformed"]).toBeUndefined();
+  });
+
   test("the mechanism behind the credential claim actually fires: redacted, and a bare credential is refused", async () => {
     const s = server();
     const stored = await s.call("note", {
