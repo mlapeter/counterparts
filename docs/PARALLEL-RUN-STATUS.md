@@ -5,6 +5,33 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-14: the worker runs; the referee had gone quiet (turn floor after G38); #95 reviewed and fixed
+
+*Appended 2026-09-14 by the session that ran the health check. Numbers from the live store read-only (owner's
+ask), `days/2026-09-1{1,2,3}.json` written under the standing daily permission, and `gh pr view`.*
+
+- **The 09-11 hand fixes hold.** `dataDir`, both keys and the `embedder` block intact; `meta.livedDay` 187,
+  `lastActiveDate` 2026-09-13, every `sleep.marker.*` at 187; asks fire (4/day, then `day-chapter-cap`),
+  session-end deposits land, sweep rows every boundary, wake 8,351 B of 9,000. 09-12 had no capture because its
+  only sessions were in an observer directory (bookkeeping) — by design.
+- **I33 still live until #95 lands:** every `adapter.embed.backfill` row since 2026-09-11 17:05Z is
+  `embedded 0 / failed 64`; 211 live rows have no vector, including every row born on lived days 186–187.
+- **I34 — the turn floor read a bansai row G38 removed.** `record.ts` counted `turns` from v1's
+  `buffer.append`, written by bansai's Stop hook; G38 (09-10) removed that hook and checked only that
+  `muted-consistent` still read. Dailies for 09-11 and 09-13 first graded THIN "0 conversational turns" against
+  47 and 18 v2 boundaries. **Owner ruling 2026-09-14 (option 1 of three): when v1 is muted-consistent and logged
+  no per-turn row, count `adapter.recall` (one durable row per user prompt) and name the source on the record.**
+  PR #96 (instrument only, suite 1857/0, five tests). Re-graded: **09-11 ACTIVE** (40 turns, `v2:adapter.recall`),
+  **09-12 THIN** (no session), **09-13 ACTIVE** (13). `run.json` `activeDays.P` = **2**, counting from the
+  09-11 restart. `bars.json`'s `why` still says "(v1 buffer.append events)" — the owner's one-line edit.
+- **#95 reviewed on Opus (adversarial), MERGE WITH FIXES, fixes applied and pushed** (head `9ab3073`; suite 1867/0
+  on the head and on a preview merge with master; install-loop 47/47; hash `c3af0bef00209ba6` unchanged). The
+  declaration is below. After it merges the owner runs ONE `restart.ts --date 2026-09-11` (same-date re-restart).
+- **Sweep row reading, corrected:** `sweep.gate.otherRefusals` is chronically 5–7 on the live run and it is
+  `NOTHING_TO_SWEEP` for scopes whose crashed session was already retired (`crashedSessions` never forgets); the
+  code comment "nonzero with ran:0 is NOT a quiet day" is false on every day of this run. Read `ran` and
+  `skippedNotCrashed`; a reason split is LAUNCH-STATUS G48.
+
 ## State — 2026-09-11: 09-10 recorded ACTIVE, but the worker has not run on the live store since 09-04 (I32)
 
 *Appended 2026-09-11 morning. Numbers from `days/2026-09-10.json` and a read-only look at the live
@@ -610,6 +637,14 @@ rule (G12): a red-line fix restarts only the criteria whose surface set moved.
 - **What merged, and when.** #82 merged **`2026-09-10T14:13:23Z`** as master **`2b95f21`** (`gh pr view 82`). #79, #80 and #81 each read `MERGED`, closed by the batch at `2026-09-10T14:13:26Z`; no PR is open. The owner merged it with no session open, as G35 asked.
 - **Surface-set hash unchanged: `c3af0bef00209ba6`**, on every one of the three branch declarations above and in `run.json` after the restart. Nothing in the batch adds or renames a field of the per-turn surfacing decision, gate-chunk, gate-deposit or band-transition records.
 - **The single restart.** `restarts.jsonl` line 4: `restartedAt` **`2026-09-10T14:15:48.392Z`**, `date` 2026-09-10, `phase` P, reason "second core batch #79 #80 #81: prose paths relative (schema v5), explicit-dir guard, events pruned in sleep; surfaceSet c3af0bef00209ba6 unchanged; class anything-else; hooks restored to the live store", `clearedActiveDays {"0":1,"P":0}`. This is the reconciliation the three 2026-09-05 declarations each promised: they were written against "today's owed restart", they landed together, and there is one restart dated the merge day.
+
+**2026-09-14, declared before merge — `fix/degrade-durable-poison`, PR #95 (I32 / I33: the worker degrades instead of refusing without a key, spawn refusals and runner failures are durable rows with a persisted escalation counter, the ask cap keys on the calendar date, the embedder sanitizes lone surrogates and bisects a 400 to the poison item, ids that fail on their own three times are skipped with `verify --retry-skipped` as the way back, `install --force` keeps a credentials file that holds a key). Class: ANYTHING ELSE (§5 G12's third class). ONE restart, `--date 2026-09-11` (a same-date re-restart keeps 09-11 as day 1).**
+
+- **Surface-set hash unchanged: `c3af0bef00209ba6`**, measured on the PR head `9ab3073` and on a preview merge with master `bbfea7c` (`tools/parallel/surface.ts#surfaceSetHash()`). The four hashed record shapes are untouched; `sweep.gate` is not one of them and gains a `reason` field (`ran` | `no-credential`).
+- **Why not IDENTICAL, despite the hash.** What the store HOLDS moves on the live store at the first boundary after merge: the keyless path now runs the sleep cycle (clock, decay, prune, dedup, consolidate, briefing) where it ran nothing; the ask counter is charged to a calendar-date key; new durable rows (`adapter.spawn.refused` / `adapter.spawn.failed` / `adapter.runner.failed`) and new meta keys (`adapter.spawn.refusals.<reason>`, `embed.failed.<id>`) appear; and the embedding backfill, blocked since 09-04, will land vectors for ~211 live rows over the next four boundaries, which changes what the semantic channel can surface. Not telemetry-only, not provably identical.
+- **Why not a red-line fix.** G10's list is closed; a refused worker and a poisoned embed chunk are on none of it. These are behaviour changes made on purpose (owner rulings 2026-09-11).
+- **Review record.** Adversarial review on Opus, 2026-09-14: two CONFIRMED blockers in the skip list (whole-chunk failures of any code retired healthy ids after three runs and `unembeddedCount()` then read complete — I33 inverted; a skipped id had no in-product way back and `verify` named a rebuild that does not clear the counter), one medium (64 box-2 write transactions per failing run), and three low — all fixed in `2798ce2` and `9ab3073` with seven tests. Deferred, not blocking (LAUNCH-STATUS G47): the daily's readers count `sweep.gate` by name and cannot see the `no-credential` reason; the new row can flip `joinAvailable` on a date with no session-bearing rows; G45 asked for a `spawn.escalated` row and the PR folds escalation into `escalate` on the refused row (owner sign-off). Residue named in the adapter's `INTERFACE-GAPS` item 7: attribution is per fill, so a fill mixing an isolated 400 with a 500 elsewhere still charges the 500's victims.
+- **Not measured by this entry.** The declaration was written before the merge; the restart line and the first post-merge backfill row are the next daily's to read.
 - **The schema conversion happened as declared.** `store.migrate.paths` at `2026-09-10T14:16:03Z`: `from` 4, `to` 5, **15,541** prose paths converted, **468** version paths converted, **0** unplaceable. `verify` after the first wake reads "Prose paths: 15541 relative, 0 absolute (unplaceable), 0 missing files / Version paths: 468 relative, 0 absolute, 0 missing" (the owner's command output, relayed 2026-09-10; see LAUNCH-STATUS G36). The revert lever for v2's CODE is now one-way — a pre-v5 build refuses a v5 store by name — which is why G34's backup was taken first.
 - **#81's pass will delete nothing when it runs, as the arithmetic said.** `verify`: "Events: 1349 held (104 latched) oldest lived day 184 (2026-09-03) window 90 lived days". The oldest row is 184 against a lived day of 185, so the cutoff (day − 90) catches no row. **Not yet exercised:** the `log` phase runs inside a sleep cycle, and the `verify` above was taken before the first Stop-boundary sleep pass of the new session — so this is what the first pass will read, not a report of one that ran. The pre-merge census read 1,342; seven rows were added between that reading and this one.
 - **#80's guard is off on the live host and stays off.** It arms on `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`, which the hooks and the MCP server do not set. Where it IS set — the test preload, the demo seeder, the loops, the bench, every agent shell — the only behaviour that moves is a refusal before anything opens.
