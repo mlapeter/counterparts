@@ -914,11 +914,15 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
       if (row.type === "schema") schemas += 1;
       else memories += 1;
       byKind[row.kind] = (byKind[row.kind] ?? 0) + 1;
-      // THE LIVE BAND, computed, never the stored column. `memories.band` is a
-      // birth fossil — episodic at mint, identity at promotion, and never
-      // "semantic" — so reading it reported `episodic 128 / semantic 0` where
-      // the dashboard, which does this arithmetic, reported `54 / 74`
-      // (LAUNCH-STATUS §I10). Same helper, same day, same answer.
+      // THE LIVE BAND, computed, never the stored column. Until 2026-09-14
+      // `memories.band` was a birth fossil — episodic at mint, identity at
+      // promotion, and never "semantic" — so reading it reported
+      // `episodic 128 / semantic 0` where the dashboard, which does this
+      // arithmetic, reported `54 / 74` (LAUNCH-STATUS §I10). Same helper, same
+      // day, same answer. The column is now reconciled by the decay pass (U8,
+      // `sleep/decay.ts`), so it agrees after a boundary — and this stays
+      // computed anyway, because it must be right BEFORE the first boundary of
+      // the day and on a store whose last pass hit its budget.
       let liveBand: Band = row.band;
       try {
         liveBand = band(store.physicsOf(id), day);
@@ -1498,8 +1502,10 @@ interface CacheCensus {
  *     The journal is not a memory and never earns a band (`sleep/types.ts`), and
  *     an archived or superseded row is deliberately outside box 3.
  *   - `disagree`  — the column contradicts the cache. After a decay pass that was
- *     not cut short by its budget this is 0, and a non-zero number means either
- *     no pass has run since this shipped or the pass is being truncated.
+ *     not cut short by its budget (`sleep/tunables.ts` `BUDGETS.decay`, 20,000
+ *     examined rows) this is 0, and a non-zero number means either no pass has
+ *     run since this shipped or the store is larger than one pass and is still
+ *     catching up, a budget's worth a day.
  *   - `unranked`  — live rows box 3 has never seen (born since the last pass).
  *     Not a disagreement: there is nothing to disagree with.
  */
@@ -1534,9 +1540,9 @@ function bandOfRecordLines(c: BandOfRecordCensus): string[] {
   ];
   if (c.disagree > 0) {
     out.push(
-      "    The decay phase writes each band move back to `memories.band` (U8), so a full",
-      "    pass leaves 0 here. A number that survives a boundary means the pass is being",
-      "    cut short by its budget — or that no boundary has run since this store was built.",
+      "    The decay phase writes each band move back to `memories.band` (U8), so a pass that",
+      "    its budget did not cut short leaves 0 here. A number that survives several boundaries",
+      "    means no boundary has run since this store was built — or that the pass is truncating.",
     );
   }
   return out;

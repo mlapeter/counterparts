@@ -147,7 +147,9 @@ denying. Three things settled the ruling:
    wrong and both of them read, is the shape the parallel run keeps finding.
 3. **It is not v1's churn.** The write fires only when the column disagrees with
    `band(m, d)` — a handful of rows a day once caught up, zero on a replayed day,
-   and one catch-up pass for the backlog. Strength, the number that actually
+   and one catch-up pass for the backlog while the store fits the decay phase's
+   budget (`BUDGETS.decay` = 20,000 examined rows; the live store is ~14,000, and
+   a larger one clears a budget's worth a day like every other phase). Strength, the number that actually
    moves every day for every row, is still cache-only. (The first catch-up pass
    on a large store is ~900 single-statement `UPDATE`s under `synchronous =
    FULL`; it happens once, inside a boundary that already writes per row.)

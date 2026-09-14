@@ -383,7 +383,9 @@ describe("the decay tick", () => {
     expect(row?.band).toBe(band(p, 5));
     expect(row?.day).toBe(5);
     // Not one canonical field moved: strength is a pure function, so there is
-    // no step to apply and nothing to write back.
+    // no step to apply and nothing to write back. The `band` COLUMN is the one
+    // exception the pass may touch (U8, tested below) — this row's column and
+    // its arithmetic already agree, so there is nothing to reconcile either.
     expect(JSON.stringify(s.row(id))).toBe(before);
   });
 

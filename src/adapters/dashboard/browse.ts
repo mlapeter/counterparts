@@ -69,10 +69,12 @@ function renderList(src: DashboardSource, opts: BrowseOptions): string {
   const day = store.livedDay();
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
-  // The band filter is COMPUTED, never delegated to the column: the stored
-  // band is a birth fossil (episodic at mint, identity at promotion — nothing
-  // ever writes "semantic", replay review F6), so `list({ band: "semantic" })`
-  // would return nothing forever while the engine holds semantic rows.
+  // The band filter is COMPUTED, never delegated to the column: until 2026-09-14
+  // the stored band was a birth fossil (episodic at mint, identity at promotion
+  // — nothing ever wrote "semantic", replay review F6), so
+  // `list({ band: "semantic" })` returned nothing forever while the engine held
+  // semantic rows. The decay pass reconciles the column now (U8), and this stays
+  // computed regardless: the column is only as fresh as the last boundary.
   const filter: { kind?: Kind; archived?: boolean } = {};
   if (opts.kind !== undefined) filter.kind = opts.kind;
   if (opts.archived !== true) filter.archived = false;
