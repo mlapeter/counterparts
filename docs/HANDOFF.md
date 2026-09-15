@@ -33,7 +33,10 @@ hits), F2 HIGH corrupt `scopes.json` ⇒ every `off` is ON with no evidence (con
 between two writers (confirmed), F4/F5 LOW; everything else on the attack list HELD (LAUNCH-STATUS 2026-09-15 has the
 full list). **Fixes LANDED, head `d6083de`**, re-verified by this session (suite 2077 / 0 / 36, hash unchanged, core untouched,
 `scopes.test.ts` 54 / 0). #112 fixed head `3fc77d7` likewise re-verified (2048 / 0 / 35). Trial merge: four files, one
-hunk each (hooks.ts = import block). **Nothing is blocked on code now; everything is blocked on the owner.** Order:
+hunk each (hooks.ts = import block). **One open question on #92 before merge (I38 × F1): can a SessionStart stand down at store OPEN on a lock, leaving
+no session record, so that the first Stop SEALS and discards instead of recovering from cursor 0? `noteSession("start")`
+writes the record before the first sqlite write, so only an open-time lock reaches it; confirm whether `Store.open`
+takes a write lock under `journal_mode = DELETE`. Everything else is blocked on the owner.** Order:
 rulings → merge #92 → Opus agent rebases #112 and re-runs the seal + A1–A3 tests on the combined tree → merge #112 →
 `deploy-checkout.sh` → ONE restart. Also new: **I38** (`database is locked` stand-down after a Stop, 3/8 in the
 fixer's test; check the live events for it tomorrow), G59 (seal residues), G60 (core `sealCursor` seam). The owner's
@@ -43,6 +46,14 @@ Original attack list, for the record:  (attack the registry's longest-prefix mat
 `off` path's "no output, no store created" guarantee against `spawnWorker` / the doctor notice / `recall.credit`,
 the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge
 suite, then the owner's three rulings (dormant first-launch ask; unset = on; `off` silent) before or at merge.
+
+**Worktrees left checked out under `.claude/worktrees/` (clean up AFTER the merges; do not develop in them):**
+`agent-a1eff85243757120f` (feat/scope-controls at the PRE-fix `2677c6e`), `agent-ab46e32d6091d5420` (branch
+`scope-controls-fixes` at `d6083de` = the pushed head), `agent-a5f4edc2f95d4221f` (mcp/handle-expansion-credit at the
+PRE-fix `f0428a8` — six behind origin; a push from there without a fetch is rejected), `agent-ab5f89df1c48abdb4`
+(`fixes/pr112-review` at `3fc77d7` = the pushed head), `agent-aee1e116fdfcd91be` (tools/daily-pressure-watch at
+`ed83450`), two detached reviewer worktrees (`agent-a021d7c142ec7c49f`, `agent-af46353102071f1a0`), and the old
+`agent-aa81a3ae1a500cad6` (`launch/w1-round9`, stale since before 09-14). `coord-docs` holds this record's branch.
 
 **Next, in order:** (1) the owner's rulings, then the merge chain above (#92 → #112 rebase → deploy → one restart); (2) **G55 is PR #111** (`ed83450`, tools only, suite 2026 / 0; merge under the
 standing approval after a preview-merge suite — it changes what tomorrow's daily prints for `self.schema.pressure`) and

@@ -1631,7 +1631,9 @@ Twenty existing tests needed a "SessionStart happened" seed (`live()` / seeding 
 with no record now seals instead of capturing. **Two side-effects named, not fixed:** `on → observer → on` inside one
 session still captures the observer stretch retroactively (the record exists, so no seal; no cursor can move under
 observer); and after a seal the Stop ask pacer still counts the whole transcript, so the first Stop after a resume
-can raise the authorship ask about the off stretch (authored door, not capture) — G59. **Rulings for the owner from the review**, beyond the three the PR
+can raise the authorship ask about the off stretch (authored door, not capture) — G59. **One open question before
+merge:** a session whose SessionStart stood down before writing its record (I38's lock at store open, if that path
+exists) would seal at its first Stop instead of recovering — see I38. **Rulings for the owner from the review**, beyond the three the PR
 names: (i) "off is silent" and "a corrupt registry is silent" are two exceptions, not one; (ii) `off → pause →
 resume` is a two-step path to `on` reachable by the model through the `scope` tool (`resumeTo` defaults to
 `on` when pausing from `off`); (iii) the MCP server still opens a store in an `off` directory, so "no store
@@ -1646,7 +1648,20 @@ Pre-existing, not #92's, and live-relevant: on the host a UserPromptSubmit or a 
 previous Stop's worker holds the write lock would stand down that hook. Not yet read on the live store — the
 morning check should grep the events for a `database is locked` / `SQLITE_BUSY` code on `adapter.boundary` or
 `adapter.recall` rows, and if it appears, this is a finding with a number of its own; if it never appears live,
-the busy timeout is doing its job and the test's PreCompact workaround is the whole story. Open.
+the busy timeout is doing its job and the test's PreCompact workaround is the whole story. **Read tonight
+(read-only):** no `adapter.boundary`, `adapter.wake.injected` or `adapter.recall` row since 09-11 carries a
+`locked` / `BUSY` / `SQLITE` code or a stand-down reason other than the expected ones (boundary reasons: APPENDED
+151, NOTHING_NEW 8, ALL_EXCLUDED 1; wakes 12 / 12 delivered) — but a hook that stands down BEFORE its first row
+leaves no row, so absence here is not proof. The store runs `journal_mode = DELETE` with a busy timeout
+(`store/db.ts`), so a worker's long write transaction blocks a hook's READS too, and past the timeout the hook
+throws. **Interaction with #92's seal (the one open question on #92):** the seal fires on "no session record + cursor
+0". The record is a JSON file written by `noteSession("start")` at the top of `sessionStart`, BEFORE the hook's first
+sqlite write, so a lock hit while composing the wake still leaves the record and the seal does not fire. The
+uncovered case is a lock thrown at `openAdapter` itself (`bin/hook.ts`, outside the hook's try): no record, and
+that session's first Stop would then SEAL and discard what it used to recover from cursor 0 — a new silent-loss
+class. Whether `Store.open` takes a write lock (it runs `PRAGMA`s and `CREATE TABLE IF NOT EXISTS` on the cache) is
+the thing to confirm before #92 merges; the same interaction reaches #112's session-start floor (no record → no
+floor → under-credit only). Open.
 
 ### Merge order and what is left
 
@@ -1659,5 +1674,5 @@ live hooks do at every boundary, so the batch rule applies in full.
 ### Spend
 
 $0.00 by the session. The morning check and coordination ran on Fable (owner: conserve Fable tokens — agents on
-Opus); six Opus agents: #92 rebase (~215k), G55 (~171k), G50 (~199k), #92 review (~172k), #112 review (~145k),
+Opus); seven Opus agents: #92 rebase (~215k), G55 (~171k), G50 (~199k), #92 review (~172k), #112 review (~145k),
 #112 fixes (~241k), #92 fixes (~365k) — about 1.5M Opus tokens for two reviewed-and-fixed PRs and one tools PR.
