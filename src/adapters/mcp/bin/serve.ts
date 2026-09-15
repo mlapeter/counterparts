@@ -38,7 +38,13 @@ import {
   resolveConfigPath,
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
-import { effectiveStance, lookupScope, readScopes, scopesPath } from "../../scopes.js";
+import {
+  describeScopeTrouble,
+  effectiveStance,
+  lookupScope,
+  readScopes,
+  scopesPath,
+} from "../../scopes.js";
 import { loadConfig } from "../../claude-code/config.js";
 import { loadCredentials, permissionWarning } from "../../claude-code/credentials.js";
 import type { CredentialLoad } from "../../claude-code/credentials.js";
@@ -263,11 +269,12 @@ async function main(): Promise<void> {
   const scopesFile = scopesPath(choice.path);
   const scopeRead = readScopes(scopesFile);
   const scopeVerdict = lookupScope(scopeRead.registry, opts.scope ?? process.cwd());
-  if (scopeRead.error !== null) {
-    process.stderr.write(
-      `[counterparts] scope registry ${scopesFile} could not be read — ${scopeRead.error}. Every directory reads as unset (on).\n`,
-    );
-  }
+  // THE SAME SENTENCE THE HOOK PRINTS, from the same function (#92 review, F2).
+  // It was written out inline here and covered only a whole-file failure, so a
+  // registry whose ENTRIES were refused — one typo'd `off` among good ones —
+  // gave the operator nothing at the one moment this process can speak to them.
+  const trouble = describeScopeTrouble(scopeRead, scopesFile);
+  if (trouble !== null) process.stderr.write(`${trouble}\n`);
   // ONE line at launch when this directory is not an ordinary one — the only
   // channel this process has to the operator, and the difference between a
   // muted server and a broken one (scar §2.4).

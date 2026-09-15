@@ -42,9 +42,11 @@
  * (#92 review, F2). A bad entry is refused BY NAME rather than failing the whole
  * file — whole-file-fail turned every correctly typed `off` in the file on, to
  * protect the one that was typed badly — and `describeScopeTrouble` is the one
- * sentence every surface with a reader prints: the hook's stderr at SessionStart,
- * the console, the server at launch. "`off` is silent" (§5 G19) and "a corrupt
- * registry is silent" are different exceptions, and only the first was ruled.
+ * sentence the two processes with an operator print: the hook's stderr at
+ * SessionStart and the server's at launch. The console prints the same facts its
+ * own way, a line per entry, because it is talking to somebody who can fix them.
+ * "`off` is silent" (§5 G19) and "a corrupt registry is silent" are different
+ * exceptions, and only the first was ever ruled.
  *
  * **This module never throws at a reader.** `readScopes` returns a reading;
  * only `writeScopes`, which is a console command with an owner watching, is

@@ -454,7 +454,7 @@ export class McpServer {
       return this.refuse("scope", "registry-partly-unreadable", {
         registry: file,
         refused: read.refused.map((r) => `${r.key} (${r.detail})`),
-        detail: `${String(read.refused.length)} entry in this registry could not be read, and every write rewrites the whole file — so writing here would drop ${read.refused.length === 1 ? "it" : "them"}. Nothing was changed. Tell the user; fixing the file, or \`counterparts scope <path> --<mode> --force\`, is a person's call.`,
+        detail: `${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in this registry could not be read, and every write rewrites the whole file — so writing here would drop ${read.refused.length === 1 ? "it" : "them"}. Nothing was changed. Tell the user; fixing the file, or \`counterparts scope <path> --<mode> --force\`, is a person's call.`,
       });
     }
 

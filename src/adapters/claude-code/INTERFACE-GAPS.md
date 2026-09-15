@@ -420,6 +420,36 @@ that needs a comparison, which is what the fix above is.
 
 ---
 
+## 10. `remember/` has no way to ADVANCE A CURSOR without depositing (#92 review, F1)
+
+*Written 2026-09-15, from the scope-controls review.*
+
+**The ask.** A boundary that discovers it joined the memory late — no session
+record, cursor still 0, because this directory was `off` or `paused` when the
+session started and has been turned back on since — must move the read cursor to
+the end of the transcript it can see WITHOUT appending any of it
+(`CONTRACT.md` §5 G22). `remember/` has no such method: `capture` is the only
+thing that writes a cursor, and it writes one as part of depositing.
+
+**What the adapter does instead, and why it is a workaround rather than a
+design.** `hooks.ts#sealJoinedLate` calls `captureSpans` with `turns.length`
+PLACEHOLDER turns whose `source` is `tool`. `enters()` refuses that source, so
+`SpanBuffer.captureInner` takes its ALL_EXCLUDED arm — "nothing conversational
+happened: still advance, or the same tool output is re-scanned forever" — which
+advances the cursor to `turns.length` and appends nothing. It is correct and it
+is tested, and it depends on an arm of a core function that exists for another
+reason, through an argument that is a lie about what happened.
+
+**What would say it instead:** `SpanBuffer.sealCursor(scope, session, turns)` —
+one `mutate("capture", …)` around `writeCursor`, returning the same
+`CaptureResult` shape with a `SEALED` reason, and `Counterpart.sealSpanCursor`
+beside `captureSpans` to reach it. Roughly fifteen lines in
+`core/remember/spans.ts` plus a name in `CaptureReason`. It is a CORE change and
+the review that found the bug deliberately did not make one; the fix shipped
+adapter-side and this is the entry that says what it is standing in for.
+
+---
+
 ## What the spawn-seam repair still owes (I32/I33, 2026-09-11)
 
 1. **Nothing SAYS the worker has not run — CLOSED 2026-09-14.** `spawnRefusals()`

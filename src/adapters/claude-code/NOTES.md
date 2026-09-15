@@ -499,7 +499,9 @@ owner said leave this alone. A registry that could not be READ has said nothing,
 and its `unset` fail direction turns every `off` in it back on. Whole-file-fail
 made that worse rather than better: one typo'd mode turned every correctly typed
 `off` beside it on, to protect the bad one — which the hook could not honour
-anyway. Per-entry now, refused by name, with one stderr line at SessionStart
+anyway. Per-entry now, refused by name, with one stderr line — the same sentence
+in the hook and in the server at launch, where the inline version covered only a
+whole-file failure — at SessionStart
 (after the `off` return, so an off directory stays byte-silent) and
 `scopeRegistry` on the wake's durable row. Both writers refuse to drop an entry
 they could not read, because every write rewrites the whole file.
