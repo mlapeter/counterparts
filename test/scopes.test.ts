@@ -53,7 +53,7 @@ import {
 } from "../src/adapters/scopes.js";
 import type { ScopeRegistry } from "../src/adapters/scopes.js";
 import { readSession } from "../src/adapters/sessions.js";
-import { RECALL_CREDIT_EVENT } from "../src/core/counterpart.js";
+import { BOUNDARY_EVENT, RECALL_CREDIT_EVENT } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
@@ -93,8 +93,13 @@ function put(entries: Record<string, unknown>): void {
 }
 
 /** A hook payload with the four fields `toHookInput` reads. */
-function hookPayload(event: string, session: string, cwd: string): string {
-  return JSON.stringify({ hook_event_name: event, session_id: session, cwd });
+function hookPayload(event: string, session: string, cwd: string, transcript?: string): string {
+  return JSON.stringify({
+    hook_event_name: event,
+    session_id: session,
+    cwd,
+    ...(transcript === undefined ? {} : { transcript_path: transcript }),
+  });
 }
 
 /** One real hook process, with a curated environment and no keys at all. */
@@ -103,14 +108,52 @@ function runHook(
   session: string,
   cwd: string,
   extra: readonly string[] = [],
+  transcript?: string,
 ): { code: number; stdout: string; stderr: string } {
   const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT, "--config", configPath, ...extra], {
-    input: hookPayload(event, session, cwd),
+    input: hookPayload(event, session, cwd, transcript),
     encoding: "utf8",
     env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: home, USERPROFILE: home },
     timeout: 60_000,
   });
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/**
+ * HOW MANY TIMES A STRING APPEARS ANYWHERE UNDER THE STORE — the only honest
+ * form of "this conversation was not recorded": not a reason code, the bytes.
+ */
+function grepStore(needle: string): number {
+  let hits = 0;
+  const walk = (d: string): void => {
+    if (!existsSync(d)) return;
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, entry.name);
+      if (entry.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      try {
+        hits += readFileSync(p).toString("latin1").split(needle).length - 1;
+      } catch {
+        /* a file this cannot read holds nothing this can find */
+      }
+    }
+  };
+  walk(store);
+  return hits;
+}
+
+/** The durable boundary rows, newest last. */
+function boundaryRows(): Record<string, unknown>[] {
+  const s = Store.open({ dir: store });
+  try {
+    return s
+      .eventLog({ name: BOUNDARY_EVENT, limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+  } finally {
+    s.close();
+  }
 }
 
 interface Console_ {
@@ -314,6 +357,68 @@ describe("a directory set OFF: no output, no write", () => {
     expect(after.code).toBe(0);
     expect(after.stdout).toContain("has not lived a boundary");
     expect(existsSync(join(store, "sessions", "paused-2.json"))).toBe(true);
+  });
+
+  test("RESUMING does not RETROACTIVELY capture the stretch that was paused (F1)", async () => {
+    // The #92 review's third probe, as real processes. A whole conversation
+    // happens while the directory is paused — no session record, no cursor,
+    // nothing — and then it is resumed MID-SESSION. Before this guard the next
+    // Stop sliced the transcript from cursor 0 and deposited the entire paused
+    // conversation: six marker hits in `spans/<scope>/buffer.jsonl`.
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    const transcript = join(work, "transcript.jsonl");
+    const line = (role: "user" | "assistant", text: string): string =>
+      JSON.stringify({ type: role, message: { role, content: text } });
+    const paused = Array.from({ length: 6 }, (_, i) =>
+      line(
+        i % 2 === 0 ? "user" : "assistant",
+        `XYZZY-SECRET turn ${String(i + 1)}: the client contract number is 44${String(i)} and the deal closes on Friday, which nobody outside this room is supposed to know about.`,
+      ),
+    );
+    writeFileSync(transcript, `${paused.join("\n")}\n`, "utf8");
+    put({ [project]: { mode: "paused", resumeTo: "on", since: "2026-09-10T00:00:00.000Z" } });
+
+    // The paused stretch: silent, and not a byte on disk.
+    for (const event of ["SessionStart", "Stop", "Stop"]) {
+      expect(runHook(event, "one-session", project, [], transcript).stdout).toBe("");
+    }
+    expect(existsSync(store)).toBe(false);
+
+    // The flip, mid-session — the same act the `scope` tool performs.
+    expect((await cli(["scope", project, "--resume"])).code).toBe(EXIT.ok);
+    // PreCompact rather than Stop for the two boundaries below, and the reason
+    // is the test harness rather than the rule: a Stop spawns the detached
+    // worker, whose store handle is still open when the next hook process
+    // starts, and that hook then stands down on `database is locked` — a real
+    // race, unrelated to this guard, that would make this test flaky. Every
+    // session-ending path runs the SAME `claim()`, which is what is under test.
+    const first = runHook("PreCompact", "one-session", project, [], transcript);
+    expect(first.code).toBe(0);
+
+    // NOTHING from the paused stretch reached the store...
+    expect(grepStore("XYZZY-SECRET")).toBe(0);
+    // ...the session is nevertheless known, so the tools can bind to it...
+    expect(existsSync(join(store, "sessions", "one-session.json"))).toBe(true);
+    // ...and the boundary said so, durably, on its own row.
+    expect(boundaryRows().at(-1)?.["joinedLate"]).toBe(true);
+
+    // And the NEXT turns — the ones lived after the resume — are captured
+    // normally: the seal moved the cursor, it did not stop the memory.
+    writeFileSync(
+      transcript,
+      `${[
+        ...paused,
+        line("user", "Now that we are recording again: the storage split keeps canonical prose on disk."),
+        line("assistant", "Recorded — and the cache stays out of the backup set, which is the point."),
+      ].join("\n")}\n`,
+      "utf8",
+    );
+    const second = runHook("PreCompact", "one-session", project, [], transcript);
+    expect(second.code).toBe(0);
+    expect(grepStore("XYZZY-SECRET")).toBe(0);
+    expect(grepStore("the storage split keeps canonical prose")).toBeGreaterThan(0);
+    expect(boundaryRows().at(-1)?.["joinedLate"]).toBe(false);
   });
 
   test("a directory NOT under the entry is untouched by it", () => {

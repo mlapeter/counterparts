@@ -94,6 +94,18 @@ export const SCOPE_UNREADABLE_EVENT = "adapter.scope.unreadable";
 /** The ring event naming the verdict this process ran under. */
 export const SCOPE_EVENT = "adapter.scope";
 
+/**
+ * THE RING EVENT A BOUNDARY LEAVES WHEN IT JOINED THE MEMORY LATE — a session
+ * whose SessionStart ran OUTSIDE it (the directory was `off` or `paused` then,
+ * and has been turned back on since), so there is no session record and no span
+ * cursor, and the transcript it can see covers a stretch this memory was told
+ * not to have. That boundary seals the stretch — cursor forward, nothing
+ * deposited — and this is the record that it did. The DURABLE half rides the
+ * boundary row's own `joinedLate` field, for the reason `adapter.scope.unreadable`
+ * is ring-only: a new durable event NAME is a core change (`AdapterDurableEventName`).
+ */
+export const SCOPE_JOINED_LATE_EVENT = "adapter.scope.joined-late";
+
 /** Every mode a directory can be put in. */
 export const SCOPE_MODES = ["on", "observer", "off", "paused"] as const;
 export type ScopeMode = (typeof SCOPE_MODES)[number];

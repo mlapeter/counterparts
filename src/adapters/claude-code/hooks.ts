@@ -49,10 +49,19 @@ import {
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import type { AdapterDurableEventName } from "../../core/counterpart.js";
-import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
+import type {
+  BoundaryKind,
+  CaptureResult,
+  Turn as CapturedTurn,
+} from "../../core/remember/index.js";
 
 import { CONFIG_FILE_EVENT } from "../config-path.js";
-import { SCOPE_EVENT, SCOPE_UNREADABLE_EVENT, stanceOfMode } from "../scopes.js";
+import {
+  SCOPE_EVENT,
+  SCOPE_JOINED_LATE_EVENT,
+  SCOPE_UNREADABLE_EVENT,
+  stanceOfMode,
+} from "../scopes.js";
 import type { ScopeVerdict } from "../scopes.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase } from "../sessions.js";
@@ -750,13 +759,30 @@ export class ClaudeCodeAdapter {
    */
   private claim(hook: SessionEndingHook, input: HookInput, out: HookResult): HookResult {
     const turns = input.turns ?? [];
+    // THE STRETCH THIS MEMORY WAS TOLD NOT TO HAVE, sealed before anything is
+    // captured. After a `sealed` the ordinary capture below reads NOTHING_NEW;
+    // after a `failed` it does not run at all, because a cursor that would not
+    // move is a boundary with no way to tell what is new from what was lived
+    // outside this memory — and an append lands before a cursor write does.
+    const seal = this.sealJoinedLate(hook, input, turns);
     // G10/G11 computed side by side: capture takes EVERYTHING conversational
     // including host-injected context; pacing counts only what the user said.
-    const captured = this.counterpart.captureSpans({
-      session: input.sessionId,
-      scope: input.scope,
-      turns,
-    });
+    const captured: CaptureResult =
+      seal === "failed"
+        ? {
+            captured: false,
+            reason: "IO_FAILED",
+            spans: [],
+            deduped: 0,
+            excluded: turns.length,
+            cursorBefore: 0,
+            cursorAfter: 0,
+          }
+        : this.counterpart.captureSpans({
+            session: input.sessionId,
+            scope: input.scope,
+            turns,
+          });
     const record = this.counterpart.boundary({
       session: input.sessionId,
       scope: input.scope,
@@ -776,8 +802,99 @@ export class ClaudeCodeAdapter {
       cursorBefore: captured.cursorBefore,
       cursorAfter: captured.cursorAfter,
       ask: record.askRaised,
+      // The DURABLE half of `adapter.scope.joined-late`: the boundary row is
+      // the one durable name a boundary already has, and this is a fact about
+      // THIS boundary. A row that says `joinedLate: true, captured: false` is
+      // the whole evidence that a stretch was sealed rather than lost.
+      joinedLate: seal !== "none",
     });
     return { ...out, ok: true, reason: captured.reason, spansAppended: captured.spans.length };
+  }
+
+  /**
+   * THE RETROACTIVE-CAPTURE GUARD (PR #92 review, F1) — the one place a
+   * directory that was `off` can still lose its silence.
+   *
+   * A session that lived under `off` or `paused` wrote NOTHING: no session
+   * record, because the hook process returned before a store was opened, and no
+   * span cursor for the same reason. Turn the directory back on mid-session —
+   * `counterparts scope . --resume`, or the `scope` tool, which is deliberately
+   * the one tool that answers in an off directory — and the next boundary sees
+   * a cursor of 0 against a transcript holding the WHOLE off conversation. It
+   * would deposit all of it. Measured on this branch before this guard: six
+   * marker hits in the buffer after the flip.
+   *
+   * So a boundary that finds NO SESSION RECORD and a cursor still at 0 treats
+   * the stretch as somebody else's: it advances the cursor to the end of what
+   * it can see, deposits nothing, and records that it did. What follows the
+   * flip is captured normally, because the cursor now starts there.
+   *
+   * **How the cursor moves without a deposit.** `SpanBuffer.capture` advances
+   * to `turns.length` when nothing in the slice is capture-eligible
+   * (`remember/spans.ts`, the ALL_EXCLUDED arm: "still advance, or the same
+   * tool output is re-scanned forever"). So the seal hands it `turns.length`
+   * PLACEHOLDERS whose source is `tool` — `enters()` refuses them — and the
+   * real turns are never passed to the core at all. That is the only
+   * adapter-reachable way to set a cursor today; a `SpanBuffer.sealCursor` in
+   * core would be the honest one, and is named in the PR as a core ask.
+   *
+   * Three conditions, each load-bearing:
+   *   - **not an observer**: an observer captures nothing and writes no session
+   *     record anyway, and a cursor it cannot write would make the seal a lie.
+   *     An `off → observer → on` session is therefore still sealed at the first
+   *     boundary after it reaches `on` — the observer stretch left no record.
+   *   - **no session record**: the positive evidence that SessionStart ran
+   *     inside this memory. It is what a live session has and an off one does not.
+   *   - **cursor still 0**: a record PRUNED out from under a long-lived session
+   *     (seven days, `sessions.ts`) leaves a cursor behind; that session has
+   *     been captured all along and must not lose the turns since its last
+   *     boundary.
+   */
+  private sealJoinedLate(
+    hook: SessionEndingHook,
+    input: HookInput,
+    turns: readonly HostTurn[],
+  ): "none" | "sealed" | "failed" {
+    if (this.observer) return "none";
+    if (input.sessionId.length === 0) return "none";
+    try {
+      if (readSession(this.counterpart.store.dir, input.sessionId) !== null) return "none";
+      if (this.counterpart.spans.cursor(input.scope, input.sessionId) !== 0) return "none";
+    } catch {
+      // A registry or a cursor this cannot read is not a reason to fail a hook
+      // (§5 G2). The quiet answer here is the ordinary path.
+      return "none";
+    }
+    const placeholders: CapturedTurn[] = turns.map(() => ({
+      role: "user",
+      text: "",
+      source: "tool",
+    }));
+    const sealed = this.counterpart.captureSpans({
+      session: input.sessionId,
+      scope: input.scope,
+      turns: placeholders,
+    });
+    const moved = sealed.cursorAfter === turns.length;
+    this.emit(SCOPE_JOINED_LATE_EVENT, {
+      hook,
+      mode: this.scope.mode,
+      turns: turns.length,
+      cursor: sealed.cursorAfter,
+      sealed: moved,
+      reason: sealed.reason,
+    });
+    // THE ORDER IS THE SAFETY. The cursor moves first and the session record is
+    // written only if it did: a record written beside a cursor that stayed at 0
+    // would make the NEXT boundary read this session as an ordinary one and
+    // deposit the whole off stretch after all. A seal that could not move the
+    // cursor leaves no record either, so the next boundary tries again.
+    if (!moved) return "failed";
+    // The session becomes bindable HERE, at the first boundary inside the
+    // memory — `pre-compact` never calls `noteSession`, and a session with no
+    // record is a session the MCP tools refuse.
+    this.noteSession("boundary", input);
+    return "sealed";
   }
 
   /**

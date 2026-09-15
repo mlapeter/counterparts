@@ -261,6 +261,18 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     prints it. An `off` is not an instrument standing down; it is the owner saying
     this directory is not part of the memory.
 
+    **The guarantee is the HOOKS', and only the hooks'.** The MCP server still opens
+    a store when the host launches it in an `off` directory (`mcp/bin/serve.ts`): it
+    refuses every tool but `scope` with `scope-off`, per call, before any session bind
+    — but the file handle exists and the store is created if it was absent. A server
+    that refused to launch is reported by this host as "MCP server failed", and the
+    `scope` tool is the door that turns the directory back on, so it has to answer.
+    "No store is opened" is therefore true of a hook process and not of a server
+    process; the owner's ruling on whether that gap should close is open (#92 review).
+
+    A REGISTRY THAT COULD NOT BE READ is a different exception, and not a silent one
+    (G23).
+
 20. **[M] Effective stance is the MOST RESTRICTIVE of the configuration's and the
     registry's, and the registry only ever adds restriction.** `on < observer < off`
     (`scopes.ts#effectiveStance`). A registry entry of `observer` folds into the
@@ -281,6 +293,24 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     across a resume or a compaction. The WORDING is advisory; that an unset directory
     raises the question exactly once and that any recorded mode ends it are the
     mechanized parts.
+
+22. **[M] TURNING A DIRECTORY BACK ON NEVER REACHES BACK.** A session that lived
+    under `off` or `paused` left no session record and no span cursor, because the
+    hook process returned before anything was constructed (G19). Flip the registry
+    to `on` mid-session — `counterparts scope . --resume`, or the `scope` tool, which
+    is deliberately the one tool that answers in an off directory — and the next
+    boundary would otherwise slice the transcript from cursor 0 and deposit the whole
+    off conversation. It does not: a boundary that finds NO session record and a
+    cursor still at 0 (`hooks.ts#sealJoinedLate`) moves the cursor to the end of what
+    it can see, captures nothing at all, writes the session record so the tools can
+    bind, and leaves `adapter.scope.joined-late` in the ring with `joinedLate: true`
+    on its durable boundary row. What is said after the switch is captured normally.
+
+    The cost is stated rather than hidden: a session whose SessionStart never ran
+    inside this memory — hooks installed mid-session, a store moved or restored
+    without its `sessions/` directory, a SessionStart that failed — loses the
+    conversation so far at its first boundary. The privacy direction is the one the
+    owner asked for; the completeness direction is the one it costs.
 
 ## 6. Scars honored
 

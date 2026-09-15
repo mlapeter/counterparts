@@ -29,7 +29,7 @@ import {
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { EMBED_SKIP_AFTER, indexTextOf } from "../src/core/store/index.js";
-import { canonicalScope, isLive, readSession } from "../src/adapters/sessions.js";
+import { canonicalScope, isLive, readSession, recordSession } from "../src/adapters/sessions.js";
 import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
 import { BOOTSTRAP, BRIEFING_KEY } from "../src/core/self/index.js";
@@ -230,6 +230,19 @@ function input(over: Partial<HookInput> = {}): HookInput {
   return { sessionId: "s1", scope: "proj", turns: TURNS, at: "2026-01-02", ...over };
 }
 
+/**
+ * THE SESSION RECORD `SessionStart` WRITES, without the wake around it.
+ *
+ * Since the retroactive-capture guard (#92 review, F1) a boundary whose session
+ * has NO record and a cursor still at 0 SEALS the stretch instead of capturing
+ * it — that is what a session which lived under `off` looks like from the
+ * boundary's side. An ordinary session has a record from its SessionStart, so a
+ * test about ordinary capture has to look like one.
+ */
+function live(a: ClaudeCodeAdapter, sessionId = "s1", scope = "proj"): void {
+  recordSession(a.counterpart.store.dir, { sessionId, scope, phase: "start" });
+}
+
 /** A fake SSE body: the exact frames the real endpoint emits, and nothing else. */
 function sse(frames: readonly string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -353,6 +366,7 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
   test("EVERY session-ending path claims spans — compaction must not destroy the day (§2 G5)", () => {
     for (const hook of SESSION_ENDING) {
       const { a } = adapter();
+      live(a, `s-${hook}`);
       // Distinct text per path: content-hash dedup is layer 2 and would
       // otherwise make the second path look like a path that did not capture.
       const result = a.hook(
@@ -612,6 +626,7 @@ describe("the boundary is an APPENDER — it never throws into the host (§2 G1/
 
   test("a COMPACTION re-read does not re-encode: the cursor advanced after the append (G8)", () => {
     const { a } = adapter();
+    live(a);
     const first = a.preCompact(input());
     expect(first.spansAppended).toBeGreaterThan(0);
     const after = a.counterpart.spans.spans("proj").length;
@@ -641,6 +656,7 @@ describe("the boundary is an APPENDER — it never throws into the host (§2 G1/
     });
 
     const { a } = adapter();
+    live(a);
     a.stop(input({ turns }));
     const captured = a.counterpart.spans.spans("proj").map((s) => s.text).join("\n");
     expect(captured).toContain("in their own words");
@@ -669,6 +685,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     // anyway (an authorship pacer beside the chapter pacer) and drew about a
     // dozen asks in a 13-turn evening, 2026-09-04.
     const { a } = adapter();
+    live(a);
     const first = a.stop(input({ turns: BIG_TURNS }));
     expect(first.ask).toBe(stopAsk("s1", 1));
     expect(first.ask).toContain("session_end");
@@ -706,6 +723,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
 
   test("stop raises the ask while the experiencer still has the pen, and MEASURES the tail", () => {
     const { a } = adapter();
+    live(a);
     const first = a.stop(input({ turns: BIG_TURNS }));
     expect(first.ask).toBe(stopAsk("s1", 1));
     const measured = a.events("adapter.ask")[0]?.data;
@@ -1071,6 +1089,7 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
       { role: "assistant", text: `Noted, in the ${tag} session: the cache is rebuildable, so nothing backs it up.` },
     ];
     for (const hook of SESSION_ENDING) {
+      live(a, `s-${hook}`);
       const result = a.hook(hook as HookName, input({ sessionId: `s-${hook}`, turns: turnsFor(hook) }));
       expect({ hook, ok: result.ok, appended: result.spansAppended > 0 }).toEqual({ hook, ok: true, appended: true });
     }
@@ -1126,6 +1145,7 @@ describe("the runner — sweep then sleep, with the interpreter faked", () => {
 
   test("a run sweeps the captured spans, mints, and publishes a briefing the next wake reads", async () => {
     const { a } = adapter();
+    live(a);
     a.stop(input());
     a.counterpart.close();
     open.length = 0;
@@ -1518,6 +1538,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
   test("stop under a stand-down still CAPTURES and still spawns — the shadow is encode-only (G5)", () => {
     assign({ override: "bansai" });
     const { a, calls } = adapter(PARALLEL);
+    live(a);
     const result = a.stop(input());
     // The boundary happened: spans are in the buffer, the worker was planned.
     // (Two spans: the user's turns joined into one, the assistant's kept apart.)
@@ -1728,6 +1749,7 @@ describe("the transcript reader excludes FOREIGN injection (parallel-run G8)", (
     ]);
     // Same rule, one place: `remember/`'s `enters()` is what drops it.
     const { a } = adapter();
+    live(a);
     const result = a.stop(input({ turns: read.turns }));
     expect(result.spansAppended).toBe(1);
     expect(a.counterpart.spans.spans("proj").map((s) => s.text)).toEqual([
@@ -1823,6 +1845,7 @@ describe("the transcript reader attributes PEER messages and refuses its own RIT
   test("the peer's words reach the span; the ritual text does not, and its exclusion is COUNTED", () => {
     const read = parseTranscript(FIXTURE);
     const { a } = adapter();
+    live(a);
     const result = a.stop(input({ turns: read.turns }));
     expect(result.ok).toBe(true);
 
@@ -2480,6 +2503,7 @@ describe("novelty stops being null — the authored door measures prediction err
 
   test("the DETACHED WORKER embeds too — the root that mints is the root that must", async () => {
     const { a } = adapter();
+    live(a);
     a.stop(input());
     a.counterpart.close();
     open.length = 0;
@@ -3098,13 +3122,28 @@ describe("the hooks record the live session for the tools to bind against", () =
 
   test("a registry that cannot be written never costs the boundary (§5 G2)", () => {
     const { a } = adapter();
-    // The registry path is a FILE: every write below fails at the filesystem.
+    // A session that IS inside the memory first — a record and a cursor — so
+    // that what this test breaks is the registry and nothing else. (Since the
+    // retroactive-capture guard, a boundary whose session has neither of those
+    // seals the stretch rather than capturing it, which is a different rule
+    // with its own tests.)
+    a.sessionStart(input());
+    a.stop(input());
+    rmSync(join(dir, "sessions"), { recursive: true, force: true });
+    // The registry path is now a FILE: every write below fails at the filesystem.
     writeFileSync(join(dir, "sessions"), "not a directory", "utf8");
     try {
-      const stopped = a.stop(input());
+      const stopped = a.stop(
+        input({
+          turns: [
+            ...TURNS,
+            { role: "user", text: "One more decision after the registry broke, and it still has to land." },
+          ],
+        }),
+      );
       expect(stopped.ok).toBe(true);
       expect(stopped.spansAppended).toBeGreaterThan(0);
-      expect(a.events("adapter.session.registry")[0]?.data).toEqual({
+      expect(a.events("adapter.session.registry").at(-1)?.data).toEqual({
         phase: "boundary",
         ok: false,
       });

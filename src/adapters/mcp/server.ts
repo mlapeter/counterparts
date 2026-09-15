@@ -480,7 +480,14 @@ export class McpServer {
         detail:
           target === "off" || target === "paused"
             ? "This directory is no longer recorded or read. The hooks will produce nothing here and every other tool will refuse until it is turned back on — including in a new session, which is the point."
-            : "Recorded. This takes effect for the tools immediately, and for the hooks at the next session.",
+            : // WHAT TURNING IT BACK ON ACTUALLY DOES, said exactly (#92 review,
+              // F1). It is not "the next session": the hooks act at their next
+              // boundary in THIS one. What they do not do is reach back — a
+              // session that started outside the memory has its first boundary
+              // move the read cursor past everything already said, recording
+              // none of it, so the stretch that ran while this directory was
+              // off or paused stays out of the memory for good.
+              "Recorded. This takes effect for the tools immediately, and for the hooks at their next boundary in this session. Nothing said before now is recorded — the conversation that happened while this directory was off or paused is passed over, not collected — and remembering starts from here.",
       },
       false,
     );

@@ -36,6 +36,7 @@ import { RENDERED_PREFIX } from "../src/core/self/index.js";
 import { ClaudeCodeAdapter, openAdapter, parseTranscript } from "../src/adapters/claude-code/index.js";
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { recordSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/claude-code/spawn.js";
 import { writeFileSync } from "node:fs";
 
@@ -104,7 +105,15 @@ const TURNS = [
 ];
 
 function input(over: Partial<HookInput> = {}): HookInput {
-  return { sessionId: "s1", scope: "proj", turns: TURNS, at: "2026-01-01", ...over };
+  const hook: HookInput = { sessionId: "s1", scope: "proj", turns: TURNS, at: "2026-01-01", ...over };
+  // EVERY session in this file is one that started INSIDE the memory, so it has
+  // the record `SessionStart` writes. Since the retroactive-capture guard (#92
+  // review, F1) a boundary whose session has no record and a cursor still at 0
+  // seals the stretch instead of capturing it — that is what a session which
+  // lived under `off` looks like from the boundary's side, and it is not what
+  // any arc here is about.
+  recordSession(dir, { sessionId: hook.sessionId, scope: hook.scope, phase: "start" });
+  return hook;
 }
 
 async function mint(a: ClaudeCodeAdapter, session = "s0"): Promise<string> {
@@ -324,6 +333,9 @@ describe("the lifecycle, through the adapter", () => {
     });
     expect(input.turns?.length).toBe(4);
     expect(input.expansions).toEqual([{ atTurn: 3, ids: [id] }]);
+    // This payload comes from the HOST rather than from the helper above, so
+    // the record its SessionStart would have written is made here.
+    recordSession(dir, { sessionId: input.sessionId, scope: input.scope, phase: "start" });
     a.stop({ ...input, at: "2026-01-02" });
     const row = creditRows(c).at(-1);
     expect(row?.reason).toBe("credited");
