@@ -232,6 +232,43 @@ describe("the scope registry", () => {
     expect(lookupScope(reg, join(work, "project-two")).mode).toBe("unset");
   });
 
+  test("two keys for ONE directory resolve to the MORE RESTRICTIVE of them (F4)", () => {
+    // A hand-edited file can hold `/tmp/x` beside `/private/tmp/x`, or `…/proj`
+    // beside `…/proj/.` — one directory, two keys. `setScope` replaces every
+    // such key when IT writes, so this is somebody's own editing; deciding it by
+    // whichever key came first in the JSON meant an `off` could resolve to `on`.
+    const proj = join(work, "proj");
+    mkdirSync(proj, { recursive: true });
+    for (const order of [
+      { [proj]: { mode: "off", since: "t" }, [`${proj}/.`]: { mode: "on", since: "t" } },
+      { [`${proj}/.`]: { mode: "on", since: "t" }, [proj]: { mode: "off", since: "t" } },
+    ]) {
+      const reg = parseRegistry({ version: 1, scopes: order }).registry;
+      expect(`${JSON.stringify(Object.keys(order))} → ${lookupScope(reg, proj).mode}`).toBe(
+        `${JSON.stringify(Object.keys(order))} → off`,
+      );
+      // And the subdirectories that inherit it inherit the same answer.
+      expect(lookupScope(reg, join(proj, "sub")).mode).toBe("off");
+    }
+    // Every pair, so the rule is the ORDER and not one lucky case.
+    const ranked: [string, string, string][] = [
+      ["on", "observer", "observer"],
+      ["on", "off", "off"],
+      ["observer", "paused", "paused"],
+      ["on", "paused", "paused"],
+      ["observer", "off", "off"],
+    ];
+    for (const [a, b, expected] of ranked) {
+      for (const pair of [
+        { [proj]: { mode: a, since: "t" }, [`${proj}/.`]: { mode: b, since: "t" } },
+        { [proj]: { mode: b, since: "t" }, [`${proj}/.`]: { mode: a, since: "t" } },
+      ]) {
+        const reg = parseRegistry({ version: 1, scopes: pair }).registry;
+        expect(`${a}+${b} → ${lookupScope(reg, proj).mode}`).toBe(`${a}+${b} → ${expected}`);
+      }
+    }
+  });
+
   test("a directory that does not exist yet still inherits its ancestor", () => {
     // `canonicalScope` realpaths only what exists, so a naive comparison here
     // governs the parent and not the child — the one answer a prefix rule may

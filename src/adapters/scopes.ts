@@ -391,6 +391,13 @@ export function describeScopeTrouble(read: ScopeRead, path: string): string | nu
   );
 }
 
+/** How restrictive a mode is, on the same order the combination rule uses.
+ *  `paused` and `off` are one rank: they differ in what `--resume` restores,
+ *  not in what a session may do. */
+function restrictionOf(mode: ScopeMode): number {
+  return STANCE_ORDER.indexOf(stanceOfMode(mode));
+}
+
 /** Is `dir` at or under `key`? Segment-aware: `/a/b` never matches `/a/bc`. */
 function under(key: string, dir: string): boolean {
   if (key === dir) return true;
@@ -413,7 +420,20 @@ export function lookupScope(registry: ScopeRegistry | null, dir: string): ScopeV
   for (const [key, entry] of Object.entries(registry.scopes)) {
     const canonical = canonicalScopePath(key);
     if (!under(canonical, target)) continue;
-    if (best === null || canonical.length > best.canonical.length) best = { key, canonical, entry };
+    if (best === null || canonical.length > best.canonical.length) {
+      best = { key, canonical, entry };
+      continue;
+    }
+    // THE TIE, AND WHY IT IS RESOLVED TOWARDS RESTRICTION (#92 review, F4).
+    // Equal length here means the same canonical string — both are prefixes of
+    // one target — so a tie is two KEYS for one directory, e.g. a hand-edited
+    // `/tmp/x` beside a written `/private/tmp/x`, or `…/proj` beside `…/proj/.`.
+    // `setScope` replaces every such key, so this only happens on a file a
+    // person edited; deciding it by iteration order meant an `off` and an `on`
+    // for one directory resolved by whichever JSON key happened to come first.
+    // The safe half of an ambiguity is the more restrictive one.
+    if (canonical !== best.canonical) continue;
+    if (restrictionOf(entry.mode) > restrictionOf(best.entry.mode)) best = { key, canonical, entry };
   }
   if (best === null) return { mode: "unset", matched: null, entry: null };
   return { mode: best.entry.mode, matched: best.key, entry: best.entry };
