@@ -474,3 +474,45 @@ window, was read off the 4,000th-OLDEST row and graded on it. A store that swept
 window is now UNKNOWN: a neutral finding that names what was not read and claims
 nothing about the store, because a confident wrong answer is the one thing a
 diagnostic may not produce.
+
+## What an adversarial read of the scope registry found (2026-09-15, PR #92 review)
+
+Five findings, and four of them are one mistake wearing different clothes: the
+fail direction of every unknown in this feature is `unset`, and `unset` is **on**.
+Anything the registry cannot answer therefore resolves toward recording, which is
+the direction that cannot be taken back.
+
+**The retroactive capture (F1).** A session under `off` writes nothing at all —
+that is G19, and it is the point. But "nothing" includes the span cursor, so when
+the directory came back on mid-session the next boundary sliced the transcript
+from 0 and deposited the entire off conversation. Measured: six marker hits. The
+seal (`hooks.ts#sealJoinedLate`) moves the cursor without depositing, and the
+only adapter-reachable way to do that today is `captureSpans` with placeholder
+turns whose source `enters()` refuses — the ALL_EXCLUDED arm advances the cursor
+and appends nothing. **The core ask this leaves open:** a `SpanBuffer.sealCursor
+(scope, session, turns)` would say what this means instead of arranging for it.
+The order — cursor first, session record only if it moved — is what stops a
+half-done seal from making the NEXT boundary treat the session as ordinary.
+
+**Two silences that are not the same silence (F2).** `off` is silent because the
+owner said leave this alone. A registry that could not be READ has said nothing,
+and its `unset` fail direction turns every `off` in it back on. Whole-file-fail
+made that worse rather than better: one typo'd mode turned every correctly typed
+`off` beside it on, to protect the bad one — which the hook could not honour
+anyway. Per-entry now, refused by name, with one stderr line at SessionStart
+(after the `off` return, so an off directory stays byte-silent) and
+`scopeRegistry` on the wake's durable row. Both writers refuse to drop an entry
+they could not read, because every write rewrites the whole file.
+
+**Two writers, no compare-and-swap (F3), and a tie-break that could resolve
+toward `on` (F4).** The console and the MCP tool both read-modify-rename; the
+second rename deleted the first's entry. `writeScopes` now re-reads the bytes
+immediately before the rename and re-applies the caller's change once against
+what is actually there. A call WITHOUT that argument is still a plain overwrite —
+it is what `--force` needs — so a new caller that read the file first owes it.
+The duplicate-key tie (one directory, two spellings, only possible by hand) now
+goes to the more restrictive mode.
+
+**And one that is only about trust (F5):** `--note ""` cleared on the console and
+carried on the tool. Two doors to one setting have to mean the same thing by the
+same words, or the setting is not one thing.

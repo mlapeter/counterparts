@@ -576,7 +576,9 @@ export function writeScopes(
    * `basedOn` is the read this registry was computed from; `reapply` says how to
    * compute it again against whatever is there now. Omit them and this is the
    * plain overwrite it always was — which is right for `--force`, whose whole
-   * job is to replace a file nobody could read.
+   * job is to replace a file nobody could read, and wrong for everything else:
+   * a caller that READ this file before computing `registry` owes the CAS, or it
+   * is the lost update again under a new name.
    */
   cas?: {
     readonly basedOn: ScopeRead;
