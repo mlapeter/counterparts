@@ -101,13 +101,17 @@ export interface HandleResolution {
    * The id `expandHandle` actually reached — or NULL, which is a SHADOW: this
    * handle was asked and answered with nothing, and the newest answer wins.
    *
-   * The shadow is not bookkeeping, it is the confidentiality boundary. The log
-   * is keyed by handle, not by session, because the resolution is deterministic
-   * — but a refusal is not: the owner's own session resolves a confidential
-   * title and a stranger's session is told nothing, and without a shadow the
-   * stranger's boundary would translate the same handle through the owner's
-   * entry and credit a memory it was never shown. Same shape for a title that
-   * has since gone ambiguous, or been renamed away.
+   * The shadow is not bookkeeping. The log is keyed by handle, not by session,
+   * because the resolution is deterministic — but a refusal is not: the owner's
+   * own session resolves a confidential title and a stranger's session is told
+   * nothing, and without a shadow the stranger's boundary would translate the
+   * same handle through the owner's entry and credit a memory it was never
+   * shown. Same shape for a title that has since gone ambiguous, or been renamed
+   * away.
+   *
+   * It is NOT the confidentiality boundary, though the first draft said so: a
+   * shadow only exists where an answer was given, and three askings get none.
+   * `readHandleResolutions`'s scope filter is what covers those.
    */
   readonly id: string | null;
   readonly at: number;
@@ -172,7 +176,7 @@ export function recordHandleResolution(
     } catch {
       /* no file yet */
     }
-    if (size + line.length > EXPANSIONS_MAX_BYTES) compact(path, record.at);
+    if (size + line.length > EXPANSIONS_MAX_BYTES) compactExpansions(path, record.at);
     appendFileSync(path, line, { encoding: "utf8", mode: 0o600 });
   } catch {
     return false;
@@ -307,25 +311,51 @@ export function countTranslated(
 /**
  * Rewrite the file with the newest live resolutions and nothing else.
  *
- * Racing an append can lose the line that append was writing. That is accepted:
- * the loss is one handle's translation, the cost is under-credit, and the
+ * **The window is narrowed to re-read → rename, and that is not the same as
+ * closed.** The first draft read the whole file, wrote the temp copy, and
+ * renamed — so a line another process appended anywhere in between was gone,
+ * and the compacted file kept the OLDER answer for that handle. For a SHADOW
+ * that is not under-credit, it is the leak this module exists to prevent: the
+ * refusal disappears and the resolution it was overriding stands again. So the
+ * byte length read at the top is kept, the file is re-read from that offset
+ * immediately before the rename, and whatever arrived is appended to the temp
+ * file (in arrival order, after the sorted block — `readHandleResolutions` takes
+ * the last line for a key, so a late shadow still wins).
+ *
+ * A line appended after THAT read and before the rename is still lost. The
+ * window is now two syscalls wide instead of a whole file write, and the
  * alternative — a lock file two long-lived processes share — is a new failure
  * mode in the hot path of a tool that may not fail.
  *
- * Dropping an old entry is likewise safe in the one direction that matters: the
- * map is keyed by handle, so a shadow and the resolution it overrides ARE one
- * entry. Compaction can drop them together; it can never drop the shadow and
- * leave the resolution standing.
+ * Dropping an old entry is safe in the one direction that matters: the map is
+ * keyed by handle, so a shadow and the resolution it overrides ARE one entry.
+ * Compaction can drop them together; it can never drop the shadow and leave the
+ * resolution standing.
+ *
+ * Exported for `test/sessions.test.ts`, which is the only way to stage the race
+ * deterministically — see `duringWindow`.
  */
-function compact(path: string, now: number): void {
-  let raw: string;
+export function compactExpansions(
+  path: string,
+  now: number,
+  /**
+   * TEST SEAM, in the same spirit as the `now` injections this repo already
+   * uses: called once the temp file is written and before the tail is re-read,
+   * so a test can be the other process instead of hoping to be scheduled like
+   * one. Nothing in `src/` passes it.
+   */
+  duringWindow?: () => void,
+): void {
+  let buf: Buffer;
   try {
-    raw = readFileSync(path, "utf8");
+    buf = readFileSync(path);
   } catch {
     return;
   }
+  // BYTES, not characters: the tail is spliced back by offset below.
+  const offset = buf.length;
   const live = new Map<string, HandleResolution>();
-  for (const record of parseLines(raw)) {
+  for (const record of parseLines(buf.toString("utf8"))) {
     if (now - record.at > EXPANSION_TTL_MS) continue;
     live.set(record.key, record);
   }
@@ -336,6 +366,12 @@ function compact(path: string, now: number): void {
       encoding: "utf8",
       mode: 0o600,
     });
+    duringWindow?.();
+    // Anything appended since the read at the top. A file that SHRANK was
+    // replaced by another compaction; splicing its bytes at our offset would
+    // produce nonsense, so nothing is carried over.
+    const after = readFileSync(path);
+    if (after.length > offset) appendFileSync(tmp, after.subarray(offset), { mode: 0o600 });
     renameSync(tmp, path);
   } catch {
     /* the log stays as it was, one compaction late */

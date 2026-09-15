@@ -572,6 +572,11 @@ one directory still share the table inside the overlap. Both are recorded in
 
 Two limits, recorded rather than hidden. The log is read only when the slice
 carries an expansion at all, so an ordinary Stop still opens no extra file. And
-compaction racing an append can lose a line — which costs one handle's credit,
-the under-credit direction, and is why the alternative (a lock two long-lived
-processes share, in the hot path of a tool that may not fail) was not built.
+compaction racing an append can still lose a line, though the window is now two
+syscalls wide rather than a whole file write: `compactExpansions` keeps the byte
+length it read and splices whatever arrived back onto the temp file immediately
+before the rename. That matters more than it first looked — a lost line is only
+"under-credit" when it is a RESOLUTION. A lost SHADOW puts the resolution it was
+overriding back, which is the leak, not a cost. Closing the window entirely
+would take a lock two long-lived processes share, in the hot path of a tool that
+may not fail, which is why it is narrowed rather than closed.

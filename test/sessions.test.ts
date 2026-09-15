@@ -19,6 +19,7 @@ import {
   EXPANSIONS_FILE,
   EXPANSIONS_MAX_BYTES,
   EXPANSION_TTL_MS,
+  compactExpansions,
   countTranslated,
   expansionsPath,
   handleKey,
@@ -290,12 +291,67 @@ describe("the handle-resolution log", () => {
     expect(translateExpansions(["the clinic note"], live)).toEqual(["the clinic note"]);
     expect(countTranslated(["the clinic note"], live)).toBe(0);
     // A compaction can drop an old key, but never the SHADOW alone: the shadow
-    // and the resolution it overrides share one key, so they leave together and
-    // the old id can never come back.
+    // and the resolution it overrides share one key, so they leave TOGETHER.
+    // Asserted as `has`, not as `get(...) ?? null` — that spelling cannot tell
+    // "the shadow survived" from "the key was dropped", which is the one
+    // distinction this test exists to make.
     for (let i = 0; i < 2000; i++) {
       recordHandleResolution(dir, { handle: `filler ${String(i)}`, id: null, at: T0 + 2000 });
     }
-    expect(readHandleResolutions(dir, { now: T0 + 2000 }).get(handleKey("the clinic note")) ?? null).toBeNull();
+    const after = readHandleResolutions(dir, { now: T0 + 2000 });
+    expect(after.has(handleKey("the clinic note"))).toBe(false);
+    // And the resolution is not left standing in its place, which is the
+    // failure that would actually leak.
+    expect(after.get(handleKey("the clinic note"))).toBeUndefined();
+  });
+
+  test("a shadow newer than the fillers SURVIVES compaction, as a shadow", () => {
+    for (let i = 0; i < 2000; i++) {
+      recordHandleResolution(dir, { handle: `filler ${String(i)}`, id: null, at: T0 });
+    }
+    // Written after the last compaction, so these two are the youngest keys in
+    // the file rather than its oldest.
+    recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa", at: T0 + 1000 });
+    recordHandleResolution(dir, { handle: "the clinic note", id: null, at: T0 + 2000 });
+    const live = readHandleResolutions(dir, { now: T0 + 2000 });
+    expect(live.has(handleKey("the clinic note"))).toBe(true);
+    expect(live.get(handleKey("the clinic note"))).toBeNull();
+  });
+
+  test("compaction carries a line another process appended while it was running", () => {
+    const path = expansionsPath(dir);
+    mkdirSync(sessionsDir(dir), { recursive: true });
+    // A file with real work in it: 900 fillers, and the resolution of the
+    // confidential title as the newest line.
+    const lines = [];
+    for (let i = 0; i < 900; i++) {
+      lines.push(
+        JSON.stringify({
+          key: handleKey(`filler ${String(i)}`),
+          id: `mem_${String(i).padStart(12, "0")}`,
+          at: T0 + i,
+          scope: "/p",
+        }),
+      );
+    }
+    const key = handleKey("the clinic note");
+    lines.push(JSON.stringify({ key, id: "mem_aaaaaaaaaaaa", at: T0 + 5000, scope: "/p" }));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+
+    // THE RACE: another server refuses that same title while this compaction is
+    // between its read and its rename. Losing this line does not cost credit —
+    // it puts the resolution back where a refusal had overridden it.
+    compactExpansions(path, T0 + 6000, () => {
+      appendFileSync(
+        path,
+        `${JSON.stringify({ key, id: null, at: T0 + 5500, scope: "/p" })}\n`,
+        "utf8",
+      );
+    });
+
+    const live = readHandleResolutions(dir, { now: T0 + 6000 });
+    expect(live.has(key)).toBe(true);
+    expect(live.get(key)).toBeNull();
   });
 
   test("translation reaches only what the log knows; everything else passes through unchanged", () => {
