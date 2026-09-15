@@ -480,9 +480,12 @@ export class McpServer {
     const apply = (from: ScopeRegistry | null): ScopeRegistry =>
       setScope(from, this.scope, target, {
         at: new Date(this.nowFn()).toISOString(),
-        ...(typeof args["note"] === "string" && args["note"].length > 0
-          ? { note: args["note"] }
-          : {}),
+        // ONE RULE FOR THE NOTE ON BOTH SURFACES (#92 review, F5): an omitted
+        // note CARRIES what is there, an empty string CLEARS it. The filter here
+        // used to drop `""` as though it had not been given, so the console
+        // cleared a note and this tool silently kept it — the same two words
+        // meaning different things depending on which door you used.
+        ...(typeof args["note"] === "string" ? { note: args["note"] } : {}),
       });
     const next = apply(read?.registry ?? null);
     try {

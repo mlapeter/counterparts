@@ -1311,6 +1311,27 @@ describe("the MCP server in a directory set off", () => {
     expect(readFileSync(scopesFile, "utf8")).toBe(before);
   });
 
+  test("an empty note CLEARS on this door too, exactly as it does on the console (F5)", async () => {
+    Store.open({ dir: store }).close();
+    const project = join(work, "project");
+    const s = server();
+    expect(body(await s.call("scope", { mode: "off", note: "client work" }))["set"]).toBe(true);
+    expect(ownEntry(readScopes(scopesFile).registry, project)?.note).toBe("client work");
+
+    // Omitted: the reason a directory is off outlives the flag that paused it.
+    await s.call("scope", { mode: "pause" });
+    expect(ownEntry(readScopes(scopesFile).registry, project)?.note).toBe("client work");
+
+    // Empty: cleared — and the console does exactly the same thing, which is
+    // the whole point. Before this the tool kept the note the console dropped.
+    await s.call("scope", { mode: "off", note: "" });
+    expect(ownEntry(readScopes(scopesFile).registry, project)?.note).toBeUndefined();
+
+    await s.call("scope", { mode: "off", note: "again" });
+    expect((await cli(["scope", project, "--off", "--note", ""])).code).toBe(EXIT.ok);
+    expect(ownEntry(readScopes(scopesFile).registry, project)?.note).toBeUndefined();
+  });
+
   test("an observer reads the setting and stands down on changing it", async () => {
     Store.open({ dir: store }).close();
     put({ [join(work, "project")]: { mode: "observer", since: "t" } });

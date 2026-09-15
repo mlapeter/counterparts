@@ -581,7 +581,8 @@ const SCOPE: ToolSpec = {
       },
       note: {
         type: "string",
-        description: "Optional: the user's own reason, recorded beside the setting.",
+        description:
+          "Optional: the user's own reason, recorded beside the setting. Omit it and the note already there is kept; pass an empty string to clear it — the same rule the console's --note follows.",
       },
     },
     required: [],
