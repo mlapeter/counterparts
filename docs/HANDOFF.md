@@ -34,8 +34,9 @@ list below); when it reports: fixes if any, preview-merge suite, then the owner'
 the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge
 suite, then the owner's three rulings (dormant first-launch ask; unset = on; `off` silent) before or at merge.
 
-**Next, in order:** (1) #92 review + rulings; (2) G55 (small tools PR) and G50 (small tool-side PR) — one Opus
-agent each or batched; (3) G52–G54 and G56 rulings with the owner; (4) tomorrow's morning check is `doctor` then
+**Next, in order:** (1) #92 review + rulings; (2) **G55 is PR #111** (`ed83450`, tools only, suite 2026 / 0; merge under the
+standing approval after a preview-merge suite — it changes what tomorrow's daily prints for `self.schema.pressure`) and
+G50 (small tool-side PR, agent running); (3) G52–G54 and G56 rulings with the owner; (4) tomorrow's morning check is `doctor` then
 `daily.ts --date 2026-09-15` — expect the amber gone, `memory.reinforced` still FAIL until a session expands or
 quotes, and watch for a second `revision.pressure` row (each is a migrated belief revised at bar 0 until G56 is
 ruled).

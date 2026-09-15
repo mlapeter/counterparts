@@ -216,8 +216,13 @@ instrument writes:
 - `sleep.symmetry` — "band.transition carries only the store's LIVED day and no `--lived-day` was
   given, so no transition can be attributed to this date — the watch was not driven here (a zero
   would be scar §2.4)".
-- `self.schema.pressure` — "no durable revision-pressure row exists in this build — the
-  revision-pressure path is being wired separately".
+- `self.schema.pressure` — until 2026-09-15 this read "no durable revision-pressure row exists in this
+  build", which became false the day the first `revision.pressure` row fired (G55). **PR #111** (open,
+  `tools/daily-pressure-watch`) makes it read the rows on the UTC date by `events.at`: ≥ 1 row →
+  `needs-rater` naming each target's force, bar, pressure and whether a supersede followed (read off
+  the target row as it stands, never recomputed); no row → `not-exercised` with the attribution rule
+  on the record as `v2.revisionPressure.attribution`. `pass`/`fail` stay unreachable: the rows say a
+  challenge was credited, not that crediting it was right.
 - `self.schema.tripped` — "not a row: the trip is `schemaBytes` over the self rows, recomputed
   read-only by the preflight's `store.schemaBytes` check".
 - `self.schema.quarantined` — "not a row: the F8 fallback quarantine is subtracted INSIDE
