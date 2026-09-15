@@ -1580,6 +1580,8 @@ dimensions, so the gap closes on its own only as the migrated rows are replaced 
 | G50 | **PR #112** open (`f0428a8`, two commits; suite 2036 / 0 / 35, hash unchanged, `src/core` untouched). Bigger than the row implied: there is no gate state the credit pass reads — expansions come from the TRANSCRIPT — so the fix is a translation log, `<dataDir>/sessions/expansions.jsonl` (`src/adapters/expansions.ts`, hash of handle → resolved id, refusals write a `null` shadow that overrides an earlier resolution so a stranger's confidential refusal cannot credit through the owner's entry — a hole the builder's review caught and reproduced as a failing test first), `mcp/server.ts#noteHandleResolution` writes it, `hooks.ts#creditAtBoundary` translates through it. Touches the live boundary path and overlaps #92 on `hooks.ts` / `server.ts`. **Adversarial review on Opus: MERGE WITH FIXES, F1 blocks.** The claim "credit is not widened" is false in three confirmed sequences, each crediting a session for a confidential memory it never read: the stranger's call never reaches `expandHandle` (server down) but its tool_use block is in the transcript; the stranger's call is `{handle, question}` → `both-arguments`, nothing logged; the stranger IS refused but the shadow append fails. Root: the log is keyed by handle alone and the boundary translates the last resolution by anyone. Fix: a scope filter (scope is already on every line; the server already trusts `sameScope` for binding) plus a session-start floor on `at`. Also: `compact()` can drop a shadow appended in its read→rename window and leave the resolution standing (falsifies the module's own guarantee; the test for it was vacuous); "newest wins" is file order and compaction slices in first-appearance order, dropping fresh keys; `resolvedHandles: 0` cannot tell a dead table from an idle one (I32's shape); the new lines sit outside the boundary's inner try. HELD: observer gating, #92's `off` gate ahead of the write, boundary never throws on a bad log, growth bounded (10,000 handles → 33.6 KB), torn lines tolerated, hash-not-handle on disk, `sessions/` excluded from backups, tests hermetic and driving the real boundary. **Trial merge with #92: two import-block conflicts, combined suite 2080 / 0 / 36. Merge #92 first.** **Fixes LANDED: head `3fc77d7`** (five commits on `f0428a8`; suite 2048 / 0 / 35, hash unchanged, `src/core` untouched). F1a scope filter (`fea1d3c`; a record with no scope is dropped too), F1b session-start floor (`9fb58d0`); F2 compaction re-reads from the pre-write offset and splices the tail before rename (`4050479`; window narrowed, not closed; the vacuous test replaced by two that can fail); F3 keep-newest by `at` (`fcf859c`); F4 `expansionsRead: ok | absent | unreadable | corrupt | not-read` on the `recall.credit` row (`159e13e`); F5 inside the try (`3fc77d7`; also un-shadowed a `started` that hid the boundary clock). Each test red on its parent. "Credit is not widened" corrected everywhere it stood. Residuals documented: two concurrent sessions in one directory share the table; a session whose first hook is its Stop has no floor. One test seam in production code (`compactExpansions(..., duringWindow?)`) for the owner to ratify. Still to do: rebase over #92 after it merges (import-block conflicts). Two rulings it raised: the model-facing `recall` description in `tools.ts` still says expanding does not strengthen memories — now false, but correcting it hands the model a lever on its own reinforcement signal (`mcp/INTERFACE-GAPS` §9); and a superseded LITERAL id still credits nothing (filed, not built). | in review |
 | G57 | **Credit has no confidentiality filter in core.** Confirmed on the #112 head, pre-existing and out of #112's scope: `creditReferences` (`counterpart.ts`) filters only unknown / archived / dark ids, so a non-owner server calling `recall {ids:[<confidential id>]}` is answered `handle-confidential-withheld, returned 0` and its boundary still emits `credited: 1`. #112's shadow is an adapter-level patch over the title door; the id door is open. Live impact today nil (one owner; observer directories stand down credit). Ruling: put the filter at credit time in `recall/` (core; declaration + restart), or accept and document. | needs owner |
 | G58 | **`recall`'s model-facing `claim` is now false twice, and the fixes differ.** `tools.ts` says "It writes nothing and trains nothing … nothing you look at here gets stronger for having been looked at". After #112 it writes host bookkeeping (safe correction: "writes host bookkeeping and no memory"); since #99 looking DOES strengthen at the boundary, and saying so hands the model a lever on its own reinforcement signal. The `claim` / `mechanizedBy` pair is the repo's honesty contract. Two rulings; the write half is the easy yes. Also from the review: the handle key is an unsalted sha256 prefix — a membership oracle for guessed titles in a directory documented as carrying no content; a per-store salt is one line. | needs owner |
+| G59 | **Two residues of the joined-late seal (#92 F1):** (a) `on → observer → on` in one session captures the observer stretch retroactively — no seal fires because the session record exists, and the cursor cannot move under observer; (b) after a seal, the Stop ask pacer counts the whole transcript, so the first Stop after a resume can raise the authorship ask and the model's answer could be about the off stretch. Ruling: should the ask stand down at a joined-late boundary, and should a stance change to observer mid-session also seal? | needs owner |
+| G60 | **Core seam for the seal:** `SpanBuffer.sealCursor(scope, session, turns)` + `Counterpart.sealSpanCursor` (~15 lines + a `CaptureReason`) would replace the placeholder-turn capture #92 uses to advance a cursor without depositing. claude-code INTERFACE-GAPS §10. Core; its own declaration. | open |
 | G52–G54 | unchanged — doctor's "unknown" severity / dropped-notice row; U7 recency-aware hints (a ruling); the OQ4 footnote-header instruction (a ruling). | needs owner |
 
 ### #92 — rebased, then adversarially reviewed on Opus: MERGE WITH FIXES, fixes in flight
@@ -1613,14 +1615,49 @@ first-launch ask once per session; the tests hermetic with real positive control
 - **F4 LOW** — duplicate keys canonicalising to one directory tie-break on file order and can land on `on`.
   **F5 LOW** — `--note ""` clears on the CLI and carries on the MCP tool.
 
-An Opus fixer is applying F1–F5 on the branch, each with a failing-then-passing test, re-running the probes,
-and appending the rulings to the PR body. **Rulings for the owner from the review**, beyond the three the PR
+**Fixes LANDED: head `d6083de`** (seven commits on `2677c6e`, plain push). Re-verified by this session in a scratch
+worktree, not from the report: suite **2077 / 0 / 36 files**, hash `c3af0bef00209ba6`, `src/core` diff empty,
+`test/scopes.test.ts` 54 / 0 with the six named tests present. F1: `hooks.ts#sealJoinedLate` at the top of
+`claim()` — no session record + cursor 0 + not observer ⇒ advance the cursor to `turns.length` (via a capture of
+placeholder turns whose source the buffer refuses, so it moves the cursor and appends nothing), write the record,
+capture nothing, `joinedLate: true` on the durable `adapter.boundary` row; the honest core seam this stands in for
+(`SpanBuffer.sealCursor`) is filed as claude-code INTERFACE-GAPS §10. Test: real hook processes, one session id,
+paused start + two Stops over a six-turn marker transcript, `--resume`, boundary ⇒ 0 hits, then new turns ⇒ only
+those. F2: per-entry parsing (bad entries refused BY NAME; whole-file only for not-a-registry), one stderr sentence at
+SessionStart and at MCP launch, `scopeRegistry: unreadable | partial | null` on the durable `adapter.wake.injected`
+row, both writers refuse to drop a refused entry (console needs `--force`). F3: `writeScopes` re-reads before rename
+and re-applies once. F4: canonical ties resolve to the more restrictive mode. F5: empty note clears on both doors.
+Twenty existing tests needed a "SessionStart happened" seed (`live()` / seeding `input()` helpers) because a boundary
+with no record now seals instead of capturing. **Two side-effects named, not fixed:** `on → observer → on` inside one
+session still captures the observer stretch retroactively (the record exists, so no seal; no cursor can move under
+observer); and after a seal the Stop ask pacer still counts the whole transcript, so the first Stop after a resume
+can raise the authorship ask about the off stretch (authored door, not capture) — G59. **Rulings for the owner from the review**, beyond the three the PR
 names: (i) "off is silent" and "a corrupt registry is silent" are two exceptions, not one; (ii) `off → pause →
 resume` is a two-step path to `on` reachable by the model through the `scope` tool (`resumeTo` defaults to
 `on` when pausing from `off`); (iii) the MCP server still opens a store in an `off` directory, so "no store
 constructed" is a hook-only guarantee — say so in CONTRACT §5 G19. Not run by the reviewer: the install loop
 (the rebase agent's 52 / 52 stands on its word; `test/install-loop.test.ts` passed in the suite).
 
+### I38 — a Stop's detached worker can still hold the sqlite handle when the next hook starts
+
+Seen by the #92 fixer while writing the F1 test with real Stop processes: the hook that follows a Stop stood down
+with `database is locked` in 3 of 8 runs, so the hermetic test uses PreCompact for its post-resume boundaries.
+Pre-existing, not #92's, and live-relevant: on the host a UserPromptSubmit or a second Stop landing while the
+previous Stop's worker holds the write lock would stand down that hook. Not yet read on the live store — the
+morning check should grep the events for a `database is locked` / `SQLITE_BUSY` code on `adapter.boundary` or
+`adapter.recall` rows, and if it appears, this is a finding with a number of its own; if it never appears live,
+the busy timeout is doing its job and the test's PreCompact workaround is the whole story. Open.
+
+### Merge order and what is left
+
+Both heads verified here. Trial merge of `3fc77d7` onto `d6083de`: **four files, one hunk each** — `hooks.ts`
+(the import block), `server.ts`, `claude-code/NOTES.md`, `test/lifecycle.test.ts`. Order: the owner's rulings →
+**#92 merges** → an Opus agent rebases #112 over it and re-runs the A1–A3 and seal tests on the combined tree →
+#112 merges → `tools/deploy-checkout.sh` → ONE restart naming both. Neither PR is core, but both change what the
+live hooks do at every boundary, so the batch rule applies in full.
+
 ### Spend
 
-$0.00 by the session; the morning check ran on Fable; the rebase agent runs on Opus.
+$0.00 by the session. The morning check and coordination ran on Fable (owner: conserve Fable tokens — agents on
+Opus); six Opus agents: #92 rebase (~215k), G55 (~171k), G50 (~199k), #92 review (~172k), #112 review (~145k),
+#112 fixes (~241k), #92 fixes (~365k) — about 1.5M Opus tokens for two reviewed-and-fixed PRs and one tools PR.
