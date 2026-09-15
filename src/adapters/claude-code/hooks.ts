@@ -988,7 +988,7 @@ export class ClaudeCodeAdapter {
     // The file is read only when there is something to translate.
     const resolutions =
       raw.length === 0
-        ? new Map<string, string>()
+        ? new Map<string, string | null>()
         : readHandleResolutions(this.counterpart.store.dir, { now: this.nowFn() });
     const resolvedHandles = countTranslated(raw, resolutions);
     const expansions = translateExpansions(raw, resolutions);

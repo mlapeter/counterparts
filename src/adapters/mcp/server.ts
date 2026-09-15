@@ -574,7 +574,13 @@ export class McpServer {
     return this.depositResult("note", deposit);
   }
 
-  /** `recall` — the deeper look. Writes nothing; see `deliberate.ts`. */
+  /**
+   * `recall` — the deeper look. Deposits no memory and touches no physics; see
+   * `deliberate.ts`. The ONE thing it writes is host state: a handle path that
+   * was answered leaves a line in `adapters/expansions.ts`'s resolution log, so
+   * the boundary's credit pass can tell which memory a TITLE reached
+   * (`noteHandleResolution`, and `mcp/INTERFACE-GAPS` §9).
+   */
   private async recallTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
     const handle = args["handle"];
@@ -650,31 +656,41 @@ export class McpServer {
    * (`adapters/expansions.ts`) and the hook translates the transcript's own
    * handle with it.
    *
-   * ONLY AN EXPANSION THAT HAPPENED. `handle-unknown` resolved nothing,
-   * `handle-ambiguous` deliberately refused to choose, and
-   * `handle-confidential-withheld` showed the asker nothing at all — none of
-   * the three may leave a translation behind, or the seam would credit reading
-   * to a session that read nothing. The `ids` path is excluded too: those are
-   * literal addresses the credit pass already sees, and a per-id account of
-   * what each one resolved to is `perId`'s job, not this one's.
+   * EVERY OUTCOME OF THIS PATH IS RECORDED, and the refusals are recorded as
+   * `null` — a shadow that translates nothing and, being the newest answer,
+   * overrides an earlier resolution of the same handle. That is not tidiness,
+   * it is §5 G6: the log is keyed by the handle, because RESOLUTION is
+   * deterministic, but a REFUSAL is not. The owner's own session resolves a
+   * confidential title; a stranger's session asking the same title is told
+   * nothing. Without the shadow the stranger's boundary would translate its
+   * handle through the owner's entry and credit a memory it was never shown.
+   * `handle-unknown` and `handle-ambiguous` shadow for the same reason — a
+   * title that has since been renamed away, or gone ambiguous, must not go on
+   * crediting the memory it used to name.
+   *
+   * The price is a race the other way: a stranger's refusal landing between the
+   * owner's call and the owner's Stop costs the owner that credit. Under-credit,
+   * which is the direction this seam is allowed to err in.
+   *
+   * The `ids` path is out of scope: those are literal addresses the credit pass
+   * already sees, and a per-id account of what each resolved to is `perId`'s
+   * job, not this one's.
    *
    * Never throws and never changes the answer: a log that could not be written
    * costs credit, and costing credit is the safe direction.
    */
   private noteHandleResolution(handle: unknown, result: DeliberateResult): boolean {
-    if (typeof handle !== "string") return false;
-    if (result.path !== "handle" || result.reason !== "expanded") return false;
-    const memory = result.memories[0];
-    if (memory === undefined || result.memories.length !== 1) return false;
-    // The handle was already the live address: `reference.ts` credits it as it
-    // stands, and a record here would say nothing the transcript does not.
-    if (memory.id === handle.trim()) return false;
-    return recordHandleResolution(this.registryDir, {
+    if (typeof handle !== "string" || handle.trim().length === 0) return false;
+    if (result.path !== "handle") return false;
+    const id = resolvedIdOf(result);
+    if (id === undefined) return false;
+    const written = recordHandleResolution(this.registryDir, {
       handle,
-      id: memory.id,
+      id,
       scope: this.scope,
       at: this.nowFn(),
     });
+    return written && id !== null;
   }
 
   /**
@@ -1152,6 +1168,30 @@ export class McpServer {
   /** True once a client has completed the handshake. Host trivia, checkable. */
   ready(): boolean {
     return this.initialized;
+  }
+}
+
+/**
+ * What one handle-path answer should leave in the resolution log, as a TOTAL
+ * table over the reasons that path can produce:
+ *
+ *   an id       — it expanded, and this is what it reached
+ *   `null`      — it was asked and answered with nothing (the shadow)
+ *   `undefined` — not this path's outcome at all; record nothing
+ *
+ * Total on purpose. A new handle-path reason added without a line here records
+ * nothing rather than guessing, which fails in the under-credit direction.
+ */
+function resolvedIdOf(result: DeliberateResult): string | null | undefined {
+  switch (result.reason) {
+    case "expanded":
+      return result.memories.length === 1 ? (result.memories[0]?.id ?? null) : undefined;
+    case "handle-unknown":
+    case "handle-ambiguous":
+    case "handle-confidential-withheld":
+      return null;
+    default:
+      return undefined;
   }
 }
 

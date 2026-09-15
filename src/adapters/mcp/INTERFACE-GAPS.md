@@ -187,13 +187,36 @@ credited. A per-session list would fail twice over — this server is usually un
 §8) and has no session id to key by, and a flat list cannot be positioned against the turn
 cursor, so one expansion would be re-credited at every later boundary.
 
-**What is recorded, and what deliberately is not.** Only `path: "handle"` with
-`reason: "expanded"` and exactly one memory, and only when the handle was not already the
-live address. `handle-unknown` resolved nothing, `handle-ambiguous` named the choice
-without making it, and `handle-confidential-withheld` showed the asker nothing — all three
-leave no translation, so all three go on crediting nothing. Proof:
-`test/lifecycle.test.ts` "the handle door (G50)" (the positive plus both negatives) and
-`test/sessions.test.ts` "the handle-resolution log".
+**What is recorded, and why the refusals are recorded too.** Every handle-path outcome
+leaves a line: an expansion leaves the id it reached, and `handle-unknown`,
+`handle-ambiguous` and `handle-confidential-withheld` each leave `null` — a SHADOW, which
+translates nothing and, being the newest answer, overrides an earlier resolution of the
+same handle.
+
+The shadow is §5 G6, not tidiness. The log is keyed by the HANDLE, because resolution is
+deterministic — one store, one exact-title match. A REFUSAL is not: the owner's own
+session resolves a confidential title and a stranger's session asking the same title is
+told nothing. Recording only the expansions leaves the stranger's boundary translating its
+handle through the owner's entry and crediting a memory it was never shown — and the first
+draft of this fix did exactly that, until the test below was written against it. Same shape
+for a title that has since gone ambiguous or been renamed away. The price is a race the
+other way: a stranger's refusal landing between the owner's call and the owner's Stop costs
+the owner that credit — under-credit, the direction this seam is allowed to err in.
+
+Proof: `test/lifecycle.test.ts` "the handle door (G50)" — the positive, the unknown handle,
+the ambiguous handle, and the confidential shadow — plus `test/sessions.test.ts` "the
+handle-resolution log" for the file's own rules.
+
+**What the tool DESCRIPTION still owes, and it is an owner call.** `tools.ts`'s `recall`
+privilege still reads "It writes nothing and trains nothing: ranking is not recording, so
+nothing you look at here gets stronger for having been looked at." The first half stays
+true — `build()` is pure, no `resolveUse`, no `coactivate`, and the one write is host
+state. The last clause has been false since the credit seam landed (#99, 2026-09-14): a
+memory the session EXPANDS is credited at the boundary, by id then and by handle now. It is
+left alone here on purpose, because correcting it is not a wording change: telling the
+model that expanding strengthens a memory hands it a lever on the reinforcement signal it
+is being measured by, and whether the description says so is the owner's ruling, not this
+branch's. `CONTRACT.md` §3 now carries the accurate sentence for readers of this repo.
 
 **What it still owes.** The `ids` path is untouched: a literal id that has been SUPERSEDED
 still credits nothing, because `Store.resolve` follows the forwarding address inside

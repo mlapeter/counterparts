@@ -536,6 +536,19 @@ nobody resolved passes through unchanged and still counts `unresolvedHandles`.
 The row gained `resolvedHandles` beside it: the pair is what proves the seam
 live in a daily.
 
+**The refusals are recorded too, and that is the confidentiality boundary.** The
+log is keyed by the handle, not by the session, because RESOLUTION is
+deterministic — but a refusal is not. The first draft recorded only the
+expansions, and a test written against it caught the consequence: the owner's own
+session resolves a confidential title, a stranger's session asks the same title
+and is told nothing, and the stranger's boundary then translates its handle
+through the owner's entry and credits a memory it was never shown. Every
+handle-path outcome now leaves a line, a refusal leaving `null` — a shadow that
+translates nothing and, being the newest answer, overrides the earlier
+resolution. The price is the opposite race (a stranger's refusal between the
+owner's call and the owner's Stop costs the owner that credit), which is
+under-credit, which is the direction this seam may err in.
+
 Two limits, recorded rather than hidden. The log is read only when the slice
 carries an expansion at all, so an ordinary Stop still opens no extra file. And
 compaction racing an append can lose a line — which costs one handle's credit,

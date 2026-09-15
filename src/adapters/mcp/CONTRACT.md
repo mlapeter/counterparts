@@ -24,7 +24,14 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 - **One argument, two paths**: a handle expands *that* memory exactly; a question runs a
   query. Expansion must never degrade into fuzzy search. [v1] §9.1 G1.
 - **Ranking is not recording** — deliberate recall trains nothing and deposits nothing.
-  [v1] §9.1 G4.
+  [v1] §9.1 G4. Still exact: `build()` is pure, and nothing on this path calls
+  `resolveUse` or `coactivate`. **What it never said, and now must** (2026-09-15, G50):
+  ranking is not recording, but EXPANDING is using — the owner's credit ruling of
+  2026-09-14 credits a memory the session expanded, at the session boundary, in the other
+  adapter. So the handle path leaves one HOST-STATE line
+  (`adapters/expansions.ts`: a hashed handle, the id it reached or `null`, a timestamp) so
+  that boundary can tell which memory a TITLE reached. No memory is written, no physics is
+  touched, and nothing here gets stronger for having been ranked.
 - **A candidate count must not become an undercount** — a top-K tuned for surfacing is
   wrong for an aggregation question. [v1] §9.1 G3.
 - **Confidentiality is enforced at the boundary of the ask**; withholding is *stated* for a

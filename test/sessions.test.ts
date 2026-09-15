@@ -280,6 +280,24 @@ describe("the handle-resolution log", () => {
     );
   });
 
+  test("a refusal is recorded as a SHADOW, and the newest shadow overrides an earlier resolution", () => {
+    recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa", at: T0 });
+    // A later asking was answered with nothing — withheld, unknown, ambiguous.
+    expect(recordHandleResolution(dir, { handle: "the clinic note", id: null, at: T0 + 1000 })).toBe(true);
+    const live = readHandleResolutions(dir, { now: T0 + 1000 });
+    expect(live.get(handleKey("the clinic note"))).toBeNull();
+    // A shadow translates nothing: the handle reaches `reference.ts` as itself.
+    expect(translateExpansions(["the clinic note"], live)).toEqual(["the clinic note"]);
+    expect(countTranslated(["the clinic note"], live)).toBe(0);
+    // A compaction can drop an old key, but never the SHADOW alone: the shadow
+    // and the resolution it overrides share one key, so they leave together and
+    // the old id can never come back.
+    for (let i = 0; i < 2000; i++) {
+      recordHandleResolution(dir, { handle: `filler ${String(i)}`, id: null, at: T0 + 2000 });
+    }
+    expect(readHandleResolutions(dir, { now: T0 + 2000 }).get(handleKey("the clinic note")) ?? null).toBeNull();
+  });
+
   test("translation reaches only what the log knows; everything else passes through unchanged", () => {
     recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 });
     const live = readHandleResolutions(dir, { now: T0 });

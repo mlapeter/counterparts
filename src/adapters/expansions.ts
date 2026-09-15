@@ -30,7 +30,8 @@
  * sibling is what that rule allows).
  *
  * **Host state, not memory, and it says so on disk.** The record is a HASH of
- * the handle, a memory id, a timestamp, and the scope that resolved it —
+ * the handle, the id it reached (or `null` — see `HandleResolution.id`), a
+ * timestamp, and the scope that asked —
  * deliberately no handle text, because a handle IS a memory's title and
  * `store/paths.ts` classifies `sessions/` as carrying no content (`backup:
  * false`). Hashing is what keeps that classification true without editing it.
@@ -75,8 +76,19 @@ export const EXPANSIONS_KEEP = 256;
 export interface HandleResolution {
   /** `handleKey` of the handle the model passed. Never the handle itself. */
   readonly key: string;
-  /** The id `expandHandle` actually reached. */
-  readonly id: string;
+  /**
+   * The id `expandHandle` actually reached — or NULL, which is a SHADOW: this
+   * handle was asked and answered with nothing, and the newest answer wins.
+   *
+   * The shadow is not bookkeeping, it is the confidentiality boundary. The log
+   * is keyed by handle, not by session, because the resolution is deterministic
+   * — but a refusal is not: the owner's own session resolves a confidential
+   * title and a stranger's session is told nothing, and without a shadow the
+   * stranger's boundary would translate the same handle through the owner's
+   * entry and credit a memory it was never shown. Same shape for a title that
+   * has since gone ambiguous, or been renamed away.
+   */
+  readonly id: string | null;
   readonly at: number;
   /** The project the resolving server was serving. Forensics, not a filter —
    *  see `readHandleResolutions`. */
@@ -102,20 +114,23 @@ export function handleKey(handle: string): string {
 }
 
 /**
- * Record what a handle resolved to. Returns false on any failure at all.
+ * Record what a handle resolved to — an id, or `null` for "this handle was
+ * asked and answered with nothing". Returns false on any failure at all.
  *
- * The CALLER decides whether there is anything to record — see
- * `mcp/server.ts#recallTool`, which writes only for an expansion that actually
- * happened (`path: "handle"`, `reason: "expanded"`), never for a handle that was
- * unknown, ambiguous, or withheld. A refusal resolved nothing, so there is
- * nothing to translate, so nothing may be credited.
+ * EVERY handle-path outcome is recorded, not only the expansions. A refusal
+ * that left no trace would let an earlier session's resolution translate a
+ * later session's identical handle, and the later session may have been refused
+ * for a reason the earlier one was not — confidentiality above all. Writing the
+ * refusal as a shadow is what keeps the log's key (the handle) honest about the
+ * thing it is standing in for (what THIS asking reached).
  */
 export function recordHandleResolution(
   dataDir: string,
-  input: { handle: string; id: string; scope?: string; at?: number },
+  input: { handle: string; id: string | null; scope?: string; at?: number },
 ): boolean {
   const handle = input.handle.trim();
-  if (handle.length === 0 || input.id.length === 0) return false;
+  if (handle.length === 0) return false;
+  if (input.id !== null && input.id.length === 0) return false;
   const record: HandleResolution = {
     key: handleKey(handle),
     id: input.id,
@@ -141,22 +156,24 @@ export function recordHandleResolution(
 }
 
 /**
- * Every live resolution, newest answer winning, as `key → id`.
+ * Every live answer, newest winning, as `key → id | null`. A `null` value is a
+ * shadow and translates nothing (see `HandleResolution.id`).
  *
- * NOT filtered by scope, on purpose. The resolution is deterministic — one
- * store, one exact-title match — so which project's server did the resolving
- * cannot change the answer, and a scope comparison that two adapters disagreed
- * about (a git worktree, a symlinked home) would silently reinstate the gap it
- * is here to close. `scope` is recorded so the log can still be read by a human
- * asking where a translation came from.
+ * NOT filtered by scope, on purpose. The RESOLUTION is deterministic — one
+ * store, one exact-title match — so which project's server resolved it cannot
+ * change the answer, and a scope comparison that two adapters disagreed about
+ * (a git worktree, a symlinked home) would silently reinstate the gap this is
+ * here to close. The part that is NOT deterministic across askings — a refusal —
+ * is handled by the shadow instead, which is the conservative direction. `scope`
+ * is recorded so a human can still ask where a translation came from.
  */
 export function readHandleResolutions(
   dataDir: string,
   opts: { now?: number; ttlMs?: number } = {},
-): Map<string, string> {
+): Map<string, string | null> {
   const now = opts.now ?? Date.now();
   const ttl = opts.ttlMs ?? EXPANSION_TTL_MS;
-  const out = new Map<string, string>();
+  const out = new Map<string, string | null>();
   let raw: string;
   try {
     raw = readFileSync(expansionsPath(dataDir), "utf8");
@@ -175,10 +192,11 @@ export function readHandleResolutions(
 /**
  * Translate the raw expansion strings from a transcript slice.
  *
- * A string the log knows becomes the id it resolved to; everything else passes
- * through UNCHANGED, so a handle nobody resolved still reaches `reference.ts` as
- * itself and still counts `unresolvedHandles`. A guess the tool answered
- * "not-found" must go on being a guess that credited nothing.
+ * A string the log resolved becomes the id it reached; everything else — a
+ * handle nobody asked, and a handle whose newest answer is a SHADOW — passes
+ * through UNCHANGED, so it still reaches `reference.ts` as itself and still
+ * counts `unresolvedHandles`. A guess the tool answered "not-found" must go on
+ * being a guess that credited nothing.
  *
  * Literal ids are looked up too, not skipped: `Store.resolve` follows forwarding
  * addresses, so a session that expanded a SUPERSEDED id by name read — and
@@ -186,7 +204,7 @@ export function readHandleResolutions(
  */
 export function translateExpansions(
   expansions: readonly string[],
-  resolutions: ReadonlyMap<string, string>,
+  resolutions: ReadonlyMap<string, string | null>,
 ): string[] {
   if (resolutions.size === 0) return [...expansions];
   return expansions.map((raw) => resolutions.get(handleKey(raw)) ?? raw);
@@ -196,12 +214,12 @@ export function translateExpansions(
  *  `resolvedHandles`, and the one number that proves this seam live. */
 export function countTranslated(
   expansions: readonly string[],
-  resolutions: ReadonlyMap<string, string>,
+  resolutions: ReadonlyMap<string, string | null>,
 ): number {
   let n = 0;
   for (const raw of expansions) {
     const to = resolutions.get(handleKey(raw));
-    if (to !== undefined && to !== raw.trim()) n += 1;
+    if (to !== undefined && to !== null && to !== raw.trim()) n += 1;
   }
   return n;
 }
@@ -213,6 +231,11 @@ export function countTranslated(
  * the loss is one handle's translation, the cost is under-credit, and the
  * alternative — a lock file two long-lived processes share — is a new failure
  * mode in the hot path of a tool that may not fail.
+ *
+ * Dropping an old entry is likewise safe in the one direction that matters: the
+ * map is keyed by handle, so a shadow and the resolution it overrides ARE one
+ * entry. Compaction can drop them together; it can never drop the shadow and
+ * leave the resolution standing.
  */
 function compact(path: string, now: number): void {
   let raw: string;
@@ -264,7 +287,8 @@ function parseRecord(raw: unknown): HandleResolution | null {
   const id = rec["id"];
   const at = rec["at"];
   if (typeof key !== "string" || key.length === 0) return null;
-  if (typeof id !== "string" || id.length === 0) return null;
+  // `null` is a RECORD, not a missing field: it is the shadow a refusal leaves.
+  if (id !== null && (typeof id !== "string" || id.length === 0)) return null;
   if (typeof at !== "number" || !Number.isFinite(at)) return null;
   const scope = rec["scope"];
   return {

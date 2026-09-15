@@ -590,8 +590,9 @@ describe("the handle door (G50)", () => {
 
     const refused = (await tool(a).call("recall", { handle: "a title no memory has" })).structuredContent;
     expect(refused["reason"]).toBe("handle-unknown");
-    // A refusal resolved nothing, so it leaves nothing behind to translate.
-    expect(readHandleResolutions(dir).size).toBe(0);
+    // A refusal resolved nothing, so what it leaves behind is a SHADOW: an
+    // entry that translates nothing and overrides any earlier resolution.
+    expect(readHandleResolutions(dir).get(handleKey("a title no memory has"))).toBeNull();
 
     a.stop(
       input({
@@ -613,6 +614,55 @@ describe("the handle door (G50)", () => {
     expect(p["unresolvedHandles"]).toBe(1);
     expect(p["resolvedHandles"]).toBe(0);
     expect(p["expandedIds"]).toEqual([]);
+    expect(c.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("a REFUSAL shadows an earlier resolution: a session shown nothing credits nothing", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    // Confidential, so a session that is not the owner's is told it exists and
+    // shown nothing (`handle-confidential-withheld`).
+    const id = c.store.put({
+      type: "memory",
+      kind: "person",
+      title: "the clinic note",
+      body: "The clinic appointment about the recurring migraines is on the fourteenth.",
+      salience: { novelty: null, relevance: 0.7, emotional: 0.5, predictive: 0.5 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+      meta: { confidential: true },
+    });
+    c.store.advanceClock("2026-01-02");
+
+    // The owner's own session resolves the title — and leaves a translation.
+    expect(
+      ((await tool(a).call("recall", { handle: "the clinic note" })).structuredContent)["reason"],
+    ).toBe("expanded");
+    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+
+    // A DIFFERENT session, not the owner's, asks the same title an hour later.
+    const stranger = new McpServer({
+      counterpart: c,
+      scope: "proj",
+      owner: false,
+      registryDir: dir,
+    });
+    const withheld = (await stranger.call("recall", { handle: "the clinic note" })).structuredContent;
+    expect(withheld["reason"]).toBe("handle-confidential-withheld");
+
+    // Its boundary must not inherit the owner's resolution. It read nothing.
+    a.stop(
+      input({
+        sessionId: "s-stranger",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "That one is not mine to read." }],
+        expansions: [{ atTurn: 3, ids: ["the clinic note"] }],
+      }),
+    );
+    const p = creditPayload(c);
+    expect(p["credited"]).toBe(0);
+    expect(p["resolvedHandles"]).toBe(0);
+    expect(p["unresolvedHandles"]).toBe(1);
     expect(c.store.physicsOf(id).uses).toBe(0);
   });
 
@@ -639,7 +689,7 @@ describe("the handle door (G50)", () => {
 
     const answered = (await tool(a).call("recall", { handle: "the twins" })).structuredContent;
     expect(answered["reason"]).toBe("handle-ambiguous");
-    expect(readHandleResolutions(dir).size).toBe(0);
+    expect(readHandleResolutions(dir).get(handleKey("the twins"))).toBeNull();
 
     a.stop(
       input({
