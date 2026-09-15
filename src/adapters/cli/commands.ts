@@ -3619,11 +3619,23 @@ function scopeCommand(
     mode = asked[0]?.mode ?? "on";
   }
 
-  const next = setScope(base, dir, mode, {
-    at: new Date(now()).toISOString(),
-    ...(typeof flags["note"] === "string" ? { note: flags["note"] } : {}),
+  // ONE function for the change, used twice: once against the registry this
+  // command read, and again — by `writeScopes` — against whatever is actually
+  // on disk if somebody wrote between that read and the rename (#92 review, F3).
+  // The other writer is the MCP `scope` tool, in the same directory, in another
+  // process, and before this the second rename simply deleted the first entry.
+  const apply = (from: ScopeRegistry | null): ScopeRegistry =>
+    setScope(from, dir, mode, {
+      at: new Date(now()).toISOString(),
+      ...(typeof flags["note"] === "string" ? { note: flags["note"] } : {}),
+    });
+  const next = apply(base);
+  writeScopes(file, next, {
+    basedOn: read,
+    // `--force` over a file nobody could read starts from empty either way:
+    // there is nothing in it this can honestly carry forward.
+    reapply: (fresh) => apply(read.error === null ? fresh : null),
   });
-  writeScopes(file, next);
 
   io.out(`Scope set: ${dir} — ${mode}.`);
   if (canonicalScopePath(given) !== resolve(given) || given !== dir) {

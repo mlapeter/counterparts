@@ -202,7 +202,7 @@ describe("the scope registry", () => {
 
   test("an absent file is UNSET, and unset is on — today's behaviour, unchanged", () => {
     const read = readScopes(join(work, "nothing-here.json"));
-    expect(read).toEqual({ registry: null, present: false, error: null, refused: [] });
+    expect(read).toEqual({ registry: null, present: false, error: null, refused: [], raw: null });
     expect(lookupScope(read.registry, work).mode).toBe("unset");
     expect(stanceOfMode("unset")).toBe("on");
   });
@@ -307,12 +307,12 @@ describe("the scope registry", () => {
     // A refused entry is UNSET, never guessed at in either direction.
     expect(lookupScope(parsed.registry, typo).mode).toBe("unset");
     // And the sentence every surface prints names the file and the entries.
-    const read: ScopeRead = { registry: parsed.registry, present: true, error: null, refused: parsed.refused };
+    const read: ScopeRead = { registry: parsed.registry, present: true, error: null, refused: parsed.refused, raw: "" };
     const line = describeScopeTrouble(read, scopesFile) ?? "";
     expect(line).toContain(scopesFile);
     expect(line).toContain("6 entries");
     expect(line).toContain(typo);
-    expect(describeScopeTrouble({ registry: emptyRegistry(), present: true, error: null, refused: [] }, scopesFile)).toBe(null);
+    expect(describeScopeTrouble({ registry: emptyRegistry(), present: true, error: null, refused: [], raw: "" }, scopesFile)).toBe(null);
   });
 
   test("the write is atomic, and leaves no temp file behind", () => {
@@ -323,6 +323,65 @@ describe("the scope registry", () => {
     writeScopes(scopesFile, setScope(null, work, "on", { at: "t2" }));
     expect(readScopes(scopesFile).registry?.scopes[canonicalScopePath(work)]?.mode).toBe("on");
     expect(readdirSync(work).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("a write that lands inside another writer's window is not clobbered (F3)", () => {
+    // Two writers exist — the console `scope` command and the MCP `scope` tool
+    // — and both read, then modify, then rename. The review's measurement: both
+    // read the same absent file, A wrote projA off, B wrote projB off, and the
+    // file ended with projB alone. A's `off` was gone and nothing said so.
+    const a = join(work, "projA");
+    const b = join(work, "projB");
+    mkdirSync(a, { recursive: true });
+    mkdirSync(b, { recursive: true });
+
+    const readA = readScopes(scopesFile);
+    const applyA = (from: ScopeRegistry | null): ScopeRegistry =>
+      setScope(from, a, "off", { at: "2026-09-15T00:00:00.000Z" });
+    // B lands INSIDE A's read→rename window: the same shape as another process
+    // renaming its own temp file a millisecond before this one does.
+    const applyB = (from: ScopeRegistry | null): ScopeRegistry =>
+      setScope(from, b, "off", { at: "2026-09-15T00:00:01.000Z" });
+    writeScopes(scopesFile, applyB(readScopes(scopesFile).registry));
+
+    writeScopes(scopesFile, applyA(readA.registry), { basedOn: readA, reapply: applyA });
+
+    const final = readScopes(scopesFile);
+    expect(lookupScope(final.registry, a).mode).toBe("off");
+    expect(lookupScope(final.registry, b).mode).toBe("off");
+    expect(readdirSync(work).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+
+    // And a write whose file did NOT move is written exactly as it was computed.
+    const steady = readScopes(scopesFile);
+    const applyC = (from: ScopeRegistry | null): ScopeRegistry =>
+      setScope(from, a, "observer", { at: "2026-09-15T00:00:02.000Z" });
+    writeScopes(scopesFile, applyC(steady.registry), { basedOn: steady, reapply: applyC });
+    const after = readScopes(scopesFile);
+    expect(lookupScope(after.registry, a).mode).toBe("observer");
+    expect(lookupScope(after.registry, b).mode).toBe("off");
+  });
+
+  test("the two REAL writers interleave without losing an entry (F3)", async () => {
+    // The same property through the surfaces that have it: the console reads
+    // and writes, and the MCP tool writes between the two halves.
+    const project = join(work, "project");
+    const other = join(work, "other");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(other, { recursive: true });
+    Store.open({ dir: store }).close();
+
+    // The console's write, then the tool's: neither loses the other's entry.
+    expect((await cli(["scope", other, "--off"])).code).toBe(EXIT.ok);
+    const s = openServer({ dir: store, scope: project, owner: true, scopesFile });
+    try {
+      const set = await s.call("scope", { mode: "off" });
+      expect(set.structuredContent["set"]).toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
+    const final = readScopes(scopesFile);
+    expect(lookupScope(final.registry, other).mode).toBe("off");
+    expect(lookupScope(final.registry, project).mode).toBe("off");
   });
 
   test("a pause REMEMBERS what it interrupted; an off has nothing to remember", () => {

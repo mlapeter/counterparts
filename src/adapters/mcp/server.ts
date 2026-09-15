@@ -56,7 +56,7 @@ import {
   stanceOfMode,
   writeScopes,
 } from "../scopes.js";
-import type { ScopeMode, ScopeVerdict } from "../scopes.js";
+import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
 import { SESSION_TTL_MS, isLive, readSession, sameScope } from "../sessions.js";
 import {
   JOURNAL_GLOSS,
@@ -474,14 +474,20 @@ export class McpServer {
       target = mode === "pause" ? "paused" : (mode as ScopeMode);
     }
 
-    const next = setScope(read?.registry ?? null, this.scope, target, {
-      at: new Date(this.nowFn()).toISOString(),
-      ...(typeof args["note"] === "string" && args["note"].length > 0
-        ? { note: args["note"] }
-        : {}),
-    });
+    // ONE function for the change, applied to the registry this call read and —
+    // if the file moved under it — to what is there now (#92 review, F3). The
+    // other writer is the console `scope` command, in another process.
+    const apply = (from: ScopeRegistry | null): ScopeRegistry =>
+      setScope(from, this.scope, target, {
+        at: new Date(this.nowFn()).toISOString(),
+        ...(typeof args["note"] === "string" && args["note"].length > 0
+          ? { note: args["note"] }
+          : {}),
+      });
+    const next = apply(read?.registry ?? null);
     try {
-      writeScopes(file, next);
+      if (read === null) writeScopes(file, next);
+      else writeScopes(file, next, { basedOn: read, reapply: apply });
     } catch (err) {
       return this.refuse("scope", "registry-unwritable", {
         registry: file,

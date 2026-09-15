@@ -50,7 +50,14 @@
  * only `writeScopes`, which is a console command with an owner watching, is
  * allowed to fail out loud.
  */
-import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
 /**
@@ -165,8 +172,15 @@ export interface RefusedEntry {
   readonly detail: string;
 }
 
-/** What a read of the file found. It NEVER throws; `error` carries the why. */
+/**
+ * What a read of the file found. It NEVER throws; `error` carries the why.
+ *
+ * `raw` is the bytes exactly as they were — it is what makes a write a
+ * compare-and-swap rather than a hope (`writeScopes`).
+ */
 export interface ScopeRead {
+  /** The file's text as this read saw it; null when absent or unreadable. */
+  readonly raw: string | null;
   /** Null when the file is absent, or present and unreadable. */
   readonly registry: ScopeRegistry | null;
   /** True when the file exists at all — absent and corrupt are different. */
@@ -319,12 +333,15 @@ export function readScopes(
     // ENOENT is the ordinary state of every machine that has never answered the
     // question. Anything else — a permission bit, a directory where a file
     // should be — is a file that IS there and could not be read.
-    if (code === "ENOENT") return { registry: null, present: false, error: null, refused: [] };
+    if (code === "ENOENT") {
+      return { registry: null, present: false, error: null, refused: [], raw: null };
+    }
     return {
       registry: null,
       present: true,
       error: `it could not be read (${code})`,
       refused: [],
+      raw: null,
     };
   }
   let raw: unknown;
@@ -336,6 +353,7 @@ export function readScopes(
       present: true,
       error: `it is not JSON (${err instanceof Error ? err.message : String(err)})`,
       refused: [],
+      raw: text,
     };
   }
   const parsed = parseRegistry(raw);
@@ -344,6 +362,7 @@ export function readScopes(
     present: true,
     error: parsed.error,
     refused: parsed.refused,
+    raw: text,
   };
 }
 
@@ -517,13 +536,71 @@ export function setScope(
  * shape `sessions.ts` uses, and for the same reason (a reader never sees half a
  * file, and same directory means same filesystem means the rename is a rename).
  *
+ * It is a COMPARE-AND-SWAP when the caller hands it the read it worked from:
+ * the file is re-read immediately before the rename, and a file that changed
+ * since sends the caller's change through `reapply` against the new content
+ * rather than overwriting it. Two writers exist — the console `scope` command
+ * and the MCP `scope` tool — and before this the second one to rename simply
+ * deleted the first one's entry (#92 review, F3).
+ *
  * This one MAY throw: its only caller is a console command with an owner
  * watching, and a write that failed silently is the failure this whole package
  * keeps recording.
  */
-export function writeScopes(path: string, registry: ScopeRegistry): void {
+export function writeScopes(
+  path: string,
+  registry: ScopeRegistry,
+  /**
+   * THE COMPARE-AND-SWAP, when the caller can supply one (#92 review, F3).
+   *
+   * `basedOn` is the read this registry was computed from; `reapply` says how to
+   * compute it again against whatever is there now. Omit them and this is the
+   * plain overwrite it always was — which is right for `--force`, whose whole
+   * job is to replace a file nobody could read.
+   */
+  cas?: {
+    readonly basedOn: ScopeRead;
+    readonly reapply: (fresh: ScopeRegistry | null) => ScopeRegistry;
+  },
+): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${String(process.pid)}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(registry, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  renameSync(tmp, path);
+  const write = (next: ScopeRegistry, expect: string | null | undefined): boolean => {
+    const tmp = `${path}.${String(process.pid)}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    // THE CHECK, as late as it can be: immediately before the rename, so the
+    // window a change can hide in is the syscall itself rather than everything
+    // the caller did between its read and this call.
+    if (expect !== undefined && rawScopes(path) !== expect) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* a temp file that is already gone is the outcome we wanted */
+      }
+      return false;
+    }
+    renameSync(tmp, path);
+    return true;
+  };
+  if (cas === undefined) {
+    write(registry, undefined);
+    return;
+  }
+  if (write(registry, cas.basedOn.raw)) return;
+  // Somebody wrote between the caller's read and now. Their entry is IN the file
+  // and this registry does not have it — writing it would delete their change,
+  // which is exactly the lost update the review measured (two `scope` writers,
+  // one absent file, one surviving entry). So the caller's change is re-applied
+  // to what is actually there, and written once more. Once: a second loser is a
+  // third writer, and a console command that spun would be worse than a console
+  // command that reports.
+  write(cas.reapply(readScopes(path).registry), undefined);
+}
+
+/** The file's bytes exactly as they are, or null — the CAS comparand. */
+function rawScopes(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
 }
