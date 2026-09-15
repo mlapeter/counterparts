@@ -1,6 +1,36 @@
-# Handoff — resume here on 2026-09-15
+# Handoff — resume here
 
-## 2026-09-14, evening — read this first
+## 2026-09-15, afternoon — read this first
+
+**State:** master **`76223ab`**, shared checkout deployed at `76223ab` (`doctor` Checkout GREEN). Nothing merged
+today, no restart owed. The morning check RAN (all of it, ~21:00Z): `doctor` 0 red / 1 amber / 12 green; the
+2026-09-14 daily ACTIVE (95 turns, `activeDays {0:1, P:3}`, `memory.reinforced` FAIL as forecast); **I33 closed**
+(backfill 211 → 0, no failures, surrogates embedded not skipped); **band of record 0 of 14,557**; the #99/#100 rows
+all present and clean; one `adapter.checkout` row. Record: LAUNCH-STATUS 2026-09-15 and PARALLEL-RUN-STATUS's
+2026-09-15 state section (this PR).
+
+**Two new items from the check.** The **first live revision** fired at 20:55:37Z: a migrated self belief was
+superseded on a **bar of 0**, because all 453 migrated schema rows carry zero dimensions → **G56** (owner ruling:
+seed dimensions, or accept). The daily's `self.schema.pressure` watch hard-codes "no such row exists" and is now
+simply wrong → **G55** (tools-side fix in `tools/parallel/record.ts`). Doctor's amber (2 unembedded) is the two
+schema rows minted after the last hook boundary; the next boundary clears it.
+
+**In flight:** the **#92 rebase** on an Opus agent in its own worktree (re-apply intent over #95/#99/#108's
+`hooks.ts`, `bin/hook.ts`, `server.ts`; suite + install loop both ways + hash `c3af0bef00209ba6`; force-push in
+place; no merge). When it reports: adversarial review on Opus (attack the registry's longest-prefix match, the
+`off` path's "no output, no store created" guarantee against `spawnWorker` / the doctor notice / `recall.credit`,
+the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge
+suite, then the owner's three rulings (dormant first-launch ask; unset = on; `off` silent) before or at merge.
+
+**Next, in order:** (1) #92 review + rulings; (2) G55 (small tools PR) and G50 (small tool-side PR) — one Opus
+agent each or batched; (3) G52–G54 and G56 rulings with the owner; (4) tomorrow's morning check is `doctor` then
+`daily.ts --date 2026-09-15` — expect the amber gone, `memory.reinforced` still FAIL until a session expands or
+quotes, and watch for a second `revision.pressure` row (each is a migrated belief revised at bar 0 until G56 is
+ruled).
+
+---
+
+## 2026-09-14, evening — read second
 
 **State:** master **`8d7bd97`**. Merged today in order: #95 (worker degrades, durable refusals, embedder
 poison-proof), #96 (daily turn source), #97/#98 (records), #101 (declaration), **#100** (U9: `sleep.cycle` +

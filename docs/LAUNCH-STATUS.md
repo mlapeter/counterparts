@@ -1526,3 +1526,67 @@ alone and not committed here.
 ### Spend
 
 $0.00 by the session; the review + fixes ran ~380k tokens on Opus.
+
+## 2026-09-15 — doctor's first morning: green; I33 closed; band of record 0; the first live revision; G55, G56
+
+One session (Fable), the morning check from the 2026-09-14 night handoff, all read-only except the daily under the
+standing permission. Master and the shared checkout both `76223ab`; nothing merged, no restart owed. The full
+numbers are in PARALLEL-RUN-STATUS's 2026-09-15 state section; this entry keeps what changes the list.
+
+### What is healthy
+
+- **`doctor`** (its first live morning): 0 red, 1 amber, 12 green. It replaced the three-part config check in one
+  screen and agreed with it (`dataDir` → `~/.counterparts/store`; two credential names; `livedDay` 189,
+  `lastActiveDate` 2026-09-15). The checkout row reads `origin/master (detached@76223ab), clean` — I36's guard
+  is visible from the console and as a durable `adapter.checkout` row (`reason: master`).
+- **Daily 2026-09-14: ACTIVE**, 95 turns from `v2:adapter.recall`; `memory.reinforced` FAIL exactly as forecast
+  (631 post-launch rows, none reinforced or used); `run.json` `activeDays {0:1, P:3}`.
+- **I33 is closed.** The backfill drained 211 → 0 in seven minutes after restart #6 with `failed: 0` and empty
+  `codes` on every row, and the two surrogate ids embedded after sanitization rather than joining the skip list
+  (`skipped: 0` everywhere). **Band of record 0 of 14,557** after the first decay pass (U8's forecast held;
+  `reconciled: 931` on the newest decay entry).
+- **The rows #100 and #99 promised are all present** since restart #7: 40 `sleep.cycle` (all `ran`, 0 failed),
+  40 `recall.credit` (`no-candidates` / `nothing-to-credit`, none failed, none over budget), 1 `self.briefing`
+  (one per lived day is the design — the briefing phase reads `already-done-today` on the other 39 cycles).
+
+### The first live revision, and what it exposed
+
+At 20:55:37Z the detached worker credited a challenge (`mem_93a718c73736`, source `fallback`) against a migrated
+self belief (`sch_f4024c2866d6`, born 184): force 0.144 against a **bar of 0**, verdict REVISE, successor
+`sch_6aa99f5cdef6` (accommodation, band semantic, real dimensions), the old row archived `revised-by-pressure` with
+one `versions` row. The first `revision.pressure` row the live store has ever written, and the mechanism ran end to
+end as CONSTITUTION 7 describes. The bar was zero because `revisionBar = iota(kind) × strength(old, d)` and every
+migrated schema row was minted with relevance = emotional = predictive = 0 — **453 of 453** live migrated schema
+rows (268 entity, 100 self, 52 person, 33 skill). For the whole migrated self, "superseded only when the bar is
+crossed" is currently "superseded on the first credited challenge". Post-launch accommodation rows carry
+dimensions, so the gap closes on its own only as the migrated rows are replaced one challenge at a time.
+
+### Also seen
+
+- The worker's post-deposit cycle (20:56Z: `sweep.gate`, decay, briefing) runs no backfill, so the two schema rows
+  minted at 20:55:37Z (`sch_6aa99f5cdef6`, `sch_8c4576259364`) read as doctor's amber "2 with no vector" until the
+  next hook boundary. Ordering, not a leak; doctor's fix line ("must fall run over run") is the right reading.
+- `sleep.symmetry` was again not driven (no `--lived-day`); the two schema watches are not rows by construction.
+- **Process:** the owner asked whether to run `doctor` in the session or from the shared checkout. Either works;
+  it is read-only and takes `--config`. Run from the shared checkout is fine under G51 as long as nothing is
+  developed there.
+
+### Open, this entry
+
+| # | Ask | Status |
+|---|---|---|
+| G55 | **The daily's `self.schema.pressure` watch is now false, not merely unexercised.** `tools/parallel/record.ts` hard-codes `not-exercised` with "no durable revision-pressure row exists in this build"; one does (`revision.pressure`, durable since the SEAMS item-K change), and the first fired today. Make the watch read the rows on the date — count, target ids, and whether a supersede followed (`versions` row / `archived_reason: revised-by-pressure`) — with `not-exercised` reserved for a day with no row. Tools-side; no core change. | open — small PR |
+| G56 | **Every migrated schema row has a revision bar of zero.** `relevance = emotional = predictive = 0` on all 453 live migrated schema rows, so `iota × strength = 0` and the first credited challenge revises (seen live 20:55:37Z). Ruling: (a) a one-off repair that seeds dimensions for migrated schema rows (from their band, kind and lineage, the way accommodation mints them) so the slow half of CONSTITUTION 7 applies to the migrated self; or (b) accept that the migrated self is cheap to revise and let accommodation replace it challenge by challenge. (a) touches the live store once and needs its own declaration; (b) is a sentence in the migrate tool's NOTES. | needs owner |
+| G50 | unchanged — title-handle expansion earns no credit; tool-side. | open |
+| G52–G54 | unchanged — doctor's "unknown" severity / dropped-notice row; U7 recency-aware hints (a ruling); the OQ4 footnote-header instruction (a ruling). | needs owner |
+
+### In flight
+
+- **#92 rebase**: an Opus agent in its own worktree is re-applying the scope-controls intent onto master's
+  `hooks.ts` / `bin/hook.ts` / `server.ts` (rewritten by #95, #99, #108), with the suite, the install loop both
+  ways and the surface hash as gates; it force-pushes the PR branch in place and does not merge. The three
+  rulings the PR body names (dormant first-launch ask; unset = on; `off` silent) are still the owner's.
+
+### Spend
+
+$0.00 by the session; the morning check ran on Fable; the rebase agent runs on Opus.

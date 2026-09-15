@@ -5,6 +5,60 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-15: doctor's first morning, green; I33 closed; band of record 0; the first live revision landed on a zero bar
+
+*Appended by the session that ran the morning check (~21:00Z; the day's first session opened 20:48Z). Numbers
+from `counterparts doctor`, `verify --dir`, the 2026-09-14 daily (`days/2026-09-14.json`) and read-only
+`sqlite3` on `operational.sqlite` `events` under the standing permission. Nothing merged, nothing restarted;
+master and the shared checkout both `76223ab`.*
+
+- **`doctor` (first live run):** 0 red, 1 amber, 12 green. Config → `~/.counterparts/store`; credentials file
+  mode 600 naming both keys; checkout `origin/master` detached `76223ab` clean; clock lived day 189,
+  `lastActiveDate` 2026-09-15, newest boundary today; newest `sweep.gate` ran 3 of 15 scopes; newest
+  `sleep.cycle` 0 failed phases; newest `recall.credit` `no-candidates`; no spawn refusals standing. The amber is
+  **Vectors: 2 live memories with no vector, 0 skipped** — see the last bullet; not a regression.
+- **Daily 2026-09-14: ACTIVE.** 95 turns counted from `v2:adapter.recall` (floor 5); v2 84 `adapter.boundary` /
+  75 episode-ask; v1 muted-consistent (99 `ab.muted`: 4 session_start, 95 user_prompt_submit); memories 15,879,
+  created 85; cross-encoding 0/2 and 0/4, no red-line. **`memory.reinforced` FAIL** as forecast: 631 post-launch
+  rows, 0 with `reinforced_days ≥ 1`, 0 with `uses ≥ 1`, the oldest 5 lived days old. `run.json` `activeDays` after this daily:
+  `{0:1, P:3}` — three of the ≥ 7 phase-P days counted.
+- **I33 CLOSED.** `adapter.embed.backfill` since restart #6 (15:15Z 09-14): 64, 64, 40, 5 embedded in the first
+  seven minutes (`remaining` 97 → 39 → 0), then single-digit runs at every boundary; `failed` 0 and `codes` empty
+  on every row; `skipped` 0 throughout — the two surrogate ids were EMBEDDED after sanitization (lone surrogate →
+  U+FFFD, #95), not skipped, which is better than the handoff expected. `verify --dir`: 14,877 float32 vectors,
+  0 indexed-but-not-live.
+- **Band of record: 0 of 14,557 live rows disagree** (0 not yet ranked) — U8's forecast (~869, then 0 after the
+  first decay pass) held; the newest `sleep.cycle` decay entry carries `reconciled: 931`.
+- **The new rows, since restart #7 (16:43Z 09-14):** 40 `sleep.cycle` (every one `reason: ran`, `failed: 0`,
+  every phase named); 40 `recall.credit` (22 `no-candidates`, 18 `nothing-to-credit`, credited 0 — the
+  expected reading until a session expands or quotes; no `failed`, no `budget-exceeded`); **1 `self.briefing`**
+  (2026-09-15 20:56:14Z, day 189, 7,463 of 8,840 B, lanes identity 3 / craft 0 / threads 6 / hints 1 /
+  horizon 2, trimmed 7) — ONE per lived day is the design: the briefing phase reads `already-done-today` on 39
+  cycles and `ran` on 1, and day 188's render predates the restart, so the missing 09-14 row is timing, not a
+  gap; **1 `adapter.checkout`** (`reason: master`, `76223ab`, `atMaster: true`, `dirty: 0`) — the I36 guard is
+  visible; 2 wakes delivered (7,557 B and 7,577 B of 9,000; `sentinel: true`).
+- **The first live revision of a self belief, 20:55:37Z** (`revision.pressure`, the first such row this store has
+  ever held): the detached worker's interpret run (five `gate.chunk` rows 20:51:58–20:55:36) credited a
+  challenge from `mem_93a718c73736` (source `fallback`, born 188) against `sch_f4024c2866d6` (self belief,
+  `migrated`, born 184): force 0.144, pressure after 0.144, **bar 0 → REVISE**. Successor `sch_6aa99f5cdef6`
+  (`accommodation`, band semantic, relevance/emotional/predictive 0.85/0.3/0.8); the old row archived
+  `revised-by-pressure`, one `versions` row. The mechanism did what CONSTITUTION 7 says — pressure, bar,
+  supersede with lineage — **but the bar was zero because `bar = iota(kind) × strength(old, d)` and every
+  migrated schema row has relevance = emotional = predictive = 0**: 453 of 453 live migrated schema rows (268
+  entity, 100 self — 71 episodic, 29 semantic — 52 person, 33 skill). For the migrated self, the "slow half" is a
+  no-op: the first credited challenge revises. Post-launch accommodation rows carry dimensions and a real bar.
+  → LAUNCH-STATUS **G56** (ruling: seed dimensions for migrated schema rows, or accept that the migrated self is
+  cheap to revise).
+- **The daily's `self.schema.pressure` watch is now false**, not just unexercised: `tools/parallel/record.ts`
+  hard-codes "no durable revision-pressure row exists in this build" while one now does. → **G55**, a
+  tools-side fix (read `revision.pressure` rows on the date: count, targets, and whether a supersede followed).
+- **Why doctor's amber is 2 and the newest backfill says 0:** the worker's post-deposit cycle at 20:56Z writes
+  `sweep.gate` + `sleep.cycle` + `self.briefing` and runs no backfill (that is a hook-boundary step); the two
+  unembedded rows are `sch_6aa99f5cdef6` and `sch_8c4576259364`, both minted at 20:55:37Z after the last hook
+  boundary (20:51:07Z). The next boundary embeds them. Ordering, not disagreement.
+- **Not driven today:** `sleep.symmetry` (no `--lived-day` given), `self.schema.tripped` / `.quarantined` (not
+  rows). No restart owed; no core change landed.
+
 ## State — 2026-09-14, night: the evening batch landed (#104, #105, #106, #108), deployed, restart #8
 
 *Appended by the coordinating session after the batch. Numbers from `gh pr view`, `restarts.jsonl`,
