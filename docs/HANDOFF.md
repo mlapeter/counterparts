@@ -43,8 +43,11 @@ suite, then the owner's three rulings (dormant first-launch ask; unset = on; `of
 **Next, in order:** (1) #92 review + rulings; (2) **G55 is PR #111** (`ed83450`, tools only, suite 2026 / 0; merge under the
 standing approval after a preview-merge suite — it changes what tomorrow's daily prints for `self.schema.pressure`) and
 **G50 is PR #112** (`f0428a8`, NOT small: a new `sessions/expansions.jsonl` translation log on the boundary's credit path,
-overlapping #92 on `hooks.ts` / `server.ts`; adversarial review on Opus RUNNING; merge order vs #92 to be decided by the
-trial merge in that review; the two rulings it raised are in LAUNCH-STATUS G50); (3) G52–G54 and G56 rulings with the owner; (4) tomorrow's morning check is `doctor` then
+overlapping #92 on `hooks.ts` / `server.ts`; review DONE: MERGE WITH FIXES, F1 BLOCKS — three confirmed over-credit sequences through the shared handle log;
+fixer on Opus RUNNING (scope filter + session-start floor, compaction window, at-ordering, read reason on the row, inside
+the try). **Merge order: #92 first**, then rebase #112 (import-block conflicts only; combined suite 2080 / 0). New
+G57 (core has no confidentiality filter at credit time — the id door is open, pre-existing) and G58 (`recall`'s
+`claim` text false twice; unsalted handle key) need the owner; (3) G52–G54 and G56 rulings with the owner; (4) tomorrow's morning check is `doctor` then
 `daily.ts --date 2026-09-15` — expect the amber gone, `memory.reinforced` still FAIL until a session expands or
 quotes, and watch for a second `revision.pressure` row (each is a migrated belief revised at bar 0 until G56 is
 ruled).
