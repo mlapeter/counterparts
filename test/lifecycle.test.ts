@@ -589,6 +589,41 @@ describe("the handle door (G50)", () => {
     expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
   });
 
+  test("a throw in the translation still leaves the boundary its row", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    await mint(a);
+    c.store.advanceClock("2026-01-02");
+    const before = creditRows(c).length;
+
+    // A poisoned expansion, standing in for any future throw between the slice
+    // and `creditReferences`: the translation calls `handleKey`, which calls
+    // `.trim()`. The property under test is not this value — it is that NO
+    // failure on this path can cost the boundary its row. A seam that only
+    // wrote rows when it worked is the ring this repo already learned from
+    // (I32), and the three translation lines sat outside the try that makes
+    // that true.
+    const poisoned = {
+      trim(): string {
+        throw new Error("EPOISON");
+      },
+    } as unknown as string;
+
+    a.stop(
+      input({
+        sessionId: "s-poisoned",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Something went wrong reading that." }],
+        expansions: [{ atTurn: 3, ids: [poisoned] }],
+      }),
+    );
+
+    const rows = creditRows(c);
+    expect(rows.length).toBe(before + 1);
+    expect(rows.at(-1)?.reason).toBe("failed");
+  });
+
   test("a boundary with no expansion at all says so rather than reporting a zero", async () => {
     const a = adapter();
     seed(a.counterpart);

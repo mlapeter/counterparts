@@ -1003,22 +1003,28 @@ export class ClaudeCodeAdapter {
     // The file is read only when there is something to translate — and the row
     // says which of those two it was. `resolvedHandles: 0` alone cannot tell an
     // idle table from a dead one, which is the exact shape of I32's failure.
-    let resolutions = new Map<string, string | null>();
+    //
+    // ALL OF IT INSIDE THE TRY. The first draft translated before the try, which
+    // meant any throw on this path cost the boundary its row entirely — and a
+    // seam that only writes rows when it works is the ring I32 is named for.
+    // Only the `expansionsRead` declaration, which cannot throw, sits outside,
+    // so the `failed` row can still say how far the read had got.
     let expansionsRead: ExpansionsRead | "not-read" = "not-read";
-    if (raw.length > 0) {
-      const dataDir = this.counterpart.store.dir;
-      const started = readSession(dataDir, input.sessionId)?.startedAt;
-      const read = readHandleResolutions(dataDir, {
-        now: this.nowFn(),
-        scope: input.scope,
-        ...(started === undefined ? {} : { since: started }),
-      });
-      resolutions = read.map;
-      expansionsRead = read.reason;
-    }
-    const resolvedHandles = countTranslated(raw, resolutions);
-    const expansions = translateExpansions(raw, resolutions);
     try {
+      let resolutions = new Map<string, string | null>();
+      if (raw.length > 0) {
+        const dataDir = this.counterpart.store.dir;
+        const sessionStartedAt = readSession(dataDir, input.sessionId)?.startedAt;
+        const read = readHandleResolutions(dataDir, {
+          now: this.nowFn(),
+          scope: input.scope,
+          ...(sessionStartedAt === undefined ? {} : { since: sessionStartedAt }),
+        });
+        resolutions = read.map;
+        expansionsRead = read.reason;
+      }
+      const resolvedHandles = countTranslated(raw, resolutions);
+      const expansions = translateExpansions(raw, resolutions);
       const summary = this.counterpart.creditReferences(input.sessionId, {
         assistantTurns,
         expansions,
@@ -1072,7 +1078,10 @@ export class ClaudeCodeAdapter {
         day,
         code,
         turns: assistantTurns.length,
-        expansions: expansions.length,
+        // The RAW count: the translated list may not exist on this path, and a
+        // translation is one-for-one anyway.
+        expansions: raw.length,
+        expansionsRead,
       });
     }
   }
