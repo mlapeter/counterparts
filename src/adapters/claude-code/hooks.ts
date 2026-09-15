@@ -65,6 +65,7 @@ import {
 } from "../scopes.js";
 import type { ScopeVerdict } from "../scopes.js";
 import { countTranslated, readHandleResolutions, translateExpansions } from "../expansions.js";
+import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase } from "../sessions.js";
 
@@ -999,16 +1000,21 @@ export class ClaudeCodeAdapter {
     // floor; that is under-credit's direction only in the sense that it does not
     // tighten, and it is the residual §9 records.
     //
-    // The file is read only when there is something to translate.
+    // The file is read only when there is something to translate — and the row
+    // says which of those two it was. `resolvedHandles: 0` alone cannot tell an
+    // idle table from a dead one, which is the exact shape of I32's failure.
     let resolutions = new Map<string, string | null>();
+    let expansionsRead: ExpansionsRead | "not-read" = "not-read";
     if (raw.length > 0) {
       const dataDir = this.counterpart.store.dir;
       const started = readSession(dataDir, input.sessionId)?.startedAt;
-      resolutions = readHandleResolutions(dataDir, {
+      const read = readHandleResolutions(dataDir, {
         now: this.nowFn(),
         scope: input.scope,
         ...(started === undefined ? {} : { since: started }),
       });
+      resolutions = read.map;
+      expansionsRead = read.reason;
     }
     const resolvedHandles = countTranslated(raw, resolutions);
     const expansions = translateExpansions(raw, resolutions);
@@ -1042,6 +1048,11 @@ export class ClaudeCodeAdapter {
          *  Beside `unresolvedHandles`, it is the pair that says whether a
          *  by-title expansion earned credit or fell through the old gap. */
         resolvedHandles,
+        /** WHY the log answered the way it did. `resolvedHandles: 0` on its own
+         *  cannot tell an idle table from an absent, unreadable or corrupt one,
+         *  and a number that cannot say which is how I32 stayed invisible.
+         *  `not-read` means this slice carried no expansion to translate. */
+        expansionsRead,
         skippedForBudget: summary.skippedForBudget,
         unreadable: summary.unreadable,
         refused: summary.refused,

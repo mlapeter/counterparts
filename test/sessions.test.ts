@@ -232,7 +232,7 @@ describe("pruning", () => {
 describe("the handle-resolution log", () => {
   test("a resolution round-trips, and the file holds a HASH rather than the handle", () => {
     expect(recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 })).toBe(true);
-    expect(readHandleResolutions(dir, { now: T0 }).get(handleKey("storage split"))).toBe("mem_abc123abc123");
+    expect(readHandleResolutions(dir, { now: T0 }).map.get(handleKey("storage split"))).toBe("mem_abc123abc123");
     const raw = readFileSync(expansionsPath(dir), "utf8");
     expect(raw).not.toContain("storage split");
     expect(raw).toContain(handleKey("storage split"));
@@ -243,25 +243,25 @@ describe("the handle-resolution log", () => {
 
   test("a handle is matched the way the resolver matches a title: trimmed and case-folded", () => {
     recordHandleResolution(dir, { handle: "Storage Split", id: "mem_abc123abc123", at: T0 });
-    expect(readHandleResolutions(dir, { now: T0 }).get(handleKey("  storage split "))).toBe("mem_abc123abc123");
+    expect(readHandleResolutions(dir, { now: T0 }).map.get(handleKey("  storage split "))).toBe("mem_abc123abc123");
   });
 
   test("the newest answer wins — a title that moved is not credited to the memory it left", () => {
     recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
     recordHandleResolution(dir, { handle: "the split", id: "mem_bbbbbbbbbbbb", at: T0 + 1000 });
-    expect(readHandleResolutions(dir, { now: T0 + 1000 }).get(handleKey("the split"))).toBe("mem_bbbbbbbbbbbb");
+    expect(readHandleResolutions(dir, { now: T0 + 1000 }).map.get(handleKey("the split"))).toBe("mem_bbbbbbbbbbbb");
   });
 
   test("a resolution past the window translates nothing", () => {
     recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
-    expect(readHandleResolutions(dir, { now: T0 + EXPANSION_TTL_MS + 1 }).size).toBe(0);
+    expect(readHandleResolutions(dir, { now: T0 + EXPANSION_TTL_MS + 1 }).map.size).toBe(0);
   });
 
   test("a half-written line is skipped, never thrown over", () => {
     recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
     appendFileSync(expansionsPath(dir), '{"key":"deadbeef","id":"mem_c\n', "utf8");
     appendFileSync(expansionsPath(dir), '{"key":"","id":"mem_dddddddddddd","at":1}\n', "utf8");
-    const live = readHandleResolutions(dir, { now: T0 });
+    const live = readHandleResolutions(dir, { now: T0 }).map;
     expect(live.size).toBe(1);
     expect(live.get(handleKey("the split"))).toBe("mem_aaaaaaaaaaaa");
   });
@@ -277,7 +277,7 @@ describe("the handle-resolution log", () => {
     expect(statSync(expansionsPath(dir)).size).toBeLessThanOrEqual(EXPANSIONS_MAX_BYTES);
     // The newest resolution survives every compaction — it is the one the next
     // boundary is about to ask for.
-    expect(readHandleResolutions(dir, { now: T0 }).get(handleKey("handle number 1999"))).toBe(
+    expect(readHandleResolutions(dir, { now: T0 }).map.get(handleKey("handle number 1999"))).toBe(
       `mem_${"1999".padStart(12, "0")}`,
     );
   });
@@ -286,7 +286,7 @@ describe("the handle-resolution log", () => {
     recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa", at: T0 });
     // A later asking was answered with nothing — withheld, unknown, ambiguous.
     expect(recordHandleResolution(dir, { handle: "the clinic note", id: null, at: T0 + 1000 })).toBe(true);
-    const live = readHandleResolutions(dir, { now: T0 + 1000 });
+    const live = readHandleResolutions(dir, { now: T0 + 1000 }).map;
     expect(live.get(handleKey("the clinic note"))).toBeNull();
     // A shadow translates nothing: the handle reaches `reference.ts` as itself.
     expect(translateExpansions(["the clinic note"], live)).toEqual(["the clinic note"]);
@@ -299,7 +299,7 @@ describe("the handle-resolution log", () => {
     for (let i = 0; i < 2000; i++) {
       recordHandleResolution(dir, { handle: `filler ${String(i)}`, id: null, at: T0 + 2000 });
     }
-    const after = readHandleResolutions(dir, { now: T0 + 2000 });
+    const after = readHandleResolutions(dir, { now: T0 + 2000 }).map;
     expect(after.has(handleKey("the clinic note"))).toBe(false);
     // And the resolution is not left standing in its place, which is the
     // failure that would actually leak.
@@ -314,7 +314,7 @@ describe("the handle-resolution log", () => {
     // the file rather than its oldest.
     recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa", at: T0 + 1000 });
     recordHandleResolution(dir, { handle: "the clinic note", id: null, at: T0 + 2000 });
-    const live = readHandleResolutions(dir, { now: T0 + 2000 });
+    const live = readHandleResolutions(dir, { now: T0 + 2000 }).map;
     expect(live.has(handleKey("the clinic note"))).toBe(true);
     expect(live.get(handleKey("the clinic note"))).toBeNull();
   });
@@ -344,7 +344,7 @@ describe("the handle-resolution log", () => {
 
     compactExpansions(path, T0 + 10_000);
 
-    const live = readHandleResolutions(dir, { now: T0 + 10_000 });
+    const live = readHandleResolutions(dir, { now: T0 + 10_000 }).map;
     expect(live.get(key)).toBe("mem_bbbbbbbbbbbb");
     expect(live.size).toBe(EXPANSIONS_KEEP);
     // The bound is paid for out of the STALEST keys, which is what "newest
@@ -383,14 +383,14 @@ describe("the handle-resolution log", () => {
       );
     });
 
-    const live = readHandleResolutions(dir, { now: T0 + 6000 });
+    const live = readHandleResolutions(dir, { now: T0 + 6000 }).map;
     expect(live.has(key)).toBe(true);
     expect(live.get(key)).toBeNull();
   });
 
   test("translation reaches only what the log knows; everything else passes through unchanged", () => {
     recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 });
-    const live = readHandleResolutions(dir, { now: T0 });
+    const live = readHandleResolutions(dir, { now: T0 }).map;
     const raw = ["storage split", "a title nobody resolved", "mem_ffffffffffff"];
     expect(translateExpansions(raw, live)).toEqual([
       "mem_abc123abc123",
@@ -400,10 +400,43 @@ describe("the handle-resolution log", () => {
     expect(countTranslated(raw, live)).toBe(1);
   });
 
+  test("a read SAYS why it came back empty: ok, absent, unreadable, corrupt", () => {
+    // Absent is the ordinary state of a store nobody has expanded a handle in,
+    // and it must not look like the other two.
+    expect(readHandleResolutions(dir)).toMatchObject({ ok: false, reason: "absent" });
+
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    expect(readHandleResolutions(dir, { now: T0 })).toMatchObject({ ok: true, reason: "ok" });
+    // A live table filtered down to nothing is still `ok` — the emptiness is an
+    // answer, not a failure.
+    const stale = readHandleResolutions(dir, { now: T0 + EXPANSION_TTL_MS + 1 });
+    expect(stale.map.size).toBe(0);
+    expect(stale.reason).toBe("ok");
+
+    // Lines, and not one of them a record: a writer on the other side of this
+    // seam producing something this side cannot read.
+    writeFileSync(expansionsPath(dir), "not json at all\n{ also not\n", "utf8");
+    const corrupt = readHandleResolutions(dir, { now: T0 });
+    expect(corrupt.map.size).toBe(0);
+    expect(corrupt).toMatchObject({ ok: false, reason: "corrupt" });
+
+    // There and unopenable. `resolvedHandles: 0` alone could not tell this from
+    // any of the above, which is the shape I32's failure had.
+    chmodSync(expansionsPath(dir), 0o000);
+    try {
+      expect(readHandleResolutions(dir, { now: T0 })).toMatchObject({
+        ok: false,
+        reason: "unreadable",
+      });
+    } finally {
+      chmodSync(expansionsPath(dir), 0o600);
+    }
+  });
+
   test("an empty handle, an empty id, an absent log and an unwritable dir are refusals, never throws", () => {
     expect(recordHandleResolution(dir, { handle: "   ", id: "mem_abc123abc123" })).toBe(false);
     expect(recordHandleResolution(dir, { handle: "a handle", id: "" })).toBe(false);
-    expect(readHandleResolutions(join(dir, "nothing-here")).size).toBe(0);
+    expect(readHandleResolutions(join(dir, "nothing-here")).map.size).toBe(0);
     const locked = mkdtempSync(join(tmpdir(), "counterparts-expansions-locked-"));
     try {
       chmodSync(locked, 0o000);

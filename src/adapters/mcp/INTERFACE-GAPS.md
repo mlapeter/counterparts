@@ -238,6 +238,13 @@ project directory share one table, so within the overlap a call that never reach
 session whose first hook event is the Stop itself has no registry record when the credit
 pass runs (`claim()` precedes `noteSession("boundary")`), so it gets no floor at all.
 
+**The row says why, not just how many.** `readHandleResolutions` returns
+`{ map, ok, reason }` the way `claude-code/transcript.ts#readTranscript` does, and the
+`recall.credit` row carries the reason as `expansionsRead` — `ok`, `absent`, `unreadable`,
+`corrupt`, or `not-read` when the slice had nothing to translate and the file was never
+opened. `resolvedHandles: 0` on its own could not tell a dead table from an idle one, which
+is the failure shape I32 is named for.
+
 Proof: `test/lifecycle.test.ts` "the handle door (G50)" — the positive, the unknown handle,
 the ambiguous handle, and the confidential shadow — "the handle door, across projects
 (G50 review)" for the three shadowless routes and the retired race, and "the handle door,

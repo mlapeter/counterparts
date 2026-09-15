@@ -561,7 +561,7 @@ describe("the handle door (G50)", () => {
     // records what the title reached.
     const answered = (await tool(a).call("recall", { handle: "storage split" })).structuredContent;
     expect(answered["reason"]).toBe("expanded");
-    expect(readHandleResolutions(dir).get(handleKey("storage split"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(handleKey("storage split"))).toBe(id);
 
     // The transcript carries the TITLE, exactly as the host wrote it.
     a.stop(
@@ -582,8 +582,22 @@ describe("the handle door (G50)", () => {
     expect(p["expandedIds"]).toEqual([id]);
     expect(p["unresolvedHandles"]).toBe(0);
     expect(p["resolvedHandles"]).toBe(1);
+    // WHY the log answered: `resolvedHandles` on its own cannot tell an idle
+    // table from an absent or unreadable one (I32's shape).
+    expect(p["expansionsRead"]).toBe("ok");
     expect(c.store.physicsOf(id).uses).toBe(1);
     expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
+  });
+
+  test("a boundary with no expansion at all says so rather than reporting a zero", async () => {
+    const a = adapter();
+    seed(a.counterpart);
+    await mint(a);
+    a.counterpart.store.advanceClock("2026-01-02");
+    a.stop(input({ sessionId: "s-quiet", at: "2026-01-02" }));
+    // The log is not opened when there is nothing to translate, and the row says
+    // that instead of leaving `resolvedHandles: 0` to be read as a dead table.
+    expect(creditPayload(a.counterpart)["expansionsRead"]).toBe("not-read");
   });
 
   test("a handle nobody resolved credits nothing and still counts unresolvedHandles", async () => {
@@ -597,7 +611,7 @@ describe("the handle door (G50)", () => {
     expect(refused["reason"]).toBe("handle-unknown");
     // A refusal resolved nothing, so what it leaves behind is a SHADOW: an
     // entry that translates nothing and overrides any earlier resolution.
-    expect(readHandleResolutions(dir).get(handleKey("a title no memory has"))).toBeNull();
+    expect(readHandleResolutions(dir).map.get(handleKey("a title no memory has"))).toBeNull();
 
     a.stop(
       input({
@@ -643,7 +657,7 @@ describe("the handle door (G50)", () => {
     expect(
       ((await tool(a).call("recall", { handle: "the clinic note" })).structuredContent)["reason"],
     ).toBe("expanded");
-    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
 
     // A DIFFERENT session, not the owner's, asks the same title an hour later.
     const stranger = new McpServer({
@@ -694,7 +708,7 @@ describe("the handle door (G50)", () => {
 
     const answered = (await tool(a).call("recall", { handle: "the twins" })).structuredContent;
     expect(answered["reason"]).toBe("handle-ambiguous");
-    expect(readHandleResolutions(dir).get(handleKey("the twins"))).toBeNull();
+    expect(readHandleResolutions(dir).map.get(handleKey("the twins"))).toBeNull();
 
     a.stop(
       input({
@@ -769,7 +783,7 @@ describe("the handle door, across projects (G50 review)", () => {
     c.store.advanceClock("2026-01-02");
     const answered = (await tool(a).call("recall", { handle: "the clinic note" })).structuredContent;
     expect(answered["reason"]).toBe("expanded");
-    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
     return id;
   }
 
@@ -791,7 +805,7 @@ describe("the handle door, across projects (G50 review)", () => {
     const id = await ownerResolved(a);
     // The other project's session types the title; its tool call dies before
     // `expandHandle`. NOTHING is written — not even a shadow.
-    expect(readHandleResolutions(dir).size).toBe(1);
+    expect(readHandleResolutions(dir).map.size).toBe(1);
 
     strangerStop(a);
 
@@ -815,7 +829,7 @@ describe("the handle door, across projects (G50 review)", () => {
     expect(confused["path"]).toBe("none");
     expect(confused["reason"]).toBe("both-arguments");
     // A refusal by the DISPATCHER leaves no shadow: the handle path never ran.
-    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
 
     strangerStop(a);
 
@@ -840,7 +854,7 @@ describe("the handle door, across projects (G50 review)", () => {
     // the wrong reason, and prove nothing about the filter.
     chmodSync(expansionsPath(dir), 0o600);
     // This is the line that would leak — the owner's, still standing alone.
-    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
 
     strangerStop(a);
 
@@ -860,7 +874,7 @@ describe("the handle door, across projects (G50 review)", () => {
       .structuredContent;
     expect(withheld["reason"]).toBe("handle-confidential-withheld");
     // Read unfiltered, the shadow is the newest answer and hides the owner's id.
-    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBeNull();
+    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBeNull();
 
     // The owner's own boundary, in the owner's own project, still credits: the
     // shadow belongs to a project this session is not in.
@@ -944,7 +958,7 @@ describe("the handle door, before this session started (G50 review)", () => {
       "expanded",
     );
     // It is on disk, in this very project: only the floor keeps it out.
-    expect(readHandleResolutions(dir, { scope: "proj" }).get(handleKey("storage split"))).toBe(id);
+    expect(readHandleResolutions(dir, { scope: "proj" }).map.get(handleKey("storage split"))).toBe(id);
 
     stopWithHandle(a);
 

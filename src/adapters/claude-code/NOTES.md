@@ -532,7 +532,11 @@ tool records it (`adapters/expansions.ts`) and this hook translates the
 transcript's own handle with it on the way in. **What the transcript decides is
 untouched**: which handles the session used, and in which slice. The row gained
 `resolvedHandles` beside `unresolvedHandles`: the pair is what proves the seam
-live in a daily.
+live in a daily — and `expansionsRead` beside them, because a zero that cannot
+say whether the table was idle, absent, unreadable or corrupt is exactly the
+shape I32 hid in. Its values are `ok`, `absent`, `unreadable`, `corrupt`, and
+`not-read` for a slice that carried nothing to translate (the file is not opened
+then).
 
 **"The fix cannot widen credit" was the claim, and it was wrong** — it is written
 down here because the correction is the whole lesson. The transcript says which

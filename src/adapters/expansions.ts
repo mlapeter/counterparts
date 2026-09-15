@@ -250,7 +250,7 @@ export function recordHandleResolution(
 export function readHandleResolutions(
   dataDir: string,
   opts: { now?: number; ttlMs?: number; scope?: string; since?: number } = {},
-): Map<string, string | null> {
+): HandleResolutions {
   const now = opts.now ?? Date.now();
   const ttl = opts.ttlMs ?? EXPANSION_TTL_MS;
   const since = opts.since;
@@ -258,24 +258,55 @@ export function readHandleResolutions(
   // may hold hundreds of lines.
   const want =
     opts.scope === undefined || opts.scope.length === 0 ? null : canonicalScope(opts.scope);
-  const out = new Map<string, string | null>();
+  const map = new Map<string, string | null>();
   let raw: string;
   try {
     raw = readFileSync(expansionsPath(dataDir), "utf8");
-  } catch {
+  } catch (err) {
     // Absent or unreadable: no translations, which credits exactly what a
-    // pre-2026-09-15 store credited. Never a reason to fail a boundary.
-    return out;
+    // pre-2026-09-15 store credited. Never a reason to fail a boundary — but
+    // the two are told apart, because "no file" and "a file nobody can open"
+    // call for different repairs.
+    const absent = (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
+    return { map, ok: false, reason: absent ? "absent" : "unreadable" };
   }
-  for (const record of parseLines(raw)) {
+  const parsed = parseLines(raw);
+  for (const record of parsed.records) {
     if (now - record.at > ttl) continue;
     if (want !== null && !scopeMatches(record.scope, want)) continue;
     // The session floor. INCLUSIVE, because a resolution stamped in the same
     // millisecond the session was registered is this session's own.
     if (since !== undefined && record.at < since) continue;
-    out.set(record.key, record.id);
+    map.set(record.key, record.id);
   }
-  return out;
+  // A file with lines in it and not one of them a record: a writer on the other
+  // side of this seam is producing something this side cannot read, which is
+  // the one shape a filtered-to-empty read must never be confused with.
+  if (parsed.lines > 0 && parsed.records.length === 0) {
+    return { map, ok: false, reason: "corrupt" };
+  }
+  return { map, ok: true, reason: "ok" };
+}
+
+/**
+ * Why the map came back the size it did — the shape `transcript.ts#readTranscript`
+ * already uses, and for the reason I32 taught: an empty answer that cannot say
+ * whether it was reading an idle table or a dead one is how a broken seam looks
+ * exactly like a quiet one on the daily.
+ *
+ *   `ok`         — the file was read (an empty live table is still `ok`)
+ *   `absent`     — no file yet; the ordinary state of a store nobody has
+ *                  expanded a handle in
+ *   `unreadable` — the file is there and this process cannot open it
+ *   `corrupt`    — lines, and not one of them a record
+ */
+export type ExpansionsRead = "ok" | "absent" | "unreadable" | "corrupt";
+
+export interface HandleResolutions {
+  /** `key → id | null`, filtered by TTL, scope and the session floor. */
+  readonly map: Map<string, string | null>;
+  readonly ok: boolean;
+  readonly reason: ExpansionsRead;
 }
 
 /** Records are written canonical, so the string compare answers almost always;
@@ -368,7 +399,7 @@ export function compactExpansions(
   // BYTES, not characters: the tail is spliced back by offset below.
   const offset = buf.length;
   const live = new Map<string, HandleResolution>();
-  for (const record of parseLines(buf.toString("utf8"))) {
+  for (const record of parseLines(buf.toString("utf8")).records) {
     if (now - record.at > EXPANSION_TTL_MS) continue;
     live.set(record.key, record);
   }
@@ -397,12 +428,19 @@ export function compactExpansions(
   }
 }
 
-/** Lines that are not a record are skipped, never thrown over: a half-written
- *  line from a host that died mid-append is an ordinary thing to find here. */
-function parseLines(raw: string): HandleResolution[] {
-  const out: HandleResolution[] = [];
+/**
+ * Lines that are not a record are skipped, never thrown over: a half-written
+ * line from a host that died mid-append is an ordinary thing to find here.
+ *
+ * `lines` counts the non-empty ones it was OFFERED, so a caller can tell a file
+ * with nothing in it from a file with nothing readable in it.
+ */
+function parseLines(raw: string): { records: HandleResolution[]; lines: number } {
+  const records: HandleResolution[] = [];
+  let lines = 0;
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
+    lines += 1;
     let parsed: unknown;
     try {
       parsed = JSON.parse(line);
@@ -410,9 +448,9 @@ function parseLines(raw: string): HandleResolution[] {
       continue;
     }
     const record = parseRecord(parsed);
-    if (record !== null) out.push(record);
+    if (record !== null) records.push(record);
   }
-  return out;
+  return { records, lines };
 }
 
 function parseRecord(raw: unknown): HandleResolution | null {
