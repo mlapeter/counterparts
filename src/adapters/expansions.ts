@@ -91,7 +91,16 @@ export const EXPANSION_TTL_MS = 24 * 60 * 60 * 1000;
 /** **CAL.** Compact when the file passes this. ~90 bytes a line, so ~700 lines. */
 export const EXPANSIONS_MAX_BYTES = 64 * 1024;
 
-/** **CAL.** How many live resolutions a compaction keeps, newest last. */
+/**
+ * **CAL.** How many live resolutions a compaction keeps.
+ *
+ * "Newest" means newest by `at`, and that is a correction: it used to mean
+ * newest by position in the file, which is not the same thing once a handle is
+ * re-resolved. `compactExpansions` sorts before it slices. READING is still
+ * arrival order — `readHandleResolutions` takes the LAST line for a key, which
+ * is how a shadow appended a moment ago overrides the resolution above it, and
+ * why the lines `compactExpansions` splices back in go after the sorted block.
+ */
 export const EXPANSIONS_KEEP = 256;
 
 export interface HandleResolution {
@@ -185,8 +194,11 @@ export function recordHandleResolution(
 }
 
 /**
- * Every live answer, newest winning, as `key → id | null`. A `null` value is a
- * shadow and translates nothing (see `HandleResolution.id`).
+ * Every live answer as `key → id | null`, the LAST line for a key winning — the
+ * file's own arrival order, which is what makes a shadow appended a moment ago
+ * override the resolution above it. (`compactExpansions` sorts by `at` when it
+ * decides what to KEEP; that is a different question from what wins.) A `null`
+ * value is a shadow and translates nothing (see `HandleResolution.id`).
  *
  * **FILTERED BY SCOPE when `opts.scope` is given, and the caller that credits
  * always gives it.** The first draft of this module refused to filter, reasoning
@@ -309,7 +321,8 @@ export function countTranslated(
 }
 
 /**
- * Rewrite the file with the newest live resolutions and nothing else.
+ * Rewrite the file with the newest live resolutions — newest BY `at` — and
+ * nothing else.
  *
  * **The window is narrowed to re-read → rename, and that is not the same as
  * closed.** The first draft read the whole file, wrote the temp copy, and
@@ -359,7 +372,13 @@ export function compactExpansions(
     if (now - record.at > EXPANSION_TTL_MS) continue;
     live.set(record.key, record);
   }
-  const keep = [...live.values()].slice(-EXPANSIONS_KEEP);
+  // SORTED BY `at`, because a Map is keyed by FIRST appearance and the slice is
+  // what pays for the bound. A handle resolved long ago and re-resolved a
+  // moment ago sits at the TOP of the map with the newest timestamp on it, so
+  // an unsorted `slice(-KEEP)` dropped exactly the entry the next boundary was
+  // about to ask for and kept 256 staler ones instead. The sort is stable, so
+  // records sharing an `at` keep their arrival order.
+  const keep = [...live.values()].sort((a, b) => a.at - b.at).slice(-EXPANSIONS_KEEP);
   const tmp = `${path}.${String(process.pid)}.tmp`;
   try {
     writeFileSync(tmp, keep.map((r) => `${JSON.stringify(r)}\n`).join(""), {

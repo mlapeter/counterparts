@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 import {
   EXPANSIONS_FILE,
+  EXPANSIONS_KEEP,
   EXPANSIONS_MAX_BYTES,
   EXPANSION_TTL_MS,
   compactExpansions,
@@ -316,6 +317,39 @@ describe("the handle-resolution log", () => {
     const live = readHandleResolutions(dir, { now: T0 + 2000 });
     expect(live.has(handleKey("the clinic note"))).toBe(true);
     expect(live.get(handleKey("the clinic note"))).toBeNull();
+  });
+
+  test("compaction keeps the newest by `at`, not by where the key first appeared", () => {
+    const path = expansionsPath(dir);
+    mkdirSync(sessionsDir(dir), { recursive: true });
+    const key = handleKey("the split");
+    // A handle resolved long ago — the FIRST line in the file...
+    const lines = [JSON.stringify({ key, id: "mem_aaaaaaaaaaaa", at: T0, scope: "/p" })];
+    for (let i = 0; i < 900; i++) {
+      lines.push(
+        JSON.stringify({
+          key: handleKey(`filler ${String(i)}`),
+          id: `mem_${String(i).padStart(12, "0")}`,
+          at: T0 + 1 + i,
+          scope: "/p",
+        }),
+      );
+    }
+    // ...and re-resolved a moment ago. It is the NEWEST answer in the file and
+    // the one the next boundary is about to ask for, but a Map is keyed by
+    // FIRST appearance, so an unsorted `slice(-KEEP)` drops it and keeps 256
+    // fillers that are staler than it is.
+    lines.push(JSON.stringify({ key, id: "mem_bbbbbbbbbbbb", at: T0 + 9999, scope: "/p" }));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+
+    compactExpansions(path, T0 + 10_000);
+
+    const live = readHandleResolutions(dir, { now: T0 + 10_000 });
+    expect(live.get(key)).toBe("mem_bbbbbbbbbbbb");
+    expect(live.size).toBe(EXPANSIONS_KEEP);
+    // The bound is paid for out of the STALEST keys, which is what "newest
+    // wins" was supposed to mean all along.
+    expect(live.has(handleKey("filler 0"))).toBe(false);
   });
 
   test("compaction carries a line another process appended while it was running", () => {
