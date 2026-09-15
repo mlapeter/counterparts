@@ -15,9 +15,21 @@ seed dimensions, or accept). The daily's `self.schema.pressure` watch hard-codes
 simply wrong → **G55** (tools-side fix in `tools/parallel/record.ts`). Doctor's amber (2 unembedded) is the two
 schema rows minted after the last hook boundary; the next boundary clears it.
 
-**In flight:** the **#92 rebase** on an Opus agent in its own worktree (re-apply intent over #95/#99/#108's
-`hooks.ts`, `bin/hook.ts`, `server.ts`; suite + install loop both ways + hash `c3af0bef00209ba6`; force-push in
-place; no merge). When it reports: adversarial review on Opus (attack the registry's longest-prefix match, the
+**#92 REBASED (Opus agent, ~21:40Z): head `2677c6e`**, one commit on `76223ab`, MERGEABLE; suite **2067 / 0 / 36 files**
+(master baseline 2023 / 0 / 35), install loop 52 / 52 on the branch and 47 / 47 on master, hash `c3af0bef00209ba6`
+unchanged, `src/core` untouched, 21 files +2584/−60. Textual conflicts only in `cli/commands.ts` (12 hunks: the
+`scope` command beside master's `credentials`/`doctor`/`probe-oq4` tables) and `claude-code/NOTES.md` (§12 placed
+before master's unnumbered dated sections); QUICKSTART: #92's §8 insert collided with master's new §11, master's
+became §12 and every `QUICKSTART §N` reference was audited. Three tests added (44 in `test/scopes.test.ts`): `off`
+never reaches `spawnWorker` / `recall.credit` / the store; registry `observer` folds into the same bit as env
+observer; the #108 `systemMessage` JSON envelope that speaks under `unset` is byte-silent under `off`. Four things
+the rebase surfaced for the owner: (i) the PR body's numbers are stale (says 1893 / 32 files); (ii) a DELIVERED
+first-launch ask now also counts toward #108's 9,500-char envelope, so the "bounded overbudget for the ask" lever
+would drop the doctor notice more often on a red morning; (iii) `doctor` is scope-unaware — an `off`/`observer`
+directory yields no finding (probably right: doctor reports on a store); (iv) the `off` return sits before
+`namedUnreadableRefusal`, so a bad `--config` in an `off` directory is also silent (consistent with ruling (c)).
+`docs/module-map.md` has no entry for `src/adapters/scopes.ts`. **Adversarial review on Opus is RUNNING** (attack
+list below); when it reports: fixes if any, preview-merge suite, then the owner's three rulings. Attack list:  (attack the registry's longest-prefix match, the
 `off` path's "no output, no store created" guarantee against `spawnWorker` / the doctor notice / `recall.credit`,
 the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge
 suite, then the owner's three rulings (dormant first-launch ask; unset = on; `off` silent) before or at merge.
@@ -104,7 +116,7 @@ The owner's one-sitting sheet is done and is no longer reading material.
 | | |
 |---|---|
 | master | **`49230ff`** (after PRs #85–#90 on 2026-09-10; #82 merged that morning), hash `c3af0bef00209ba6`, suite 1852 / 0, loop 47 / 47 |
-| Open PRs | **#92 `feat/scope-controls`** (G41–G43, adapter only, head `7fbced8`; builder-reported suite 1893 / 0, loop 52 / 52 both ways, hash unchanged, `src/core` untouched). NOT yet reviewed. Tomorrow: adversarial review on Opus (attack the registry's longest-prefix match, the `off` path's "no output, no store created" guarantee, the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge suite, `tools/install-loop/run.sh` both ways, then merge under the standing approval. **Three points need the owner before or at merge**: (1) the first-launch ask (G41) is DORMANT on the live host — the ask block is 402 B and the live wake already fills 8,859 of the 9,000-byte budget, so the fit rule defers it every time; the PR body names three levers, the cheapest being a bounded overbudget for the ask alone; (2) `unset` = on (today's behaviour) — the alternative is observer-until-answered, one line; (3) `off` is silent on both channels, a documented exception to observer-mode G6. Also: QUICKSTART gained §8 and later sections renumbered — dated records keep the old numbers on purpose. |
+| Open PRs | **#92 `feat/scope-controls`** (G41–G43, adapter only; **rebased 2026-09-15 to head `2677c6e`**, suite 2067 / 0 / 36 files, loop 52 / 52, hash unchanged, `src/core` untouched — see the 2026-09-15 section at the top). NOT yet reviewed as of this 09-10 row. Tomorrow: adversarial review on Opus (attack the registry's longest-prefix match, the `off` path's "no output, no store created" guarantee, the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge suite, `tools/install-loop/run.sh` both ways, then merge under the standing approval. **Three points need the owner before or at merge**: (1) the first-launch ask (G41) is DORMANT on the live host — the ask block is 402 B and the live wake already fills 8,859 of the 9,000-byte budget, so the fit rule defers it every time; the PR body names three levers, the cheapest being a bounded overbudget for the ask alone; (2) `unset` = on (today's behaviour) — the alternative is observer-until-answered, one line; (3) `off` is silent on both channels, a documented exception to observer-mode G6. Also: QUICKSTART gained §8 and later sections renumbered — dated records keep the old numbers on purpose. |
 | Live memory | **ON since 2026-09-10 08:15 local.** `~/.counterparts/claude-code.json` `dataDir` points at `~/.counterparts/store` again (G37), with a backup, `claude-code.json.bak-2026-09-07`, beside it. I29 and I31 are both closed by that one edit. |
 | Store | Schema **v5**. `store.migrate.paths` at `2026-09-10T14:16:03Z`: 15,541 prose paths and 468 version paths converted, 0 unplaceable. `verify` after the first wake: 15,541 canonical / 14,466 live, 1,349 events held (104 latched), cache covers every live row. Backup at `~/counterparts-backup-2026-09-07/2026-09-10T14-13-00-341Z` — the revert lever; a pre-v5 build refuses a v5 store by name. |
 | Parallel run | **Restart #4** recorded 2026-09-10 (`restarts.jsonl` line 4, `2026-09-10T14:15:48.392Z`). `run.json`: `activeDays {"0":1,"P":0}`. **Phase P active days: 0 of ≥ 7, counting from 2026-09-10.** Days recorded through 09-09; 09-04 ACTIVE, 09-05 → 09-09 all THIN for I29's reason. |
