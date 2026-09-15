@@ -107,13 +107,16 @@ export interface BoundaryEvidence {
 }
 
 /**
- * A detector the CONTRACT names that this instrument cannot read as a row —
+ * A detector the CONTRACT names that no durable row carries under that name —
  * graded four-valued rather than printed as a bare name (§5 G13).
  *
- * `pass` is deliberately unreachable here: a watch with no reading behind it
- * can never render green. It is `needs-rater` when the mechanism fired and
- * something OTHER than this instrument holds the verdict, `not-exercised` when
- * the mechanism did not fire at all — §13's split, kept honest per watch.
+ * `pass` is deliberately unreachable for the four: a watch with no VERDICT of
+ * its own can never render green — `self.schema.pressure` reads real rows from
+ * 2026-09-15 (the durable `revision.pressure` record) and still cannot pass,
+ * because what those rows mean is the revision path's ruling. It is
+ * `needs-rater` when the mechanism fired and something OTHER than this
+ * instrument holds the verdict, `not-exercised` when the mechanism did not fire
+ * at all — §13's split, kept honest per watch.
  */
 export type WatchValue = "pass" | "fail" | "needs-rater" | "not-exercised";
 

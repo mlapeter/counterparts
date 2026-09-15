@@ -496,7 +496,8 @@ adapter rows, and the core events — including the day's exits — are counted 
 lived day only when you pass `--lived-day`. Without it the exit count is `null`
 with its reason attached, never a zero. **`revision.pressure` is the one core row
 attributed differently** (G55): it is read by `events.at`, the store's provenance
-clock, in UTC — see its watch below for why, and why it is one rule and not two.
+clock, in UTC — see the `self.schema.pressure` row in the watches table above for
+why, and for why that is one rule and not two.
 
 ## Guarantee 1 — the instrument writes nothing but its own run directory
 
