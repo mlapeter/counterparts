@@ -64,6 +64,7 @@ import {
   stanceOfMode,
 } from "../scopes.js";
 import type { ScopeVerdict } from "../scopes.js";
+import { countTranslated, readHandleResolutions, translateExpansions } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase } from "../sessions.js";
 
@@ -977,9 +978,20 @@ export class ClaudeCodeAdapter {
       .map((t) => t.text);
     // Half-open on the left: a call positioned AT `from` sat before the first
     // new turn and belonged to the previous slice, which already judged it.
-    const expansions = (input.expansions ?? [])
+    const raw = (input.expansions ?? [])
       .filter((e) => e.atTurn > from && e.atTurn <= to)
       .flatMap((e) => [...e.ids]);
+    // G50: a handle the recall tool RESOLVED becomes the id it resolved to.
+    // The transcript still decides which handles and when — this only supplies
+    // what the tool actually reached, so nothing the session did not expand is
+    // credited, and a handle nobody resolved still counts `unresolvedHandles`.
+    // The file is read only when there is something to translate.
+    const resolutions =
+      raw.length === 0
+        ? new Map<string, string>()
+        : readHandleResolutions(this.counterpart.store.dir, { now: this.nowFn() });
+    const resolvedHandles = countTranslated(raw, resolutions);
+    const expansions = translateExpansions(raw, resolutions);
     try {
       const summary = this.counterpart.creditReferences(input.sessionId, {
         assistantTurns,
@@ -1006,6 +1018,10 @@ export class ClaudeCodeAdapter {
         quoted: summary.quoted,
         credited: summary.credited,
         unresolvedHandles: summary.unresolvedHandles,
+        /** G50: expansions the handle-resolution log translated on the way in.
+         *  Beside `unresolvedHandles`, it is the pair that says whether a
+         *  by-title expansion earned credit or fell through the old gap. */
+        resolvedHandles,
         skippedForBudget: summary.skippedForBudget,
         unreadable: summary.unreadable,
         refused: summary.refused,

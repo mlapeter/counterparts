@@ -47,6 +47,7 @@ import type { ChapterResult, Counterpart, DepositResult } from "../../core/count
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
+import { recordHandleResolution } from "../expansions.js";
 import {
   lookupScope,
   readScopes,
@@ -609,10 +610,14 @@ export class McpServer {
         semantic: embedded.semantic,
       },
     );
+    const resolved = this.noteHandleResolution(handle, result);
     const payload = this.recallPayload(result);
     this.emit("mcp.recall", undefined, {
       path: result.path,
       reason: result.reason,
+      // G50: did this call earn credit that `reference.ts` could not have given
+      // it on its own? Ring-only, like every other number on this row.
+      handleResolved: resolved,
       semantic: result.semantic,
       returned: result.memories.length,
       considered: result.considered,
@@ -631,6 +636,45 @@ export class McpServer {
       result.reason === "ids-too-many" ||
       result.reason === "handle-confidential-withheld";
     return this.result(payload, bad);
+  }
+
+  /**
+   * THE HANDLE-EXPANSION CREDIT SEAM (LAUNCH-STATUS G50), the tool half.
+   *
+   * A deliberate expansion BY TITLE read the whole memory and earned nothing:
+   * the boundary's credit pass takes its expansions from the transcript, and
+   * `recall/reference.ts` credits literal `mem_…` addresses only — a title is
+   * counted `unresolvedHandles` and credits nothing, because that module
+   * resolves nothing fuzzily and must not start. The resolution belongs to
+   * whoever performed it, which is this tool, so this tool records it
+   * (`adapters/expansions.ts`) and the hook translates the transcript's own
+   * handle with it.
+   *
+   * ONLY AN EXPANSION THAT HAPPENED. `handle-unknown` resolved nothing,
+   * `handle-ambiguous` deliberately refused to choose, and
+   * `handle-confidential-withheld` showed the asker nothing at all — none of
+   * the three may leave a translation behind, or the seam would credit reading
+   * to a session that read nothing. The `ids` path is excluded too: those are
+   * literal addresses the credit pass already sees, and a per-id account of
+   * what each one resolved to is `perId`'s job, not this one's.
+   *
+   * Never throws and never changes the answer: a log that could not be written
+   * costs credit, and costing credit is the safe direction.
+   */
+  private noteHandleResolution(handle: unknown, result: DeliberateResult): boolean {
+    if (typeof handle !== "string") return false;
+    if (result.path !== "handle" || result.reason !== "expanded") return false;
+    const memory = result.memories[0];
+    if (memory === undefined || result.memories.length !== 1) return false;
+    // The handle was already the live address: `reference.ts` credits it as it
+    // stands, and a record here would say nothing the transcript does not.
+    if (memory.id === handle.trim()) return false;
+    return recordHandleResolution(this.registryDir, {
+      handle,
+      id: memory.id,
+      scope: this.scope,
+      at: this.nowFn(),
+    });
   }
 
   /**

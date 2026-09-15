@@ -37,6 +37,8 @@ import { ClaudeCodeAdapter, openAdapter, parseTranscript } from "../src/adapters
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { recordSession } from "../src/adapters/sessions.js";
+import { handleKey, readHandleResolutions } from "../src/adapters/expansions.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
 import type { SpawnPlan } from "../src/adapters/claude-code/spawn.js";
 import { writeFileSync } from "node:fs";
 
@@ -510,6 +512,147 @@ describe("the lifecycle, through the adapter", () => {
     expect(after2?.ids).toEqual([other]);
     expect(c.store.physicsOf(first).uses).toBe(1);
     expect(c.store.physicsOf(other).uses).toBe(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The handle door (LAUNCH-STATUS G50) — an expansion BY TITLE earns credit
+//
+// The gap: `reference.ts` credits literal `mem_…` addresses out of the recall
+// tool call's input and resolves nothing, but the tool accepts an exact TITLE
+// and answers it with the whole body. So the most deliberate act available to a
+// session — name a memory and read it — credited nothing and left the boundary
+// row saying `expanded: 0, unresolvedHandles: 1`.
+//
+// The fix is on the TOOL side: the server records what the handle resolved to
+// (`adapters/expansions.ts`), and the hook translates the transcript's own
+// handle with it. The transcript still decides WHICH handle and WHEN, so these
+// tests are as much about what must NOT be credited — a handle nobody resolved,
+// and a handle the tool refused to choose between — as about what must.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("the handle door (G50)", () => {
+  /** The MCP tool over the SAME counterpart the hooks drive — one store, two
+   *  adapters, which is the shape the live host runs. */
+  function tool(a: ClaudeCodeAdapter): McpServer {
+    return new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir });
+  }
+
+  function creditPayload(c: Counterpart): Record<string, unknown> {
+    return JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as Record<
+      string,
+      unknown
+    >;
+  }
+
+  test("a recall BY TITLE, then a boundary: the resolved id is credited and named in expandedIds", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const id = await mint(a);
+    c.store.advanceClock("2026-01-02");
+
+    // The session expands by title. The tool answers with the body — and, now,
+    // records what the title reached.
+    const answered = (await tool(a).call("recall", { handle: "storage split" })).structuredContent;
+    expect(answered["reason"]).toBe("expanded");
+    expect(readHandleResolutions(dir).get(handleKey("storage split"))).toBe(id);
+
+    // The transcript carries the TITLE, exactly as the host wrote it.
+    a.stop(
+      input({
+        sessionId: "s1",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Read it in full before answering." }],
+        expansions: [{ atTurn: 3, ids: ["storage split"] }],
+      }),
+    );
+
+    const row = creditRows(c).at(-1);
+    expect(row?.reason).toBe("credited");
+    expect(row?.expanded).toBe(1);
+    expect(row?.credited).toBe(1);
+    expect(row?.ids).toEqual([id]);
+    const p = creditPayload(c);
+    expect(p["expandedIds"]).toEqual([id]);
+    expect(p["unresolvedHandles"]).toBe(0);
+    expect(p["resolvedHandles"]).toBe(1);
+    expect(c.store.physicsOf(id).uses).toBe(1);
+    expect(c.store.physicsOf(id).reinforcedDays).toBe(1);
+  });
+
+  test("a handle nobody resolved credits nothing and still counts unresolvedHandles", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    const id = await mint(a);
+    c.store.advanceClock("2026-01-02");
+
+    const refused = (await tool(a).call("recall", { handle: "a title no memory has" })).structuredContent;
+    expect(refused["reason"]).toBe("handle-unknown");
+    // A refusal resolved nothing, so it leaves nothing behind to translate.
+    expect(readHandleResolutions(dir).size).toBe(0);
+
+    a.stop(
+      input({
+        sessionId: "s1",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Nothing came back under that name." }],
+        expansions: [{ atTurn: 3, ids: ["a title no memory has"] }],
+      }),
+    );
+
+    // The row is still written — silence never masquerades as health. Nothing
+    // surfaced loud in this slice and the handle credited nothing, so the
+    // boundary has no candidates at all to report on.
+    const row = creditRows(c).at(-1);
+    expect(row?.reason).toBe("no-candidates");
+    expect(row?.credited).toBe(0);
+    expect(row?.expanded).toBe(0);
+    const p = creditPayload(c);
+    expect(p["unresolvedHandles"]).toBe(1);
+    expect(p["resolvedHandles"]).toBe(0);
+    expect(p["expandedIds"]).toEqual([]);
+    expect(c.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("an AMBIGUOUS handle chose nothing, so it translates nothing", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    seed(c);
+    // Two memories, one title. `expandHandle` names the choice without making
+    // it — and a choice nobody made may not become a credit.
+    for (const body of [
+      "The first note about the twins, which says one thing.",
+      "The second note about the twins, which says another.",
+    ]) {
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        title: "the twins",
+        body,
+        salience: { novelty: null, relevance: 0.6, emotional: 0.5, predictive: 0.5 },
+        physics: { birthDay: 0, lastUsedDay: 0 },
+      });
+    }
+    c.store.advanceClock("2026-01-02");
+
+    const answered = (await tool(a).call("recall", { handle: "the twins" })).structuredContent;
+    expect(answered["reason"]).toBe("handle-ambiguous");
+    expect(readHandleResolutions(dir).size).toBe(0);
+
+    a.stop(
+      input({
+        sessionId: "s1",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Two memories answer to that name." }],
+        expansions: [{ atTurn: 3, ids: ["the twins"] }],
+      }),
+    );
+    const p = creditPayload(c);
+    expect(p["credited"]).toBe(0);
+    expect(p["unresolvedHandles"]).toBe(1);
+    expect(p["resolvedHandles"]).toBe(0);
   });
 });
 

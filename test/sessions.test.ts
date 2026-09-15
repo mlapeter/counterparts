@@ -11,10 +11,21 @@
  * No store is opened at all — the registry is plain files under the data dir.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  EXPANSIONS_FILE,
+  EXPANSIONS_MAX_BYTES,
+  EXPANSION_TTL_MS,
+  countTranslated,
+  expansionsPath,
+  handleKey,
+  readHandleResolutions,
+  recordHandleResolution,
+  translateExpansions,
+} from "../src/adapters/expansions.js";
 import {
   SESSIONS_DIR,
   SESSION_PRUNE_MS,
@@ -207,5 +218,91 @@ describe("pruning", () => {
 
   test("an absent registry prunes nothing and says nothing", () => {
     expect(pruneSessions(dir)).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The handle-resolution log (`adapters/expansions.ts`) — the OTHER note the two
+// adapters leave each other, on the same rules: no content on disk, no throw at
+// a caller, and a loss that can only cost credit.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("the handle-resolution log", () => {
+  test("a resolution round-trips, and the file holds a HASH rather than the handle", () => {
+    expect(recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 })).toBe(true);
+    expect(readHandleResolutions(dir, { now: T0 }).get(handleKey("storage split"))).toBe("mem_abc123abc123");
+    const raw = readFileSync(expansionsPath(dir), "utf8");
+    expect(raw).not.toContain("storage split");
+    expect(raw).toContain(handleKey("storage split"));
+    // Inside the registry's own directory, which `store/paths.ts` already
+    // classifies — this adds no new top-level name under the data dir.
+    expect(expansionsPath(dir)).toBe(join(sessionsDir(dir), EXPANSIONS_FILE));
+  });
+
+  test("a handle is matched the way the resolver matches a title: trimmed and case-folded", () => {
+    recordHandleResolution(dir, { handle: "Storage Split", id: "mem_abc123abc123", at: T0 });
+    expect(readHandleResolutions(dir, { now: T0 }).get(handleKey("  storage split "))).toBe("mem_abc123abc123");
+  });
+
+  test("the newest answer wins — a title that moved is not credited to the memory it left", () => {
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    recordHandleResolution(dir, { handle: "the split", id: "mem_bbbbbbbbbbbb", at: T0 + 1000 });
+    expect(readHandleResolutions(dir, { now: T0 + 1000 }).get(handleKey("the split"))).toBe("mem_bbbbbbbbbbbb");
+  });
+
+  test("a resolution past the window translates nothing", () => {
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    expect(readHandleResolutions(dir, { now: T0 + EXPANSION_TTL_MS + 1 }).size).toBe(0);
+  });
+
+  test("a half-written line is skipped, never thrown over", () => {
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    appendFileSync(expansionsPath(dir), '{"key":"deadbeef","id":"mem_c\n', "utf8");
+    appendFileSync(expansionsPath(dir), '{"key":"","id":"mem_dddddddddddd","at":1}\n', "utf8");
+    const live = readHandleResolutions(dir, { now: T0 });
+    expect(live.size).toBe(1);
+    expect(live.get(handleKey("the split"))).toBe("mem_aaaaaaaaaaaa");
+  });
+
+  test("the log is bounded: it compacts rather than growing without end", () => {
+    for (let i = 0; i < 2000; i++) {
+      recordHandleResolution(dir, {
+        handle: `handle number ${String(i)}`,
+        id: `mem_${String(i).padStart(12, "0")}`,
+        at: T0,
+      });
+    }
+    expect(statSync(expansionsPath(dir)).size).toBeLessThanOrEqual(EXPANSIONS_MAX_BYTES);
+    // The newest resolution survives every compaction — it is the one the next
+    // boundary is about to ask for.
+    expect(readHandleResolutions(dir, { now: T0 }).get(handleKey("handle number 1999"))).toBe(
+      `mem_${"1999".padStart(12, "0")}`,
+    );
+  });
+
+  test("translation reaches only what the log knows; everything else passes through unchanged", () => {
+    recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 });
+    const live = readHandleResolutions(dir, { now: T0 });
+    const raw = ["storage split", "a title nobody resolved", "mem_ffffffffffff"];
+    expect(translateExpansions(raw, live)).toEqual([
+      "mem_abc123abc123",
+      "a title nobody resolved",
+      "mem_ffffffffffff",
+    ]);
+    expect(countTranslated(raw, live)).toBe(1);
+  });
+
+  test("an empty handle, an empty id, an absent log and an unwritable dir are refusals, never throws", () => {
+    expect(recordHandleResolution(dir, { handle: "   ", id: "mem_abc123abc123" })).toBe(false);
+    expect(recordHandleResolution(dir, { handle: "a handle", id: "" })).toBe(false);
+    expect(readHandleResolutions(join(dir, "nothing-here")).size).toBe(0);
+    const locked = mkdtempSync(join(tmpdir(), "counterparts-expansions-locked-"));
+    try {
+      chmodSync(locked, 0o000);
+      expect(recordHandleResolution(locked, { handle: "a handle", id: "mem_abc123abc123" })).toBe(false);
+    } finally {
+      chmodSync(locked, 0o700);
+      rmSync(locked, { recursive: true, force: true });
+    }
   });
 });

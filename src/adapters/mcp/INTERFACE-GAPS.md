@@ -161,3 +161,43 @@ variable, or an MCP launch the host parameterizes per session, would restore the
 `--session` path and make the registry unnecessary for binding. The registry would
 still earn its place as the liveness fact (`session-not-live`), which no launch
 argument can carry.
+
+## 9. An expansion BY TITLE earned no credit — CLOSED 2026-09-15 (LAUNCH-STATUS G50)
+
+**The gap.** `recall/reference.ts` decides which memories a session actually USED, and
+its expansion door reads the recall tool call's own input — where it credits literal
+`mem_…` addresses and *resolves nothing*, on purpose: "this module resolves nothing
+fuzzily, and the tool's own answer was already exact or not-found." But `tools.ts`
+documents `handle` as "a memory id or exact handle" and `deliberate.ts#expandHandle`
+answers an exact TITLE with the whole body. So a session that named a memory and read it
+— the most deliberate thing this surface offers — left a boundary row reading
+`expanded: 0, unresolvedHandles: 1` and credited nothing. Under-credit, and silent.
+
+**Closed on the tool side, where the resolution happened.** `server.ts#noteHandleResolution`
+writes `<hashed handle> → <resolved id>` to `adapters/expansions.ts`'s log, and
+`claude-code/hooks.ts#creditAtBoundary` translates the transcript's own handle with it
+before `creditReferences` sees the slice. `reference.ts` is unchanged and still resolves
+nothing; it is simply handed the address the tool reached.
+
+**Why a log and not a per-session field.** There is no "expanded ids" state the credit
+pass reads — expansions come from the TRANSCRIPT, sliced by the same turn cursor capture
+uses. Keeping that is what keeps the fix narrow: the transcript decides which handles and
+when, the log only says what each resolved to, so nothing the session did not expand is
+credited. A per-session list would fail twice over — this server is usually unbound (§6,
+§8) and has no session id to key by, and a flat list cannot be positioned against the turn
+cursor, so one expansion would be re-credited at every later boundary.
+
+**What is recorded, and what deliberately is not.** Only `path: "handle"` with
+`reason: "expanded"` and exactly one memory, and only when the handle was not already the
+live address. `handle-unknown` resolved nothing, `handle-ambiguous` named the choice
+without making it, and `handle-confidential-withheld` showed the asker nothing — all three
+leave no translation, so all three go on crediting nothing. Proof:
+`test/lifecycle.test.ts` "the handle door (G50)" (the positive plus both negatives) and
+`test/sessions.test.ts` "the handle-resolution log".
+
+**What it still owes.** The `ids` path is untouched: a literal id that has been SUPERSEDED
+still credits nothing, because `Store.resolve` follows the forwarding address inside
+`expandHandle` while `reference.ts` sees only the id the model typed, and the boundary
+then refuses the archived row. It is the same gap one level down and out of G50's scope;
+`expandIds` already pairs `perId` with `memories`, so recording per-id resolutions there is
+a small, separate change when someone wants it.

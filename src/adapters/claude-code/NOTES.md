@@ -518,3 +518,26 @@ goes to the more restrictive mode.
 **And one that is only about trust (F5):** `--note ""` cleared on the console and
 carried on the tool. Two doors to one setting have to mean the same thing by the
 same words, or the setting is not one thing.
+
+## The credit seam translates a handle before it judges it (2026-09-15, G50)
+
+`creditAtBoundary` takes its expansions from the transcript, raw: whatever the
+model put in the recall call's `ids` / `handle`. `recall/reference.ts` credits
+literal `mem_…` addresses out of that list and resolves nothing — deliberately —
+so a session that expanded a memory by its exact TITLE, read the whole body, and
+answered from it left a row saying `expanded: 0, unresolvedHandles: 1`.
+
+The resolution belongs to whoever performed it, which is the MCP tool, so the
+tool records it (`adapters/expansions.ts`) and this hook translates the
+transcript's own handle with it on the way in. **What the transcript decides is
+untouched**: which handles the session used, and in which slice. The log only
+answers "and what did that reach", so the fix cannot widen credit — a handle
+nobody resolved passes through unchanged and still counts `unresolvedHandles`.
+The row gained `resolvedHandles` beside it: the pair is what proves the seam
+live in a daily.
+
+Two limits, recorded rather than hidden. The log is read only when the slice
+carries an expansion at all, so an ordinary Stop still opens no extra file. And
+compaction racing an append can lose a line — which costs one handle's credit,
+the under-credit direction, and is why the alternative (a lock two long-lived
+processes share, in the hot path of a tool that may not fail) was not built.
