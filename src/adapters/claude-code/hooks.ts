@@ -982,14 +982,21 @@ export class ClaudeCodeAdapter {
       .filter((e) => e.atTurn > from && e.atTurn <= to)
       .flatMap((e) => [...e.ids]);
     // G50: a handle the recall tool RESOLVED becomes the id it resolved to.
-    // The transcript still decides which handles and when — this only supplies
-    // what the tool actually reached, so nothing the session did not expand is
-    // credited, and a handle nobody resolved still counts `unresolvedHandles`.
+    // The transcript still decides WHICH handles and WHEN; what it cannot say is
+    // whose answer resolved them, so the translation is filtered to THIS
+    // PROJECT's resolutions — the same `sameScope` comparison the MCP server
+    // already trusts to bind a session. Without it the log hands this boundary
+    // the last answer anyone anywhere got, including the owner's resolution of a
+    // confidential memory this session was refused (or never asked for at all).
+    // A handle nobody resolved in this scope still counts `unresolvedHandles`.
     // The file is read only when there is something to translate.
     const resolutions =
       raw.length === 0
         ? new Map<string, string | null>()
-        : readHandleResolutions(this.counterpart.store.dir, { now: this.nowFn() });
+        : readHandleResolutions(this.counterpart.store.dir, {
+            now: this.nowFn(),
+            scope: input.scope,
+          });
     const resolvedHandles = countTranslated(raw, resolutions);
     const expansions = translateExpansions(raw, resolutions);
     try {

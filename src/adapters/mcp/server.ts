@@ -658,26 +658,41 @@ export class McpServer {
    *
    * EVERY OUTCOME OF THIS PATH IS RECORDED, and the refusals are recorded as
    * `null` — a shadow that translates nothing and, being the newest answer,
-   * overrides an earlier resolution of the same handle. That is not tidiness,
-   * it is §5 G6: the log is keyed by the handle, because RESOLUTION is
-   * deterministic, but a REFUSAL is not. The owner's own session resolves a
-   * confidential title; a stranger's session asking the same title is told
-   * nothing. Without the shadow the stranger's boundary would translate its
-   * handle through the owner's entry and credit a memory it was never shown.
-   * `handle-unknown` and `handle-ambiguous` shadow for the same reason — a
-   * title that has since been renamed away, or gone ambiguous, must not go on
+   * overrides an earlier resolution of the same handle IN THE SAME PROJECT.
+   * That is not tidiness, it is §5 G6: the log is keyed by the handle, because
+   * RESOLUTION is deterministic, but a REFUSAL is not. The owner's own session
+   * resolves a confidential title; a stranger's session asking the same title
+   * is told nothing. `handle-unknown` and `handle-ambiguous` shadow for the same
+   * reason — a title since renamed away, or gone ambiguous, must not go on
    * crediting the memory it used to name.
    *
-   * The price is a race the other way: a stranger's refusal landing between the
-   * owner's call and the owner's Stop costs the owner that credit. Under-credit,
-   * which is the direction this seam is allowed to err in.
+   * **THE SHADOW IS NOT THE CONFIDENTIALITY BOUNDARY, and the first draft of
+   * this method said it was.** A shadow only exists where an answer was given.
+   * Three askings get no answer and leave no shadow — a call that never reached
+   * `expandHandle`, a `{ handle, question }` the dispatcher refuses as
+   * `both-arguments` before this path exists, and a refusal whose write failed
+   * (`recordHandleResolution` returns false; it may not throw at a tool). Each
+   * of those still puts the title in the transcript, so each still reaches a
+   * boundary looking for a translation. What stops them is the SCOPE recorded on
+   * every line, which `readHandleResolutions` filters on: another project's
+   * resolution cannot answer this project's handle. `scope` is therefore
+   * load-bearing here, not forensics.
+   *
+   * Filtering also retires the price the first draft accepted — a stranger's
+   * refusal between the owner's call and the owner's Stop costing the owner the
+   * credit — because that shadow now carries the stranger's scope.
    *
    * The `ids` path is out of scope: those are literal addresses the credit pass
    * already sees, and a per-id account of what each resolved to is `perId`'s
    * job, not this one's.
    *
-   * Never throws and never changes the answer: a log that could not be written
-   * costs credit, and costing credit is the safe direction.
+   * Never throws and never changes the answer. A write that FAILED is not
+   * symmetrical, though, and the asymmetry is worth naming: a lost RESOLUTION
+   * costs credit (safe), a lost REFUSAL leaves an older resolution standing
+   * where a shadow should have been (not safe). Across projects the scope filter
+   * makes that moot — the older resolution belongs to a directory the next
+   * boundary is not in. Within one project directory it is the residual this
+   * seam is known to carry.
    */
   private noteHandleResolution(handle: unknown, result: DeliberateResult): boolean {
     if (typeof handle !== "string" || handle.trim().length === 0) return false;

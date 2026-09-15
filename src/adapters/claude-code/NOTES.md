@@ -530,24 +530,35 @@ answered from it left a row saying `expanded: 0, unresolvedHandles: 1`.
 The resolution belongs to whoever performed it, which is the MCP tool, so the
 tool records it (`adapters/expansions.ts`) and this hook translates the
 transcript's own handle with it on the way in. **What the transcript decides is
-untouched**: which handles the session used, and in which slice. The log only
-answers "and what did that reach", so the fix cannot widen credit — a handle
-nobody resolved passes through unchanged and still counts `unresolvedHandles`.
-The row gained `resolvedHandles` beside it: the pair is what proves the seam
+untouched**: which handles the session used, and in which slice. The row gained
+`resolvedHandles` beside `unresolvedHandles`: the pair is what proves the seam
 live in a daily.
 
-**The refusals are recorded too, and that is the confidentiality boundary.** The
-log is keyed by the handle, not by the session, because RESOLUTION is
-deterministic — but a refusal is not. The first draft recorded only the
-expansions, and a test written against it caught the consequence: the owner's own
-session resolves a confidential title, a stranger's session asks the same title
-and is told nothing, and the stranger's boundary then translates its handle
-through the owner's entry and credits a memory it was never shown. Every
-handle-path outcome now leaves a line, a refusal leaving `null` — a shadow that
-translates nothing and, being the newest answer, overrides the earlier
-resolution. The price is the opposite race (a stranger's refusal between the
-owner's call and the owner's Stop costs the owner that credit), which is
-under-credit, which is the direction this seam may err in.
+**"The fix cannot widen credit" was the claim, and it was wrong** — it is written
+down here because the correction is the whole lesson. The transcript says which
+handle and when; what it cannot say is whose ANSWER resolved that handle, and the
+log is one table shared by every session on the machine. Three askings get no
+answer at all and therefore leave no shadow behind them (a call that never
+reached `expandHandle`; a `{ handle, question }` refused as `both-arguments`
+before the handle path exists; a refusal whose write failed), and each of the
+three still leaves the title in the transcript for a boundary to translate —
+through the only line in the log, which may be the owner's resolution of a
+confidential memory.
+
+**The refusals are still recorded, and the SCOPE is what makes them a boundary.**
+Every handle-path outcome leaves a line, a refusal leaving `null` — a shadow that
+translates nothing and, being the newest answer, overrides the earlier resolution
+of the same handle. On top of that, every line carries the project the resolving
+server was serving, and this hook asks for only the lines matching `input.scope`.
+A resolution from another project cannot answer this project's handle, which
+covers all three shadowless routes at once; it also retires the opposite race the
+first draft accepted, because a stranger's shadow now carries the stranger's
+scope and never reaches the owner's boundary.
+
+The comparison is `sessions.ts#canonicalScope`, the same one the MCP server
+trusts to bind a session, and a disagreement between the two sides costs a
+translation — under-credit, the direction this seam may err in. A line with no
+scope is dropped for the same reason.
 
 Two limits, recorded rather than hidden. The log is read only when the slice
 carries an expansion at all, so an ordinary Stop still opens no extra file. And

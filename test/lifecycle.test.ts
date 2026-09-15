@@ -37,10 +37,10 @@ import { ClaudeCodeAdapter, openAdapter, parseTranscript } from "../src/adapters
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { recordSession } from "../src/adapters/sessions.js";
-import { handleKey, readHandleResolutions } from "../src/adapters/expansions.js";
+import { expansionsPath, handleKey, readHandleResolutions } from "../src/adapters/expansions.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import type { SpawnPlan } from "../src/adapters/claude-code/spawn.js";
-import { writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const BUDGET_BYTES = 9000;
@@ -529,6 +529,11 @@ describe("the lifecycle, through the adapter", () => {
 // handle with it. The transcript still decides WHICH handle and WHEN, so these
 // tests are as much about what must NOT be credited — a handle nobody resolved,
 // and a handle the tool refused to choose between — as about what must.
+//
+// What the transcript CANNOT decide is whose answer resolved the handle, and
+// that is not covered here: see "the handle door, across projects (G50 review)"
+// below for the three askings that get no answer at all and would otherwise read
+// somebody else's.
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("the handle door (G50)", () => {
@@ -703,6 +708,177 @@ describe("the handle door (G50)", () => {
     expect(p["credited"]).toBe(0);
     expect(p["unresolvedHandles"]).toBe(1);
     expect(p["resolvedHandles"]).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The handle door, ACROSS PROJECTS (review of #112, 2026-09-15)
+//
+// The shadow alone is not the confidentiality boundary the first two commits
+// claimed it was. The log is keyed by the handle and records the LAST answer
+// anyone got, so a session that never received an answer at all still reads
+// someone else's. Three routes to that, and none of them leaves a shadow:
+//
+//   A1  the call never reached `expandHandle` — the server was down, or threw
+//       before the resolver ran. Nothing is refused, so nothing is recorded.
+//   A2  the call was `recall { handle, question }` — `both-arguments`, path
+//       `none`, refused by the dispatcher before the handle path exists.
+//   A3  the call WAS refused `handle-confidential-withheld`, and the shadow
+//       could not be written (a read-only log, a full disk).
+//
+// In all three the transcript still carries the title, so the boundary still
+// translates it — through the only line in the log, which is the owner's.
+//
+// The fix that covers all three at once is the scope filter: a resolution
+// recorded by a server serving ANOTHER project cannot translate this project's
+// handle. It also removes the opposite race the builder accepted — a stranger's
+// refusal costing the owner the credit — because the stranger's shadow now
+// carries the stranger's scope (the fourth test).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("the handle door, across projects (G50 review)", () => {
+  /** Another project entirely. `canonicalScope` resolves both against this
+   *  process's cwd, so the two are different absolute directories. */
+  const OTHER = "other-proj";
+
+  function tool(a: ClaudeCodeAdapter, scope = "proj", owner = true): McpServer {
+    return new McpServer({ counterpart: a.counterpart, scope, owner, registryDir: dir });
+  }
+
+  function creditPayload(c: Counterpart): Record<string, unknown> {
+    return JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as Record<
+      string,
+      unknown
+    >;
+  }
+
+  /** The fixture: a confidential memory with an exact title, and the owner's
+   *  own resolution of it sitting in the log. */
+  async function ownerResolved(a: ClaudeCodeAdapter): Promise<string> {
+    const c = a.counterpart;
+    seed(c);
+    const id = c.store.put({
+      type: "memory",
+      kind: "person",
+      title: "the clinic note",
+      body: "The clinic appointment about the recurring migraines is on the fourteenth.",
+      salience: { novelty: null, relevance: 0.7, emotional: 0.5, predictive: 0.5 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+      meta: { confidential: true },
+    });
+    c.store.advanceClock("2026-01-02");
+    const answered = (await tool(a).call("recall", { handle: "the clinic note" })).structuredContent;
+    expect(answered["reason"]).toBe("expanded");
+    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+    return id;
+  }
+
+  /** The other project's Stop, carrying the title the model typed. */
+  function strangerStop(a: ClaudeCodeAdapter): void {
+    a.stop(
+      input({
+        sessionId: "s-elsewhere",
+        scope: OTHER,
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "That one did not come back to me." }],
+        expansions: [{ atTurn: 3, ids: ["the clinic note"] }],
+      }),
+    );
+  }
+
+  test("A1: a call that never reached the resolver credits nothing across projects", async () => {
+    const a = adapter();
+    const id = await ownerResolved(a);
+    // The other project's session types the title; its tool call dies before
+    // `expandHandle`. NOTHING is written — not even a shadow.
+    expect(readHandleResolutions(dir).size).toBe(1);
+
+    strangerStop(a);
+
+    const p = creditPayload(a.counterpart);
+    expect(p["credited"]).toBe(0);
+    expect(p["resolvedHandles"]).toBe(0);
+    expect(p["unresolvedHandles"]).toBe(1);
+    expect(a.counterpart.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("A2: `handle` and `question` together never reach the handle path, and credit nothing", async () => {
+    const a = adapter();
+    const id = await ownerResolved(a);
+
+    const confused = (
+      await tool(a, OTHER, false).call("recall", {
+        handle: "the clinic note",
+        question: "when is that appointment",
+      })
+    ).structuredContent;
+    expect(confused["path"]).toBe("none");
+    expect(confused["reason"]).toBe("both-arguments");
+    // A refusal by the DISPATCHER leaves no shadow: the handle path never ran.
+    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+
+    strangerStop(a);
+
+    const p = creditPayload(a.counterpart);
+    expect(p["credited"]).toBe(0);
+    expect(p["resolvedHandles"]).toBe(0);
+    expect(a.counterpart.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("A3: a refusal whose shadow could not be written credits nothing across projects", async () => {
+    const a = adapter();
+    const id = await ownerResolved(a);
+
+    // The log is read-only when the refusal lands, so the shadow is lost —
+    // `recordHandleResolution` returns false rather than throwing, exactly as
+    // its contract says, and the tool answers as it always would.
+    chmodSync(expansionsPath(dir), 0o400);
+    const withheld = (await tool(a, OTHER, false).call("recall", { handle: "the clinic note" }))
+      .structuredContent;
+    expect(withheld["reason"]).toBe("handle-confidential-withheld");
+    // Restored BEFORE the boundary: an unreadable log would credit nothing for
+    // the wrong reason, and prove nothing about the filter.
+    chmodSync(expansionsPath(dir), 0o600);
+    // This is the line that would leak — the owner's, still standing alone.
+    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBe(id);
+
+    strangerStop(a);
+
+    const p = creditPayload(a.counterpart);
+    expect(p["credited"]).toBe(0);
+    expect(p["resolvedHandles"]).toBe(0);
+    expect(a.counterpart.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("a refusal in ANOTHER project no longer costs the owner the credit", async () => {
+    const a = adapter();
+    const c = a.counterpart;
+    const id = await ownerResolved(a);
+
+    // The stranger IS refused, and its shadow IS written — under ITS scope.
+    const withheld = (await tool(a, OTHER, false).call("recall", { handle: "the clinic note" }))
+      .structuredContent;
+    expect(withheld["reason"]).toBe("handle-confidential-withheld");
+    // Read unfiltered, the shadow is the newest answer and hides the owner's id.
+    expect(readHandleResolutions(dir).get(handleKey("the clinic note"))).toBeNull();
+
+    // The owner's own boundary, in the owner's own project, still credits: the
+    // shadow belongs to a project this session is not in.
+    a.stop(
+      input({
+        sessionId: "s-owner",
+        scope: "proj",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Read it in full before answering." }],
+        expansions: [{ atTurn: 3, ids: ["the clinic note"] }],
+      }),
+    );
+
+    const p = creditPayload(c);
+    expect(p["credited"]).toBe(1);
+    expect(p["resolvedHandles"]).toBe(1);
+    expect(p["unresolvedHandles"]).toBe(0);
+    expect(c.store.physicsOf(id).uses).toBe(1);
   });
 });
 

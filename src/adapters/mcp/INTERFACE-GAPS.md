@@ -182,30 +182,59 @@ nothing; it is simply handed the address the tool reached.
 **Why a log and not a per-session field.** There is no "expanded ids" state the credit
 pass reads — expansions come from the TRANSCRIPT, sliced by the same turn cursor capture
 uses. Keeping that is what keeps the fix narrow: the transcript decides which handles and
-when, the log only says what each resolved to, so nothing the session did not expand is
-credited. A per-session list would fail twice over — this server is usually unbound (§6,
-§8) and has no session id to key by, and a flat list cannot be positioned against the turn
-cursor, so one expansion would be re-credited at every later boundary.
+when, the log only says what each resolved to. A per-session list would fail twice over —
+this server is usually unbound (§6, §8) and has no session id to key by, and a flat list
+cannot be positioned against the turn cursor, so one expansion would be re-credited at
+every later boundary.
 
 **What is recorded, and why the refusals are recorded too.** Every handle-path outcome
 leaves a line: an expansion leaves the id it reached, and `handle-unknown`,
 `handle-ambiguous` and `handle-confidential-withheld` each leave `null` — a SHADOW, which
 translates nothing and, being the newest answer, overrides an earlier resolution of the
-same handle.
+same handle in the same project.
 
 The shadow is §5 G6, not tidiness. The log is keyed by the HANDLE, because resolution is
 deterministic — one store, one exact-title match. A REFUSAL is not: the owner's own
 session resolves a confidential title and a stranger's session asking the same title is
 told nothing. Recording only the expansions leaves the stranger's boundary translating its
 handle through the owner's entry and crediting a memory it was never shown — and the first
-draft of this fix did exactly that, until the test below was written against it. Same shape
-for a title that has since gone ambiguous or been renamed away. The price is a race the
-other way: a stranger's refusal landing between the owner's call and the owner's Stop costs
-the owner that credit — under-credit, the direction this seam is allowed to err in.
+draft of this fix did exactly that, until a test was written against it. Same shape for a
+title that has since gone ambiguous or been renamed away.
+
+**"Credit is not widened" was the claim after that fix, and it was still wrong** (review,
+2026-09-15). A shadow only exists where an ANSWER was given, and three askings get no
+answer at all:
+
+1. the tool call never reached `expandHandle` — the server was down, or threw before the
+   resolver ran. Nothing is refused, so nothing is recorded;
+2. the call was `recall { handle, question }`, refused by the dispatcher as
+   `both-arguments` on path `none`, before the handle path exists;
+3. the call WAS refused `handle-confidential-withheld`, and the shadow could not be
+   written — a read-only log, a full disk. `recordHandleResolution` returns false, because
+   it may not throw at a tool.
+
+Each still leaves the title in the transcript, so each still reaches a boundary looking for
+a translation, and finds the only line in the log — the owner's. Recording the session id
+instead would not help: `recallTool` runs under `this.session ?? "mcp"` and the bind only
+happens on `note` / `chapter` / `session_end`, so the usual recall call has no session to
+record.
+
+**The filter, and what is left after it.** Every line already carried the `scope` the
+resolving server was serving, so `readHandleResolutions` now DROPS any record whose
+canonical scope is not the asking boundary's (`sessions.ts#canonicalScope`, the same
+comparison `requireBoundSession` already trusts; a line with no scope is dropped too). That
+covers all three routes at once, and it retires the opposite race the previous draft
+accepted — the stranger's shadow carries the stranger's scope and never reaches the owner's
+boundary.
+
+The RESIDUAL, stated rather than hidden: two sessions running in the SAME project directory
+share one table, so a call that never reached `expandHandle` can still be translated
+through a resolution some other session in that project made.
 
 Proof: `test/lifecycle.test.ts` "the handle door (G50)" — the positive, the unknown handle,
-the ambiguous handle, and the confidential shadow — plus `test/sessions.test.ts` "the
-handle-resolution log" for the file's own rules.
+the ambiguous handle, and the confidential shadow — and "the handle door, across projects
+(G50 review)" for the three shadowless routes and the retired race, plus
+`test/sessions.test.ts` "the handle-resolution log" for the file's own rules.
 
 **What the tool DESCRIPTION still owes, and it is an owner call.** `tools.ts`'s `recall`
 privilege still reads "It writes nothing and trains nothing: ranking is not recording, so
