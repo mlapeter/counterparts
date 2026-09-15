@@ -28,8 +28,14 @@ first-launch ask now also counts toward #108's 9,500-char envelope, so the "boun
 would drop the doctor notice more often on a red morning; (iii) `doctor` is scope-unaware — an `off`/`observer`
 directory yields no finding (probably right: doctor reports on a store); (iv) the `off` return sits before
 `namedUnreadableRefusal`, so a bad `--config` in an `off` directory is also silent (consistent with ruling (c)).
-`docs/module-map.md` has no entry for `src/adapters/scopes.ts`. **Adversarial review on Opus is RUNNING** (attack
-list below); when it reports: fixes if any, preview-merge suite, then the owner's three rulings. Attack list:  (attack the registry's longest-prefix match, the
+`docs/module-map.md` has no entry for `src/adapters/scopes.ts`. **Adversarial review DONE (Opus): MERGE WITH FIXES** — F1 HIGH retroactive capture on resume (confirmed, 6 marker
+hits), F2 HIGH corrupt `scopes.json` ⇒ every `off` is ON with no evidence (confirmed, four modes), F3 MEDIUM lost update
+between two writers (confirmed), F4/F5 LOW; everything else on the attack list HELD (LAUNCH-STATUS 2026-09-15 has the
+full list). **Fixer on Opus RUNNING** on the branch (F1–F5, failing-then-passing tests, probes re-run, rulings appended to
+the PR body). When it reports: re-verify the F1 test and the `off` probe yourself, preview-merge suite WITH #112 (they
+overlap on `hooks.ts` / `server.ts`), then the owner's rulings — now SEVEN: the PR's three, plus the review's three
+(two exceptions not one; `off → pause → resume` reaches `on`; MCP server opens a store under `off`), plus #112's two.
+Original attack list, for the record:  (attack the registry's longest-prefix match, the
 `off` path's "no output, no store created" guarantee against `spawnWorker` / the doctor notice / `recall.credit`,
 the env-observer directories still standing down, the MCP `scope` tool ahead of the session bind), preview-merge
 suite, then the owner's three rulings (dormant first-launch ask; unset = on; `off` silent) before or at merge.

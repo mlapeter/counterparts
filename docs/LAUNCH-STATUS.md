@@ -1580,12 +1580,44 @@ dimensions, so the gap closes on its own only as the migrated rows are replaced 
 | G50 | **PR #112** open (`f0428a8`, two commits; suite 2036 / 0 / 35, hash unchanged, `src/core` untouched). Bigger than the row implied: there is no gate state the credit pass reads — expansions come from the TRANSCRIPT — so the fix is a translation log, `<dataDir>/sessions/expansions.jsonl` (`src/adapters/expansions.ts`, hash of handle → resolved id, refusals write a `null` shadow that overrides an earlier resolution so a stranger's confidential refusal cannot credit through the owner's entry — a hole the builder's review caught and reproduced as a failing test first), `mcp/server.ts#noteHandleResolution` writes it, `hooks.ts#creditAtBoundary` translates through it. Touches the live boundary path and overlaps #92 on `hooks.ts` / `server.ts`. **Adversarial review on Opus RUNNING** (over-credit races, torn writes, unsalted hash vs the `sessions/` no-content rule, observer/off gating, growth, trial merge with #92). Two rulings it raised: the model-facing `recall` description in `tools.ts` still says expanding does not strengthen memories — now false, but correcting it hands the model a lever on its own reinforcement signal (`mcp/INTERFACE-GAPS` §9); and a superseded LITERAL id still credits nothing (filed, not built). | in review |
 | G52–G54 | unchanged — doctor's "unknown" severity / dropped-notice row; U7 recency-aware hints (a ruling); the OQ4 footnote-header instruction (a ruling). | needs owner |
 
-### In flight
+### #92 — rebased, then adversarially reviewed on Opus: MERGE WITH FIXES, fixes in flight
 
-- **#92 rebase**: an Opus agent in its own worktree is re-applying the scope-controls intent onto master's
-  `hooks.ts` / `bin/hook.ts` / `server.ts` (rewritten by #95, #99, #108), with the suite, the install loop both
-  ways and the surface hash as gates; it force-pushes the PR branch in place and does not merge. The three
-  rulings the PR body names (dormant first-launch ask; unset = on; `off` silent) are still the owner's.
+Rebased to `2677c6e` (suite 2067 / 0 / 36, loop 52 / 52, hash unchanged, `src/core` untouched; details in the
+handoff and appended to the PR body). The review ran real hook processes against a temp HOME (six probe scripts:
+paths, the `off` guarantee, retroactive capture, corrupt registry + lost update, the MCP gate, observer
+combination). **What held:** thirteen path-canonicalisation attacks (case, NFC/NFD, symlinks both sides, `..`,
+root, a file as key, `/a/b` vs `/a/bc`); `off` byte-empty on both channels with no store across all five events,
+malformed stdin, and `COUNTERPARTS_OBSERVER=1`; none of #95's spawn, #99's credit row, the checkout row or #108's
+envelope reachable under `off`; most-restrictive combination in both directions (a registry `on` cannot
+un-observe a config observer); the MCP gate ahead of any bind for every tool including unknown names; the
+first-launch ask once per session; the tests hermetic with real positive controls. **What broke:**
+
+- **F1 HIGH, CONFIRMED — resuming a paused/off directory mid-session captures the whole paused conversation.**
+  `off` writes no session record and no span cursor; when the registry flips to `on` (the `scope` tool is
+  deliberately reachable in an `off` directory, even unbound), the next Stop slices the transcript from index 0
+  and deposits all of it (six marker hits in `buffer.jsonl` after the flip). The PR's own MCP text says the hooks
+  pick a change up "at the next session"; the code re-reads per event. Fix: a boundary hook whose session has no
+  record joined late — write the record, advance the cursor to `turns.length`, capture nothing, leave a durable
+  row. The existing test used two session ids and no transcript.
+- **F2 HIGH, CONFIRMED — a corrupt or unreadable `scopes.json` turns every `off` directory ON with no evidence.**
+  0 bytes, one typo'd mode beside good entries (the good entries too), an unknown `version`, EACCES: all four
+  delivered the full wake, opened the store, wrote a session record. `adapter.scope.unreadable` and every other
+  `adapter.scope.*` event is ring-only on the hook surface because `bin/hook.ts` wires no `onEvent`. G19's "off is
+  silent" does not cover this: a corrupt registry is every `off` failing at once. Fix: one stderr line at
+  SessionStart plus a durable row; per-entry parsing so one typo does not fail the file.
+- **F3 MEDIUM, CONFIRMED — no compare-and-swap on `scopes.json`:** two writers both read absent, A writes projA
+  `off`, B writes projB `off`, final file holds only projB and projA reads `unset` ⇒ on. Fix: re-read before
+  rename, re-apply on mismatch, retry once.
+- **F4 LOW** — duplicate keys canonicalising to one directory tie-break on file order and can land on `on`.
+  **F5 LOW** — `--note ""` clears on the CLI and carries on the MCP tool.
+
+An Opus fixer is applying F1–F5 on the branch, each with a failing-then-passing test, re-running the probes,
+and appending the rulings to the PR body. **Rulings for the owner from the review**, beyond the three the PR
+names: (i) "off is silent" and "a corrupt registry is silent" are two exceptions, not one; (ii) `off → pause →
+resume` is a two-step path to `on` reachable by the model through the `scope` tool (`resumeTo` defaults to
+`on` when pausing from `off`); (iii) the MCP server still opens a store in an `off` directory, so "no store
+constructed" is a hook-only guarantee — say so in CONTRACT §5 G19. Not run by the reviewer: the install loop
+(the rebase agent's 52 / 52 stands on its word; `test/install-loop.test.ts` passed in the suite).
 
 ### Spend
 
