@@ -560,6 +560,16 @@ trusts to bind a session, and a disagreement between the two sides costs a
 translation — under-credit, the direction this seam may err in. A line with no
 scope is dropped for the same reason.
 
+**And a floor, because a project is a place and not a conversation.** One
+directory's table holds Monday's session and Tuesday's, so the scope alone still
+lets last week's resolution answer a title this session merely typed. This hook
+reads the asking session's own `startedAt` out of the registry it writes itself
+and translates only records stamped at or after it. A session whose first hook
+event is this Stop has no record yet — `claim()` runs before
+`noteSession("boundary")` — and so gets no floor; two sessions running at once in
+one directory still share the table inside the overlap. Both are recorded in
+`mcp/INTERFACE-GAPS` §9 rather than papered over.
+
 Two limits, recorded rather than hidden. The log is read only when the slice
 carries an expansion at all, so an ordinary Stop still opens no extra file. And
 compaction racing an append can lose a line — which costs one handle's credit,

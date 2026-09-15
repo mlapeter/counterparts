@@ -883,6 +883,100 @@ describe("the handle door, across projects (G50 review)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// The handle door, BEFORE THIS SESSION STARTED (review of #112, 2026-09-15)
+//
+// The scope filter leaves one table per project directory, and a project is a
+// place, not a conversation: the owner works in it on Monday and again on
+// Tuesday, and two sessions can run in it at once. So the second half of the
+// same repair is temporal — a resolution recorded before this session existed
+// cannot be an answer to anything this session asked, and must not translate
+// its handle.
+//
+// The floor is the session's own `startedAt` out of the live-session registry
+// (`adapters/sessions.ts`), which the SessionStart hook writes. A session whose
+// first hook event is the Stop itself has no record yet when the credit pass
+// runs — `claim()` precedes `noteSession("boundary")` — so it gets no floor at
+// all, which is the shape the tests above run in and why they are unaffected.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("the handle door, before this session started (G50 review)", () => {
+  function creditPayload(c: Counterpart): Record<string, unknown> {
+    return JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as Record<
+      string,
+      unknown
+    >;
+  }
+
+  /** The same memory, the same title, the same project — only the clock moves. */
+  async function fixture(): Promise<{ a: ClaudeCodeAdapter; id: string }> {
+    const a = adapter();
+    seed(a.counterpart);
+    const id = await mint(a);
+    a.counterpart.store.advanceClock("2026-01-02");
+    // The session announces itself, exactly as the host's SessionStart does.
+    a.sessionStart(input({ sessionId: "s-today", at: "2026-01-02" }));
+    return { a, id };
+  }
+
+  function stopWithHandle(a: ClaudeCodeAdapter): void {
+    a.stop(
+      input({
+        sessionId: "s-today",
+        at: "2026-01-02",
+        turns: [...TURNS, { role: "assistant", text: "Read it in full before answering." }],
+        expansions: [{ atTurn: 3, ids: ["storage split"] }],
+      }),
+    );
+  }
+
+  test("a resolution from BEFORE this session started translates nothing", async () => {
+    const { a, id } = await fixture();
+    // A minute before this session began — another session in this same project
+    // resolved the title, and this session's model merely typed it.
+    const earlier = new McpServer({
+      counterpart: a.counterpart,
+      scope: "proj",
+      owner: true,
+      registryDir: dir,
+      now: () => Date.now() - 60_000,
+    });
+    expect(((await earlier.call("recall", { handle: "storage split" })).structuredContent)["reason"]).toBe(
+      "expanded",
+    );
+    // It is on disk, in this very project: only the floor keeps it out.
+    expect(readHandleResolutions(dir, { scope: "proj" }).get(handleKey("storage split"))).toBe(id);
+
+    stopWithHandle(a);
+
+    const p = creditPayload(a.counterpart);
+    expect(p["credited"]).toBe(0);
+    expect(p["resolvedHandles"]).toBe(0);
+    expect(p["unresolvedHandles"]).toBe(1);
+    expect(a.counterpart.store.physicsOf(id).uses).toBe(0);
+  });
+
+  test("a resolution made DURING the session still credits", async () => {
+    const { a, id } = await fixture();
+    const now = new McpServer({
+      counterpart: a.counterpart,
+      scope: "proj",
+      owner: true,
+      registryDir: dir,
+    });
+    expect(((await now.call("recall", { handle: "storage split" })).structuredContent)["reason"]).toBe(
+      "expanded",
+    );
+
+    stopWithHandle(a);
+
+    const p = creditPayload(a.counterpart);
+    expect(p["credited"]).toBe(1);
+    expect(p["resolvedHandles"]).toBe(1);
+    expect(a.counterpart.store.physicsOf(id).uses).toBe(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // The quoted door, against what the session actually SAW
 // ═══════════════════════════════════════════════════════════════════════════
 

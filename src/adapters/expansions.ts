@@ -23,8 +23,10 @@
  * cannot say whose ANSWER resolved it, and this table is shared. So the honest
  * statement is narrower: the boundary credits a memory only for a handle THIS
  * session's transcript carries, translated through an answer given in THIS
- * PROJECT (`readHandleResolutions`'s scope filter). What remains is stated where
- * the filter is: two sessions in one project directory share one table.
+ * PROJECT (`readHandleResolutions`'s scope filter) and no earlier than THIS
+ * SESSION's own start (its `since` floor). What remains is stated where the
+ * filters are: two sessions running at once in one project directory share one
+ * table.
  *
  * A list of ids keyed by session would fail twice over: this host launches the MCP
  * server from a static config, so it is usually UNBOUND and has no session id to
@@ -216,17 +218,26 @@ export function recordHandleResolution(
  * the owner that credit. The stranger's shadow now carries the stranger's scope,
  * so it never reaches the owner's boundary.
  *
- * What is LEFT is stated rather than hidden: two sessions in the SAME project
- * directory still share one table, so a call that did not reach `expandHandle`
- * can still be translated through a resolution some concurrent session in that
- * project made after this session started (see the session floor below).
+ * **`opts.since` is the other half: the asking session's own start.** A project
+ * is a place, not a conversation — the same directory carries Monday's session
+ * and Tuesday's, and two at once — so the scope alone still lets last week's
+ * resolution of a title answer today's typed guess. The credit pass passes the
+ * session's `startedAt` from the live-session registry, and a record stamped
+ * before it is dropped. Inclusive at the boundary: a resolution in the same
+ * millisecond the session was registered is that session's own.
+ *
+ * What is LEFT is stated rather than hidden: two sessions running CONCURRENTLY
+ * in one project directory share one table, so a call that did not reach
+ * `expandHandle` can still be translated through a resolution the other one
+ * made. And a session with no registry record has no floor at all.
  */
 export function readHandleResolutions(
   dataDir: string,
-  opts: { now?: number; ttlMs?: number; scope?: string } = {},
+  opts: { now?: number; ttlMs?: number; scope?: string; since?: number } = {},
 ): Map<string, string | null> {
   const now = opts.now ?? Date.now();
   const ttl = opts.ttlMs ?? EXPANSION_TTL_MS;
+  const since = opts.since;
   // Canonicalized ONCE: `canonicalScope` is a `realpath` syscall, and the file
   // may hold hundreds of lines.
   const want =
@@ -243,6 +254,9 @@ export function readHandleResolutions(
   for (const record of parseLines(raw)) {
     if (now - record.at > ttl) continue;
     if (want !== null && !scopeMatches(record.scope, want)) continue;
+    // The session floor. INCLUSIVE, because a resolution stamped in the same
+    // millisecond the session was registered is this session's own.
+    if (since !== undefined && record.at < since) continue;
     out.set(record.key, record.id);
   }
   return out;

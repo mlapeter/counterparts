@@ -219,7 +219,7 @@ instead would not help: `recallTool` runs under `this.session ?? "mcp"` and the 
 happens on `note` / `chapter` / `session_end`, so the usual recall call has no session to
 record.
 
-**The filter, and what is left after it.** Every line already carried the `scope` the
+**Two filters, and what is left after them.** Every line already carried the `scope` the
 resolving server was serving, so `readHandleResolutions` now DROPS any record whose
 canonical scope is not the asking boundary's (`sessions.ts#canonicalScope`, the same
 comparison `requireBoundSession` already trusts; a line with no scope is dropped too). That
@@ -227,14 +227,22 @@ covers all three routes at once, and it retires the opposite race the previous d
 accepted — the stranger's shadow carries the stranger's scope and never reaches the owner's
 boundary.
 
-The RESIDUAL, stated rather than hidden: two sessions running in the SAME project directory
-share one table, so a call that never reached `expandHandle` can still be translated
-through a resolution some other session in that project made.
+The second filter is temporal, because a project is a PLACE and not a conversation: one
+directory's table holds Monday's session and Tuesday's. `creditAtBoundary` reads the asking
+session's `startedAt` from the live-session registry and translates only records stamped at
+or after it, so last week's resolution of a title cannot answer today's typed guess.
+
+The RESIDUAL, stated rather than hidden: two sessions running CONCURRENTLY in the same
+project directory share one table, so within the overlap a call that never reached
+`expandHandle` can still be translated through a resolution the other one made. And a
+session whose first hook event is the Stop itself has no registry record when the credit
+pass runs (`claim()` precedes `noteSession("boundary")`), so it gets no floor at all.
 
 Proof: `test/lifecycle.test.ts` "the handle door (G50)" — the positive, the unknown handle,
-the ambiguous handle, and the confidential shadow — and "the handle door, across projects
-(G50 review)" for the three shadowless routes and the retired race, plus
-`test/sessions.test.ts` "the handle-resolution log" for the file's own rules.
+the ambiguous handle, and the confidential shadow — "the handle door, across projects
+(G50 review)" for the three shadowless routes and the retired race, and "the handle door,
+before this session started (G50 review)" for the floor, plus `test/sessions.test.ts` "the
+handle-resolution log" for the file's own rules.
 
 **What the tool DESCRIPTION still owes, and it is an owner call.** `tools.ts`'s `recall`
 privilege still reads "It writes nothing and trains nothing: ranking is not recording, so

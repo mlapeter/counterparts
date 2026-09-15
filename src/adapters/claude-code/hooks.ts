@@ -989,14 +989,27 @@ export class ClaudeCodeAdapter {
     // the last answer anyone anywhere got, including the owner's resolution of a
     // confidential memory this session was refused (or never asked for at all).
     // A handle nobody resolved in this scope still counts `unresolvedHandles`.
+    //
+    // The SECOND filter is this session's own start, out of the same registry
+    // (`sessions.ts`): a project is a place, not a conversation, so one
+    // directory's table also holds last week's answers, and a resolution
+    // recorded before this session existed cannot be an answer to anything this
+    // session asked. A session whose first hook event is this very Stop has no
+    // record yet — `claim()` runs before `noteSession("boundary")` — and gets no
+    // floor; that is under-credit's direction only in the sense that it does not
+    // tighten, and it is the residual §9 records.
+    //
     // The file is read only when there is something to translate.
-    const resolutions =
-      raw.length === 0
-        ? new Map<string, string | null>()
-        : readHandleResolutions(this.counterpart.store.dir, {
-            now: this.nowFn(),
-            scope: input.scope,
-          });
+    let resolutions = new Map<string, string | null>();
+    if (raw.length > 0) {
+      const dataDir = this.counterpart.store.dir;
+      const started = readSession(dataDir, input.sessionId)?.startedAt;
+      resolutions = readHandleResolutions(dataDir, {
+        now: this.nowFn(),
+        scope: input.scope,
+        ...(started === undefined ? {} : { since: started }),
+      });
+    }
     const resolvedHandles = countTranslated(raw, resolutions);
     const expansions = translateExpansions(raw, resolutions);
     try {
