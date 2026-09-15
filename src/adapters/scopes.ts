@@ -33,10 +33,18 @@
  * directory the parallel run touches is unset today, and a registry that
  * defaulted to observer would silently mute the live run on the day it shipped.
  * The fail direction for a CORRUPT file is the same "never fail the host" rule
- * the hooks live by (`claude-code/CONTRACT.md` §5 G2) — one ring event
- * (`adapter.scope.unreadable`), never a thrown hook — and the console refuses
- * to overwrite a file it could not parse without `--force`, so the corruption
- * is loud on the one surface that has a person in front of it.
+ * the hooks live by (`claude-code/CONTRACT.md` §5 G2) — never a thrown hook —
+ * and the console refuses to overwrite a file it could not parse without
+ * `--force`, so the corruption is loud on the one surface that has a person in
+ * front of it.
+ *
+ * **And because that fail direction is ON, a file in trouble is never SILENT**
+ * (#92 review, F2). A bad entry is refused BY NAME rather than failing the whole
+ * file — whole-file-fail turned every correctly typed `off` in the file on, to
+ * protect the one that was typed badly — and `describeScopeTrouble` is the one
+ * sentence every surface with a reader prints: the hook's stderr at SessionStart,
+ * the console, the server at launch. "`off` is silent" (§5 G19) and "a corrupt
+ * registry is silent" are different exceptions, and only the first was ruled.
  *
  * **This module never throws at a reader.** `readScopes` returns a reading;
  * only `writeScopes`, which is a console command with an owner watching, is
@@ -106,6 +114,14 @@ export const SCOPE_EVENT = "adapter.scope";
  */
 export const SCOPE_JOINED_LATE_EVENT = "adapter.scope.joined-late";
 
+/**
+ * The RING event naming the ENTRIES a read refused (#92 review, F2). Those
+ * directories read as unset, which is ON — so this is the record that a setting
+ * somebody wrote is not being kept. The durable half is the wake row's
+ * `scopeRegistry` field, for the same reason the unreadable one is ring-only.
+ */
+export const SCOPE_REFUSED_EVENT = "adapter.scope.entries-refused";
+
 /** Every mode a directory can be put in. */
 export const SCOPE_MODES = ["on", "observer", "off", "paused"] as const;
 export type ScopeMode = (typeof SCOPE_MODES)[number];
@@ -141,14 +157,28 @@ export interface ScopeRegistry {
   readonly scopes: Readonly<Record<string, ScopeEntry>>;
 }
 
+/** One entry the file held and this could not understand. Named, never guessed. */
+export interface RefusedEntry {
+  /** The key exactly as the file spelled it. */
+  readonly key: string;
+  /** Why it was refused, in one clause. */
+  readonly detail: string;
+}
+
 /** What a read of the file found. It NEVER throws; `error` carries the why. */
 export interface ScopeRead {
   /** Null when the file is absent, or present and unreadable. */
   readonly registry: ScopeRegistry | null;
   /** True when the file exists at all — absent and corrupt are different. */
   readonly present: boolean;
-  /** One sentence, when a file that IS there could not be understood. */
+  /** One sentence, when a file that IS there could not be understood AS A FILE. */
   readonly error: string | null;
+  /**
+   * The ENTRIES this read refused, by name. The file parsed and the other
+   * entries stand; these directories read as unset. Empty on a healthy file and
+   * on a file-level `error`, where there are no entries to speak of.
+   */
+  readonly refused: readonly RefusedEntry[];
 }
 
 /** Which entry decided, and what it said. */
@@ -178,63 +208,87 @@ function isResumeMode(value: unknown): value is ResumeMode {
 }
 
 /**
- * Parse a registry, or say why not.
+ * Parse a registry, or say why not — PER ENTRY.
  *
- * A single malformed ENTRY fails the whole file rather than being dropped: an
- * `off` somebody typed badly must not silently become an `on`, and the console
- * is standing right there to say so. The fail direction for the HOOK is still
- * `unset` (⇒ on), because a hook that refused to run over a JSON typo would be
- * a hook that failed the host (§5 G2) — the two are not in tension: the loud
- * half belongs on the surface with a person in front of it.
+ * **The rule changed on 2026-09-15 (#92 review, F2), and this is why.** A single
+ * malformed entry used to fail the WHOLE FILE: the reasoning was that an `off`
+ * somebody typed badly must not silently become an `on`. The review measured
+ * what that actually did — one typo'd mode in one entry turned EVERY correctly
+ * typed `off` in the file on, silently, because the hook's fail direction for an
+ * unreadable file is `unset` (⇒ on) and has to be, since a hook may not fail the
+ * host (§5 G2). Whole-file-fail did not protect the badly typed entry; it
+ * sacrificed all the good ones to it.
+ *
+ * So: what parses, parses. What does not is REFUSED BY NAME — that directory
+ * reads as unset and the name goes out on every surface that has somebody in
+ * front of it (the hook's one stderr line at SessionStart, the console, the MCP
+ * tool's refusal to write). A file that is not a registry AT ALL — not JSON, not
+ * an object, an unknown `version`, a `scopes` that is not an object — is still a
+ * whole-file failure, because there are no entries in it to honour.
  */
 export function parseRegistry(raw: unknown): {
   registry: ScopeRegistry | null;
   error: string | null;
+  refused: RefusedEntry[];
 } {
+  const whole = (error: string): { registry: null; error: string; refused: RefusedEntry[] } => ({
+    registry: null,
+    error,
+    refused: [],
+  });
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    return { registry: null, error: "the file is not a JSON object" };
+    return whole("the file is not a JSON object");
   }
   const rec = raw as Record<string, unknown>;
   if (rec["version"] !== SCOPES_VERSION) {
-    return {
-      registry: null,
-      error: `"version" is ${JSON.stringify(rec["version"])}, and this reads version ${String(SCOPES_VERSION)}`,
-    };
+    return whole(
+      `"version" is ${JSON.stringify(rec["version"])}, and this reads version ${String(SCOPES_VERSION)}`,
+    );
   }
   const scopesRaw = rec["scopes"];
-  if (scopesRaw === undefined) return { registry: emptyRegistry(), error: null };
+  if (scopesRaw === undefined) return { registry: emptyRegistry(), error: null, refused: [] };
   if (scopesRaw === null || typeof scopesRaw !== "object" || Array.isArray(scopesRaw)) {
-    return { registry: null, error: '"scopes" is not an object' };
+    return whole('"scopes" is not an object');
   }
   const scopes: Record<string, ScopeEntry> = {};
+  const refused: RefusedEntry[] = [];
+  const refuse = (key: string, detail: string): void => {
+    refused.push({ key, detail });
+  };
   for (const [path, value] of Object.entries(scopesRaw as Record<string, unknown>)) {
     if (!path.startsWith("/")) {
-      return { registry: null, error: `the key ${JSON.stringify(path)} is not an absolute path` };
+      refuse(path, "the key is not an absolute path");
+      continue;
     }
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
-      return { registry: null, error: `the entry for ${path} is not an object` };
+      refuse(path, "the entry is not an object");
+      continue;
     }
     const entry = value as Record<string, unknown>;
     if (!isMode(entry["mode"])) {
-      return {
-        registry: null,
-        error: `the entry for ${path} has mode ${JSON.stringify(entry["mode"])}; it takes ${SCOPE_MODES.join(", ")}`,
-      };
+      refuse(
+        path,
+        `mode ${JSON.stringify(entry["mode"])}; it takes ${SCOPE_MODES.join(", ")}`,
+      );
+      continue;
     }
     const since = entry["since"];
     if (typeof since !== "string" || since.length === 0) {
-      return { registry: null, error: `the entry for ${path} has no "since"` };
+      refuse(path, 'no "since"');
+      continue;
     }
     const resumeTo = entry["resumeTo"];
     if (resumeTo !== undefined && !isResumeMode(resumeTo)) {
-      return {
-        registry: null,
-        error: `the entry for ${path} has resumeTo ${JSON.stringify(resumeTo)}; it takes ${RESUME_MODES.join(", ")}`,
-      };
+      refuse(
+        path,
+        `resumeTo ${JSON.stringify(resumeTo)}; it takes ${RESUME_MODES.join(", ")}`,
+      );
+      continue;
     }
     const note = entry["note"];
     if (note !== undefined && typeof note !== "string") {
-      return { registry: null, error: `the entry for ${path} has a "note" that is not text` };
+      refuse(path, 'a "note" that is not text');
+      continue;
     }
     scopes[path] = {
       mode: entry["mode"],
@@ -243,7 +297,7 @@ export function parseRegistry(raw: unknown): {
       ...(note === undefined ? {} : { note }),
     };
   }
-  return { registry: { version: SCOPES_VERSION, scopes }, error: null };
+  return { registry: { version: SCOPES_VERSION, scopes }, error: null, refused };
 }
 
 /**
@@ -265,8 +319,13 @@ export function readScopes(
     // ENOENT is the ordinary state of every machine that has never answered the
     // question. Anything else — a permission bit, a directory where a file
     // should be — is a file that IS there and could not be read.
-    if (code === "ENOENT") return { registry: null, present: false, error: null };
-    return { registry: null, present: true, error: `it could not be read (${code})` };
+    if (code === "ENOENT") return { registry: null, present: false, error: null, refused: [] };
+    return {
+      registry: null,
+      present: true,
+      error: `it could not be read (${code})`,
+      refused: [],
+    };
   }
   let raw: unknown;
   try {
@@ -276,10 +335,41 @@ export function readScopes(
       registry: null,
       present: true,
       error: `it is not JSON (${err instanceof Error ? err.message : String(err)})`,
+      refused: [],
     };
   }
   const parsed = parseRegistry(raw);
-  return { registry: parsed.registry, present: true, error: parsed.error };
+  return {
+    registry: parsed.registry,
+    present: true,
+    error: parsed.error,
+    refused: parsed.refused,
+  };
+}
+
+/**
+ * THE ONE SENTENCE a registry in trouble gets, wherever there is somebody to
+ * read it — the hook's stderr at SessionStart, the console, the server's launch
+ * line. Null when the file is healthy or simply absent.
+ *
+ * It exists because `off` being silent (CONTRACT §5 G19) and a CORRUPT REGISTRY
+ * being silent are different exceptions, and only the first one was ever ruled.
+ * A directory the owner set `off` that quietly comes back ON because the file
+ * beside it grew a typo is the failure scar §2.4 is about: the absence of the
+ * stand-down and the absence of a working registry looked identical.
+ */
+export function describeScopeTrouble(read: ScopeRead, path: string): string | null {
+  if (read.error !== null) {
+    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on) until it is fixed.`;
+  }
+  if (read.refused.length === 0) return null;
+  const one = read.refused.length === 1;
+  const list = read.refused.map((r) => `${r.key} (${r.detail})`).join("; ");
+  return (
+    `[counterparts] scope registry ${path}: ${String(read.refused.length)} ${one ? "entry" : "entries"} ` +
+    `could not be read and ${one ? "is" : "are"} IGNORED — ${list}. ` +
+    `${one ? "That directory reads" : "Those directories read"} as unset (on); every other entry stands.`
+  );
 }
 
 /** Is `dir` at or under `key`? Segment-aware: `/a/b` never matches `/a/bc`. */

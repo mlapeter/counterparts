@@ -411,6 +411,13 @@ export class McpServer {
           ...(verdict.entry?.note === undefined ? {} : { note: verdict.entry.note }),
           ...(verdict.mode === "paused" ? { resumesTo: resumeTarget(verdict.entry) } : {}),
           ...(file === null ? {} : { registry: file }),
+          // A registry in trouble is never silent, on any surface that has a
+          // reader (#92 review, F2): entries nobody can honour read as unset,
+          // which is ON, and this is the one place a model can see that.
+          ...(read === null || read.error === null ? {} : { registryError: read.error }),
+          ...(read === null || read.refused.length === 0
+            ? {}
+            : { registryRefused: read.refused.map((r) => `${r.key} (${r.detail})`) }),
           detail:
             verdict.mode === "unset"
               ? "Nothing is set for this directory or any parent, so it is on by default. Ask the user before setting it."
@@ -436,6 +443,18 @@ export class McpServer {
       return this.refuse("scope", "registry-unreadable", {
         registry: file,
         detail: `The registry could not be read — ${read.error}. Nothing was changed; a person has to fix it (\`counterparts scope <path> --off --force\` replaces it).`,
+      });
+    }
+    // ENTRIES THIS READ REFUSED (#92 review, F2). The file parses, so this tool
+    // COULD write — and a write rewrites the whole file from what parsed, which
+    // would silently delete another directory's `off`. A model may not make that
+    // trade on somebody's behalf: it refuses, names them, and leaves it to the
+    // person at the console (`counterparts scope <path> --off --force`).
+    if (read !== null && read.refused.length > 0) {
+      return this.refuse("scope", "registry-partly-unreadable", {
+        registry: file,
+        refused: read.refused.map((r) => `${r.key} (${r.detail})`),
+        detail: `${String(read.refused.length)} entry in this registry could not be read, and every write rewrites the whole file — so writing here would drop ${read.refused.length === 1 ? "it" : "them"}. Nothing was changed. Tell the user; fixing the file, or \`counterparts scope <path> --<mode> --force\`, is a person's call.`,
       });
     }
 

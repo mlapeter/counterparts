@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -39,6 +40,7 @@ import type { ToolResult } from "../src/adapters/mcp/index.js";
 import {
   SCOPES_FILE_NAME,
   canonicalScopePath,
+  describeScopeTrouble,
   effectiveStance,
   emptyRegistry,
   lookupScope,
@@ -51,9 +53,9 @@ import {
   stanceOfMode,
   writeScopes,
 } from "../src/adapters/scopes.js";
-import type { ScopeRegistry } from "../src/adapters/scopes.js";
+import type { ScopeRead, ScopeRegistry } from "../src/adapters/scopes.js";
 import { readSession } from "../src/adapters/sessions.js";
-import { BOUNDARY_EVENT, RECALL_CREDIT_EVENT } from "../src/core/counterpart.js";
+import { BOUNDARY_EVENT, RECALL_CREDIT_EVENT, WAKE_INJECTED_EVENT } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
@@ -144,16 +146,26 @@ function grepStore(needle: string): number {
   return hits;
 }
 
-/** The durable boundary rows, newest last. */
-function boundaryRows(): Record<string, unknown>[] {
+/** The durable rows of one name, newest last. */
+function durableRows(name: string): Record<string, unknown>[] {
   const s = Store.open({ dir: store });
   try {
     return s
-      .eventLog({ name: BOUNDARY_EVENT, limit: 100 })
+      .eventLog({ name, limit: 100 })
       .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
   } finally {
     s.close();
   }
+}
+
+/** The durable boundary rows, newest last. */
+function boundaryRows(): Record<string, unknown>[] {
+  return durableRows(BOUNDARY_EVENT);
+}
+
+/** The durable session-start rows, newest last. */
+function wakeRows(): Record<string, unknown>[] {
+  return durableRows(WAKE_INJECTED_EVENT);
 }
 
 interface Console_ {
@@ -190,7 +202,7 @@ describe("the scope registry", () => {
 
   test("an absent file is UNSET, and unset is on — today's behaviour, unchanged", () => {
     const read = readScopes(join(work, "nothing-here.json"));
-    expect(read).toEqual({ registry: null, present: false, error: null });
+    expect(read).toEqual({ registry: null, present: false, error: null, refused: [] });
     expect(lookupScope(read.registry, work).mode).toBe("unset");
     expect(stanceOfMode("unset")).toBe("on");
   });
@@ -228,22 +240,22 @@ describe("the scope registry", () => {
     expect(lookupScope(reg, join(work, "not", "created", "yet")).mode).toBe("off");
   });
 
-  test("a corrupt file is UNSET and says why — it is never guessed at", () => {
+  test("a file that is not a registry AT ALL is UNSET and says why", () => {
     writeFileSync(scopesFile, "{not json at all", "utf8");
     const read = readScopes(scopesFile);
     expect(read.present).toBe(true);
     expect(read.registry).toBe(null);
     expect(read.error).toContain("not JSON");
+    expect(read.refused).toEqual([]);
     expect(lookupScope(read.registry, work).mode).toBe("unset");
 
-    // A malformed ENTRY fails the file rather than being dropped: an `off`
-    // somebody typed badly must not silently become an `on`.
+    // The whole-file failures: there are no entries in these to honour.
     for (const bad of [
       { version: 2, scopes: {} },
-      { version: 1, scopes: { [work]: { mode: "sometimes", since: "t" } } },
-      { version: 1, scopes: { [work]: { mode: "off" } } },
-      { version: 1, scopes: { relative: { mode: "off", since: "t" } } },
       { version: 1, scopes: [] },
+      { version: 1, scopes: "off" },
+      [],
+      null,
     ]) {
       const parsed = parseRegistry(bad);
       expect(`${JSON.stringify(bad)} → ${String(parsed.registry)}`).toBe(
@@ -252,7 +264,55 @@ describe("the scope registry", () => {
       expect(parsed.error).not.toBe(null);
     }
     // A file with no `scopes` key at all is an EMPTY registry, not an error.
-    expect(parseRegistry({ version: 1 })).toEqual({ registry: emptyRegistry(), error: null });
+    expect(parseRegistry({ version: 1 })).toEqual({
+      registry: emptyRegistry(),
+      error: null,
+      refused: [],
+    });
+  });
+
+  test("ONE bad entry is refused BY NAME; the good entries still stand (F2)", () => {
+    // The rule this replaces failed the whole file on one typo — which turned
+    // every correctly typed `off` in it ON, because the hook's fail direction
+    // for an unreadable file is unset (⇒ on) and has to be (§5 G2).
+    const good = join(work, "private");
+    const typo = join(work, "typo");
+    mkdirSync(good, { recursive: true });
+    const parsed = parseRegistry({
+      version: 1,
+      scopes: {
+        [good]: { mode: "off", since: "t" },
+        [typo]: { mode: "offf", since: "t" },
+        [join(work, "nosince")]: { mode: "off" },
+        [join(work, "badresume")]: { mode: "paused", since: "t", resumeTo: "off" },
+        [join(work, "badnote")]: { mode: "off", since: "t", note: 7 },
+        [join(work, "notanobject")]: "off",
+        relative: { mode: "off", since: "t" },
+      },
+    });
+    // The good entry is honoured, and it still governs its subdirectories.
+    expect(parsed.error).toBe(null);
+    expect(Object.keys(parsed.registry?.scopes ?? {})).toEqual([good]);
+    expect(lookupScope(parsed.registry, join(good, "sub")).mode).toBe("off");
+    // Every bad one is named, with the reason beside it.
+    expect(parsed.refused.map((r) => r.key)).toEqual([
+      typo,
+      join(work, "nosince"),
+      join(work, "badresume"),
+      join(work, "badnote"),
+      join(work, "notanobject"),
+      "relative",
+    ]);
+    expect(parsed.refused[0]?.detail).toContain('mode "offf"');
+    // A refused entry is UNSET, never guessed at in either direction.
+    expect(lookupScope(parsed.registry, typo).mode).toBe("unset");
+    // And the sentence every surface prints names the file and the entries.
+    const read: ScopeRead = { registry: parsed.registry, present: true, error: null, refused: parsed.refused };
+    const line = describeScopeTrouble(read, scopesFile) ?? "";
+    expect(line).toContain(scopesFile);
+    expect(line).toContain("6 entries");
+    expect(line).toContain(typo);
+    expect(describeScopeTrouble({ registry: emptyRegistry(), present: true, error: null, refused: [] }, scopesFile)).toBe(null);
   });
 
   test("the write is atomic, and leaves no temp file behind", () => {
@@ -443,6 +503,120 @@ describe("a directory set OFF: no output, no write", () => {
     const r = runHook("SessionStart", "corrupt", project);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("has not lived a boundary");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A registry in trouble is NOT silent (#92 review, F2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("a registry that could not be read says so, where somebody can read it", () => {
+  test("every corruption mode puts ONE line on the hook's stderr at SessionStart", () => {
+    // The fail direction is `unset`, which is ON — so a file nobody can read
+    // turns every `off` in it back on. Before this, the only record was a ring
+    // event in a process that lives for one turn, and `bin/hook.ts` wires no
+    // `onEvent` at all: the ring died with the process, unread.
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    const cases: [string, () => void][] = [
+      ["zero bytes (a crash mid-write)", () => writeFileSync(scopesFile, "", "utf8")],
+      ["not JSON", () => writeFileSync(scopesFile, "{ broken", "utf8")],
+      [
+        "a version this does not read",
+        () =>
+          writeFileSync(
+            scopesFile,
+            JSON.stringify({ version: 2, scopes: { [project]: { mode: "off", since: "t" } } }),
+            "utf8",
+          ),
+      ],
+      [
+        "unreadable (EACCES)",
+        () => {
+          put({ [project]: { mode: "off", since: "t" } });
+          chmodSync(scopesFile, 0o000);
+        },
+      ],
+    ];
+    for (const [label, corrupt] of cases) {
+      rmSync(scopesFile, { force: true });
+      corrupt();
+      const r = runHook("SessionStart", `trouble-${label.slice(0, 4)}`, project);
+      expect({ label, code: r.code }).toEqual({ label, code: 0 });
+      expect(`${label}: ${r.stderr}`).toContain("[counterparts] scope registry");
+      expect(`${label}: ${r.stderr}`).toContain(scopesFile);
+      expect(`${label}: ${r.stderr}`).toContain("reads as unset (on)");
+      // The hook still WORKS — the line is a warning, never a stand-down (§5 G2).
+      expect(`${label}: ${r.stdout}`).toContain("has not lived a boundary");
+      // ONE event only. `UserPromptSubmit` fires every turn, and a line per turn
+      // is a permanent noise floor in the host's log rather than a warning.
+      expect(runHook("UserPromptSubmit", "trouble-turn", project).stderr).toBe("");
+      chmodSync(scopesFile, 0o600);
+    }
+  });
+
+  test("ONE typo'd entry no longer turns the correctly typed `off` entries ON", () => {
+    // The measurement that changed the rule: whole-file-fail meant one bad
+    // entry turned every good `off` in the file on.
+    const off = join(work, "private");
+    const unset = join(work, "ordinary");
+    mkdirSync(off, { recursive: true });
+    mkdirSync(unset, { recursive: true });
+    put({
+      [off]: { mode: "off", since: "2026-09-10T00:00:00.000Z" },
+      [join(work, "typo")]: { mode: "offf", since: "2026-09-10T00:00:00.000Z" },
+    });
+
+    // The good entry still holds — byte-for-byte silence, and no store.
+    const quiet = runHook("SessionStart", "still-off", off);
+    expect({ code: quiet.code, stdout: quiet.stdout, stderr: quiet.stderr }).toEqual({
+      code: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(existsSync(store)).toBe(false);
+
+    // And the directory that does run hears about the entry nobody can honour,
+    // by name — it is the only surface that reaches a person on this host.
+    const loud = runHook("SessionStart", "ordinary-session", unset);
+    expect(loud.code).toBe(0);
+    expect(loud.stderr).toContain(join(work, "typo"));
+    expect(loud.stderr).toContain("IGNORED");
+    expect(loud.stdout).toContain("has not lived a boundary");
+    // The durable half, on the row this session-start already writes.
+    const wake = wakeRows().at(-1);
+    expect(wake?.["scopeRegistry"]).toBe("partial");
+  });
+
+  test("the console names the entries it cannot read, and refuses to drop them", async () => {
+    const off = join(work, "private");
+    mkdirSync(off, { recursive: true });
+    const typo = join(work, "typo");
+    put({
+      [off]: { mode: "off", since: "t" },
+      [typo]: { mode: "offf", since: "t" },
+    });
+
+    const listed = await cli(["scope", "--list"]);
+    expect(listed.code).toBe(EXIT.ok);
+    expect(listed.err).toContain(typo);
+    expect(listed.out).toContain(off);
+
+    // A write would rewrite the file from what parsed, dropping the bad entry.
+    const refused = await cli(["scope", join(work, "elsewhere"), "--off"]);
+    expect(refused.code).toBe(EXIT.refused);
+    expect(refused.err).toContain(typo);
+    expect(refused.err).toContain("Nothing was written");
+    expect(readScopes(scopesFile).refused.length).toBe(1);
+
+    // `--force` goes ahead, says what it dropped, and keeps what parsed.
+    const forced = await cli(["scope", join(work, "elsewhere"), "--off", "--force"]);
+    expect(forced.code).toBe(EXIT.ok);
+    expect(forced.err).toContain(typo);
+    const after = readScopes(scopesFile);
+    expect(after.refused).toEqual([]);
+    expect(lookupScope(after.registry, off).mode).toBe("off");
+    expect(lookupScope(after.registry, typo).mode).toBe("unset");
   });
 });
 
@@ -1016,6 +1190,29 @@ describe("the MCP server in a directory set off", () => {
     const refused = await s.call("scope", { mode: "off" });
     expect(body(refused)["reason"]).toBe("registry-unreadable");
     expect(readFileSync(scopesFile, "utf8")).toBe("{ broken");
+  });
+
+  test("a file with ONE entry it cannot read is READ but never written (F2)", async () => {
+    Store.open({ dir: store }).close();
+    const typo = join(work, "typo");
+    put({
+      [join(work, "project")]: { mode: "off", since: "t" },
+      [typo]: { mode: "offf", since: "t" },
+    });
+    const s = server();
+    const before = readFileSync(scopesFile, "utf8");
+
+    // Reading still answers — in an off directory `scope` is the one door —
+    // and it says which entries nobody can honour.
+    const read = await s.call("scope", {});
+    expect(body(read)["mode"]).toBe("off");
+    expect(JSON.stringify(body(read)["registryRefused"])).toContain(typo);
+
+    // Writing would rewrite the file from what parsed, dropping that entry.
+    // A model does not get to make that trade on somebody's behalf.
+    const refused = await s.call("scope", { mode: "on" });
+    expect(body(refused)["reason"]).toBe("registry-partly-unreadable");
+    expect(readFileSync(scopesFile, "utf8")).toBe(before);
   });
 
   test("an observer reads the setting and stands down on changing it", async () => {

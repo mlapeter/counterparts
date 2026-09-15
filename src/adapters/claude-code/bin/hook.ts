@@ -25,7 +25,13 @@ import {
   resolveConfigPath,
 } from "../../config-path.js";
 import type { ConfigChoice } from "../../config-path.js";
-import { lookupScope, readScopes, scopesPath, stanceOfMode } from "../../scopes.js";
+import {
+  describeScopeTrouble,
+  lookupScope,
+  readScopes,
+  scopesPath,
+  stanceOfMode,
+} from "../../scopes.js";
 import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
@@ -259,6 +265,19 @@ async function main(): Promise<void> {
     // `counterparts scope <path>` prints on demand.
     return;
   }
+  // A REGISTRY IN TROUBLE IS NOT SILENT, and that is a DIFFERENT exception from
+  // the one above (#92 review, F2). `off` is silent because the owner said leave
+  // this alone; a file that could not be read — or an entry in it that could not
+  // — has said nothing at all, and its fail direction is `unset`, which is ON.
+  // The review's measurement: one typo'd mode turned every correctly typed `off`
+  // in the file on, with the only evidence a ring event in a process that lives
+  // for one turn. So: one line, on SessionStart ONLY (UserPromptSubmit fires
+  // every turn and this is a warning, not a nag), AFTER the `off` return above
+  // so that the silence of an off directory stays byte-for-byte.
+  if (name === "session-start") {
+    const trouble = describeScopeTrouble(read, scopesPath(choice.path));
+    if (trouble !== null) process.stderr.write(`${trouble}\n`);
+  }
   const { config: loaded, credentials, reason } = hostConfig(choice.path);
   // THE COMBINATION: the most restrictive of what the configuration said and
   // what the registry says (`adapters/scopes.ts#effectiveStance`, applied here
@@ -297,6 +316,7 @@ async function main(): Promise<void> {
     // ask the question once (G41).
     scope: verdict,
     ...(read.error === null ? {} : { scopeUnreadable: read.error }),
+    ...(read.refused.length === 0 ? {} : { scopeRefused: read.refused.map((r) => r.key) }),
   });
   try {
     // ONE read of the transcript, shared by the hook and the notice: `toHookInput`

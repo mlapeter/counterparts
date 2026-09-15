@@ -312,6 +312,20 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     conversation so far at its first boundary. The privacy direction is the one the
     owner asked for; the completeness direction is the one it costs.
 
+23. **[M] A REGISTRY IN TROUBLE IS NEVER SILENT, and that is a different exception
+    from G19's.** `off` is silent because the owner said leave this alone. A
+    registry file that could not be read has said nothing at all, and its fail
+    direction is `unset` — which is ON: the review measured one typo'd mode turning
+    every correctly typed `off` in the file back on, with no evidence anywhere but
+    a ring event in a process that lives for one turn. So a bad ENTRY is refused by
+    name and the rest of the file stands (`scopes.ts#parseRegistry`); a file that is
+    not a registry at all is still a whole-file failure; and either way
+    `describeScopeTrouble` puts one line on the hook's stderr at **SessionStart
+    only** — after the `off` return, so an off directory's silence stays
+    byte-for-byte — with `scopeRegistry: "unreadable" | "partial" | null` on the
+    session-start row for the day after. Both writers refuse rather than dropping
+    an entry they could not read: the console unless `--force`, the MCP tool always.
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

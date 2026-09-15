@@ -59,6 +59,7 @@ import { CONFIG_FILE_EVENT } from "../config-path.js";
 import {
   SCOPE_EVENT,
   SCOPE_JOINED_LATE_EVENT,
+  SCOPE_REFUSED_EVENT,
   SCOPE_UNREADABLE_EVENT,
   stanceOfMode,
 } from "../scopes.js";
@@ -213,6 +214,14 @@ export interface AdapterOptions {
   readonly scope?: ScopeVerdict;
   /** The sentence a registry that IS there and could not be read produced. */
   readonly scopeUnreadable?: string;
+  /**
+   * The ENTRIES that registry refused, by key (#92 review, F2). A file can parse
+   * while one directory's entry does not, and those directories read as unset —
+   * which is ON. Ring event here, and a flag on the wake's durable row, because
+   * a hook process lives for one turn and "why is this directory recording
+   * again" has to be answerable tomorrow.
+   */
+  readonly scopeRefused?: readonly string[];
 }
 
 /**
@@ -326,6 +335,14 @@ export class ClaudeCodeAdapter {
   private readonly configPath: string | undefined;
   /** What the scope registry said about this directory. `unset` when nobody said. */
   readonly scope: ScopeVerdict;
+  /**
+   * WHETHER THE REGISTRY ITSELF WAS IN TROUBLE when this process read it, for
+   * the wake's durable row (#92 review, F2): `unreadable` is the whole file,
+   * `partial` is one or more entries refused by name. Null is the ordinary day,
+   * and the field is `null` on the row rather than absent, so a reader can tell
+   * "the registry was fine" from "this row predates the question".
+   */
+  private scopeTrouble: "unreadable" | "partial" | null = null;
   private readonly ring: AdapterEvent[] = [];
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
@@ -385,6 +402,19 @@ export class ClaudeCodeAdapter {
     // default is exactly the shape scar §2.4 is about.
     if (opts.scopeUnreadable !== undefined && opts.scopeUnreadable.length > 0) {
       this.emit(SCOPE_UNREADABLE_EVENT, { detail: opts.scopeUnreadable });
+    }
+    // The per-ENTRY half of the same fact. Those directories read as unset,
+    // which is on: an `off` somebody typed badly is an `off` nobody is keeping.
+    if (opts.scopeRefused !== undefined && opts.scopeRefused.length > 0) {
+      this.scopeTrouble = "partial";
+      this.emit(SCOPE_REFUSED_EVENT, {
+        count: opts.scopeRefused.length,
+        keys: opts.scopeRefused.join(", "),
+      });
+    }
+    // An unreadable FILE outranks refused entries: there were no entries.
+    if (opts.scopeUnreadable !== undefined && opts.scopeUnreadable.length > 0) {
+      this.scopeTrouble = "unreadable";
     }
   }
 
@@ -452,6 +482,12 @@ export class ClaudeCodeAdapter {
         budget: budget ?? null,
         sentinel: woke.sentinel !== null,
         preface: woke.preface !== null,
+        // THE DURABLE HALF of a registry in trouble (#92 review, F2). It rides
+        // the session-start row this hook already writes, for the reason
+        // `adapter.scope.unreadable` is ring-only: a durable event NAME is a
+        // core change (`AdapterDurableEventName`) and this fact is about
+        // exactly the moment that row describes.
+        scopeRegistry: this.scopeTrouble,
       });
       // THE QUESTION RIDES BESIDE THE WAKE, NEVER INSIDE IT, and only if it
       // FITS.

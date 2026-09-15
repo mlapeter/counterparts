@@ -3471,6 +3471,15 @@ function scopeCommand(
   const unreadable = (): void => {
     io.err(`refused: ${file} could not be read — ${read.error ?? "unknown"}.`);
   };
+  // THE ENTRIES THIS FILE HOLDS AND NOBODY CAN HONOUR (#92 review, F2). They are
+  // named on every path through this command, read or write, because a refused
+  // entry reads as unset — which is ON — and the person in front of this console
+  // is the only one who can fix it.
+  const sayRefused = (): void => {
+    for (const entry of read.refused) {
+      io.err(`  ignored: ${entry.key} — ${entry.detail}. It reads as unset, which is on.`);
+    }
+  };
 
   // ── --list: the whole registry, and the file it came from ─────────────────
   if (listing) {
@@ -3484,6 +3493,12 @@ function scopeCommand(
       return EXIT.refused;
     }
     io.out(`Scopes (${file}):`);
+    if (read.refused.length > 0) {
+      io.err(
+        `warning: ${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in this file could not be read:`,
+      );
+      sayRefused();
+    }
     const entries = Object.entries(read.registry?.scopes ?? {}).sort(([a], [b]) =>
       a.localeCompare(b),
     );
@@ -3512,6 +3527,12 @@ function scopeCommand(
       unreadable();
       io.err("Until it is fixed every directory reads as unset, which is on.");
       return EXIT.refused;
+    }
+    if (read.refused.length > 0) {
+      io.err(
+        `warning: ${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in ${file} could not be read:`,
+      );
+      sayRefused();
     }
     const verdict = lookupScope(read.registry, dir);
     io.out(`${dir} — ${verdict.mode === "unset" ? "unset" : verdict.mode}`);
@@ -3549,6 +3570,24 @@ function scopeCommand(
     unreadable();
     io.err("Nothing was written. Fix it by hand, or pass --force to replace it entirely.");
     return EXIT.refused;
+  }
+  // A WRITE WOULD DROP THE ENTRIES THIS READ REFUSED — every write rewrites the
+  // whole file from what parsed — so it refuses instead, by name (#92 review,
+  // F2). `--force` goes ahead and says which entries it is dropping: the good
+  // ones are carried (they parsed), the named ones are gone.
+  if (read.refused.length > 0) {
+    if (flags["force"] !== true) {
+      io.err(
+        `refused: ${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in ${file} could not be read, and writing would drop ${read.refused.length === 1 ? "it" : "them"}:`,
+      );
+      sayRefused();
+      io.err("Nothing was written. Fix those by hand, or pass --force to drop them.");
+      return EXIT.refused;
+    }
+    io.err(
+      `warning: --force drops ${String(read.refused.length)} unreadable ${read.refused.length === 1 ? "entry" : "entries"}:`,
+    );
+    sayRefused();
   }
   // `--force` starts from EMPTY, not from a half-understood file: a registry
   // that did not parse has no entries this can honestly carry forward, and
