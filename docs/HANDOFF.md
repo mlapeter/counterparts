@@ -1,6 +1,51 @@
 # Handoff — resume here
 
-## 2026-09-16, close — read this first
+## 2026-09-16, evening — read this first: the architecture conversation happened; nothing built
+
+**Where the record is.** The owner's architecture session (Fable) ran in worktree
+`.claude/worktrees/storage-spec` on branch `docs/storage-spec-2026-09-16` (this PR) and produced
+`docs/storage-spec-2026-09-16.md` plus `docs/storage-spec-2026-09-16-ideas.md`. Read the spec's §0, §2
+(the owner's positions, stratum 1, not to be re-argued) and §14 (path forward) FIRST; then §4 (findings), §6
+(the recommendation), §10 (thirteen open questions). The ideas file holds the two peer-session replies. Nothing
+was built; the live checkout and the live store were not touched (read-only queries in immutable mode only).
+
+**The findings in one breath** (spec §4). One-file-per-memory was a v1 refactor decision on 2026-08-25 carried
+into greenfield unchanged; store CONTRACT open question 2 was never closed. The self entity's page body is one
+word; all 18 entity stubs are empty. The wake's identity lane is 20 rows, ALL migrated on day 184, none promoted
+by v2's physics. v1's self page survives as 102 unrendered schema rows and the person pages as 54; beliefs render
+only into the crash-fallback sweep, never into the session-end ask. v2 made 1,214 memories in its live days:
+888 by the fallback sweep, 193 authored, zero ever used or reinforced.
+
+**The owner's decisions (stratum 1).** "Readable" in constitution line 6 means viewable in a file OR the
+database. Memories move to rows; ten to a hundred pages (self, people, projects, entities) are rendered from
+rows. Option D for the self core: revised at sleep by a session of the self woken with its memories, on a
+physics-event trigger, under a churn budget (spec §6.3). Episodes deliberately undecided. After the rebuild,
+**start a fresh blank store** seeded from v1's 11 pages, the first-person journal and hand-picked threads; no
+14K import. The interim identity hook (spec §14 step 1) is SKIPPED with a tripwire: if the new store is not
+live by about 2026-09-23, add the hook.
+
+**The sequence he set, in order.**
+1. The owner makes a few small manual edits to `CONSTITUTION.md` (candidates in spec §14). Wait for him; do
+   not draft them.
+2. **Contracts sweep session**, aggressive: delete contract prose that is stale, makes no sense, fights the
+   constitution, or holds the work back. Map: `docs/contract-audit-2026-09-16.md`. Rule: delete prose, keep
+   tests; a test justified only by a deleted line is re-justified in its own comment or removed on purpose.
+   The store CONTRACT is exempt (rewritten fresh during the rebuild). Code comments citing deleted sections may
+   dangle for now. Method: propose keep/delete per module, owner rules in batches of two or three with an ELI5.
+3. Rulings on spec §10, questions 1–13.
+4. Rebuild on a branch with hermetic tests: swap the floor (store: prose to rows), add the missing layer (page
+   renderer, sleep-time self session, handoff lane), fix the plumbing (why the fallback out-writes the author,
+   credit that moves, promotion reachable). Not a rewrite; the brain layer stays. Sizing in spec §14.
+5. Fresh store seeded as above; retire the parallel-run scaffolding; live on it with the daily grade.
+
+**Still standing from the section below:** the morning check (doctor, then the daily) still applies; the three
+batches (audit rulings, the G61/G62 adapter PR, the core batch) stay on hold until the architecture lands; G56
+seeding is needed regardless; the three-way identity comparison is prepped, not built.
+
+**Process for the next session:** work in a worktree, never the live checkout; agents on Opus; the spec is the
+record, so append to it rather than re-deriving; peer sessions can be reached with ListAgents/SendMessage.
+
+## 2026-09-16, close — read second
 
 **Everything is committed, merged, deployed and recorded. No PR is open, no worktree holds work.** Master and the
 shared checkout are at the sha of this docs merge (`doctor` Checkout GREEN). The day's record is the 2026-09-16
@@ -72,7 +117,7 @@ the exact directories.
 
 ---
 
-## 2026-09-16 — read second
+## 2026-09-16 — earlier state (superseded above)
 
 **State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). Then **#112 merged `24d3d26`**, the shared checkout **deployed at `24d3d26`** (~19:10Z), **restart #9 run** (19:12:43Z, same-date `2026-09-11`, active days kept). **#113 merged `07804c7`** (bin executable bit), **deployed `07804c7`** (mode-only, no restart owed; `counterparts --help` runs at the terminal again — I41 closed). Open: the day's record PR (#114). The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
 amber / 12 green (amber = one unembedded memory, cleared at the next boundary); the 2026-09-15 daily **ACTIVE**
