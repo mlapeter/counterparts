@@ -802,9 +802,21 @@ describe("the handle door, across projects (G50 review)", () => {
   }
 
   /** The fixture: a confidential memory with an exact title, and the owner's
-   *  own resolution of it sitting in the log. */
+   *  own resolution of it sitting in the log.
+   *
+   *  BOTH sessions announce themselves FIRST, before any resolution is
+   *  recorded, exactly as the host's SessionStart does. The session floor
+   *  (F1b) is the session's own `startedAt`, and `input()` writes the record
+   *  at the moment it is CALLED — which, for these arcs, is the Stop. Without
+   *  this the floor would drop the owner's resolution in the fourth test and
+   *  answer the first three for the wrong reason: they are about the SCOPE
+   *  filter, and a fixture in which the floor alone explains the zero proves
+   *  nothing about scope at all. `startedAt` is sticky (`prior?.startedAt ??
+   *  now`), so the later `input()` writes leave these where they are. */
   async function ownerResolved(a: ClaudeCodeAdapter): Promise<string> {
     const c = a.counterpart;
+    recordSession(dir, { sessionId: "s-owner", scope: "proj", phase: "start" });
+    recordSession(dir, { sessionId: "s-elsewhere", scope: OTHER, phase: "start" });
     seed(c);
     const id = c.store.put({
       type: "memory",
@@ -945,7 +957,10 @@ describe("the handle door, across projects (G50 review)", () => {
 // (`adapters/sessions.ts`), which the SessionStart hook writes. A session whose
 // first hook event is the Stop itself has no record yet when the credit pass
 // runs — `claim()` precedes `noteSession("boundary")` — so it gets no floor at
-// all, which is the shape the tests above run in and why they are unaffected.
+// all. The tests ABOVE are not in that shape: since the #92 review every
+// `input()` writes a session record, so they announce their two sessions up
+// front (`ownerResolved`) and keep the SCOPE filter as the only thing that can
+// explain their zeros.
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("the handle door, before this session started (G50 review)", () => {
