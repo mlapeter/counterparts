@@ -10,6 +10,67 @@ without diffing 1800 lines.
 
 ---
 
+## Handoff — 2026-09-16, evening (resume here in a new session)
+
+**Where things are.** Branch `dashboard/flat`, worktree
+`~/counterparts/.claude/worktrees/flat-dashboard`, commits over master `76223ab`,
+pushed to origin, no PR. Nothing merged. The owner treats all of this as exploratory:
+nothing here is a rule, nothing goes into CONTRACT/NOTES/docs, and any piece can be
+put back from the log below.
+
+**What is done and verified.**
+- `/flat` — the new page (flat theme default, `flat`/`glow` chip, `updated hh:mm:ss`
+  chip, six two-line tiles with the other four at the top of the health tab, three
+  lifecycle bars without gloss lines, dense three-column feed with plain HEADLINES).
+  `app.html` at `/` is byte-identical to master.
+- Plain headlines: `HEADLINES` in `web/narrate.ts`, `headline` on `NarratedEvent`,
+  totality test in `test/dashboard-web.test.ts`. The owner approved the tone; three
+  still lean on system words (`gate.deposit` "gate", `sweep.gate` "scope",
+  `adapter.semantic.lag` "neighbours") — reword if asked.
+- Speed on the live store (16k rows): first paint 17 s → well under 0.5 s.
+  overview 6.8 s → 0.09 s, flow 3.6 → 0.06, mind 3.2 → 0.06, memories 2.5 → 1.0
+  (lazy; it ships a sentence per constellation dot). Four rounds: census `text:false`,
+  overview-first boot with lazy tabs, `list({ protected })`, `rows()` + two edge
+  aggregates in the store, coalesced poll. Every `/api/*` response proven
+  byte-identical each round on the demo store AND the live store (read-only serve).
+- Gates at HEAD: `bun test` 2028 pass / 0 fail; `tsc --noEmit` clean;
+  `tools/visual-loop/shots.ts` 51 shots, zero findings.
+
+**Core files touched on this branch** (additive, tested — tell the core/adapter batch
+session before its next merge): `src/core/store/index.ts` (`protected` filter,
+`rows()`, `countEdgesFrom()`, `prospectiveStateCounts()`), `src/core/self/identity.ts`
+(`enumerate` uses the filter), `src/core/self/INTERFACE-GAPS.md` §2 (three-line note),
+`src/adapters/dashboard/stories.ts`, `web/views.ts`, `web/narrate.ts`, `web/server.ts`,
+`test/store.test.ts`, `test/dashboard-web.test.ts`.
+
+**Open, owner's call.**
+1. "Who I am" panel — untouched on `/flat`. The owner prefers v1's shape (one expandable
+   row per document: self, craft, one per entity/person). v2 has no such documents; the
+   data is there (wake lanes `identity`/`craft`; `schemas.entities()` +
+   `schemas.beliefs(entityId)`). The owner plans a separate session to discuss how v1
+   and v2 organize identity before building it.
+2. Amber in the feed is busy — routine lines (e.g. "Did not ask again, already at the
+   day's limit") inherit `tone: amber` from the narrators; v1 reserved amber for
+   "look at this". A pass over which events deserve it.
+3. No day marker in the feed when hh:mm:ss crosses midnight (the modal has the date).
+4. `#seen` chip kept on the flat header (not in the owner's list); the theme chip is
+   the heaviest thing in the phone header.
+5. Whether the two core commits ride with this branch or split into their own PR.
+
+**To resume.**
+```
+cd ~/counterparts/.claude/worktrees/flat-dashboard
+~/.bun/bin/bun run src/adapters/dashboard/bin/dashboard.ts serve --dir ~/.counterparts/store --port 4767
+# http://127.0.0.1:4767/flat   (reference page: http://127.0.0.1:4767/ ; v2 as deployed: :4747 ; bansai flat: :3737)
+~/.bun/bin/bun test
+```
+A read-only server on 4767 may still be running from the previous session
+(`pkill -f "port 4767"` to stop it). Screenshots from that session were in its scratchpad
+only. Reference rulings: v1's dashboard history in
+`~/bansai/docs/handoff-2026-08-19-dashboard-batch.md` (read-only donor; port ideas, never code).
+
+---
+
 ## Removed from `app.html`'s shape
 
 - **The overview lede.** `<p class="lede" id="ov-opening"></p>` was the first element
