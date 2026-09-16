@@ -128,6 +128,11 @@ Findings:
    a copied store delete the source's prose; schema v5 fixed it) and the documented crash
    window in the stage, commit, rename ordering (`src/core/store/NOTES.md` §5), whose
    leaked temps nothing sweeps because a sweeper is a deleter.
+10. **A fresh session's own report** (ideas file §3, the random-directory session, day
+    190): its "who I am" lane read as three separate date-stamped memories, not a self;
+    the wake carried no scope or location line; and the thing it most wanted was what had
+    happened most recently in its directory. Evidence for findings 3 and 8 from the
+    reader's side.
 
 ## 5. Stratum 2 — what the eleven mechanisms ask of storage
 
@@ -163,6 +168,14 @@ up. Backup becomes one `VACUUM INTO`.
   state, beliefs with confidence and contested flags, relations from edges, open threads,
   recent memories. Every section has a byte cap (v1's self page reached tens of kilobytes
   of project status).
+- **Axes the page must carry honestly** (from the coordinating session's reply, ideas file
+  §3, code claims verified): confidence is empty on all 453 migrated schema rows until G56
+  seeds them, so the page shows "unscored, migrated" rather than zero; contested reads the
+  row's existing `pressure`, `last_challenged_day` and `revision.pressure` events, not a
+  new field; actor (owner-said, model-authored, swept) is rendered, not only a precedence
+  rule; pages show real dates and the wake header shows the lived day; and the renderer is
+  a new reader of beliefs and current state, so it passes the confidentiality gate the
+  credit path was found to lack (G57), owner-only for confidential rows.
 - **One renderer, three readers:** the session-end ask (so new facts land on the standing
   picture), the wake's identity lane (so identity is re-inhabited rather than retrieved),
   and the dashboard's entity view (so the owner sees the same thing the model does).
@@ -182,12 +195,18 @@ the document rendered, never rots.
 - **Trigger:** at sleep, for each page-earning entity whose beliefs or current state
   changed since its last gist.
 - **Inputs:** the entity's live beliefs with confidence and contested flags, its current
-  state, the previous gist **for voice only, never as a source**.
-- **Output:** one paragraph (a page for self) plus the ids it drew on.
+  state, the previous gist for voice only.
+- **Output:** one paragraph (a page for self) with **each sentence mapped to the source
+  ids it rests on.** This is the grounding mechanism, and it is a mechanism rather than an
+  instruction: a sentence that cites no source, or an id not in the input, is dropped and
+  the drop is a row. "Voice only, never a source" then holds by construction, because the
+  previous gist is not among the citable ids.
 - **Storage:** a row with role `gist`, provenance pointing at its source ids, versioned
   when rewritten (old gists are the history of the picture), strength **derived from its
   sources** rather than decaying on its own clock, so an entity nobody mentions for a year
-  fades from the wake and one mentioned yesterday does not.
+  fades from the wake and one mentioned yesterday does not. **Never protected:** nothing
+  in the source sets `protected` today, and a gist must not become permanent ink; the self
+  page's gist takes the same revision path as any belief.
 - **Constraints:** it retires nothing (the August ruling's kernel survives exactly: only
   physics forgets; a model may summarize). It may not state a contested belief as settled.
   Size-capped. The model seat is the interpret seat; cost is bounded by "only changed
@@ -207,13 +226,17 @@ learned. It is a different kind of memory and v1 had it (`task-state`, expiring)
   consolidates, never promotes, never becomes identity, and is superseded by the next one.
 - Delivered at session start for that directory as its own lane after the wake, hard
   size-capped.
+- Consults the scope registry: an `off` or `observer` directory never gets a handoff row
+  written; `paused` reads but does not write.
 - The risk the field guide already names: if the model leans on the handoff, memory never
   fires and nothing strengthens. Mitigations: the cap and the expiry.
 
 ### 6.5 Settings
 
 `journal_mode = WAL` plus a busy timeout on every handle. The layout table already
-classifies the sidecar files.
+classifies the sidecar files. The same change fixes I39: at open, `busy_timeout` is set
+after `journal_mode` (`src/core/store/db.ts`, verified), so the journal-mode read runs with
+zero wait inside a writer's commit window.
 
 ## 7. Compared
 
@@ -261,7 +284,13 @@ Nothing is built. No estimate.
 - `dashboard/`: an entity view.
 - `cli/`: export renders pages; backup is one `VACUUM INTO`.
 - Migration: one pass, 16K prose files into rows, `versions/` bodies into the versions
-  table.
+  table. The confidentiality flag lives in the prose payload's `meta` today
+  (`src/core/recall/activate.ts#isConfidential`) and must be carried into a column. The
+  file-per-memory layout has two real consumers to retire honestly: `backup` and
+  `verify`'s census.
+- Sequencing note: the owner told the coordinating session at close that the three
+  follow-up batches wait until this architecture conversation lands. G56 seeding is needed
+  regardless of the outcome here.
 
 ## 10. Open questions for the owner
 
@@ -276,6 +305,13 @@ Nothing is built. No estimate.
 7. Contracts: rewrite fresh, delete, or leave (see the audit).
 8. Does the self page replace the rotating identity band at wake, or sit beside it.
 9. The model seat and cost bound for the gist.
+10. Constitution line 6. The owner's re-reading ("readable" means viewable in a file or
+    the database) is an amendment in effect. Changing that page is "deliberate and rare,"
+    so make it deliberate: a ratified line, not a spec note. The contract audit's item 5
+    (the page says "encrypted, owner-keyed" egress while bodies go to the embedding API in
+    plain text) is the same kind of gap and could be taken in the same sitting.
+11. What the owner wants to see per entity. Still unanswered: the flat-dashboard session
+    was not running when asked, and the coordinating session declined to speak for it.
 
 ## 11. A Reddit commenter's ideas, with dispositions
 
@@ -307,5 +343,8 @@ Interim rule until the owner decides: **a contract is rewritten, never amended.*
 
 ## 13. Peer sessions
 
-Two other sessions on the machine were sent a summary and asked for their view. Their
-replies, when they arrive, are recorded in the ideas file, not here.
+Two other sessions on the machine were sent a summary and asked for their view. Both
+replied the same day; the replies are recorded in full in the ideas file §3, and what they
+changed here is marked inline (§4 finding 10, §6.2 axes, §6.3 grounding, §6.4 scope, §6.5
+I39, §9 migration, §10 questions 10 and 11). The flat-dashboard session was not running
+and has not been asked.

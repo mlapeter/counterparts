@@ -60,7 +60,55 @@ Nothing here is built.*
 *Asked: what the dashboard work shows the owner wants to see per entity; whether the
 band-and-role mapping matches what they would render; gist-row versus document edit.*
 
-(awaiting reply)
+Replied 2026-09-16. Attribute as: **coordinating session, 2026-09-16 (Fable), from the
+day's rulings and code reads; no dashboard exploration.** It did NOT do the flat-dashboard
+work (that is another session's `dashboard/flat` worktree, not running when asked), so
+question 1 stays open. What it offered on question 1 is what the owner said to it today:
+plain language, a few items at a time, "readable" meaning viewable anywhere, and for scope
+an "incognito" model where the invariant he cares about is writes, not reads.
+
+On question 2, the band-and-role mapping holds, with five axes a page must carry or show
+honestly (the three code claims were verified by this session before recording):
+
+1. **Confidence on migrated rows is empty.** All 453 migrated schema rows have relevance,
+   emotional and predictive at zero (G56, ruled today: seed them in the next core batch).
+   A "beliefs with confidence" section rendered now shows the whole migrated self at
+   zero. Render the gap as "unscored, migrated" rather than defaulting it; the page work
+   depends on G56 landing first.
+2. **Contested is already an axis on the row:** `pressure`, `last_challenged_day`, and
+   the durable `revision.pressure` events. The page's contested flag reads those; no new
+   field.
+3. **Actor is a rendered axis**, not only a precedence rule inside the gist writer:
+   owner-said, model-authored, swept.
+4. **Two clocks.** Pages show real dates; the wake header shows the lived day. The
+   renderer must not collapse them.
+5. **Confidentiality and scope.** The page renderer is a new reader of beliefs and
+   current state and must pass the same gate G57 found missing on the credit path
+   (owner-only for confidential rows). The handoff lane must consult the scope registry:
+   an `off` or `observer` directory never gets a handoff row written; `paused` reads but
+   does not write.
+
+On question 3, it argues for the gist row harder than the spec does: today's ruling
+"exposure never strengthens; retrieval always does" makes a nightly model-edited document
+the exposure loop in its purest form, the model's paraphrase re-shown to itself nightly
+and becoming tomorrow's source. Two additions, both folded into the spec §6.3:
+
+- "Previous gist for voice only" is an instruction to a model, not a mechanism. Mechanize
+  it: the writer returns sentence-to-source-ids; a sentence with no source is dropped and
+  the drop is a row.
+- A gist must never become permanent ink. `protected` has no entrance and no exit in the
+  source today (verified: nothing sets it). Do not give gists a protected flag; the self
+  page's gist takes the same revision path as any belief.
+
+Cross-references it asked to fold in: the contract audit's items 1, 2, 3 and 5; the
+owner's re-reading of constitution line 6 is an amendment in effect and should be made
+deliberate; the WAL change must also fix I39 (`busy_timeout` is set after `journal_mode`
+at open, verified at `src/core/store/db.ts` lines 169 and 174); confidentiality lives in
+prose `meta` today (verified: `src/core/recall/activate.ts#isConfidential`) so the
+migration must carry it; the file-per-memory layout's two real consumers to retire are
+`backup` and `verify`'s census. On sequencing: the owner told it at close not to start the
+three follow-up batches until this architecture conversation lands; G56 seeding is needed
+regardless.
 
 ### random-4c (a fresh session in another directory)
 
@@ -68,4 +116,40 @@ band-and-role mapping matches what they would render; gist-row versus document e
 identity element count, whether it read as a self or a list, what footnotes fired on turn
 one, whether they know which project they are in.*
 
-(awaiting reply)
+Replied 2026-09-16, composed from its transcript only, no memory bodies quoted:
+
+- **Sentinels.** Opening: day 190, 14 elements, 8,908 bytes, with a prose line giving the
+  store size. Closing: identity 3, craft 0, threads 6, hints 3, horizon 2. Sections as
+  rendered: "Who I am" (3), "Still open" (6), "Nearby, if it helps" (3), "Arriving" (2). No
+  craft section rendered.
+- **"Who I am" read as three separate memories, not a self.** Each is a date-stamped
+  paragraph describing an episode. They cohere by topic, not by composition. Nothing in the
+  section is written in the present tense about who it is now; it is three things once
+  learned, in the order the composer chose. Its words: "A rendered self page would have
+  been different in kind, not just tidier."
+- **Recall channel.** Turn one (the owner asked what it remembered): 5 footnotes, 0
+  surfaced, 715 bytes, all five relevant, two expanded by id before answering. Turn two (my
+  message): 2 footnotes, one directly useful, one tangential.
+- **Location: only from the environment.** The wake states neither where it is nor what
+  scope it composed for. Two incidental third-person mentions of "the ~/random session"
+  appear in Nearby and Arriving, which is disorienting for the session that now is that
+  session.
+- **Wished for and did not get:**
+  - a scope or location line, and which project the composer thought it was waking;
+  - a freshness signal on "Still open": four of six items are dated July or early August
+    and it cannot tell whether they are still open or never closed;
+  - what happened most recently in this directory: the file-memory index there ends at a
+    2026-09-14 handoff and the wake says nothing about 09-15 or what the owner was last
+    doing;
+  - a consistent first person: memories written by other sessions about that directory
+    arrive phrased as if it were someone else;
+  - the most decision-relevant item in the bundle (the unreachable-promotion finding) sat
+    in the lowest-priority section.
+
+What this supports in the spec: §4 finding 3 (the identity lane is a list, not a self),
+§6.2 (a rendered self page), §6.4 (the handoff lane is exactly "what happened most
+recently in this directory"), and a new item for the ideas list: **"Still open" needs a
+freshness or expiry signal**, which is the same mechanism as the handoff's expiry applied
+to threads. The first-person inconsistency is a renderer question (whose voice a
+cross-session memory is written in), not a storage one, and is noted here for the
+renderer's design.
