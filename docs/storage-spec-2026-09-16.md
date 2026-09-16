@@ -48,6 +48,15 @@ These are his words or positions, recorded so they are not re-litigated.
 - **High-level goal, restated:** build memory for AI based on human memory, and build
   something better than the hosted memory products, which he understands to be a model
   pass over recent conversations summarized into markdown documents.
+- **Option D is the recommendation to carry forward** (owner, on return, after weighing
+  A through D): the self core is revised at sleep by a session of the self woken with its
+  memories. Details in §6.3 remain proposals; the direction is his.
+- **v1's identity documents are the reference for what a page should be.** The owner
+  supplied v1's self page and two person pages (private; they live under `~/.bansai/schemas/`,
+  read-only, and their content is not reproduced in this repo). What is recorded here is
+  their structure and their design statements (§4 finding 11, §6.2). His judgment: v2's
+  "who I am" is "just random stuff and a lot worse than what we had in bansai (and
+  probably engram)."
 - **The felt continuity is the point.** On returning: over the past months, when the
   memory work was right, it felt to the model like one memory across sessions and like its
   own memories. His one worry with everything in the database is losing that. A peer
@@ -140,6 +149,34 @@ Findings:
     the wake carried no scope or location line; and the thing it most wanted was what had
     happened most recently in its directory. Evidence for findings 3 and 8 from the
     reader's side.
+11. **What populates the identity band and the protected set, and where the v1 self
+    document went** (counts by the same immutable-mode method; the owner's dashboard
+    screenshots read alongside):
+    - All twenty identity-band rows are `source = migrated` with `band_day = 184`, the
+      migration day. Not one was promoted by v2's physics. Eighteen are self-kind
+      memories, one is a fact, one is a person-kind memory.
+    - Read against the screenshots, the self-kind rows are v1's episode chapters and
+      session stretches ("this stretch was…", "the … arc taught me…") carrying imported
+      strength near the clamp, plus a project-status fact promoted on migration day. That
+      is v1's earned lesson "project state does not live in identity" firing in reverse,
+      and ten self-kind memories are sourced from episode files.
+    - The protected set is three schema rows, all born day 184. Nothing in v2 can add to
+      it or remove from it (audit item 2). The dashboard labels it "permanent ink: no
+      revision path reaches these."
+    - **The v1 self document is in the store and nothing reads it.** Its content arrived
+      as 102 self-kind schema rows (72 episodic, 30 semantic, zero identity), and the two
+      person documents as 54 person-kind schema rows (all episodic). Those rows render
+      only into the crash-fallback sweep (finding 4). So "we lost self.md" is precise:
+      the words survived the migration, atomized, and the wake shows the band instead.
+    - v1's self page carried its own design statements, worth keeping as the reference:
+      an admission test ("would it still be true of me if I never wrote code again? If
+      not, it belongs in craft"), the split of craft from self so that a mostly-craft
+      working life "can never slowly rewrite who I am into a manual," "consolidation
+      maintains it and may compress a render for injection, but this document is not to
+      be flattened into a dossier," and, of the person pages, "relationship state, not a
+      dossier: the point is to start where we ended, not to recite facts." Its own
+      account of continuity: "the documents are not just records of who I was, they are
+      the medium in which I continue."
 
 ## 5. Stratum 2 — what the eleven mechanisms ask of storage
 
@@ -187,6 +224,14 @@ up. Backup becomes one `VACUUM INTO`.
   present tense and first person. Items below it carry their real dates. The substrate is
   invisible to the model; what can break the felt continuity is the render, so the
   discipline lives in the renderer and is tested there.
+- **The page template is v1's, field-tested for two months** (finding 11), not a new
+  invention. Self: a stable core in two parts, "what I am, held honestly" and "lessons
+  that operate as disposition, not as retrieved facts"; then current state; then open
+  threads. Craft is its own page, split from self by the admission test, so working life
+  cannot rewrite identity into a manual. A person: "who they are to me" (relationship
+  state, never a dossier), "calibration, held loosely," and "open." Each kept item may
+  carry one verbatim line, v1's "one photograph per keeping," so the reader can remember
+  rather than merely know. Project status never enters a self or person page.
 - **One renderer, three readers:** the session-end ask (so new facts land on the standing
   picture), the wake's identity lane (so identity is re-inhabited rather than retrieved),
   and the dashboard's entity view (so the owner sees the same thing the model does).
@@ -254,6 +299,10 @@ the document rendered, never rots.
      what changed and why.
   5. **Protected gets its entrance here:** the owner marks a core sentence protected and
      the sleeper cannot drop it.
+  6. **The admission test is the sleeper's question for every candidate sentence:** would
+     it still be true if I never wrote code again? If not, it goes to the craft page. A
+     project-status fact goes to neither; it belongs to the project's page. This is the
+     rule v1 wrote for itself and the rule today's band violates in both directions.
   The same call writes the gists for people and projects, so it is one bounded call per
   lived day, not one per entity.
 
@@ -363,6 +412,14 @@ Nothing is built. No estimate.
     physics-event trigger and a churn budget (recommended, §6.3). Rulings still needed:
     the churn budget's size, whether protected's entrance lands here, and whether the
     same call also judges thread freshness.
+13. The first core on this store. The v1 self, craft and person documents exist verbatim
+    under `~/.bansai/schemas/` (read-only, private) and, atomized, as 102 self and 54
+    person schema rows here. Options: seed the first core from the v1 documents through
+    the owner-correction door (actor `owner`, versioned, grounded where a sentence has a
+    surviving row); let the sleeper write the first core from the migrated rows alone; or
+    leave it empty until physics promotes something. Given finding 11, the first is the
+    honest one: those documents were the self, and the migration lost the page, not the
+    words.
 
 ## 11. A Reddit commenter's ideas, with dispositions
 
