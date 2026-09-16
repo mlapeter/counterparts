@@ -1,6 +1,78 @@
 # Handoff — resume here
 
-## 2026-09-16 — read this first
+## 2026-09-16, close — read this first
+
+**Everything is committed, merged, deployed and recorded. No PR is open, no worktree holds work.** Master and the
+shared checkout are at the sha of this docs merge (`doctor` Checkout GREEN). The day's record is the 2026-09-16
+entry below and in LAUNCH-STATUS (rulings G52–G63, findings I39–I41, the merge chain, restart #9) and
+`docs/contract-audit-2026-09-16.md`. Session shape today: this coordinating session (Fable) + a `~/random`
+session + a site session; a `dashboard/flat` worktree belongs to one of the owner's other sessions — leave it.
+
+**DO NOT START the three batches the entry below lists (audit rulings, the G61/G62 adapter PR, the core batch).**
+The owner said at close: *"I just recently realized our high level architecture isn't quite what I intended"* —
+he thought the design was **Markdown files for the self, people, etc., with the rest in sqlite**, and it is not
+(everything is rows + prose files under `store/prose/`). Another of his sessions is exploring the gap; the
+architecture conversation comes first, with the audit as input, and the three batches wait on it. Cost of
+waiting, named: migrated self beliefs keep being revised at bar 0 until G56 seeding lands (two so far; each is
+archived with its successor, nothing is lost outright). Revisit if the wait passes a week. Also open, not decided:
+G63 (bun vs Node, compiled binaries, npm launcher — see the LAUNCH-STATUS row).
+
+**Next session, first:** `counterparts doctor --config ~/.counterparts/claude-code.json` (the four commands are on
+PATH now, via `bun link`, tracking the shared checkout), then the daily for 2026-09-16 (command in "The morning,
+in order"; expect `self.schema.pressure` to READ rows via #111, `memory.reinforced` FAIL until a session expands
+or quotes, more `revision.pressure` rows at bar 0 until G56). Then whichever of the two conversations the owner
+opens: the architecture gap, or the experiment below.
+
+### The three-way identity comparison (owner's idea at close; prepped, NOT built)
+
+Goal: three sessions, each with exactly ONE memory system live — Counterparts, bansai (v1), engram (v0) — so the
+owner can compare what each holds as its self/identity/"personality", then have the three talk to each other and
+compare for themselves. Estimated: ~1 hour of configuration, no code changes to any system. Everything below was
+read from the live wiring on 2026-09-16 (read-only).
+
+**How each system decides whether to speak in a directory (verified):**
+- Counterparts: the scope registry (`counterparts scope <dir> --off` — hooks silent, tools refuse; merged #92).
+- bansai: `~/.claude/hooks/bansai-optout.txt` (a directory list read by `bansai-guard.sh`) AND the A/B assignment
+  file — `~/bansai/src/ab.ts` reads `MEMORY_AB_DIR` (default `~/.memory-ab`), whose `assignment.json` today says
+  `override: "engram"` (= v2 primary), so bansai stands down everywhere. Its Stop/SessionEnd/PreCompact hooks were
+  REMOVED globally on 2026-09-10 (G38); only session-start and user-prompt-submit remain, through the guard.
+- engram: hooks at `~/claude-engram/hooks/{session-start,stop,session-end,pre-compact}.sh` — wired NOWHERE today;
+  its MCP server was removed at run start (`~/counterparts-parallel-run/2026-09-03/mcp-servers-removed.json`).
+  `session-start.sh` reads the same `~/.memory-ab/assignment.json`; `override: "engram"` makes it believe it is
+  primary. `ENGRAM_DISABLE` exists as an env switch.
+
+**The build (three subdirectories under `~/random`; project-level hooks/MCP MERGE with the global ones):**
+1. `~/random/only-counterparts`: add the path to `bansai-optout.txt`. Nothing else (counterparts is on by default;
+   engram is not wired).
+2. `~/random/only-bansai`: `counterparts scope ~/random/only-bansai --off`; a `.claude/settings.json` there with an
+   `env` block `MEMORY_AB_DIR=/Users/mlapeter/random/only-bansai/.memory-ab` and an `assignment.json` in it with
+   `override: "bansai"`; optionally `claude mcp add --scope project` for bansai's server
+   (`~/bansai/src/mcp/server.ts`, config preserved in `mcp-servers-removed.json`).
+3. `~/random/only-engram`: `counterparts scope ~/random/only-engram --off`; add the path to `bansai-optout.txt`; a
+   `.claude/settings.json` there wiring engram's four hook scripts (SessionStart, Stop, SessionEnd, PreCompact);
+   `claude mcp add --scope project` for engram's server (`~/claude-engram/src/mcp/server.ts`).
+4. The conversation: local Claude sessions can message each other in this build (ListAgents / SendMessage), or each
+   writes its self-description to a shared file under `~/random/compare/` and the others read it.
+
+**Three owner decisions before building:**
+- **bansai's store.** A bansai session that delivers writes rows to v1's live log, and the parallel-run daily grades
+  v1 as `muted-consistent` from that log — a speaking bansai could change that day's grade. Safest: point the
+  experiment at a COPY of `~/.bansai` if bansai has a data-dir override (check `~/bansai/src` for it while
+  building); otherwise accept and annotate that day's daily.
+- **Whether bansai should also remember the conversation** — re-adding its three encoding hooks in that one
+  directory's settings is possible; they encode through the Anthropic API (the $20 receipts, I30).
+- **engram's API key.** The saved MCP config in `mcp-servers-removed.json` holds the key in PLAIN TEXT (seen
+  2026-09-16, not copied anywhere). Have engram read it from its own env file (`hooks/load-env.sh`) rather than
+  copying it into a project `.mcp.json`; the owner should scrub that saved file.
+
+**Hazards:** never run any of the three systems' hooks or servers from an agent shell (they read the owner's live
+stores); the `~/random` root itself must stay `on` for counterparts (the sub-directory entries are longest-prefix,
+so `off` on a child does not touch the parent); `bansai-optout.txt` is read by the guard as prefix match, so list
+the exact directories.
+
+---
+
+## 2026-09-16 — read second
 
 **State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). Then **#112 merged `24d3d26`**, the shared checkout **deployed at `24d3d26`** (~19:10Z), **restart #9 run** (19:12:43Z, same-date `2026-09-11`, active days kept). **#113 merged `07804c7`** (bin executable bit), **deployed `07804c7`** (mode-only, no restart owed; `counterparts --help` runs at the terminal again — I41 closed). Open: the day's record PR (#114). The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
 amber / 12 green (amber = one unembedded memory, cleared at the next boundary); the 2026-09-15 daily **ACTIVE**
@@ -58,7 +130,7 @@ but **not deploying** it before the flip.
 
 ---
 
-## 2026-09-15, afternoon — read second
+## 2026-09-15, afternoon — earlier state (superseded above)
 
 **State:** master **`76223ab`**, shared checkout deployed at `76223ab` (`doctor` Checkout GREEN). Nothing merged
 today, no restart owed. The morning check RAN (all of it, ~21:00Z): `doctor` 0 red / 1 amber / 12 green; the
