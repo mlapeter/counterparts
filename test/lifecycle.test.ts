@@ -544,6 +544,24 @@ describe("the lifecycle, through the adapter", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("the handle door (G50)", () => {
+  /**
+   * The session announces itself BEFORE anything resolves, exactly as the
+   * host's SessionStart does.
+   *
+   * Since the #92 review every `input()` writes the session record at the
+   * moment it is CALLED, and for these arcs that moment is the Stop — which
+   * would put the session floor (F1b, `readHandleResolutions`'s `since`) AFTER
+   * the resolution it is meant to admit, and leave the whole outcome to which
+   * side of a millisecond boundary the two `Date.now()` calls landed on.
+   * `startedAt` is sticky (`prior?.startedAt ?? now`), so the later `input()`
+   * leaves the floor where this put it.
+   */
+  function announce(...sessions: readonly string[]): void {
+    for (const sessionId of sessions) {
+      recordSession(dir, { sessionId, scope: "proj", phase: "start" });
+    }
+  }
+
   /** The MCP tool over the SAME counterpart the hooks drive — one store, two
    *  adapters, which is the shape the live host runs. */
   function tool(a: ClaudeCodeAdapter): McpServer {
@@ -559,6 +577,7 @@ describe("the handle door (G50)", () => {
 
   test("a recall BY TITLE, then a boundary: the resolved id is credited and named in expandedIds", async () => {
     const a = adapter();
+    announce("s1");
     const c = a.counterpart;
     seed(c);
     const id = await mint(a);
@@ -598,6 +617,7 @@ describe("the handle door (G50)", () => {
 
   test("a throw in the translation still leaves the boundary its row", async () => {
     const a = adapter();
+    announce("s-poisoned");
     const c = a.counterpart;
     seed(c);
     await mint(a);
@@ -633,6 +653,7 @@ describe("the handle door (G50)", () => {
 
   test("a boundary with no expansion at all says so rather than reporting a zero", async () => {
     const a = adapter();
+    announce("s-quiet");
     seed(a.counterpart);
     await mint(a);
     a.counterpart.store.advanceClock("2026-01-02");
@@ -644,6 +665,7 @@ describe("the handle door (G50)", () => {
 
   test("a handle nobody resolved credits nothing and still counts unresolvedHandles", async () => {
     const a = adapter();
+    announce("s1");
     const c = a.counterpart;
     seed(c);
     const id = await mint(a);
@@ -680,6 +702,7 @@ describe("the handle door (G50)", () => {
 
   test("a REFUSAL shadows an earlier resolution: a session shown nothing credits nothing", async () => {
     const a = adapter();
+    announce("s1", "s-stranger");
     const c = a.counterpart;
     seed(c);
     // Confidential, so a session that is not the owner's is told it exists and
@@ -729,6 +752,7 @@ describe("the handle door (G50)", () => {
 
   test("an AMBIGUOUS handle chose nothing, so it translates nothing", async () => {
     const a = adapter();
+    announce("s1");
     const c = a.counterpart;
     seed(c);
     // Two memories, one title. `expandHandle` names the choice without making
