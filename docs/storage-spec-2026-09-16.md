@@ -517,3 +517,28 @@ and has not been asked.
   4. Start the new store blank and seed it as above. Retire the parallel-run scaffolding;
      PROMOTE was ruled 2026-09-10.
   5. Live on it and grade it daily. v1 stays frozen as the archive.
+
+### Sizing, asked by the owner at close
+
+- **Step 1 is small.** Zero code in Counterparts: one extra SessionStart hook line in the
+  host's settings that prints a hand-written identity file (the v1 self core and person
+  pages compressed to roughly four kilobytes, in the author's own voice), plus one check of
+  the next wake's tail sentinel for truncation. Reversible in one line. Two facts checked:
+  the capture already classifies host-injected text as `injected` and keeps it, so the
+  extra hook lands exactly as today's wake does and adds no new hazard; the live config's
+  budget is `injectionBudgetBytes: 9000` for v2's own wake, and whether the host caps the
+  sum of hooks or each hook is unknown, which is what the sentinel check answers. If the
+  wake truncates, drop the hook and go to step 2.
+- **Step 3 is not a total rewrite. It is three things.** (1) Swap the floor: the storage
+  half of `store/` (4,745 lines) is replaced, prose files to rows. (2) Add the missing
+  layer: the page renderer, the sleep-time self session, the handoff lane; new code,
+  modest. (3) Fix the day-to-day plumbing: why the fallback out-writes the author, credit
+  that moves, promotion that is reachable, partly ruled already (G56 to G58). The brain
+  layer stays as it is: physics, recall, associate, prospective, encode and most of sleep,
+  about 11,800 lines with their tests. `schemas/` and `self/` are extended. Adapters are
+  touched lightly except `cli/`, where export, backup and verify change and the migration
+  tooling goes. The largest cost is tests: 36 files, 48,000 lines, many of which create a
+  store and touch its file layout in passing. Proportion, not time: roughly a third of the
+  code touched, two thirds untouched. A third greenfield is not recommended; the brain
+  layer is the part that works and is tested, and the pain is the floor, the missing
+  layer, and the documents.
