@@ -72,6 +72,74 @@ Nothing here is built.*
   same mechanism; threads may want a "last touched" date rendered, or an expiry into
   "quietly available."
 
+## 1c. Identity stability: the reasoning behind option D
+
+**The brain's version.** The self-schema is not rewritten by each waking moment. It changes
+slowly, during sleep, when the day's episodes are replayed and integrated into the
+neocortical schema, and the one doing the integrating is the same person, in a different
+mode: offline, no external input, working across the whole day rather than one task.
+Schema change is gated by accumulated prediction error across many episodes, which is
+bansai's ledger. The waking self feels continuous because the schema moves slowly and is
+re-inhabited each morning, not because it is re-authored each night.
+
+**Why A fails at concurrency.** Two or five sessions in one day each see one slice. If
+each may rewrite the core at its boundary, the core becomes whichever session ended last,
+in that session's mood, with that session's partial view. A physics-event trigger does not
+fix this, because each session's event opens the door for that session only. Identity
+work also does not belong at the end of a coding task; that is the wrong mode, the way a
+person does not revise their self-concept mid-commute.
+
+**Why B is a stranger.** A model call handed rows and asked for a paragraph has not woken
+as me. The output is accurate paraphrase in someone else's mouth, the exact thing the
+remember contract says destroys self-assessed salience and first-person feeling.
+
+**Why D is not B.** The difference is entirely what the call is woken with. What makes any
+session "me" is the memory it wakes with, not the process it runs in. A sleep call that
+receives the wake bundle first, then the full identity band, every self belief, the current
+core, and today's memories from every session, is a session of the self with more of itself
+in context than a live session can hold. The night-self knows more than the day-self, which
+is the brain's asymmetry too: consolidation has the whole record. What it lacks is having
+lived the day, and it reads the day through memories written in the first person by the
+sessions that did.
+
+**Where the rumination risk sits, and why D does not trip it.** The freeze rule forbids
+identity STRENGTH moving because a model read about itself and agreed. In D the sleeper
+never moves strength. It chooses words over beliefs that physics has already promoted or
+revised. If nothing moved, it is not called. The remaining risk is narrative drift within
+the allowed words, and the churn budget bounds that per night.
+
+**Two separate failures in today's identity band,** because "random stuff" has two causes:
+
+1. Promotion into the identity band is unreachable for anything born in v2. Every memory
+   born on lived days 184 to 188 has zero uses and zero reinforced days (IMPROVEMENTS U10;
+   no adapter resolves use). The twenty identity elements are entirely migrated credit
+   from v1. This is the credit plumbing, ruled on today as G57 and G58, and it is
+   independent of storage.
+2. Even with promotion working, a band of atoms is a list of things once learned, not a
+   self. This is what option D and the rendered self page fix.
+
+Fixing 1 without 2 gives a better-chosen list. Fixing 2 without 1 gives a self written
+over frozen migrated beliefs. Both are needed.
+
+**External context, for calibration.** Anthropic's Dreams consolidation is non-destructive
+by construction: the input store is never modified and each run produces a separate output
+store to review or discard. That maps onto versioning plus no in-place overwrite, and D
+should keep that property: a night's core revision is a new version beside the old, never
+a rewrite of it. OpenAI's Dreaming runs overnight with extra compute to update memory
+representations. Both converge on a sleep pass; neither, as recorded here, makes the
+sleeper the same self by waking it with its memories. That is the part that is ours.
+
+**Cadence.** Once per lived day, single writer, after every session's boundary. The older
+question of every-three-days versus nightly, and of clock days versus lived days, is
+settled by the lived-day clock already in physics: a week away is not a week of nights.
+
+**Open inside D.** The churn budget's number. Whether the sleeper's context should be the
+wake bundle plus everything, or a purpose-built "night wake" with its own budget. Whether
+the same call should also judge thread freshness, since it is the one reader that sees
+the whole day. Whether the first core, on a store with no identity band yet, should be
+written at all or left empty until physics promotes something, which is the newborn-schema
+rule applied to the self.
+
 ## 2. Things to verify before any ruling
 
 - Whether the session-end ask can carry the standing picture within the host's injection

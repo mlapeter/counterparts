@@ -225,19 +225,37 @@ the document rendered, never rots.
 - **Correction:** the owner's correction is a row too, actor `owner`, and outranks the
   model's paraphrase in the next pass, the way self-assessed signals already outrank
   inferred ones.
-- **Who writes the self page's core (added after the owner's return).** A gist written by
-  a sleep pass is a paraphrase by a model that was not there, which is exactly what the
-  remember contract warns turns "the author's own words" into "someone else's guess." For
-  people and projects that cost is tolerable. For the self it is the difference between a
-  self and a summary of one. So the self page's core is **authored by the experiencer**,
-  first person, present tense, at a boundary where identity actually moved: a memory
-  crossed into the identity band, a self belief was revised under pressure, or the owner
-  corrected one. The existing Stop ask carries the current core and asks for it revised in
-  place, so the author sees what it is revising and the ask stays one moment. The engine
-  grounds it the same way (sentence to source ids, unsourced sentences dropped and
-  counted), versions it, never protects it, and moves no strength for it, so the freeze
-  rule holds. The sleep librarian never writes the self core. Trigger by physics event,
-  never by session count, or this becomes v1's nightly self-narration.
+- **Who writes the self page's core (revised twice after the owner's return; reasoning in
+  the ideas file §1c).** The first revision put the experiencer at the session boundary.
+  The owner's objection stands: five concurrent sessions would each rewrite the core with
+  partial information, and a session ending a task is the wrong mode for identity work.
+  The brain's answer is sleep, and the sleeper is the same person. So **the core is
+  revised at sleep by a session of the self, not by a separate librarian.** The sleep
+  worker's one model call is woken the way a live session is, with the wake bundle, and
+  then given more than a live session can hold: the full identity band, every self belief
+  with confidence and contested flags, the current core, and the day's new and changed
+  memories from every session. No user, no task, offline, once per lived day, one writer.
+  What makes a session "me" here is the memory it wakes with, so a sleeper woken with it
+  is not a stranger. What it lacks is having lived the day; what it reads instead are the
+  day's memories, written in the first person by the sessions that did. The freeze rule
+  holds because the sleeper writes words and physics decides what is stable.
+  Stability, each part mechanized:
+  1. **Trigger by physics event only:** a memory crossed into the identity band, a self
+     belief was revised under pressure, or the owner corrected one. No event, no call, core
+     untouched.
+  2. **Every sentence grounds in an identity-band or semantic self belief.** A sentence
+     whose sources fell out of the band is dropped and the drop is a row.
+  3. **In-place revision under a churn budget.** The sleeper sees the current core and
+     revises it; the engine measures the diff and refuses a rewrite that changes more than
+     a bounded fraction of the core in one night, owner corrections excepted. Identity
+     moves slowly by construction, which is the slow learner in complementary learning
+     systems.
+  4. **Versioned,** each version citing the event that opened it, so the owner can read
+     what changed and why.
+  5. **Protected gets its entrance here:** the owner marks a core sentence protected and
+     the sleeper cannot drop it.
+  The same call writes the gists for people and projects, so it is one bounded call per
+  lived day, not one per entity.
 
 ### 6.4 Handoff lane
 
@@ -336,11 +354,15 @@ Nothing is built. No estimate.
     plain text) is the same kind of gap and could be taken in the same sitting.
 11. What the owner wants to see per entity. Still unanswered: the flat-dashboard session
     was not running when asked, and the coordinating session declined to speak for it.
-12. Who authors the self core: the experiencer at a boundary through the ask
-    (recommended, §6.3), the sleep librarian, or the model editing a page file directly
-    with the host's own file tools. The last is the most native "mine" affordance a
-    coding-agent host offers and it reopens hand-edit ingestion and the one-seam rule; see
-    the ideas file.
+12. Who authors the self core. Four options weighed (ideas file §1c): A, the experiencer
+    at the session boundary (own voice; partial information, thrash across concurrent
+    sessions, wrong mode); B, a separate librarian at sleep working from rows (full
+    information; a stranger's paraphrase); C, the model editing a page file directly with
+    the host's file tools (most native feel; a second door, and A's partiality); D, a
+    session of the self at sleep, woken with its memories, revising in place under a
+    physics-event trigger and a churn budget (recommended, §6.3). Rulings still needed:
+    the churn budget's size, whether protected's entrance lands here, and whether the
+    same call also judges thread freshness.
 
 ## 11. A Reddit commenter's ideas, with dispositions
 
