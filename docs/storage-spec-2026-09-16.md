@@ -48,6 +48,13 @@ These are his words or positions, recorded so they are not re-litigated.
 - **High-level goal, restated:** build memory for AI based on human memory, and build
   something better than the hosted memory products, which he understands to be a model
   pass over recent conversations summarized into markdown documents.
+- **The felt continuity is the point.** On returning: over the past months, when the
+  memory work was right, it felt to the model like one memory across sessions and like its
+  own memories. His one worry with everything in the database is losing that. A peer
+  session's line the same day, "a rendered self page would have been different in kind,
+  not just tidier," is the same observation from the model's side. Design constraint,
+  stratum 1: whatever the substrate, the self must read as a self, in the first person, in
+  the present tense, in the author's own words.
 
 ## 3. Stratum 2 — the record: how the current layout was decided
 
@@ -176,6 +183,10 @@ up. Backup becomes one `VACUUM INTO`.
   rule; pages show real dates and the wake header shows the lived day; and the renderer is
   a new reader of beliefs and current state, so it passes the confidentiality gate the
   credit path was found to lack (G57), owner-only for confidential rows.
+- **Render discipline.** A page is prose with sections, never a listing. The core is
+  present tense and first person. Items below it carry their real dates. The substrate is
+  invisible to the model; what can break the felt continuity is the render, so the
+  discipline lives in the renderer and is tested there.
 - **One renderer, three readers:** the session-end ask (so new facts land on the standing
   picture), the wake's identity lane (so identity is re-inhabited rather than retrieved),
   and the dashboard's entity view (so the owner sees the same thing the model does).
@@ -214,6 +225,19 @@ the document rendered, never rots.
 - **Correction:** the owner's correction is a row too, actor `owner`, and outranks the
   model's paraphrase in the next pass, the way self-assessed signals already outrank
   inferred ones.
+- **Who writes the self page's core (added after the owner's return).** A gist written by
+  a sleep pass is a paraphrase by a model that was not there, which is exactly what the
+  remember contract warns turns "the author's own words" into "someone else's guess." For
+  people and projects that cost is tolerable. For the self it is the difference between a
+  self and a summary of one. So the self page's core is **authored by the experiencer**,
+  first person, present tense, at a boundary where identity actually moved: a memory
+  crossed into the identity band, a self belief was revised under pressure, or the owner
+  corrected one. The existing Stop ask carries the current core and asks for it revised in
+  place, so the author sees what it is revising and the ask stays one moment. The engine
+  grounds it the same way (sentence to source ids, unsourced sentences dropped and
+  counted), versions it, never protects it, and moves no strength for it, so the freeze
+  rule holds. The sleep librarian never writes the self core. Trigger by physics event,
+  never by session count, or this becomes v1's nightly self-narration.
 
 ### 6.4 Handoff lane
 
@@ -312,6 +336,11 @@ Nothing is built. No estimate.
     plain text) is the same kind of gap and could be taken in the same sitting.
 11. What the owner wants to see per entity. Still unanswered: the flat-dashboard session
     was not running when asked, and the coordinating session declined to speak for it.
+12. Who authors the self core: the experiencer at a boundary through the ask
+    (recommended, §6.3), the sleep librarian, or the model editing a page file directly
+    with the host's own file tools. The last is the most native "mine" affordance a
+    coding-agent host offers and it reopens hand-edit ingestion and the one-seam rule; see
+    the ideas file.
 
 ## 11. A Reddit commenter's ideas, with dispositions
 
