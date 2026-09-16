@@ -35,7 +35,7 @@
  * ## The filesystem exception, named
  *
  * This is the ONE file in `adapters/dashboard/` that imports `node:fs`, and it
- * imports exactly `readFileSync`, to serve two static HTML files that ship
+ * imports exactly `readFileSync`, to serve the static HTML pages that ship
  * beside it. The directory-wide ban exists to mechanize "no memory body text is
  * persisted into dashboard state" — there is no state file because nothing here
  * can open one — and a read-only import preserves that exactly.
@@ -73,6 +73,9 @@ export const PORT_ENV = "COUNTERPARTS_DASHBOARD_PORT";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_PATH = join(HERE, "app.html");
 const BRAIN_PATH = join(HERE, "brain.html");
+/** The flat page: the same data, the same routes, a quieter look. Exploratory —
+ *  `/` is unchanged and stays the reference. */
+const FLAT_PATH = join(HERE, "flat.html");
 
 const NO_STORE = { "cache-control": "no-store" } as const;
 
@@ -156,6 +159,7 @@ export function router(url: URL, host: string | null, src: DashboardSource): Rep
   try {
     if (path === "/" || path === "/index.html") return page(APP_PATH);
     if (path === "/brain") return page(BRAIN_PATH);
+    if (path === "/flat") return page(FLAT_PATH);
     if (path === "/favicon.svg" || path === "/favicon.ico") {
       return {
         status: 200,
