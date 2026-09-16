@@ -475,6 +475,13 @@ export interface MemoryFilter {
   kind?: Kind;
   band?: Band;
   archived?: boolean;
+  /**
+   * The permanence flag, queryable (self/INTERFACE-GAPS §2, closed 2026-09-16).
+   * `protected` is a real column in box 2, so "every protected element, on
+   * demand" (scar §2.19) is one indexed WHERE rather than a read of every live
+   * memory's prose. Absent means unfiltered, exactly as `archived` does.
+   */
+  protected?: boolean;
 }
 
 function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | number)[] } {
@@ -495,6 +502,10 @@ function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | nu
   if (filter.archived !== undefined) {
     where.push("archived = ?");
     args.push(filter.archived ? 1 : 0);
+  }
+  if (filter.protected !== undefined) {
+    where.push("protected = ?");
+    args.push(filter.protected ? 1 : 0);
   }
   return { clause: where.length ? `WHERE ${where.join(" AND ")}` : "", args };
 }

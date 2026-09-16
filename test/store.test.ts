@@ -695,6 +695,37 @@ describe("box 2 — canonical operational state", () => {
     expect(s.getMeta("gate.session")).toBe("42");
   });
 
+  test("`list({ protected })` selects the permanence flag in SQL — the enumeration stops reading every live row (self/INTERFACE-GAPS §2)", () => {
+    const s = store();
+    const plain = s.put(mem("an ordinary fact"));
+    const ink = s.put(mem("permanent ink", { physics: { protected: true } }));
+    const later = s.put(mem("protected after the fact"));
+    const goneQuiet = s.put(mem("protected, then archived", { physics: { protected: true } }));
+    s.updatePhysics(later, { protected: true });
+    s.archive(goneQuiet, "test");
+
+    const protectedIds = [ink, later, goneQuiet].sort();
+    const unprotectedIds = [plain].sort();
+
+    expect(s.list({ protected: true })).toEqual(protectedIds);
+    expect(s.list({ protected: false })).toEqual(unprotectedIds);
+    // The same WHERE, counted rather than materialized.
+    expect(s.countMemories({ protected: true })).toBe(3);
+    expect(s.countMemories({ protected: false })).toBe(1);
+
+    // Combined with `archived`, which is what `self.enumerate` asks for.
+    expect(s.list({ archived: false, protected: true })).toEqual([ink, later].sort());
+    expect(s.list({ archived: true, protected: true })).toEqual([goneQuiet]);
+    expect(s.list({ archived: false, protected: false })).toEqual([plain]);
+
+    // Additive: an absent key filters nothing, exactly as before.
+    expect(s.list()).toEqual([plain, ink, later, goneQuiet].sort());
+    expect(s.list({ archived: false })).toEqual([plain, ink, later].sort());
+    // …and it composes with the other keys rather than replacing them.
+    expect(s.list({ kind: "fact", archived: false, protected: true })).toEqual([ink, later].sort());
+    expect(s.list({ kind: "person", protected: true })).toEqual([]);
+  });
+
   test("crediting is physics.creditUse's rule — the store applies, never re-decides (§5.3/§5.5)", () => {
     const s = store();
     const id = s.put(mem("A")); // birthDay 0

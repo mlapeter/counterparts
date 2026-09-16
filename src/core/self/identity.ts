@@ -360,18 +360,14 @@ export function enumerate(store: Store, day: number): Enumeration {
   }
   // Protection is a physics flag, not a band: an element can be permanent
   // without ever having been promoted, which is exactly the case the pair makes
-  // visible. There is no `protected` filter on `list()` (INTERFACE-GAPS #2).
-  for (const id of store.list({ archived: false })) {
+  // visible. The flag is a column, so the store answers "which ones" in SQL —
+  // an unreadable row cannot be asked whether it was protected, and asking every
+  // live row's prose to find the few that are was the wrong shape at 10⁴
+  // memories (INTERFACE-GAPS §2, closed 2026-09-16). A dark-but-not-yet-chased
+  // row still carries its flag; a chased one carries a tombstone, below.
+  for (const id of store.list({ archived: false, protected: true })) {
     const e = enumerateOne(store, id, day);
-    if (e === null) {
-      // An unreadable row cannot be asked whether it was protected, so the
-      // permanent half has to ask the store instead of the row. A dark-but-not-
-      // yet-chased row still carries its flag; a chased one carries a tombstone.
-      const row = store.row(id);
-      if (row?.protected === 1) guarded.push(absentFromRow(id, "protected"));
-      continue;
-    }
-    if (e.protected) guarded.push(e);
+    guarded.push(e ?? absentFromRow(id, "protected"));
   }
 
   // The chased half: rows the owner removed keep a tombstone saying what they
