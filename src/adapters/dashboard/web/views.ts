@@ -90,6 +90,52 @@ export interface MemoryLine {
 
 interface CensusOptions {
   readonly includeArchived?: boolean;
+  /**
+   * Whether every row's SENTENCE is resolved. Default true — a caller that says
+   * nothing gets exactly what it always got.
+   *
+   * Resolving text means one prose FILE READ per row, and on a fifteen-thousand
+   * row store that is seconds. Most callers only fold this array into counts —
+   * `memoriesHeld`, the overview's tiles and bars, the flow diagram's STORE node
+   * — and never emit a sentence at all. They pass `false`, and `text` comes back
+   * as the empty string; a caller that means to PRINT a row fills it in
+   * afterwards with `withText`, for the handful of rows it actually emits.
+   *
+   * The one thing that changes: with `text: false` the catch below is entered
+   * only when the PHYSICS will not read (a removed row), not when the prose will
+   * not. A row whose prose file is missing is therefore still counted, exactly
+   * once, as it always was — but it carries its live band and computed strength
+   * instead of the recorded band and zero. That is a corrupt-store case that
+   * `verify` owns; it changes no count, only which bar a broken row is drawn in.
+   */
+  readonly text?: boolean;
+}
+
+/**
+ * Fill in one census row's sentence, in place.
+ *
+ * IN PLACE, and never by spreading into a new object: `JSON.stringify` emits
+ * keys in insertion order, and `{ ...row, text }` would move `text` and
+ * `confidential` to the end of every emitted row. The wire shape is the
+ * guarantee this whole change is measured against.
+ */
+function withText(store: DashboardSource["store"], row: MemoryLine): MemoryLine {
+  const mut = row as { -readonly [K in keyof MemoryLine]: MemoryLine[K] };
+  if (row.unreadable) {
+    mut.text = reveal(store, row.id, 96).label;
+    return row;
+  }
+  try {
+    const g = gistOfDoc(store.readProse(row.id), 96);
+    mut.text = g.text;
+    mut.confidential = g.confidential;
+  } catch {
+    // The prose went unreadable between the count and the print. The row is a
+    // named absence, the way the eager path names it.
+    mut.text = reveal(store, row.id, 96).label;
+    mut.confidential = false;
+  }
+  return row;
 }
 
 /**
@@ -100,6 +146,7 @@ interface CensusOptions {
 function census(src: DashboardSource, opts: CensusOptions = {}): MemoryLine[] {
   const store = src.store;
   const day = store.livedDay();
+  const wantText = opts.text !== false;
   const filter = opts.includeArchived === true ? {} : { archived: false };
   const out: MemoryLine[] = [];
   for (const id of store.list(filter)) {
@@ -109,8 +156,9 @@ function census(src: DashboardSource, opts: CensusOptions = {}): MemoryLine[] {
     if (isJournal(row)) continue;
     try {
       const physics = store.physicsOf(id);
-      const doc = store.readProse(id);
-      const g = gistOfDoc(doc, 96);
+      const g = wantText
+        ? gistOfDoc(store.readProse(id), 96)
+        : { text: "", confidential: false };
       const live = band(physics, day);
       out.push({
         id,
@@ -183,7 +231,7 @@ function absenceFor(count: number, everAsked: boolean): string | null {
 /** Live memories, journal and schema rows excluded. The number the console
  *  prints after `Memories:`, and the number every surface here must agree on. */
 function memoriesHeld(src: DashboardSource): number {
-  return census(src).filter((r) => !r.schema).length;
+  return census(src, { text: false }).filter((r) => !r.schema).length;
 }
 
 function eventsNamed(src: DashboardSource, name: string): number {
@@ -234,7 +282,10 @@ function lastActive(raw: string | undefined): string | null {
 
 export function metaView(src: DashboardSource): MetaView {
   const store = src.store;
-  const rows = store.list().length;
+  // Counted in SQL. This is the one view an open page asks for every four
+  // seconds, and it does not need fifteen thousand ids to learn there are
+  // fifteen thousand of them.
+  const rows = store.countMemories();
   return {
     dir: store.dir,
     day: store.livedDay(),
@@ -331,21 +382,28 @@ const BAND_GLOSS: Record<Band, string> = {
 export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): OverviewView {
   const store = src.store;
   const day = store.livedDay();
-  const rows = census(src);
+  // ONE CENSUS, TWO SUBSETS. This used to be two full walks — the live one, and
+  // the same walk again with the archived rows included — and nothing on this
+  // page prints a sentence off either of them, so both now skip the prose read
+  // entirely (`CensusOptions.text`). The archived pass is the superset, and the
+  // sort is deterministic, so a filter of it IS the live census: same rows, same
+  // order. On the owner's store the two walks were about five of the seven and a
+  // half seconds this view took.
+  const all = census(src, { includeArchived: true, text: false });
   // A SCHEMA ROW IS NOT A MEMORY. The census keeps both, because the bands and
   // kinds below are true of both and the physics runs on both — but the number
   // in the headline tile is the one a person compares against the console, and
   // the console says memories. See `MemoryLine.schema`.
+  const rows = all.filter((r) => r.archived === null);
   const held = rows.filter((r) => !r.schema);
   const beliefs = rows.length - held.length;
-  const archived = census(src, { includeArchived: true }).filter((r) => r.archived !== null);
+  const archived = all.filter((r) => r.archived !== null);
   const journal = chapters(src, 5);
-  const journalCount = store.list().filter((id) => {
-    const row = store.row(id);
-    return row !== undefined && isJournal(row);
-  }).length;
+  const journalCount = store.countMemories({ type: "episode" });
   const e = src.self.enumerate(day);
   const wake = src.self.wake();
+  // Three tiles below asked for it; it walks every cycle marker each time.
+  const cycleDay = lastCycleDay(src);
   const contested = contestedRows(src);
   const byBand = countMap<Band>(rows, "band");
   const peak = Math.max(1, ...BANDS.map((b) => byBand.get(b) ?? 0));
@@ -389,10 +447,10 @@ export function overviewView(src: DashboardSource, feedLimit = FEED_LIMIT): Over
     },
     {
       label: "last cycle",
-      value: lastCycleDay(src) === null ? NEVER : `day ${lastCycleDay(src)}`,
+      value: cycleDay === null ? NEVER : `day ${cycleDay}`,
       note: "the newest phase marker I hold",
       accent: "teal",
-      absent: lastCycleDay(src) === null,
+      absent: cycleDay === null,
     },
     {
       label: "wake bytes",
@@ -584,10 +642,17 @@ export function divergentPair(a: string, b: string, width = 150): [string, strin
   return [`${head}${clipTo(a.slice(from), width)}`, `${head}${clipTo(b.slice(from), width)}`];
 }
 
+/**
+ * The journal, newest first. ASKED FOR IN SQL rather than filtered in memory:
+ * `isJournal` is `row.type === "episode"` and `list()` takes a type, so the walk
+ * that used to fetch fifteen thousand rows to keep the thirty that are chapters
+ * now fetches the thirty. The order is unchanged — `list()` is `ORDER BY id`
+ * either way, and the sort below is the one that decides.
+ */
 function chapters(src: DashboardSource, limit: number): ChapterRow[] {
   const store = src.store;
   const out: ChapterRow[] = [];
-  for (const id of store.list({ archived: false })) {
+  for (const id of store.list({ type: "episode", archived: false })) {
     const row = store.row(id);
     if (row === undefined || !isJournal(row)) continue;
     try {
@@ -667,8 +732,15 @@ const KIND_GLOSS: Record<Kind, string> = {
 export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}): MemoriesView {
   const store = src.store;
   const day = store.livedDay();
-  const rows = census(src);
+  // THE CONSTELLATION IS THE ONE PANEL THAT REALLY DOES NEED EVERY SENTENCE —
+  // every dot has a hover — but only for the dots it EMITS. The census is taken
+  // without prose, sorted (strongest first, which is what decides the slice),
+  // and then the emitted head of it is filled in. A store with more rows than
+  // `limit` stops paying for the sentences nobody can hover.
+  const rows = census(src, { text: false });
   const limit = opts.limit ?? 4000;
+  const points = rows.slice(0, limit);
+  for (const r of points) withText(store, r);
   const byKind = countMap<Kind>(rows, "kind");
   const byBand = countMap<Band>(rows, "band");
   const peak = Math.max(1, ...BANDS.map((b) => byBand.get(b) ?? 0));
@@ -680,6 +752,8 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
     list.push(r.strength);
     meanByKind.set(r.kind, list);
   }
+
+  const topHubs = hubs(src, 15);
 
   const buckets = 20;
   const distribution = Array.from({ length: buckets }, (_, i) => ({
@@ -696,7 +770,7 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
   return {
     day,
     total: rows.length,
-    points: rows.slice(0, limit),
+    points,
     pointsAbsent: rows.length === 0 ? (everLived ? NONE : NEVER) : null,
     distribution,
     bands: BANDS.map((b) => {
@@ -719,8 +793,11 @@ export function memoriesView(src: DashboardSource, opts: { limit?: number } = {}
         gloss: KIND_GLOSS[kind],
       };
     }),
-    hubs: hubs(src, 15),
-    hubsAbsent: hubs(src, 1).length === 0 ? (everLived ? NONE : NEVER) : null,
+    hubs: topHubs,
+    // `hubs(src, 1)` used to be asked here — a SECOND full walk of every row's
+    // edges, to learn whether the first walk had found anything. Both lists are
+    // empty for exactly the same reason.
+    hubsAbsent: topHubs.length === 0 ? (everLived ? NONE : NEVER) : null,
     note: "Every dot is one memory — or one of the beliefs and entities the schemas hold, which decay and consolidate the same way and are counted apart only where a headline says memories. How many lived days old across, how strong up, how much it mattered at encoding as its size. Colour is the band it is in today, computed now — not the band it was born into.",
   };
 }
@@ -1068,7 +1145,13 @@ export function mindView(src: DashboardSource): MindView {
   const day = store.livedDay();
   const e = src.self.enumerate(day);
   const wake = src.self.wake();
-  const everLived = day > 0 || store.list().length > 0;
+  const everLived = day > 0 || store.countMemories() > 0;
+  // Both of these were asked for TWICE — once for the panel, once again, in
+  // full, only to ask whether it came back empty. `chapters` read every journal
+  // entry's prose to do it; `contestedRows` walked every contested belief's
+  // whole lineage. One call each, and the absence word is read off the answer.
+  const journal = chapters(src, 12);
+  const contested = contestedRows(src);
   const seen = new Set(e.identity.map((el) => el.id));
   const unreadable = store
     .list({ band: "identity", archived: false })
@@ -1112,10 +1195,10 @@ export function mindView(src: DashboardSource): MindView {
       lanes: wake.ok ? wakeLanes(wake.text) : [],
       absent: wake.ok ? null : everLived ? NONE : NEVER,
     },
-    chapters: chapters(src, 12),
-    chaptersAbsent: chapters(src, 1).length === 0 ? (everLived ? NONE : NEVER) : null,
-    stories: storyViews(src),
-    storiesAbsent: contestedRows(src).length === 0 ? (everLived ? NONE : NEVER) : null,
+    chapters: journal,
+    chaptersAbsent: journal.length === 0 ? (everLived ? NONE : NEVER) : null,
+    stories: storyViews(src, contested),
+    storiesAbsent: contested.length === 0 ? (everLived ? NONE : NEVER) : null,
   };
 }
 
@@ -1167,9 +1250,9 @@ export function wakeLanes(text: string): WakeLane[] {
   return lanes;
 }
 
-function storyViews(src: DashboardSource): StoryView[] {
+function storyViews(src: DashboardSource, rows?: readonly ContestedRow[]): StoryView[] {
   const store = src.store;
-  return contestedRows(src).map((row) => {
+  return (rows ?? contestedRows(src)).map((row) => {
     let story;
     try {
       story = src.schemas.story(row.id);
@@ -1246,7 +1329,7 @@ export function activityView(
   const window = since === undefined ? all.slice(-limit).reverse() : all.filter((r) => r.seq > since);
   const events = window.map((row) => narrate(store, row));
   const lastSeq = all.length === 0 ? 0 : (all[all.length - 1]?.seq ?? 0);
-  const everLived = store.livedDay() > 0 || store.list().length > 0;
+  const everLived = store.livedDay() > 0 || store.countMemories() > 0;
 
   return {
     events,
@@ -1311,7 +1394,7 @@ export function flowView(src: DashboardSource, feedLimit = 24): FlowView {
   const store = src.store;
   // MEMORIES, not every row: the STORE node says "N memories held" and the
   // overview's tile says the same words, so they had better be the same number.
-  const rows = census(src).filter((r) => !r.schema);
+  const rows = census(src, { text: false }).filter((r) => !r.schema);
   const day = store.livedDay();
   const activity = activityView(src, { limit: feedLimit });
   const counts = new Map<NodeKey, number>();
@@ -1462,7 +1545,7 @@ export function nodeDetail(src: DashboardSource, key: string, limit = 8): NodeDe
   for (const name of names) rows.push(...store.eventLog({ name, limit: LOG_CEILING }));
   rows.sort((a, b) => a.seq - b.seq);
   const recent = rows.slice(-limit).reverse().map((row) => narrate(store, row));
-  const everLived = store.livedDay() > 0 || store.list().length > 0;
+  const everLived = store.livedDay() > 0 || store.countMemories() > 0;
   return {
     found: true,
     key: node.key,
@@ -1542,7 +1625,7 @@ const ADAPTER_NOTE: Partial<Record<DurableEventName, string>> = {
 export function healthView(src: DashboardSource): HealthView {
   const store = src.store;
   const day = store.livedDay();
-  const everLived = day > 0 || store.list().length > 0;
+  const everLived = day > 0 || store.countMemories() > 0;
 
   const phases = CYCLE_PHASES.map((phase) => {
     const marker = readMarker(store, phase);
@@ -1573,7 +1656,10 @@ export function healthView(src: DashboardSource): HealthView {
   });
 
   const exitCounts = new Map<string, number>();
-  for (const id of store.list()) {
+  // Asked for in SQL: this walked every row in the store to keep the archived
+  // ones. The iteration order is `ORDER BY id` either way, and the map it fills
+  // is keyed by reason, so the counts are the same counts.
+  for (const id of store.list({ archived: true })) {
     const row = store.row(id);
     if (row === undefined || row.archived !== 1) continue;
     const reason = row.archived_reason ?? "no reason recorded";
