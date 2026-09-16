@@ -107,13 +107,16 @@ export interface BoundaryEvidence {
 }
 
 /**
- * A detector the CONTRACT names that this instrument cannot read as a row —
+ * A detector the CONTRACT names that no durable row carries under that name —
  * graded four-valued rather than printed as a bare name (§5 G13).
  *
- * `pass` is deliberately unreachable here: a watch with no reading behind it
- * can never render green. It is `needs-rater` when the mechanism fired and
- * something OTHER than this instrument holds the verdict, `not-exercised` when
- * the mechanism did not fire at all — §13's split, kept honest per watch.
+ * `pass` is deliberately unreachable for the four: a watch with no VERDICT of
+ * its own can never render green — `self.schema.pressure` reads real rows from
+ * 2026-09-15 (the durable `revision.pressure` record) and still cannot pass,
+ * because what those rows mean is the revision path's ruling. It is
+ * `needs-rater` when the mechanism fired and something OTHER than this
+ * instrument holds the verdict, `not-exercised` when the mechanism did not fire
+ * at all — §13's split, kept honest per watch.
  */
 export type WatchValue = "pass" | "fail" | "needs-rater" | "not-exercised";
 
@@ -348,6 +351,69 @@ export interface V1DayCounts {
   readonly mutedAtSessionStart: readonly string[];
 }
 
+/**
+ * ONE durable `revision.pressure` row, as this instrument reads it.
+ *
+ * The row is written by `schemas/index.ts` on every CREDITED challenge — past
+ * the bar or not — with `{targetId, day, challengerId, force, pressureAfter,
+ * bar}` in its payload and the target id in `ref`. `bar` and `force` are on
+ * this record on purpose: a zero-bar revision (the live store's first row read
+ * `bar: 0`, `force: 0.144`) is a different event from a challenge that pushed
+ * against a real bar and did not cross it, and a count alone cannot tell them
+ * apart.
+ */
+export interface PressureRowRead {
+  readonly targetId: string;
+  readonly challengerId: string | null;
+  /** The payload's LIVED day — the physics clock, not a calendar date. */
+  readonly livedDay: number | null;
+  /** The store's provenance clock (`events.at`), in epoch ms. */
+  readonly at: number;
+  readonly force: number | null;
+  readonly pressureAfter: number | null;
+  readonly bar: number | null;
+}
+
+/**
+ * What became of one target that took pressure on this date — read off the
+ * store's own columns, never inferred from the pressure arithmetic.
+ *
+ * NOT DATE-SCOPED, and it cannot be: the supersede is a fact about the target
+ * ROW AS IT STANDS AT READ TIME, so a day record re-run later may see a
+ * supersede that landed on a later date. `note` says which of the three
+ * signals was seen, so the reading is never separable from its evidence.
+ */
+export interface PressureTargetRead {
+  readonly targetId: string;
+  /** `revision.pressure` rows attributed to this date for this target. */
+  readonly rows: number;
+  /** The highest `pressureAfter` this date's rows carry for the target. */
+  readonly pressureAfter: number | null;
+  /** The bar those rows named (the newest one read; `0` is a real bar). */
+  readonly bar: number | null;
+  /** The newest row's `force` — the increment this challenge actually applied. */
+  readonly force: number | null;
+  /** True when the target row is archived with the supersede reason AND points
+   *  at a successor, or a `versions` row records the same. */
+  readonly superseded: boolean;
+  readonly supersededBy: string | null;
+  readonly archivedReason: string | null;
+  /** `versions` rows for this target carrying the supersede reason. */
+  readonly versionRows: number;
+  /** False when the target row is gone from `memories` entirely (chased). */
+  readonly targetRowPresent: boolean;
+  readonly note: string;
+}
+
+export interface RevisionPressureRead {
+  /** The rows themselves, newest first. Empty is `not-exercised`, never a pass. */
+  readonly rows: readonly PressureRowRead[];
+  /** One entry per distinct `targetId` in `rows`. */
+  readonly targets: readonly PressureTargetRead[];
+  /** How the rows were attributed to this calendar date, in words. */
+  readonly attribution: string;
+}
+
 export interface V2DayCounts {
   readonly present: boolean;
   readonly path: string;
@@ -401,11 +467,15 @@ export interface V2DayCounts {
   readonly byNameForLivedDay: Readonly<Record<string, number>>;
   readonly livedDayRead: number | null;
   /**
-   * Detectors this brief and the CONTRACT name that are NOT durable events in
-   * v2 today, so they can never be counted out of the store. Named here rather
-   * than reported as zero (scar §2.4; CONTRACT §5 G2's own premise).
+   * Detectors this brief and the CONTRACT name that this reader cannot count
+   * out of the store's event log as one name for one date. Named here rather
+   * than reported as zero (scar §2.4; CONTRACT §5 G2's own premise). Two of
+   * them — `memory.reinforced` and `self.schema.pressure` — now carry a
+   * reading of their own, recomputed read-only from the rows below.
    */
   readonly nonDurable: readonly string[];
+  /** `self.schema.pressure`'s reading: the day's durable `revision.pressure` rows. */
+  readonly revisionPressure: RevisionPressureRead;
   readonly memories: {
     readonly total: number;
     readonly byKind: Readonly<Record<string, number>>;

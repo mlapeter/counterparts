@@ -445,15 +445,18 @@ counts rows the total already counts, so anything summing `byNameForDate` must
 skip the keys with a ":" in them or it counts those rows twice; `record.ts`'s
 `v2DateRows` does.
 
-Four detectors remain non-rows by design and are named in `nonDurable` rather
-than reported as zeros: `sleep.symmetry` (arithmetic over `band.transition`) and
-`self.schema.*` (`schemaBytes` over the rows). A fifth, `memory.reinforced`, is
-recomputed read-only from the `memories` table. **Each is GRADED**, on the day
-record as `watches` and one line each in the daily's output — a value from the
-four-value vocabulary plus the reason for it, never the bare comma-separated name
-list that used to print (a string an operator reads past is not a verdict). `pass`
-is unreachable for the first four: a watch with no reading behind it can never
-render green (§5 G13). **`memory.reinforced` is the first watch here that can
+Four detectors are named in `nonDurable` rather than reported as zeros, because
+no durable row carries those names: `sleep.symmetry` (arithmetic over
+`band.transition`) and `self.schema.*` (`schemaBytes` over the rows). A fifth,
+`memory.reinforced`, is recomputed read-only from the `memories` table. **Each is
+GRADED**, on the day record as `watches` and one line each in the daily's output
+— a value from the four-value vocabulary plus the reason for it, never the bare
+comma-separated name list that used to print (a string an operator reads past is
+not a verdict). `pass`
+is unreachable for the first four: a watch with no VERDICT of its own can never
+render green (§5 G13) — `self.schema.pressure` now reads real rows (G55,
+2026-09-15) and still cannot pass, because what the rows mean is the revision
+path's ruling and not this instrument's. **`memory.reinforced` is the first watch here that can
 actually go red** — it has a reading of its own, and on the live store today it is
 expected to read `fail` until the credit seam lands. A `pass` on it should follow
 the first `recall.credit:credited` row: that row is the wiring firing, this watch
@@ -462,7 +465,7 @@ is the consequence landing in the table.
 | watch | value | why |
 |---|---|---|
 | `sleep.symmetry` | `needs-rater` when `band.transition` rows are attributable to the day, else `not-exercised` | the verdict is arithmetic OVER those rows and its rater is the G12 symmetry consumer in `src/core/sleep`, not this instrument. With no `--lived-day` nothing can be attributed at all, and the row says so rather than printing a zero |
-| `self.schema.pressure` | `not-exercised` | no durable revision-pressure row exists in this build. **The revision-pressure path is being wired in a separate PR; once it lands this watch has durable `revision.pressure` events to read and its grading rule in `record.ts` should move with it.** |
+| `self.schema.pressure` | `needs-rater` when a `revision.pressure` row is attributable to the date, else `not-exercised` | **G55, 2026-09-15: this watch READS ROWS.** The schemas revision path writes a durable `revision.pressure` row on every CREDITED challenge (`src/core/schemas/index.ts`; payload `{targetId, day, challengerId, force, pressureAfter, bar}`, `ref` = the target, latched per target+day+challenger), and the first one landed on the live store on 2026-09-15 — so the old reading, "no durable revision-pressure row exists in this build", was a sentence about the build that had stopped being true. **Attribution is `events.at`**, the store's provenance clock, by UTC calendar date: the row carries no calendar `date` (its payload `day` is the LIVED day, which rides along on the record) and `at` is the same UTC convention the adapter rows' payload `date` uses. `--lived-day` deliberately pulls in nothing here — two attribution paths would be two numbers for one question. The reading names, per target, the row count, `force`, `bar` and `pressureAfter` — so a **zero-bar** revision (the live store's first row: `bar: 0`, `force: 0.144`) is distinguishable from a challenge that pushed at a real bar and stopped short — and whether a **supersede followed** (the target's `memories` row archived `revised-by-pressure` with a non-null `superseded_by`, or a `versions` row carrying that reason) or the pressure merely **accumulated**. That supersede is CURRENT state, read off the target row as it stands, so a crossing that lands on a later date shows up on a re-run of this day; the record says so on every target. `needs-rater` and never `pass`/`fail`: the rows say a challenge was credited, not that crediting it was right — that verdict is `applyChallenge`'s in `src/core/physics` under `schemas/CONTRACT.md`, and this instrument reads rows without recomputing what they mean. The full read is on the day record as `v2.revisionPressure` |
 | `self.schema.tripped` | `not-exercised` | the trip is `schemaBytes` over the self rows, recomputed read-only by the preflight's `store.schemaBytes` check; the daily takes no reading of its own |
 | `self.schema.quarantined` | `not-exercised` | the F8 fallback quarantine is subtracted INSIDE `schemaBytes`; the SPAN quarantine ledger is a different thing and IS on the day record, as `quarantine` |
 | `memory.reinforced` | `pass` / `fail` / `not-exercised` — **the one that can go red** | IMPROVEMENTS U10: has anything minted on this store since launch ever been reinforced? POST-LAUNCH is `source IS NOT NULL AND source <> 'migrated'` over live rows — `source` is the store's own record of who minted a row, `migrated` is the v1 importer's stamp, and NULL is a pre-v4 row that predates this store's minting path. `pass` when ≥ 1 of them carries `reinforced_days ≥ 1`; `not-exercised` when there are none, or when the OLDEST of them is younger than `N_PROMOTION_DAYS` (imported from physics, never restated) — deliberately the oldest and not the newest, because a store that mints at every boundary always has a newest row zero days old and a newest-row rule would hold this watch at `not-exercised` forever; otherwise `fail`, naming the counts and pointing at U10 |
@@ -491,7 +494,10 @@ calendar `date` *and a `session`* in its payload (`hooks.ts#deliveryVerdict` and
 than a difference of counts. So date attribution runs off the payload for the
 adapter rows, and the core events — including the day's exits — are counted by
 lived day only when you pass `--lived-day`. Without it the exit count is `null`
-with its reason attached, never a zero.
+with its reason attached, never a zero. **`revision.pressure` is the one core row
+attributed differently** (G55): it is read by `events.at`, the store's provenance
+clock, in UTC — see the `self.schema.pressure` row in the watches table above for
+why, and for why that is one rule and not two.
 
 ## Guarantee 1 — the instrument writes nothing but its own run directory
 

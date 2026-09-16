@@ -157,11 +157,17 @@ function v1LogRaw(v1Dir: string, date: string, events: readonly Record<string, u
 }
 
 /** A REAL v2 store, built with the store's own API, then read back read-only. */
-function buildStore(dataDir: string, build: (s: Store) => void): void {
+/**
+ * `now` is the store's PROVENANCE clock (`StoreOptions.now`), and a test that
+ * needs an event stamped on a particular calendar date has to set it: `events.at`
+ * reads this and nothing else. Absent, it is the ambient wall clock, exactly as
+ * every caller before it had.
+ */
+function buildStore(dataDir: string, build: (s: Store) => void, now?: () => number): void {
   const prior = process.env[DATA_DIR_ENV];
   process.env[DATA_DIR_ENV] = dataDir;
   try {
-    const s = Store.open({ dir: dataDir });
+    const s = Store.open(now === undefined ? { dir: dataDir } : { dir: dataDir, now });
     try {
       build(s);
     } finally {
@@ -2318,6 +2324,155 @@ describe("day classes", () => {
     const symmetry = r.watches.find((w) => w.detector === "sleep.symmetry");
     expect(symmetry?.value).toBe("needs-rater");
     expect(symmetry?.reason).toContain("symmetry consumer");
+  });
+
+  // ── self.schema.pressure: the watch READS the durable row (G55) ──────────
+  //
+  // It used to be hard-coded `not-exercised` with a reason asserting that no
+  // durable revision-pressure row existed in this build. The schemas revision
+  // path writes one on every credited challenge, and the first landed on the
+  // live store on 2026-09-15 — so these three pin the reading rather than the
+  // sentence.
+  const NOON = Date.parse(`${DATE}T12:00:00.000Z`);
+
+  /** One `revision.pressure` row exactly as `schemas/index.ts` writes it. */
+  function pressureRow(
+    s: Scene,
+    row: {
+      targetId: string;
+      challengerId?: string;
+      day?: number;
+      force?: number;
+      pressureAfter?: number;
+      bar?: number;
+    },
+    at = NOON,
+  ): void {
+    buildStore(
+      s.v2Dir,
+      (store) => {
+        const payload = {
+          targetId: row.targetId,
+          day: row.day ?? 41,
+          challengerId: row.challengerId ?? "mem_challenger",
+          force: row.force ?? 0.144,
+          pressureAfter: row.pressureAfter ?? 0.144,
+          bar: row.bar ?? 0,
+        };
+        store.appendEvent({
+          name: "revision.pressure",
+          day: payload.day,
+          ref: row.targetId,
+          dedupKey: `revision.pressure:${row.targetId}:${payload.day}:${payload.challengerId}`,
+          payload,
+        });
+      },
+      () => at,
+    );
+  }
+
+  test("self.schema.pressure with no row ON THIS DATE is NOT-EXERCISED — and no longer claims the row cannot exist", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    v2Delivering(s);
+    // A real row, on the NEXT day: the date filter has to bite, or a watch that
+    // reads the whole table would report yesterday's pressure forever.
+    pressureRow(s, { targetId: "sch_elsewhere" }, Date.parse("2026-09-05T12:00:00.000Z"));
+    const r = classOf(s);
+    const pressure = r.watches.find((w) => w.detector === "self.schema.pressure");
+    expect(pressure?.value).toBe("not-exercised");
+    expect(pressure?.reason).toContain("attributable to this date");
+    expect(pressure?.reason).toContain("The row EXISTS in this build");
+    expect(pressure?.reason).not.toContain("being wired separately");
+    expect(r.v2.revisionPressure.rows).toHaveLength(0);
+    expect(r.v2.revisionPressure.targets).toHaveLength(0);
+  });
+
+  test("a revision.pressure row on the date reads NEEDS-RATER, carrying force and bar — a ZERO BAR is visible", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    v2Delivering(s);
+    buildStore(s.v2Dir, (store) => {
+      store.put({
+        id: "sch_belief",
+        // A revision target is a SCHEMA element (`sch_`), which is a row in the
+        // same `memories` table — the one this reader asks what became of it.
+        type: "schema",
+        kind: "fact",
+        body: "a belief that took a credited challenge",
+        learnedOn: DATE,
+        source: "authored",
+      });
+    });
+    pressureRow(s, { targetId: "sch_belief", force: 0.144, pressureAfter: 0.144, bar: 0 });
+    const r = classOf(s);
+    const pressure = r.watches.find((w) => w.detector === "self.schema.pressure");
+    // needs-rater, never pass: the rows say a challenge was credited, not that
+    // crediting it was right — this instrument reads rows (§5 G13).
+    expect(pressure?.value).toBe("needs-rater");
+    expect(pressure?.reason).toContain("force 0.144");
+    expect(pressure?.reason).toContain("bar 0");
+    expect(pressure?.reason).toContain("accumulated, bar not crossed");
+    expect(pressure?.reason).toContain("does not recompute verdicts");
+    expect(r.v2.revisionPressure.rows).toHaveLength(1);
+    expect(r.v2.revisionPressure.rows[0]).toMatchObject({
+      targetId: "sch_belief",
+      challengerId: "mem_challenger",
+      livedDay: 41,
+      force: 0.144,
+      bar: 0,
+    });
+    expect(r.v2.revisionPressure.targets).toHaveLength(1);
+    expect(r.v2.revisionPressure.targets[0]).toMatchObject({
+      targetId: "sch_belief",
+      rows: 1,
+      superseded: false,
+      versionRows: 0,
+      targetRowPresent: true,
+    });
+  });
+
+  test("a target SUPERSEDED past the bar is read off the target row, not off the arithmetic", () => {
+    const s = scene(3);
+    v1MutedNoStop(s);
+    v2Delivering(s);
+    let successor = "";
+    buildStore(s.v2Dir, (store) => {
+      store.put({
+        id: "sch_old",
+        type: "schema",
+        kind: "fact",
+        body: "the belief that lost",
+        learnedOn: DATE,
+        source: "authored",
+      });
+      successor = store.supersede(
+        "sch_old",
+        {
+          type: "schema",
+          kind: "fact",
+          body: "the belief that replaced it",
+          learnedOn: DATE,
+          source: "accommodation",
+        },
+        "revised-by-pressure",
+      );
+    });
+    pressureRow(s, { targetId: "sch_old", force: 0.6, pressureAfter: 1.2, bar: 1 });
+    const r = classOf(s);
+    const pressure = r.watches.find((w) => w.detector === "self.schema.pressure");
+    expect(pressure?.value).toBe("needs-rater");
+    expect(pressure?.reason).toContain("1 superseded");
+    expect(pressure?.reason).toContain(`SUPERSEDED by ${successor}`);
+    expect(pressure?.reason).toContain("AS IT STANDS NOW");
+    const target = r.v2.revisionPressure.targets[0];
+    expect(target).toMatchObject({
+      targetId: "sch_old",
+      superseded: true,
+      supersededBy: successor,
+      archivedReason: "revised-by-pressure",
+      versionRows: 1,
+    });
   });
 
   test("a muted v1's RUNNER re-rendering its wake is not a delivery — `wake.rendered` on a muted day stays clean (scar §2.3)", () => {

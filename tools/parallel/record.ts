@@ -22,6 +22,8 @@ import { join, relative } from "node:path";
 import { TUNABLES as PHYSICS } from "../../src/core/physics/index.js";
 import { contentAddress } from "../replay/corpus.js";
 
+import { PRESSURE_EVENT } from "../../src/core/revision.js";
+
 import { readBars } from "./preflight.js";
 import { surfaceSetHash } from "./surface.js";
 import {
@@ -647,6 +649,83 @@ export function gradeReinforced(
   };
 }
 
+/**
+ * `self.schema.pressure` — THE SECOND WATCH WITH A READING, and deliberately
+ * NOT a second watch that can go red.
+ *
+ * It printed `not-exercised` with the reason "no durable revision-pressure row
+ * exists in this build — the revision-pressure path is being wired separately"
+ * on every day of the run. That sentence stopped being true when the schemas
+ * revision path began writing a durable `revision.pressure` row on every
+ * CREDITED challenge (`src/core/schemas/index.ts`), and the first one landed on
+ * the live store on 2026-09-15. A watch whose reason asserts a fact about the
+ * BUILD is a watch that can go stale with nothing failing — the I32 shape: the
+ * instrument saying "nothing to see here" while the mechanism fires.
+ *
+ * WHY `needs-rater`, AND NEVER `pass`/`fail`. The rows say that a challenge was
+ * credited, what force it applied, what bar it faced, and where the pressure
+ * stands after. What they do NOT say is whether any of that was RIGHT — whether
+ * a belief that took force should have moved, whether a bar of 0 was the bar it
+ * deserved. That verdict belongs to the revision path itself (`applyChallenge`
+ * in `src/core/physics`, under the rules `schemas/CONTRACT.md` states), not to
+ * an instrument whose whole charter is to read rows without recomputing what
+ * they mean — the same line `sleep.symmetry` draws, for the same reason. So:
+ * rows present is `needs-rater`, with the reading spelled out and the rater
+ * named; no rows is `not-exercised`, saying only that no credited challenge is
+ * attributable to this date — never that none could exist.
+ *
+ * WHAT THE REASON CARRIES. A count alone cannot tell a ZERO-BAR revision (the
+ * live store's first row: `bar: 0`, `force: 0.144`) from a challenge that
+ * pushed at a real bar and stopped short, so `bar` and `force` are on the line
+ * and on the record. Per target it says which of the two happened — superseded
+ * (the target row archived `revised-by-pressure` with a successor, or a
+ * `versions` row) versus pressure that merely accumulated — read off the
+ * store's own columns as they stand now, never inferred from the arithmetic.
+ */
+export function gradePressure(read: V2DayCounts["revisionPressure"], storeOpen: boolean): Watch {
+  const detector = "self.schema.pressure";
+  const rows = read.rows.length;
+  if (rows === 0) {
+    return {
+      detector,
+      value: "not-exercised",
+      reason: storeOpen
+        ? `no \`${PRESSURE_EVENT}\` row is attributable to this date (attributed by \`events.at\`, the store's provenance clock, in UTC — the row carries no calendar date; the rule in full is on the record as \`v2.revisionPressure.attribution\`): no challenge was credited against a belief or an identity element here, so there was no revision-pressure to read. The row EXISTS in this build and this watch reads it`
+        : `no v2 store was opened, so no \`${PRESSURE_EVENT}\` row could be read at all — this is the absence of a reading, not a day without revision-pressure`,
+    };
+  }
+  const superseded = read.targets.filter((t) => t.superseded).length;
+  const per = read.targets
+    .slice(0, 3)
+    .map(
+      (t) =>
+        `${t.targetId} (${t.rows} row(s), force ${fmtNum(t.force)}, bar ${fmtNum(t.bar)}, pressureAfter ${fmtNum(t.pressureAfter)} → ${
+          t.superseded
+            ? `SUPERSEDED by ${t.supersededBy ?? "a successor"}`
+            : t.targetRowPresent
+              ? "accumulated, bar not crossed"
+              : "target row gone — the crossing cannot be read"
+        })`,
+    )
+    .join("; ");
+  const more =
+    read.targets.length > 3 ? `; +${read.targets.length - 3} more target(s) on the record` : "";
+  return {
+    detector,
+    value: "needs-rater",
+    reason:
+      `${rows} \`${PRESSURE_EVENT}\` row(s) over ${read.targets.length} target(s), ${superseded} superseded: ${per}${more}. ` +
+      "Attributed by `events.at` (the store's provenance clock) in UTC — the row carries no calendar date and its payload `day` is the LIVED day, which is on every row beside it. " +
+      "The supersede is read off the target row AS IT STANDS NOW, so a crossing that lands later shows up on a re-run of this day. " +
+      "Whether the force, the bar and the crossing were RIGHT is the revision path's verdict (`applyChallenge` in src/core/physics, under schemas/CONTRACT.md) — not this instrument's, which reads rows and does not recompute verdicts",
+  };
+}
+
+/** A number as the record shows it, or the fact that the row carried none. */
+function fmtNum(v: number | null): string {
+  return v === null ? "absent" : String(v);
+}
+
 export function readRunRecord(runDir: string): RunRecord | null {
   const path = join(runDir, "run.json");
   if (!existsSync(path)) return null;
@@ -1021,8 +1100,10 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
   // These four printed as a bare comma-separated name list — "v2 not durable:
   // sleep.symmetry, self.schema.pressure, …" — which is neither a value nor a
   // reason, and an operator reading past it has read nothing. Each is now a
-  // named value with one line behind it, and `pass` is unreachable for all
-  // four: a watch with no reading behind it can never render green.
+  // named value with one line behind it, and `pass` stays unreachable for all
+  // four: `self.schema.pressure` reads rows from 2026-09-15 (G55) but the
+  // verdict over them is somebody else's, and a watch with no verdict of its
+  // own can never render green.
   // TOTAL OVER THE READER'S OWN LIST, never a second list beside it: every name
   // in `nonDurable` gets a row, and a name with no grading rule yet gets one
   // that says exactly that rather than vanishing (scar §2.17's totality rule,
@@ -1045,12 +1126,11 @@ export function dailyRecord(opts: DailyOptions): DailyArtifacts {
                 ? "band.transition carries only the store's LIVED day and no --lived-day was given, so no transition can be attributed to this date — the watch was not driven here (a zero would be scar §2.4)"
                 : `no band.transition row on lived day ${String(v2.livedDayRead)}: no band moved, so there was no symmetry to verify`,
           },
-    "self.schema.pressure": {
-      detector: "self.schema.pressure",
-      value: "not-exercised",
-      reason:
-        "no durable revision-pressure row exists in this build — the revision-pressure path is being wired separately, and until it lands there is nothing for this watch to read (README: the watches)",
-    },
+    // READS ROWS NOW (G55, 2026-09-15) — see `gradePressure`. It is the second
+    // watch here with a reading of its own, and the second that can read
+    // `needs-rater`: a credited challenge is a mechanism firing, and the
+    // verdict on it is held elsewhere.
+    "self.schema.pressure": gradePressure(v2.revisionPressure, v2.present),
     "self.schema.tripped": {
       detector: "self.schema.tripped",
       value: "not-exercised",

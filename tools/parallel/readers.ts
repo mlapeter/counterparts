@@ -18,14 +18,19 @@
  * WHAT IS NOT HERE, AND WHY IT IS NAMED INSTEAD OF ZEROED. The brief and the
  * CONTRACT both list v2 detectors — `sleep.symmetry`,
  * `remember.span.quarantined`, `self.schema.*` — as if they were readable out
- * of box 2. They are not: box 2's `events` table takes exactly the THIRTEEN
- * names in `adapters/dashboard/registries.ts`'s `DURABLE_EVENTS`, and those
- * five are EPHEMERAL ring events that die with the hook process. Counting them
- * from the store would return 0 forever, and a fabricated zero reads as
- * evidence of silence — scar §2.4, and the precise failure §5 G4 exists to
- * prevent. So the reader returns them in `nonDurable`, by name, and the day
- * record prints them as absent BY CONSTRUCTION. It is a real gap in §5 G2
- * ("recomputable from the two durable stores"), and this is where it is visible.
+ * of box 2 under those names. They are not: the names belong to EPHEMERAL ring
+ * events that die with the hook process, and counting them out of `events`
+ * would return 0 forever — a fabricated zero reads as evidence of silence (scar
+ * §2.4, the precise failure §5 G4 exists to prevent). So the reader returns
+ * them in `nonDurable`, by name, and the day record grades each one from
+ * whatever durable state DOES stand behind it — or says plainly that nothing
+ * does. Two of the five now have such a reading: `memory.reinforced`
+ * (recomputed from the `memories` table, below) and, from 2026-09-15,
+ * `self.schema.pressure` — the durable `revision.pressure` row the schemas
+ * revision path writes on every credited challenge (`readRevisionPressure`).
+ * That row is not the same object as `self/`'s same-named ring event, which is
+ * the self-store BYTE pressure fraction; the watch carries the CONTRACT's name
+ * and reads the revision-pressure row the run has always meant by it.
  *
  * The four DELIVERY records (`adapter.wake.injected`, `adapter.wake.delivered`,
  * `adapter.recall`, `adapter.episode.ask`) joined `DURABLE_EVENTS` on
@@ -56,6 +61,8 @@ import {
   SWEEP_GATE_EVENT,
 } from "../../src/core/counterpart.js";
 import { NOISY_NOW_SWEEP_REASONS } from "../../src/core/remember/index.js";
+import { PRESSURE_EVENT } from "../../src/core/revision.js";
+import { TUNABLES as SCHEMA_TUNABLES } from "../../src/core/schemas/tunables.js";
 import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
@@ -64,6 +71,9 @@ import type {
   CanaryScan,
   HookDurations,
   HookModelReport,
+  PressureRowRead,
+  PressureTargetRead,
+  RevisionPressureRead,
   V1DayCounts,
   V1SessionOrder,
   V2DayCounts,
@@ -443,11 +453,17 @@ export function probeReadOnly(db: RawDb): ReadOnlyProbe {
  * computed (see `readQuarantineLines`) rather than deleted.
  */
 export const NON_DURABLE_DETECTORS: readonly string[] = [
-  // Recomputable read-only rather than durable as a row: the symmetry verdict
-  // is arithmetic over `band.transition`; the self-store bytes are
+  // Recomputable read-only rather than durable under THIS name: the symmetry
+  // verdict is arithmetic over `band.transition`; the self-store bytes are
   // `schemaBytes` over the rows. Named here so a day record never reports them
   // as a zero.
   "sleep.symmetry",
+  // The SECOND name here with a reading of its own (2026-09-15). It stays on
+  // this list because no row is named `self.schema.pressure` — the durable
+  // record is `revision.pressure`, one row per credited challenge, and it
+  // carries no calendar date, so it cannot join `DURABLE_DETECTORS`' one
+  // name-and-date count. It is read separately by `readRevisionPressure` and
+  // graded in `record.ts`.
   "self.schema.pressure",
   "self.schema.tripped",
   "self.schema.quarantined",
@@ -818,6 +834,12 @@ const EMPTY_V2 = (path: string): V2DayCounts => ({
   byNameForLivedDay: {},
   livedDayRead: null,
   nonDurable: [...NON_DURABLE_DETECTORS],
+  // No store was opened, so nothing was read — not "no pressure landed".
+  revisionPressure: {
+    rows: [],
+    targets: [],
+    attribution: "no store was opened",
+  },
   memories: {
     total: 0,
     byKind: {},
@@ -848,6 +870,142 @@ export function dateOf(ms: number): string {
 /** `IN (?, ?, …)` for a fixed name list — the names are ours, never input. */
 function placeholders(n: number): string {
   return new Array(n).fill("?").join(", ");
+}
+
+function num(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * `self.schema.pressure`'s reading: the day's durable `revision.pressure` rows,
+ * and what became of the targets they name.
+ *
+ * ATTRIBUTION, and why it is `at` and not the lived day. The row carries
+ * `{targetId, day, challengerId, force, pressureAfter, bar}` — and that `day`
+ * is the PHYSICS clock, days the owner lived, which no calendar knows. The
+ * adapter rows solve this by stamping a calendar `date` in their payload; this
+ * one does not, so what is left is the store's PROVENANCE clock: `events.at`,
+ * the wall-clock instant the row was written (`StoreOptions.now`, the same
+ * clock `learnedOn` reads). Its UTC date is the same convention the adapter's
+ * payload `date` uses — `new Date(now).toISOString().slice(0, 10)`
+ * (`hooks.ts`) — so the two attributions agree on where a day begins. The
+ * lived `day` rides along on every row, so a reader can see both clocks and
+ * neither is guessed. ONE RULE ONLY: `--lived-day` does NOT pull these rows in
+ * as well, because two attribution paths for one watch is two numbers for one
+ * question.
+ *
+ * THE SUPERSEDE IS CURRENT STATE. Whether the bar was crossed is not in the
+ * pressure row at all — the crossing archives the target (`archived_reason =
+ * 'revised-by-pressure'`, `superseded_by` set, a `versions` row beside it), and
+ * that is a fact about the row AS IT STANDS WHEN THIS READS. A supersede that
+ * lands two days later shows up here on a re-run of the earlier day; the note
+ * on each target says so rather than letting the reading pretend to be sealed.
+ */
+function readRevisionPressure(
+  ctx: { db: RawDb; errors: string[] },
+  date: string,
+  limit: number,
+  memoryState: ReadonlyMap<string, { archivedReason: string | null; supersededBy: string | null }>,
+): RevisionPressureRead {
+  const attribution =
+    `\`${PRESSURE_EVENT}\` rows whose \`events.at\` (the store's provenance clock) falls in ${date} UTC — ` +
+    "the row carries no calendar date and its payload `day` is the LIVED day, so the wall clock it was written at is the only calendar attribution there is; the payload's lived day is on every row beside it";
+  const startMs = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(startMs)) {
+    // Never a silent empty: an unreadable date poisons the day like any other
+    // failed read (scar §2.4) rather than reporting "no pressure".
+    ctx.errors.push(`${PRESSURE_EVENT} — date ${date} is not an ISO calendar date`);
+    return { rows: [], targets: [], attribution };
+  }
+
+  const raw = rowsOf<{ at: number; day: number; ref: string | null; payload: string | null }>(
+    ctx,
+    `SELECT at, day, ref, payload FROM events
+      WHERE name = ? AND at >= ? AND at < ?
+      ORDER BY seq DESC LIMIT ?`,
+    PRESSURE_EVENT,
+    startMs,
+    startMs + DAY_MS,
+    limit,
+  );
+
+  const rows: PressureRowRead[] = [];
+  for (const r of raw) {
+    let payload: Record<string, unknown> = {};
+    if (r.payload !== null) {
+      try {
+        payload = (asRecord(JSON.parse(r.payload)) ?? {}) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+    }
+    // `ref` is the target id too (the emit site sets both). A row that somehow
+    // carries neither is KEPT, named `unknown` — dropping it would undercount
+    // the very thing this watch exists to see.
+    rows.push({
+      targetId: str(payload["targetId"]) ?? str(r.ref) ?? "unknown",
+      challengerId: str(payload["challengerId"]),
+      livedDay: num(payload["day"]) ?? r.day,
+      at: r.at,
+      force: num(payload["force"]),
+      pressureAfter: num(payload["pressureAfter"]),
+      bar: num(payload["bar"]),
+    });
+  }
+
+  const ids = [...new Set(rows.map((r) => r.targetId))];
+  const versionRowsById = new Map<string, number>();
+  if (ids.length > 0) {
+    const versions = rowsOf<{ memory_id: string; n: number }>(
+      ctx,
+      `SELECT memory_id, COUNT(*) AS n FROM versions
+        WHERE reason = ? AND memory_id IN (${placeholders(ids.length)})
+        GROUP BY memory_id`,
+      SCHEMA_TUNABLES.REVISED_REASON,
+      ...ids,
+    );
+    for (const v of versions) versionRowsById.set(v.memory_id, v.n);
+  }
+
+  const targets: PressureTargetRead[] = ids.map((id) => {
+    const mine = rows.filter((r) => r.targetId === id);
+    const state = memoryState.get(id);
+    const versionRows = versionRowsById.get(id) ?? 0;
+    const archivedReason = state?.archivedReason ?? null;
+    const supersededBy = state?.supersededBy ?? null;
+    const archivedBySupersede =
+      archivedReason === SCHEMA_TUNABLES.REVISED_REASON && supersededBy !== null;
+    const superseded = archivedBySupersede || versionRows > 0;
+    const pressures = mine.map((r) => r.pressureAfter).filter((p): p is number => p !== null);
+    const note = superseded
+      ? `the bar was CROSSED for this target: ${
+          archivedBySupersede
+            ? `its \`memories\` row is archived \`${SCHEMA_TUNABLES.REVISED_REASON}\` and points at successor \`${String(supersededBy)}\``
+            : `${versionRows} \`versions\` row(s) carry \`${SCHEMA_TUNABLES.REVISED_REASON}\``
+        } — read off the target row AS IT STANDS NOW, so the supersede may have landed on a later date than this one`
+      : state === undefined
+        ? "the target has no `memories` row at all — it was removed after the pressure landed, so whether the bar was crossed cannot be read here"
+        : `pressure ACCUMULATED and the bar was not crossed on this reading: the \`memories\` row is ${
+            state.archivedReason === null ? "live" : `archived \`${state.archivedReason}\``
+          } with no supersede recorded — read as it stands now, so a later crossing would show on a re-run`;
+    return {
+      targetId: id,
+      rows: mine.length,
+      pressureAfter: pressures.length === 0 ? null : Math.max(...pressures),
+      bar: mine[0]?.bar ?? null,
+      force: mine[0]?.force ?? null,
+      superseded,
+      supersededBy,
+      archivedReason,
+      versionRows,
+      targetRowPresent: state !== undefined,
+      note,
+    };
+  });
+
+  return { rows, targets, attribution };
 }
 
 export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}): V2DayCounts {
@@ -944,12 +1102,19 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       source: string | null;
       learned_on: string;
       archived: number;
+      archived_reason: string | null;
+      superseded_by: string | null;
       birth_day: number;
       reinforced_days: number;
       uses: number;
     }>(
       ctx,
-      `SELECT id, kind, source, learned_on, archived, birth_day, reinforced_days, uses
+      // `archived_reason` and `superseded_by` are here for ONE reader:
+      // `readRevisionPressure` asks, of a target that took pressure, whether
+      // the bar was crossed. They are read from the row the crossing writes,
+      // never inferred from the pressure arithmetic.
+      `SELECT id, kind, source, learned_on, archived, archived_reason, superseded_by,
+              birth_day, reinforced_days, uses
          FROM memories`,
     );
 
@@ -1016,6 +1181,20 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       exitedNote = `durable \`${MEMORY_PRUNED_EVENT}\`/\`${MEMORY_MERGED_EVENT}\` rows on lived day ${livedDay}, de-duplicated by the memory id in \`ref\``;
     }
 
+    // `self.schema.pressure`'s reading. It runs after the memory rows because
+    // it asks them what became of each target (see `readRevisionPressure`).
+    const revisionPressure = readRevisionPressure(
+      ctx,
+      date,
+      limit,
+      new Map(
+        memories.map((m) => [
+          m.id,
+          { archivedReason: m.archived_reason, supersededBy: m.superseded_by },
+        ]),
+      ),
+    );
+
     return {
       present: true,
       path,
@@ -1032,6 +1211,7 @@ export function readV2Day(dataDir: string, date: string, opts: V2DayOptions = {}
       byNameForLivedDay,
       livedDayRead: livedDay,
       nonDurable: [...NON_DURABLE_DETECTORS],
+      revisionPressure,
       memories: {
         total: memories.length,
         byKind,
