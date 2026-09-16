@@ -1777,6 +1777,10 @@ registry is silently changing every directory's mode is written to a channel the
 the `systemMessage` envelope (#108's), which is exactly the channel G61 and G62 both want. Adapter-side, in the
 follow-up PR.
 
+### I41 — git holds the four bin scripts as 644, so a linked checkout cannot run them
+
+`package.json#bin` names four scripts with bun shebangs; git carries them as `100644`. `bun link` (the owner, 11:05 local) chmod'ed them so the linked commands ran, which read as four tracked mode changes; `tools/deploy-checkout.sh` refused the dirty checkout; restoring the modes for the deploy broke `counterparts` at the terminal again (`Permission denied`). Package installs set the bit themselves; a cloned or linked checkout needs git to carry it. Fix: PR #113 (`update-index --chmod=+x`, mode-only). Related to G63: the linked-checkout path is the developer install, and it had never been exercised on this host.
+
 ### What merged, and what is left
 
 - **#92 MERGED `f17ba4f`** — `feat/scope-controls` head `d6083de`, fast-forward on `76223ab`, merged **as
@@ -1789,7 +1793,7 @@ follow-up PR.
   changes: the `recall` claim, the mcp CONTRACT's "exposure is not recording", the per-store salt on the handle
   key, and the missing `docs/module-map.md` entry for `src/adapters/scopes.ts`. Force-push in place, then the
   preview suite, merge, `tools/deploy-checkout.sh`, and **ONE restart** `--date 2026-09-16`.
-  **`[PENDING: #112 head, preview suite, merge sha, deploy sha, restart #9 time]`**
+  **#112 MERGED `24d3d26`** (owner's `gh pr merge`; the classifier refused the session's twice today): Opus rebase onto `b9f4dd6`, head `debed4a` — five textual hunks (hooks.ts / server.ts / lifecycle.test.ts import blocks, twice; claude-code NOTES.md), plus a SEMANTIC catch: the #92 review's `recordSession` inside `input()` stamped each test session at the Stop, so #112's session floor dropped the resolution — A1–A3 were passing vacuously and six handle-door arcs raced `Date.now()` (~1 run in 3 red); fixture-only fix (`0e1b4e7`, `a6fd81b`), the live host cannot reach that shape (`sealJoinedLate`). Ruling-9 commit `1f50b0a`: recall claim rewritten, mcp CONTRACT §26 'Exposure is not recording; retrieval is' with the named deviation, per-store salt at `<dataDir>/sessions/expansions.salt` (minted once, 0600, fails closed; +3 tests), module-map row for `scopes.ts`. Coordinator-verified on the head: suite **2108 / 0 / 36**, hash `c3af0bef00209ba6`, `src/core` diff empty. Open half: the same absolute still stands in `src/core/recall/CONTRACT.md` §3 and guarantee 8 (core; next batch). **Deployed `24d3d26`** by `tools/deploy-checkout.sh` at ~19:10Z (first refused: the owner's `bun link` had chmod'ed the four bin scripts, four tracked mode changes; restored, then deployed — see I41). **Restart #9 at 19:12:43Z**, `--date 2026-09-11` (same-date re-restart, NOT `--date 2026-09-16` as the line above planned: a new first day would have zeroed the four active days; `activeDays {0:1, P:4}` kept), reason names the deploy sha and the four PRs. `doctor` after the deploy: 0 red / 0 amber / 13 green, Checkout GREEN at `24d3d26`, lived day 190, Vectors 0 unembedded, Credit `nothing-to-credit` 0 of 1 considered. **PR #113** (`fix/bin-executable-bit`): the four `package.json#bin` scripts carry `100755`; mode-only; after merge, one more `deploy-checkout.sh`, no restart owed.
 
 ### Spend
 

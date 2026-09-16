@@ -2,9 +2,7 @@
 
 ## 2026-09-16 — read this first
 
-**State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). The shared checkout is
-**still deployed at `76223ab`** — the deploy step waits for #112, so every live boundary is running pre-#92 code
-until then. Restart #9 is owed after that deploy. The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
+**State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). Then **#112 merged `24d3d26`**, the shared checkout **deployed at `24d3d26`** (~19:10Z), **restart #9 run** (19:12:43Z, same-date `2026-09-11`, active days kept). Open: **PR #113** (bin executable bit, mode-only; merge → one more `deploy-checkout.sh`, no restart) and the day's record PR. The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
 amber / 12 green (amber = one unembedded memory, cleared at the next boundary); the 2026-09-15 daily **ACTIVE**
 (17 turns, `activeDays {0:1, P:4}`, `memory.reinforced` FAIL as forecast, earliest PROMOTE verdict ~09-19); the
 `revision.pressure` rows are now **three**, and the third one HELD at a bar of 0.534 against the minted successor
@@ -30,7 +28,7 @@ session's merge and the owner ran `gh pr merge` from his own session), #111 `95a
 `b9f4dd6`. **#112 is rebasing** onto `95acd06` with ruling 9's text folded in (recall claim, mcp CONTRACT
 "exposure is not recording", per-store salt, the module-map entry for `scopes.ts`); then preview suite → merge →
 `tools/deploy-checkout.sh` → **ONE restart** `--date 2026-09-16`.
-**`[PENDING: #112 head, preview suite, merge sha, deploy sha, restart #9 time]`**
+**#112 MERGED `24d3d26`** (owner's `gh pr merge`; the classifier refused the session's twice today): Opus rebase onto `b9f4dd6`, head `debed4a` — five textual hunks (hooks.ts / server.ts / lifecycle.test.ts import blocks, twice; claude-code NOTES.md), plus a SEMANTIC catch: the #92 review's `recordSession` inside `input()` stamped each test session at the Stop, so #112's session floor dropped the resolution — A1–A3 were passing vacuously and six handle-door arcs raced `Date.now()` (~1 run in 3 red); fixture-only fix (`0e1b4e7`, `a6fd81b`), the live host cannot reach that shape (`sealJoinedLate`). Ruling-9 commit `1f50b0a`: recall claim rewritten, mcp CONTRACT §26 'Exposure is not recording; retrieval is' with the named deviation, per-store salt at `<dataDir>/sessions/expansions.salt` (minted once, 0600, fails closed; +3 tests), module-map row for `scopes.ts`. Coordinator-verified on the head: suite **2108 / 0 / 36**, hash `c3af0bef00209ba6`, `src/core` diff empty. Open half: the same absolute still stands in `src/core/recall/CONTRACT.md` §3 and guarantee 8 (core; next batch). **Deployed `24d3d26`** by `tools/deploy-checkout.sh` at ~19:10Z (first refused: the owner's `bun link` had chmod'ed the four bin scripts, four tracked mode changes; restored, then deployed — see I41). **Restart #9 at 19:12:43Z**, `--date 2026-09-11` (same-date re-restart, NOT `--date 2026-09-16` as the line above planned: a new first day would have zeroed the four active days; `activeDays {0:1, P:4}` kept), reason names the deploy sha and the four PRs. `doctor` after the deploy: 0 red / 0 amber / 13 green, Checkout GREEN at `24d3d26`, lived day 190, Vectors 0 unembedded, Credit `nothing-to-credit` 0 of 1 considered. **PR #113** (`fix/bin-executable-bit`): the four `package.json#bin` scripts carry `100755`; mode-only; after merge, one more `deploy-checkout.sh`, no restart owed.
 
 **The follow-up adapter PR (one PR, after #92 — spec in LAUNCH-STATUS rows G61 and G62):** ask-first and silent
 until answered in an unset directory (no wake, no recall, no capture, registry-only read; terminal `systemMessage`

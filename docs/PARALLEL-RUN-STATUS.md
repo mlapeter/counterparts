@@ -24,8 +24,9 @@ standing permission. Master moved three times today (#92, #111, #110); the share
   real bar and CONSTITUTION 7's slow half works as written. LAUNCH-STATUS **G56**, ruled (a) today.
 - **No declaration today.** Everything that landed is adapter, tools or docs: #92 `f17ba4f`, #111 `95acd06`, #110
   `b9f4dd6`. Hash **`c3af0bef00209ba6`** unchanged; `src/core` untouched by all three.
-- **Restart #9 is pending** the #112 merge and `tools/deploy-checkout.sh`; until that deploy every boundary runs
-  the `76223ab` checkout. The next core batch (G56 seeding, G57 credit filter, I39 pragma reorder) is one
+- **#112 merged `24d3d26` (adapter; hash unchanged), deployed `24d3d26` ~19:10Z, restart #9 at 19:12:43Z** with
+  `--date 2026-09-11` (same-date re-restart: `activeDays {0:1, P:4}` kept, 13 days of history kept). `doctor` after:
+  0 red / 0 amber / 13 green, lived day 190. The next core batch (G56 seeding, G57 credit filter, I39 pragma reorder) is one
   declaration and one restart of its own.
 
 ## State — 2026-09-15: doctor's first morning, green; I33 closed; band of record 0; the first live revision landed on a zero bar
