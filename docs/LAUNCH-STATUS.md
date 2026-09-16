@@ -1779,7 +1779,7 @@ follow-up PR.
 
 ### I41 — git holds the four bin scripts as 644, so a linked checkout cannot run them
 
-`package.json#bin` names four scripts with bun shebangs; git carries them as `100644`. `bun link` (the owner, 11:05 local) chmod'ed them so the linked commands ran, which read as four tracked mode changes; `tools/deploy-checkout.sh` refused the dirty checkout; restoring the modes for the deploy broke `counterparts` at the terminal again (`Permission denied`). Package installs set the bit themselves; a cloned or linked checkout needs git to carry it. Fix: PR #113 (`update-index --chmod=+x`, mode-only). Related to G63: the linked-checkout path is the developer install, and it had never been exercised on this host.
+`package.json#bin` names four scripts with bun shebangs; git carries them as `100644`. `bun link` (the owner, 11:05 local) chmod'ed them so the linked commands ran, which read as four tracked mode changes; `tools/deploy-checkout.sh` refused the dirty checkout; restoring the modes for the deploy broke `counterparts` at the terminal again (`Permission denied`). Package installs set the bit themselves; a cloned or linked checkout needs git to carry it. Fix: PR #113 (`update-index --chmod=+x`, mode-only) — **merged `07804c7`, deployed `07804c7`, no restart; closed.** Related to G63: the linked-checkout path is the developer install, and it had never been exercised on this host.
 
 ### What merged, and what is left
 

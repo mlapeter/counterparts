@@ -2,7 +2,7 @@
 
 ## 2026-09-16 — read this first
 
-**State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). Then **#112 merged `24d3d26`**, the shared checkout **deployed at `24d3d26`** (~19:10Z), **restart #9 run** (19:12:43Z, same-date `2026-09-11`, active days kept). Open: **PR #113** (bin executable bit, mode-only; merge → one more `deploy-checkout.sh`, no restart) and the day's record PR. The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
+**State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). Then **#112 merged `24d3d26`**, the shared checkout **deployed at `24d3d26`** (~19:10Z), **restart #9 run** (19:12:43Z, same-date `2026-09-11`, active days kept). **#113 merged `07804c7`** (bin executable bit), **deployed `07804c7`** (mode-only, no restart owed; `counterparts --help` runs at the terminal again — I41 closed). Open: the day's record PR (#114). The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
 amber / 12 green (amber = one unembedded memory, cleared at the next boundary); the 2026-09-15 daily **ACTIVE**
 (17 turns, `activeDays {0:1, P:4}`, `memory.reinforced` FAIL as forecast, earliest PROMOTE verdict ~09-19); the
 `revision.pressure` rows are now **three**, and the third one HELD at a bar of 0.534 against the minted successor
