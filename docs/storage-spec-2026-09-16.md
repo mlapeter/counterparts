@@ -542,3 +542,26 @@ and has not been asked.
   code touched, two thirds untouched. A third greenfield is not recommended; the brain
   layer is the part that works and is tested, and the pain is the floor, the missing
   layer, and the documents.
+
+### Sequence as the owner set it at close (stratum 1), with the assistant's notes
+
+1. **Constitution first:** a few small manual edits by the owner, from what was learned to
+   date. Candidates surfaced this session, his to take or leave: line 6's "readable" as
+   viewable in a file or the database; line 6's "encrypted, owner-keyed" against
+   embeddings leaving in plain text (audit item 5); whether line 4 should say the self
+   reads as a self, in its own words; whether the day-to-day path outranks the one-off
+   (the import lesson).
+2. **Contracts sweep next, aggressive:** delete what is out of date, makes no sense,
+   fights the constitution, or holds the work back. Map: `docs/contract-audit-2026-09-16.md`.
+   Rule for safety: delete prose, keep tests; a test whose only justification was a
+   deleted contract line is re-justified in its own comment or removed on purpose. The
+   store contract is not swept; it is rewritten fresh to the new design during the
+   rebuild. Code comments citing deleted sections (1,201 of them) can dangle until a later
+   mechanical pass.
+3. Rulings, rebuild, fresh start as above.
+
+**Step 1 decision:** the owner is fine either way and will hold personal or philosophical
+conversations until the new store is live. The assistant's call: **skip it, with a
+tripwire.** The compression of the v1 pages is the same writing act as seeding the new
+store's first core (question 13); do it once, there, through the owner door with
+versioning, not twice. If the new store is not live within about a week, do the hook.
