@@ -31,12 +31,13 @@ load-bearing, and this adapter is designed on the assumption that it will be use
   HOST-STATE line (`adapters/expansions.ts`: a salted hash of the handle, the id it reached
   or `null`, a timestamp, the project) so that boundary can tell which memory a TITLE
   reached. No tool here writes a memory and none touches physics.
-  **Named deviation** (2026-09-15/16, G50): the rule this replaces was "[v1] §9.1 G4 —
+  **Named deviation** (2026-09-15/16, G50 + G58): the rule this replaces was "[v1] §9.1 G4 —
   ranking is not recording, deliberate recall trains nothing", an ABSOLUTE written against
   the wake/footnote rich-get-richer problem. That is an EXPOSURE problem, and the absolute
   over-reached past it: the brain's rule — the testing effect, spacing — is that RETRIEVAL
   strengthens, and a memory read in full was retrieved. Corrected by owner ruling
-  2026-09-16: "Exposure never strengthens. Retrieval always does."
+  2026-09-16: "Exposure never strengthens. Retrieval always does." `core/recall/CONTRACT.md`
+  still carries the absolute in §3 and §5 guarantee 8; correcting it is the open half.
 - **A candidate count must not become an undercount** — a top-K tuned for surfacing is
   wrong for an aggregation question. [v1] §9.1 G3.
 - **Confidentiality is enforced at the boundary of the ask**; withholding is *stated* for a
