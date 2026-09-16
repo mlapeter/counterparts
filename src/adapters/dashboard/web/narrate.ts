@@ -52,7 +52,7 @@ export interface Narration {
   readonly tone: Tone;
 }
 
-interface Told {
+export interface Told {
   readonly store: Store;
   readonly row: EventRow;
   /** The parsed payload, or an empty object when there was none. */
@@ -532,6 +532,190 @@ export const NARRATORS = {
 export const NARRATED_NAMES: readonly string[] = Object.keys(NARRATORS);
 
 /**
+ * THE HEADLINE — the same row, said in one plain line.
+ *
+ * `NARRATORS` writes the sentence: first person, the memory named, the numbers
+ * that matter, as long as it takes. That sentence is the record, and it stays
+ * the record — the modal still shows it whole. But a dense feed that wants
+ * twelve rows on a screen cannot carry a forty-word sentence per row, and a
+ * truncated sentence is worse than a short one: it ends mid-clause and says
+ * nothing.
+ *
+ * So each name gets a second, shorter voice here: verb first, plain English, no
+ * system vocabulary, numbers only where a number is the point, no trailing
+ * period (it is a headline, not a sentence). Roughly sixty characters is the
+ * working ceiling.
+ *
+ * Additive on purpose. The sentence is not derived from the headline and the
+ * headline is not derived from the sentence; both read the same payload, and
+ * either can be changed without touching the other.
+ *
+ * Total like `NARRATORS` is total: `satisfies Record<DurableEventName, …>`, so a
+ * durable event added to the core fails `tsc` until it has a headline too, and
+ * `test/dashboard-web.test.ts` asserts the same at runtime.
+ */
+type Headliner = (t: Told) => string;
+
+/** "1 memory" / "2 memories" — the plural, gotten right. */
+function many(count: number, one: string, more: string): string {
+  return `${count} ${count === 1 ? one : more}`;
+}
+
+export const HEADLINES = {
+  // ── the sleep cycle ────────────────────────────────────────────────────────
+  "band.promoted": (t) =>
+    `A memory became part of who I am, used on ${many(n(t, "reinforcedDays") ?? 0, "day", "days")}`,
+  "band.transition": (t) => {
+    const [, , TO_FIELD, DIRECTION_FIELD] = BAND_TRANSITION_FIELDS;
+    const to = s(t, TO_FIELD) ?? "another band";
+    return s(t, DIRECTION_FIELD) === "down"
+      ? `A memory settled back to ${to}`
+      : `A memory moved up to ${to}`;
+  },
+  "memory.pruned": () => "Let go of a memory that had faded to the floor",
+  "memory.merged": () => "Merged a duplicate into what I already held",
+  "memory.unmerged": () => "Put back a memory a merge had archived",
+
+  // ── the doors ──────────────────────────────────────────────────────────────
+  "gate.chunk": (t) => {
+    const proposals = n(t, "proposals") ?? 0;
+    if (t.p["fullyGated"] === true) return `Refused a whole chunk, ${proposals} proposals, nothing kept`;
+    return `Kept ${n(t, "accepted") ?? 0} of ${proposals} from a swept chunk`;
+  },
+  "gate.deposit": (t) => {
+    if (n(t, "accepted") !== 1) return "Refused something I tried to write down";
+    if (t.p["memoryId"] === null) return "Passed the gates, but the write did not land";
+    const gates = Array.isArray(t.p["gates"]) ? (t.p["gates"] as { status?: unknown }[]) : [];
+    const acted = gates.filter((g) => g.status !== "clear" && g.status !== "not-invoked").length;
+    return acted === 0
+      ? "Wrote something down, every gate clear"
+      : `Wrote something down, ${many(acted, "gate", "gates")} acted first`;
+  },
+  "adapter.spawn.refused": (t) => {
+    const count = n(t, "count") ?? 1;
+    return count > 1
+      ? `Background work did not start, ${count} times running`
+      : "Background work did not start";
+  },
+  "adapter.spawn.failed": () => "Background work could not be started at all",
+  "adapter.runner.failed": () => "Background work opened the store and then failed",
+  "adapter.checkout": (t) => {
+    const reason = s(t, "reason") ?? "unnamed";
+    if (reason === "master") return "Started on the main line, clean";
+    if (reason === "behind") return `Started ${n(t, "behindBy") ?? 0} commits behind the main line`;
+    return "Started on a side branch, not the main line";
+  },
+  "recall.credit": (t) => {
+    const reason = s(t, "reason");
+    if (reason === "failed") return "Could not tell what the session's replies used";
+    if (reason === "budget-exceeded") return "Ran out of time working out what was used";
+    const credited = n(t, "credited") ?? 0;
+    return credited > 0
+      ? `Strengthened ${many(credited, "memory", "memories")} the session used`
+      : "Session used nothing I had brought to mind";
+  },
+  "sweep.gate": (t) => {
+    if (t.p["reason"] === "no-credential") return "Skipped the crash sweep, no key for it";
+    const quarantined = n(t, "quarantined") ?? 0;
+    if (quarantined > 0) return `Set aside ${many(quarantined, "span", "spans")} I could not read`;
+    const refusals = refusalsOf(t);
+    const noisy = refusals === null ? 0 : NOISY_NOW_SWEEP_REASONS.reduce((a, r) => a + (refusals[r] ?? 0), 0);
+    if (noisy > 0) return `Crash sweep hit ${many(noisy, "scope", "scopes")} it could not claim`;
+    if ((n(t, "ran") ?? 0) === 0) return "Crash sweep, nothing to recover";
+    return `Recovered ${many(n(t, "swept") ?? 0, "span", "spans")} from a session that crashed`;
+  },
+  "sleep.cycle": (t) => {
+    const reason = String(t.p["reason"] ?? "ran");
+    if (reason === "threw") return "Nightly cycle died partway through";
+    if (reason === "clock-failed") return "Nightly cycle could not advance its own clock";
+    const failed = n(t, "failed") ?? 0;
+    if (failed > 0) return `Nightly cycle ran, ${many(failed, "phase", "phases")} failed`;
+    const parts: string[] = [];
+    const promoted = n(t, "promoted") ?? 0;
+    const pruned = n(t, "pruned") ?? 0;
+    const merged = n(t, "merged") ?? 0;
+    if (promoted > 0) parts.push(`${promoted} promoted`);
+    if (pruned > 0) parts.push(`${pruned} let go`);
+    if (merged > 0) parts.push(`${merged} merged`);
+    return parts.length === 0 ? "Nightly cycle ran, nothing changed" : `Nightly cycle: ${parts.join(", ")}`;
+  },
+  "self.briefing": (t) => {
+    const trimmed = n(t, "trimmedTotal") ?? 0;
+    return trimmed === 0
+      // A byte count with two decimal places is `num`'s house style for a
+      // score, and wrong for a size. A headline says 5132 bytes.
+      ? `Rewrote my briefing, ${n(t, "bytes") ?? 0} bytes`
+      : `Rewrote my briefing, ${many(trimmed, "piece", "pieces")} left out`;
+  },
+
+  // ── retrieval ──────────────────────────────────────────────────────────────
+  "recall.decision": (t) => {
+    const surfaced = idsIn(t, "surfaced").length;
+    const footnotes = idsIn(t, "footnotes").length;
+    const turn = n(t, "turn") ?? 0;
+    if (surfaced === 0 && footnotes === 0) return `Nothing came to mind on turn ${turn}`;
+    if (surfaced === 0) return `Kept ${many(footnotes, "memory", "memories")} back as a footnote`;
+    return `Brought ${many(surfaced, "memory", "memories")} to mind on turn ${turn}`;
+  },
+  "adapter.recall": (t) => {
+    if (s(t, "reason") === "latency-abort") return "Gave up on recall rather than make you wait";
+    const count = n(t, "surfaced") ?? n(t, "count") ?? 0;
+    return count === 0
+      ? "Recalled nothing for this turn"
+      : `Recalled ${many(count, "memory", "memories")} for this turn`;
+  },
+  "adapter.semantic.lag": (t) => {
+    const hits = n(t, "hits");
+    return hits !== null && hits >= 0 && s(t, "reason") === null
+      ? `Lined up ${many(hits, "neighbour", "neighbours")} for the next turn`
+      : "Could not line up a cue for the next turn";
+  },
+
+  // ── waking ─────────────────────────────────────────────────────────────────
+  "adapter.wake.injected": () => "Session started, briefing delivered",
+  "adapter.wake.delivered": (t) =>
+    t.p["seen"] === true || t.p["sentinelSeen"] === true || t.p["ok"] === true
+      ? "Briefing arrived intact"
+      : "Could not confirm the briefing arrived",
+
+  // ── the host's session ─────────────────────────────────────────────────────
+  "adapter.boundary": (t) =>
+    `Session ended, ${many(n(t, "spans") ?? n(t, "captured") ?? 0, "turn", "turns")} captured`,
+  "adapter.primacy.deliver": () => "Delivered to the host while the other system ran",
+  "adapter.primacy.standdown": () => "Stood down and let the other system speak",
+
+  // ── the authored door's ask ────────────────────────────────────────────────
+  "adapter.ask": (t) => {
+    const outcome = s(t, "outcome");
+    if (outcome === "capped") return "Did not ask again, already at the day's limit";
+    if (outcome === "paced") return "Let the session end without asking";
+    return `Asked what this session taught me, chapter ${n(t, "chapter") ?? 0}`;
+  },
+  "adapter.authorship.ask": () => "Fired the old authorship ask (no longer in use)",
+  "adapter.episode.ask": () => "Fired the old journal ask (no longer in use)",
+
+  // ── the store's own upkeep ─────────────────────────────────────────────────
+  "adapter.embed.backfill": (t) => {
+    const embedded = n(t, "embedded") ?? 0;
+    const failed = n(t, "failed") ?? 0;
+    if (failed > 0) return `Indexed ${embedded} memories for search, ${failed} failed`;
+    const remaining = n(t, "remaining") ?? 0;
+    return remaining === 0
+      ? "Every memory is searchable by meaning now"
+      : `Indexed ${embedded} memories for search, ${remaining} to go`;
+  },
+
+  // ── being argued with ──────────────────────────────────────────────────────
+  "revision.pressure": (t) => {
+    const after = n(t, "pressureAfter") ?? 0;
+    const bar = n(t, "bar") ?? 0;
+    return after >= bar && bar > 0
+      ? "Changed my mind: a challenge broke the bar"
+      : "Took a challenge to a belief, and held";
+  },
+} as const satisfies Record<DurableEventName, Headliner>;
+
+/**
  * WHAT KIND OF THING EACH EVENT'S `ref` COLUMN HOLDS.
  *
  * The log's `ref` is not always a memory id, and putting one that is not through
@@ -608,6 +792,9 @@ export interface NarratedEvent {
   readonly day: number;
   readonly name: string;
   readonly text: string;
+  /** The same row as one plain headline — see `HEADLINES`. Additive: the old
+   *  page reads `text` and never looks at this. */
+  readonly headline: string;
   readonly tone: Tone;
   readonly node: NodeKey | null;
   /** The stored ref, resolved now — or null when the row named nothing. */
@@ -644,12 +831,24 @@ export function narrate(store: Store, row: EventRow): NarratedEvent {
   } catch {
     line = calm(`${row.name} — recorded, but I could not read it back.`);
   }
+  // The headline is computed beside the sentence and fails the same way: never
+  // the raw name (a feed column that prints the identifier twice is not a
+  // headline), and never a throw.
+  const writer = (HEADLINES as Record<string, Headliner | undefined>)[row.name];
+  let headline: string;
+  try {
+    headline = writer === undefined ? "Recorded, with nothing yet to say about it" : writer(told);
+  } catch {
+    headline = "Recorded, but I could not read it back";
+  }
+  if (headline.length === 0) headline = "Recorded, with nothing yet to say about it";
   return {
     seq: row.seq,
     at: row.at,
     day: row.day,
     name: row.name,
     text: line.text,
+    headline,
     tone: line.tone,
     node: nodeOf(row.name),
     // Resolved BY EVENT NAME — see `REF_KIND`.

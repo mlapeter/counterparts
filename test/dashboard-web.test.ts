@@ -44,7 +44,8 @@ import { isJournal } from "../src/core/sleep/index.js";
 import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { EVENT_NODE, FLOW_EDGES, FLOW_NODES, NODE_KEYS, nodeOf } from "../src/adapters/dashboard/web/flow.js";
-import { NARRATORS, REF_KIND, narrate } from "../src/adapters/dashboard/web/narrate.js";
+import { HEADLINES, NARRATORS, REF_KIND, narrate } from "../src/adapters/dashboard/web/narrate.js";
+import type { Told } from "../src/adapters/dashboard/web/narrate.js";
 import { WITHHELD, reveal } from "../src/adapters/dashboard/web/reveal.js";
 import {
   DEFAULT_PORT,
@@ -569,6 +570,37 @@ describe("totality: nothing the core can record has nowhere to go", () => {
       (name) => !(DURABLE_EVENT_NAMES as readonly string[]).includes(name),
     );
     expect(extra).toEqual([]);
+  });
+
+  test("every durable event name has a plain headline, and it is not the name", () => {
+    const missing = DURABLE_EVENT_NAMES.filter((name) => !(name in HEADLINES));
+    expect(missing).toEqual([]);
+    const extra = Object.keys(HEADLINES).filter(
+      (name) => !(DURABLE_EVENT_NAMES as readonly string[]).includes(name),
+    );
+    expect(extra).toEqual([]);
+
+    // And each one WRITES something. The seeded log does not carry every name,
+    // so the totality of the map is proved against an empty payload rather than
+    // against whatever the demo happened to record: a headliner that throws on
+    // a bare row, or hands back the identifier it was given, fails here.
+    const d = open(emptyDir);
+    try {
+      for (const name of DURABLE_EVENT_NAMES) {
+        const told: Told = {
+          store: d.src.store,
+          row: { seq: 1, at: Date.now(), day: 1, name, ref: null, dedup_key: null, payload: null },
+          p: {},
+        };
+        const line = (HEADLINES as Record<string, (t: Told) => string>)[name]!(told);
+        expect(`${name}: ${line.length > 0}`).toBe(`${name}: true`);
+        expect(`${name}: ${line !== name}`).toBe(`${name}: true`);
+        // A headline, not a sentence: no full stop at the end of it.
+        expect(`${name}: ${line.endsWith(".")}`).toBe(`${name}: false`);
+      }
+    } finally {
+      d.close();
+    }
   });
 
   test("every durable event name says what kind of thing its ref holds", () => {
