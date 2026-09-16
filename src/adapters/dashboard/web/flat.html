@@ -1630,6 +1630,25 @@ let lastSeq = 0;
 /** The cheap shape of the store, so a poll can notice a deposit that left no
  *  trace in the event log. Null until the first `/api/meta` answers. */
 let fingerprint = null;
+/**
+ * ONE TICK AT A TIME, AND ONE OVERVIEW REFETCH AT A TIME.
+ *
+ * The poll runs every four seconds and the server answers one request at a
+ * time, so on a store where a tick took longer than four seconds the interval
+ * stacked: two polls in flight, two `/api/meta` reads, and two identical
+ * `/api/overview` refetches queued behind each other to paint the same tiles
+ * twice. `pollBusy` drops a tick that arrives while the previous one is still
+ * running — the next tick is four seconds away and asks the same question.
+ *
+ * `overviewBusy`/`overviewAgain` are the trailing half of it: a refresh asked
+ * for while one is in flight does not start a second request, and it does not
+ * get dropped either — it runs ONCE when the first lands, so the tiles always
+ * end on the payload that was asked for last. At most two requests, never a
+ * queue, and never a tile frozen because its refresh was coalesced away.
+ */
+let pollBusy = false;
+let overviewBusy = false;
+let overviewAgain = false;
 const particles = [];
 const flashes = {};
 let animating = false;
@@ -1713,6 +1732,12 @@ function markUpdated() {
 }
 
 async function poll() {
+  if (pollBusy) return;
+  pollBusy = true;
+  try { await pollOnce(); } finally { pollBusy = false; }
+}
+
+async function pollOnce() {
   let d;
   try { d = await api("/api/activity?limit=40&sinceSeq=" + lastSeq); } catch (e) { return; }
   // THE SECOND QUESTION, AND THE ONE THAT WAS MISSING.
@@ -1815,15 +1840,7 @@ async function refreshCounters(meta) {
     fingerprint = { rows: m.rows, day: m.day };
     markUpdated();
   } catch (e) { /* the next poll retries */ }
-  if (loaded.overview) {
-    try {
-      const fresh = await api("/api/overview");
-      // The feed belongs to the poll (see `paintOverview`), unless it is still
-      // the absence line — in which case there is nothing of the poll's to lose.
-      const feedEl = $("ov-feed");
-      paintOverview(fresh, !!(feedEl && feedEl.querySelector(".empty")));
-    } catch (e) { /* the next poll retries */ }
-  }
+  if (loaded.overview) await refreshOverview();
   // THE FLOW PAYLOAD IS THE EXPENSIVE ONE, AND IT IS ONLY EVER SEEN AS A
   // DIAGRAM. Asking for it every four seconds while the reader is on another tab
   // bought nothing and queued the next poll behind it — the server answers one
@@ -1832,6 +1849,25 @@ async function refreshCounters(meta) {
   if (!loaded.flow) return;
   if (currentTab !== "flow") { flowStale = true; return; }
   await refreshFlow();
+}
+
+/** The tiles, the bands and the identity panel, re-read — ONCE, however many
+ *  ticks asked while the last read was in flight. See `overviewBusy`. */
+async function refreshOverview() {
+  if (overviewBusy) { overviewAgain = true; return; }
+  overviewBusy = true;
+  try {
+    do {
+      overviewAgain = false;
+      try {
+        const fresh = await api("/api/overview");
+        // The feed belongs to the poll (see `paintOverview`), unless it is still
+        // the absence line — in which case there is nothing of the poll's to lose.
+        const feedEl = $("ov-feed");
+        paintOverview(fresh, !!(feedEl && feedEl.querySelector(".empty")));
+      } catch (e) { /* the next poll retries */ }
+    } while (overviewAgain);
+  } finally { overviewBusy = false; }
 }
 
 /** The diagram's counters, re-read. The nodes only; the feed is the poll's. */
@@ -1903,6 +1939,12 @@ addEventListener("resize", () => {
   document.documentElement.dataset.loaded = "1";
   for (const t of TABS) {
     if (loaded[t]) continue;
+    // THE POLL GOES FIRST. The server answers one request at a time, so a
+    // prefetch of the memories payload — the biggest one there is — put the
+    // next four-second tick behind it on the wire. Waiting for the tick in
+    // flight to land before starting the next prefetch keeps at most one of
+    // these in front of a poll instead of four.
+    while (pollBusy) await new Promise((r) => setTimeout(r, 60));
     try { await loadTab(t); } catch (e) { /* a prefetch never breaks the page */ }
   }
 })();
