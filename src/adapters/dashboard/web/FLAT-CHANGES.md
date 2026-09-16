@@ -158,6 +158,22 @@ without diffing 1800 lines.
   `window.particleCount` all still answer — `flowState` from the moment the flow
   prefetch lands. `app.html` is untouched, and so is every `/api/*` payload.
 
+- **One tick at a time, and the poll in front of the prefetch.** Three additions
+  beside the boot change above, all of them about the four-second poll on a store
+  slow enough for a tick to outlive its interval. `pollBusy` drops a tick that
+  arrives while the previous one is still running (`poll()` is now the guard and
+  `pollOnce()` the body) — the interval used to stack: two `/api/activity` reads,
+  two `/api/meta` reads, and two identical `/api/overview` refetches queued to
+  paint the same tiles twice. `refreshOverview()` holds the overview refetch to
+  one in flight with a TRAILING run (`overviewBusy`/`overviewAgain`): a refresh
+  asked for while one is in flight starts no second request and is not dropped
+  either — it runs once when the first lands, so the tiles end on the payload
+  asked for last. And the idle prefetch loop waits out a tick in flight before
+  starting the next tab, so at most one prefetch sits in front of a poll on the
+  wire instead of four. Verified in a browser: three writes inside one tick
+  window → one `/api/overview` refetch, tiles 121 → 124, zero console errors.
+  `app.html` untouched; no `/api/*` payload changed.
+
 ## Unchanged, on purpose
 
 - `app.html`, `brain.html`, every `/api/*` route and every existing JSON field.
