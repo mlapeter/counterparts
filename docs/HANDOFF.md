@@ -1,6 +1,66 @@
 # Handoff — resume here
 
-## 2026-09-15, afternoon — read this first
+## 2026-09-16 — read this first
+
+**State:** master **`b9f4dd6`** (#92 → #111 → #110, in that order, all merged today). The shared checkout is
+**still deployed at `76223ab`** — the deploy step waits for #112, so every live boundary is running pre-#92 code
+until then. Restart #9 is owed after that deploy. The morning check RAN (~14:00Z, read-only): `doctor` 0 red / 1
+amber / 12 green (amber = one unembedded memory, cleared at the next boundary); the 2026-09-15 daily **ACTIVE**
+(17 turns, `activeDays {0:1, P:4}`, `memory.reinforced` FAIL as forecast, earliest PROMOTE verdict ~09-19); the
+`revision.pressure` rows are now **three**, and the third one HELD at a bar of 0.534 against the minted successor
+from the first — migrated rows are free, minted ones are not. Record: LAUNCH-STATUS 2026-09-16 and
+PARALLEL-RUN-STATUS's 2026-09-16 state section.
+
+**What the owner ruled today** (one line each; the rows are in LAUNCH-STATUS 2026-09-16 "The rulings"):
+**G56** = (a), seed dimensions on the 453 migrated schema rows — next core batch. **G57** = fix in core, the
+confidentiality filter at credit time — same batch. **G58** = ruled as a PRINCIPLE, *"Exposure never strengthens.
+Retrieval always does."*, with the old "trains nothing" rule recorded as a corrected, now-named deviation from
+CONSTITUTION 12 — the text changes ride #112's rebase. **G59** and **G52–G54** deferred. **#92's three:** unset =
+ON confirmed; the dormant first-launch ask superseded by G61; `off` silent confirmed, with one exception — a bad
+`--config` in an `off` directory speaks one terminal line. **The review's three:** two exceptions, not one (the
+corrupt half becomes G62); `resumeTo` returns to the PRIOR mode; the MCP server opening a store under `off` is
+ACCEPTED — the `off` invariant is **no writes** (incognito), so "no store constructed" is documented as a
+hook-only guarantee. **New and open: G63** — runtime and distribution (bun vs Node, compiled per-platform
+binaries, an npm launcher so `npx counterparts install` works); not decided, discuss again before launch. **New
+task:** an audit of every module CONTRACT against CONSTITUTION.md for drift (Opus agent running read-only; report
+pending).
+
+**The merge chain.** #92 `f17ba4f` (fast-forward on `76223ab`, merged as reviewed — the classifier refused this
+session's merge and the owner ran `gh pr merge` from his own session), #111 `95acd06` (preview suite 2080 / 0 / 36), #110
+`b9f4dd6`. **#112 is rebasing** onto `95acd06` with ruling 9's text folded in (recall claim, mcp CONTRACT
+"exposure is not recording", per-store salt, the module-map entry for `scopes.ts`); then preview suite → merge →
+`tools/deploy-checkout.sh` → **ONE restart** `--date 2026-09-16`.
+**`[PENDING: #112 head, preview suite, merge sha, deploy sha, restart #9 time]`**
+
+**The follow-up adapter PR (one PR, after #92 — spec in LAUNCH-STATUS rows G61 and G62):** ask-first and silent
+until answered in an unset directory (no wake, no recall, no capture, registry-only read; terminal `systemMessage`
+at the top with zero context bytes; a ~200-byte model block; answering `on` returns the wake in-band from the
+`scope` tool; unanswered ⇒ `on` from the second session; a one-time owner command marks `on` every directory the
+store has already recorded from, run at deploy) **+ G62** (corrupt registry ⇒ observer everywhere plus a line each
+session; one refused entry ⇒ that directory observer plus a line naming it) **+ ruling 4** (a bad `--config` under
+`off` speaks one line) **+ `resumeTo` → prior mode**. I40 is inside it: the trouble sentence must move from stderr
+to `systemMessage`. The terminal line reads: say "turn memory on", or `! <absolute invocation> scope . --on` built
+from the hook's own launch path (the owner's `bun link` at 11:05 local put all four commands on PATH against the
+checkout, so the pasted form works).
+
+**The next core batch** — one declaration, one restart, nothing else in it: **G56** seeding dimensions on the 453
+migrated schema rows; **G57** the credit-time confidentiality filter in `recall/`; **I39** the pragma reorder in
+`src/core/store/db.ts` (`busy_timeout` before `journal_mode`, lines 169/174 today). I39 also **closes I38**: the
+live events are clean and `openOperational` takes no write lock on a current-schema store, so the seal is not at
+risk — only the zero-wait open window is.
+
+**Tomorrow's morning check:** `doctor --config ~/.counterparts/claude-code.json` first, then
+`daily.ts --date 2026-09-16`. Expect `self.schema.pressure` to READ the rows now (#111 merged) instead of the
+hard-coded not-exercised; expect more `revision.pressure` rows against migrated beliefs **at bar 0** until G56
+lands; expect `memory.reinforced` to stay FAIL until a session expands a memory by id or quotes one.
+
+**Three sessions today, for the record:** this one coordinating from `.claude/worktrees/coord-docs`; the
+`~/random` session reporting the user side and minting the first credited row; the site session readying the page
+but **not deploying** it before the flip.
+
+---
+
+## 2026-09-15, afternoon — read second
 
 **State:** master **`76223ab`**, shared checkout deployed at `76223ab` (`doctor` Checkout GREEN). Nothing merged
 today, no restart owed. The morning check RAN (all of it, ~21:00Z): `doctor` 0 red / 1 amber / 12 green; the
@@ -69,7 +129,7 @@ ruled).
 
 ---
 
-## 2026-09-14, evening — read second
+## 2026-09-14, evening — earlier state (superseded above)
 
 **State:** master **`8d7bd97`**. Merged today in order: #95 (worker degrades, durable refusals, embedder
 poison-proof), #96 (daily turn source), #97/#98 (records), #101 (declaration), **#100** (U9: `sleep.cycle` +

@@ -1676,3 +1676,122 @@ live hooks do at every boundary, so the batch rule applies in full.
 $0.00 by the session. The morning check and coordination ran on Fable (owner: conserve Fable tokens — agents on
 Opus); seven Opus agents: #92 rebase (~215k), G55 (~171k), G50 (~199k), #92 review (~172k), #112 review (~145k),
 #112 fixes (~241k), #92 fixes (~365k) — about 1.5M Opus tokens for two reviewed-and-fixed PRs and one tools PR.
+
+## 2026-09-16 — the owner's rulings; #92, #111, #110 merged; I39, I40
+
+Three sessions today: this one coordinating (Fable), the `~/random` session reporting the user side, and the site
+session readying the page without deploying it before the flip. The morning check ran read-only as usual; then the
+owner ruled the nine open asks from 2026-09-15 in one sitting and opened three more. The day's numbers are in
+PARALLEL-RUN-STATUS's 2026-09-16 state section; this entry keeps what changes the list.
+
+### The morning check
+
+- **`doctor`** (~14:00Z, `--config ~/.counterparts/claude-code.json`): 0 red, **1 amber**, 12 green. The amber is
+  one live memory with no vector (yesterday's shape, one row not two — the next boundary clears it). Checkout
+  GREEN at `76223ab` = master at the time of the check; credentials `ANTHROPIC_API_KEY` + `VOYAGE_API_KEY`; clock
+  lived day 189, `lastActiveDate` 2026-09-15. Newest rows, all 09-15: `sweep.gate` ran 0 of 15 scopes;
+  `sleep.cycle` ran, 0 failed phases; `adapter.embed.backfill` embedded 4, failed 0, remaining 0; `recall.credit`
+  `no-candidates`.
+- **Daily 2026-09-15: ACTIVE.** 17 turns (counted from `v2:adapter.recall`, floor K = 5); v1 muted-consistent (18
+  `ab.muted` rows); v2 store memories 16,189, created 367; **`memory.reinforced` FAIL** (935 post-launch rows, 0
+  reinforced, 0 uses) — still the forecast reading; `self.schema.pressure` still the hard-coded NOT-EXERCISED (G55;
+  #111 merged after this run, so tomorrow's daily is the first to read the rows); cross-encoding 0/2 and 0/4; no
+  red-line. `run.json` `activeDays {0:1, P:4}` — PROMOTE needs ≥ 7 phase-P days, so the **earliest verdict is
+  ~2026-09-19**.
+- **Three `revision.pressure` rows now**, and the third one answers G56's question. 20:55:37Z `sch_f4024c2866d6`
+  (bar 0, force .144) → superseded by `sch_6aa99f5cdef6` (archived `revised-by-pressure`); 21:40:24Z
+  `sch_003f1c03a61f` (bar 0, force .36) → superseded by `sch_9e9f42231384`; and 21:27:06Z targeting
+  **`sch_6aa99f5cdef6` — the minted successor from the first revision** (band semantic, real dimensions): bar
+  **0.534**, force .25 → **HELD**, no supersede. Only the migrated rows are free; a minted successor carries a real
+  bar and the slow half of CONSTITUTION 7 does its job. That is the evidence behind ruling G56 as (a).
+- **The owner ran `bun link` in `~/counterparts` at 11:05 local:** `counterparts`, `counterparts-hook`,
+  `counterparts-mcp` and `counterparts-dashboard` are now on PATH via `~/.bun/install/global/node_modules/counterparts`
+  → the shared checkout. The hooks are unchanged (they still name their own path), but the terminal line G61 asks for
+  can now be a real command a person can paste.
+
+### The rulings
+
+| # | Ask | Status |
+|---|---|---|
+| G56 | Every migrated schema row has a revision bar of zero. | **Ruled (a):** a one-off repair that seeds dimensions on the 453 migrated schema rows from their band, kind and lineage, the way accommodation mints them. Touches the live store once, its **own declaration**, **next core batch**. |
+| G57 | Credit has no confidentiality filter in core. | **Ruled: fix in core** — the filter goes at credit time in `recall/`. Same core batch as G56's seeding and I39's pragma reorder: **one declaration, one restart**. The owner's reading: unlikely to bite today (one owner; observer directories stand down credit), a fence for the shared-store future. |
+| G58 | `recall`'s model-facing `claim` is false twice; the handle key is unsalted. | **Ruled by PRINCIPLE** — see below. The write half and the strengthen half both get corrected text; the per-store salt lands on the handle key. Rewritten in **#112's rebase**, not a separate PR. |
+| G59 | The two residues of the joined-late seal (`on → observer → on`; the Stop ask pacer after a seal). | deferred |
+| G52–G54 | doctor's "unknown" severity / dropped-notice row; U7 recency-aware hints; the OQ4 footnote-header instruction. | deferred |
+| #92 (i) | Default while the registry is unset. | **Unset = ON, confirmed** — today's behaviour stands. |
+| #92 (ii) | The dormant first-launch ask. | **Superseded by G61.** #92 merges as reviewed and its dormant ask never fires meanwhile; the ask-first design replaces it in the follow-up PR. |
+| #92 (iii) | `off` is silent. | **Confirmed**, with the one exception the owner added: a bad `--config` in an `off` directory **speaks one terminal line** (`systemMessage`) and nothing else. `off` still validates its config; everything else stays byte-silent. Follow-up PR. |
+| review (i) | "off is silent" and "a corrupt registry is silent" are two exceptions, not one. | **Confirmed — two exceptions.** The corrupt-registry half is ruled separately as G62. |
+| review (ii) | `off → pause → resume` is a two-step path to `on` reachable by the model. | **Ruled: `resumeTo` returns to the PRIOR mode** (`off → pause → resume` ⇒ `off`). Paused has no expiry and stays paused until the user changes it — already true. Lands in G61's PR. |
+| review (iii) | The MCP server still opens a store in an `off` directory. | **Accepted.** The INVARIANT for `off` is **NO WRITES** (the incognito analogy); an accidental open or a small read is tolerable. Document it as a **hook-only** guarantee in CONTRACT §5 G19, and make the server lazy in the follow-up if it is cheap. |
+| G55 | The daily's `self.schema.pressure` watch is false, not unexercised. | **done** — PR #111 merged `95acd06`. |
+| G50 | A title-handle expansion earns no credit. | **PR #112**, reviewed and fixed (`3fc77d7`), rebasing over #92 now with G58's text changes folded in. See the merge chain below. |
+
+### G58, ruled: "Exposure never strengthens. Retrieval always does."
+
+The owner ruled the principle rather than the two sentences. **Wake lines, footnotes and search excerpts are
+exposure** — the memory was put in front of the model, which chose nothing — and earn no credit. **Expanding by id
+or title, and quoting, are retrieval** — the model went and got it — and earn credit, **once per lived day**, which
+is spacing. The old "trains nothing" rule was an **unnamed deviation from CONSTITUTION 12**, written against the
+wake/footnote rich-get-richer problem; that is an **availability problem** — exposure, in the principle's own terms —
+and the rule over-reached by covering retrieval too. The brain mechanism it was deviating from is named now: the
+**testing effect plus spacing** — retrieval practice strengthens, and crediting at most once per lived day IS the
+spacing term. Telling the model that expanding strengthens does not hand it a lever worth worrying about: **its own
+deliberate recall is attention, not gaming**, and the daily cap bounds the only pathological case. Recorded as a
+**corrected deviation**: the `recall` tool's claim is rewritten honestly, the mcp CONTRACT's "ranking is not
+recording" becomes **"exposure is not recording"**, and the unsalted handle key gets a **per-store salt** (the
+membership-oracle half of the same review).
+
+### New, this entry
+
+| # | Ask | Status |
+|---|---|---|
+| G61 | **Ask first, silent until answered.** The first session in an **unset** directory injects **no wake, no recall, no capture**, and reads nothing from the store beyond the registry. It speaks a **terminal `systemMessage` at the top** — zero context bytes, no setting written, nothing read or written until the person chooses `on` \| `observer` \| `off` — plus a **~200-byte model block** so the model can ask too and record the answer through the `scope` tool. **Answering `on` returns the wake bundle in-band from the scope tool**; recall starts from the next turn; capture starts from the answer forward via the **joined-late seal** (#92's F1 fix). **Unanswered ⇒ `on` from the second session onward**, with the terminal line repeating each session until a mode is chosen. A **one-time owner command marks `on` every directory the store has already recorded from**, run at deploy, so only genuinely new directories get the ask. The terminal line for every non-`on` state (paused, observer) shows both routes: say **"turn memory on"** to Claude, or `! <absolute invocation> scope . --on`, built from the **hook's own launch path** so it is always a command that works; the ask's own line names the three modes instead. **`off` gets no line** — the conversational route is primary and `off` stays fully silent (the one exception is the bad-`--config` line, #92 (iii)). | **ruled**; follow-up adapter PR after #92 |
+| G62 | **A corrupt registry means observer, not silence.** Owner principle: **a corrupt or unreadable file must never yield the same answer as a legitimate state.** Whole-file corruption ⇒ **every** directory reads **observer**, plus a terminal line each session until it is fixed. A single refused entry ⇒ **that** directory reads observer, plus a line naming it (#92's F2 already parses per entry and refuses by name). This is the corrupt half of review (i)'s two exceptions, and I40 is why the existing warning does not reach anyone. | **ruled**; same follow-up PR |
+| G63 | **Runtime and distribution — OPEN, not decided.** Claude Code's own native install embeds a bun-compiled binary and puts **no `bun` on PATH**; a user arriving at Counterparts has Node, or neither. The recommendation on the table: **stay on bun**, ship **compiled per-platform binaries**, **one command with subcommands**, and an **npm launcher plus platform binaries** so `npx counterparts install` works for a Node user, with a one-line installer for everyone else. A **Node-native** build stays a CI nice-to-have, not a launch gate. The non-technical stall is unchanged: **the keys**. | **open — discuss again before launch** |
+| task | **Audit every module CONTRACT against `CONSTITUTION.md` for drift.** The owner's ask, "whenever at a good point": much recent work happened in giant unattended sessions, so look for working defaults that read as law, unnamed deviations from "follow the brain" (G58 is one, now named), machinery added in anticipation (Amendment 15), and legibility (16). | Opus read-only audit running; report pending |
+
+### I39 — `busy_timeout` is set after `journal_mode` at store open
+
+**This closes I38 and replaces it with a narrower window.** The live read is clean: no `adapter.primacy.standdown`
+row since 2026-09-03 (all nine are `override-bansai`), and no lock / `BUSY` code on any adapter row. The I38 × F1
+question — can a SessionStart stand down at store OPEN, leaving no record, so that the first Stop seals and
+discards? — is answered: `openOperational` on a **current-schema** store only reads `schemaVersion`, takes no write
+lock, and the DDL transaction is migration-only. **Not a #92 blocker.**
+
+What is left is one uncovered window in core. `src/core/store/db.ts` runs `PRAGMA journal_mode = DELETE` (line 169)
+**before** `PRAGMA busy_timeout` (line 174), so the journal-mode pragma is a **zero-wait** header read: if it lands
+inside a writer's commit window it throws immediately instead of waiting out the timeout it is about to set. That
+throw happens at `openAdapter` in `bin/hook.ts` — **outside** the hook's own try — so the session writes no record,
+and under #92's seal its first Stop would SEAL rather than recover from cursor 0. Fix: **reorder the two pragmas**
+(`busy_timeout` first). Core, so it needs its own declaration; it rides the **next core batch** with G56's seeding
+and G57's filter — one declaration, one restart.
+
+### I40 — the registry-trouble sentence goes to stderr at SessionStart, which nobody sees
+
+#92's F2 fix writes one "loud" sentence when `scopes.json` is corrupt or partly refused
+(`describeScopeTrouble`) — to **stderr**, at `bin/hook.ts:279`. The same file's own documentation, sixteen lines of
+it at `bin/hook.ts:358–372`, records the owner's 2026-09-11 probe: at SessionStart a hook's **`systemMessage`** is
+displayed in the terminal while `additionalContext` **and stderr do not show**. So the warning that a corrupt
+registry is silently changing every directory's mode is written to a channel the person never reads. Fix: move it to
+the `systemMessage` envelope (#108's), which is exactly the channel G61 and G62 both want. Adapter-side, in the
+follow-up PR.
+
+### What merged, and what is left
+
+- **#92 MERGED `f17ba4f`** — `feat/scope-controls` head `d6083de`, fast-forward on `76223ab`, merged **as
+  reviewed**. Its dormant first-launch ask stays dormant until G61's PR replaces it. Process note: the merge
+  classifier refused this session's merge, and the **owner merged it** with `gh pr merge` from his own session.
+- **#111 MERGED `95acd06`** — `tools/daily-pressure-watch` (`ed83450`); preview suite on the #92 head
+  **2080 / 0 / 36 files**. G55 closed.
+- **#110 MERGED `b9f4dd6`** — the 2026-09-15 record (3 files, +283/−5). Master is `b9f4dd6`.
+- **#112 rebase in flight.** An Opus agent is rebasing `3fc77d7` onto `95acd06` and folding in ruling 9's text
+  changes: the `recall` claim, the mcp CONTRACT's "exposure is not recording", the per-store salt on the handle
+  key, and the missing `docs/module-map.md` entry for `src/adapters/scopes.ts`. Force-push in place, then the
+  preview suite, merge, `tools/deploy-checkout.sh`, and **ONE restart** `--date 2026-09-16`.
+  **`[PENDING: #112 head, preview suite, merge sha, deploy sha, restart #9 time]`**
+
+### Spend
+
+$0.00 by the session. Agents on Opus — the contract-vs-constitution audit, the #112 rebase, and this record's
+draft; Fable is the coordinating session only.

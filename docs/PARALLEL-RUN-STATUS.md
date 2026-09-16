@@ -5,6 +5,29 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-16: the daily is ACTIVE on 09-15; a minted successor HELD at a real bar; no declaration today
+
+*Appended by the coordinating session after the morning check (~14:00Z). Numbers from `counterparts doctor`, the
+2026-09-15 daily (`days/2026-09-15.json`) and read-only `sqlite3` on `operational.sqlite` `events` under the
+standing permission. Master moved three times today (#92, #111, #110); the shared checkout is still `76223ab`.*
+
+- **Daily 2026-09-15: ACTIVE.** 17 turns counted from `v2:adapter.recall` (floor 5); v1 muted-consistent (18
+  `ab.muted`); v2 memories 16,189, created 367; `memory.reinforced` **FAIL** (935 post-launch rows, 0 reinforced,
+  0 uses); `self.schema.pressure` still the hard-coded NOT-EXERCISED — #111 merged after this run, so 09-16 is the
+  first daily to read the rows; cross-encoding 0/2 and 0/4, no red-line.
+- **`run.json` `activeDays {0:1, P:4}`** — four of the ≥ 7 phase-P days counted. **Earliest PROMOTE verdict
+  ~2026-09-19.**
+- **Three `revision.pressure` rows, and the third is the one that matters.** 20:55:37Z `sch_f4024c2866d6` (bar 0,
+  force .144) → superseded by `sch_6aa99f5cdef6`; 21:40:24Z `sch_003f1c03a61f` (bar 0, force .36) → superseded by
+  `sch_9e9f42231384`; and at **21:27:06Z** the target was **`sch_6aa99f5cdef6` itself** — the successor minted by
+  the first revision, band semantic, real dimensions — bar **0.534** against force .25 ⇒ **HELD**, no supersede. The zero bar is a property of the migrated rows alone; accommodation's own output carries a
+  real bar and CONSTITUTION 7's slow half works as written. LAUNCH-STATUS **G56**, ruled (a) today.
+- **No declaration today.** Everything that landed is adapter, tools or docs: #92 `f17ba4f`, #111 `95acd06`, #110
+  `b9f4dd6`. Hash **`c3af0bef00209ba6`** unchanged; `src/core` untouched by all three.
+- **Restart #9 is pending** the #112 merge and `tools/deploy-checkout.sh`; until that deploy every boundary runs
+  the `76223ab` checkout. The next core batch (G56 seeding, G57 credit filter, I39 pragma reorder) is one
+  declaration and one restart of its own.
+
 ## State — 2026-09-15: doctor's first morning, green; I33 closed; band of record 0; the first live revision landed on a zero bar
 
 *Appended by the session that ran the morning check (~21:00Z; the day's first session opened 20:48Z). Numbers
