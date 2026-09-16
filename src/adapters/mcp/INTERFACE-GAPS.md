@@ -161,3 +161,110 @@ variable, or an MCP launch the host parameterizes per session, would restore the
 `--session` path and make the registry unnecessary for binding. The registry would
 still earn its place as the liveness fact (`session-not-live`), which no launch
 argument can carry.
+
+## 9. An expansion BY TITLE earned no credit — CLOSED 2026-09-15 (LAUNCH-STATUS G50)
+
+**The gap.** `recall/reference.ts` decides which memories a session actually USED, and
+its expansion door reads the recall tool call's own input — where it credits literal
+`mem_…` addresses and *resolves nothing*, on purpose: "this module resolves nothing
+fuzzily, and the tool's own answer was already exact or not-found." But `tools.ts`
+documents `handle` as "a memory id or exact handle" and `deliberate.ts#expandHandle`
+answers an exact TITLE with the whole body. So a session that named a memory and read it
+— the most deliberate thing this surface offers — left a boundary row reading
+`expanded: 0, unresolvedHandles: 1` and credited nothing. Under-credit, and silent.
+
+**Closed on the tool side, where the resolution happened.** `server.ts#noteHandleResolution`
+writes `<salted hash of the handle> → <resolved id>` to `adapters/expansions.ts`'s log, and
+`claude-code/hooks.ts#creditAtBoundary` translates the transcript's own handle with it
+before `creditReferences` sees the slice. `reference.ts` is unchanged and still resolves
+nothing; it is simply handed the address the tool reached.
+
+**Why a log and not a per-session field.** There is no "expanded ids" state the credit
+pass reads — expansions come from the TRANSCRIPT, sliced by the same turn cursor capture
+uses. Keeping that is what keeps the fix narrow: the transcript decides which handles and
+when, the log only says what each resolved to. A per-session list would fail twice over —
+this server is usually unbound (§6, §8) and has no session id to key by, and a flat list
+cannot be positioned against the turn cursor, so one expansion would be re-credited at
+every later boundary.
+
+**What is recorded, and why the refusals are recorded too.** Every handle-path outcome
+leaves a line: an expansion leaves the id it reached, and `handle-unknown`,
+`handle-ambiguous` and `handle-confidential-withheld` each leave `null` — a SHADOW, which
+translates nothing and, being the newest answer, overrides an earlier resolution of the
+same handle in the same project.
+
+The shadow is §5 G6, not tidiness. The log is keyed by the HANDLE, because resolution is
+deterministic — one store, one exact-title match. A REFUSAL is not: the owner's own
+session resolves a confidential title and a stranger's session asking the same title is
+told nothing. Recording only the expansions leaves the stranger's boundary translating its
+handle through the owner's entry and crediting a memory it was never shown — and the first
+draft of this fix did exactly that, until a test was written against it. Same shape for a
+title that has since gone ambiguous or been renamed away.
+
+**"Credit is not widened" was the claim after that fix, and it was still wrong** (review,
+2026-09-15). A shadow only exists where an ANSWER was given, and three askings get no
+answer at all:
+
+1. the tool call never reached `expandHandle` — the server was down, or threw before the
+   resolver ran. Nothing is refused, so nothing is recorded;
+2. the call was `recall { handle, question }`, refused by the dispatcher as
+   `both-arguments` on path `none`, before the handle path exists;
+3. the call WAS refused `handle-confidential-withheld`, and the shadow could not be
+   written — a read-only log, a full disk. `recordHandleResolution` returns false, because
+   it may not throw at a tool.
+
+Each still leaves the title in the transcript, so each still reaches a boundary looking for
+a translation, and finds the only line in the log — the owner's. Recording the session id
+instead would not help: `recallTool` runs under `this.session ?? "mcp"` and the bind only
+happens on `note` / `chapter` / `session_end`, so the usual recall call has no session to
+record.
+
+**Two filters, and what is left after them.** Every line already carried the `scope` the
+resolving server was serving, so `readHandleResolutions` now DROPS any record whose
+canonical scope is not the asking boundary's (`sessions.ts#canonicalScope`, the same
+comparison `requireBoundSession` already trusts; a line with no scope is dropped too). That
+covers all three routes at once, and it retires the opposite race the previous draft
+accepted — the stranger's shadow carries the stranger's scope and never reaches the owner's
+boundary.
+
+The second filter is temporal, because a project is a PLACE and not a conversation: one
+directory's table holds Monday's session and Tuesday's. `creditAtBoundary` reads the asking
+session's `startedAt` from the live-session registry and translates only records stamped at
+or after it, so last week's resolution of a title cannot answer today's typed guess.
+
+The RESIDUAL, stated rather than hidden: two sessions running CONCURRENTLY in the same
+project directory share one table, so within the overlap a call that never reached
+`expandHandle` can still be translated through a resolution the other one made. And a
+session whose first hook event is the Stop itself has no registry record when the credit
+pass runs (`claim()` precedes `noteSession("boundary")`), so it gets no floor at all.
+
+**The row says why, not just how many.** `readHandleResolutions` returns
+`{ map, ok, reason }` the way `claude-code/transcript.ts#readTranscript` does, and the
+`recall.credit` row carries the reason as `expansionsRead` — `ok`, `absent`, `unreadable`,
+`corrupt`, or `not-read` when the slice had nothing to translate and the file was never
+opened. `resolvedHandles: 0` on its own could not tell a dead table from an idle one, which
+is the failure shape I32 is named for.
+
+Proof: `test/lifecycle.test.ts` "the handle door (G50)" — the positive, the unknown handle,
+the ambiguous handle, and the confidential shadow — "the handle door, across projects
+(G50 review)" for the three shadowless routes and the retired race, and "the handle door,
+before this session started (G50 review)" for the floor, plus `test/sessions.test.ts` "the
+handle-resolution log" for the file's own rules.
+
+**What the tool DESCRIPTION still owes, and it is an owner call.** `tools.ts`'s `recall`
+privilege still reads "It writes nothing and trains nothing: ranking is not recording, so
+nothing you look at here gets stronger for having been looked at." The first half stays
+true — `build()` is pure, no `resolveUse`, no `coactivate`, and the one write is host
+state. The last clause has been false since the credit seam landed (#99, 2026-09-14): a
+memory the session EXPANDS is credited at the boundary, by id then and by handle now. It is
+left alone here on purpose, because correcting it is not a wording change: telling the
+model that expanding strengthens a memory hands it a lever on the reinforcement signal it
+is being measured by, and whether the description says so is the owner's ruling, not this
+branch's. `CONTRACT.md` §3 now carries the accurate sentence for readers of this repo.
+
+**What it still owes.** The `ids` path is untouched: a literal id that has been SUPERSEDED
+still credits nothing, because `Store.resolve` follows the forwarding address inside
+`expandHandle` while `reference.ts` sees only the id the model typed, and the boundary
+then refuses the archived row. It is the same gap one level down and out of G50's scope;
+`expandIds` already pairs `perId` with `memories`, so recording per-id resolutions there is
+a small, separate change when someone wants it.

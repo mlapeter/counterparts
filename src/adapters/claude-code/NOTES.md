@@ -518,3 +518,69 @@ goes to the more restrictive mode.
 **And one that is only about trust (F5):** `--note ""` cleared on the console and
 carried on the tool. Two doors to one setting have to mean the same thing by the
 same words, or the setting is not one thing.
+
+## The credit seam translates a handle before it judges it (2026-09-15, G50)
+
+`creditAtBoundary` takes its expansions from the transcript, raw: whatever the
+model put in the recall call's `ids` / `handle`. `recall/reference.ts` credits
+literal `mem_…` addresses out of that list and resolves nothing — deliberately —
+so a session that expanded a memory by its exact TITLE, read the whole body, and
+answered from it left a row saying `expanded: 0, unresolvedHandles: 1`.
+
+The resolution belongs to whoever performed it, which is the MCP tool, so the
+tool records it (`adapters/expansions.ts`) and this hook translates the
+transcript's own handle with it on the way in. **What the transcript decides is
+untouched**: which handles the session used, and in which slice. The row gained
+`resolvedHandles` beside `unresolvedHandles`: the pair is what proves the seam
+live in a daily — and `expansionsRead` beside them, because a zero that cannot
+say whether the table was idle, absent, unreadable or corrupt is exactly the
+shape I32 hid in. Its values are `ok`, `absent`, `unreadable`, `corrupt`, and
+`not-read` for a slice that carried nothing to translate (the file is not opened
+then).
+
+**"The fix cannot widen credit" was the claim, and it was wrong** — it is written
+down here because the correction is the whole lesson. The transcript says which
+handle and when; what it cannot say is whose ANSWER resolved that handle, and the
+log is one table shared by every session on the machine. Three askings get no
+answer at all and therefore leave no shadow behind them (a call that never
+reached `expandHandle`; a `{ handle, question }` refused as `both-arguments`
+before the handle path exists; a refusal whose write failed), and each of the
+three still leaves the title in the transcript for a boundary to translate —
+through the only line in the log, which may be the owner's resolution of a
+confidential memory.
+
+**The refusals are still recorded, and the SCOPE is what makes them a boundary.**
+Every handle-path outcome leaves a line, a refusal leaving `null` — a shadow that
+translates nothing and, being the newest answer, overrides the earlier resolution
+of the same handle. On top of that, every line carries the project the resolving
+server was serving, and this hook asks for only the lines matching `input.scope`.
+A resolution from another project cannot answer this project's handle, which
+covers all three shadowless routes at once; it also retires the opposite race the
+first draft accepted, because a stranger's shadow now carries the stranger's
+scope and never reaches the owner's boundary.
+
+The comparison is `sessions.ts#canonicalScope`, the same one the MCP server
+trusts to bind a session, and a disagreement between the two sides costs a
+translation — under-credit, the direction this seam may err in. A line with no
+scope is dropped for the same reason.
+
+**And a floor, because a project is a place and not a conversation.** One
+directory's table holds Monday's session and Tuesday's, so the scope alone still
+lets last week's resolution answer a title this session merely typed. This hook
+reads the asking session's own `startedAt` out of the registry it writes itself
+and translates only records stamped at or after it. A session whose first hook
+event is this Stop has no record yet — `claim()` runs before
+`noteSession("boundary")` — and so gets no floor; two sessions running at once in
+one directory still share the table inside the overlap. Both are recorded in
+`mcp/INTERFACE-GAPS` §9 rather than papered over.
+
+Two limits, recorded rather than hidden. The log is read only when the slice
+carries an expansion at all, so an ordinary Stop still opens no extra file. And
+compaction racing an append can still lose a line, though the window is now two
+syscalls wide rather than a whole file write: `compactExpansions` keeps the byte
+length it read and splices whatever arrived back onto the temp file immediately
+before the rename. That matters more than it first looked — a lost line is only
+"under-credit" when it is a RESOLUTION. A lost SHADOW puts the resolution it was
+overriding back, which is the leak, not a cost. Closing the window entirely
+would take a lock two long-lived processes share, in the hot path of a tool that
+may not fail, which is why it is narrowed rather than closed.

@@ -64,6 +64,8 @@ import {
   stanceOfMode,
 } from "../scopes.js";
 import type { ScopeVerdict } from "../scopes.js";
+import { countTranslated, readHandleResolutions, translateExpansions } from "../expansions.js";
+import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase } from "../sessions.js";
 
@@ -977,10 +979,57 @@ export class ClaudeCodeAdapter {
       .map((t) => t.text);
     // Half-open on the left: a call positioned AT `from` sat before the first
     // new turn and belonged to the previous slice, which already judged it.
-    const expansions = (input.expansions ?? [])
+    const raw = (input.expansions ?? [])
       .filter((e) => e.atTurn > from && e.atTurn <= to)
       .flatMap((e) => [...e.ids]);
+    // G50: a handle the recall tool RESOLVED becomes the id it resolved to.
+    // The transcript still decides WHICH handles and WHEN; what it cannot say is
+    // whose answer resolved them, so the translation is filtered to THIS
+    // PROJECT's resolutions — the same `sameScope` comparison the MCP server
+    // already trusts to bind a session. Without it the log hands this boundary
+    // the last answer anyone anywhere got, including the owner's resolution of a
+    // confidential memory this session was refused (or never asked for at all).
+    // A handle nobody resolved in this scope still counts `unresolvedHandles`.
+    //
+    // The SECOND filter is this session's own start, out of the same registry
+    // (`sessions.ts`): a project is a place, not a conversation, so one
+    // directory's table also holds last week's answers, and a resolution
+    // recorded before this session existed cannot be an answer to anything this
+    // session asked. A session whose first hook event is this very Stop has no
+    // record yet — `claim()` runs before `noteSession("boundary")` — and gets no
+    // floor; that is under-credit's direction only in the sense that it does not
+    // tighten, and it is the residual §9 records.
+    //
+    // The file is read only when there is something to translate — and the row
+    // says which of those two it was. `resolvedHandles: 0` alone cannot tell an
+    // idle table from a dead one, which is the exact shape of I32's failure.
+    //
+    // ALL OF IT INSIDE THE TRY. The first draft translated before the try, which
+    // meant any throw on this path cost the boundary its row entirely — and a
+    // seam that only writes rows when it works is the ring I32 is named for.
+    // Only the `expansionsRead` declaration, which cannot throw, sits outside,
+    // so the `failed` row can still say how far the read had got.
+    let expansionsRead: ExpansionsRead | "not-read" = "not-read";
     try {
+      let resolutions = new Map<string, string | null>();
+      // Carried off the read rather than fetched again: the key a handle lands
+      // on is the store's salt plus the handle (G58), and the two halves of one
+      // lookup must not be able to disagree about which salt that was.
+      let salt = "";
+      if (raw.length > 0) {
+        const dataDir = this.counterpart.store.dir;
+        const sessionStartedAt = readSession(dataDir, input.sessionId)?.startedAt;
+        const read = readHandleResolutions(dataDir, {
+          now: this.nowFn(),
+          scope: input.scope,
+          ...(sessionStartedAt === undefined ? {} : { since: sessionStartedAt }),
+        });
+        resolutions = read.map;
+        salt = read.salt;
+        expansionsRead = read.reason;
+      }
+      const resolvedHandles = countTranslated(raw, resolutions, salt);
+      const expansions = translateExpansions(raw, resolutions, salt);
       const summary = this.counterpart.creditReferences(input.sessionId, {
         assistantTurns,
         expansions,
@@ -1006,6 +1055,15 @@ export class ClaudeCodeAdapter {
         quoted: summary.quoted,
         credited: summary.credited,
         unresolvedHandles: summary.unresolvedHandles,
+        /** G50: expansions the handle-resolution log translated on the way in.
+         *  Beside `unresolvedHandles`, it is the pair that says whether a
+         *  by-title expansion earned credit or fell through the old gap. */
+        resolvedHandles,
+        /** WHY the log answered the way it did. `resolvedHandles: 0` on its own
+         *  cannot tell an idle table from an absent, unreadable or corrupt one,
+         *  and a number that cannot say which is how I32 stayed invisible.
+         *  `not-read` means this slice carried no expansion to translate. */
+        expansionsRead,
         skippedForBudget: summary.skippedForBudget,
         unreadable: summary.unreadable,
         refused: summary.refused,
@@ -1025,7 +1083,10 @@ export class ClaudeCodeAdapter {
         day,
         code,
         turns: assistantTurns.length,
-        expansions: expansions.length,
+        // The RAW count: the translated list may not exist on this path, and a
+        // translation is one-for-one anyway.
+        expansions: raw.length,
+        expansionsRead,
       });
     }
   }

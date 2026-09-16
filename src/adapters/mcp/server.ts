@@ -47,6 +47,7 @@ import type { ChapterResult, Counterpart, DepositResult } from "../../core/count
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import type { Band, Kind } from "../../core/types.js";
+import { recordHandleResolution } from "../expansions.js";
 import {
   lookupScope,
   readScopes,
@@ -573,7 +574,13 @@ export class McpServer {
     return this.depositResult("note", deposit);
   }
 
-  /** `recall` — the deeper look. Writes nothing; see `deliberate.ts`. */
+  /**
+   * `recall` — the deeper look. Deposits no memory and touches no physics; see
+   * `deliberate.ts`. The ONE thing it writes is host state: a handle path that
+   * was answered leaves a line in `adapters/expansions.ts`'s resolution log, so
+   * the boundary's credit pass can tell which memory a TITLE reached
+   * (`noteHandleResolution`, and `mcp/INTERFACE-GAPS` §9).
+   */
   private async recallTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
     const handle = args["handle"];
@@ -609,10 +616,14 @@ export class McpServer {
         semantic: embedded.semantic,
       },
     );
+    const resolved = this.noteHandleResolution(handle, result);
     const payload = this.recallPayload(result);
     this.emit("mcp.recall", undefined, {
       path: result.path,
       reason: result.reason,
+      // G50: did this call earn credit that `reference.ts` could not have given
+      // it on its own? Ring-only, like every other number on this row.
+      handleResolved: resolved,
       semantic: result.semantic,
       returned: result.memories.length,
       considered: result.considered,
@@ -631,6 +642,70 @@ export class McpServer {
       result.reason === "ids-too-many" ||
       result.reason === "handle-confidential-withheld";
     return this.result(payload, bad);
+  }
+
+  /**
+   * THE HANDLE-EXPANSION CREDIT SEAM (LAUNCH-STATUS G50), the tool half.
+   *
+   * A deliberate expansion BY TITLE read the whole memory and earned nothing:
+   * the boundary's credit pass takes its expansions from the transcript, and
+   * `recall/reference.ts` credits literal `mem_…` addresses only — a title is
+   * counted `unresolvedHandles` and credits nothing, because that module
+   * resolves nothing fuzzily and must not start. The resolution belongs to
+   * whoever performed it, which is this tool, so this tool records it
+   * (`adapters/expansions.ts`) and the hook translates the transcript's own
+   * handle with it.
+   *
+   * EVERY OUTCOME OF THIS PATH IS RECORDED, and the refusals are recorded as
+   * `null` — a shadow that translates nothing and, being the newest answer,
+   * overrides an earlier resolution of the same handle IN THE SAME PROJECT.
+   * That is not tidiness, it is §5 G6: the log is keyed by the handle, because
+   * RESOLUTION is deterministic, but a REFUSAL is not. The owner's own session
+   * resolves a confidential title; a stranger's session asking the same title
+   * is told nothing. `handle-unknown` and `handle-ambiguous` shadow for the same
+   * reason — a title since renamed away, or gone ambiguous, must not go on
+   * crediting the memory it used to name.
+   *
+   * **THE SHADOW IS NOT THE CONFIDENTIALITY BOUNDARY, and the first draft of
+   * this method said it was.** A shadow only exists where an answer was given.
+   * Three askings get no answer and leave no shadow — a call that never reached
+   * `expandHandle`, a `{ handle, question }` the dispatcher refuses as
+   * `both-arguments` before this path exists, and a refusal whose write failed
+   * (`recordHandleResolution` returns false; it may not throw at a tool). Each
+   * of those still puts the title in the transcript, so each still reaches a
+   * boundary looking for a translation. What stops them is the SCOPE recorded on
+   * every line, which `readHandleResolutions` filters on: another project's
+   * resolution cannot answer this project's handle. `scope` is therefore
+   * load-bearing here, not forensics.
+   *
+   * Filtering also retires the price the first draft accepted — a stranger's
+   * refusal between the owner's call and the owner's Stop costing the owner the
+   * credit — because that shadow now carries the stranger's scope.
+   *
+   * The `ids` path is out of scope: those are literal addresses the credit pass
+   * already sees, and a per-id account of what each resolved to is `perId`'s
+   * job, not this one's.
+   *
+   * Never throws and never changes the answer. A write that FAILED is not
+   * symmetrical, though, and the asymmetry is worth naming: a lost RESOLUTION
+   * costs credit (safe), a lost REFUSAL leaves an older resolution standing
+   * where a shadow should have been (not safe). Across projects the scope filter
+   * makes that moot — the older resolution belongs to a directory the next
+   * boundary is not in. Within one project directory it is the residual this
+   * seam is known to carry.
+   */
+  private noteHandleResolution(handle: unknown, result: DeliberateResult): boolean {
+    if (typeof handle !== "string" || handle.trim().length === 0) return false;
+    if (result.path !== "handle") return false;
+    const id = resolvedIdOf(result);
+    if (id === undefined) return false;
+    const written = recordHandleResolution(this.registryDir, {
+      handle,
+      id,
+      scope: this.scope,
+      at: this.nowFn(),
+    });
+    return written && id !== null;
   }
 
   /**
@@ -1108,6 +1183,30 @@ export class McpServer {
   /** True once a client has completed the handshake. Host trivia, checkable. */
   ready(): boolean {
     return this.initialized;
+  }
+}
+
+/**
+ * What one handle-path answer should leave in the resolution log, as a TOTAL
+ * table over the reasons that path can produce:
+ *
+ *   an id       — it expanded, and this is what it reached
+ *   `null`      — it was asked and answered with nothing (the shadow)
+ *   `undefined` — not this path's outcome at all; record nothing
+ *
+ * Total on purpose. A new handle-path reason added without a line here records
+ * nothing rather than guessing, which fails in the under-credit direction.
+ */
+function resolvedIdOf(result: DeliberateResult): string | null | undefined {
+  switch (result.reason) {
+    case "expanded":
+      return result.memories.length === 1 ? (result.memories[0]?.id ?? null) : undefined;
+    case "handle-unknown":
+    case "handle-ambiguous":
+    case "handle-confidential-withheld":
+      return null;
+    default:
+      return undefined;
   }
 }
 

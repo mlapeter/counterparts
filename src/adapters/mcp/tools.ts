@@ -221,8 +221,9 @@ const RECALL: ToolSpec = {
   privileges: [
     {
       claim:
-        "It writes nothing and trains nothing: ranking is not recording, so nothing you look at here gets stronger for having been looked at.",
-      mechanizedBy: "src/core/recall/index.ts#build (pure; no resolveUse, no coactivate)",
+        "A search strengthens nothing — exposure is not recording, and a memory you were only shown in a list is no stronger for having been listed. EXPANDING one in full, by id or by title handle, is USING it: that is credited at the session boundary, once per lived day. The tool itself never writes a memory; what it writes is host bookkeeping — one line saying which memory a title reached.",
+      mechanizedBy:
+        "src/core/recall/index.ts#build (the search half: pure; no resolveUse, no coactivate) + src/adapters/expansions.ts#recordHandleResolution -> src/adapters/claude-code/hooks.ts#creditAtBoundary -> src/core/recall/reference.ts (the expansion door) -> src/core/recall/index.ts#resolveUse (once per lived day)",
     },
     {
       claim:

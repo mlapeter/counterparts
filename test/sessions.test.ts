@@ -11,10 +11,25 @@
  * No store is opened at all — the registry is plain files under the data dir.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  EXPANSIONS_FILE,
+  EXPANSIONS_KEEP,
+  EXPANSIONS_MAX_BYTES,
+  EXPANSION_TTL_MS,
+  compactExpansions,
+  countTranslated,
+  expansionsPath,
+  expansionSalt,
+  expansionsSaltPath,
+  handleKey,
+  readHandleResolutions,
+  recordHandleResolution,
+  translateExpansions,
+} from "../src/adapters/expansions.js";
 import {
   SESSIONS_DIR,
   SESSION_PRUNE_MS,
@@ -42,6 +57,13 @@ afterEach(() => {
 });
 
 const T0 = 1_800_000_000_000;
+
+/** The store's own handle key (G58): the key is salted per store, so a test
+ *  that wants to look a record up has to ask the same store for the same salt. */
+function saltedKey(handle: string): string {
+  return handleKey(handle, expansionSalt(dir) ?? "");
+}
+
 
 function record(over: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -207,5 +229,275 @@ describe("pruning", () => {
 
   test("an absent registry prunes nothing and says nothing", () => {
     expect(pruneSessions(dir)).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The handle-resolution log (`adapters/expansions.ts`) — the OTHER note the two
+// adapters leave each other, on the same rules: no content on disk, no throw at
+// a caller, and a loss that can only cost credit.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("the handle key is salted, per store (G58)", () => {
+  test("the salt is minted once, owner-only, and does not move under a live log", () => {
+    const first = expansionSalt(dir);
+    expect(first).not.toBeNull();
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
+    // Asking again reads what is there rather than minting a second one: a salt
+    // that moved would orphan every key already in the log.
+    expect(expansionSalt(dir)).toBe(first);
+    expect(statSync(expansionsSaltPath(dir)).mode & 0o777).toBe(0o600);
+  });
+
+  test("the same handle keys differently in two stores — the oracle is gone", () => {
+    const other = mkdtempSync(join(tmpdir(), "counterparts-sessions-other-"));
+    try {
+      const here = handleKey("the clinic note", expansionSalt(dir) ?? "");
+      const there = handleKey("the clinic note", expansionSalt(other) ?? "");
+      expect(here).not.toBe(there);
+      // And the unsalted key — the one a guesser could compute — is neither.
+      expect(here).not.toBe(handleKey("the clinic note", ""));
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  test("a salt this process cannot have fails CLOSED, on both sides", () => {
+    // Mint it, then take it away. An unsalted key written into a salted log
+    // would be both a leak and a line nothing could ever match.
+    expect(expansionSalt(dir)).not.toBeNull();
+    chmodSync(expansionsSaltPath(dir), 0o000);
+    try {
+      expect(expansionSalt(dir)).toBeNull();
+      expect(recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa" })).toBe(
+        false,
+      );
+      const read = readHandleResolutions(dir);
+      expect(read.ok).toBe(false);
+      expect(read.reason).toBe("unreadable");
+      expect(read.map.size).toBe(0);
+      expect(read.salt).toBe("");
+    } finally {
+      chmodSync(expansionsSaltPath(dir), 0o600);
+    }
+  });
+});
+
+describe("the handle-resolution log", () => {
+  test("a resolution round-trips, and the file holds a HASH rather than the handle", () => {
+    expect(recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 })).toBe(true);
+    expect(readHandleResolutions(dir, { now: T0 }).map.get(saltedKey("storage split"))).toBe("mem_abc123abc123");
+    const raw = readFileSync(expansionsPath(dir), "utf8");
+    expect(raw).not.toContain("storage split");
+    expect(raw).toContain(saltedKey("storage split"));
+    // Inside the registry's own directory, which `store/paths.ts` already
+    // classifies — this adds no new top-level name under the data dir.
+    expect(expansionsPath(dir)).toBe(join(sessionsDir(dir), EXPANSIONS_FILE));
+  });
+
+  test("a handle is matched the way the resolver matches a title: trimmed and case-folded", () => {
+    recordHandleResolution(dir, { handle: "Storage Split", id: "mem_abc123abc123", at: T0 });
+    expect(readHandleResolutions(dir, { now: T0 }).map.get(saltedKey("  storage split "))).toBe("mem_abc123abc123");
+  });
+
+  test("the newest answer wins — a title that moved is not credited to the memory it left", () => {
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    recordHandleResolution(dir, { handle: "the split", id: "mem_bbbbbbbbbbbb", at: T0 + 1000 });
+    expect(readHandleResolutions(dir, { now: T0 + 1000 }).map.get(saltedKey("the split"))).toBe("mem_bbbbbbbbbbbb");
+  });
+
+  test("a resolution past the window translates nothing", () => {
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    expect(readHandleResolutions(dir, { now: T0 + EXPANSION_TTL_MS + 1 }).map.size).toBe(0);
+  });
+
+  test("a half-written line is skipped, never thrown over", () => {
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    appendFileSync(expansionsPath(dir), '{"key":"deadbeef","id":"mem_c\n', "utf8");
+    appendFileSync(expansionsPath(dir), '{"key":"","id":"mem_dddddddddddd","at":1}\n', "utf8");
+    const live = readHandleResolutions(dir, { now: T0 }).map;
+    expect(live.size).toBe(1);
+    expect(live.get(saltedKey("the split"))).toBe("mem_aaaaaaaaaaaa");
+  });
+
+  test("the log is bounded: it compacts rather than growing without end", () => {
+    for (let i = 0; i < 2000; i++) {
+      recordHandleResolution(dir, {
+        handle: `handle number ${String(i)}`,
+        id: `mem_${String(i).padStart(12, "0")}`,
+        at: T0,
+      });
+    }
+    expect(statSync(expansionsPath(dir)).size).toBeLessThanOrEqual(EXPANSIONS_MAX_BYTES);
+    // The newest resolution survives every compaction — it is the one the next
+    // boundary is about to ask for.
+    expect(readHandleResolutions(dir, { now: T0 }).map.get(saltedKey("handle number 1999"))).toBe(
+      `mem_${"1999".padStart(12, "0")}`,
+    );
+  });
+
+  test("a refusal is recorded as a SHADOW, and the newest shadow overrides an earlier resolution", () => {
+    recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa", at: T0 });
+    // A later asking was answered with nothing — withheld, unknown, ambiguous.
+    expect(recordHandleResolution(dir, { handle: "the clinic note", id: null, at: T0 + 1000 })).toBe(true);
+    const live = readHandleResolutions(dir, { now: T0 + 1000 }).map;
+    expect(live.get(saltedKey("the clinic note"))).toBeNull();
+    // A shadow translates nothing: the handle reaches `reference.ts` as itself.
+    expect(translateExpansions(["the clinic note"], live, expansionSalt(dir) ?? "")).toEqual(["the clinic note"]);
+    expect(countTranslated(["the clinic note"], live, expansionSalt(dir) ?? "")).toBe(0);
+    // A compaction can drop an old key, but never the SHADOW alone: the shadow
+    // and the resolution it overrides share one key, so they leave TOGETHER.
+    // Asserted as `has`, not as `get(...) ?? null` — that spelling cannot tell
+    // "the shadow survived" from "the key was dropped", which is the one
+    // distinction this test exists to make.
+    for (let i = 0; i < 2000; i++) {
+      recordHandleResolution(dir, { handle: `filler ${String(i)}`, id: null, at: T0 + 2000 });
+    }
+    const after = readHandleResolutions(dir, { now: T0 + 2000 }).map;
+    expect(after.has(saltedKey("the clinic note"))).toBe(false);
+    // And the resolution is not left standing in its place, which is the
+    // failure that would actually leak.
+    expect(after.get(saltedKey("the clinic note"))).toBeUndefined();
+  });
+
+  test("a shadow newer than the fillers SURVIVES compaction, as a shadow", () => {
+    for (let i = 0; i < 2000; i++) {
+      recordHandleResolution(dir, { handle: `filler ${String(i)}`, id: null, at: T0 });
+    }
+    // Written after the last compaction, so these two are the youngest keys in
+    // the file rather than its oldest.
+    recordHandleResolution(dir, { handle: "the clinic note", id: "mem_aaaaaaaaaaaa", at: T0 + 1000 });
+    recordHandleResolution(dir, { handle: "the clinic note", id: null, at: T0 + 2000 });
+    const live = readHandleResolutions(dir, { now: T0 + 2000 }).map;
+    expect(live.has(saltedKey("the clinic note"))).toBe(true);
+    expect(live.get(saltedKey("the clinic note"))).toBeNull();
+  });
+
+  test("compaction keeps the newest by `at`, not by where the key first appeared", () => {
+    const path = expansionsPath(dir);
+    mkdirSync(sessionsDir(dir), { recursive: true });
+    const key = saltedKey("the split");
+    // A handle resolved long ago — the FIRST line in the file...
+    const lines = [JSON.stringify({ key, id: "mem_aaaaaaaaaaaa", at: T0, scope: "/p" })];
+    for (let i = 0; i < 900; i++) {
+      lines.push(
+        JSON.stringify({
+          key: saltedKey(`filler ${String(i)}`),
+          id: `mem_${String(i).padStart(12, "0")}`,
+          at: T0 + 1 + i,
+          scope: "/p",
+        }),
+      );
+    }
+    // ...and re-resolved a moment ago. It is the NEWEST answer in the file and
+    // the one the next boundary is about to ask for, but a Map is keyed by
+    // FIRST appearance, so an unsorted `slice(-KEEP)` drops it and keeps 256
+    // fillers that are staler than it is.
+    lines.push(JSON.stringify({ key, id: "mem_bbbbbbbbbbbb", at: T0 + 9999, scope: "/p" }));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+
+    compactExpansions(path, T0 + 10_000);
+
+    const live = readHandleResolutions(dir, { now: T0 + 10_000 }).map;
+    expect(live.get(key)).toBe("mem_bbbbbbbbbbbb");
+    expect(live.size).toBe(EXPANSIONS_KEEP);
+    // The bound is paid for out of the STALEST keys, which is what "newest
+    // wins" was supposed to mean all along.
+    expect(live.has(saltedKey("filler 0"))).toBe(false);
+  });
+
+  test("compaction carries a line another process appended while it was running", () => {
+    const path = expansionsPath(dir);
+    mkdirSync(sessionsDir(dir), { recursive: true });
+    // A file with real work in it: 900 fillers, and the resolution of the
+    // confidential title as the newest line.
+    const lines = [];
+    for (let i = 0; i < 900; i++) {
+      lines.push(
+        JSON.stringify({
+          key: saltedKey(`filler ${String(i)}`),
+          id: `mem_${String(i).padStart(12, "0")}`,
+          at: T0 + i,
+          scope: "/p",
+        }),
+      );
+    }
+    const key = saltedKey("the clinic note");
+    lines.push(JSON.stringify({ key, id: "mem_aaaaaaaaaaaa", at: T0 + 5000, scope: "/p" }));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+
+    // THE RACE: another server refuses that same title while this compaction is
+    // between its read and its rename. Losing this line does not cost credit —
+    // it puts the resolution back where a refusal had overridden it.
+    compactExpansions(path, T0 + 6000, () => {
+      appendFileSync(
+        path,
+        `${JSON.stringify({ key, id: null, at: T0 + 5500, scope: "/p" })}\n`,
+        "utf8",
+      );
+    });
+
+    const live = readHandleResolutions(dir, { now: T0 + 6000 }).map;
+    expect(live.has(key)).toBe(true);
+    expect(live.get(key)).toBeNull();
+  });
+
+  test("translation reaches only what the log knows; everything else passes through unchanged", () => {
+    recordHandleResolution(dir, { handle: "storage split", id: "mem_abc123abc123", at: T0 });
+    const live = readHandleResolutions(dir, { now: T0 }).map;
+    const raw = ["storage split", "a title nobody resolved", "mem_ffffffffffff"];
+    expect(translateExpansions(raw, live, expansionSalt(dir) ?? "")).toEqual([
+      "mem_abc123abc123",
+      "a title nobody resolved",
+      "mem_ffffffffffff",
+    ]);
+    expect(countTranslated(raw, live, expansionSalt(dir) ?? "")).toBe(1);
+  });
+
+  test("a read SAYS why it came back empty: ok, absent, unreadable, corrupt", () => {
+    // Absent is the ordinary state of a store nobody has expanded a handle in,
+    // and it must not look like the other two.
+    expect(readHandleResolutions(dir)).toMatchObject({ ok: false, reason: "absent" });
+
+    recordHandleResolution(dir, { handle: "the split", id: "mem_aaaaaaaaaaaa", at: T0 });
+    expect(readHandleResolutions(dir, { now: T0 })).toMatchObject({ ok: true, reason: "ok" });
+    // A live table filtered down to nothing is still `ok` — the emptiness is an
+    // answer, not a failure.
+    const stale = readHandleResolutions(dir, { now: T0 + EXPANSION_TTL_MS + 1 });
+    expect(stale.map.size).toBe(0);
+    expect(stale.reason).toBe("ok");
+
+    // Lines, and not one of them a record: a writer on the other side of this
+    // seam producing something this side cannot read.
+    writeFileSync(expansionsPath(dir), "not json at all\n{ also not\n", "utf8");
+    const corrupt = readHandleResolutions(dir, { now: T0 });
+    expect(corrupt.map.size).toBe(0);
+    expect(corrupt).toMatchObject({ ok: false, reason: "corrupt" });
+
+    // There and unopenable. `resolvedHandles: 0` alone could not tell this from
+    // any of the above, which is the shape I32's failure had.
+    chmodSync(expansionsPath(dir), 0o000);
+    try {
+      expect(readHandleResolutions(dir, { now: T0 })).toMatchObject({
+        ok: false,
+        reason: "unreadable",
+      });
+    } finally {
+      chmodSync(expansionsPath(dir), 0o600);
+    }
+  });
+
+  test("an empty handle, an empty id, an absent log and an unwritable dir are refusals, never throws", () => {
+    expect(recordHandleResolution(dir, { handle: "   ", id: "mem_abc123abc123" })).toBe(false);
+    expect(recordHandleResolution(dir, { handle: "a handle", id: "" })).toBe(false);
+    expect(readHandleResolutions(join(dir, "nothing-here")).map.size).toBe(0);
+    const locked = mkdtempSync(join(tmpdir(), "counterparts-expansions-locked-"));
+    try {
+      chmodSync(locked, 0o000);
+      expect(recordHandleResolution(locked, { handle: "a handle", id: "mem_abc123abc123" })).toBe(false);
+    } finally {
+      chmodSync(locked, 0o700);
+      rmSync(locked, { recursive: true, force: true });
+    }
   });
 });
