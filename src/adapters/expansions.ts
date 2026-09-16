@@ -46,6 +46,15 @@
  * `store/paths.ts` classifies `sessions/` as carrying no content (`backup:
  * false`). Hashing is what keeps that classification true without editing it.
  *
+ * **And the hash is SALTED, per store** (G58, review of #112). An unsalted
+ * sha256 prefix is not the absence of content, it is a MEMBERSHIP ORACLE: a
+ * title is short and guessable, so anyone holding the file can hash a candidate
+ * and learn whether this memory has been asked for by that name — the exact
+ * thing the no-content classification promises the file cannot tell. One random
+ * per-store value, written once beside the log, turns the oracle back into what
+ * the classification already claims: a key that means nothing outside the store
+ * that made it. See `expansionSalt`.
+ *
  * **A LOST WRITE IS NOT ALWAYS THE SAFE DIRECTION, and saying it was is what the
  * first draft got wrong.** Losing a RESOLUTION costs one handle's credit —
  * under-credit, the direction this repo errs in on purpose. Losing a REFUSAL is
@@ -69,7 +78,7 @@
  *   3. **Compaction is atomic** — temp file beside the target, then `rename`,
  *      so a reader never sees half a log.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -137,8 +146,69 @@ export function expansionsPath(dataDir: string): string {
   return join(dataDir, SESSIONS_DIR, EXPANSIONS_FILE);
 }
 
+/** The salt file, beside the log — see `expansionSalt`. */
+export const EXPANSIONS_SALT_FILE = "expansions.salt";
+
+/** 16 random bytes, hex. Long enough that guessing it is not the cheap attack. */
+const SALT_BYTES = 16;
+
+export function expansionsSaltPath(dataDir: string): string {
+  return join(dataDir, SESSIONS_DIR, EXPANSIONS_SALT_FILE);
+}
+
 /**
- * The lookup key: the handle, trimmed and case-folded, hashed.
+ * The store's own handle salt — read if it is there, minted once if it is not.
+ *
+ * **Per STORE, not per process and not per project.** Both sides of this seam
+ * must derive the same key from the same handle, and they are two processes
+ * that share nothing but the data directory: the MCP server writes a record and
+ * the Stop hook, minutes later, looks one up. So the salt lives on disk beside
+ * the log it keys, inside the directory `store/paths.ts` already classifies as
+ * host state, and it moves with the store the way the log does.
+ *
+ * **`wx`, and a re-read after it.** Two servers can reach this at once on a
+ * store nobody has expanded a handle in yet; exclusive-create means exactly one
+ * of them writes, and the loser reads what the winner wrote instead of racing a
+ * second salt over the first. A salt that changed under a live log would orphan
+ * every key already in it.
+ *
+ * **Null is the honest answer, and the callers fail closed on it.** A salt this
+ * process cannot read or create is not a reason to fall back to the unsalted
+ * key: an unsalted key written into a salted log is both a leak and a record
+ * nothing will ever match. `recordHandleResolution` returns false, and
+ * `readHandleResolutions` answers `unreadable` — the same shape, and the same
+ * reason, as a log this process cannot open.
+ */
+export function expansionSalt(dataDir: string): string | null {
+  const path = expansionsSaltPath(dataDir);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let salt: string | null = null;
+    try {
+      salt = readFileSync(path, "utf8").trim();
+    } catch {
+      /* Not there yet on the first pass — minted below. On the second pass this
+         is a file that exists and cannot be read, and there is nothing else to
+         try. */
+    }
+    if (salt !== null) return salt.length === SALT_BYTES * 2 ? salt : null;
+    if (attempt === 1) return null;
+    try {
+      mkdirSync(join(dataDir, SESSIONS_DIR), { recursive: true });
+      writeFileSync(path, `${randomBytes(SALT_BYTES).toString("hex")}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
+    } catch {
+      /* EEXIST (another process won the race) or a directory this cannot write:
+         either way the re-read is what decides. */
+    }
+  }
+  return null;
+}
+
+/**
+ * The lookup key: the handle, trimmed and case-folded, SALTED and hashed.
  *
  * Trim-and-fold is not a normalization of this module's invention — it is
  * EXACTLY the comparison `mcp/deliberate.ts#expandHandle` makes against a title
@@ -147,8 +217,15 @@ export function expansionsPath(dataDir: string): string {
  * same handle must land on the same key, or the translation misses the case the
  * session actually used.
  */
-export function handleKey(handle: string): string {
-  return createHash("sha256").update(handle.trim().toLowerCase()).digest("hex").slice(0, 16);
+export function handleKey(handle: string, salt: string): string {
+  // The separator is what stops `salt + handle` from being ambiguous: without
+  // it a salt one character longer and a handle one shorter collide.
+  return createHash("sha256")
+    .update(salt)
+    .update("\u0000")
+    .update(handle.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 16);
 }
 
 /**
@@ -169,8 +246,13 @@ export function recordHandleResolution(
   const handle = input.handle.trim();
   if (handle.length === 0) return false;
   if (input.id !== null && input.id.length === 0) return false;
+  // FAIL CLOSED (G58): no salt, no record. An unsalted key in a salted log is a
+  // leak AND a line nothing will ever match; a missing line costs one handle's
+  // credit, which is the direction this module errs in.
+  const salt = expansionSalt(dataDir);
+  if (salt === null) return false;
   const record: HandleResolution = {
-    key: handleKey(handle),
+    key: handleKey(handle, salt),
     id: input.id,
     at: input.at ?? Date.now(),
     ...(input.scope === undefined || input.scope.length === 0 ? {} : { scope: canonicalScope(input.scope) }),
@@ -259,6 +341,11 @@ export function readHandleResolutions(
   const want =
     opts.scope === undefined || opts.scope.length === 0 ? null : canonicalScope(opts.scope);
   const map = new Map<string, string | null>();
+  // The salt comes FIRST, and its absence is `unreadable` (G58): a map handed
+  // back with the wrong salt would key every lookup to nothing, and a zero that
+  // cannot say why is the shape I32 is named for.
+  const salt = expansionSalt(dataDir);
+  if (salt === null) return { map, salt: "", ok: false, reason: "unreadable" };
   let raw: string;
   try {
     raw = readFileSync(expansionsPath(dataDir), "utf8");
@@ -268,7 +355,7 @@ export function readHandleResolutions(
     // the two are told apart, because "no file" and "a file nobody can open"
     // call for different repairs.
     const absent = (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
-    return { map, ok: false, reason: absent ? "absent" : "unreadable" };
+    return { map, salt, ok: false, reason: absent ? "absent" : "unreadable" };
   }
   const parsed = parseLines(raw);
   for (const record of parsed.records) {
@@ -283,9 +370,9 @@ export function readHandleResolutions(
   // side of this seam is producing something this side cannot read, which is
   // the one shape a filtered-to-empty read must never be confused with.
   if (parsed.lines > 0 && parsed.records.length === 0) {
-    return { map, ok: false, reason: "corrupt" };
+    return { map, salt, ok: false, reason: "corrupt" };
   }
-  return { map, ok: true, reason: "ok" };
+  return { map, salt, ok: true, reason: "ok" };
 }
 
 /**
@@ -305,6 +392,13 @@ export type ExpansionsRead = "ok" | "absent" | "unreadable" | "corrupt";
 export interface HandleResolutions {
   /** `key → id | null`, filtered by TTL, scope and the session floor. */
   readonly map: Map<string, string | null>;
+  /**
+   * The store's handle salt, carried so `translateExpansions` can key the
+   * caller's raw handles the same way the records were keyed — without a second
+   * read, and without a caller that has to remember which store it asked.
+   * Empty only when the salt could not be had, and then the map is empty too.
+   */
+  readonly salt: string;
   readonly ok: boolean;
   readonly reason: ExpansionsRead;
 }
@@ -332,9 +426,10 @@ function scopeMatches(scope: string | undefined, want: string): boolean {
 export function translateExpansions(
   expansions: readonly string[],
   resolutions: ReadonlyMap<string, string | null>,
+  salt: string,
 ): string[] {
   if (resolutions.size === 0) return [...expansions];
-  return expansions.map((raw) => resolutions.get(handleKey(raw)) ?? raw);
+  return expansions.map((raw) => resolutions.get(handleKey(raw, salt)) ?? raw);
 }
 
 /** How many of `expansions` the log actually translated — the boundary row's
@@ -342,10 +437,11 @@ export function translateExpansions(
 export function countTranslated(
   expansions: readonly string[],
   resolutions: ReadonlyMap<string, string | null>,
+  salt: string,
 ): number {
   let n = 0;
   for (const raw of expansions) {
-    const to = resolutions.get(handleKey(raw));
+    const to = resolutions.get(handleKey(raw, salt));
     if (to !== undefined && to !== null && to !== raw.trim()) n += 1;
   }
   return n;

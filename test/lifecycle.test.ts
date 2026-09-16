@@ -37,12 +37,19 @@ import { ClaudeCodeAdapter, openAdapter, parseTranscript } from "../src/adapters
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { recordSession } from "../src/adapters/sessions.js";
-import { expansionsPath, handleKey, readHandleResolutions } from "../src/adapters/expansions.js";
+import { expansionSalt, expansionsPath, handleKey, readHandleResolutions } from "../src/adapters/expansions.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import type { SpawnPlan } from "../src/adapters/claude-code/spawn.js";
 import { chmodSync, writeFileSync } from "node:fs";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
+
+/** The store's own handle key (G58): the key is salted per store, so a test
+ *  that wants to look a record up has to ask the same store for the same salt. */
+function saltedKey(handle: string): string {
+  return handleKey(handle, expansionSalt(dir) ?? "");
+}
+
 const BUDGET_BYTES = 9000;
 
 let dir: string;
@@ -561,7 +568,7 @@ describe("the handle door (G50)", () => {
     // records what the title reached.
     const answered = (await tool(a).call("recall", { handle: "storage split" })).structuredContent;
     expect(answered["reason"]).toBe("expanded");
-    expect(readHandleResolutions(dir).map.get(handleKey("storage split"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(saltedKey("storage split"))).toBe(id);
 
     // The transcript carries the TITLE, exactly as the host wrote it.
     a.stop(
@@ -646,7 +653,7 @@ describe("the handle door (G50)", () => {
     expect(refused["reason"]).toBe("handle-unknown");
     // A refusal resolved nothing, so what it leaves behind is a SHADOW: an
     // entry that translates nothing and overrides any earlier resolution.
-    expect(readHandleResolutions(dir).map.get(handleKey("a title no memory has"))).toBeNull();
+    expect(readHandleResolutions(dir).map.get(saltedKey("a title no memory has"))).toBeNull();
 
     a.stop(
       input({
@@ -692,7 +699,7 @@ describe("the handle door (G50)", () => {
     expect(
       ((await tool(a).call("recall", { handle: "the clinic note" })).structuredContent)["reason"],
     ).toBe("expanded");
-    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBe(id);
 
     // A DIFFERENT session, not the owner's, asks the same title an hour later.
     const stranger = new McpServer({
@@ -743,7 +750,7 @@ describe("the handle door (G50)", () => {
 
     const answered = (await tool(a).call("recall", { handle: "the twins" })).structuredContent;
     expect(answered["reason"]).toBe("handle-ambiguous");
-    expect(readHandleResolutions(dir).map.get(handleKey("the twins"))).toBeNull();
+    expect(readHandleResolutions(dir).map.get(saltedKey("the twins"))).toBeNull();
 
     a.stop(
       input({
@@ -830,7 +837,7 @@ describe("the handle door, across projects (G50 review)", () => {
     c.store.advanceClock("2026-01-02");
     const answered = (await tool(a).call("recall", { handle: "the clinic note" })).structuredContent;
     expect(answered["reason"]).toBe("expanded");
-    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBe(id);
     return id;
   }
 
@@ -876,7 +883,7 @@ describe("the handle door, across projects (G50 review)", () => {
     expect(confused["path"]).toBe("none");
     expect(confused["reason"]).toBe("both-arguments");
     // A refusal by the DISPATCHER leaves no shadow: the handle path never ran.
-    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBe(id);
 
     strangerStop(a);
 
@@ -901,7 +908,7 @@ describe("the handle door, across projects (G50 review)", () => {
     // the wrong reason, and prove nothing about the filter.
     chmodSync(expansionsPath(dir), 0o600);
     // This is the line that would leak — the owner's, still standing alone.
-    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBe(id);
+    expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBe(id);
 
     strangerStop(a);
 
@@ -921,7 +928,7 @@ describe("the handle door, across projects (G50 review)", () => {
       .structuredContent;
     expect(withheld["reason"]).toBe("handle-confidential-withheld");
     // Read unfiltered, the shadow is the newest answer and hides the owner's id.
-    expect(readHandleResolutions(dir).map.get(handleKey("the clinic note"))).toBeNull();
+    expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBeNull();
 
     // The owner's own boundary, in the owner's own project, still credits: the
     // shadow belongs to a project this session is not in.
@@ -1008,7 +1015,7 @@ describe("the handle door, before this session started (G50 review)", () => {
       "expanded",
     );
     // It is on disk, in this very project: only the floor keeps it out.
-    expect(readHandleResolutions(dir, { scope: "proj" }).map.get(handleKey("storage split"))).toBe(id);
+    expect(readHandleResolutions(dir, { scope: "proj" }).map.get(saltedKey("storage split"))).toBe(id);
 
     stopWithHandle(a);
 

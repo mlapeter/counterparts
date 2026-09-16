@@ -1012,6 +1012,10 @@ export class ClaudeCodeAdapter {
     let expansionsRead: ExpansionsRead | "not-read" = "not-read";
     try {
       let resolutions = new Map<string, string | null>();
+      // Carried off the read rather than fetched again: the key a handle lands
+      // on is the store's salt plus the handle (G58), and the two halves of one
+      // lookup must not be able to disagree about which salt that was.
+      let salt = "";
       if (raw.length > 0) {
         const dataDir = this.counterpart.store.dir;
         const sessionStartedAt = readSession(dataDir, input.sessionId)?.startedAt;
@@ -1021,10 +1025,11 @@ export class ClaudeCodeAdapter {
           ...(sessionStartedAt === undefined ? {} : { since: sessionStartedAt }),
         });
         resolutions = read.map;
+        salt = read.salt;
         expansionsRead = read.reason;
       }
-      const resolvedHandles = countTranslated(raw, resolutions);
-      const expansions = translateExpansions(raw, resolutions);
+      const resolvedHandles = countTranslated(raw, resolutions, salt);
+      const expansions = translateExpansions(raw, resolutions, salt);
       const summary = this.counterpart.creditReferences(input.sessionId, {
         assistantTurns,
         expansions,

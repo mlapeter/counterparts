@@ -174,7 +174,7 @@ answers an exact TITLE with the whole body. So a session that named a memory and
 `expanded: 0, unresolvedHandles: 1` and credited nothing. Under-credit, and silent.
 
 **Closed on the tool side, where the resolution happened.** `server.ts#noteHandleResolution`
-writes `<hashed handle> → <resolved id>` to `adapters/expansions.ts`'s log, and
+writes `<salted hash of the handle> → <resolved id>` to `adapters/expansions.ts`'s log, and
 `claude-code/hooks.ts#creditAtBoundary` translates the transcript's own handle with it
 before `creditReferences` sees the slice. `reference.ts` is unchanged and still resolves
 nothing; it is simply handed the address the tool reached.
