@@ -597,6 +597,54 @@ function absenceLine(marker, whatItWouldHold) {
 // ── tabs ───────────────────────────────────────────────────────────────────
 let currentTab = "overview";
 const loaded = {};
+/** The in-flight load per tab, so a second caller waits on the first rather than
+ *  starting a second fetch or — worse — believing a paint that has not landed. */
+const loading = {};
+/** True when the store moved while the flow tab was NOT the one on screen: its
+ *  node counters are stale, and the switch back is where that is paid for. */
+let flowStale = false;
+
+/**
+ * LOAD ONE TAB, ONCE, AND SAY SO WHILE IT IS IN FLIGHT.
+ *
+ * Every tab used to be fetched at boot, all five in parallel, before anything at
+ * all was painted — so on the owner's store the page was blank for seventeen
+ * seconds. Now the overview is the only one boot waits for, and the rest arrive
+ * on first switch (or on the idle prefetch below, whichever asks first). A tab
+ * that is still reading says so on its own line: an absence word, not a blank
+ * panel, which is the same rule every empty panel on this page follows.
+ */
+function loadTab(t) {
+  if (loading[t]) return loading[t];
+  loaded[t] = true;
+  loading[t] = (async () => {
+    const host = $("tab-" + t);
+    let note = null;
+    if (host) {
+      note = document.createElement("div");
+      note.className = "empty";
+      note.innerHTML = "<b>loading…</b> reading the store for this tab.";
+      host.prepend(note);
+    }
+    try {
+      await RENDER[t]();
+    } finally {
+      if (note && note.parentNode) note.parentNode.removeChild(note);
+    }
+    // A canvas in a hidden section has no width, so a tab that finished while
+    // the reader was somewhere else is drawn when — and only when — it is the
+    // one on screen.
+    if (currentTab === t) redrawTab(t);
+  })();
+  return loading[t];
+}
+
+/** The canvases, which are pixels rather than markup and have to be asked. */
+function redrawTab(t) {
+  if (t === "memories" && MEM) { drawConstellation(); drawHistogram(); }
+  else if (t === "flow" && FLOW) drawFlow();
+}
+
 function showTab(name, push) {
   if (!TABS.includes(name)) name = "overview";
   currentTab = name;
@@ -606,9 +654,9 @@ function showTab(name, push) {
     if (link) link.classList.toggle("on", t === name);
   }
   if (push) history.replaceState(null, "", "#" + name);
-  if (!loaded[name]) { loaded[name] = true; RENDER[name](); }
-  else if (name === "memories") drawConstellation();
-  else if (name === "flow") drawFlow();
+  if (!loaded[name]) { loadTab(name); return; }
+  if (name === "memories") drawConstellation();
+  else if (name === "flow") { drawFlow(); if (flowStale) refreshFlow(); }
 }
 $("nav").innerHTML = TABS.map((t) => '<a id="nav-' + t + '" href="#' + t + '">' + t + "</a>").join("");
 for (const t of TABS) $("nav-" + t).onclick = (e) => { e.preventDefault(); showTab(t, true); };
@@ -1062,8 +1110,13 @@ let FLOW = null, flowBoxes = [], selectedNode = null;
 
 async function renderFlow() {
   try { FLOW = await api("/api/flow"); } catch (e) { return fail("The flow page", e); }
+  // This payload IS the fresh one: a poll that fired while it was in flight must
+  // not send the first switch to the flow tab after a copy it already has.
+  flowStale = false;
   renderFeed($("flow-feed"), FLOW.feed, FLOW);
-  lastSeq = FLOW.lastSeq;
+  // NEVER BACKWARDS. The flow tab is lazy now, so this can land after the poll
+  // has already advanced past it; rewinding would replay events as new.
+  if (FLOW.lastSeq > lastSeq) lastSeq = FLOW.lastSeq;
   drawFlow();
   // Open on a node rather than on "click any node in the diagram." The
   // mechanism panel is the best writing on the page and an empty box is a
@@ -1771,7 +1824,19 @@ async function refreshCounters(meta) {
       paintOverview(fresh, !!(feedEl && feedEl.querySelector(".empty")));
     } catch (e) { /* the next poll retries */ }
   }
+  // THE FLOW PAYLOAD IS THE EXPENSIVE ONE, AND IT IS ONLY EVER SEEN AS A
+  // DIAGRAM. Asking for it every four seconds while the reader is on another tab
+  // bought nothing and queued the next poll behind it — the server answers one
+  // request at a time. So it is re-read when its diagram is on screen, and
+  // otherwise marked stale and re-read on the way back to it.
   if (!loaded.flow) return;
+  if (currentTab !== "flow") { flowStale = true; return; }
+  await refreshFlow();
+}
+
+/** The diagram's counters, re-read. The nodes only; the feed is the poll's. */
+async function refreshFlow() {
+  flowStale = false;
   try {
     const fresh = await api("/api/flow?limit=24");
     if (FLOW) {
@@ -1810,15 +1875,36 @@ addEventListener("resize", () => {
     fingerprint = { rows: meta.rows, day: meta.day };
   } catch (e) { fail("The header", e); }
   showTab(location.hash.slice(1) || "overview", false);
-  // Every tab is built once, up front: a screenshot of any of them should never
-  // be waiting on a fetch, and the flow diagram needs its data before it can be
-  // drawn at all.
-  await Promise.all(TABS.filter((t) => !loaded[t]).map((t) => { loaded[t] = true; return RENDER[t](); }));
-  if (currentTab === "memories") { drawConstellation(); drawHistogram(); }
-  if (currentTab === "flow") drawFlow();
+  /*
+   * THE FIRST PAINT WAITS FOR ONE TAB, NOT FIVE.
+   *
+   * This used to be `Promise.all` over every tab: nothing at all was on screen
+   * — no tiles, no header numbers, no absence lines — until the slowest of the
+   * five answered. On the owner's store that was seventeen seconds of empty
+   * page, and four of the five payloads were for tabs nobody was looking at.
+   *
+   * So: the overview, painted and shown. Then the poll starts, and the rest are
+   * fetched in the background at the lowest priority there is — ONE AT A TIME,
+   * because the server answers one request at a time and four parallel
+   * prefetches would put the four-second poll behind all of them. A reader who
+   * clicks a tab before its prefetch arrives gets the same `loadTab` and its
+   * `loading…` line; `loading[]` makes the two the same request.
+   */
+  await loadTab("overview");
+  // SEED THE EVENT CURSOR FROM THE OVERVIEW'S OWN FEED. It used to come from
+  // the flow payload, which boot no longer waits for — and an unseeded cursor
+  // makes the first poll treat the whole kept window as newly arrived.
+  if (OVERVIEW && Array.isArray(OVERVIEW.feed)) {
+    for (const e of OVERVIEW.feed) if (typeof e.seq === "number" && e.seq > lastSeq) lastSeq = e.seq;
+  }
+  redrawTab(currentTab);
   markUpdated();
   setInterval(poll, 4000);
   document.documentElement.dataset.loaded = "1";
+  for (const t of TABS) {
+    if (loaded[t]) continue;
+    try { await loadTab(t); } catch (e) { /* a prefetch never breaks the page */ }
+  }
 })();
 </script>
 </body>

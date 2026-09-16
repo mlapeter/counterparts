@@ -138,6 +138,26 @@ without diffing 1800 lines.
 - **`window.tileValue` reads both tile rows.** The selector went from
   `#ov-tiles .tile` to `.tiles .tile`, so the four demoted labels still answer.
 
+- **The boot waits for the overview, and only the overview.** `boot()` used to
+  `Promise.all` all five tabs before setting `dataset.loaded`, so on the owner's
+  store (≈15k rows) the page was blank for about seventeen seconds — the server
+  answers one request at a time, so five parallel payloads queue end to end.
+  Now: `/api/meta`, then `await loadTab("overview")`, then `dataset.loaded="1"`
+  and the poll, and only then the other four, **sequentially**, as an idle
+  prefetch (parallel prefetches would put the four-second poll behind all of
+  them). A tab switched to before its payload lands gets the same `loadTab` and
+  shows a `loading…` absence line in that tab rather than a blank panel;
+  `loading[tab]` holds the in-flight promise so the switch and the prefetch are
+  one request. Three supporting pieces, all new:
+  `lastSeq` is seeded from the overview payload's own feed (it used to come from
+  the flow payload, which boot no longer waits for — an unseeded cursor makes
+  the first poll treat the whole kept window as newly arrived), `renderFlow`
+  never moves it backwards, and `refreshCounters` re-reads `/api/flow` only when
+  the diagram is on screen, marking `flowStale` otherwise and paying for it on
+  the way back to that tab. `window.tileValue`, `window.flowState` and
+  `window.particleCount` all still answer — `flowState` from the moment the flow
+  prefetch lands. `app.html` is untouched, and so is every `/api/*` payload.
+
 ## Unchanged, on purpose
 
 - `app.html`, `brain.html`, every `/api/*` route and every existing JSON field.
