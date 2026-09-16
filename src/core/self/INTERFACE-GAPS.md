@@ -84,15 +84,9 @@ wake path. A read that is not a delivery still pays exactly one meta row.
 `unresolved` column or a store-side `meta` index. `episodes.ts`'s `findIngested()` and
 `memoriesForEpisode()` scan for the same reason and would collapse to one indexed query.
 
-**Half closed 2026-09-16** (branch `dashboard/flat`, the one commit on top of `0a7bea4`; a
-commit cannot cite its own sha, so the merge sha replaces this at merge, the way
-`docs/IMPROVEMENTS.md` records them): `MemoryFilter` now carries
-`protected?: boolean`, so `list({ archived: false, protected: true })` is one indexed WHERE
-and `enumerate()` reads prose for the protected elements ALONE instead of for every live
-row (~15 000 file reads on the owner's store, the last floor under the dashboard's
-`/api/overview` and `/api/mind`). `countMemories` inherits the key through the shared
-WHERE. `unresolved` is untouched — it is still a prose `meta` key, so `scanActive()` and
-`episodes.ts` still scan, and the real fix above still stands for that half.
+**Half closed 2026-09-16** (commit 1aa3b6c, branch `dashboard/flat`): `list()` takes
+`protected?: boolean`, and `enumerate()` uses it, so the protected list no longer reads every
+live row. The `unresolved` half above still stands.
 
 ## 3. `prospective/` does not exist — the horizon is caller-supplied
 
