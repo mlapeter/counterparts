@@ -53,14 +53,16 @@ export function contestedBeliefs(src: DashboardSource): string[][] {
   for (const row of store.eventLog({ name: PRESSURE_EVENT, limit: 1000 })) {
     if (row.ref !== null) candidates.add(row.ref);
   }
-  for (const id of store.list()) {
-    const row = store.row(id);
-    // `list()` returns the whole `memories` table, episodes included. An episode
+  // `rows()` is `list()` with the columns attached — the same WHERE (none), the
+  // same `ORDER BY id`, one query instead of one per id. Nothing here wanted the
+  // ids on their own: every one of them was immediately turned back into a row.
+  for (const row of store.rows()) {
+    // The walk covers the whole `memories` table, episodes included. An episode
     // is a journal entry, not a belief: nothing argues with the account of a day,
     // and a pressure column it somehow carried would open a story with no
     // challenge log behind it. Skipped the way `status.ts` skips it.
-    if (row === undefined || isJournal(row)) continue;
-    if (row.pressure > 0) candidates.add(id);
+    if (isJournal(row)) continue;
+    if (row.pressure > 0) candidates.add(row.id);
   }
 
   // Group by the live head. The chain each candidate walks is what decides which

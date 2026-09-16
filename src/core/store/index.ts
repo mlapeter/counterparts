@@ -1745,6 +1745,26 @@ export class Store {
   }
 
   /**
+   * The SAME selection as `list()`, returning the rows instead of the ids.
+   *
+   * For the caller that wants every selected row's columns — a census, a count
+   * by reason, an enumeration of what carries pressure. `list()` followed by
+   * `row(id)` per id is the same answer at N+1 queries; this is one. The WHERE
+   * is `memoryWhere` and the order is `ORDER BY id`, both shared with `list()`,
+   * so `rows(f).map((r) => r.id)` equals `list(f)` for every filter (a test
+   * asserts it), and a caller may swap one for the other without reordering.
+   *
+   * NOT a substitute for `read`/`physicsOf` on a single id: those consult the
+   * deny-list and refuse a removed row by name, and this returns whatever the
+   * table holds — a removed row's SKELETON included. A caller that walks rows
+   * and needs that refusal asks `deniedIds()` once and checks the set.
+   */
+  rows(filter: MemoryFilter = {}): MemoryRow[] {
+    const { clause, args } = memoryWhere(filter);
+    return this.ops.all<MemoryRow>(`SELECT * FROM memories ${clause} ORDER BY id`, ...args);
+  }
+
+  /**
    * How many rows `list()` would return, counted in SQL rather than materialized.
    * The same filter, the same WHERE, one number — for the callers that want the
    * SIZE of the store (the wake's delivery preface states it) and would otherwise
@@ -1845,6 +1865,40 @@ export class Store {
     return this.ops.all<ProspectiveRow>(
       "SELECT * FROM prospective WHERE memory_id = ? ORDER BY window_key",
       id,
+    );
+  }
+
+  /**
+   * How many directed edges LEAVE the memories a filter selects — the number an
+   * instrument gets by summing `edgesFrom(id).length` over `list(filter)`, in
+   * one query instead of one per id.
+   *
+   * The same number, not an approximation: `memories.id` is the primary key, so
+   * each edge has at most one matching source row and no edge is counted twice;
+   * `src` never matches a NULL; and an edge whose source is not selected is
+   * excluded by the subquery exactly as the loop excluded it by never asking.
+   * The filter's columns are unqualified (`memoryWhere`), and inside the
+   * subquery they can only bind to `memories`.
+   */
+  countEdgesFrom(filter: MemoryFilter = {}): number {
+    const { clause, args } = memoryWhere(filter);
+    const sql = `SELECT COUNT(*) AS n FROM edges WHERE src IN (SELECT id FROM memories ${clause})`;
+    return this.ops.get<{ n: number }>(sql, ...args)?.n ?? 0;
+  }
+
+  /**
+   * Prospective rows held BY the memories a filter selects, counted per state —
+   * the fold an instrument gets by walking `prospectiveFor(id)` over
+   * `list(filter)`, in one query. Same argument as `countEdgesFrom`. States the
+   * table does not hold are simply absent from the map, never zero.
+   */
+  prospectiveStateCounts(filter: MemoryFilter = {}): Map<string, number> {
+    const { clause, args } = memoryWhere(filter);
+    const sql =
+      `SELECT state, COUNT(*) AS n FROM prospective ` +
+      `WHERE memory_id IN (SELECT id FROM memories ${clause}) GROUP BY state`;
+    return new Map(
+      this.ops.all<{ state: string; n: number }>(sql, ...args).map((r) => [r.state, r.n]),
     );
   }
 

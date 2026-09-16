@@ -27,6 +27,7 @@
  */
 import { band, rep, sal, strength, symmetryCheck, TUNABLES as PHYSICS } from "../../../core/physics/index.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../../../core/schemas/index.js";
+import { rowToPhysics } from "../../../core/store/index.js";
 import {
   MARKER_UNSET,
   MERGE_ARCHIVE_REASON,
@@ -149,13 +150,21 @@ function census(src: DashboardSource, opts: CensusOptions = {}): MemoryLine[] {
   const wantText = opts.text !== false;
   const filter = opts.includeArchived === true ? {} : { archived: false };
   const out: MemoryLine[] = [];
-  for (const id of store.list(filter)) {
-    const row = store.row(id);
-    if (row === undefined) continue;
+  // ONE QUERY FOR THE WALK. This was `list(filter)` and then `row(id)` and
+  // `physicsOf(id)` per id — three point queries a row, about fifty thousand of
+  // them on the owner's store, and `physicsOf` was re-reading the row this loop
+  // already held. `rows()` is the same WHERE and the same `ORDER BY id`, and
+  // `physicsOf` is `rowToPhysics(row)` behind a deny-list check, so the check is
+  // what is asked for separately: once, as a set. A removed id still takes the
+  // catch below — through `physicsOf` itself, so the throw is literally the old
+  // one — and still emits its `unreadable` line.
+  const denied = new Set(store.deniedIds());
+  for (const row of store.rows(filter)) {
+    const id = row.id;
     // The journal is not a memory. See the file header.
     if (isJournal(row)) continue;
     try {
-      const physics = store.physicsOf(id);
+      const physics = denied.has(id) ? store.physicsOf(id) : rowToPhysics(row);
       const g = wantText
         ? gistOfDoc(store.readProse(id), 96)
         : { text: "", confidential: false };
@@ -652,9 +661,9 @@ export function divergentPair(a: string, b: string, width = 150): [string, strin
 function chapters(src: DashboardSource, limit: number): ChapterRow[] {
   const store = src.store;
   const out: ChapterRow[] = [];
-  for (const id of store.list({ type: "episode", archived: false })) {
-    const row = store.row(id);
-    if (row === undefined || !isJournal(row)) continue;
+  for (const row of store.rows({ type: "episode", archived: false })) {
+    const id = row.id;
+    if (!isJournal(row)) continue;
     try {
       const doc = store.readProse(id);
       const body = doc.body.trim();
@@ -1439,18 +1448,22 @@ function nodeState(src: DashboardSource, key: NodeKey, count: number, memories: 
     case "physics":
       return day === 0 ? NEVER : `day ${day} on the clock`;
     case "associate": {
-      let edges = 0;
-      for (const id of store.list({ archived: false })) edges += store.edgesFrom(id).length;
+      // COUNTED IN SQL. This summed `edgesFrom(id).length` over every live id —
+      // one query per memory to reach one number. `memories.id` is the primary
+      // key, so an edge has at most one live source and the count is the same
+      // count, not an estimate of it.
+      const edges = store.countEdgesFrom({ archived: false });
       return edges === 0 ? NONE : `${edges} directed edges`;
     }
     case "prospective": {
+      // Same, grouped by state: everything that is not `fired` is still waiting,
+      // exactly as the row-by-row fold read it.
+      const byState = store.prospectiveStateCounts({ archived: false });
       let armed = 0;
       let fired = 0;
-      for (const id of store.list({ archived: false })) {
-        for (const p of store.prospectiveFor(id)) {
-          if (p.state === "fired") fired += 1;
-          else armed += 1;
-        }
+      for (const [state, n] of byState) {
+        if (state === "fired") fired += n;
+        else armed += n;
       }
       return armed + fired === 0 ? NONE : `${armed} waiting · ${fired} fired`;
     }
@@ -1659,9 +1672,8 @@ export function healthView(src: DashboardSource): HealthView {
   // Asked for in SQL: this walked every row in the store to keep the archived
   // ones. The iteration order is `ORDER BY id` either way, and the map it fills
   // is keyed by reason, so the counts are the same counts.
-  for (const id of store.list({ archived: true })) {
-    const row = store.row(id);
-    if (row === undefined || row.archived !== 1) continue;
+  for (const row of store.rows({ archived: true })) {
+    if (row.archived !== 1) continue;
     const reason = row.archived_reason ?? "no reason recorded";
     exitCounts.set(reason, (exitCounts.get(reason) ?? 0) + 1);
   }

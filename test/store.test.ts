@@ -42,11 +42,12 @@ import {
   newId,
   parseProse,
   paths,
+  rowToPhysics,
   serializeProse,
   storeExists,
   vectorFormats,
 } from "../src/core/store/index.js";
-import type { ProseDoc, PutInput } from "../src/core/store/index.js";
+import type { MemoryRow, ProseDoc, PutInput } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
 // The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
 // the seam's copy of it is pinned equal rather than hoped equal.
@@ -724,6 +725,120 @@ describe("box 2 — canonical operational state", () => {
     // …and it composes with the other keys rather than replacing them.
     expect(s.list({ kind: "fact", archived: false, protected: true })).toEqual([ink, later].sort());
     expect(s.list({ kind: "person", protected: true })).toEqual([]);
+  });
+
+  test("`rows()` IS `list()` with the columns attached — same ids, same order, same physics", () => {
+    const s = store();
+    const plain = s.put(mem("an ordinary fact"));
+    const who = s.put(mem("a person", { kind: "person", band: "semantic" }));
+    const ink = s.put(mem("permanent ink", { physics: { protected: true } }));
+    const day = s.put({ type: "episode", kind: "fact", body: "the account of a day" });
+    const belief = s.put({ type: "schema", kind: "fact", body: "a belief", physics: { pressure: 0.4 } });
+    const gone = s.put(mem("archived"));
+    s.archive(gone, "test");
+    s.updatePhysics(who, { uses: 3, reinforcedDays: 2, lastUsedDay: 4, consolidated: true });
+    s.setBand(who, "identity", 4);
+    s.reinforce(plain, 5);
+
+    const filters = [
+      {},
+      { archived: false },
+      { archived: true },
+      { type: "episode" as const },
+      { type: "schema" as const },
+      { kind: "person" as const },
+      { band: "identity" as const },
+      { protected: true },
+      { archived: false, kind: "fact" as const },
+    ];
+    for (const filter of filters) {
+      // The ids AND their order, not a set comparison: a caller swapping one
+      // call for the other must see the same sequence.
+      expect({ filter, ids: s.rows(filter).map((r) => r.id) }).toEqual({
+        filter,
+        ids: s.list(filter),
+      });
+      expect(s.rows(filter).length).toBe(s.countMemories(filter));
+    }
+    // Every filter above selected something, or the comparison proves nothing.
+    expect(filters.map((f) => s.rows(f).length).filter((n) => n > 0).length).toBe(filters.length);
+    expect(s.rows().map((r) => r.id).sort()).toEqual([plain, who, ink, day, belief, gone].sort());
+
+    // The derivation a census does off the row is the one `physicsOf` does off
+    // the id — the same function, on the same row.
+    for (const row of s.rows()) {
+      expect({ id: row.id, physics: rowToPhysics(row) }).toEqual({
+        id: row.id,
+        physics: s.physicsOf(row.id),
+      });
+    }
+  });
+
+  test("`rows()` returns a removed row's skeleton — the deny-list is asked for separately", () => {
+    const s = store();
+    const kept = s.put(mem("kept"));
+    const doomed = s.put(mem("doomed"));
+    s.appendRemovalRecord({ memoryId: doomed, stage: "dark", actor: "owner", reason: "test" });
+
+    // `rows()` is the table, so the skeleton is still in it — and still in
+    // `list()`, which is the point: the two agree.
+    expect(s.rows().map((r) => r.id)).toEqual(s.list());
+    expect(s.rows().map((r) => r.id)).toContain(doomed);
+    // …and the refusal a walker must reproduce is one query, not one per row.
+    expect(s.deniedIds()).toEqual([doomed]);
+    expect(code(() => s.physicsOf(doomed))).toBe("REMOVED");
+    expect(rowToPhysics(s.rows({}).find((r) => r.id === kept) as MemoryRow)).toEqual(
+      s.physicsOf(kept),
+    );
+  });
+
+  test("`countEdgesFrom` and `prospectiveStateCounts` equal the per-row fold", () => {
+    const s = store();
+    const a = s.put(mem("A"));
+    const b = s.put(mem("B"));
+    const c = s.put(mem("C"));
+    s.link({ src: a, dst: b, weight: 0.5, day: 1 });
+    s.link({ src: a, dst: c, weight: 0.25, day: 1 });
+    s.link({ src: c, dst: a, weight: 0.1, day: 1 });
+    for (const [id, key, state] of [
+      [a, "2026-09", "armed"],
+      [a, "2026-10", "fired"],
+      [b, "2026-11", "armed"],
+      [c, "2026-12", "armed"],
+    ] as const) {
+      s.setProspective({ memoryId: id, windowKey: key, eventDate: key, precision: "month", state });
+    }
+    s.archive(c, "test");
+
+    const fold = (filter: Parameters<Store["list"]>[0]) => {
+      let edges = 0;
+      let armed = 0;
+      let fired = 0;
+      for (const id of s.list(filter)) {
+        edges += s.edgesFrom(id).length;
+        for (const p of s.prospectiveFor(id)) {
+          if (p.state === "fired") fired += 1;
+          else armed += 1;
+        }
+      }
+      return { edges, armed, fired };
+    };
+    const asked = (filter: Parameters<Store["list"]>[0]) => {
+      const byState = s.prospectiveStateCounts(filter);
+      let armed = 0;
+      let fired = 0;
+      for (const [state, n] of byState) {
+        if (state === "fired") fired += n;
+        else armed += n;
+      }
+      return { edges: s.countEdgesFrom(filter), armed, fired };
+    };
+    for (const filter of [{}, { archived: false }, { archived: true }, { kind: "person" as const }]) {
+      expect({ filter, ...asked(filter) }).toEqual({ filter, ...fold(filter) });
+    }
+    // The numbers are real, not two zeroes agreeing.
+    expect(asked({ archived: false })).toEqual({ edges: 2, armed: 2, fired: 1 });
+    expect(asked({})).toEqual({ edges: 3, armed: 3, fired: 1 });
   });
 
   test("crediting is physics.creditUse's rule — the store applies, never re-decides (§5.3/§5.5)", () => {
