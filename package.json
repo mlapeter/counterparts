@@ -38,6 +38,7 @@
     "./cli": "./src/adapters/cli/commands.ts",
     "./dashboard": "./src/adapters/dashboard/index.ts",
     "./sessions": "./src/adapters/sessions.ts",
+    "./scopes": "./src/adapters/scopes.ts",
     "./package.json": "./package.json"
   },
   "files": [

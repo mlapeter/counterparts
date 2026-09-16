@@ -39,7 +39,7 @@ runs the page's console commands verbatim — each one is grepped out of the pag
 is executed, so a doc edit that changes one fails the loop — in a throwaway home directory
 with no copy of this repository on the PATH. It packs the tarball itself and feeds the
 hook its own payload. It cannot run `git clone`, `claude mcp add` or Claude Code;
-QUICKSTART §9 lists what that leaves unverified.
+QUICKSTART §10 lists what that leaves unverified.
 
 **You need [bun](https://bun.sh) 1.3 or newer.** Counterparts ships as TypeScript sources
 and runs them directly — there is no build step and no `dist/`. **Node is untested.** The
@@ -88,6 +88,12 @@ Claude Code: a block of hooks to merge into its settings, and one `claude mcp ad
 to run. It never edits your Claude Code configuration for you. Apply both, restart Claude
 Code, and you are running. QUICKSTART §4 has them, and the reasons every path in them must
 be absolute.
+
+The hooks are registered once, globally, so every directory you open a session in is
+remembered by default. `counterparts scope . --off` says otherwise for one directory —
+`--observer` for reads-only, `--pause` for an afternoon, `--resume` to put it back — and
+the first session in a directory nobody has answered for asks you which you want.
+QUICKSTART §8 has the rest.
 
 `install` owns `~/.counterparts/` and is the cold start — run it once. For a second store,
 a scratch store, or a store you will only reach from the console, use
@@ -205,8 +211,8 @@ the console's and dashboard's behaviour on a missing store. **Not verified at
 all**: anything under Node, and — until you do it — a stranger installing from the
 documentation on a machine with no copy of this repository.
 
-**Known rough edges.** QUICKSTART §10 carries the install-facing ones — 1 as its §10.3, 2
-as its §10.4, and 4 as its §10.6 with a reproduction (and in §7, where `remove` is run). 3 lives in QUICKSTART §6,
+**Known rough edges.** QUICKSTART §11 carries the install-facing ones — 1 as its §11.3, 2
+as its §11.4, and 4 as its §11.6 with a reproduction (and in §7, where `remove` is run). 3 lives in QUICKSTART §6,
 where the embedder knob is set, and 5 in §1 with the runtime requirements:
 
 1. **The store you point at and the host settings you get come from two different files —

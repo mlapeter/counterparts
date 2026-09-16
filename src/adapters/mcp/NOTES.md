@@ -91,7 +91,7 @@ Two properties, both deliberate:
 - **The store is still not decided here.** `--dir` / `COUNTERPARTS_DATA_DIR` /
   the default choose the store; the configuration answers "whose keys, whose
   embedder knob". Reading `config.dataDir` here would quietly fix half of
-  QUICKSTART §10.3 and leave the docs claiming the other half.
+  QUICKSTART §11.3 and leave the docs claiming the other half.
 - **A named configuration that cannot be honoured refuses the launch** — exit 1,
   the reason on stderr — rather than falling back to a default that, on a machine
   with an install, is somebody else's keys. "Cannot be honoured" includes an

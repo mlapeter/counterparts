@@ -489,12 +489,23 @@ describe("the chapter tool — the episode's return channel", () => {
 // ── the description audit (CONTRACT §5 G2/G3) ───────────────────────────────
 
 describe("the tool-description audit", () => {
-  test("the shipped list is exactly three verbs plus the two return channels — and no self-authorship tool", async () => {
+  test("the shipped list is exactly three verbs, the two return channels and the scope switch — and no self-authorship tool", async () => {
     const s = server();
     const [response] = await pump(s, [rpc(1, "tools/list")]);
     const tools = (response as unknown as { result: { tools: { name: string }[] } }).result.tools;
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
-    expect(TOOL_NAMES).toEqual(["note", "recall", "status", "session_end", "chapter"]);
+    // The sixth is `scope` (2026-09-10, owner asks G41–G43): the host's own
+    // registry of which directories this memory is for. It writes no memory and
+    // reads none, and it is the one tool that still answers in a directory set
+    // `off` — a switch that only turns one way is not a switch.
+    expect(TOOL_NAMES).toEqual([
+      "note",
+      "recall",
+      "status",
+      "session_end",
+      "chapter",
+      "scope",
+    ]);
     // §4: self-writing is the boundary's job by construction, and `protected.add`
     // went with the second-signature queue. Enumerated absent, not assumed
     // absent. `chapter` is not a re-opened self-store: it appends to the

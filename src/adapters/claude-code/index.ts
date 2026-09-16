@@ -65,6 +65,8 @@ export {
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   HOOKS,
+  SCOPE_ASK,
+  SCOPE_ASK_BYTES,
   SESSION_ENDING,
   SPAWN_REFUSAL_PREFIX,
   substanceOf,

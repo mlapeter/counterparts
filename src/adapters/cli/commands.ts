@@ -95,6 +95,20 @@ import {
   resolveConfigPath,
 } from "../config-path.js";
 import type { ConfigChoice, ConfigSource } from "../config-path.js";
+// The scope registry — host configuration, beside the host configuration. The
+// console is the surface that WRITES it; the hooks and the MCP server only read.
+import {
+  canonicalScopePath,
+  lookupScope,
+  ownEntry,
+  readScopes,
+  resumeTarget,
+  scopesPath,
+  setScope,
+  stanceOfMode,
+  writeScopes,
+} from "../scopes.js";
+import type { ScopeMode, ScopeRegistry } from "../scopes.js";
 import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../stance-env.js";
 // THE HOST ADAPTER'S OWN READINGS, imported rather than re-derived — the same
 // direction `install.ts` already takes (`../claude-code/config.js`). `doctor`
@@ -147,6 +161,7 @@ export const COMMANDS = [
   // the one-command repair for the file whose emptiness stopped it.
   "doctor",
   "credentials",
+  "scope",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -179,6 +194,13 @@ export const OWNER_OPS: readonly Command[] = [
   // gate is per command, and `list` paying for `set`'s rule is the cheap
   // direction: the names are in the file, and `doctor` prints them anyway.
   "credentials",
+  // `scope` is NOT here, and the omission is the ruling: it writes the HOST's
+  // configuration, never a store, so the observer rule that governs it is its
+  // own. An instrument may READ the registry — that is how a stood-down session
+  // says why it stood down — and every WRITE through it refuses in the same
+  // sentence an owner op would. The refusal therefore lives inside the command,
+  // beside the write it guards, rather than on this list, which refuses a
+  // command whole.
 ];
 
 export const EXIT = {
@@ -315,6 +337,12 @@ export function usage(): string {
     "                      assistant later expanded by id, from recall.decision and",
     "                      recall.credit rows. Read-only; the footnote header is the",
     "                      one string the probe varies (recall/render.ts).",
+    "  scope <path|.>      Which directories this memory is for. With a mode flag it",
+    "                      writes <config dir>/scopes.json; with none it says what",
+    "                      the directory resolves to and which entry decided.",
+    "                      --on --observer --off --pause --resume --list",
+    '                      --note "<text>" --force. It opens no store and takes no',
+    "                      --dir; a subdirectory inherits its nearest ancestor.",
     "",
     "  --dir <path>        The data directory (default: $COUNTERPARTS_DATA_DIR).",
     "  --config <path>     ONE rule, every entry point: --config <absolute path>, else",
@@ -399,6 +427,13 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // deliberately no `--value`: a flag is argv, argv is shell history, and a
   // credential in shell history is a credential on disk in plaintext forever.
   credentials: ["config", "stdin", "from-env"],
+  // `--config` because the registry sits BESIDE the configuration, so the flag
+  // that says which configuration also says which registry. `--observer` is
+  // deliberately NOT declared here: it is a common flag already, and on this
+  // one command it means the MODE rather than the console's stance — see
+  // `SCOPE_FLAG_HELP`, which is the sentence this command's help page prints
+  // for it instead of the shared one.
+  scope: ["on", "off", "pause", "resume", "list", "note", "force", "config"],
 };
 
 /**
@@ -435,6 +470,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Is the background half alive? The config, the credentials by name, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
   credentials:
     "Put one key in the credentials file the config names, 0600, with the value from stdin or --from-env and never from the command line. 'credentials list' says which names the file holds.",
+  scope:
+    "Which directories this memory is for: on, observer, off, or paused until you resume it. It writes the host's own registry beside claude-code.json, opens no store, and needs no --dir. A subdirectory inherits its nearest ancestor's entry. On this one command --observer names the MODE, not the console's stance.",
 };
 
 /** The invocation line, where a command takes something that is not a flag. */
@@ -443,6 +480,7 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   recall: ' "<question>"',
   remove: " <id>",
   credentials: " set <NAME> | list",
+  scope: " <path|.>",
 };
 
 /**
@@ -497,6 +535,29 @@ const FLAG_HELP: Record<string, string> = {
   yes: "skip the typed confirmation, and nothing else — it never stands in for --dir, which --apply requires",
   stdin: "read the value from standard input (the default whenever stdin is not a terminal)",
   "from-env": "read the value from this environment variable instead of from stdin",
+  on: "remember here: capture, deposit, wake and recall, as everywhere else",
+  off: "nothing here: the hooks produce no output and write nothing, and the tools refuse",
+  pause: "off for now, remembering what to go back to",
+  resume: "undo a pause (or an off): back to what it was, or on",
+  list: "print the whole registry, and the file it came from",
+  note: "free text recorded beside the entry, for why",
+};
+
+/**
+ * THE SENTENCES `scope` PRINTS INSTEAD OF THE SHARED ONES.
+ *
+ * Two flags mean something else on this command and nowhere else, so its help
+ * page says something else about them rather than printing a line that is
+ * false. `--observer` is the collision that forced this: it is a COMMON flag
+ * meaning "stand this console down", and on `scope` it names one of the four
+ * modes the owner asked for by name (G42). The command therefore does NOT read
+ * it as a stance — `COUNTERPARTS_OBSERVER` still does, and still refuses every
+ * write here — and this table is what keeps the page honest about it.
+ */
+const SCOPE_FLAG_HELP: Record<string, string> = {
+  observer: "reads and recalls here, records nothing — the mode, not this console's stance",
+  dir: "not consulted: this command writes host configuration, never a store",
+  force: "overwrite a registry this could not parse (it prints what it could not read first)",
 };
 
 /**
@@ -511,9 +572,14 @@ const FLAG_HELP: Record<string, string> = {
  */
 export function commandHelp(command: Command): string {
   const own = COMMAND_FLAGS[command] ?? [];
+  // A command may say something else about a flag it means something else by.
+  // Today that is `scope` alone, and it is two flags: `--observer` (the mode,
+  // not the stance) and `--dir` (not consulted at all). A page that printed the
+  // shared sentence for those would be printing something false.
+  const override = command === "scope" ? SCOPE_FLAG_HELP : {};
   const flagLine = (name: string): string => {
     const shown = `--${name}${VALUED_FLAGS.includes(name) ? " <value>" : ""}`;
-    return `  ${shown.padEnd(20)} ${FLAG_HELP[name] ?? "(undocumented)"}`;
+    return `  ${shown.padEnd(20)} ${override[name] ?? FLAG_HELP[name] ?? "(undocumented)"}`;
   };
   return [
     `counterparts ${command} — ${COMMAND_BLURB[command]}`,
@@ -549,6 +615,7 @@ const VALUED_FLAGS: readonly string[] = [
   "import-day",
   "sample",
   "from-env",
+  "note",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -708,6 +775,16 @@ export function parse(argv: readonly string[]): Parsed {
       "from-env": { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
+      // `scope`'s five. Declared as booleans for the same reason `rebuild` is:
+      // `strict: false` does not make an undeclared boolean reliable. `--note`
+      // is a string, so a trailing `--note` is a refusal rather than a `true`
+      // silently recorded as the reason a directory was turned off.
+      on: { type: "boolean" },
+      off: { type: "boolean" },
+      pause: { type: "boolean" },
+      resume: { type: "boolean" },
+      list: { type: "boolean" },
+      note: { type: "string" },
     },
   });
   return {
@@ -770,7 +847,17 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // a value it cannot read to OBSERVER: `docs/observer-mode.md` G5, fail toward
   // standing down. On this surface that is the cheap direction — a stood-down
   // console still runs every read, and says which stance refused what.
-  const observerReading = observerFromEnv(env, parsed.flags["observer"] === true);
+  //
+  // ONE COMMAND EXCEPTED, and it is the only exception this console has:
+  // `scope --observer` names the MODE to put a directory in (the owner asked
+  // for those four words by name, G42), not a stance to put this console in.
+  // The two meanings cannot share one flag on one command line, so on `scope`
+  // the stance comes from `COUNTERPARTS_OBSERVER` alone — which still refuses
+  // every write the command makes, exactly as it refuses an owner op.
+  const observerReading = observerFromEnv(
+    env,
+    parsed.flags["observer"] === true && command !== "scope",
+  );
   const observer = observerReading.on;
   if (observerReading.malformed !== null) {
     io.err(
@@ -801,7 +888,10 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     // `doctor` REPORTS on a host configuration and `credentials` writes the file
     // one names, so both resolve it by the same rule as the other two.
     command === "doctor" ||
-    command === "credentials";
+    command === "credentials" ||
+    // `scope` writes the registry that sits BESIDE the configuration, so the
+    // flag that names one names the other.
+    command === "scope";
   const named = readsConfig
     ? resolveConfigPath(
         typeof parsed.flags["config"] === "string" ? [`--config=${parsed.flags["config"]}`] : [],
@@ -855,6 +945,28 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       return await credentialsCommand(parsed, io, env, named, opts.stdin);
     } catch (err) {
       io.err(`credentials failed: ${String((err as Error).message ?? err)}`);
+      return EXIT.failed;
+    }
+  }
+
+  // `scope` is decided BEFORE the data dir, like `install` and `credentials`,
+  // and for a stronger version of the same reason: it never opens a store at
+  // all. Resolving one would make a command about the HOST's configuration
+  // refuse under `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` for want of a store it does
+  // not use — and would put `~/.counterparts` under a command that must be
+  // runnable on a machine that has no store yet. The guard still applies to the
+  // thing this command DOES touch: an unnamed configuration is refused, because
+  // the default one sits in the live base.
+  if (command === "scope") {
+    const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
+    if (implicit !== null) {
+      io.err(implicit);
+      return EXIT.refused;
+    }
+    try {
+      return scopeCommand(parsed, io, observer, named, now);
+    } catch (err) {
+      io.err(`scope failed: ${String((err as Error).message ?? err)}`);
       return EXIT.failed;
     }
   }
@@ -3293,6 +3405,258 @@ function rebriefCommand(
     return EXIT.ok;
   } finally {
     counterpart.close();
+  }
+}
+
+// ── scope ───────────────────────────────────────────────────────────────────
+
+/**
+ * `counterparts scope` — which directories this memory is for (owner asks
+ * G42/G43, 2026-09-10).
+ *
+ * **It is a HOST-CONFIG write, not a store write**, and every rule below falls
+ * out of that one sentence:
+ *
+ *   - it takes no `--dir` and opens no store, so it runs on a machine that has
+ *     not installed one yet — which is exactly when somebody wants to say "not
+ *     here";
+ *   - it writes `<config dir>/scopes.json`, so `--config` (and
+ *     `$COUNTERPARTS_CONFIG`) moves the registry with the configuration, and a
+ *     scratch install's scopes are that install's own;
+ *   - it is NOT on `OWNER_OPS`, because that list refuses a COMMAND whole and
+ *     an instrument must still be able to READ this file — "why did this
+ *     session record nothing" is a question a stood-down console has to be able
+ *     to answer. The write half refuses in the same sentence an owner op does,
+ *     one function down, beside the write it guards.
+ *
+ * **A relative path is never stored.** The registry is read by processes a host
+ * launches from a working directory nobody chose (`config-path.ts`'s whole
+ * argument about `--config`), so a relative key would name a different
+ * directory in each of them. `.` is the ordinary way to say "here" and is
+ * resolved before anything is written; the output always names the ABSOLUTE
+ * path it wrote, so the resolution is never a silent one.
+ *
+ * **A registry it cannot parse is never overwritten.** `--force` is the way
+ * through, and it prints what it could not read first: the alternative is a
+ * console that quietly replaces a file somebody hand-edited.
+ */
+function scopeCommand(
+  parsed: Parsed,
+  io: Io,
+  observer: boolean,
+  choice: ConfigChoice | undefined,
+  now: () => number,
+): number {
+  const configPath = choice?.path ?? defaultConfigPath();
+  const file = scopesPath(configPath);
+  const flags = parsed.flags;
+  const asked: { flag: string; mode: ScopeMode }[] = [
+    { flag: "on", mode: "on" },
+    { flag: "observer", mode: "observer" },
+    { flag: "off", mode: "off" },
+    { flag: "pause", mode: "paused" },
+  ].filter((m) => flags[m.flag] === true) as { flag: string; mode: ScopeMode }[];
+  const resuming = flags["resume"] === true;
+  const listing = flags["list"] === true;
+
+  if (asked.length + (resuming ? 1 : 0) > 1) {
+    io.err(
+      `refused: ${[...asked.map((a) => `--${a.flag}`), ...(resuming ? ["--resume"] : [])].join(" and ")} — a directory is in one mode at a time.`,
+    );
+    io.err("Nothing was written.");
+    return EXIT.refused;
+  }
+
+  const read = readScopes(file);
+  const unreadable = (): void => {
+    io.err(`refused: ${file} could not be read — ${read.error ?? "unknown"}.`);
+  };
+  // THE ENTRIES THIS FILE HOLDS AND NOBODY CAN HONOUR (#92 review, F2). They are
+  // named on every path through this command, read or write, because a refused
+  // entry reads as unset — which is ON — and the person in front of this console
+  // is the only one who can fix it.
+  const sayRefused = (): void => {
+    for (const entry of read.refused) {
+      io.err(`  ignored: ${entry.key} — ${entry.detail}. It reads as unset, which is on.`);
+    }
+  };
+
+  // ── --list: the whole registry, and the file it came from ─────────────────
+  if (listing) {
+    if (asked.length > 0 || resuming || parsed.positional.length > 0) {
+      io.err("refused: --list prints the whole registry; it takes no path and no mode.");
+      return EXIT.refused;
+    }
+    if (read.error !== null) {
+      unreadable();
+      io.err("Nothing was read. Fix the file, or replace it with `scope <path> --off --force`.");
+      return EXIT.refused;
+    }
+    io.out(`Scopes (${file}):`);
+    if (read.refused.length > 0) {
+      io.err(
+        `warning: ${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in this file could not be read:`,
+      );
+      sayRefused();
+    }
+    const entries = Object.entries(read.registry?.scopes ?? {}).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    if (entries.length === 0) {
+      io.out("  Nothing is set. Every directory is on by default.");
+      return EXIT.ok;
+    }
+    for (const [path, entry] of entries) {
+      const resume = entry.mode === "paused" ? ` (resumes to ${resumeTarget(entry)})` : "";
+      io.out(`  ${entry.mode.padEnd(9)} ${path}${resume}`);
+      io.out(`  ${" ".repeat(9)} since ${entry.since}${entry.note === undefined ? "" : ` — ${entry.note}`}`);
+    }
+    return EXIT.ok;
+  }
+
+  const given = parsed.positional[0];
+  if (given === undefined) {
+    io.err("refused: name a directory (`.` means this one), or pass --list.");
+    return EXIT.usage;
+  }
+  const dir = canonicalScopePath(given);
+
+  // ── no mode: what does this directory resolve to, and who said so ─────────
+  if (asked.length === 0 && !resuming) {
+    if (read.error !== null) {
+      unreadable();
+      io.err("Until it is fixed every directory reads as unset, which is on.");
+      return EXIT.refused;
+    }
+    if (read.refused.length > 0) {
+      io.err(
+        `warning: ${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in ${file} could not be read:`,
+      );
+      sayRefused();
+    }
+    const verdict = lookupScope(read.registry, dir);
+    io.out(`${dir} — ${verdict.mode === "unset" ? "unset" : verdict.mode}`);
+    if (verdict.entry === null) {
+      io.out("  Nothing is set for it or for any parent, so it is on (the default).");
+      io.out(`  Registry: ${file}`);
+      return EXIT.ok;
+    }
+    io.out(`  Stance: ${stanceOfMode(verdict.mode)}.`);
+    io.out(
+      verdict.matched === dir
+        ? `  Decided by its own entry, set ${verdict.entry.since}.`
+        : `  Decided by ${verdict.matched ?? "?"} (an ancestor), set ${verdict.entry.since}.`,
+    );
+    if (verdict.entry.mode === "paused") {
+      io.out(`  --resume puts it back to ${resumeTarget(verdict.entry)}.`);
+    }
+    if (verdict.entry.note !== undefined) io.out(`  Note: ${verdict.entry.note}`);
+    io.out(`  Registry: ${file}`);
+    return EXIT.ok;
+  }
+
+  // ── the write half ────────────────────────────────────────────────────────
+  if (observer) {
+    // The same sentence an owner op gets, from the same reasoning: this console
+    // is an instrument, and an instrument does not change what it is reading.
+    // Note that on THIS command `--observer` is a mode and never a stance, so
+    // the only thing that can have stood it down is `COUNTERPARTS_OBSERVER`.
+    io.err(
+      "refused: writing the scope registry changes this host's configuration, and this console is in observer stance. An instrument reads; it does not change the setting it is reading.",
+    );
+    return EXIT.refused;
+  }
+  if (read.error !== null && flags["force"] !== true) {
+    unreadable();
+    io.err("Nothing was written. Fix it by hand, or pass --force to replace it entirely.");
+    return EXIT.refused;
+  }
+  // A WRITE WOULD DROP THE ENTRIES THIS READ REFUSED — every write rewrites the
+  // whole file from what parsed — so it refuses instead, by name (#92 review,
+  // F2). `--force` goes ahead and says which entries it is dropping: the good
+  // ones are carried (they parsed), the named ones are gone.
+  if (read.refused.length > 0) {
+    if (flags["force"] !== true) {
+      io.err(
+        `refused: ${String(read.refused.length)} ${read.refused.length === 1 ? "entry" : "entries"} in ${file} could not be read, and writing would drop ${read.refused.length === 1 ? "it" : "them"}:`,
+      );
+      sayRefused();
+      io.err("Nothing was written. Fix those by hand, or pass --force to drop them.");
+      return EXIT.refused;
+    }
+    io.err(
+      `warning: --force drops ${String(read.refused.length)} unreadable ${read.refused.length === 1 ? "entry" : "entries"}:`,
+    );
+    sayRefused();
+  }
+  // `--force` starts from EMPTY, not from a half-understood file: a registry
+  // that did not parse has no entries this can honestly carry forward, and
+  // silently keeping the ones that happened to be readable is the shape that
+  // turns an `off` into an `on`.
+  const base: ScopeRegistry | null = read.error === null ? read.registry : null;
+
+  let mode: ScopeMode;
+  if (resuming) {
+    const own = ownEntry(base, dir);
+    if (own === null) {
+      const inherited = lookupScope(base, dir);
+      io.err(
+        inherited.entry === null
+          ? `refused: nothing is set for ${dir}, so there is nothing to resume. It is already on.`
+          : `refused: nothing is set for ${dir} itself — it inherits ${inherited.matched ?? "?"}. Resume that one, or set this one directly.`,
+      );
+      return EXIT.refused;
+    }
+    if (own.mode === "on" || own.mode === "observer") {
+      io.out(`${dir} is already ${own.mode}; nothing to resume, and nothing was written.`);
+      return EXIT.ok;
+    }
+    // `--resume` restores an `off` as well as a `paused`, which is the loop the
+    // owner asked for: turn a directory off, work, turn it back on. An `off`
+    // never recorded what to go back to, so it goes back to `on`.
+    mode = resumeTarget(own);
+  } else {
+    mode = asked[0]?.mode ?? "on";
+  }
+
+  // ONE function for the change, used twice: once against the registry this
+  // command read, and again — by `writeScopes` — against whatever is actually
+  // on disk if somebody wrote between that read and the rename (#92 review, F3).
+  // The other writer is the MCP `scope` tool, in the same directory, in another
+  // process, and before this the second rename simply deleted the first entry.
+  const apply = (from: ScopeRegistry | null): ScopeRegistry =>
+    setScope(from, dir, mode, {
+      at: new Date(now()).toISOString(),
+      ...(typeof flags["note"] === "string" ? { note: flags["note"] } : {}),
+    });
+  const next = apply(base);
+  writeScopes(file, next, {
+    basedOn: read,
+    // `--force` over a file nobody could read starts from empty either way:
+    // there is nothing in it this can honestly carry forward.
+    reapply: (fresh) => apply(read.error === null ? fresh : null),
+  });
+
+  io.out(`Scope set: ${dir} — ${mode}.`);
+  if (canonicalScopePath(given) !== resolve(given) || given !== dir) {
+    io.out(`  ('${given}' resolved to that path; the registry only ever holds absolute ones.)`);
+  }
+  io.out(`  ${scopeEffect(mode, ownEntry(next, dir)?.resumeTo)}`);
+  io.out(`  Written to ${file}`);
+  return EXIT.ok;
+}
+
+/** What the owner just chose, in one sentence, on the surface that chose it. */
+function scopeEffect(mode: ScopeMode, resumeTo: string | undefined): string {
+  switch (mode) {
+    case "on":
+      return "Sessions there capture, deposit, wake and recall, as everywhere else.";
+    case "observer":
+      return "Sessions there deliver the wake and recall and record nothing; the note, session_end and chapter tools stand down.";
+    case "off":
+      return "The hooks there produce no output and write nothing, and every tool refuses. `--resume` turns it back on.";
+    default:
+      return `Off for now. \`--resume\` puts it back to ${resumeTo ?? "on"}.`;
   }
 }
 

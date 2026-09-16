@@ -92,6 +92,7 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     // this file composes, it does not read a key (server.ts's header).
     ...(opts.embedder === undefined ? {} : { embedder: opts.embedder }),
     ...(opts.registryDir === undefined ? {} : { registryDir: opts.registryDir }),
+    ...(opts.scopesFile === undefined ? {} : { scopesFile: opts.scopesFile }),
     ...(opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: opts.sessionTtlMs }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.now === undefined ? {} : { now: opts.now }),

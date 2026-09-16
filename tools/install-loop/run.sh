@@ -24,14 +24,14 @@
 # the line before it is executed, so the loop and the written install path
 # cannot drift apart silently — a doc edit that changes a command fails the loop.
 # The two NUMBERS the doc quotes about this loop — how many steps it runs, and
-# which step is the lazy `session_end` bind (§9) — are held to it the other way
+# which step is the lazy `session_end` bind (§10) — are held to it the other way
 # round, by `test/install-loop.test.ts`: add or move a `step "..."` line and
 # `bun test` says which sentence in QUICKSTART to change.
 #
 # Usage:  tools/install-loop/run.sh [workdir]
 # Default workdir: a fresh `install-loop-<pid>` under $TMPDIR.
 #
-# What this loop CANNOT verify is named in QUICKSTART §9 and in the report: it
+# What this loop CANNOT verify is named in QUICKSTART §10 and in the report: it
 # never launches Claude Code, so the hooks block and the MCP registration are
 # checked as files and processes, never as a live session.
 
@@ -920,6 +920,90 @@ if [ "$CODE" = "0" ] &&
   ok
 else
   no "note --help did not print note's own flags (exit $CODE)" "$OUT"
+fi
+
+# ── 6. which directories it remembers (QUICKSTART §8) ───────────────────────
+
+# The scope registry is HOST configuration, beside `claude-code.json` — so these
+# steps open no store and name none, and the one that matters is the third: a
+# directory set `off` produces a hook that writes NOTHING and says NOTHING. The
+# scratch directory is its own, so the loop's earlier hook steps (which run in
+# $HOME/project) are untouched by it.
+SCOPED="$HOME/scoped-project"
+mkdir -p "$SCOPED"
+
+step "counterparts scope --list says nothing is set on a fresh install"
+CMD='counterparts scope --list'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$(eval "$CMD" 2>&1)
+  if printf '%s' "$OUT" | grep -q "Nothing is set"; then ok; else no "scope --list did not report an empty registry" "$OUT"; fi
+fi
+
+step "counterparts scope . --off writes the registry beside the config"
+CMD='counterparts scope . --off'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$( (cd "$SCOPED" && eval "$CMD") 2>&1 )
+  if ! printf '%s' "$OUT" | grep -q "Scope set:"; then
+    no "scope --off did not report what it wrote" "$OUT"
+  elif [ ! -f "$BASE/scopes.json" ]; then
+    no "no registry at $BASE/scopes.json"
+  elif ! grep -q '"off"' "$BASE/scopes.json"; then
+    no "the registry does not hold the mode it printed" "$(cat "$BASE/scopes.json")"
+  else
+    ok
+  fi
+fi
+
+step "the SessionStart hook in an OFF directory prints nothing and writes nothing"
+# The whole guarantee: nothing is constructed, so there is nothing to print and
+# nothing to write. Byte-for-byte empty stdout, and no session record.
+OFF_SESSION="install-loop-off-$$"
+OFF_PAYLOAD=$(printf '{"hook_event_name":"SessionStart","session_id":"%s","cwd":"%s"}' "$OFF_SESSION" "$SCOPED")
+OUT=$(printf '%s' "$OFF_PAYLOAD" | counterparts-hook 2>"$WORK/hook-off.err")
+CODE=$?
+if [ "$CODE" != "0" ]; then
+  no "the hook did not exit 0 in an off directory (exit $CODE)" "$(cat "$WORK/hook-off.err")"
+elif [ -n "$OUT" ]; then
+  no "the hook produced output in an off directory" "$OUT"
+elif [ -s "$WORK/hook-off.err" ]; then
+  no "the hook wrote to stderr in an off directory" "$(cat "$WORK/hook-off.err")"
+elif [ -f "$STORE/sessions/$OFF_SESSION.json" ]; then
+  no "the hook registered a session in an off directory"
+else
+  ok
+fi
+
+step "counterparts scope . says the mode and which entry decided it"
+CMD='counterparts scope .'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$( (cd "$SCOPED" && eval "$CMD") 2>&1 )
+  if printf '%s' "$OUT" | grep -q "off" && printf '%s' "$OUT" | grep -q "Decided by"; then ok; else no "scope did not report the effective mode and its entry" "$OUT"; fi
+fi
+
+step "counterparts scope . --resume gives the directory back, and the hook wakes there"
+CMD='counterparts scope . --resume'
+if ! doc_check "$CMD"; then
+  no "not in QUICKSTART verbatim: $CMD"
+else
+  OUT=$( (cd "$SCOPED" && eval "$CMD") 2>&1 )
+  BACK_SESSION="install-loop-back-$$"
+  BACK_PAYLOAD=$(printf '{"hook_event_name":"SessionStart","session_id":"%s","cwd":"%s"}' "$BACK_SESSION" "$SCOPED")
+  HOOK_OUT=$(printf '%s' "$BACK_PAYLOAD" | counterparts-hook 2>"$WORK/hook-back.err")
+  if ! printf '%s' "$OUT" | grep -q -- "— on."; then
+    no "scope --resume did not put the directory back on" "$OUT"
+  elif [ -z "$HOOK_OUT" ]; then
+    no "the hook stayed silent after --resume" "$(cat "$WORK/hook-back.err")"
+  elif [ ! -f "$STORE/sessions/$BACK_SESSION.json" ]; then
+    no "the hook did not register the session after --resume"
+  else
+    ok
+  fi
 fi
 
 step "the package's own exports map resolves as a library import"

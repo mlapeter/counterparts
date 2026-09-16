@@ -49,10 +49,22 @@ import {
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import type { AdapterDurableEventName } from "../../core/counterpart.js";
-import type { BoundaryKind, Turn as CapturedTurn } from "../../core/remember/index.js";
+import type {
+  BoundaryKind,
+  CaptureResult,
+  Turn as CapturedTurn,
+} from "../../core/remember/index.js";
 
 import { CONFIG_FILE_EVENT } from "../config-path.js";
-import { pruneSessions, recordSession } from "../sessions.js";
+import {
+  SCOPE_EVENT,
+  SCOPE_JOINED_LATE_EVENT,
+  SCOPE_REFUSED_EVENT,
+  SCOPE_UNREADABLE_EVENT,
+  stanceOfMode,
+} from "../scopes.js";
+import type { ScopeVerdict } from "../scopes.js";
+import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase } from "../sessions.js";
 
 import { capabilities, interpretSeat } from "./config.js";
@@ -131,9 +143,17 @@ export interface HookResult {
   readonly surfaced: readonly string[];
   readonly footnotes: readonly string[];
   /**
-   * THE ask — memories and the chapter, one text, one pacer. Null when this Stop
-   * is not due one. There is exactly one field because there is exactly one ask:
-   * two fields is how the blocked moment grew back into two asks (§13 G3).
+   * THE ask this hook raises — at a Stop, memories and the chapter, one text,
+   * one pacer. Null when this Stop is not due one. There is exactly one field
+   * because there is exactly one ask at a boundary: two fields is how the
+   * blocked moment grew back into two asks (§13 G3).
+   *
+   * SessionStart uses the same field for the first-launch scope question
+   * (`SCOPE_ASK`, G41), and it is the same field for the same reason: it is the
+   * one channel that reaches the model WITHOUT being inside the wake bundle,
+   * whose byte count and tail line are stated by its own sentinel. The two can
+   * never collide — one fires only at `session-start`, the other only at
+   * `stop`, and the Stop pacer is untouched by this.
    */
   readonly ask: string | null;
   readonly spansAppended: number;
@@ -179,7 +199,58 @@ export interface AdapterOptions {
    *     one file rather than resolving two.
    */
   readonly configPath?: string;
+  /**
+   * WHAT `<config dir>/scopes.json` SAYS ABOUT THIS DIRECTORY, resolved by the
+   * entry point before anything opened (`bin/hook.ts#hookScopeVerdict`).
+   *
+   * The adapter does exactly two things with it: records it once, and — when it
+   * is `unset` — appends the first-launch question to the wake, once per
+   * session (G41). The `off` decision is NOT here: it is made in the entry
+   * point, because "no output and no write" is only a guarantee if nothing was
+   * constructed. `guard()` still refuses on it as a second, cheap site, for the
+   * same reason the observer stand-down lives at the store seam as well as at
+   * the entry point (observer-mode G8).
+   */
+  readonly scope?: ScopeVerdict;
+  /** The sentence a registry that IS there and could not be read produced. */
+  readonly scopeUnreadable?: string;
+  /**
+   * The ENTRIES that registry refused, by key (#92 review, F2). A file can parse
+   * while one directory's entry does not, and those directories read as unset —
+   * which is ON. Ring event here, and a flag on the wake's durable row, because
+   * a hook process lives for one turn and "why is this directory recording
+   * again" has to be answerable tomorrow.
+   */
+  readonly scopeRefused?: readonly string[];
 }
+
+/**
+ * THE FIRST-LAUNCH QUESTION (owner ask G41, 2026-09-10).
+ *
+ * The hooks are registered globally, so the first session in a new directory
+ * already has capture running by the time anyone could have been asked. The
+ * honest fix the owner asked for is a question asked once and remembered — and
+ * the host offers `SessionStart` as the only place to ask and no place at all
+ * to receive an answer, which is `INTERFACE-GAPS.md` gap 7's shape all over
+ * again. So the block asks the MODEL to ask the PERSON, and names the console
+ * line that records the reply.
+ *
+ * Advisory wording, mechanized existence (CONTRACT §5 G9): what is guaranteed
+ * is that an `unset` directory raises the question exactly once per session and
+ * that setting any mode ends it, not the sentences.
+ */
+export const SCOPE_ASK = [
+  "<counterparts-scope>",
+  "No setting yet for this directory, so Counterparts is remembering here by default.",
+  "Early on, ask the user once which they want: on, observer (reads and recalls, records",
+  "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
+  "observer | off), or with `counterparts scope . --on`, `--observer` or `--off`. Then",
+  "do not ask again.",
+  "</counterparts-scope>",
+].join("\n");
+
+/** The room the question needs, separator included. Measured, never guessed. */
+export const SCOPE_ASK_BYTES = Buffer.byteLength(`\n\n${SCOPE_ASK}`, "utf8");
 
 /**
  * THE ONE STOP ASK — v2's front door and its journal, in one text.
@@ -262,6 +333,16 @@ export class ClaudeCodeAdapter {
   private readonly credentials: CredentialLoad | undefined;
   /** The `claude-code.json` this process read — recorded, pinned, never re-derived. */
   private readonly configPath: string | undefined;
+  /** What the scope registry said about this directory. `unset` when nobody said. */
+  readonly scope: ScopeVerdict;
+  /**
+   * WHETHER THE REGISTRY ITSELF WAS IN TROUBLE when this process read it, for
+   * the wake's durable row (#92 review, F2): `unreadable` is the whole file,
+   * `partial` is one or more entries refused by name. Null is the ordinary day,
+   * and the field is `null` on the row rather than absent, so a reader can tell
+   * "the registry was fine" from "this row predates the question".
+   */
+  private scopeTrouble: "unreadable" | "partial" | null = null;
   private readonly ring: AdapterEvent[] = [];
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
@@ -291,6 +372,7 @@ export class ClaudeCodeAdapter {
     this.nowFn = opts.now ?? ((): number => Date.now());
     this.credentials = opts.credentials;
     this.configPath = opts.configPath;
+    this.scope = opts.scope ?? { mode: "unset", matched: null, entry: null };
     // ONE event naming the configuration this process read, for the same reason
     // the credential file gets one: a hook's stdout belongs to the model, so
     // "which file answered" has nowhere else to go in-process. The durable half
@@ -305,6 +387,34 @@ export class ClaudeCodeAdapter {
     // `emit` needs `nowFn`.
     if (opts.credentials !== undefined && opts.credentials.loaded.length > 0) {
       this.emit(CREDENTIAL_FILE_EVENT, credentialRow(opts.credentials));
+    }
+    // ONE event naming the scope verdict this process ran under, and which
+    // entry produced it — the answer to "why did this directory record nothing
+    // today", which is otherwise a question only a person reading two JSON
+    // files can answer.
+    this.emit(SCOPE_EVENT, {
+      mode: this.scope.mode,
+      matched: this.scope.matched,
+      stance: stanceOfMode(this.scope.mode),
+    });
+    // A registry that IS there and could not be read resolved to `unset` — on,
+    // today's behaviour — and says so, because a silent fall-back to the
+    // default is exactly the shape scar §2.4 is about.
+    if (opts.scopeUnreadable !== undefined && opts.scopeUnreadable.length > 0) {
+      this.emit(SCOPE_UNREADABLE_EVENT, { detail: opts.scopeUnreadable });
+    }
+    // The per-ENTRY half of the same fact. Those directories read as unset,
+    // which is on: an `off` somebody typed badly is an `off` nobody is keeping.
+    if (opts.scopeRefused !== undefined && opts.scopeRefused.length > 0) {
+      this.scopeTrouble = "partial";
+      this.emit(SCOPE_REFUSED_EVENT, {
+        count: opts.scopeRefused.length,
+        keys: opts.scopeRefused.join(", "),
+      });
+    }
+    // An unreadable FILE outranks refused entries: there were no entries.
+    if (opts.scopeUnreadable !== undefined && opts.scopeUnreadable.length > 0) {
+      this.scopeTrouble = "unreadable";
     }
   }
 
@@ -326,6 +436,10 @@ export class ClaudeCodeAdapter {
    */
   sessionStart(input: HookInput): HookResult {
     return this.guard("session-start", input, (out) => {
+      // ASKED BEFORE THE REGISTRY IS REWRITTEN: `noteSession` rewrites the
+      // record whole, so the flag that says "this session has already been
+      // asked" has to be read while it is still the previous process's answer.
+      const wantsAsk = this.scopeAskDue(input);
       // BEFORE the delivery verdict, because the registry is not delivery: a
       // muted shadow still lives a session, and the tool that writes its dump
       // still has to be able to find out that the session is real.
@@ -368,7 +482,32 @@ export class ClaudeCodeAdapter {
         budget: budget ?? null,
         sentinel: woke.sentinel !== null,
         preface: woke.preface !== null,
+        // THE DURABLE HALF of a registry in trouble (#92 review, F2). It rides
+        // the session-start row this hook already writes, for the reason
+        // `adapter.scope.unreadable` is ring-only: a durable event NAME is a
+        // core change (`AdapterDurableEventName`) and this fact is about
+        // exactly the moment that row describes.
+        scopeRegistry: this.scopeTrouble,
       });
+      // THE QUESTION RIDES BESIDE THE WAKE, NEVER INSIDE IT, and only if it
+      // FITS.
+      //
+      // Beside, because the wake's own accounting is load-bearing: its sentinel
+      // states the bundle's byte count and must be the LAST line of the bundle,
+      // so a truncated wake is detectable from its tail alone (§1 G2, scar
+      // §2.3). Text appended inside the injection would make `bytes`, the
+      // sentinel's number and the tail all disagree — three lies to deliver one
+      // question. `ask` is the field the host delivery already appends after
+      // the injection (`bin/hook.ts#hostDelivery`), which is exactly the
+      // placement asked for and costs the wake nothing.
+      //
+      // And only if it fits, because what the host places in context is the
+      // whole block: the ceiling it reported governs the wake's bytes plus this
+      // one's. With no room the ask is DEFERRED rather than truncated or
+      // smuggled past the limit — the session record is left unmarked, so the
+      // next session in this directory asks instead, and the deferral is an
+      // event rather than a silence.
+      const ask = wantsAsk ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
       return {
         ...out,
         ok: woke.ok,
@@ -376,8 +515,65 @@ export class ClaudeCodeAdapter {
         injection: woke.text,
         bytes: woke.bytes,
         sentinel: woke.sentinel,
+        ask: ask.length === 0 ? null : ask,
       };
     });
+  }
+
+  /**
+   * Is this session owed the first-launch question (G41)?
+   *
+   * Three ways to be owed nothing: the directory has an entry (somebody
+   * answered, whatever they answered); this session was already asked; or this
+   * is an instrument, which has no business asking a person to change a store
+   * it may not write — and, having written no session record, no way to
+   * remember that it did.
+   */
+  private scopeAskDue(input: HookInput): boolean {
+    if (this.scope.mode !== "unset") return false;
+    if (this.observer) {
+      this.emit("adapter.scope.ask.skipped", { reason: "observer" });
+      return false;
+    }
+    if (input.sessionId.length === 0) return false;
+    try {
+      return readSession(this.counterpart.store.dir, input.sessionId)?.askedScope !== true;
+    } catch {
+      // A registry this cannot read is not a reason to ask twice OR to fail a
+      // hook; the quiet answer is the safe one.
+      return false;
+    }
+  }
+
+  /**
+   * Deliver the question, and remember that it was delivered. Returns the block
+   * to append, or the empty string when there was no room for it.
+   */
+  private deliverScopeAsk(input: HookInput, wakeBytes: number, budget: number | undefined): string {
+    if (budget !== undefined && wakeBytes + SCOPE_ASK_BYTES > budget) {
+      this.emit("adapter.scope.ask.deferred", {
+        wakeBytes,
+        budget,
+        need: SCOPE_ASK_BYTES,
+      });
+      return "";
+    }
+    // The mark is a SECOND write of the same phase rather than a field folded
+    // into the first: the first write happens before the delivery verdict (a
+    // muted session still lives one) and the ask is decided after the wake, so
+    // one write cannot carry both facts without moving the other.
+    const marked = recordSession(this.counterpart.store.dir, {
+      sessionId: input.sessionId,
+      scope: input.scope,
+      phase: "start",
+      at: this.nowFn(),
+      askedScope: true,
+      ...(this.configPath === undefined || this.configPath.length === 0
+        ? {}
+        : { config: this.configPath }),
+    });
+    this.emit("adapter.scope.ask", { bytes: SCOPE_ASK_BYTES, recorded: marked !== null });
+    return SCOPE_ASK;
   }
 
   // ── the turn ───────────────────────────────────────────────────────────────
@@ -599,13 +795,30 @@ export class ClaudeCodeAdapter {
    */
   private claim(hook: SessionEndingHook, input: HookInput, out: HookResult): HookResult {
     const turns = input.turns ?? [];
+    // THE STRETCH THIS MEMORY WAS TOLD NOT TO HAVE, sealed before anything is
+    // captured. After a `sealed` the ordinary capture below reads NOTHING_NEW;
+    // after a `failed` it does not run at all, because a cursor that would not
+    // move is a boundary with no way to tell what is new from what was lived
+    // outside this memory — and an append lands before a cursor write does.
+    const seal = this.sealJoinedLate(hook, input, turns);
     // G10/G11 computed side by side: capture takes EVERYTHING conversational
     // including host-injected context; pacing counts only what the user said.
-    const captured = this.counterpart.captureSpans({
-      session: input.sessionId,
-      scope: input.scope,
-      turns,
-    });
+    const captured: CaptureResult =
+      seal === "failed"
+        ? {
+            captured: false,
+            reason: "IO_FAILED",
+            spans: [],
+            deduped: 0,
+            excluded: turns.length,
+            cursorBefore: 0,
+            cursorAfter: 0,
+          }
+        : this.counterpart.captureSpans({
+            session: input.sessionId,
+            scope: input.scope,
+            turns,
+          });
     const record = this.counterpart.boundary({
       session: input.sessionId,
       scope: input.scope,
@@ -625,8 +838,99 @@ export class ClaudeCodeAdapter {
       cursorBefore: captured.cursorBefore,
       cursorAfter: captured.cursorAfter,
       ask: record.askRaised,
+      // The DURABLE half of `adapter.scope.joined-late`: the boundary row is
+      // the one durable name a boundary already has, and this is a fact about
+      // THIS boundary. A row that says `joinedLate: true, captured: false` is
+      // the whole evidence that a stretch was sealed rather than lost.
+      joinedLate: seal !== "none",
     });
     return { ...out, ok: true, reason: captured.reason, spansAppended: captured.spans.length };
+  }
+
+  /**
+   * THE RETROACTIVE-CAPTURE GUARD (PR #92 review, F1) — the one place a
+   * directory that was `off` can still lose its silence.
+   *
+   * A session that lived under `off` or `paused` wrote NOTHING: no session
+   * record, because the hook process returned before a store was opened, and no
+   * span cursor for the same reason. Turn the directory back on mid-session —
+   * `counterparts scope . --resume`, or the `scope` tool, which is deliberately
+   * the one tool that answers in an off directory — and the next boundary sees
+   * a cursor of 0 against a transcript holding the WHOLE off conversation. It
+   * would deposit all of it. Measured on this branch before this guard: six
+   * marker hits in the buffer after the flip.
+   *
+   * So a boundary that finds NO SESSION RECORD and a cursor still at 0 treats
+   * the stretch as somebody else's: it advances the cursor to the end of what
+   * it can see, deposits nothing, and records that it did. What follows the
+   * flip is captured normally, because the cursor now starts there.
+   *
+   * **How the cursor moves without a deposit.** `SpanBuffer.capture` advances
+   * to `turns.length` when nothing in the slice is capture-eligible
+   * (`remember/spans.ts`, the ALL_EXCLUDED arm: "still advance, or the same
+   * tool output is re-scanned forever"). So the seal hands it `turns.length`
+   * PLACEHOLDERS whose source is `tool` — `enters()` refuses them — and the
+   * real turns are never passed to the core at all. That is the only
+   * adapter-reachable way to set a cursor today; a `SpanBuffer.sealCursor` in
+   * core would be the honest one, and is named in the PR as a core ask.
+   *
+   * Three conditions, each load-bearing:
+   *   - **not an observer**: an observer captures nothing and writes no session
+   *     record anyway, and a cursor it cannot write would make the seal a lie.
+   *     An `off → observer → on` session is therefore still sealed at the first
+   *     boundary after it reaches `on` — the observer stretch left no record.
+   *   - **no session record**: the positive evidence that SessionStart ran
+   *     inside this memory. It is what a live session has and an off one does not.
+   *   - **cursor still 0**: a record PRUNED out from under a long-lived session
+   *     (seven days, `sessions.ts`) leaves a cursor behind; that session has
+   *     been captured all along and must not lose the turns since its last
+   *     boundary.
+   */
+  private sealJoinedLate(
+    hook: SessionEndingHook,
+    input: HookInput,
+    turns: readonly HostTurn[],
+  ): "none" | "sealed" | "failed" {
+    if (this.observer) return "none";
+    if (input.sessionId.length === 0) return "none";
+    try {
+      if (readSession(this.counterpart.store.dir, input.sessionId) !== null) return "none";
+      if (this.counterpart.spans.cursor(input.scope, input.sessionId) !== 0) return "none";
+    } catch {
+      // A registry or a cursor this cannot read is not a reason to fail a hook
+      // (§5 G2). The quiet answer here is the ordinary path.
+      return "none";
+    }
+    const placeholders: CapturedTurn[] = turns.map(() => ({
+      role: "user",
+      text: "",
+      source: "tool",
+    }));
+    const sealed = this.counterpart.captureSpans({
+      session: input.sessionId,
+      scope: input.scope,
+      turns: placeholders,
+    });
+    const moved = sealed.cursorAfter === turns.length;
+    this.emit(SCOPE_JOINED_LATE_EVENT, {
+      hook,
+      mode: this.scope.mode,
+      turns: turns.length,
+      cursor: sealed.cursorAfter,
+      sealed: moved,
+      reason: sealed.reason,
+    });
+    // THE ORDER IS THE SAFETY. The cursor moves first and the session record is
+    // written only if it did: a record written beside a cursor that stayed at 0
+    // would make the NEXT boundary read this session as an ordinary one and
+    // deposit the whole off stretch after all. A seal that could not move the
+    // cursor leaves no record either, so the next boundary tries again.
+    if (!moved) return "failed";
+    // The session becomes bindable HERE, at the first boundary inside the
+    // memory — `pre-compact` never calls `noteSession`, and a session with no
+    // record is a session the MCP tools refuse.
+    this.noteSession("boundary", input);
+    return "sealed";
   }
 
   /**
@@ -1176,6 +1480,17 @@ export class ClaudeCodeAdapter {
     }
     this.inFlight.add(key);
     try {
+      // THE SECOND `off` SITE. The entry point already refused before anything
+      // opened, which is where the "no output, no write" guarantee actually
+      // comes from; this is the same predicate at the seam a future caller
+      // reaches, so a library user who constructs an adapter directly inherits
+      // the rule instead of having to remember it (observer-mode G8's shape).
+      // It is silent on purpose — see `bin/hook.ts` — and the ring event is
+      // free here because the ring is already open.
+      if (stanceOfMode(this.scope.mode) === "off") {
+        this.emit("adapter.scope.off", { hook, matched: this.scope.matched });
+        return { ...base, ok: true, reason: "scope-off" };
+      }
       if (this.observer && hook !== "session-start" && hook !== "user-prompt-submit") {
         // An instrument reads (the wake is delivered, recall works) and deposits
         // nothing. The stand-down is logged: silence is indistinguishable from a

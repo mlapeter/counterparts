@@ -481,7 +481,7 @@ still unguarded. `FLAG_HELP.yes` carries the one meaning, so
 already refused the default regardless of `--yes`.
 
 **What still says `--yes` and means something else.** `counterparts-dashboard
-serve --yes` means "open the DEFAULT store" (QUICKSTART §10.1, README). It is
+serve --yes` means "open the DEFAULT store" (QUICKSTART §11.1, README). It is
 read-only and it is not this console, so it was left alone under a ruling about
 commands that write; but it is the last `--yes` with a second meaning, and a
 rename (`--default-store`, say) is the obvious follow-up once the owner rules.
@@ -538,7 +538,7 @@ now say `--dir`. `FLAG_HELP.yes` is true of every command that prints it, which
 today is `migrate-cache` alone: "skip the typed confirmation, and nothing else —
 it never stands in for `--dir`, which `--apply` requires". Each bulk command's
 `COMMAND_BLURB` ends with `--apply requires --dir.` (verify names its three
-flags). QUICKSTART §9's recap and §10.1 carry the exception — §10.1 now lists
+flags). QUICKSTART §10's recap and §11.1 carry the exception — §11.1 now lists
 two, this one and `serve`'s.
 
 **The tests.** `test/cli.test.ts`, "a bulk write names its store with `--dir`,
