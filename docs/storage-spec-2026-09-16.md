@@ -629,3 +629,10 @@ overbuild that part, to the detriment of the actual software that users will use
    once a session ends, plus automatic rotating database snapshots as the real protection against a
    corrupt or wiped database. The lived argument: the self is being recovered from v1 right now because
    its pages and journal were plain files that outlived their system.
+10. **Who runs the nightly page-writer and the fallback** (§10 question 9). The page revision is a tool
+    any properly woken session can call; how a session gets there is the adapter's business. The owner's
+    pick: option 2, the worker starts a real windowless host session once a night, woken by the ordinary
+    session-start hook (no API key, same model as his sessions, literally a session of the self). If that
+    proves impossible or very complex, option 3 to start with (the first session of the next day does the
+    night's work) and improve later. A keyed background call stays the route for hosts that can do
+    neither. Option 2 is unverified until a hermetic probe shows a windowless session runs hooks and tools.
