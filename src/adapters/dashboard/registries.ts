@@ -49,6 +49,7 @@ import {
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
+  SWEEP_WAKE_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
@@ -103,6 +104,7 @@ export type DurableEventName =
   | typeof GATE_DEPOSIT_EVENT
   | typeof RECALL_DECISION_EVENT
   | typeof SWEEP_GATE_EVENT
+  | typeof SWEEP_WAKE_EVENT
   | typeof SLEEP_CYCLE_EVENT
   | typeof SELF_BRIEFING_EVENT
   | typeof RECALL_CREDIT_EVENT
@@ -159,6 +161,7 @@ export const DURABLE_EVENTS = {
   "recall.decision": "a turn decided what came to mind (and what stayed quiet)",
   "revision.pressure": "a belief or an identity element took a credited challenge",
   "sweep.gate": "the crash fallback ran its gate (scopes looked at, every scope's refusal counted by reason, spans swept)",
+  "sweep.wake": "the crash fallback was woken as me before it read a transcript (whether a self went, its size, what the cap trimmed, what was held back)",
   // The two U9 rows: until 2026-09-14 the whole sleep cycle and the whole wake
   // render lived in an in-process ring that died with the worker, so "did the
   // cycle run today, did every phase succeed, what did the wake trim" could not

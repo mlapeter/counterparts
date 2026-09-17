@@ -168,7 +168,11 @@ export interface Lanes {
  *   identity — every identity-band memory, least-recently-rendered first
  *              (`byRotation`); strength, born-day and id only break ties. Protected elements are INCLUDED: §14.1 G2's no-render
  *              rule guards the interpreter's schema slices — the falsification
- *              path — not the owner-facing wake (NOTES.md #2).
+ *              path — not the owner-facing wake (NOTES.md #2). A composition
+ *              that is NOT owner-facing says so with `BoundaryRequest.omit`, and
+ *              the sweep's wake copy passes exactly that predicate: protected and
+ *              confidential rows never reach an interpreter's prompt, by either
+ *              door.
  *   craft    — skill-kind, not already in identity, above the warm floor. The
  *              procedural self is rendered as CONTENT, never a pointer (§1).
  *   threads  — `unresolved` memories: person-scoped first, oldest-opened first.

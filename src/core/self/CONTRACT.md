@@ -3,7 +3,12 @@
 ## 1. Purpose
 
 The autobiographical self: identity documents, the first-person episode journal, and the
-wake briefing that restores a continuous self at session start.
+wake briefing that restores a continuous self — at session start for a live session, and,
+composed read-only against a caller's own budget, for any background writer of memories
+before it reads a transcript (owner ruling 2026-09-17). A composition bound for a model
+call outside this machine stands confidential and protected rows out with
+`BoundaryRequest.omit`; the published bundle and the identity rotation are written by
+`boundary()` and by nothing else, so no such reader can move what a live session wakes to.
 
 ## 2. Brain analog
 
@@ -126,8 +131,10 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
 ## 5. Contract
 
 **Inputs** — identity-kind memories and their strengths; the episode journal; open
-`unresolved` memories; the prospective horizon; the host's reported injection ceiling; the
-lived day; the observer predicate.
+`unresolved` memories; the prospective horizon; the host's reported injection ceiling (or,
+for a read-only composition, the caller's own byte cap); the lived day; the observer
+predicate; optionally a caller's `omit` predicate, which stands rows out before any lane
+sees them.
 **Outputs** — one pre-rendered briefing, published atomically; ingested episode memories;
 recompression proposals and their archive; render and delivery telemetry.
 
@@ -138,6 +145,10 @@ recompression proposals and their archive; render and delivery telemetry.
    *A wake that is a DELIVERY also composes its preface (G3), which costs two meta reads and
    one `COUNT(*)` — the store's size is a delivery-time fact a bundle rendered yesterday
    cannot state. Nothing else, and a non-delivering read still pays one meta row.*
+   **A second caller may compose without publishing** — `build()` ranks and renders and
+   writes nothing, so a background reader pays a scan and changes no durable state: not the
+   published bundle, not the identity lane's `self.rendered.<id>` rotation, not a counter.
+   Pinned by a test that snapshots both across a fallback sweep.
 2. **[M]** The budget governs the composed total, not each lane; the trim order is explicit
    and tested; the budget test runs **at production scale** — fixtures cannot reveal an
    overflow (scar §2.3). **The identity lane has a SHARE of that total** (`IDENTITY_SHARE`):
