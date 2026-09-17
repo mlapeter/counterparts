@@ -54,6 +54,11 @@ import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
+import type { AskReason } from "../../core/self/episodes.js";
+// The what-fired reading, shared with the console's `fired` command and the
+// dashboard's health panel so the three cannot disagree about what "silent"
+// means (constitution 16, the same rule this module already keeps for "healthy").
+import { STATE_MEANING, firedReport } from "../fired.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
@@ -854,13 +859,18 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
  * Three readings, seven calendar days, nothing computed and nothing guessed:
  *
  *   - **The asks, by `outcome`** (`adapter.ask`). `asked` is an invitation that
- *     went out; `capped` is one refused because the session had already spent
- *     its own allowance of asks (`SELF_TUNABLES.MAX_ASKS_PER_SESSION` — per
- *     session since 2026-09-17, never a shared daily ration); `paced` is one
- *     the substance pacer refused. The `reason` field is deliberately NOT what
- *     this counts — it is a finer vocabulary that is being renamed elsewhere,
- *     and a diagnostic keyed on a string in motion is a diagnostic that will
- *     quietly read zero one morning.
+ *     went out; `capped` is one refused because an allowance was spent; `paced`
+ *     is one the substance pacer refused.
+ *
+ *     The capped ones are SPLIT BY `reason`, because two different rules wear
+ *     that one outcome: rows written before 2026-09-17 carry
+ *     `day-chapter-cap` — the old ration four sessions of one day shared, whose
+ *     clock only the worker advanced — and rows since carry `session-ask-cap`,
+ *     this session's own allowance (`SELF_TUNABLES.MAX_ASKS_PER_SESSION`).
+ *     Counting them together let the line blame the per-session allowance for
+ *     refusals it never made, which is a diagnostic naming the wrong door. The
+ *     amber hint therefore keys on the NEW reason alone; the old one is still
+ *     counted and named, because the days it recorded are still in the window.
  *   - **The answers** (`gate.deposit`): what the session handed back.
  *   - **The memories** (`memories.source`): how many live memories of the week
  *     the session wrote itself, against how many were written for it later.
@@ -876,6 +886,17 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
  * the window.
  */
 export const AUTHORSHIP_DAYS = 7;
+
+/** The cap in force. Declared `satisfies AskReason` rather than typed loose, so
+ *  a rename in `self/episodes.ts` fails `tsc` here instead of quietly reading
+ *  zero one morning. */
+const SESSION_ASK_CAP = "session-ask-cap" satisfies AskReason;
+
+/** The cap that WAS in force until 2026-09-17 — one ration shared by every
+ *  session of a lived day. Nothing writes it now and it is not in `AskReason`
+ *  any more, but the rows it wrote are still inside a seven-day window and a
+ *  count that folded them into the new cap would name the wrong door. */
+const DAY_CHAPTER_CAP = "day-chapter-cap";
 
 /** The ceiling on one authorship read. A week of the owner's busiest recorded
  *  day (137 ask decisions) is two orders of magnitude inside this; a read that
@@ -922,16 +943,23 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   const deposits = rowsInWindow(store, GATE_DEPOSIT_EVENT, livedDay, from);
   let asked = 0;
   let capped = 0;
+  let cappedBySession = 0;
+  let cappedByDay = 0;
   let paced = 0;
   let unlabelled = 0;
   for (const row of asks.rows) {
-    switch (str(payloadOf(row), "outcome")) {
+    const payload = payloadOf(row);
+    switch (str(payload, "outcome")) {
       case "asked":
         asked += 1;
         break;
-      case "capped":
+      case "capped": {
         capped += 1;
+        const reason = str(payload, "reason");
+        if (reason === SESSION_ASK_CAP) cappedBySession += 1;
+        else if (reason === DAY_CHAPTER_CAP) cappedByDay += 1;
         break;
+      }
       case "paced":
         paced += 1;
         break;
@@ -954,11 +982,22 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     source: "fallback",
     learnedOnFrom: from,
   });
-  const capBinds = capped > asked;
+  // The NEW reason alone decides the hint: the old shared day cap stopped being
+  // written on 2026-09-17 and its rows only age out of the window, so keying on
+  // the total would go on blaming a rule nothing enforces any more.
+  const capBinds = cappedBySession > asked;
   const sweepWins = fallback > authored;
+  const cappedSplit = [
+    cappedBySession === 0 ? "" : `${String(cappedBySession)} by a session's own allowance`,
+    cappedByDay === 0 ? "" : `${String(cappedByDay)} by the old shared day cap`,
+    capped - cappedBySession - cappedByDay === 0
+      ? ""
+      : `${String(capped - cappedBySession - cappedByDay)} naming no cap`,
+  ].filter((s) => s.length > 0);
   const detail =
     `${from}→${input.today}: the session was invited to write ${String(asked)} ${asked === 1 ? "time" : "times"}, ` +
-    `refused ${String(capped)} because a session had used its allowance and ${String(paced)} for pacing` +
+    `refused ${String(capped)} on a cap${cappedSplit.length === 0 ? "" : ` (${cappedSplit.join(", ")})`} ` +
+    `and ${String(paced)} for pacing` +
     `${unlabelled === 0 ? "" : ` (${String(unlabelled)} older rows name no outcome)`}; ` +
     `it answered with ${String(deposits.rows.length)} ${deposits.rows.length === 1 ? "deposit" : "deposits"}; ` +
     `${String(authored)} live ${authored === 1 ? "memory" : "memories"} of that week ${authored === 1 ? "is" : "are"} its own, ` +
@@ -977,6 +1016,8 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     to: input.today,
     asked,
     capped,
+    cappedBySession,
+    cappedByDay,
     paced,
     unlabelled,
     deposits: deposits.rows.length,
@@ -991,6 +1032,73 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
       "Authorship",
       detail,
       fixes.join(" "),
+      data,
+    ),
+  ];
+}
+
+/**
+ * WHAT FIRED — the roll-call of mechanisms, read from the rows that exist today.
+ *
+ * Constitution 11: done means seen firing, not merged, and the system itself
+ * shows what fired and what did not. Several mechanisms merged in September ran
+ * zero times on the live store and nothing said so; this is the line that would
+ * have said it.
+ *
+ * AMBER on one comparison and never red in this first version: a mechanism that
+ * fired in the PREVIOUS seven days and not once in this one. That is the only
+ * signal here that says something CHANGED — a count of never-fired mechanisms is
+ * a standing fact about the build, and ambering on it every morning would train
+ * its reader to ignore the line that matters.
+ *
+ * The TABLE probes — the five reads that stand in for a mechanism with no event
+ * of its own — cost a query per memory, so they are paid by the console and not
+ * by the session-start reading, which says which mechanisms it did not read
+ * rather than guessing at them.
+ */
+function firedFindings(input: DoctorInput, store: Store): Finding[] {
+  const report = firedReport(store, input.today, { probes: input.budgetMs === undefined });
+  const c = report.counts;
+  const roll =
+    `${report.from}→${report.today}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired this week, ` +
+    `${String(c.quiet)} have gone quiet, ${String(c.never)} have never fired, ${String(c.new)} are too new to grade, ` +
+    `${String(c.blind)} record nothing durable at all` +
+    `${c.disabled + c.retired === 0 ? "" : ` (${String(c.disabled)} stood down, ${String(c.retired)} retired)`}` +
+    `${report.notRead.length === 0 ? "" : `; ${String(report.notRead.length)} whose evidence is a table were not read on this pass`}` +
+    `${report.truncated ? "; counts are a floor — the event read hit its limit" : ""}`;
+  const data: Record<string, string | number | boolean | null> = {
+    from: report.from,
+    to: report.today,
+    firing: c.firing,
+    quiet: c.quiet,
+    never: c.never,
+    new: c.new,
+    blind: c.blind,
+    disabled: c.disabled,
+    retired: c.retired,
+    notRead: report.notRead.join(","),
+    truncated: report.truncated,
+    wentQuiet: report.wentQuiet.join("; "),
+  };
+  if (report.wentQuiet.length === 0) {
+    return [
+      finding(
+        "fired",
+        "green",
+        "Fired",
+        `${roll}. Nothing that fired last week has fallen silent this week.`,
+        "",
+        data,
+      ),
+    ];
+  }
+  return [
+    finding(
+      "fired",
+      "amber",
+      "Fired",
+      `${roll}. Fired last week and not once this week: ${report.wentQuiet.join("; ")}`,
+      `Run: counterparts fired — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
       data,
     ),
   ];
@@ -1170,6 +1278,11 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
     ["vectors", () => vectorFindings(store)],
+    // LAST, and deliberately: it is the widest read here — the whole event log,
+    // plus a pass over the ids when the console asks for the table probes — so
+    // when the session-start budget runs out this is the group it cuts, and the
+    // `Budget` finding below says so rather than leaving a silent gap.
+    ["fired", () => firedFindings(input, store)],
   ];
   const skipped: string[] = [];
   for (const [name, read] of groups) {

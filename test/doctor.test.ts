@@ -404,13 +404,18 @@ describe("doctor — the reading", () => {
   /**
    * FINDING 12'S OWN READING — who did the week's writing, in rows the store
    * already keeps. The two comparisons that go amber are the two the diagnosis
-   * of 2026-09-17 measured: the day cap refusing more asks than it raises, and
-   * the fallback sweep out-writing the author.
+   * of 2026-09-17 measured: the session's own ask allowance refusing more asks
+   * than it raises, and the fallback sweep out-writing the author.
    */
   describe("authorship — a week of who wrote the memory", () => {
-    /** One `adapter.ask` row, on a calendar date, with an outcome. */
-    function ask(s: Store, date: string, outcome: string): void {
-      s.appendEvent({ name: ADAPTER_ASK_EVENT, day: s.livedDay(), payload: { date, outcome } });
+    /** One `adapter.ask` row, on a calendar date, with an outcome and — for a
+     *  `capped` one — the rule that capped it. */
+    function ask(s: Store, date: string, outcome: string, reason?: string): void {
+      s.appendEvent({
+        name: ADAPTER_ASK_EVENT,
+        day: s.livedDay(),
+        payload: reason === undefined ? { date, outcome } : { date, outcome, reason },
+      });
     }
     /** One authored memory, learned on a calendar date. */
     function memory(s: Store, date: string, source: "authored" | "fallback", n: number): void {
@@ -440,7 +445,7 @@ describe("doctor — the reading", () => {
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("green");
       expect(f.detail).toBe(
-        "2026-09-08→2026-09-14: the session was invited to write 3 times, refused 0 because a session had used its allowance and 3 for pacing; " +
+        "2026-09-08→2026-09-14: the session was invited to write 3 times, refused 0 on a cap and 3 for pacing; " +
           "it answered with 3 deposits; 6 live memories of that week are its own, 1 was written for it by the fallback sweep",
       );
       expect(f.fix).toBe("");
@@ -455,16 +460,47 @@ describe("doctor — the reading", () => {
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
       ask(s, "2026-09-14", "asked");
-      for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped");
+      for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped", "session-ask-cap");
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("amber");
-      expect(f.detail).toContain("refused 9 because a session had used its allowance");
+      expect(f.detail).toContain("refused 9 on a cap (9 by a session's own allowance)");
       // The mechanism the hint sends the reader after must be the one that
       // exists: per session since 2026-09-17, never a ration shared by the day.
       expect(f.fix).toContain("A session's own allowance (6 asks)");
       expect(f.fix).not.toContain("day");
       expect(anyRed(doctorFindings(input({ store: s })))).toBe(false);
+    });
+
+    /**
+     * THE SPLIT. Until 2026-09-17 a `capped` row meant the ration four sessions
+     * of one lived day shared (`day-chapter-cap`); since then it means this
+     * session's own allowance (`session-ask-cap`). Both spellings are inside a
+     * seven-day window right now, and a line that added them together blamed the
+     * per-session allowance for refusals it never made.
+     */
+    test("the two caps are counted apart, and only the NEW one can raise the amber", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      ask(s, "2026-09-14", "asked");
+      for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped", "day-chapter-cap");
+      ask(s, "2026-09-14", "capped", "session-ask-cap");
+      // One from before either reason was written at all.
+      ask(s, "2026-09-14", "capped");
+      memory(s, "2026-09-14", "authored", 3);
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.detail).toContain(
+        "refused 11 on a cap (1 by a session's own allowance, 9 by the old shared day cap, 1 naming no cap)",
+      );
+      expect(f.data["capped"]).toBe(11);
+      expect(f.data["cappedBySession"]).toBe(1);
+      expect(f.data["cappedByDay"]).toBe(9);
+      // Nine old-cap refusals against one invitation do NOT amber: that rule is
+      // not in force any more, and its rows only age out of the window.
+      expect(f.severity).toBe("green");
+      expect(f.fix).toBe("");
     });
 
     test("AMBER when the fallback sweep out-writes the author", () => {
@@ -481,7 +517,7 @@ describe("doctor — the reading", () => {
       expect(f.fix).toContain("session-end boundary");
     });
 
-    test("the window is CALENDAR days, and it counts `outcome` rather than `reason`", () => {
+    test("the window is CALENDAR days, and a row with no outcome is counted apart", () => {
       mintStore();
       writeConfig();
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
@@ -490,8 +526,8 @@ describe("doctor — the reading", () => {
       ask(s, "2026-09-06", "asked");
       memory(s, "2026-09-06", "authored", 5);
       // A row from before the single pacer: no `outcome` at all. Counted apart,
-      // never folded into one of the three — and `reason` is not consulted, so
-      // renaming one cannot move these numbers.
+      // never folded into one of the three — a `reason` on its own does not make
+      // a row a refusal.
       s.appendEvent({
         name: ADAPTER_ASK_EVENT,
         day: s.livedDay(),
@@ -503,6 +539,78 @@ describe("doctor — the reading", () => {
       expect(f.data["authored"]).toBe(0);
       expect(f.data["unlabelled"]).toBe(1);
       expect(f.detail).toContain("1 older rows name no outcome");
+    });
+  });
+
+  /**
+   * WHAT FIRED — constitution 11's last sentence, as one line. The amber is the
+   * only thing on it that says something CHANGED; a count of never-fired
+   * mechanisms is a standing fact about the build, and ambering on that every
+   * morning is how a warning teaches its reader to skip it.
+   */
+  describe("fired — the roll-call of mechanisms", () => {
+    test("a store where nothing has fallen silent is green, and the line counts every state", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      s.appendEvent({ name: BOUNDARY_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.severity).toBe("green");
+      expect(f.title).toBe("Fired");
+      expect(f.detail).toContain("2026-09-08→2026-09-14");
+      expect(f.detail).toContain("mechanisms fired this week");
+      expect(f.detail).toContain("record nothing durable at all");
+      expect(f.detail).toContain("Nothing that fired last week has fallen silent this week.");
+      expect(f.data["firing"]).toBe(1);
+      expect(Number(f.data["blind"])).toBeGreaterThan(0);
+      expect(f.fix).toBe("");
+    });
+
+    test("AMBER, by NAME, for a mechanism that fired last week and not once this week", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      // Eight days back: inside the previous window, outside this one.
+      s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { date: "2026-09-06" } });
+      s.appendEvent({ name: BOUNDARY_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
+      const findings = doctorFindings(input({ store: s }));
+      const f = by(findings, "fired");
+      expect(f.severity).toBe("amber");
+      expect(f.detail).toContain("Fired last week and not once this week:");
+      expect(f.detail).toContain("the crash fallback");
+      expect(f.data["wentQuiet"]).toContain("the crash fallback");
+      expect(f.fix).toContain("counterparts fired");
+      // Never red in this first version: a silence is a diagnosis to make, not
+      // an emergency to raise (constitution 11).
+      expect(anyRed(findings)).toBe(false);
+    });
+
+    test("a mechanism that has simply never fired does not raise the amber", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.severity).toBe("green");
+      expect(Number(f.data["never"])).toBeGreaterThan(0);
+    });
+
+    /** The probes cost a query per memory, so the session-start reading does not
+     *  pay for them — and says which mechanisms it therefore did not read. */
+    test("the console reads the tables; a budgeted reading names what it did not", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      expect(by(doctorFindings(input({ store: s })), "fired").data["notRead"]).toBe("");
+      const budgeted = by(
+        doctorFindings(input({ store: s, budgetMs: 10_000 })),
+        "fired",
+      );
+      expect(String(budgeted.data["notRead"])).toContain("protection");
+      expect(budgeted.detail).toContain("were not read on this pass");
     });
   });
 
