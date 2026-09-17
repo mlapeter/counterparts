@@ -433,6 +433,24 @@ export const SEMANTIC_LAG_EVENT = "adapter.semantic.lag";
  * is readable from the store, not inferred. Ids only, never body text.
  */
 export const RECALL_CREDIT_EVENT = "recall.credit";
+/**
+ * ONE ROW PER FLUSH OF THE HEBBIAN BUFFER, written where the buffer was filled.
+ *
+ * Learned association was invisible in exactly the way scar §2.4 names. An edge
+ * is its own record, so nothing in the log ever said a flush had happened — and
+ * a flush that never happened looked identical to a credit pass that had nothing
+ * to wire. The owner's store carried 430 edges, every one stamped with the
+ * import's lived day, through 214 credit passes (mechanism inventory 2026-09-17
+ * §3 S3), and no surface could tell that from a quiet graph.
+ *
+ * Counts and reasons, never text: how many pairs the pass buffered, how many
+ * were drained, how many edge rows landed, how many were blocked at the boundary
+ * or dropped by a failed publish, how many evictions it cost, and the lived day
+ * the rows were stamped with. `members` and `eligible` sit beside them so a row
+ * reading `pairs: 0` says WHICH refusal it was — one memory, or several that
+ * were all frozen, archived or footnoted.
+ */
+export const ASSOCIATE_FLUSH_EVENT = "associate.flush";
 export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
@@ -1520,7 +1538,7 @@ export class Counterpart {
         refuse(errCode(err));
       }
     }
-    if (coactivated.length > 0) this.associate.coactivate(coactivated);
+    if (coactivated.length > 0) this.publishCoactivation(coactivated, day);
     const reason: CreditSummary["reason"] = refs.budgetExceeded || budgetExceeded
       ? "budget-exceeded"
       : credited > 0
@@ -1551,6 +1569,77 @@ export class Counterpart {
       credited,
     });
     return summary;
+  }
+
+  /**
+   * THE HEBBIAN HALF OF THE CREDIT PASS — buffered and published in ONE process.
+   *
+   * `coactivate()` accumulates pair deltas in an in-process `DeltaBuffer` (the
+   * declared durability exemption, `associate/CONTRACT.md` §5 G11) and `flush()`
+   * turns them into edge rows. Both halves run here because a host whose every
+   * hook is a fresh process has nowhere else to put the second one: the credit
+   * pass runs in the hook, the detached worker's `sessionEnd` runs in a
+   * different process, and a buffer does not cross that line. The owner's store
+   * carried 430 edges — every one stamped with the import's lived day — through
+   * 214 credit passes, six of which credited two or more memories (mechanism
+   * inventory 2026-09-17 §3 S3). Publishing at the end of the pass is the whole
+   * of the fix: what this pass buffered becomes rows before the process exits.
+   *
+   * TWO CONTAINMENTS, because this sits inside a Stop hook and a hook may not
+   * fail its host (adapter CONTRACT §5 G2). `flush()` catches its own publish
+   * and reports `failed`, but the plan it builds first reads the graph
+   * (`edgesFrom`, `row`, `deniedIds`), and a throw from there would climb past
+   * the credit pass into the adapter's outer catch and mark a boundary `failed`
+   * whose physics credit had already landed. So the flush is wrapped, and the
+   * durable row is wrapped separately — a lock lost to the detached worker costs
+   * the TRACE, not the pass. Under a lock held long enough both writes fail
+   * together, and then the in-process events are the only record.
+   *
+   * An observer buffers nothing and publishes nothing (`associate/` G7), and the
+   * row is not written either: `appendEvent` refuses at the store's own seam.
+   * The stand-down is evented in process, so it stays distinguishable from a
+   * hook that broke (observer-mode.md G6, scar §2.4).
+   */
+  private publishCoactivation(members: readonly Credited[], day: number): void {
+    const co = this.associate.coactivate(members);
+    let report: FlushReport | null = null;
+    let thrown: string | null = null;
+    try {
+      report = this.associate.flush(day);
+    } catch (err) {
+      thrown = errCode(err);
+    }
+    const eligible = co.members.filter((m) => m.reason === "eligible").length;
+    const data: Record<string, unknown> = {
+      reason: report?.reason ?? "threw",
+      day: report?.day ?? day,
+      members: co.members.length,
+      eligible,
+      buffered: co.buffered,
+      pairs: report?.pairs ?? 0,
+      rows: report?.rows ?? 0,
+      blocked: report?.blocked ?? 0,
+      evicted: report?.evictions.length ?? 0,
+      dropped: report?.dropped ?? 0,
+    };
+    const code = thrown ?? report?.code ?? null;
+    if (code !== null) data["error"] = code;
+    this.emit("counterpart.associate.flush", undefined, {
+      reason: String(data["reason"]),
+      pairs: report?.pairs ?? 0,
+      rows: report?.rows ?? 0,
+      dropped: report?.dropped ?? 0,
+      code,
+    });
+    if (this.observer) {
+      this.emit("counterpart.associate.standdown", undefined, { site: "flush" });
+      return;
+    }
+    try {
+      this.store.appendEvent({ name: ASSOCIATE_FLUSH_EVENT, day: this.store.livedDay(), payload: data });
+    } catch (err) {
+      this.emit("counterpart.associate.flush.unrecorded", undefined, { code: errCode(err) });
+    }
   }
 
   resolveUses(
@@ -1727,8 +1816,12 @@ export class Counterpart {
    *
    * Order is behaviour. The crash fallback runs FIRST, so anything it recovers is
    * inside the boundary that decays it, consolidates it and re-renders the
-   * briefing around it. Then the Hebbian buffer flushes — the DB-is-a-cache
-   * exemption, batched here rather than per turn. Then the cycle, whose LAST
+   * briefing around it. Then the Hebbian buffer flushes — which on a host that
+   * runs this detached finds an empty buffer, because the credit pass publishes
+   * what it buffered before its own process exits (`publishCoactivation`); this
+   * call is the flush for a caller that lives in ONE process, such as the demo
+   * seeder or the replay driver, and the sweep's own credit if it ever gains
+   * one. Then the cycle, whose LAST
    * content write is `self.boundary()` through `briefing.selfRenderer` (SEAMS G),
    * carrying the ceiling the HOST reported and refusing to invent one — minus
    * the room the wake's delivery preface will take at injection. That

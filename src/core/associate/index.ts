@@ -127,6 +127,22 @@ export interface FlushReport {
    *  arm, where it is the chosen direction, counted rather than hidden. */
   readonly dropped: number;
   readonly error?: string;
+  /** The failure's stable CODE — the store's own where it has one, the error's
+   *  name otherwise. `error` above is the message, which is for a human reading
+   *  a report; a durable row takes this instead (store §5 G10). */
+  readonly code?: string;
+}
+
+/** A code for telemetry, never the message: the store's `code` where there is
+ *  one, the error's name otherwise (store §5 G10 — messages can quote prose). */
+function codeOf(err: unknown): string {
+  if (err !== null && typeof err === "object") {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    const name = (err as { name?: unknown }).name;
+    if (typeof name === "string") return name;
+  }
+  return "UNKNOWN";
 }
 
 const EVENT_RING = 200;
@@ -305,7 +321,7 @@ export class Associate {
           pairs: deltas.length,
           rows: rows.length,
           dropped: live.length,
-          error: err instanceof Error ? err.name : "UNKNOWN",
+          error: codeOf(err),
         });
         return {
           reason: "failed",
@@ -318,6 +334,7 @@ export class Associate {
           blocked,
           dropped: live.length,
           error: err instanceof Error ? err.message : String(err),
+          code: codeOf(err),
         };
       }
     }

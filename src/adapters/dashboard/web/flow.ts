@@ -71,7 +71,12 @@ export interface FlowNode {
  */
 export const NO_EVENT_OF_ITS_OWN: Partial<Record<NodeKey, string>> = {
   spans: "Turn capture is silent by design — a captured turn writes no durable event, only a row in the buffer. What it did shows as the buffer's own depth, not as a line in the log.",
-  associate: "Wiring leaves no durable event: an edge IS its own record. The graph's size is the evidence, and it is on the memories page under graph hubs.",
+  // ASSOCIATE HAD AN ENTRY HERE until 2026-09-17, and the reasoning in it was
+  // the trap: "an edge IS its own record" is true of an edge that exists, and
+  // says nothing at all about a wiring pass that wrote none. The buffer was
+  // filled in the hook process and flushed in the detached worker, so nothing
+  // was ever published — and with no event of its own, no surface could tell
+  // that from a graph with nothing to add. `associate.flush` is the node's row.
   prospective: "An intention's state lives in its own row (armed, fired, referenced, expired), not in the event log. The rows are the record.",
   physics: "Physics writes no event of its own, ever. It is arithmetic; the phase that ACTS on a verdict is what records it — so a promotion reads as sleep's line, not as physics'.",
   self: "Identity and episodes are written through the store like anything else. The one name that ever reached the log from here is historical.",
@@ -357,6 +362,10 @@ export const EVENT_NODE = {
   "self.briefing": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
+  // The wiring that follows that decision, in the same pass: what the reply used
+  // together got linked together. `recall.credit` says which memories; this says
+  // what the graph did about it.
+  "associate.flush": "associate",
   // Retrieval: the decision, and the adapter's composed injection.
   "recall.decision": "recall",
   "adapter.recall": "recall",

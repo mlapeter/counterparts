@@ -283,6 +283,30 @@ export const NARRATORS = {
     }
     return calm("A session ended; its replies used nothing I had brought to mind, so nothing got stronger.");
   },
+  "associate.flush": (t) => {
+    const rows = n(t, "rows") ?? 0;
+    const pairs = n(t, "pairs") ?? 0;
+    const eligible = n(t, "eligible") ?? 0;
+    const evicted = n(t, "evicted") ?? 0;
+    const reason = s(t, "reason");
+    if (reason === "failed" || reason === "threw") {
+      return amber(
+        `I could not write down what the last boundary wired together (${s(t, "error") ?? "no code"}); ${n(t, "dropped") ?? 0} ${(n(t, "dropped") ?? 0) === 1 ? "link" : "links"} was lost, and the memories themselves are untouched.`,
+      );
+    }
+    if (reason === "observer") return calm("I watched a boundary wire nothing: an instrument leaves the graph as it found it.");
+    if (rows > 0) {
+      const tail = evicted > 0 ? `, and ${evicted} weaker ${evicted === 1 ? "link" : "links"} made way for them` : "";
+      return notable(
+        `${pairs} ${pairs === 1 ? "pair" : "pairs"} of memories that were used together got more connected${tail}.`,
+      );
+    }
+    return calm(
+      eligible < 2
+        ? `Only ${eligible} ${eligible === 1 ? "memory" : "memories"} could be wired at that boundary, and one thing cannot be linked to anything.`
+        : "A boundary had memories to wire and nothing new came of it.",
+    );
+  },
   "sweep.gate": (t) => {
     const scopes = n(t, "scopes") ?? 0;
     const ran = n(t, "ran") ?? 0;
@@ -636,6 +660,9 @@ export const REF_KIND = {
   "sleep.cycle": "none",
   "self.briefing": "none",
   "recall.credit": "none",
+  // A flush describes a SET of pairs, not one memory. The ids stay in the edge
+  // rows, where they are the record; the row carries counts.
+  "associate.flush": "none",
 } as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
 
 function subjectOf(store: Store, row: EventRow): string | null {

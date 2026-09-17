@@ -24,6 +24,7 @@ import {
   SWEEP_GATE_EVENT,
   surfaceSetFields,
 } from "../src/core/counterpart.js";
+import { TUNABLES as ASSOCIATE } from "../src/core/associate/index.js";
 import { SWEEP_REASONS, TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
@@ -533,6 +534,211 @@ describe("the root binds the seams a caller would otherwise have to remember", (
     await c.sessionEnd({ date: "2026-08-27", budgetBytes: BUDGET_BYTES });
     expect(c.associate.pendingDeltas()).toEqual([]);
     expect(c.associate.linked(a, b)).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The credit pass PUBLISHES what it buffered — the process split that made
+// learned association a no-op for the whole parallel run
+// ═══════════════════════════════════════════════════════════════════════════
+describe("co-activation is flushed in the process that buffered it", () => {
+  /** N memories a credit pass can address by id. Bodies are unique across the
+   *  whole suite — an identical body is an identical content hash, and two
+   *  fixtures that quietly become one id make a pair that cannot be linked. */
+  let minted = 0;
+  function memories(c: Counterpart, n: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i += 1) {
+      minted += 1;
+      ids.push(
+        c.store.put({
+          type: "memory",
+          kind: "fact",
+          body: `Association fixture number ${minted}: a fact with enough body to be an ordinary memory and nothing more.`,
+          salience: { novelty: null, relevance: 0.7, emotional: 0.4, predictive: 0.6 },
+          physics: { birthDay: 0, lastUsedDay: 0 },
+        }),
+      );
+    }
+    return ids;
+  }
+
+  /** The one row the flush leaves, or `undefined` if it left none. */
+  function flushRow(c: Counterpart): Record<string, unknown> | undefined {
+    const rows = c.store.eventLog({ name: "associate.flush" });
+    const last = rows[rows.length - 1];
+    return last === undefined ? undefined : (JSON.parse(last.payload ?? "{}") as Record<string, unknown>);
+  }
+
+  test("a pass that credits two memories leaves edge rows IN THE SAME PROCESS, dated today", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    const today = c.store.livedDay();
+
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+
+    expect(summary.credited).toBe(2);
+    // No `sessionEnd`, no worker, no second process: the rows are already here.
+    expect(c.associate.pendingDeltas()).toEqual([]);
+    expect(c.associate.linked(a, b)).toBe(true);
+    const edge = c.store.edgesFrom(a).find((e) => e.dst === b);
+    expect(edge?.last_day).toBe(today);
+    expect(c.store.edgesFrom(b).find((e) => e.dst === a)?.last_day).toBe(today);
+  });
+
+  test("the pass leaves its own row: counts, reasons, and never an id", () => {
+    const c = brain();
+    const [a, b, d] = memories(c, 3) as [string, string, string];
+    c.store.advanceClock("2026-08-26");
+
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b, d] });
+
+    const row = flushRow(c);
+    expect(row?.["reason"]).toBe("flushed");
+    expect(row?.["members"]).toBe(3);
+    expect(row?.["eligible"]).toBe(3);
+    expect(row?.["pairs"]).toBe(3); // three memories, three pairs
+    expect(row?.["rows"]).toBe(6); // symmetry is written, not read backwards
+    expect(row?.["dropped"]).toBe(0);
+    expect(row?.["evicted"]).toBe(0);
+    expect(row?.["day"]).toBe(c.store.livedDay());
+    // Content-by-reference: the row carries counts, and the ids live in the
+    // edge rows where they ARE the record.
+    const text = JSON.stringify(row);
+    for (const id of [a, b, d]) expect(text).not.toContain(id);
+  });
+
+  test("a single-memory pass wires nothing AND SAYS WHY", () => {
+    const c = brain();
+    const [a] = memories(c, 1) as [string];
+    c.store.advanceClock("2026-08-26");
+
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: [a] });
+
+    expect(summary.credited).toBe(1);
+    expect(c.store.edgesFrom(a)).toEqual([]);
+    const row = flushRow(c);
+    // `nothing-buffered` alone cannot tell "one memory" from "several, all
+    // frozen": the pair of counts beside it is what settles that (scar §2.4).
+    expect(row?.["reason"]).toBe("nothing-buffered");
+    expect(row?.["members"]).toBe(1);
+    expect(row?.["eligible"]).toBe(1);
+    expect(row?.["buffered"]).toBe(0);
+    expect(row?.["rows"]).toBe(0);
+  });
+
+  test("an observer wires nothing and writes no row", () => {
+    const writer = brain();
+    const [a, b] = memories(writer, 2) as [string, string];
+    writer.store.advanceClock("2026-08-26");
+    writer.close();
+
+    const watcher = brain({ observer: true });
+    const summary = watcher.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+
+    // The stand-down is upstream of the graph: `resolveUse` credits nothing
+    // under an observer, so there is no credited set to wire in the first place
+    // — and the flush's own refusal (`associate/` G7) never has to fire.
+    expect(summary.credited).toBe(0);
+    expect(watcher.associate.pendingDeltas()).toEqual([]);
+    expect(watcher.store.edgesFrom(a)).toEqual([]);
+    expect(watcher.store.edgesFrom(b)).toEqual([]);
+    expect(watcher.store.eventLog({ name: "associate.flush" })).toEqual([]);
+  });
+
+  test("a publish that fails costs the links, not the credit — and leaves the reason", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    const store = c.store as unknown as { linkMany: (rows: readonly unknown[]) => void };
+    store.linkMany = () => {
+      throw new Error("box 2 is unavailable");
+    };
+
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+
+    // The hook does not fail the host, and physics credit already landed.
+    expect(summary.reason).toBe("credited");
+    expect(summary.credited).toBe(2);
+    expect(c.store.physicsOf(a).uses).toBe(1);
+    const row = flushRow(c);
+    expect(row?.["reason"]).toBe("failed");
+    expect(row?.["dropped"]).toBe(1);
+    expect(row?.["rows"]).toBe(0);
+    expect(row?.["error"]).toBe("Error");
+    // Not restored: bounded loss is the chosen direction (contract G4).
+    expect(c.associate.pendingDeltas()).toEqual([]);
+  });
+
+  test("a throw from the PLAN — outside the publish's own guard — is contained too", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    // `planFlush` reads the graph before `linkMany` is ever reached, and that
+    // read is outside `flush()`'s inner try: uncontained, it would climb into
+    // the adapter and mark a boundary `failed` whose credit had landed.
+    const store = c.store as unknown as { edgesFrom: (id: string) => unknown[] };
+    store.edgesFrom = () => {
+      throw new Error("the cache is gone");
+    };
+
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+
+    expect(summary.reason).toBe("credited");
+    const row = flushRow(c);
+    expect(row?.["reason"]).toBe("threw");
+    expect(row?.["error"]).toBe("Error");
+  });
+
+  test("THE SHAPE OF THE BUG: the edges survive the process that made them", () => {
+    const first = brain();
+    const [a, b] = memories(first, 2) as [string, string];
+    first.store.advanceClock("2026-08-26");
+    const summary = first.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    expect(summary.credited).toBe(2);
+    // The hook exits. Everything in the delta buffer dies with it.
+    first.close();
+
+    const next = brain();
+    expect(next.associate.linked(a, b)).toBe(true);
+    expect(next.store.edgesFrom(a).map((e) => e.dst)).toContain(b);
+  });
+
+  test("what the flush costs a Stop: ten memories credited together, and the eviction path", () => {
+    const c = brain();
+    const ids = memories(c, 10);
+    c.store.advanceClock("2026-08-26");
+
+    const started = performance.now();
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: ids });
+    const elapsed = performance.now() - started;
+
+    expect(summary.credited).toBe(10);
+    expect(flushRow(c)?.["pairs"]).toBe(45); // 10 choose 2
+    expect(flushRow(c)?.["rows"]).toBe(90);
+    // A budget, not a benchmark: this runs inside a Stop hook, which shares
+    // 1.5 s with every other hook on that event. Loose enough not to flake on
+    // a loaded machine, tight enough to catch an order-of-magnitude change.
+    expect(elapsed).toBeLessThan(750);
+
+    // THE EVICTION PATH, on the same store: a node already past its live-edge
+    // cap takes one more partner, so the plan has to evict as well as write.
+    // A NEW DAY, because physics credits a memory once per lived day and a hub
+    // that cannot be credited again cannot be co-activated again either.
+    c.store.advanceClock("2026-08-27");
+    const hub = ids[0] as string;
+    const spokes = memories(c, ASSOCIATE.MAX_EDGES_PER_NODE);
+    c.store.linkMany(
+      spokes.map((dst) => ({ src: hub, dst, weight: 0.5, day: c.store.livedDay() })),
+    );
+    const newcomer = (memories(c, 1) as [string])[0];
+    const evictStarted = performance.now();
+    c.creditReferences("s2", { assistantTurns: [], expansions: [hub, newcomer] });
+    const evictElapsed = performance.now() - evictStarted;
+
+    expect((flushRow(c)?.["evicted"] as number) > 0).toBe(true);
+    expect(evictElapsed).toBeLessThan(750);
   });
 });
 
