@@ -1,6 +1,41 @@
 # Handoff — resume here
 
-## 2026-09-17, morning — read this first: #116 merged; the owner's corrections; nothing built
+## 2026-09-17, evening — read this first: the walk happened, step 2 is LIVE, the rebuild order is set
+
+**Where the record is.** `docs/storage-spec-2026-09-16.md` §15 (ten working defaults agreed in conversation; defaults,
+not stone) and §16 (the rebuild in order, and how the step-2 batch went). Inputs saved beside it:
+`docs/finding-12-diagnosis-2026-09-17.md`, `docs/mechanism-inventory-2026-09-17.md`,
+`docs/adversarial-review-step2-2026-09-17.md`, `docs/contracts-sweep-trial-physics-2026-09-17.md`.
+
+**The owner's steer, which outranks everything in the spec:** design from a brand-new user's timeline on a blank
+store; bringing v1's self over is its own later session through whatever owner door the product gives anyone. And:
+keep decisions light. Record what is true for now; do not harden a current arrangement into a never or an always.
+
+**Live now (master and the shared checkout `5fcc2af`):** the constitution amendments (#118); the authorship batch
+(#119 the ask per session, #120 one capture scope per session plus a doctor Authorship section, #121 the fallback
+woken as the self, merged through #122 with an end-to-end test) and its review fixes (#123). Combined suite 2143
+pass, 0 fail. `doctor` after deploy: 13 green, 1 amber. The amber is the new Authorship section reading the seven
+days BEFORE the deploy (26 asks raised, 199 refused, 873 fallback memories to 117 authored); it is the baseline to
+watch fall. Its wording blames the new per-session allowance for refusals the old day cap made; a small follow-up
+should split them by reason.
+
+**The parallel run's clock is no longer maintained** (owner, 2026-09-17; entry at the top of
+`docs/PARALLEL-RUN-STATUS.md`). No G12 declarations, no `restart.ts`. What stays for a core batch: an adversarial
+review before deploy, then `tools/deploy-checkout.sh`, then `doctor`.
+
+**Next, in the agreed order (spec §16):** step 1, the "what fired" view, with the inventory as its input (24 of 40
+mechanisms seen firing, 10 never, 6 blind; the clear wiring faults are learned associations lost between two
+processes, the wake-delivery check that never fires, and prospective memory with no producer; refusals are almost
+never recorded durably). Then the floor, the self page, the handoff pointer, the fresh store. The contracts sweep
+runs beside it: the physics trial is done (seven owner rulings waiting); modules the rebuild reshapes get their
+contracts rewritten then, not swept now.
+
+**Open with the owner:** the interim identity hook (his decision on 2026-09-18; the recipe is in the 09-17
+conversation, and the host's classifier will not let a session install it); the seven physics rulings; to verify
+on the first NEW session after this deploy: the memory server reports `scope source: project`. Recorded for a
+later fix, pre-existing: resuming a session in an `on` directory captures transcript lived in an `off` one.
+
+## 2026-09-17, morning — read second: #116 merged; the owner's corrections; nothing built
 
 **State.** PR #116 merged (`54e419d`), shared checkout deployed there, docs only, no restart. **Step 1 of the
 owner's sequence is done:** the constitution amendments are PR #118 (branch `constitution/2026-09-17`; lines 4, 6,
@@ -35,7 +70,7 @@ are swept as crashed (535 of the 888), and a sweep chunk writes ten memories whe
 asked, the model answered every time. This is the rebuild's "fix the plumbing" item made specific; the cap and
 the crash predicate are rulings for the owner, not yet raised with him.
 
-## 2026-09-16, evening — read second: the architecture conversation happened; nothing built
+## 2026-09-16, evening — read third: the architecture conversation happened; nothing built
 
 **Where the record is.** The owner's architecture session (Fable) ran in worktree
 `.claude/worktrees/storage-spec` on branch `docs/storage-spec-2026-09-16` (this PR) and produced
@@ -80,7 +115,7 @@ seeding is needed regardless; the three-way identity comparison is prepped, not 
 **Process for the next session:** work in a worktree, never the live checkout; agents on Opus; the spec is the
 record, so append to it rather than re-deriving; peer sessions can be reached with ListAgents/SendMessage.
 
-## 2026-09-16, close — read third
+## 2026-09-16, close — read fourth
 
 **Everything is committed, merged, deployed and recorded. No PR is open, no worktree holds work.** Master and the
 shared checkout are at the sha of this docs merge (`doctor` Checkout GREEN). The day's record is the 2026-09-16

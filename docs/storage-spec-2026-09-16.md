@@ -577,3 +577,122 @@ conversations until the new store is live. The assistant's call: **skip it, with
 tripwire.** The compression of the v1 pages is the same writing act as seeding the new
 store's first core (question 13); do it once, there, through the owner door with
 versioning, not twice. If the new store is not live within about a week, do the hook.
+
+## 15. Working defaults agreed in conversation, 2026-09-17 (stratum 1; defaults, not stone)
+
+The owner's steer for the whole walk: design from a brand-new user's timeline on a blank store (day 1,
+day 2, day 30). Bringing v1's self over is its own, later session, through whatever owner door the
+product gives anyone; nothing special is built for it. His worry, in his words: "we overfocus and
+overbuild that part, to the detriment of the actual software that users will use."
+
+1. **A two-part "who I am" page for a new user.** A stable core that has to be earned and may honestly
+   say "still forming", plus a "lately" part written from recent memories about itself, available from
+   day 2. The owner: fine for now, "don't enshrine it in stone", the bootstrap of a core identity can be
+   improved later.
+2. **The authorship ask counts per session, not per day across sessions**, and keeps the rule that a
+   session must have done real work first. His general rule: any cap found cutting off large chunks of
+   things gets reconsidered, by raising it or finding a better way. Corollary for the rebuild (the
+   assistant's, from line 11): a cap reports what it refused where the owner will see it; the 196
+   refusals sat in the events table unseen.
+3. **The fallback is woken as the self, like the sleeper.** Any background writer of memories gets as
+   much of the self as is reasonable before it reads a transcript, the same reasoning as option D, so
+   what it writes is not a stranger's paraphrase. Not in this spec before today; the owner raised it
+   and the assistant had been holding the same thought. It stays labeled as fallback so the ratio of
+   authored to fallback remains visible.
+4. **At wake the self is a chunk of prose, like bansai's, derived from the database.** It replaces the
+   rotating list of identity memories. The owner: polishing the new-user start is a later round (a few
+   brief interview questions, a review of past conversations, or blank and forming naturally with the
+   "still forming" and "lately" parts).
+5. **Who writes it: the simple version of option D.** One call per night, woken as the self, reads the
+   day's memories and revises the page in place; old versions kept, a size limit, and the dashboard shows
+   each night's change. The six safeguards in §6.3 are NOT built up front (line 15); one is added only
+   when the page is seen to drift.
+   The owner confirmed the reading: the nightly call WRITES the page as prose from the memories in the
+   database and the page is saved there with its versions; it is not a template filled from rows.
+6. **An automatic handoff note per directory.** Today the owner says "prep a handoff so we can pick up
+   from here in a new session" and the session writes one; he wants that to happen on its own. One more
+   field in the session-end ask; the body lives in the database; session start in that directory shows
+   only a short pointer (a line or two, expandable by id) to keep context small, the way Claude Code's
+   own file memory shows an index line and loads the file on demand. Size limit, expiry after a couple
+   of weeks of use, never becomes identity or long-term memory. To watch in real use: duplication with a
+   host's own memory where the host has one.
+7. **What earns a page besides the self.** A person or project earns a page by coming up again across
+   several separate days; the owner can add or remove one by hand; the owner's own page exists from day
+   one. Anything mentioned once stays a row and never gets a page.
+8. **The journal stays a diary (this settles §10 question 1 for now).** Chapters are kept word for
+   word, not rewritten and not deleted; what fades is how readily an old one surfaces. The owner: leave
+   them basically as they are; there may be more ideas for using them later, and they are great for
+   debugging and looking back. A named deviation from line 3, under line 9.
+9. **Everything lives in the database for now; markdown is an export** (§10 question 2), and this may
+   evolve. Raised by the owner, recommended by the assistant, and the OWNER SAID YES (2026-09-17: from his
+   side it is what it was before, a folder of markdown journal files): the journal ALSO gets
+   saved as markdown files as well (today the database is the working copy and nothing reads the files
+   back; that is how it is for now, NOT a rule: the owner expects to use the journals in more ways soon,
+   so nothing here forbids reading them), which is safe to do because chapters never change
+   once a session ends, plus automatic rotating database snapshots as the real protection against a
+   corrupt or wiped database. The lived argument: the self is being recovered from v1 right now because
+   its pages and journal were plain files that outlived their system.
+10. **Who runs the nightly page-writer and the fallback** (§10 question 9). The page revision is a tool
+    any properly woken session can call; how a session gets there is the adapter's business. The owner's
+    pick: option 2, the worker starts a real windowless host session once a night, woken by the ordinary
+    session-start hook (no API key, same model as his sessions, literally a session of the self). If that
+    proves impossible or very complex, option 3 to start with (the first session of the next day does the
+    night's work) and improve later. A keyed background call stays the route for hosts that can do
+    neither. Option 2 is unverified until a hermetic probe shows a windowless session runs hooks and tools.
+
+## 16. The rebuild, in order (agreed 2026-09-17; the everyday path first)
+
+1. **A "what fired" view first**: per mechanism, when it last fired, how often, and what any cap refused;
+   doctor and the dashboard read the same rows. The list of mechanisms is the same "is it alive"
+   inventory the contracts sweep needs (the physics trial's method note), so that pass is used twice.
+2. **The authorship plumbing** — the owner said ship it EARLY, on the current floor (it does not depend
+   on storage). Built 2026-09-17 by three agents on separate branches; deploy waits for his word:
+   - the ask counts per session (`fix/ask-per-session`; six per session behind the AND pacer);
+   - one capture scope per session (`fix/one-scope-per-session`), with the privacy mode taken as the
+     more restrictive of the session's start directory and the event's directory, plus a doctor section
+     (asks raised / refused / paced, authored against fallback, last seven days);
+   - the fallback woken as the self (`feat/fallback-woken-as-self`).
+3. **The floor**: memories, versions and the journal into database rows; WAL and a busy timeout; rotating
+   snapshots (optionally to a second location); export writes pages and the journal as markdown; the
+   journal also saved as markdown files (the owner said yes; kept light, see §15 item 9).
+4. **The self page**: two parts, kept in the database with versions; a page-revision tool; the nightly
+   runner (a windowless host session first); the page replaces the list at wake; the dashboard shows the
+   page and each night's change; people and project pages by the earning rule.
+5. **The per-directory handoff pointer.**
+6. **Fresh store**; retire the parallel-run scaffolding and the tests it pinned into core.
+
+Left out on purpose: the six safeguards of §6.3 (added only on observed drift), any bulk import, bringing
+v1's self over and the new-user bootstrap polish (their own later sessions).
+
+**Found while preparing step 2 (2026-09-17), both measured on the live store, counts only:**
+- **The scope split.** `hookScope` prefers the hook payload's `cwd`, which follows the agent's shell. One
+  session that day had its spans filed under four scope directories (1, 7, 5 and 1 assistant spans) and
+  its coverage marks in one, because the MCP server's scope is fixed at launch and a deposit covers only
+  its own scope. The uncovered three would have been swept as a crashed session although the session
+  answered every ask. This is the mechanism behind the worktree scopes' 298 fallback and 0 authored, and
+  it is larger than the per-scope `session-end` hazard the diagnosis named.
+- **Credit for use is firing** since the 09-16 merges: 204 `recall.credit` rows, the latest the same day,
+  and four memories born in v2 with `uses > 0` and `reinforced_days > 0`. Finding 12's "zero ever used"
+  was true through 09-16 and is no longer. Verify-only, nothing to build.
+- **The twelve-hour crashed rule is left alone for now** (line 15). The adapter's live-session registry is
+  also silence-based (a four-hour window after the last boundary), so it cannot tell an idle open
+  terminal from a dead one; with per-session asks and one scope, what is left to sweep from an idle
+  session is a small tail. Measure with the doctor section before adding a process-liveness check.
+- **Option 2 for the nightly runner is feasible on paper** (docs check, no session started): a windowless
+  `claude -p` session runs SessionStart hooks and loads MCP servers; one tool can be pre-approved with
+  `--allowedTools` and `--permission-mode dontAsk`; it authenticates with the subscription login, and the
+  thing to test from a background process is keychain access (`claude setup-token` is the documented
+  route for unattended runs). The hermetic probe is unrun; it belongs to step 4.
+
+**The step-2 batch, as it went (2026-09-17).** PRs #119, #120, #121 merged through #122 (master `907c085`), with
+an end-to-end test (a session that moved into a worktree, answered, then sat idle leaves the fallback nothing to
+write); combined suite 2136 pass, 0 fail. NOT deployed at merge: the project's rule for core changes asks for
+an adversarial review first. That review (Opus, read-only, with proof tests) found no blocker and no privacy
+or egress hole on the owner's store, and one thing to fix before deploy: when every identity row is omitted
+from the fallback's wake, the composer's day-0 line told the fallback "no identity has formed here yet" and
+named the identity core. Also: the new doctor section still described the deleted day cap; the wake was
+composed on every quiet worker run (made lazy); `mostRestrictiveVerdict` had no direct test (all 25 pairs were
+verified correct). Pre-deploy checks on the live store: the only session at or over six asks died on 09-04;
+none of the 20 identity rows is protected. Pre-existing and NOT from this batch, recorded for a later fix:
+resuming a session in an `on` directory captures transcript lived in an `off` one. To verify on the first
+restarted session after deploy: the memory server reports `scope source: project`.
