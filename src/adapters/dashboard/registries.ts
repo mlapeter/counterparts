@@ -30,6 +30,7 @@ import type { PressureIncrement } from "../../core/schemas/index.js";
 import type { Band, Kind } from "../../core/types.js";
 import {
   ADAPTER_ASK_EVENT,
+  ASSOCIATE_FLUSH_EVENT,
   AUTHORSHIP_ASK_EVENT,
   BOUNDARY_EVENT,
   CHECKOUT_EVENT,
@@ -108,6 +109,7 @@ export type DurableEventName =
   | typeof SLEEP_CYCLE_EVENT
   | typeof SELF_BRIEFING_EVENT
   | typeof RECALL_CREDIT_EVENT
+  | typeof ASSOCIATE_FLUSH_EVENT
   | typeof BAND_TRANSITION_EVENT
   | typeof PRIMACY_STANDDOWN_EVENT
   | typeof PRIMACY_DELIVER_EVENT
@@ -169,6 +171,10 @@ export const DURABLE_EVENTS = {
   "sleep.cycle": "the consolidation cycle ran (every phase by name, with its status, and the run's counts)",
   "self.briefing": "the wake briefing was re-rendered (what rendered per lane, and which elements the trim dropped)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
+  // Learned association had no line in the log at all: an edge is its own
+  // record, so a flush that never happened read exactly like a credit pass with
+  // nothing to wire (2026-09-17, mechanism inventory §3 S3).
+  "associate.flush": "the memories one boundary credited together were wired to each other (pairs buffered, edge rows written, evictions)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

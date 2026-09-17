@@ -82,11 +82,14 @@ trap) or a lock file in the data dir (which `Store.assertLayout()` would reject 
 an unclassified top-level path, correctly). Both are worse than declaring the gap.
 **Real fix:** a lock the operational database can hold — a `locks` table with an
 owner token and an expiry, taken and released inside box 2's transaction, or an
-advisory `BEGIN IMMEDIATE` seam exposed by the store. Until then: **one flusher per
-data dir**, and note that the failure mode of two flushers is not corruption
-(`linkMany` is one transaction and rows are absolute) but a lost-update race between
-two absolute writes — which lands in the same "bounded loss, never doubling"
-tolerance the contract already accepts.
+advisory `BEGIN IMMEDIATE` seam exposed by the store. Until then there are **as many
+flushers as there are boundaries**: since 2026-09-17 the credit pass publishes what
+it buffered before its own process exits (`counterpart.ts#publishCoactivation`), so
+two concurrent sessions in one data dir are two flushers by construction. The failure
+mode of two flushers is not corruption (`linkMany` is one transaction and rows are
+absolute) but a lost-update race between two absolute writes — which lands in the
+same "bounded loss, never doubling" tolerance the contract already accepts, and which
+is now the ordinary case rather than the warned-against one.
 
 ## 4. Nobody calls `retargetOnSupersede` — supersede does not know about edges
 
@@ -108,12 +111,17 @@ successor cold**, which is the scar, live again.
 from the other side).
 **Needed:** `coactivate(members)` takes `{id, tier}` — the tier being §9.2's
 retrospective verdict, resolved with the reply known.
-**Have:** nothing decides those tiers yet. `Recall.resolveUse(sessionId, id, tier)`
-routes an already-decided tier to physics; associate needs the same decided list.
-**Real fix:** one boundary step that resolves the tiers once and hands the SAME list
-to both — `recall.resolveUse` per memory and `associate.coactivate` for the set,
-then `associate.flush()` at the session boundary. Two independent resolutions would
-be two clocks.
+**Have, since the credit seam landed:** `Counterpart.creditReferences` resolves the
+tiers once (`recall/reference.ts`) and hands the SAME list to both halves —
+`recall.resolveUse` per memory, `associate.coactivate` for the set. Two independent
+resolutions would be two clocks, and there is one.
+**And the flush goes with it (2026-09-17).** `coactivate` buffers in process and
+`flush()` publishes, so the two must run in the same process or nothing is ever
+written. Deferring the flush to the session boundary is only safe where the boundary
+is the same process; on this host every hook is a fresh one, and for the whole of
+the parallel run the buffer died at hook exit. The credit pass now flushes what it
+buffered (`counterpart.ts#publishCoactivation`), and `sessionEnd`'s flush is what a
+single-process caller still gets.
 
 ## 6. `store.edgesFrom(src)` is the only edge read
 
