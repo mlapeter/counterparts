@@ -577,3 +577,25 @@ conversations until the new store is live. The assistant's call: **skip it, with
 tripwire.** The compression of the v1 pages is the same writing act as seeding the new
 store's first core (question 13); do it once, there, through the owner door with
 versioning, not twice. If the new store is not live within about a week, do the hook.
+
+## 15. Working defaults agreed in conversation, 2026-09-17 (stratum 1; defaults, not stone)
+
+The owner's steer for the whole walk: design from a brand-new user's timeline on a blank store (day 1,
+day 2, day 30). Bringing v1's self over is its own, later session, through whatever owner door the
+product gives anyone; nothing special is built for it. His worry, in his words: "we overfocus and
+overbuild that part, to the detriment of the actual software that users will use."
+
+1. **A two-part "who I am" page for a new user.** A stable core that has to be earned and may honestly
+   say "still forming", plus a "lately" part written from recent memories about itself, available from
+   day 2. The owner: fine for now, "don't enshrine it in stone", the bootstrap of a core identity can be
+   improved later.
+2. **The authorship ask counts per session, not per day across sessions**, and keeps the rule that a
+   session must have done real work first. His general rule: any cap found cutting off large chunks of
+   things gets reconsidered, by raising it or finding a better way. Corollary for the rebuild (the
+   assistant's, from line 11): a cap reports what it refused where the owner will see it; the 196
+   refusals sat in the events table unseen.
+3. **The fallback is woken as the self, like the sleeper.** Any background writer of memories gets as
+   much of the self as is reasonable before it reads a transcript, the same reasoning as option D, so
+   what it writes is not a stranger's paraphrase. Not in this spec before today; the owner raised it
+   and the assistant had been holding the same thought. It stays labeled as fallback so the ratio of
+   authored to fallback remains visible.
