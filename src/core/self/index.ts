@@ -61,6 +61,7 @@ import type {
   LaneName,
   Lanes,
   Ranked,
+  Scanned,
   SchemaBytesReport,
 } from "./identity.js";
 import {
@@ -163,6 +164,22 @@ export interface BoundaryRequest extends BriefingRequest {
   readonly identityCore?: IdentityCoreSpec;
   /** Override the id → statement seam (tests, replay, the dashboard). */
   readonly resolve?: Resolve;
+  /**
+   * Stand an active memory OUT of this composition, before any lane sees it.
+   *
+   * The owner's own wake never passes one — it is the owner-facing surface and
+   * shows everything the store holds (`identity.ts#rankLanes`). It exists for a
+   * composition that will LEAVE THE MACHINE: `Counterpart.sweepFallback` wakes
+   * the crash-fallback interpreter with the self before it reads a transcript,
+   * and that prompt is an egress surface, so confidential and protected rows are
+   * omitted there (constitution 6; the same stand-aside `schemas/` makes for the
+   * interpreter's cards, §14.1 G2). The predicate lives with the CALLER because
+   * the confidentiality class is `recall/`'s to read, not this module's.
+   *
+   * Filtering here rather than after ranking is deliberate: an omitted row must
+   * not occupy a lane slot or a byte of the budget it will never render into.
+   */
+  readonly omit?: (s: Scanned) => boolean;
 }
 
 export type PublishReason = "published" | "observer";
@@ -293,7 +310,10 @@ export class Self {
    * callable — a private half is a promise, not a seam.
    */
   build(req: BoundaryRequest): BriefingResult {
-    const scanned = scanActive(this.store, req.day);
+    const all = scanActive(this.store, req.day);
+    // `omit` (see the field): the owner's wake passes none and this is a no-op;
+    // a composition bound for a model call outside this machine passes one.
+    const scanned = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
     const horizon: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
     const lanes: Lanes = rankLanes(scanned, horizon, this.tunables);
     const docs = new Map<string, ProseDoc>();

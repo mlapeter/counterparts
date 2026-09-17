@@ -118,6 +118,20 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   And the recovery is **delayed, never lost**: a crashed session's spans wait for the
   first worker run past the window, which needs a boundary in *some* session to spawn
   one.
+
+  **The fallback reads as ITSELF, not as a stranger** (owner ruling 2026-09-17). Ahead of
+  the transcript its prompt carries the WAKE — the same composed self a live session is
+  given at session start, built once per sweep against a byte cap (`SWEEP_WAKE_BYTES`, or
+  the host's ordinary wake budget) — and it is told to write in the first person, in its
+  own voice, as the author would have at the time. What makes a model call "me" is the
+  memory it wakes with; read cold, the fallback wrote the owner's own day back as
+  paraphrase (`docs/finding-12-diagnosis-2026-09-17.md`: 888 fallback memories against 193
+  authored). Three limits are mechanized, not intended: the wake is composed read-only and
+  moves no rotation or published bundle; confidential and protected rows never enter it,
+  because this prompt leaves the machine (constitution 6); and the memories it produces are
+  still `source: fallback`, so the authored/fallback ratio stays legible. A store with
+  nothing to say, or a host that reported no ceiling, carries no wake and behaves exactly
+  as before.
 - **The v1 self-store tool is superseded by experiencer authorship** — self-writing became
   the primary path, not silently dropped. Its doctrine is kept whole (lived salience is the
   only legitimate identity input); only its delivery shape is gone. A tool the model must
@@ -144,7 +158,8 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
 
 **Inputs** — the session's turns since the last boundary; session identity, scope, the
 lived day and the moment; the observer predicate; jots deposited in-session; on the
-fallback path, claimed spans and their schema slices.
+fallback path, claimed spans, their schema slices, and the composed wake the interpreter is
+woken with.
 **Outputs** — proposals handed to `encode/`; a claim record; coverage claims by hash; the
 assistant's own turns kept separately (the substrate for "was a surfaced memory actually
 used?"); telemetry by reference — including, since 2026-09-05, the gate's own per-gate
