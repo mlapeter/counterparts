@@ -23,9 +23,14 @@ comments), so the render's core is the source to use, verbatim, in a static file
 plain SessionStart hook that honors `bansai-optout.txt`. The host's auto-mode classifier refuses to let a session
 write that file or wire it (it reads as self-persistence), so the owner installs it himself or skips it.
 
-**Running:** a read-only Opus diagnosis of finding 12 (why the fallback sweep wrote 888 memories against the
-author's 193). It is load-bearing for option D, whose sleeper reads the day through authored memories. Fold the
-answer into the spec §4.
+**The hook decision is deferred to 2026-09-18 by the owner:** he is running the three-way comparison (one instance
+each of engram, bansai and Counterparts) in other sessions on 09-17, and a global identity hook would confound it.
+
+**Finding 12 is diagnosed** (`docs/finding-12-diagnosis-2026-09-17.md`; summary in spec §4 finding 12). The author
+is rarely invited (four asks a day shared by every session; 26 asks from 264 Stops), sessions left open overnight
+are swept as crashed (535 of the 888), and a sweep chunk writes ten memories where a deposit writes one. When
+asked, the model answered every time. This is the rebuild's "fix the plumbing" item made specific; the cap and
+the crash predicate are rulings for the owner, not yet raised with him.
 
 ## 2026-09-16, evening — read second: the architecture conversation happened; nothing built
 
