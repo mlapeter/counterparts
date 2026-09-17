@@ -607,3 +607,15 @@ overbuild that part, to the detriment of the actual software that users will use
    day's memories and revises the page in place; old versions kept, a size limit, and the dashboard shows
    each night's change. The six safeguards in §6.3 are NOT built up front (line 15); one is added only
    when the page is seen to drift.
+   The owner confirmed the reading: the nightly call WRITES the page as prose from the memories in the
+   database and the page is saved there with its versions; it is not a template filled from rows.
+6. **An automatic handoff note per directory.** Today the owner says "prep a handoff so we can pick up
+   from here in a new session" and the session writes one; he wants that to happen on its own. One more
+   field in the session-end ask; the body lives in the database; session start in that directory shows
+   only a short pointer (a line or two, expandable by id) to keep context small, the way Claude Code's
+   own file memory shows an index line and loads the file on demand. Size limit, expiry after a couple
+   of weeks of use, never becomes identity or long-term memory. To watch in real use: duplication with a
+   host's own memory where the host has one.
+7. **What earns a page besides the self.** A person or project earns a page by coming up again across
+   several separate days; the owner can add or remove one by hand; the owner's own page exists from day
+   one. Anything mentioned once stays a row and never gets a page.
