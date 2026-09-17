@@ -1610,25 +1610,35 @@ export class Counterpart {
       thrown = errCode(err);
     }
     const eligible = co.members.filter((m) => m.reason === "eligible").length;
+    // A THROW LANDS AFTER THE DRAIN. Everything that can throw past `flush()`
+    // — the deny-list, the row reads, the edge reads — runs inside `publish`,
+    // which the drain precedes, so the pairs this pass buffered are gone
+    // whatever the report says. `report` is null on that arm, and reporting
+    // zeros would hide exactly what the contract says to count (G4: bounded
+    // loss, counted rather than hidden). `co.buffered` is the buffer's depth
+    // at the drain: this pass's pairs in a hook process, and an upper bound in
+    // a caller that buffers across turns — which is the honest direction.
+    const pairs = report?.pairs ?? co.buffered;
+    const dropped = report?.dropped ?? co.buffered;
     const data: Record<string, unknown> = {
       reason: report?.reason ?? "threw",
       day: report?.day ?? day,
       members: co.members.length,
       eligible,
       buffered: co.buffered,
-      pairs: report?.pairs ?? 0,
+      pairs,
       rows: report?.rows ?? 0,
       blocked: report?.blocked ?? 0,
       evicted: report?.evictions.length ?? 0,
-      dropped: report?.dropped ?? 0,
+      dropped,
     };
     const code = thrown ?? report?.code ?? null;
     if (code !== null) data["error"] = code;
     this.emit("counterpart.associate.flush", undefined, {
       reason: String(data["reason"]),
-      pairs: report?.pairs ?? 0,
+      pairs,
       rows: report?.rows ?? 0,
-      dropped: report?.dropped ?? 0,
+      dropped,
       code,
     });
     if (this.observer) {

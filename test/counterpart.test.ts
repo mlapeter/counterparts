@@ -689,6 +689,12 @@ describe("co-activation is flushed in the process that buffered it", () => {
     const row = flushRow(c);
     expect(row?.["reason"]).toBe("threw");
     expect(row?.["error"]).toBe("Error");
+    // The drain happens BEFORE anything that can throw this far, so the pair is
+    // gone. Reporting zeros here would hide the one number the contract asks to
+    // be counted (G4) — and the log would read like a failure that cost nothing.
+    expect(row?.["pairs"]).toBe(1);
+    expect(row?.["dropped"]).toBe(1);
+    expect(c.associate.pendingDeltas()).toEqual([]);
   });
 
   test("THE SHAPE OF THE BUG: the edges survive the process that made them", () => {

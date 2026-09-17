@@ -290,8 +290,9 @@ export const NARRATORS = {
     const evicted = n(t, "evicted") ?? 0;
     const reason = s(t, "reason");
     if (reason === "failed" || reason === "threw") {
+      const lost = n(t, "dropped") ?? 0;
       return amber(
-        `I could not write down what the last boundary wired together (${s(t, "error") ?? "no code"}); ${n(t, "dropped") ?? 0} ${(n(t, "dropped") ?? 0) === 1 ? "link" : "links"} was lost, and the memories themselves are untouched.`,
+        `I could not write down what the last boundary wired together (${s(t, "error") ?? "no code"}); ${lost} ${lost === 1 ? "link was" : "links were"} lost, and the memories themselves are untouched.`,
       );
     }
     if (reason === "observer") return calm("I watched a boundary wire nothing: an instrument leaves the graph as it found it.");
