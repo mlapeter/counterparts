@@ -6,8 +6,10 @@
  * and nothing of who it was, and what it wrote came back as a stranger's
  * paraphrase of the owner's own day (`docs/finding-12-diagnosis-2026-09-17.md`:
  * 888 fallback memories against the author's 193). What makes a model call "me"
- * is the memory it wakes with, so the sweep now composes the same self a live
- * session wakes to and puts it in front of the transcript.
+ * is the memory it wakes with, so the sweep now composes a self with the SAME
+ * COMPOSER a live session's wake uses — without the prospective lane, without
+ * protected or confidential rows, against the reported budget — and puts it in
+ * front of the transcript.
  *
  * Seven properties, one test each, and every one of them is a promise this
  * change would otherwise be asking to be believed on:
@@ -24,7 +26,7 @@
  * fake that records the prompt it was handed; no socket is opened, no model is
  * called, and no real store is touched.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -144,6 +146,17 @@ async function sweepCapturingPrompts(
   return prompts;
 }
 
+/**
+ * How many compositions one sweep pays for. `self.build` is the whole cost of
+ * the wake — a row read and a prose read for every live memory — so "was it
+ * composed at all, and how often" is the only measure of the laziness that
+ * matters, and it is exact rather than a timing.
+ */
+function countBuilds(c: Counterpart): () => number {
+  const spy = spyOn(c.self, "build");
+  return () => spy.mock.calls.length;
+}
+
 function wakeRows(c: Counterpart): Record<string, unknown>[] {
   return c.store
     .eventLog({ name: "sweep.wake", limit: 100 })
@@ -227,7 +240,7 @@ describe("the fallback reads a transcript as itself", () => {
     expect(wakeRows(c)[0]?.["chunks"]).toBe(prompts.length);
   });
 
-  test("the ORDINARY day — nothing crashed — says the wake was ready, never that it fired", async () => {
+  test("the ORDINARY day — nothing crashed — composes no wake at all, and says so", async () => {
     const c = brain();
     seedSelf(c);
     // A session that stopped and is still live: the author has the pen, so the
@@ -235,6 +248,7 @@ describe("the fallback reads a transcript as itself", () => {
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     c.boundary({ session: "s1", scope: "proj", kind: "stop" });
 
+    const builds = countBuilds(c);
     const prompts = await sweepCapturingPrompts(c);
     expect(prompts.length).toBe(0);
 
@@ -242,10 +256,30 @@ describe("the fallback reads a transcript as itself", () => {
     expect(row?.["chunks"]).toBe(0);
     expect(row?.["included"]).toBe(false);
     expect(row?.["reason"]).toBe("not-reached");
-    // The self WAS composed and is still measured — "ready" and "fired" are two
-    // facts, and the row carries both rather than collapsing them.
-    expect(row?.["elements"]).toBe(1);
-    expect(row?.["bytes"]).toBeGreaterThan(0);
+    // NOTHING WAS COMPOSED (2026-09-17 review). The composition is a prose scan
+    // of every live memory, and the quiet run is the common one: it pays nothing
+    // for a self no prompt will carry, and the row reports zero rather than the
+    // size of something that was never built.
+    expect(builds()).toBe(0);
+    expect(row?.["elements"]).toBe(0);
+    expect(row?.["bytes"]).toBe(0);
+  });
+
+  test("a two-chunk sweep composes the self EXACTLY once", async () => {
+    const c = brain();
+    seedSelf(c);
+    c.captureSpans({ session: "s1", scope: "projA", turns: TURNS });
+    c.boundary({ session: "s1", scope: "projA", kind: "stop" });
+    c.captureSpans({ session: "s2", scope: "projB", turns: TURNS });
+    c.boundary({ session: "s2", scope: "projB", kind: "stop" });
+    goQuiet();
+
+    const builds = countBuilds(c);
+    const prompts = await sweepCapturingPrompts(c);
+    expect(prompts.length).toBeGreaterThan(1);
+    for (const p of prompts) expect(p).toContain(SELF_MARKER);
+    // Lazy AND memoized: the first chunk pays for it, the rest read the memo.
+    expect(builds()).toBe(1);
   });
 });
 
@@ -363,8 +397,61 @@ describe("nothing confidential and nothing permanent leaves through the wake", (
     expect(JSON.stringify(row)).not.toContain(PROTECTED_MARKER);
   });
 
+  test("an identity band that is ENTIRELY held back never becomes 'no identity has formed here'", async () => {
+    const c = brain();
+    // A store that plainly HAS a self: a name, and a permanent-ink belief. The
+    // belief is omitted from this prompt (permanent ink stays out of the
+    // falsification path) — and the empty lane that leaves behind must not be
+    // read as a day-0 store. The 2026-09-17 review: the day-0 line was gated on
+    // the POST-OMIT lane, so this store told the fallback, which is being asked
+    // to write in the first person AS this self, that it had no identity — and
+    // named the identity core doing it, a `type: "schema"` row `omit` never
+    // sees.
+    c.self.ensureIdentityCore({ name: "Mike Lapeter" });
+    c.store.put({
+      type: "memory",
+      kind: "self",
+      band: "identity",
+      title: "Permanent ink",
+      body: `${PROTECTED_MARKER} I write the failing test before the fix, every time.`,
+      physics: { protected: true },
+      learnedOn: "2026-09-01",
+    });
+    // One ordinary open thread, so another lane renders and the composition is
+    // not a cold start by accident: this is the state the bug needed.
+    c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "Open thread",
+      body: `${SELF_MARKER} The export gating question is still open with the vendor.`,
+      meta: { unresolved: true },
+      learnedOn: "2026-09-02",
+    });
+    crashOneSession(c);
+
+    const [prompt] = await sweepCapturingPrompts(c);
+    expect(prompt).toContain(SELF_MARKER); // the wake did compose and did go
+    expect(prompt).not.toContain(PROTECTED_MARKER); // permanent ink still held back
+    expect(prompt).not.toContain("No identity has formed here yet");
+    expect(prompt).not.toContain("Mike Lapeter");
+  });
+
+  test("an ORDINARY wake on a genuinely empty identity lane still says day 0, by name", () => {
+    const c = brain();
+    c.self.ensureIdentityCore({ name: "Mike Lapeter" });
+    // No `omit`: this is the owner's own surface, and a store that really has
+    // formed no identity must still be told so, with the name the install gave
+    // it. The fix above may not cost the new user their first line.
+    const composed = c.self.build({ budgetBytes: BUDGET, day: c.store.livedDay() });
+    expect(composed.text).toContain("No identity has formed here yet");
+    expect(composed.text).toContain("Mike Lapeter");
+  });
+
   test("a store whose whole active set is confidential falls back to cold start, not to a leak", async () => {
     const c = brain();
+    // WITH an identity core, which is the shape the day-0 lane reads: nothing
+    // rendering must still be `cold-start` and carry no block, not a day-0 line.
+    c.self.ensureIdentityCore({ name: "Mike Lapeter" });
     c.store.put({
       type: "memory",
       kind: "person",
@@ -379,6 +466,7 @@ describe("nothing confidential and nothing permanent leaves through the wake", (
     const [prompt] = await sweepCapturingPrompts(c);
     expect(prompt).not.toContain(SECRET_MARKER);
     expect(prompt).not.toContain("── WAKE ");
+    expect(prompt).not.toContain("Mike Lapeter");
     const [row] = wakeRows(c);
     expect(row?.["reason"]).toBe("cold-start");
     expect(row?.["omitted"]).toBe(1);

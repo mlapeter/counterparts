@@ -5,8 +5,9 @@
 The launch adapter: wake injection at session start, the end-of-session write, and crash
 detection — everything host-specific, so the core stays host-agnostic. Session start is
 where this adapter delivers a wake; it is no longer the only place one is read, because
-since 2026-09-17 the core composes a read-only copy into the crash fallback's prompt, and
-this adapter's interpret client is what puts that prompt on the wire.
+since 2026-09-17 the core composes a read-only one into the crash fallback's prompt — the
+same composer, minus the prospective lane and minus anything protected or confidential —
+and this adapter's interpret client is what puts that prompt on the wire.
 
 ## 2. Brain analog
 

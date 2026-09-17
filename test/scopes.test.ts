@@ -50,6 +50,7 @@ import {
   effectiveStance,
   emptyRegistry,
   lookupScope,
+  mostRestrictiveVerdict,
   ownEntry,
   parseRegistry,
   readScopes,
@@ -59,7 +60,13 @@ import {
   stanceOfMode,
   writeScopes,
 } from "../src/adapters/scopes.js";
-import type { ScopeRead, ScopeRegistry } from "../src/adapters/scopes.js";
+import type {
+  EffectiveMode,
+  ScopeRead,
+  ScopeRegistry,
+  ScopeStance,
+  ScopeVerdict,
+} from "../src/adapters/scopes.js";
 import { canonicalScope, readSession, recordSession } from "../src/adapters/sessions.js";
 import { BOUNDARY_EVENT, RECALL_CREDIT_EVENT, WAKE_INJECTED_EVENT } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
@@ -791,6 +798,25 @@ describe("the scope a hook decides on", () => {
     }
   });
 
+  test("a record holding an UNCANONICAL scope is still filed under the canonical one", () => {
+    // `recordSession` canonicalises on write, so nothing this code wrote can be
+    // in this state — but span directories are keyed by a hash of the exact
+    // string, so a record written by a hand edit, an older build or a future
+    // writer must not open a second directory for the same place.
+    mkdirSync(store, { recursive: true });
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    recordSession(store, { sessionId: "s1", scope: project, phase: "start" });
+    const path = join(store, "sessions", "s1.json");
+    const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    // Not `join`, which would normalise it back: the record has to hold the
+    // unnormalised spelling for this to test anything.
+    writeFileSync(path, `${JSON.stringify({ ...record, scope: `${project}/sub/..` })}\n`);
+    expect(sessionScope(store, { session_id: "s1", cwd: project }, {})).toBe(
+      canonicalScope(project),
+    );
+  });
+
   test("the verdict reads the registry beside the configuration it was given", () => {
     const project = join(work, "project");
     mkdirSync(project, { recursive: true });
@@ -802,6 +828,65 @@ describe("the scope a hook decides on", () => {
     expect(hookScopeVerdict(join(work, "elsewhere", "claude-code.json"), project).verdict.mode).toBe(
       "unset",
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The combinator itself, every pair of it (2026-09-17 review)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the rule that combines two verdicts", () => {
+  /** The stance each mode carries, WRITTEN OUT rather than derived from the
+   *  function under test: a table that asks `stanceOfMode` what it thinks would
+   *  follow a change in it silently, which is the opposite of a pin. */
+  const STANCE: Record<EffectiveMode, ScopeStance> = {
+    unset: "on",
+    on: "on",
+    observer: "observer",
+    paused: "off",
+    off: "off",
+  };
+  /** How restrictive each stance is. `off` wins over `observer` wins over `on`. */
+  const RANK: Record<ScopeStance, number> = { on: 0, observer: 1, off: 2 };
+  const MODES = Object.keys(STANCE) as EffectiveMode[];
+  const verdict = (mode: EffectiveMode): ScopeVerdict => ({
+    mode,
+    matched: `/k/${mode}`,
+    entry: null,
+  });
+
+  test("`unset` rides with `on` and `paused` rides with `off`", () => {
+    for (const mode of MODES) expect(stanceOfMode(mode)).toBe(STANCE[mode]);
+  });
+
+  test("every pair of modes, both ways round, resolves to the safer STANCE", () => {
+    // One event now has two directories to answer for — the session's and the
+    // shell's — and this is the only thing standing between "either one says
+    // off" and a capture. All 25 pairs, in both argument orders, because the
+    // function is not symmetric: it breaks ties toward its first argument.
+    for (const session of MODES) {
+      for (const event of MODES) {
+        const out = mostRestrictiveVerdict(verdict(session), verdict(event));
+        const safer =
+          RANK[STANCE[session]] >= RANK[STANCE[event]] ? STANCE[session] : STANCE[event];
+        expect(stanceOfMode(out.mode)).toBe(safer);
+        // Never LESS restrictive than either side, whichever way it went.
+        expect(RANK[stanceOfMode(out.mode)]).toBeGreaterThanOrEqual(RANK[STANCE[session]]);
+        expect(RANK[stanceOfMode(out.mode)]).toBeGreaterThanOrEqual(RANK[STANCE[event]]);
+      }
+    }
+  });
+
+  test("a tie goes to the SESSION's verdict, so its entry is the one named", () => {
+    for (const session of MODES) {
+      for (const event of MODES) {
+        if (RANK[STANCE[session]] !== RANK[STANCE[event]]) continue;
+        const primary = verdict(session);
+        // Object identity, not the mode: `unset` and `on` tie while being
+        // different modes, and the WHOLE verdict has to survive so the
+        // directory the owner is told about is the one that decided.
+        expect(mostRestrictiveVerdict(primary, verdict(event))).toBe(primary);
+      }
+    }
   });
 });
 
