@@ -31,6 +31,11 @@ import {
   translateExpansions,
 } from "../src/adapters/expansions.js";
 import {
+  ASSOCIATION_DIR,
+  associationDir,
+  pendingPath,
+} from "../src/core/associate/index.js";
+import {
   SESSIONS_DIR,
   SESSION_PRUNE_MS,
   SESSION_TTL_MS,
@@ -229,6 +234,35 @@ describe("pruning", () => {
 
   test("an absent registry prunes nothing and says nothing", () => {
     expect(pruneSessions(dir)).toBe(0);
+  });
+
+  test("the co-activation the hooks left for the worker is NOT a session record", () => {
+    // `associate/pending.ts` keeps its file in a subdirectory of this one, so
+    // the store's layout classification covers it without a new top-level name.
+    // The prune is a file prune: its `rmSync` has no `recursive`, so a
+    // directory here survives however old it is — which is what keeps a
+    // worker's unclaimed work from being swept away as a stale session.
+    recordSession(dir, { sessionId: "s_old", scope: "/p", phase: "end", at: T0 });
+    const carried = join(sessionsDir(dir), ASSOCIATION_DIR);
+    mkdirSync(join(carried, "claims"), { recursive: true });
+    writeFileSync(pendingPath(dir), `${JSON.stringify({ at: T0, day: 1, p: [] })}\n`, "utf8");
+    const stale = new Date(Date.now() - SESSION_PRUNE_MS - 60_000);
+    for (const path of [join(sessionsDir(dir), "s_old.json"), pendingPath(dir), carried]) {
+      utimesSync(path, stale, stale);
+    }
+
+    expect(pruneSessions(dir)).toBe(1);
+
+    expect(readdirSync(sessionsDir(dir))).toEqual([ASSOCIATION_DIR]);
+    expect(readFileSync(pendingPath(dir), "utf8").length).toBeGreaterThan(0);
+  });
+
+  test("core and this adapter spell the registry directory the same way", () => {
+    // `associate/pending.ts` writes inside `sessions/` and may not import an
+    // adapter (adapters are leaves), so it spells the name itself. A rename on
+    // one side without the other would put the file somewhere unclassified.
+    expect(associationDir(dir)).toBe(join(dir, SESSIONS_DIR, ASSOCIATION_DIR));
+    expect(pendingPath(dir).startsWith(sessionsDir(dir))).toBe(true);
   });
 });
 

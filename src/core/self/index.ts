@@ -535,8 +535,14 @@ export class Self {
   /**
    * The DELIVERY-side event, distinct from the render-side one (scar §2.3: "we
    * rendered it" is not "they received it"). v1 shipped eleven days of truncated
-   * wakes because only the render was instrumented. The host calls this with the
-   * last line it actually saw in the assembled context.
+   * wakes because only the render was instrumented.
+   *
+   * The host calls this with what it saw where the wake's last line should be:
+   * the expectation when that is what stood there, `null` when nothing did, and
+   * some other string when something else did. The adapter that reads a
+   * transcript passes `""` for that third case on purpose — the text around a
+   * sentinel found inside a bundle is the owner's memories, and this seam needs
+   * the verdict, not the line.
    */
   noteDelivered(sentinelSeen: string | null, expected: string | null): boolean {
     const ok = expected !== null && sentinelSeen === expected;

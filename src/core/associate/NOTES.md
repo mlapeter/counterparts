@@ -161,3 +161,34 @@ second place that buffers non-reconstructible state fails review; this note is t
 pointer, not a third declaration. Everything in the buffer is an increment to
 learned structure that the next co-activation re-earns — a crash loses at most one
 session's reinforcement, never a memory.
+
+## 12. The pending file, and why the hook does not flush (2026-09-17)
+
+`coactivate` buffers and `flush` publishes, and on the host this ships against those
+two run in different processes: the credit pass is inside a Stop hook, the boundary
+is inside the detached worker that Stop spawns. The buffer died at hook exit for the
+whole parallel run — 430 edges in the owner's store, every one stamped with the
+import's lived day, through 214 credit passes.
+
+The first repair moved the flush into the hook. It worked, and it put two SQLite
+writes on a path that meets the worker's own write lock: an adversarial probe
+measured 5.3 s apiece under a held lock (I38's scenario, `database is locked` in 3 of
+8 runs), with the drained deltas then recorded nowhere durable at all. **The
+direction of a failure is a choice** (§10 G4), and "the hook waits ten seconds and
+then loses the work silently" is not the choice this module makes.
+
+So the pass drains to a file and the worker applies it (`pending.ts`). Three things
+are worth writing down:
+
+- **The claim is a rename, and the file is removed only after the apply.** A claim
+  whose apply met a busy database is left where it is and retried; nothing is lost,
+  and the row that eventually lands says how old the carried work was. The residual —
+  an applied claim that cannot be removed would be applied twice — is counted on the
+  row (`stuck`) rather than assumed away.
+- **The cap drops the NEWEST pass, not the oldest line.** Dropping the oldest would
+  mean rewriting a file that other hook processes are appending to. A delta is
+  re-earnable; somebody else's line is not.
+- **Where it lives is a deploy fact, not a taste.** `assertLayout()` runs in the
+  store's constructor, so a new top-level name would stop every store opened by code
+  that predates it — and after a deploy, the MCP servers of running sessions are that
+  code. `sessions/` is already classified, and the file is a subdirectory inside it.

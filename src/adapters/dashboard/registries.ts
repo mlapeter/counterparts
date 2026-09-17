@@ -174,7 +174,7 @@ export const DURABLE_EVENTS = {
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with
   // nothing to wire (2026-09-17, mechanism inventory §3 S3).
-  "associate.flush": "the memories one boundary credited together were wired to each other (pairs buffered, edge rows written, evictions)",
+  "associate.flush": "the boundary's worker wired together the memories its sessions credited together (passes carried, pairs, edge rows written, evictions)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

@@ -40,8 +40,10 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   into the session registry record, and the session's FIRST PROMPT reads the head of the
   host's transcript for this package's SessionStart attachment — what the hook printed
   beside what the host recorded as injected — and leaves one `adapter.wake.delivered` row
-  saying `delivered`, `truncated`, `mismatch`, `not-found` or `no-wake-expected`, in
-  counts and flags. The expectation is persisted rather than held in memory because every
+  saying `delivered`, `truncated`, `mismatch`, `printed-unverified` (this host build
+  records no injected copy to check against), `not-found` or `no-wake-expected`, in counts
+  and flags. No text from the bundle rides on that row: the sentinel is compared where it
+  is found and only the answer comes back. The expectation is persisted rather than held in memory because every
   hook is its own process: it was a `Map` on an adapter instance until 2026-09-17, tested
   against a field no caller set, and wrote 0 rows in two weeks of live running (mechanism
   inventory §3 S2).

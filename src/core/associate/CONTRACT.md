@@ -63,8 +63,10 @@ metabolic limits.
 **Inputs** — the surfacing decision record (what was surfaced, footnoted, and with what
 activation); the assistant's reply and the reference-resolution verdict; the memory graph;
 the lived day; the observer predicate.
-**Outputs** — edge weight deltas, buffered per turn and flushed at the boundary; archived
-eviction records; activation vectors for `recall/`; telemetry by reference.
+**Outputs** — edge weight deltas, buffered per turn and flushed at the boundary — or
+drained to the pending file when the boundary is a different process from the pass
+(`pending.ts`, claimed and flushed there); archived eviction records; activation vectors
+for `recall/`; telemetry by reference.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 

@@ -266,7 +266,7 @@ export const LAYOUT: readonly LayoutEntry[] = [
     name: "sessions",
     match: "exact",
     backup: false,
-    why: "adapters/sessions.ts — the live-session registry a host's hooks leave for its tools. Host state, not memory: no content, and its loss costs a lazy bind, never a memory.",
+    why: "adapters/sessions.ts — the live-session registry a host's hooks leave for its tools, plus the notes one process leaves another inside it: adapters/expansions.ts' handle log and associate/pending.ts' co-activation deltas (sessions/association/). Host state, not memory: no content, and its loss costs a lazy bind or one pass's reinforcement, never a memory. New state of that kind goes INSIDE this directory rather than beside it, because `assertLayout()` runs in the store's constructor and a store opened by code that predates the name would refuse to open at all.",
   },
 ];
 

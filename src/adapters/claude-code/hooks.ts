@@ -1285,7 +1285,8 @@ export class ClaudeCodeAdapter {
       // Nothing was supposed to arrive: no expectation, no read. A cold start's
       // bootstrap line and a SessionStart that stood down both land here, and
       // the row says so rather than reporting a wake that was never composed.
-      const arrival = expected === null ? NO_ARRIVAL : readWakeArrival(input.transcriptPath);
+      const arrival =
+        expected === null ? NO_ARRIVAL : readWakeArrival(input.transcriptPath, { expect: expected });
       const outcome = wakeOutcome(expected, arrival);
       this.record(WAKE_DELIVERED_EVENT, input, {
         outcome,
@@ -1303,6 +1304,9 @@ export class ClaudeCodeAdapter {
         tailInContent: arrival.tail.present,
         headInStdout: arrival.headPrinted.present,
         tailInStdout: arrival.tailPrinted.present,
+        // Whether the host recorded an injected `content` at all — the
+        // difference between "it arrived empty" and "this build does not say".
+        contentRecorded: arrival.contentRecorded,
         // What each sentinel DECLARED, against what actually arrived.
         headBytes: arrival.head.bytes,
         headElements: arrival.head.elements,
@@ -1315,7 +1319,16 @@ export class ClaudeCodeAdapter {
         corrupt: arrival.corrupt,
         elapsedMs: this.nowFn() - started,
       });
-      this.counterpart.noteWakeDelivered(arrival.tail.line, expected);
+      // THE VERDICT CROSSES THE SEAM, NOT THE TEXT. `noteDelivered` asks two
+      // questions of its argument — was a sentinel seen, and was it the
+      // expectation — and both are already answered here. Handing it the
+      // matched line would carry a string cut out of the wake bundle (memory
+      // text, if a body opened a sentinel it never closed) into a core module;
+      // `""` is "seen, and not the one we printed".
+      this.counterpart.noteWakeDelivered(
+        arrival.tail.present ? (arrival.tail.matchesExpected ? expected : "") : null,
+        expected,
+      );
     } catch (err) {
       this.emit("adapter.wake.check.failed", {
         code: codeOf(err),
@@ -1758,11 +1771,12 @@ export function substanceOf(turns: readonly HostTurn[]): { turns: number; bytes:
   return { turns: count, bytes };
 }
 
-/** The five answers the delivery check can give, in plain words. */
+/** The six answers the delivery check can give, in plain words. */
 export type WakeOutcome =
   | "delivered"
   | "truncated"
   | "mismatch"
+  | "printed-unverified"
   | "not-found"
   | "no-wake-expected";
 
@@ -1777,12 +1791,24 @@ export type WakeOutcome =
  * the SessionStart attachment of the run that created it, so a wake arrived and
  * it is not the one this session composed. "Something else arrived" and "it was
  * cut off" are different mornings.
+ *
+ * `printed-unverified` is the case a HOST BUILD produces. The verdict is read
+ * from `content`, a field of the host's private transcript format measured once;
+ * a build that does not record it leaves nothing to read, and answering
+ * `truncated` there would say v1's silent-loss bug was happening to every
+ * session on that host. When the field is absent the printed side answers
+ * instead — it is this package's own stdout, so an intact sentinel there says
+ * the hook did its half and the host's half is simply not on the record.
  */
 export function wakeOutcome(expected: string | null, arrival: WakeArrival): WakeOutcome {
   if (expected === null) return "no-wake-expected";
   if (!arrival.found) return "not-found";
-  if (arrival.tail.line === null) return "truncated";
-  return arrival.tail.line === expected ? "delivered" : "mismatch";
+  if (arrival.tail.present) return arrival.tail.matchesExpected ? "delivered" : "mismatch";
+  if (!arrival.contentRecorded) {
+    if (arrival.tailPrinted.matchesExpected) return "printed-unverified";
+    if (arrival.tailPrinted.present) return "mismatch";
+  }
+  return "truncated";
 }
 
 function codeOf(err: unknown): string {

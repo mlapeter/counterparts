@@ -681,17 +681,37 @@ reader (`transcript.ts#readWakeArrival`) that skips everything else.
 long session's file reaches megabytes. Measured on a 5.4 MB transcript: 0.06 ms
 median, 0.62 ms worst of 300 runs, against a wake of 8,908 bytes found four lines
 in. It runs ONCE per session — the flag that says so is in the same record — so
-the ongoing per-turn cost is the registry read alone, ~0.008 ms.
+the ongoing per-turn cost is the registry read alone, ~0.008 ms. And it opens
+REGULAR FILES ONLY (stat, `O_NONBLOCK`, fstat): the path comes from the host's
+payload, and opening a FIFO blocks until somebody opens the other end, which
+would hang the prompt until the host's own hook timeout.
 
 **The verdict comes from the tail sentinel alone**, which is what the sentinel is
 for: "verify arrival from the last line". The head sentinel, the printed copies
-and the measured lengths ride on the row as evidence. Five answers: `delivered`,
+and the measured lengths ride on the row as evidence. Six answers: `delivered`,
 `truncated` (the tail is not in what the host injected), `mismatch` (a wake
 arrived and it is not this session's — what a resumed session whose record was
 pruned produces, because the head of its file holds the original run's
-attachment), `not-found`, and `no-wake-expected` (a cold start's bootstrap line
-states no sentinel, so nothing checkable was handed over; the file is not even
-opened).
+attachment), `printed-unverified`, `not-found`, and `no-wake-expected` (a cold
+start's bootstrap line states no sentinel, so nothing checkable was handed over;
+the file is not even opened).
+
+`printed-unverified` is the sixth, added by the review of this work
+(2026-09-17). `content` is a field of the host's private format, measured once;
+the first draft read its absence as an empty injection and therefore answered
+`truncated` — the one word in the vocabulary that means v1's eleven-day
+silent-loss bug is back — for every session on any build that stops recording
+it. When the field is absent the printed copy answers instead, and the row
+carries `contentRecorded: false` so the two cases stay apart.
+
+**The search is linear and the matched text never leaves the reader.** The
+sentinel patterns used to run against the whole attachment with a leading
+`[^>]*`, which backtracks: 680 ms at 200 KB on a body holding thousands of
+unterminated sentinel prefixes, four times per attachment, on the prompt path.
+The prefix is now located with `indexOf` and the anchored pattern runs on one
+bounded slice. And the sighting carries numbers and flags only — the expectation
+is compared inside the reader, because a sentinel is found INSIDE a bundle of
+memories and the characters around it are the owner's.
 
 **Two things it deliberately does not do.** It never creates a session record: a
 boundary that finds none is how the retroactive-capture guard recognises the

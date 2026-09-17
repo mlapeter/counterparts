@@ -467,9 +467,11 @@ recognised INSIDE a larger text, and its stated bytes cannot be checked against
 that text's length.
 
 **What the adapter does instead.** `transcript.ts` carries a second spelling of
-both patterns, unanchored at the ends so a match is the sentinel string byte for
-byte. Two copies of one shape, in two modules, which is exactly the arrangement
-`FOREIGN_MARKERS` exists as one exported constant to avoid.
+both patterns — the literal prefix located with `indexOf`, then an anchored
+pattern run on one bounded slice, so a match is the sentinel string byte for byte
+and the scan stays linear over an arbitrary transcript. Two copies of one shape,
+in two modules, which is exactly the arrangement `FOREIGN_MARKERS` exists as one
+exported constant to avoid.
 
 **What would say it instead:** export the two patterns from `self/`, or a
 `findSentinels(text)` that answers `{ head, tail }` over an arbitrary string
