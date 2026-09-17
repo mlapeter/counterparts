@@ -32,7 +32,13 @@ import { join, resolve } from "node:path";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { SCOPE_ASK } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/index.js";
-import { hookScope, hookScopeVerdict } from "../src/adapters/claude-code/bin/hook.js";
+import {
+  FRESH_SESSION_SOURCES,
+  eventDirectory,
+  hookScopeVerdict,
+  sessionScope,
+  startDirectory,
+} from "../src/adapters/claude-code/bin/hook.js";
 import { EXIT, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { openServer } from "../src/adapters/mcp/index.js";
@@ -44,6 +50,7 @@ import {
   effectiveStance,
   emptyRegistry,
   lookupScope,
+  mostRestrictiveVerdict,
   ownEntry,
   parseRegistry,
   readScopes,
@@ -53,8 +60,14 @@ import {
   stanceOfMode,
   writeScopes,
 } from "../src/adapters/scopes.js";
-import type { ScopeRead, ScopeRegistry } from "../src/adapters/scopes.js";
-import { readSession } from "../src/adapters/sessions.js";
+import type {
+  EffectiveMode,
+  ScopeRead,
+  ScopeRegistry,
+  ScopeStance,
+  ScopeVerdict,
+} from "../src/adapters/scopes.js";
+import { canonicalScope, readSession, recordSession } from "../src/adapters/sessions.js";
 import { BOUNDARY_EVENT, RECALL_CREDIT_EVENT, WAKE_INJECTED_EVENT } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 
@@ -717,11 +730,91 @@ describe("a registry that could not be read says so, where somebody can read it"
 });
 
 describe("the scope a hook decides on", () => {
-  test("the payload's cwd first, then CLAUDE_PROJECT_DIR, then the process's own", () => {
-    expect(hookScope({ cwd: "/a/b" }, {})).toBe("/a/b");
-    expect(hookScope({}, { CLAUDE_PROJECT_DIR: "/c/d" })).toBe("/c/d");
-    expect(hookScope({ cwd: "/a/b" }, { CLAUDE_PROJECT_DIR: "/c/d" })).toBe("/a/b");
-    expect(hookScope({}, {})).toBe(process.cwd());
+  /**
+   * TWO DIRECTORIES, TWO QUESTIONS. The event's is where the shell is standing,
+   * and it is the one the owner's registry is consulted about; the session's is
+   * where everything is FILED, and it does not move for the session's whole life.
+   */
+  test("the EVENT's directory is the payload's cwd — it follows Claude, and it is meant to", () => {
+    expect(eventDirectory({ cwd: "/a/b" }, {})).toBe("/a/b");
+    expect(eventDirectory({}, { CLAUDE_PROJECT_DIR: "/c/d" })).toBe("/c/d");
+    expect(eventDirectory({ cwd: "/a/b" }, { CLAUDE_PROJECT_DIR: "/c/d" })).toBe("/a/b");
+    expect(eventDirectory({}, {})).toBe(process.cwd());
+  });
+
+  test("the SESSION's directory prefers CLAUDE_PROJECT_DIR, which does not follow Claude", () => {
+    // The host keeps this one put when the agent enters a worktree or runs `cd`,
+    // and exports it to stdio MCP servers as well as to hooks — which is what
+    // makes the two adapters agree without either one telling the other.
+    expect(startDirectory({ cwd: "/a/b" }, { CLAUDE_PROJECT_DIR: "/c/d" })).toBe(
+      canonicalScope("/c/d"),
+    );
+    expect(startDirectory({ cwd: "/a/b" }, {})).toBe(canonicalScope("/a/b"));
+    expect(startDirectory({}, {})).toBe(canonicalScope(process.cwd()));
+  });
+
+  test("a session with a record is filed where that record says, whatever the payload says now", () => {
+    mkdirSync(store, { recursive: true });
+    const project = join(work, "project");
+    const worktree = join(work, "project", "wt");
+    mkdirSync(worktree, { recursive: true });
+    recordSession(store, { sessionId: "s1", scope: project, phase: "start" });
+    // The shell has moved, and CLAUDE_PROJECT_DIR is not even set: the record
+    // alone is enough.
+    expect(sessionScope(store, { session_id: "s1", cwd: worktree }, {})).toBe(
+      canonicalScope(project),
+    );
+    // A session nobody has recorded falls through to the start directory.
+    expect(sessionScope(store, { session_id: "s2", cwd: worktree }, {})).toBe(
+      canonicalScope(worktree),
+    );
+  });
+
+  test("a SessionStart that OPENS a session re-anchors it; a compaction does not", () => {
+    mkdirSync(store, { recursive: true });
+    const project = join(work, "project");
+    const elsewhere = join(work, "elsewhere");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(elsewhere, { recursive: true });
+    recordSession(store, { sessionId: "s1", scope: project, phase: "start" });
+    const at = (source?: string): string =>
+      sessionScope(store, {
+        hook_event_name: "SessionStart",
+        session_id: "s1",
+        cwd: elsewhere,
+        ...(source === undefined ? {} : { source }),
+      }, {});
+    // Auto or manual compaction fires SessionStart in the MIDDLE of a session
+    // whose MCP server is not relaunched. Re-anchoring there would split the
+    // session at every compaction — this bug arriving by another door.
+    expect(at("compact")).toBe(canonicalScope(project));
+    // A source this does not know is treated the same way: the safe direction
+    // for an unrecognised event is to leave the session where it is.
+    expect(at("something-new")).toBe(canonicalScope(project));
+    expect(at()).toBe(canonicalScope(project));
+    // The four that really do open a session take their own directory.
+    for (const source of FRESH_SESSION_SOURCES) {
+      expect(at(source)).toBe(canonicalScope(elsewhere));
+    }
+  });
+
+  test("a record holding an UNCANONICAL scope is still filed under the canonical one", () => {
+    // `recordSession` canonicalises on write, so nothing this code wrote can be
+    // in this state — but span directories are keyed by a hash of the exact
+    // string, so a record written by a hand edit, an older build or a future
+    // writer must not open a second directory for the same place.
+    mkdirSync(store, { recursive: true });
+    const project = join(work, "project");
+    mkdirSync(project, { recursive: true });
+    recordSession(store, { sessionId: "s1", scope: project, phase: "start" });
+    const path = join(store, "sessions", "s1.json");
+    const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    // Not `join`, which would normalise it back: the record has to hold the
+    // unnormalised spelling for this to test anything.
+    writeFileSync(path, `${JSON.stringify({ ...record, scope: `${project}/sub/..` })}\n`);
+    expect(sessionScope(store, { session_id: "s1", cwd: project }, {})).toBe(
+      canonicalScope(project),
+    );
   });
 
   test("the verdict reads the registry beside the configuration it was given", () => {
@@ -735,6 +828,65 @@ describe("the scope a hook decides on", () => {
     expect(hookScopeVerdict(join(work, "elsewhere", "claude-code.json"), project).verdict.mode).toBe(
       "unset",
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The combinator itself, every pair of it (2026-09-17 review)
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the rule that combines two verdicts", () => {
+  /** The stance each mode carries, WRITTEN OUT rather than derived from the
+   *  function under test: a table that asks `stanceOfMode` what it thinks would
+   *  follow a change in it silently, which is the opposite of a pin. */
+  const STANCE: Record<EffectiveMode, ScopeStance> = {
+    unset: "on",
+    on: "on",
+    observer: "observer",
+    paused: "off",
+    off: "off",
+  };
+  /** How restrictive each stance is. `off` wins over `observer` wins over `on`. */
+  const RANK: Record<ScopeStance, number> = { on: 0, observer: 1, off: 2 };
+  const MODES = Object.keys(STANCE) as EffectiveMode[];
+  const verdict = (mode: EffectiveMode): ScopeVerdict => ({
+    mode,
+    matched: `/k/${mode}`,
+    entry: null,
+  });
+
+  test("`unset` rides with `on` and `paused` rides with `off`", () => {
+    for (const mode of MODES) expect(stanceOfMode(mode)).toBe(STANCE[mode]);
+  });
+
+  test("every pair of modes, both ways round, resolves to the safer STANCE", () => {
+    // One event now has two directories to answer for — the session's and the
+    // shell's — and this is the only thing standing between "either one says
+    // off" and a capture. All 25 pairs, in both argument orders, because the
+    // function is not symmetric: it breaks ties toward its first argument.
+    for (const session of MODES) {
+      for (const event of MODES) {
+        const out = mostRestrictiveVerdict(verdict(session), verdict(event));
+        const safer =
+          RANK[STANCE[session]] >= RANK[STANCE[event]] ? STANCE[session] : STANCE[event];
+        expect(stanceOfMode(out.mode)).toBe(safer);
+        // Never LESS restrictive than either side, whichever way it went.
+        expect(RANK[stanceOfMode(out.mode)]).toBeGreaterThanOrEqual(RANK[STANCE[session]]);
+        expect(RANK[stanceOfMode(out.mode)]).toBeGreaterThanOrEqual(RANK[STANCE[event]]);
+      }
+    }
+  });
+
+  test("a tie goes to the SESSION's verdict, so its entry is the one named", () => {
+    for (const session of MODES) {
+      for (const event of MODES) {
+        if (RANK[STANCE[session]] !== RANK[STANCE[event]]) continue;
+        const primary = verdict(session);
+        // Object identity, not the mode: `unset` and `on` tie while being
+        // different modes, and the WHOLE verdict has to survive so the
+        // directory the owner is told about is the one that decided.
+        expect(mostRestrictiveVerdict(primary, verdict(event))).toBe(primary);
+      }
+    }
   });
 });
 
@@ -1351,6 +1503,346 @@ describe("the MCP server in a directory set off", () => {
     expect(body(await s.call("status", {}))["reason"]).not.toBe("scope-off");
     expect(body(await s.call("scope", {}))["mode"]).toBe("unset");
     expect(body(await s.call("scope", { mode: "on" }))["reason"]).toBe("no-registry");
+  });
+});
+
+/**
+ * ONE CAPTURE SCOPE PER SESSION — as real processes, because the whole claim is
+ * about what a hook process does with a payload whose `cwd` has moved.
+ *
+ * Measured on the owner's store, 2026-09-17: one session's spans landed in four
+ * scope directories and its boundaries in all four, while its authored deposits
+ * and their coverage marks landed in one — so the rest was left uncovered for
+ * the crash fallback to rewrite twelve hours later.
+ */
+describe("one capture scope per session, wherever the shell wanders", () => {
+  /** A hook process with full control of the payload AND the environment. */
+  function runIn(opts: {
+    event: string;
+    session: string;
+    cwd: string;
+    source?: string;
+    transcript?: string;
+    projectDir?: string;
+  }): { code: number; stdout: string; stderr: string } {
+    const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT, "--config", configPath], {
+      input: JSON.stringify({
+        hook_event_name: opts.event,
+        session_id: opts.session,
+        cwd: opts.cwd,
+        ...(opts.source === undefined ? {} : { source: opts.source }),
+        ...(opts.transcript === undefined ? {} : { transcript_path: opts.transcript }),
+      }),
+      encoding: "utf8",
+      env: {
+        PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+        HOME: home,
+        USERPROFILE: home,
+        ...(opts.projectDir === undefined ? {} : { CLAUDE_PROJECT_DIR: opts.projectDir }),
+      },
+      timeout: 60_000,
+    });
+    return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  }
+
+  /** Two turns of ordinary conversation, as this host writes a transcript. */
+  function transcriptOf(marker: string): string {
+    const path = join(work, `${marker}.jsonl`);
+    const line = (role: "user" | "assistant", text: string): string =>
+      JSON.stringify({ type: role, message: { role, content: text } });
+    writeFileSync(
+      path,
+      `${[
+        line(
+          "user",
+          `${marker}: the nightly export runs before the backup, so a failed export leaves a stale copy that looks fresh.`,
+        ),
+        line(
+          "assistant",
+          `${marker}: then the backup has to be gated on the export's exit code rather than on the clock.`,
+        ),
+      ].join("\n")}\n`,
+      "utf8",
+    );
+    return path;
+  }
+
+  /** How many conversational spans this memory holds for one directory. */
+  function spansIn(scope: string): number {
+    const s = openServer({ dir: store, scope, owner: true });
+    try {
+      return s.counterpart.spans.spans(s.scope).length;
+    } finally {
+      s.counterpart.close();
+    }
+  }
+
+  test("the spans, the boundary and the record all stay where the session STARTED", () => {
+    const project = join(work, "project");
+    const worktree = join(project, ".claude", "worktrees", "wt");
+    mkdirSync(worktree, { recursive: true });
+
+    expect(
+      runIn({ event: "SessionStart", session: "wanders", cwd: project, source: "startup" }).code,
+    ).toBe(0);
+    expect(readSession(store, "wanders")?.scope).toBe(canonicalScope(project));
+
+    // The agent's shell moves into a worktree, and every later payload says so.
+    // NO `CLAUDE_PROJECT_DIR` here at all: the session registry alone has to
+    // hold the session together, because that is the source a host which does
+    // not export the variable leaves us with.
+    const moved = runIn({
+      event: "PreCompact",
+      session: "wanders",
+      cwd: worktree,
+      transcript: transcriptOf("WANDERS"),
+    });
+    expect(moved.code).toBe(0);
+
+    expect(spansIn(canonicalScope(project))).toBeGreaterThan(0);
+    expect(spansIn(canonicalScope(worktree))).toBe(0);
+    // The boundary was NOT read as a session joining a memory late: the record
+    // written at SessionStart is found under the same scope the boundary claims,
+    // which is the thing four directories used to make impossible.
+    expect(boundaryRows().at(-1)?.["joinedLate"]).toBe(false);
+  });
+
+  test("CLAUDE_PROJECT_DIR holds a session together even before its first record", () => {
+    const project = join(work, "project");
+    const worktree = join(project, "wt");
+    mkdirSync(worktree, { recursive: true });
+    // No SessionStart at all — the shape of a session that was already running
+    // when this shipped, or one whose record has been pruned. The host's own
+    // stable variable is what keeps the filing in one place.
+    const transcript = transcriptOf("NORECORD");
+    const first = runIn({
+      event: "PreCompact",
+      session: "no-record",
+      cwd: worktree,
+      projectDir: project,
+      transcript,
+    });
+    expect(first.code).toBe(0);
+    // A boundary with no record joins the memory late and SEALS (§5 G13's
+    // retroactive-capture guard) — unchanged by any of this. What changed is
+    // WHERE the seal, the cursor and the record it leaves behind land.
+    expect(boundaryRows().at(-1)?.["joinedLate"]).toBe(true);
+    expect(readSession(store, "no-record")?.scope).toBe(canonicalScope(project));
+
+    // Everything after the seal is captured normally, and in the ONE directory.
+    writeFileSync(
+      transcript,
+      `${[
+        readFileSync(transcript, "utf8").trim(),
+        JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "AFTERSEAL: the cache stays out of the backup set." },
+        }),
+      ].join("\n")}\n`,
+      "utf8",
+    );
+    const second = runIn({
+      event: "PreCompact",
+      session: "no-record",
+      cwd: worktree,
+      projectDir: project,
+      transcript,
+    });
+    expect(second.code).toBe(0);
+    expect(spansIn(canonicalScope(project))).toBeGreaterThan(0);
+    expect(spansIn(canonicalScope(worktree))).toBe(0);
+    expect(grepStore("AFTERSEAL")).toBeGreaterThan(0);
+  });
+
+  test("A DEPOSIT FROM THE MCP SIDE COVERS SPANS THE HOOKS CAPTURED FROM A MOVED cwd", async () => {
+    const project = join(work, "project");
+    const worktree = join(project, ".claude", "worktrees", "wt");
+    mkdirSync(worktree, { recursive: true });
+
+    expect(
+      runIn({ event: "SessionStart", session: "covers", cwd: project, source: "startup" }).code,
+    ).toBe(0);
+    expect(
+      runIn({
+        event: "PreCompact",
+        session: "covers",
+        cwd: worktree,
+        transcript: transcriptOf("COVERS"),
+      }).code,
+    ).toBe(0);
+
+    // The server as this host launches it: its scope is fixed for the life of
+    // the process and it never hears about the worktree.
+    const s = openServer({ dir: store, scope: project, owner: true });
+    try {
+      const before = s.counterpart.spans.coverageReport(s.scope);
+      expect(before.spans).toBeGreaterThan(0);
+      expect(before.covered).toBe(0);
+      const result = (
+        await s.call("session_end", {
+          session: "covers",
+          memories: [
+            {
+              content:
+                "Gating the backup on the export's exit code is what stops a stale copy from looking fresh.",
+            },
+          ],
+        })
+      ).structuredContent;
+      expect(result["deposited"]).toBe(1);
+      // THE POINT: the author's own memory takes the session's spans off the
+      // sweep's pile. Before this branch those spans were in another directory
+      // and this number stayed at zero.
+      expect(s.counterpart.spans.coverageReport(s.scope).covered).toBeGreaterThan(0);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("THE BATCH, END TO END: a session that answered and then sat idle leaves the fallback nothing to write", async () => {
+    // The end-state the 2026-09-17 authorship batch exists for, across all three
+    // of its changes at once: the session's spans are filed in ONE scope although
+    // its shell moved, its own deposit covers them, and an idle-past-the-window
+    // session therefore hands the crash fallback nothing: no interpreter call, no
+    // wake composed into a prompt, no fallback memory.
+    const project = join(work, "project");
+    const worktree = join(project, ".claude", "worktrees", "wt");
+    mkdirSync(worktree, { recursive: true });
+
+    expect(
+      runIn({ event: "SessionStart", session: "idle", cwd: project, source: "startup" }).code,
+    ).toBe(0);
+    expect(
+      runIn({
+        event: "PreCompact",
+        session: "idle",
+        cwd: worktree,
+        transcript: transcriptOf("IDLE"),
+      }).code,
+    ).toBe(0);
+    expect(spansIn(canonicalScope(worktree))).toBe(0);
+
+    const s = openServer({ dir: store, scope: project, owner: true });
+    try {
+      // CONTROL: before the author answers, this silent session IS the fallback's
+      // to read. `staleMs: 0` stands in for the twelve idle hours.
+      expect(s.counterpart.spans.crashedPending(s.scope, { staleMs: 0 }).uncovered).toBeGreaterThan(0);
+
+      const result = (
+        await s.call("session_end", {
+          session: "idle",
+          memories: [
+            {
+              content:
+                "A restore drill that never runs is a backup nobody has tested; schedule the drill, not only the copy.",
+            },
+          ],
+        })
+      ).structuredContent;
+      expect(result["deposited"]).toBe(1);
+      expect(s.counterpart.spans.crashedPending(s.scope, { staleMs: 0 }).uncovered).toBe(0);
+
+      const prompts: string[] = [];
+      const reports = await s.counterpart.sweepFallback({
+        crashStaleMs: 0,
+        interpret: async (chunk) => {
+          prompts.push(chunk.prompt);
+          return { proposals: [], stopReason: "end_turn" };
+        },
+      });
+      expect(prompts).toEqual([]);
+      expect(reports.some((r) => r.ran)).toBe(false);
+      expect(s.counterpart.store.countMemories({ type: "memory", source: "fallback" })).toBe(0);
+      expect(s.counterpart.store.countMemories({ type: "memory", source: "authored" })).toBe(1);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("PRIVACY: a session that starts ON and walks into an OFF directory goes silent", () => {
+    const project = join(work, "project");
+    const secret = join(work, "secret");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(secret, { recursive: true });
+    put({ [secret]: { mode: "off", since: "2026-09-17T00:00:00.000Z" } });
+
+    expect(
+      runIn({ event: "SessionStart", session: "walks", cwd: project, source: "startup" }).code,
+    ).toBe(0);
+    // In the off directory the hook produces nothing and writes nothing, even
+    // though the session is filed somewhere the owner said yes to.
+    const inside = runIn({
+      event: "PreCompact",
+      session: "walks",
+      cwd: secret,
+      transcript: transcriptOf("OFFMARKER"),
+    });
+    expect(inside.code).toBe(0);
+    expect(inside.stdout).toBe("");
+    expect(grepStore("OFFMARKER")).toBe(0);
+    // And a SessionStart in there says nothing either — no wake, no ask.
+    expect(runIn({ event: "SessionStart", session: "walks", cwd: secret }).stdout).toBe("");
+
+    // Back in the project it records again: the stance is the event's to set,
+    // turn by turn, and nothing here is sticky.
+    const back = runIn({
+      event: "PreCompact",
+      session: "walks",
+      cwd: project,
+      transcript: transcriptOf("ONMARKER"),
+    });
+    expect(back.code).toBe(0);
+    expect(grepStore("ONMARKER")).toBeGreaterThan(0);
+  });
+
+  test("PRIVACY: a session that starts ON and walks into an OBSERVER directory deposits nothing", () => {
+    const project = join(work, "project");
+    const reading = join(work, "reading-room");
+    mkdirSync(project, { recursive: true });
+    mkdirSync(reading, { recursive: true });
+    put({ [reading]: { mode: "observer", since: "2026-09-17T00:00:00.000Z" } });
+
+    expect(
+      runIn({ event: "SessionStart", session: "reads", cwd: project, source: "startup" }).code,
+    ).toBe(0);
+    const inside = runIn({
+      event: "PreCompact",
+      session: "reads",
+      cwd: reading,
+      transcript: transcriptOf("OBSMARKER"),
+    });
+    expect(inside.code).toBe(0);
+    // An observer reads and deposits nothing — the stand-down the registry
+    // folds into the config, reached here through the EVENT's directory.
+    expect(grepStore("OBSMARKER")).toBe(0);
+  });
+
+  test("PRIVACY: a session that STARTED in an off directory is off wherever it goes", () => {
+    const secret = join(work, "secret");
+    const project = join(work, "project");
+    mkdirSync(secret, { recursive: true });
+    mkdirSync(project, { recursive: true });
+    put({ [secret]: { mode: "off", since: "2026-09-17T00:00:00.000Z" } });
+
+    // Nothing at all is written for the session while it is in there.
+    expect(runIn({ event: "SessionStart", session: "quiet", cwd: secret, source: "startup" }).stdout).toBe("");
+    // It then walks into a directory that IS on — carrying a transcript of what
+    // was said in the off one. The session's own directory is still off, so the
+    // hook stands down there too, and the off stretch is never captured.
+    const out = runIn({
+      event: "PreCompact",
+      session: "quiet",
+      cwd: project,
+      projectDir: secret,
+      transcript: transcriptOf("SECRETMARKER"),
+    });
+    expect(out.code).toBe(0);
+    expect(out.stdout).toBe("");
+    expect(grepStore("SECRETMARKER")).toBe(0);
+    // NOT A BYTE — the guarantee is the absence of construction (§5 G19), and
+    // this is the one path that reaches the SECOND return, after the
+    // configuration and the session registry have been read. Neither is a write.
+    expect(existsSync(store)).toBe(false);
   });
 });
 

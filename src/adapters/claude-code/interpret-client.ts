@@ -104,6 +104,16 @@ export interface InterpretClientOptions {
  *   - ONE IDEA HAS TEETH, and a fragment gets `[]` instead of an essay (5 of
  *     121 real calls answered tiny scraps with prose; throw-and-restore held,
  *     but the honest answer was always `[]`).
+ *
+ * **WHERE THE FIRST-PERSON INSTRUCTION LIVES, and why it is not here.** Since
+ * 2026-09-17 the fallback is WOKEN AS THE SELF: the chunk prompt carries the
+ * composed wake ahead of the transcript, fenced, and tells the reader to write
+ * what it learned in the first person and in its own voice. That instruction
+ * sits beside the wake, in `core/counterpart.ts#wrapSweepInterpret`, because
+ * this system prompt is built ONCE at construction and cannot know whether a
+ * given sweep has a self to point at — an instruction to speak as yourself,
+ * issued with no self attached, is worse than none. Everything here is about
+ * the PROPOSAL, and is unchanged.
  */
 export function systemPrompt(identity?: {
   readonly name: string;

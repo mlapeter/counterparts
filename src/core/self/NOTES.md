@@ -324,39 +324,45 @@ thing one refactor later.
 
 ---
 
-## The day cap moved off the lived day (I32, 2026-09-11)
+## The cap moved off the lived day, then off the day (I32, 2026-09-11; finding 12, 2026-09-17)
 
-`dayKey` keyed the chapter cap on the store's LIVED day from 2026-09-04, and the
-reasoning was sound as far as it went: E8 says episode pacing and the regrow
-window run on lived days, and a per-session cap multiplies itself by however many
-times the owner typed `claude`.
+**First move, and the scar under it.** `dayKey` keyed the ask cap on the store's
+LIVED day from 2026-09-04, and the reasoning was sound as far as it went: E8 says
+episode pacing and the regrow window run on lived days, and a per-session cap
+multiplies itself by however many times the owner typed `claude`. What it missed
+is WHO ADVANCES THAT CLOCK. The lived day moves inside the sleep cycle, and the
+sleep cycle runs only in the detached worker — so the cap's reset depended on the
+machinery whose failure the cap would then hide, and on 2026-09-04 that machinery
+stopped. The clock froze at 185 for seven days, `self.episode.day.185` sat at its
+cap of 4, and every Stop from then on read `capped`. Thirty-nine asks a person was
+present for were never made, and the store's own record said "capped", which was
+true and told you nothing. The cap moved to the CALENDAR date, which fixed the
+freeze.
 
-What it missed is WHO ADVANCES THAT CLOCK. The lived day moves inside the sleep
-cycle, and the sleep cycle runs only in the detached worker. So the cap's reset
-depended on the machinery whose failure the cap would then hide — and on
-2026-09-04 that machinery stopped. The clock froze at 185 for seven days,
-`self.episode.day.185` sat at its cap of 4, and every Stop from then on read
-`capped: day-chapter-cap`. Thirty-nine asks that a person was present for were
-never made, and the store's own record says they were "capped", which is true and
-tells you nothing.
+**Second move: the sharing was the rest of the bug.** Diagnosed 2026-09-17
+(`docs/finding-12-diagnosis-2026-09-17.md`) on the live store: four asks shared by
+every session a calendar day held refused 196 of 264 Stops, and the crash-fallback
+sweep wrote 888 memories against the author's 193. The owner runs five or more
+sessions a day, so the day's allowance was usually spent by sessions that had
+ended before this one began — the experiencer was not losing a fight about who
+writes, it was almost never invited. When it was asked it answered every time.
 
-**The rule now:** the CALENDAR date when the caller supplies one, the lived day
-when nobody does. The fallback is not politeness to old callers — it is the right
-answer for a replay driver or a seeded run, where "today" is a fiction and the
-lived day is the only honest clock in the room.
+**The rule now:** the cap is the SESSION's own (`MAX_ASKS_PER_SESSION`, 6), and a
+session must still have done real work first — the substance pacer is untouched,
+and it is the pacer, not the count, that spaces asks out: six of them need roughly
+6 + 5×8 turns AND the bytes to match. The 2026-09-04 measurement against
+per-session (six asks in one evening) was taken under the OLD re-ask rule, an OR
+across two pacers with a byte half a third of v1's; the AND landed the same day.
 
-**What is deliberately unchanged.** Episode PACING and the regrow window still
-run on lived days (E8 stands). Only the CAP moved, because only the cap is a
-promise about a person's attention on a particular afternoon, and afternoons are
-calendar things.
+**What is deliberately unchanged.** Episode PACING and the regrow window still run
+on lived days (E8 stands). Refusals stay on the record: a capped Stop still writes
+an `adapter.ask` row with `outcome: "capped"` and `reason: "session-ask-cap"`.
 
-**The zone, stated rather than assumed.** The date is the hook's `input.at`,
-which is `new Date().toISOString().slice(0, 10)` — UTC. That is the same zone as
-every other `date` field in this store, and one clock beats two. The price is
-real: an owner at UTC−6 gets their day's asks back at 18:00 local. Named in
-`dayKey`, in the adapter's INTERFACE-GAPS, and in the PR that made the change, so
-that when someone wants a per-owner zone they are changing a decision rather than
-discovering one.
+**What went away with the day.** `dayKey`, `Self.dayAsks`, `bumpDayAsks` and the
+`self.episode.day.*` meta rows: nothing read them but the cap, and "how many asks
+did this date hold" is a question the durable `adapter.ask` rows answer better,
+each stamped with the host's UTC date and its outcome. Old `self.episode.day.*`
+rows on a live store are inert — nothing reads or writes them again.
 
 **The wake render now leaves ONE durable row per boundary (`self.briefing`,
 2026-09-14, IMPROVEMENTS U9).** `self.briefing.trim` fires once per trimmed

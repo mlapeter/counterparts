@@ -177,32 +177,6 @@ export function stateKey(sessionId: string): string {
   return `self.episode.${sessionId}`;
 }
 
-/**
- * The per-DAY ask counter's key. A day, not a session, because the host opens a
- * session per invocation: v1's calibration ("a work day gets about three
- * chapters", behavioral-spec §13 G1) is stated in days, and a per-session cap
- * silently multiplies it by however many times the owner typed `claude`.
- *
- * **WHICH day changed on 2026-09-11 (I32), and the reason is a scar.** The key
- * used to be the LIVED day — the store's own clock, which advances only inside
- * the sleep cycle the detached worker runs. When the worker could not start,
- * that clock froze at 185 while the calendar kept going, so `self.episode.day.185`
- * stayed at its cap of 4 for a week and the model was never asked for a chapter
- * again. A cap whose reset depends on the machinery it is capping is a cap that
- * can be spent forever.
- *
- * So: the CALENDAR date when the caller supplies one (`self.episode.day.2026-09-11`),
- * the lived day when nobody does. The date is the hook's `input.at`, which is a
- * **UTC** ISO date — the same zone as every other `date` field in this store, on
- * purpose: two clocks in one store is the scar this repo already has a name for.
- * The consequence is real and named rather than hidden: an owner at UTC−6 gets
- * their day's asks reset at 18:00 local. That is a decision to revisit with a
- * proper per-owner zone, not a bug to patch here with a second clock.
- */
-export function dayKey(day: number | string): string {
-  return `self.episode.day.${String(day)}`;
-}
-
 export function freshEpisodeState(sessionId: string, day: number): EpisodeState {
   return {
     sessionId,
@@ -250,7 +224,7 @@ export type AskReason =
   | "due-first"
   | "due-substance"
   | "not-enough-substance"
-  | "day-chapter-cap"
+  | "session-ask-cap"
   | "anonymous-session"
   | "observer";
 
@@ -269,7 +243,7 @@ export function askDue(
   state: EpisodeState,
   substance: Substance,
   t: SelfTunables,
-  opts: { observer: boolean; dayAsks?: number },
+  opts: { observer: boolean },
 ): AskVerdict {
   const sinceTurns = Math.max(0, substance.turns - state.askedAtTurns);
   const sinceBytes = Math.max(0, substance.bytes - state.askedAtBytes);
@@ -288,8 +262,13 @@ export function askDue(
   // instrument runs leave no episode.
   if (opts.observer) return no("observer");
   if (state.sessionId.trim().length === 0) return no("anonymous-session");
-  // The cap is the DAY's, shared across every session the day held.
-  if ((opts.dayAsks ?? 0) >= t.MAX_CHAPTERS_PER_DAY) return no("day-chapter-cap");
+  // The cap is THIS SESSION'S OWN, and it is a backstop, not the cadence: the
+  // re-ask pair below is what spaces the asks out. Shared across a whole
+  // calendar day, this cap refused 196 of 264 Stops on the live store and left
+  // the crash fallback writing four and a half times what the author wrote
+  // (2026-09-17; owner's ruling the same day). A session that did no real work
+  // is still refused — by substance, one gate down.
+  if (state.asks >= t.MAX_ASKS_PER_SESSION) return no("session-ask-cap");
 
   if (state.asks === 0) {
     const paced =

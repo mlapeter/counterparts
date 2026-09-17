@@ -58,7 +58,7 @@ import {
   writeScopes,
 } from "../scopes.js";
 import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
-import { SESSION_TTL_MS, isLive, readSession, sameScope } from "../sessions.js";
+import { SESSION_TTL_MS, canonicalScope, isLive, readSession, sameScope } from "../sessions.js";
 import {
   JOURNAL_GLOSS,
   RECALL_BODY_CHARS,
@@ -169,8 +169,51 @@ export interface ToolResult {
 const EVENT_RING = 200;
 
 /**
- * The scope default, in order: what the host said, then this process's working
- * directory, then — only if there is no cwd to be had — the store's own dir.
+ * THE SCOPE THE HOST OFFERED, or null when it offered none.
+ *
+ * In order: what the launch declared (`--scope` / `COUNTERPARTS_SCOPE`), then
+ * `CLAUDE_PROJECT_DIR`, then this process's working directory.
+ *
+ * **`CLAUDE_PROJECT_DIR` is second, and it is what makes the two adapters agree
+ * without either one telling the other.** The host documents it as the project
+ * root where the session started, exports it to hook processes AND to stdio MCP
+ * servers, and keeps it put when the agent enters a worktree or runs `cd` — so
+ * the hooks' `sessionScope` and this resolve the same string from the same
+ * variable. What the server's own working directory is, this host does not
+ * document at all: `lsof` on four running servers measured it as the session's
+ * directory on 2026-09-04, and a measurement is what it remains. It stays as the
+ * fallback it has always been.
+ *
+ * CANONICAL, because the scope is not only compared — it is the KEY. Span
+ * streams, cursors and coverage files are named from a hash of this exact string
+ * (`remember/spans.ts#keyFor`), so a deposit whose scope says `/tmp/x` claims
+ * coverage in a different directory from spans captured under `/private/tmp/x`.
+ * `sameScope` was already canonicalising for the BIND; this makes the filing
+ * agree too.
+ */
+export function hostScope(
+  declared: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): { scope: string; source: Exclude<ScopeSource, "store"> } | null {
+  if (declared !== undefined && declared.length > 0) {
+    return { scope: canonicalScope(declared), source: "flag" };
+  }
+  const projectDir = env["CLAUDE_PROJECT_DIR"];
+  if (typeof projectDir === "string" && projectDir.length > 0) {
+    return { scope: canonicalScope(projectDir), source: "project" };
+  }
+  try {
+    const cwd = process.cwd();
+    if (cwd.length > 0) return { scope: canonicalScope(cwd), source: "cwd" };
+  } catch {
+    /* no working directory — the caller falls through to the store's own dir */
+  }
+  return null;
+}
+
+/**
+ * The scope default: whatever the host offered, and — only if it offered
+ * nothing at all — the store's own dir.
  *
  * The last resort is a bad answer and is kept only because a server with no
  * scope at all cannot deposit: from 2026-09-03 it was the ONLY answer, so every
@@ -181,19 +224,13 @@ const EVENT_RING = 200;
 export function resolveScope(
   declared: string | undefined,
   storeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
 ): { scope: string; source: ScopeSource } {
-  if (declared !== undefined && declared.length > 0) return { scope: declared, source: "flag" };
-  try {
-    const cwd = process.cwd();
-    if (cwd.length > 0) return { scope: cwd, source: "cwd" };
-  } catch {
-    /* no working directory — fall through to the store's own dir */
-  }
-  return { scope: storeDir, source: "store" };
+  return hostScope(declared, env) ?? { scope: storeDir, source: "store" };
 }
 
 /** How this server learned which project it is serving. Reported at startup. */
-export type ScopeSource = "flag" | "cwd" | "store";
+export type ScopeSource = "flag" | "project" | "cwd" | "store";
 
 /** The kind enum, for a refusal that names it (session_end). Derived from
  *  `Kind` so that adding a kind without listing it here fails `tsc`. */

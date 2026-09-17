@@ -350,6 +350,57 @@ export const NARRATORS = {
   },
 
   /**
+   * THE WAKE THE FALLBACK READ WITH. Neutral by rule, like `self.briefing`: a
+   * trim is the budget working and a cold store is a cold store, so nothing here
+   * is amber. `included: false` is not a fault — it is this row telling the
+   * truth about a run that had no self to carry.
+   */
+  "sweep.wake": (t) => {
+    const reason = String(t.p["reason"] ?? "");
+    const bytes = n(t, "bytes") ?? 0;
+    const elements = n(t, "elements") ?? 0;
+    const omitted = n(t, "omitted") ?? 0;
+    const held =
+      omitted === 0
+        ? ""
+        : ` ${omitted} confidential or permanent ${omitted === 1 ? "line" : "lines"} stayed behind, as ${omitted === 1 ? "it" : "they"} always will.`;
+    if (t.p["included"] !== true) {
+      if (reason === "not-reached") {
+        return calm(
+          "Nothing had crashed, so no transcript was read and I composed no wake at all — a quiet sweep costs nothing to be ready. This line is here to prove the sweep looked." + held,
+        );
+      }
+      if (reason === "no-budget") {
+        return calm(
+          "The crash fallback read a transcript without me: this host never said how much context it can carry, so there was no wake to compose against." + held,
+        );
+      }
+      if (reason === "no-room") {
+        return calm(
+          "The crash fallback read a transcript without me: the byte cap was too small for even the shape of a wake." + held,
+        );
+      }
+      if (reason === "failed") {
+        return amber(
+          `The crash fallback read a transcript without me: composing my wake failed (${String(t.p["code"] ?? "no code")}). It read cold, which is what it always did before.`,
+        );
+      }
+      return calm(
+        "The crash fallback read a transcript without me: there was nothing of me to bring yet." + held,
+      );
+    }
+    const trimmed = n(t, "trimmed") ?? 0;
+    const chunks = n(t, "chunks") ?? 0;
+    const cut =
+      trimmed === 0
+        ? ""
+        : ` The cap set aside ${trimmed} element${trimmed === 1 ? "" : "s"} that would not fit.`;
+    return notable(
+      `The crash fallback read a transcript as ME: ${elements} element${elements === 1 ? "" : "s"} of my wake, ${num(bytes)} bytes, went in front of ${chunks} chunk${chunks === 1 ? "" : "s"}.${cut}${held}`,
+    );
+  },
+
+  /**
    * THE CYCLE'S OWN ROW (U9). Amber when a phase failed, and NAMED: a cycle that
    * lost consolidation is not a cycle that ran, and the whole point of the row is
    * that the failure is still readable a week later, out of the store.
@@ -577,6 +628,9 @@ export const REF_KIND = {
   "recall.decision": "session",
   "revision.pressure": "memory",
   "sweep.gate": "none",
+  // The sweep's wake row describes the RUN's prompt, and carries no id at all —
+  // counts, a flag and a reason, and deliberately not one line of the self.
+  "sweep.wake": "none",
   // Neither U9 row points at a memory: one describes a RUN, the other the wake
   // BUNDLE. The ids they do carry (the trimmed elements) ride in the payload.
   "sleep.cycle": "none",

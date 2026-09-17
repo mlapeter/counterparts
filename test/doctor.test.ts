@@ -29,10 +29,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   CHECKOUT_EVENT,
   Counterpart,
   EMBED_BACKFILL_EVENT,
+  GATE_DEPOSIT_EVENT,
   RECALL_CREDIT_EVENT,
   SLEEP_CYCLE_EVENT,
   SPAWN_REFUSED_EVENT,
@@ -397,6 +399,111 @@ describe("doctor — the reading", () => {
       payload: { reason: "no-candidates", credited: 0, considered: 0, date: "2026-09-14" },
     });
     expect(by(doctorFindings(input({ store: s })), "credit").severity).toBe("green");
+  });
+
+  /**
+   * FINDING 12'S OWN READING — who did the week's writing, in rows the store
+   * already keeps. The two comparisons that go amber are the two the diagnosis
+   * of 2026-09-17 measured: the day cap refusing more asks than it raises, and
+   * the fallback sweep out-writing the author.
+   */
+  describe("authorship — a week of who wrote the memory", () => {
+    /** One `adapter.ask` row, on a calendar date, with an outcome. */
+    function ask(s: Store, date: string, outcome: string): void {
+      s.appendEvent({ name: ADAPTER_ASK_EVENT, day: s.livedDay(), payload: { date, outcome } });
+    }
+    /** One authored memory, learned on a calendar date. */
+    function memory(s: Store, date: string, source: "authored" | "fallback", n: number): void {
+      for (let i = 0; i < n; i += 1) {
+        s.put({
+          type: "memory",
+          kind: "fact",
+          body: `A ${source} memory written on ${date}, number ${String(i)}, long enough to be a memory.`,
+          learnedOn: date,
+          source,
+        });
+      }
+    }
+
+    test("a healthy week is green and reads in plain language", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      for (const date of ["2026-09-12", "2026-09-13", "2026-09-14"]) {
+        ask(s, date, "asked");
+        ask(s, date, "paced");
+        s.appendEvent({ name: GATE_DEPOSIT_EVENT, day: s.livedDay(), payload: { accepted: true } });
+        memory(s, date, "authored", 2);
+      }
+      memory(s, "2026-09-14", "fallback", 1);
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.severity).toBe("green");
+      expect(f.detail).toBe(
+        "2026-09-08→2026-09-14: the session was invited to write 3 times, refused 0 because a session had used its allowance and 3 for pacing; " +
+          "it answered with 3 deposits; 6 live memories of that week are its own, 1 was written for it by the fallback sweep",
+      );
+      expect(f.fix).toBe("");
+      expect(f.data["asked"]).toBe(3);
+      expect(f.data["authored"]).toBe(6);
+      expect(f.data["fallback"]).toBe(1);
+    });
+
+    test("AMBER when a session's own ask allowance refuses more than it raises", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      ask(s, "2026-09-14", "asked");
+      for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped");
+      memory(s, "2026-09-14", "authored", 3);
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.severity).toBe("amber");
+      expect(f.detail).toContain("refused 9 because a session had used its allowance");
+      // The mechanism the hint sends the reader after must be the one that
+      // exists: per session since 2026-09-17, never a ration shared by the day.
+      expect(f.fix).toContain("A session's own allowance (6 asks)");
+      expect(f.fix).not.toContain("day");
+      expect(anyRed(doctorFindings(input({ store: s })))).toBe(false);
+    });
+
+    test("AMBER when the fallback sweep out-writes the author", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      ask(s, "2026-09-14", "asked");
+      memory(s, "2026-09-14", "authored", 2);
+      memory(s, "2026-09-13", "fallback", 20);
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.severity).toBe("amber");
+      expect(f.detail).toContain("20 were written for it by the fallback sweep");
+      expect(f.fix).toContain("session-end boundary");
+    });
+
+    test("the window is CALENDAR days, and it counts `outcome` rather than `reason`", () => {
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      // Eight days back: outside the window even though its lived day is today's.
+      ask(s, "2026-09-06", "asked");
+      memory(s, "2026-09-06", "authored", 5);
+      // A row from before the single pacer: no `outcome` at all. Counted apart,
+      // never folded into one of the three — and `reason` is not consulted, so
+      // renaming one cannot move these numbers.
+      s.appendEvent({
+        name: ADAPTER_ASK_EVENT,
+        day: s.livedDay(),
+        payload: { date: "2026-09-14", reason: "session-ask-cap" },
+      });
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.data["asked"]).toBe(0);
+      expect(f.data["capped"]).toBe(0);
+      expect(f.data["authored"]).toBe(0);
+      expect(f.data["unlabelled"]).toBe(1);
+      expect(f.detail).toContain("1 older rows name no outcome");
+    });
   });
 
   test("the vector census is the one verify prints, and it is reused rather than recomputed", () => {

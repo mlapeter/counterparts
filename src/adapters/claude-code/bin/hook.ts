@@ -28,11 +28,13 @@ import type { ConfigChoice } from "../../config-path.js";
 import {
   describeScopeTrouble,
   lookupScope,
+  mostRestrictiveVerdict,
   readScopes,
   scopesPath,
   stanceOfMode,
 } from "../../scopes.js";
 import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
+import { canonicalScope, readSession } from "../../sessions.js";
 import { loadConfig } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { loadCredentials, permissionWarning } from "../credentials.js";
@@ -159,16 +161,24 @@ export function hookConfigChoice(
 }
 
 /**
- * WHICH DIRECTORY THIS SESSION IS IN — the one decision the scope registry and
- * the session registry both key on, so it is made once, here.
+ * WHERE THE AGENT'S SHELL IS RIGHT NOW — the directory THIS EVENT happened in,
+ * and nothing more.
  *
- * The hook PAYLOAD's `cwd` first: the host measured it on 2026-09-04 to be the
- * project directory, and it is the only one of the three that is a fact about
- * THIS event rather than about the process. `CLAUDE_PROJECT_DIR` second — the
- * host exports it too, and it survives a payload that arrived unparsable.
- * `process.cwd()` last, which is what the hook has always fallen back to.
+ * **The 2026-09-04 measurement this used to rest on is retired.** It read the
+ * payload's `cwd` as "the project directory"; the host documents it as
+ * "current working directory (follows Claude into worktrees)", and it does. A
+ * session that walks into a git worktree — which is how every piece of work in
+ * this repository is done — reports the worktree here from that turn onward. One
+ * real session on 2026-09-17 had its spans filed under FOUR directories on this
+ * value alone.
+ *
+ * So this is no longer the scope anything is FILED under. It answers exactly one
+ * question — which directory the owner's registry should be consulted about for
+ * this event — and the filing scope is `sessionScope` below. The payload first,
+ * because the whole point is that it moves; the two fallbacks are for a payload
+ * that arrived unparsable.
  */
-export function hookScope(
+export function eventDirectory(
   payload: Record<string, unknown>,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -181,26 +191,148 @@ export function hookScope(
 }
 
 /**
- * THE SCOPE VERDICT for this event: which entry in `<config dir>/scopes.json`
- * governs this directory, and whether the file itself could be read.
+ * THE `SessionStart` SOURCES THAT OPEN A SESSION rather than interrupting one.
  *
- * Exported and injectable because the hook's most important new behaviour —
- * `off` means nothing is opened at all — is decided from it before any store
- * exists, and that has to be provable without a process.
+ * The host fires `SessionStart` five ways and says which in `source`: `startup`,
+ * `resume`, `clear`, `fork` — all of them a session beginning, in whatever
+ * directory the host launched it in — and `compact`, which arrives in the MIDDLE
+ * of a session whose MCP server is not relaunched. Treating a compaction as a
+ * start would re-anchor a long session's scope to wherever its shell had got to,
+ * which is the failure this file is fixing, arriving by another door.
+ *
+ * A `source` this list does not know, or none at all, does NOT re-anchor a
+ * session that already has a record: the safe direction for an unrecognised
+ * event is to leave the session where it is.
+ */
+export const FRESH_SESSION_SOURCES: readonly string[] = ["startup", "resume", "clear", "fork"];
+
+/**
+ * THE ONE DIRECTORY A SESSION IS FILED UNDER, FOR ITS WHOLE LIFE — spans,
+ * boundaries, coverage, the ask's coverage read, the session registry record and
+ * the worker's session state.
+ *
+ * **Why it is not the event's directory.** Measured on the owner's store,
+ * 2026-09-17: one session's spans landed in four scope directories and its
+ * boundaries in all four, while its authored deposits and their coverage marks
+ * landed in ONE — because the MCP server's scope is fixed at launch and a
+ * deposit only covers spans in its own scope. Everything the session wrote in
+ * the other three was left uncovered, to be rewritten twelve hours later by the
+ * crash fallback as though the session had died. Two worktree scopes on that
+ * store hold 298 fallback memories and zero authored ones.
+ *
+ * **Two sources, in this order, and they agree by construction.**
+ *
+ *   1. **The session registry's own record** (`adapters/sessions.ts`), which
+ *      SessionStart wrote and which `recordSession` refuses to rewrite after a
+ *      start. It is the recorded fact of where this session began, and it is the
+ *      SAME string `mcp/server.ts#requireBoundSession` matches a deposit
+ *      against — so a scope taken from here cannot disagree with the server that
+ *      claims coverage.
+ *   2. **`CLAUDE_PROJECT_DIR`, then the payload's `cwd`, then `process.cwd()`**,
+ *      for the first event of a session and for a session whose record was
+ *      pruned. The host documents `CLAUDE_PROJECT_DIR` as the project root where
+ *      the session started, exports it to hook processes AND to stdio MCP
+ *      servers, and keeps it put when the agent enters a worktree or runs `cd` —
+ *      which is exactly the property the payload's `cwd` lacks. `serve.ts` reads
+ *      the same variable in the same position, which is what makes the two sides
+ *      agree without either one telling the other.
+ *
+ * Canonical on both sides (`canonicalScope`): the record stores a realpath, so a
+ * scope read back from it and one resolved fresh have to be the same string or
+ * the session would split on `/tmp` versus `/private/tmp` alone — and span
+ * directories are keyed by a hash of this exact string (`remember/spans.ts`).
+ */
+export function sessionScope(
+  /** The store the session registry lives under. Absent ⇒ no record to read. */
+  dataDir: string | undefined,
+  payload: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const sessionId = typeof payload["session_id"] === "string" ? payload["session_id"] : "";
+  if (dataDir !== undefined && dataDir.length > 0 && sessionId.length > 0 && !opensASession(payload)) {
+    // `readSession` answers null on every failure rather than throwing, which is
+    // the rule this whole path lives by: a hook may not fail the host (§5 G2).
+    const recorded = readSession(dataDir, sessionId)?.scope;
+    // Canonicalised HERE rather than trusted from the file: `recordSession`
+    // canonicalises on write, so this is a no-op for every record this code
+    // wrote — and a record written by anything else (a hand edit, an older
+    // build, a future writer) would otherwise file this session's spans under a
+    // directory keyed by a hash of a string nothing else spells that way.
+    if (recorded !== undefined && recorded.length > 0) return canonicalScope(recorded);
+  }
+  return startDirectory(payload, env);
+}
+
+/** Is this event a session BEGINNING, whose directory becomes the session's? */
+function opensASession(payload: Record<string, unknown>): boolean {
+  if (payload["hook_event_name"] !== HOST_SESSION_START) return false;
+  const source = payload["source"];
+  return typeof source === "string" && FRESH_SESSION_SOURCES.includes(source);
+}
+
+/**
+ * The directory a session that has no record yet began in. `CLAUDE_PROJECT_DIR`
+ * first — see `sessionScope` for why the payload's `cwd` is not good enough.
+ */
+export function startDirectory(
+  payload: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const projectDir = env["CLAUDE_PROJECT_DIR"];
+  if (typeof projectDir === "string" && projectDir.length > 0) return canonicalScope(projectDir);
+  if (typeof payload["cwd"] === "string" && payload["cwd"].length > 0) {
+    return canonicalScope(payload["cwd"]);
+  }
+  return canonicalScope(process.cwd());
+}
+
+/**
+ * THE SCOPE VERDICT for this event: which entry in `<config dir>/scopes.json`
+ * governs, and whether the file itself could be read.
+ *
+ * It takes as many directories as the caller has, and answers with the MOST
+ * RESTRICTIVE verdict among them (`scopes.ts#mostRestrictiveVerdict`) — because
+ * one event now has two directories to answer for, the session's and the shell's,
+ * and privacy follows both while filing follows only the first. The FIRST
+ * directory is the session's own and wins every tie, so the `unset` that raises
+ * the first-launch question is asked about the directory the session is filed
+ * under rather than about wherever it happens to be standing.
+ *
+ * Exported and injectable because the hook's most important behaviour — `off`
+ * means nothing is opened at all — is decided from it before any store exists,
+ * and that has to be provable without a process.
  */
 export function hookScopeVerdict(
   configPath: string,
-  scope: string,
+  ...scopes: readonly string[]
 ): { verdict: ScopeVerdict; read: ScopeRead } {
   const read = readScopes(scopesPath(configPath));
-  return { verdict: lookupScope(read.registry, scope), read };
+  return { verdict: verdictOver(read, scopes), read };
+}
+
+/** The most restrictive verdict over `scopes`, first one winning ties. */
+function verdictOver(read: ScopeRead, scopes: readonly string[]): ScopeVerdict {
+  let verdict: ScopeVerdict = { mode: "unset", matched: null, entry: null };
+  let first = true;
+  for (const dir of scopes) {
+    const one = lookupScope(read.registry, dir);
+    verdict = first ? one : mostRestrictiveVerdict(verdict, one);
+    first = false;
+  }
+  return verdict;
 }
 
 export function toHookInput(
   payload: Record<string, unknown>,
-  env: NodeJS.ProcessEnv = process.env,
+  opts: {
+    /** The scope this session is filed under, when the caller already resolved
+     *  it. Absent: resolved here, from the registry under `dataDir`. */
+    readonly scope?: string;
+    readonly dataDir?: string;
+    readonly env?: NodeJS.ProcessEnv;
+  } = {},
 ): HookInput {
-  const scope = hookScope(payload, env);
+  const scope = opts.scope ?? sessionScope(opts.dataDir, payload, opts.env ?? process.env);
   const transcript = readTranscript(
     typeof payload["transcript_path"] === "string" ? payload["transcript_path"] : undefined,
   );
@@ -254,9 +386,16 @@ async function main(): Promise<void> {
   // write because nothing was ever constructed to produce either. An
   // unreadable registry resolves to `unset` (⇒ on, today's behaviour) and is
   // reported as a ring event once the adapter that owns the ring exists.
-  const scope = hookScope(payload);
-  const { verdict, read } = hookScopeVerdict(choice.path, scope);
-  if (stanceOfMode(verdict.mode) === "off") {
+  //
+  // THE EVENT'S OWN DIRECTORY IS CHECKED FIRST AND ALONE, and that ordering is
+  // load-bearing: it is what keeps an `off` directory's silence byte-for-byte
+  // what it was. Nothing has been read but the registry at this point — not the
+  // configuration, not the session record — so a directory the owner opted out
+  // of still costs exactly one small file read and returns. The session's own
+  // directory is folded in below, once there is a store path to look it up in.
+  const eventDir = eventDirectory(payload);
+  const { verdict: eventVerdict, read } = hookScopeVerdict(choice.path, eventDir);
+  if (stanceOfMode(eventVerdict.mode) === "off") {
     // Silent on BOTH channels, deliberately. `off` is an opt-out, not an
     // observer stand-down: there is no store to log to without writing one, and
     // UserPromptSubmit fires every turn, so a line per event would be a
@@ -279,6 +418,38 @@ async function main(): Promise<void> {
     if (trouble !== null) process.stderr.write(`${trouble}\n`);
   }
   const { config: loaded, credentials, reason } = hostConfig(choice.path);
+  // THE THIRD ARM, and it is answered BEFORE anything reads under `dataDir`: a
+  // named file that parses but whose fields do not typecheck resolves to
+  // observer, and an observer with no `dataDir` reads the DEFAULT store.
+  // Standing down is the only answer that keeps the promise the flag makes, and
+  // standing down before the session registry is consulted is what keeps it from
+  // touching the default store's host state on the way out. An unreadable
+  // DEFAULT is unchanged — observer, as it always was.
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
+    return;
+  }
+  // THE SESSION'S OWN DIRECTORY — the one everything this event captures will be
+  // FILED under, whatever directory the agent's shell has wandered into. It is
+  // resolved here rather than above because its first source is the session
+  // registry, which lives under the store the configuration names.
+  const scope = sessionScope(loaded.dataDir, payload);
+  // AND PRIVACY FOLLOWS BOTH DIRECTORIES, most restrictive winning. Filing
+  // follows the session; a session that walks into a directory the owner set
+  // `off` or `observer` goes at least as quiet as that directory, or the stable
+  // scope would have become a way to carry capture past an opt-out. The
+  // session's verdict is first, so it wins a tie and its `unset` is the one that
+  // raises the first-launch question.
+  const verdict = mostRestrictiveVerdict(lookupScope(read.registry, scope), eventVerdict);
+  if (stanceOfMode(verdict.mode) === "off") {
+    // Silent, for the same reason the event-directory return above is silent —
+    // and reached only when the session's OWN directory is the one that is off,
+    // which is a session whose SessionStart ran somewhere the owner opted out
+    // of. Nothing has been written; the configuration and the session record
+    // were read, and neither is a write.
+    return;
+  }
   // THE COMBINATION: the most restrictive of what the configuration said and
   // what the registry says (`adapters/scopes.ts#effectiveStance`, applied here
   // by folding the registry's `observer` into the config the adapter opens on).
@@ -286,15 +457,6 @@ async function main(): Promise<void> {
   // running on an observer CONFIG are untouched by any of this.
   const config: AdapterConfig =
     verdict.mode === "observer" ? { ...loaded, observer: true } : loaded;
-  // The third arm: a named file that parses but whose fields do not typecheck
-  // resolves to observer, and an observer with no `dataDir` reads the DEFAULT
-  // store. Standing down is the only answer that keeps the promise the flag
-  // makes. An unreadable DEFAULT is unchanged — observer, as it always was.
-  const unreadable = namedUnreadableRefusal(choice, reason);
-  if (unreadable !== null) {
-    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
-    return;
-  }
   // A file the group or the world can read is WARNED about, by mode, and never
   // refused: the owner's machine, the owner's call (§5 G2 — a throw here would
   // fail the host over a permission bit).
@@ -321,8 +483,10 @@ async function main(): Promise<void> {
   try {
     // ONE read of the transcript, shared by the hook and the notice: `toHookInput`
     // opens and parses the transcript file, and calling it twice would pay for
-    // that twice on the hot path.
-    const input = toHookInput(payload);
+    // that twice on the hot path. The scope is handed IN rather than resolved
+    // again: it was decided above, the registry verdict was taken on it, and two
+    // resolutions of one value is the shape scar §2.13 is about.
+    const input = toHookInput(payload, { scope });
     const result = adapter.hook(name, input);
     // THE NOTICE, AFTER THE WAKE AND ONLY AT SESSION START. Never on
     // user-prompt-submit: the owner asked for a warning, not a nag. `notice()`

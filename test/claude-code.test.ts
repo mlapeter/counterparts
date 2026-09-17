@@ -32,7 +32,7 @@ import { EMBED_SKIP_AFTER, indexTextOf } from "../src/core/store/index.js";
 import { canonicalScope, isLive, readSession, recordSession } from "../src/adapters/sessions.js";
 import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
-import { BOOTSTRAP, BRIEFING_KEY } from "../src/core/self/index.js";
+import { BOOTSTRAP, BRIEFING_KEY, SELF_TUNABLES } from "../src/core/self/index.js";
 import {
   AB_DIR_ENV,
   API_KEY_ENV,
@@ -835,31 +835,36 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     expect(a.spawnRefusals()["NO_DATA_DIR"] ?? 0).toBe(0);
   });
 
-  test("a STUCK lived day does not cap the next CALENDAR date (I32)", () => {
+  test("NO clock can cap an ask any more — the day counter is gone (I32, closed 2026-09-17)", () => {
     const { a } = adapter();
     const store = a.counterpart.store;
     // The live store's exact shape on 2026-09-11: the worker had not run since
     // 09-04, so the lived-day clock sat at one number while the calendar moved,
     // and that day's ask counter was at its cap and could never be reset —
-    // because only the sleep cycle the worker runs advances the clock.
+    // because only the sleep cycle the worker runs advances the clock. Keying
+    // the cap to the calendar date fixed the freeze; moving it onto the SESSION
+    // (2026-09-17) retired the counter, so there is no longer a number any
+    // clock, stuck or moving, can spend on a session's behalf.
     const stuck = store.livedDay();
     const stuckKey = `self.episode.day.${String(stuck)}`;
     store.setMeta(stuckKey, "99");
+    store.setMeta("self.episode.day.2026-03-09", "99");
 
     const result = a.stop(input({ sessionId: "s-new-day", turns: BIG_TURNS, at: "2026-03-09" }));
-    // The ask goes out: a new calendar date has its own allowance.
     expect(result.ask).not.toBe(null);
-    expect(store.getMeta("self.episode.day.2026-03-09")).toBe("1");
-    // AND THE OLD KEY IS NOT READ. Consulting both would let a frozen clock go
-    // on capping a calendar day it has nothing to do with, which is the bug.
+    // NEITHER key is read, and neither is written: nothing counts asks by day.
     expect(store.getMeta(stuckKey)).toBe("99");
+    expect(store.getMeta("self.episode.day.2026-03-09")).toBe("99");
 
-    // The durable ask row agrees — `capped` is what 27 Stops read on the live
-    // store while the model was never actually asked.
+    // "How often was the pen offered today" is a question the DURABLE rows
+    // answer — each stamped with the host's date — and no longer one the cap
+    // asks. `capped` is what 27 Stops read on the live store while the model was
+    // never actually asked.
     const rows = store
       .eventLog({ name: "adapter.ask", limit: 5 })
       .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
     expect(rows.at(-1)?.["outcome"]).toBe("asked");
+    expect(rows.at(-1)?.["date"]).toBe("2026-03-09");
   });
 
   test("an observer spawns NO worker, and says so (§15 G3)", () => {
@@ -3034,20 +3039,55 @@ describe("ONE ask on ONE pacer — the host's Stop is every turn, the ask is not
     expect(third.ask).toBe(stopAsk("s1", 1));
   });
 
-  test("the day's cap is shared, so a fresh session does not restart the allowance", () => {
-    // The other instance's diagnosis, in one test: "the cadence assumed a
-    // session equals a day". It does not — this host opens one per invocation.
+  test("EVERY session on a day is asked — no session spends another's allowance", () => {
+    // Finding 12, in one test: the cap used to be four asks shared by every
+    // session a calendar day held, and the owner runs five or more a day, so
+    // 196 of 264 Stops were refused before their session had said a word.
     const { a } = adapter();
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 6; i += 1) {
       expect(a.stop(input({ sessionId: `s-day-${String(i)}`, turns: BIG_TURNS })).ask).not.toBeNull();
     }
-    const fifth = a.stop(input({ sessionId: "s-day-4", turns: BIG_TURNS }));
-    expect(fifth.ask).toBeNull();
     const rows = a.counterpart.store
       .eventLog({ name: "adapter.ask", limit: 100 })
       .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
-    expect(rows[rows.length - 1]?.["outcome"]).toBe("capped");
-    expect(rows[rows.length - 1]?.["reason"]).toBe("day-chapter-cap");
+    expect(rows.map((r) => r["outcome"])).toEqual(Array.from({ length: 6 }, () => "asked"));
+    // A session with nothing in it is still refused, on substance: what a day
+    // no longer does is refuse for it.
+    const thin = a.stop(input({ sessionId: "s-thin", turns: TURNS }));
+    expect(thin.ask).toBeNull();
+    const last = a.counterpart.store
+      .eventLog({ name: "adapter.ask", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>)
+      .at(-1);
+    expect(last?.["outcome"]).toBe("paced");
+    expect(last?.["reason"]).toBe("not-enough-substance");
+  });
+
+  test("ONE session is capped at MAX_ASKS_PER_SESSION, and the row still reads `capped`", () => {
+    // The backstop, reached only by a session that keeps earning asks: each one
+    // past the first needs REASK_TURNS more turns AND REASK_BYTES more bytes, so
+    // six of them is roughly 6 + 5x8 turns of real work.
+    const { a } = adapter();
+    const turns = [...(BIG_TURNS ?? [])];
+    const outcomes: (string | null)[] = [];
+    for (let ask = 0; ask < SELF_TUNABLES.MAX_ASKS_PER_SESSION + 1; ask += 1) {
+      outcomes.push(a.stop(input({ sessionId: "s-long", turns })).ask);
+      turns.push(
+        ...Array.from({ length: 10 }, (_, i) => ({
+          role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+          text: `Stretch ${String(ask)}.${String(i)}: another genuinely new stretch of the same conversation. ${"x".repeat(1_000)}`,
+        })),
+      );
+    }
+    // Asked every time the substance was there — until the count ran out.
+    expect(outcomes.slice(0, SELF_TUNABLES.MAX_ASKS_PER_SESSION).every((o) => o !== null)).toBe(true);
+    expect(outcomes.at(-1)).toBeNull();
+    const rows = a.counterpart.store
+      .eventLog({ name: "adapter.ask", limit: 100 })
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    // The outcome vocabulary is unchanged — `asked` | `paced` | `capped`.
+    expect(rows.at(-1)?.["outcome"]).toBe("capped");
+    expect(rows.at(-1)?.["reason"]).toBe("session-ask-cap");
   });
 });
 

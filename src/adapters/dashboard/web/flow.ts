@@ -344,6 +344,10 @@ export const EVENT_NODE = {
   "gate.deposit": "encode",
   // The fallback's own record, including the runs that swept nothing.
   "sweep.gate": "sweep",
+  // The self the fallback was woken with. It is `self/`'s composition, but what
+  // the row describes is the SWEEP's prompt, so it lights the sweep node beside
+  // the gate row it always arrives with.
+  "sweep.wake": "sweep",
   // The cycle's own record (U9). Same call as the four above: the honest answer
   // to "who did this" is the phase that ran, and the run is the whole of sleep.
   "sleep.cycle": "sleep",

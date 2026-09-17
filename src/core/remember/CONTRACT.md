@@ -118,6 +118,23 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   And the recovery is **delayed, never lost**: a crashed session's spans wait for the
   first worker run past the window, which needs a boundary in *some* session to spawn
   one.
+
+  **The fallback reads as ITSELF, not as a stranger** (owner ruling 2026-09-17). Ahead of
+  the transcript its prompt carries a WAKE — composed by the same composer a live session's
+  wake uses, but *not* the same bundle: no prospective/horizon lane, no protected and no
+  confidential rows, and against the reported budget whole where a live wake first reserves
+  its preface. It is built at most once per sweep, lazily, on the first chunk that reaches
+  the interpreter, against a byte cap (`SWEEP_WAKE_BYTES`, or the host's ordinary wake
+  budget) — and the reader is told to write in the first person, in its own voice, as the
+  author would have at the time. What makes a model call "me" is the
+  memory it wakes with; read cold, the fallback wrote the owner's own day back as
+  paraphrase (`docs/finding-12-diagnosis-2026-09-17.md`: 888 fallback memories against 193
+  authored). Three limits are mechanized, not intended: the wake is composed read-only and
+  moves no rotation or published bundle; confidential and protected rows never enter it,
+  because this prompt leaves the machine (constitution 6); and the memories it produces are
+  still `source: fallback`, so the authored/fallback ratio stays legible. A store with
+  nothing to say, or a host that reported no ceiling, carries no wake and behaves exactly
+  as before.
 - **The v1 self-store tool is superseded by experiencer authorship** — self-writing became
   the primary path, not silently dropped. Its doctrine is kept whole (lived salience is the
   only legitimate identity input); only its delivery shape is gone. A tool the model must
@@ -144,7 +161,8 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
 
 **Inputs** — the session's turns since the last boundary; session identity, scope, the
 lived day and the moment; the observer predicate; jots deposited in-session; on the
-fallback path, claimed spans and their schema slices.
+fallback path, claimed spans, their schema slices, and the composed wake the interpreter is
+woken with.
 **Outputs** — proposals handed to `encode/`; a claim record; coverage claims by hash; the
 assistant's own turns kept separately (the substrate for "was a surfaced memory actually
 used?"); telemetry by reference — including, since 2026-09-05, the gate's own per-gate
@@ -251,12 +269,21 @@ declarable field carries an admission test and a named negative example — v1's
    retirement that consumes covered spans without any model call; an age-based sweep of
    the buffer on the lived-day clock; nothing at all, if the measured growth stays
    trivial.
-6. **A session that moved scope is judged per scope.** `crashedSessions` reads one
-   scope's `boundaries.jsonl`, so a session that captured under scope A and then ended
-   under scope B leaves A holding only `stop` boundaries — and A's spans for it are swept
-   once the window passes, even though the author did get the pen elsewhere. PR-1 found
-   11 real session ids under more than one scope, so this is not hypothetical; whether it
-   ever coincides with a session END in another scope is unmeasured.
+6. **A session that moved scope is judged per scope — and since 2026-09-17 no session on
+   the Claude Code adapter moves.** `crashedSessions` reads one scope's
+   `boundaries.jsonl`, so a session that captured under scope A and then ended under
+   scope B leaves A holding only `stop` boundaries — and A's spans for it are swept once
+   the window passes, even though the author did get the pen elsewhere. PR-1 found 11 real
+   session ids under more than one scope; the 2026-09-17 diagnosis found one session whose
+   spans were in four, its deposits in one, and 298 fallback memories with zero authored
+   ones in two worktree scopes. The CAUSE was in the adapter, not here: the hook payload's
+   `cwd` follows the agent into a worktree and was being used as the capture scope. That
+   adapter now files a session under one directory for its whole life
+   (`claude-code/CONTRACT.md` §5 G13), so the per-scope judgement below sees one scope per
+   session. The property itself is UNCHANGED and is still the right residual to record: an
+   embedder that hands this module two scopes for one session gets exactly the behaviour
+   described, and nothing here enforces otherwise. Stores written before that date keep
+   their split, by ruling: they are not repaired.
 7. **Is 12 hours the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. It was
    raised from a guessed 60 minutes after the live store falsified that number — session
    `c781252f` sat idle 4h07m with its author still holding the pen, then resumed and
