@@ -2,9 +2,12 @@
 
 ## 2026-09-17, morning — read this first: #116 merged; the owner's corrections; nothing built
 
-**State.** PR #116 merged (`54e419d`), shared checkout deployed there, docs only, no restart. The owner is hand
-editing `CONSTITUTION.md` in worktree `.claude/worktrees/constitution` (branch `constitution/2026-09-17`); talk the
-candidates in spec §14 through with him, never draft them. Spec appends go on `docs/storage-spec-2026-09-17`.
+**State.** PR #116 merged (`54e419d`), shared checkout deployed there, docs only, no restart. **Step 1 of the
+owner's sequence is done:** the constitution amendments are PR #118 (branch `constitution/2026-09-17`; lines 4, 6,
+11 and the preamble; the commit message is the amendment record). He decided against a seventeenth line for "the
+everyday path outranks the one-off": it is acted on instead (no bulk import going forward; the parallel-run tests
+pinned into core get cleaned up in a near session, probably with the contracts review). Next, in conversation: walk
+the spec together, option D and the seeding first. Spec appends go on `docs/storage-spec-2026-09-17` (PR #117).
 
 **The owner's corrections to the section below (his words win over its wording).** "We haven't really finalized
 anything yet, or gone through the spec together": option D, the page design and the seeding are the carried
