@@ -1694,6 +1694,10 @@ describe("one capture scope per session, wherever the shell wanders", () => {
     expect(out.code).toBe(0);
     expect(out.stdout).toBe("");
     expect(grepStore("SECRETMARKER")).toBe(0);
+    // NOT A BYTE — the guarantee is the absence of construction (§5 G19), and
+    // this is the one path that reaches the SECOND return, after the
+    // configuration and the session registry have been read. Neither is a write.
+    expect(existsSync(store)).toBe(false);
   });
 });
 

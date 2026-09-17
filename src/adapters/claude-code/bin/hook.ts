@@ -413,6 +413,18 @@ async function main(): Promise<void> {
     if (trouble !== null) process.stderr.write(`${trouble}\n`);
   }
   const { config: loaded, credentials, reason } = hostConfig(choice.path);
+  // THE THIRD ARM, and it is answered BEFORE anything reads under `dataDir`: a
+  // named file that parses but whose fields do not typecheck resolves to
+  // observer, and an observer with no `dataDir` reads the DEFAULT store.
+  // Standing down is the only answer that keeps the promise the flag makes, and
+  // standing down before the session registry is consulted is what keeps it from
+  // touching the default store's host state on the way out. An unreadable
+  // DEFAULT is unchanged — observer, as it always was.
+  const unreadable = namedUnreadableRefusal(choice, reason);
+  if (unreadable !== null) {
+    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
+    return;
+  }
   // THE SESSION'S OWN DIRECTORY — the one everything this event captures will be
   // FILED under, whatever directory the agent's shell has wandered into. It is
   // resolved here rather than above because its first source is the session
@@ -440,15 +452,6 @@ async function main(): Promise<void> {
   // running on an observer CONFIG are untouched by any of this.
   const config: AdapterConfig =
     verdict.mode === "observer" ? { ...loaded, observer: true } : loaded;
-  // The third arm: a named file that parses but whose fields do not typecheck
-  // resolves to observer, and an observer with no `dataDir` reads the DEFAULT
-  // store. Standing down is the only answer that keeps the promise the flag
-  // makes. An unreadable DEFAULT is unchanged — observer, as it always was.
-  const unreadable = namedUnreadableRefusal(choice, reason);
-  if (unreadable !== null) {
-    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
-    return;
-  }
   // A file the group or the world can read is WARNED about, by mode, and never
   // refused: the owner's machine, the owner's call (§5 G2 — a throw here would
   // fail the host over a permission bit).
