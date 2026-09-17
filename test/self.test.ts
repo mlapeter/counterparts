@@ -1606,21 +1606,42 @@ describe("episodes", () => {
     expect(self.openChapter("s1", { turns: 40, bytes: 40_000 }).chapter).toBe(2);
   });
 
-  test("the cap is the LIVED DAY's, shared across sessions — not one cap per session", () => {
-    // v1 calibrated the ritual in DAYS ("a work day gets about three chapters",
-    // behavioral-spec §13 G1) while this host opens a session per invocation, so
-    // a per-session cap of six was reached inside one evening conversation.
+  test("the cap is THE SESSION's — every session on a day is asked, none starved by another", () => {
+    // Measured 2026-09-17: a cap of four shared by every session a calendar day
+    // held refused 196 of 264 Stops, and the crash fallback wrote 888 memories
+    // to the author's 193. The owner runs five or more sessions a day, so the
+    // author was not losing a fight — it was almost never invited.
     const s = store();
-    const self = new Self({ store: s, tunables: { MAX_CHAPTERS_PER_DAY: 2 } });
+    const self = new Self({ store: s, tunables: { MAX_ASKS_PER_SESSION: 2 } });
+    for (const id of ["s1", "s2", "s3", "s4", "s5"]) {
+      expect(self.openChapter(id, SUBSTANCE, 4).asked).toBe(true);
+    }
+    // The substance pacer is untouched: a thin session is refused for being
+    // thin, with its whole allowance unspent.
+    const thin = self.openChapter("s6", { turns: 2, bytes: 300 }, 4);
+    expect(thin.asked).toBe(false);
+    expect(thin.verdict.reason).toBe("not-enough-substance");
+    expect(self.episodeState("s6", 4).asks).toBe(0);
+  });
+
+  test("ONE session stops at its OWN cap, and only after it has spent it", () => {
+    const s = store();
+    const self = new Self({ store: s, tunables: { MAX_ASKS_PER_SESSION: 2 } });
     expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
-    // A SECOND session on the same lived day spends the same day's allowance.
-    expect(self.openChapter("s2", SUBSTANCE, 4).asked).toBe(true);
-    const capped = self.openChapter("s3", SUBSTANCE, 4);
+    // Further substance, so the re-ask pacer is satisfied and the CAP is the
+    // only thing left that can refuse.
+    expect(self.openChapter("s1", { turns: 18, bytes: 15_000 }, 4).asked).toBe(true);
+    const capped = self.openChapter("s1", { turns: 40, bytes: 40_000 }, 4);
     expect(capped.asked).toBe(false);
-    expect(capped.verdict.reason).toBe("day-chapter-cap");
-    expect(self.dayAsks(4)).toBe(2);
-    // Tomorrow is a new day, and a new allowance.
-    expect(self.openChapter("s3", SUBSTANCE, 5).asked).toBe(true);
+    expect(capped.verdict.reason).toBe("session-ask-cap");
+    expect(self.episodeState("s1", 4).asks).toBe(2);
+    // A new day does NOT refill it: the count belongs to the session, and this
+    // is the same session.
+    expect(self.openChapter("s1", { turns: 60, bytes: 60_000 }, 5).verdict.reason).toBe(
+      "session-ask-cap",
+    );
+    // A session that has not spent it is still asked on that same day.
+    expect(self.openChapter("s2", SUBSTANCE, 5).asked).toBe(true);
   });
 
   test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {

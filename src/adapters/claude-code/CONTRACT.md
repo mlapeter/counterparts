@@ -226,21 +226,23 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     one degrades the ask to lexical-only and the result carries `semantic:
     "embedder-off" | "embed-failed"` rather than a quietly narrower answer.
 
-18. **[M] ONE ask, on ONE pacer, capped per LIVED DAY, and the re-fire advances
+18. **[M] ONE ask, on ONE pacer, capped per SESSION, and the re-fire advances
     nothing.** The pacer is `self/`'s and nothing else: first ask on the first real
     substance (`FIRST_ASK_*`, or `SOLO_ASK_BYTES` alone so a one-prompt agentic session
     still journals), re-ask on `REASK_TURNS` **and** `REASK_BYTES` since the last ask —
     a conjunction, the way v1 re-asked, where v2 shipped a disjunction whose byte half
-    was a third of v1's. The cap is `MAX_CHAPTERS_PER_DAY` and it is spent by the DAY,
-    across every session the day held: this host opens a session per invocation, so a
-    per-session cap multiplies the day's asks by however many times the owner typed
-    `claude` — v1 calibrated the ritual in days ("a work day gets about three").
+    was a third of v1's. The cap is `MAX_ASKS_PER_SESSION` and each session spends only
+    its own: this host opens a session per invocation, and a cap of four shared across
+    every session a calendar day held refused 196 of 264 Stops while the crash-fallback
+    sweep wrote 888 memories to the author's 193 (2026-09-17). The conjunction holds the
+    cadence — six asks in one session is roughly 46 real turns — so the count is a
+    backstop, and a session that has done no real work is still refused, on substance.
     The coverage read stays, as a RECORD of the unaskable tail and never as a second
     condition. Exactly ONE durable row per Stop (`adapter.ask`) carries the outcome —
-    `asked` | `paced` | `capped` — so "how often was it asked today" is a number in the
-    store rather than a guess. The host's re-fire (`stop_hook_active`) reaches the
-    adapter as `reFired` and is refused there as well as at delivery: it spends no
-    pacing slot, no day-cap slot, and leaves no row.
+    `asked` | `paced` | `capped` — and its date, so "how often was it asked today" is a
+    number in the store rather than a guess. The host's re-fire (`stop_hook_active`)
+    reaches the adapter as `reFired` and is refused there as well as at delivery: it
+    spends no pacing slot, no ask slot, and leaves no row.
 
 19. **[M] A directory set `off` gets NO OUTPUT AND NO WRITE — because nothing is
     constructed.** The scope registry (`adapters/scopes.ts`,
