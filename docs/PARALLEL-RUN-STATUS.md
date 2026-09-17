@@ -5,6 +5,17 @@ their four-value discipline, the daily check, and the REVERT lever. The contract
 `tools/parallel/CONTRACT.md` (PR #7); the instrument is `tools/parallel/` (README
 there). Numbers here are copied from run-directory artifacts, never typed from memory.*
 
+## State — 2026-09-17: the owner stopped maintaining the run's clock
+
+**The phase clock is no longer maintained, by the owner's word on 2026-09-17.** The decision the seven clean
+days were for is already made: PROMOTE was ruled on 2026-09-10, and on 2026-09-16 he chose a rebuild followed by
+a fresh blank store, with this scaffolding retired at that point (`docs/storage-spec-2026-09-16.md` §16 step 6).
+From here a batch that changes behaviour deploys WITHOUT a G12 declaration and WITHOUT `restart.ts`; the last
+restart on record stays #9. What still applies to every core batch: an adversarial review before deploy, then
+`tools/deploy-checkout.sh`. `doctor` is the daily health check. The run directory and everything already
+recorded in it stay as history; nothing is deleted. For the record, the first batch deployed under this entry
+(#119, #120, #121 through #122, plus its review fixes) leaves the surface set unchanged at `c3af0bef00209ba6`.
+
 ## State — 2026-09-16: the daily is ACTIVE on 09-15; a minted successor HELD at a real bar; no declaration today
 
 *Appended by the coordinating session after the morning check (~14:00Z). Numbers from `counterparts doctor`, the

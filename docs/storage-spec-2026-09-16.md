@@ -626,7 +626,9 @@ overbuild that part, to the detriment of the actual software that users will use
 9. **Everything lives in the database for now; markdown is an export** (§10 question 2), and this may
    evolve. Raised by the owner, recommended by the assistant, and the OWNER SAID YES (2026-09-17: from his
    side it is what it was before, a folder of markdown journal files): the journal ALSO gets
-   a one-way markdown mirror (database to file, never read back), safe because chapters never change
+   saved as markdown files as well (today the database is the working copy and nothing reads the files
+   back; that is how it is for now, NOT a rule: the owner expects to use the journals in more ways soon,
+   so nothing here forbids reading them), which is safe to do because chapters never change
    once a session ends, plus automatic rotating database snapshots as the real protection against a
    corrupt or wiped database. The lived argument: the self is being recovered from v1 right now because
    its pages and journal were plain files that outlived their system.
@@ -652,7 +654,7 @@ overbuild that part, to the detriment of the actual software that users will use
    - the fallback woken as the self (`feat/fallback-woken-as-self`).
 3. **The floor**: memories, versions and the journal into database rows; WAL and a busy timeout; rotating
    snapshots (optionally to a second location); export writes pages and the journal as markdown; the
-   journal's one-way markdown mirror if the owner says yes.
+   journal also saved as markdown files (the owner said yes; kept light, see §15 item 9).
 4. **The self page**: two parts, kept in the database with versions; a page-revision tool; the nightly
    runner (a windowless host session first); the page replaces the list at wake; the dashboard shows the
    page and each night's change; people and project pages by the earning rule.
