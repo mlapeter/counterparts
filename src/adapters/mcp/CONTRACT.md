@@ -122,10 +122,22 @@ actually wrote (chapter); telemetry by reference.
     unknown id, a dead id or a foreign scope is refused with WHICH of the four it was,
     because a model that cannot tell "unknown id" from "wrong project" cannot act on
     either.
-11. **[M] The scope defaults to the working directory, never silently to the store.**
-    `process.cwd()` is the project on this host (measured with `lsof`, 2026-09-04); the
-    store's dir survives only as the answer when there is no working directory at all,
-    and which default won is stated in a startup event (`mcp.scope`).
+11. **[M] The scope is the one the HOST names, never silently the store — and it is the
+    same string the hooks file that session under.** In order: `--scope` /
+    `COUNTERPARTS_SCOPE`, then `CLAUDE_PROJECT_DIR`, then `process.cwd()`. The middle one
+    is what makes the two adapters agree without either telling the other: this host
+    documents it as the project root where the session started, exports it to stdio MCP
+    servers and to hook processes alike, and keeps it put when the agent enters a
+    worktree — while the server's own working directory is documented nowhere and was
+    only ever measured (`lsof` on four running servers, 2026-09-04). The store's dir
+    survives as the answer when the host names no directory at all, and which default won
+    is stated in a startup event (`mcp.scope`).
+
+    The scope is CANONICAL (`sessions.ts#canonicalScope`), because it is not only
+    compared — it is the KEY. Span streams, cursors and coverage files are named from a
+    hash of this exact string (`remember/spans.ts#keyFor`), so a deposit whose scope says
+    `/tmp/x` would claim coverage in a different directory from spans captured under
+    `/private/tmp/x`. The bind already canonicalised; the filing does now too.
 12. **[M] `updates` is a FIELD on `note` and on a `session_end` entry**, resolved through
     the same `remember/updates.ts` path every deposit uses, with the RESOLVED id written
     to `doc.meta["updates"]` by `mint.ts`. An unresolvable declaration lands unlinked; it
@@ -154,12 +166,16 @@ told about exactly one — its own, in its own Stop ask.
 
 Two smaller residuals, recorded rather than fixed:
 
-- **A session started from a linked checkout.** If SessionStart fires from a linked
-  working copy while the MCP server's cwd is the parent project, the two scopes differ
-  and the bind is refused. The registry never rewrites a scope after the first write, so
-  the failure is stable and legible (`scope-mismatch`) rather than intermittent — but it
-  is a real refusal, and the fix (a scope both surfaces agree on) is not this adapter's
-  to make alone.
+- **A session started from a linked checkout — CLOSED 2026-09-17.** If SessionStart
+  fired from a linked working copy while the MCP server's cwd was the parent project, the
+  two scopes differed and the bind was refused. Both sides now resolve the directory the
+  host names for the session — `CLAUDE_PROJECT_DIR`, which the host exports to hooks and
+  to stdio MCP servers alike and does not move when the agent enters a worktree
+  (`server.ts#hostScope`, `claude-code/bin/hook.ts#sessionScope`) — so they agree by
+  construction rather than by both happening to read the same working directory. What
+  remains is the honest residual: a host that exports no such variable leaves the two
+  sides back on their own working directories, where they agreed by measurement and not
+  by rule.
 - **The data dir has to agree.** The registry lives under it, and the two sides resolve
   it independently — the hooks from `claude-code.json`, the server from `--dir` /
   `COUNTERPARTS_DATA_DIR` / the default. A host that sets one and not the other gets

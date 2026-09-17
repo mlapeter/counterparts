@@ -475,6 +475,20 @@ export interface MemoryFilter {
   kind?: Kind;
   band?: Band;
   archived?: boolean;
+  /**
+   * WHO WROTE IT — the mint-source doctrine's column (`authored`, `fallback`,
+   * `episode`, `migrated`). Nullable in the schema on purpose, so a filter on a
+   * source never matches a row that predates the doctrine, which is what a
+   * caller asking "how many did the author write" wants.
+   */
+  source?: string;
+  /**
+   * BORN ON OR AFTER this calendar date, `YYYY-MM-DD` — a string comparison,
+   * which is exact for that spelling. Undated rows carry `learned_on = ''`
+   * (`self/briefing.ts`) and are excluded by the same comparison, which is
+   * right: a row with no date is not a row born in a window.
+   */
+  learnedOnFrom?: string;
 }
 
 function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | number)[] } {
@@ -495,6 +509,14 @@ function memoryWhere(filter: MemoryFilter): { clause: string; args: (string | nu
   if (filter.archived !== undefined) {
     where.push("archived = ?");
     args.push(filter.archived ? 1 : 0);
+  }
+  if (filter.source !== undefined) {
+    where.push("source = ?");
+    args.push(filter.source);
+  }
+  if (filter.learnedOnFrom !== undefined) {
+    where.push("learned_on >= ?");
+    args.push(filter.learnedOnFrom);
   }
   return { clause: where.length ? `WHERE ${where.join(" AND ")}` : "", args };
 }

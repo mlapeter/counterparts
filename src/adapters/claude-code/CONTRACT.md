@@ -172,16 +172,35 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     reach a span, and a block that is only a peer message does not pace a ritual. Without
     this the fallback sweep mints another instance's findings as things the owner said in
     conversation — the failure this guarantee is named after.
-13. **[M] The live session is recorded where this host's TOOLS can find it.** SessionStart
-    writes `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary), Stop
-    refreshes the clock — creating the record when it is missing — and SessionEnd closes
-    it. The writes are atomic (temp + rename), tiny, and silent on failure, because a hook
-    may not fail the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists
-    because this host launches its MCP servers from a static configuration and cannot tell
-    them which session they serve: without this note `session_end` refuses every dump —
-    measured for the whole of the first run — and the authored front door is shut. The
-    scope is set once, by SessionStart, so a later hook cannot move the project out from
-    under a server that already matched it. An observer records nothing.
+13. **[M] The live session is recorded where this host's TOOLS can find it, and that
+    record is also WHERE THE SESSION IS FILED.** SessionStart writes
+    `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary), Stop refreshes the
+    clock — creating the record when it is missing — and SessionEnd closes it. The writes
+    are atomic (temp + rename), tiny, and silent on failure, because a hook may not fail
+    the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists because this
+    host launches its MCP servers from a static configuration and cannot tell them which
+    session they serve: without this note `session_end` refuses every dump — measured for
+    the whole of the first run — and the authored front door is shut.
+
+    **ONE SCOPE PER SESSION, FOR THE SESSION'S WHOLE LIFE.** Spans, boundaries, coverage,
+    the ask's coverage read, the registry record and the worker's session state all use
+    the directory the session STARTED in, whatever directory the agent's shell has since
+    moved to. `bin/hook.ts#sessionScope` takes it from this record first — the recorded
+    fact of where the session began, and the same string `mcp/server.ts` matches a deposit
+    against — then from `CLAUDE_PROJECT_DIR`, which the host documents as the project root
+    where the session started, exports to hooks and to stdio MCP servers alike, and keeps
+    put when the agent enters a worktree. `recordSession` sets the scope only at a start,
+    and only a SessionStart whose `source` says it is OPENING a session counts as one: a
+    compaction fires SessionStart mid-session, and re-anchoring there would split a long
+    session at every compaction.
+
+    The measurement that set the rule (2026-09-17): the payload's `cwd` follows the agent
+    into a git worktree, so one session's spans landed in FOUR scope directories and its
+    boundaries in all four, while its authored deposits and their coverage marks landed in
+    ONE — the server's scope is fixed at launch, and a deposit covers only spans in its own
+    scope. Everything in the other three stayed uncovered and was rewritten twelve hours
+    later by the crash fallback as though the session had died. Two worktree scopes on that
+    store hold 298 fallback memories and zero authored ones. An observer records nothing.
 14. **[M] The Stop ask names the session id and BOTH tools that take it**, says
     `updates` is a FIELD rather than prose, and says salience is the author's to set. The
     wording is advisory; every fact it carries is mechanized elsewhere — the id is what
@@ -254,6 +273,20 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     at the seam so a caller who builds an adapter directly inherits it, but the
     guarantee itself is the absence of construction, and the install loop proves it
     on a real process against a real clean-room install.
+
+    **TWO DIRECTORIES ARE CONSULTED, AND THE MOST RESTRICTIVE WINS**
+    (`scopes.ts#mostRestrictiveVerdict`) — because filing follows the session and
+    privacy has to follow the shell as well. The EVENT's own directory, the payload's
+    `cwd`, is looked up first and alone, before the configuration is read, so an
+    opted-out directory's silence stays exactly what it was. The SESSION's directory
+    (G13) is folded in after, because its first source is a record under the store the
+    configuration names; a session whose own directory is `off` stands down wherever
+    its shell has got to, and a session that walks INTO an `off` or `observer`
+    directory goes at least as quiet as that directory for as long as it is standing
+    there. Nothing is written before either verdict; the extra reading is a
+    configuration file and one small session record. The session's verdict wins a tie,
+    so the `unset` that raises the first-launch question (G41) is asked about the
+    directory the session is filed under.
 
     It is SILENT on purpose, and that is a deliberate exception to "every stand-down
     is observable" (`docs/observer-mode.md` G6): there is no ring to log to without

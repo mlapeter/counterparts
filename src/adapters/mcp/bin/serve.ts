@@ -50,7 +50,7 @@ import { loadCredentials, permissionWarning } from "../../claude-code/credential
 import type { CredentialLoad } from "../../claude-code/credentials.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
-import { openServer } from "../index.js";
+import { hostScope, openServer } from "../index.js";
 import { serveStdio } from "../stdio.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import {
@@ -268,7 +268,14 @@ async function main(): Promise<void> {
   // refuses `scope-off`, per call, from the file as it stands at that moment.
   const scopesFile = scopesPath(choice.path);
   const scopeRead = readScopes(scopesFile);
-  const scopeVerdict = lookupScope(scopeRead.registry, opts.scope ?? process.cwd());
+  // THE SAME RULE THE SERVER ITSELF WILL APPLY, from the same function: the
+  // launch's own `--scope`, else `CLAUDE_PROJECT_DIR` — which this host exports
+  // to stdio MCP servers and to hooks alike, and which is what makes this
+  // server's scope and the hooks' session scope the same string — else this
+  // process's working directory. Resolved once, so the registry is consulted
+  // about exactly the directory the server goes on to run in.
+  const serverScope = hostScope(opts.scope)?.scope ?? process.cwd();
+  const scopeVerdict = lookupScope(scopeRead.registry, serverScope);
   // THE SAME SENTENCE THE HOOK PRINTS, from the same function (#92 review, F2).
   // It was written out inline here and covered only a whole-file failure, so a
   // registry whose ENTRIES were refused — one typo'd `off` among good ones —
@@ -281,7 +288,7 @@ async function main(): Promise<void> {
   const stance = effectiveStance(opts.observer, scopeVerdict.mode);
   if (stance !== "on" || scopeVerdict.mode !== "unset") {
     process.stderr.write(
-      `[counterparts] scope: ${opts.scope ?? process.cwd()} is ${scopeVerdict.mode}` +
+      `[counterparts] scope: ${serverScope} is ${scopeVerdict.mode}` +
         `${scopeVerdict.matched === null ? "" : ` (set by ${scopeVerdict.matched})`}` +
         ` — this server runs ${stance}.\n`,
     );
