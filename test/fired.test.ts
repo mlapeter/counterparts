@@ -369,6 +369,32 @@ describe("the tables that stand in for a mechanism with no event", () => {
     expect(edges.lastFired).toContain("lived day");
   });
 
+  /**
+   * A table whose NEWEST row is inside the window has not put every row it holds
+   * inside the window. The first cut of this reported `7d` as the table's whole
+   * count, which on the owner's store would have printed "7d 430" for a set of
+   * links every one of which was stamped at the import.
+   */
+  test("a dated table counts PER ROW, not 'the newest one is recent, so all of them are'", () => {
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "a memory that gets revised twice" });
+    const old = Store.open({ dir, now: () => at(daysBefore(TODAY, 20)) });
+    old.revise(id, {
+      body: "the first revision of that memory, written weeks ago",
+      reason: "episode-chapter",
+    });
+    old.close();
+    s.revise(id, {
+      body: "the second revision of that memory, written today",
+      reason: "episode-chapter",
+    });
+    const chapter = pick(report(s), "journal-chapter");
+    expect(chapter.total).toBe(2);
+    expect(chapter.firedInWindow).toBe(1);
+    expect(chapter.state).toBe("firing");
+    expect(chapter.lastFired).toBe(TODAY);
+  });
+
   test("a table with rows and no date of any kind is BLIND, not firing", () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "a memory worth protecting" });

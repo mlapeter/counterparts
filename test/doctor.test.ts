@@ -597,20 +597,25 @@ describe("doctor — the reading", () => {
       expect(Number(f.data["never"])).toBeGreaterThan(0);
     });
 
-    /** The probes cost a query per memory, so the session-start reading does not
-     *  pay for them — and says which mechanisms it therefore did not read. */
-    test("the console reads the tables; a budgeted reading names what it did not", () => {
+    /**
+     * The roll-call is the only reading here whose SQL is not bounded by a lived
+     * day — it walks the whole log, and the table probes cost a query per memory
+     * on top. A hook does not pay for that, and it would buy nothing there: the
+     * session-start notice carries reds only and this finding is never red.
+     */
+    test("a budgeted reading does not take the roll-call at all, and says so", () => {
       mintStore();
       writeConfig();
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
-      expect(by(doctorFindings(input({ store: s })), "fired").data["notRead"]).toBe("");
-      const budgeted = by(
-        doctorFindings(input({ store: s, budgetMs: 10_000 })),
-        "fired",
-      );
-      expect(String(budgeted.data["notRead"])).toContain("protection");
-      expect(budgeted.detail).toContain("were not read on this pass");
+      s.appendEvent({ name: SWEEP_GATE_EVENT, day: s.livedDay(), payload: { date: "2026-09-06" } });
+      // The console reads it, and on this store that is the amber.
+      expect(by(doctorFindings(input({ store: s })), "fired").severity).toBe("amber");
+      // A budgeted reading, with time to spare, still does not.
+      const budgeted = by(doctorFindings(input({ store: s, budgetMs: 10_000 })), "fired");
+      expect(budgeted.severity).toBe("green");
+      expect(budgeted.data["read"]).toBe(false);
+      expect(budgeted.detail).toContain("not read at session start");
     });
   });
 

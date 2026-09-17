@@ -1051,13 +1051,30 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
  * a standing fact about the build, and ambering on it every morning would train
  * its reader to ignore the line that matters.
  *
- * The TABLE probes — the five reads that stand in for a mechanism with no event
- * of its own — cost a query per memory, so they are paid by the console and not
- * by the session-start reading, which says which mechanisms it did not read
- * rather than guessing at them.
+ * THE SESSION-START READING DOES NOT TAKE IT. This is the only group here whose
+ * SQL is not bounded by a lived day — the roll-call is a question about the
+ * whole log, and the five table probes cost a query per memory on top — and a
+ * hook that paid for it would have made the cure worse than the disease. The
+ * between-groups budget check cannot help: a group that starts inside the budget
+ * then runs as long as it likes. And it would buy nothing there, because the
+ * notice carries reds only and this finding is never red. So the budgeted
+ * reading says where the answer lives instead of half-reading it.
  */
 function firedFindings(input: DoctorInput, store: Store): Finding[] {
-  const report = firedReport(store, input.today, { probes: input.budgetMs === undefined });
+  if (input.budgetMs !== undefined) {
+    return [
+      finding(
+        "fired",
+        "green",
+        "Fired",
+        "the roll-call of mechanisms is not read at session start: it walks the whole event log, " +
+          "and a hook is not the place to pay for that",
+        "",
+        { read: false },
+      ),
+    ];
+  }
+  const report = firedReport(store, input.today);
   const c = report.counts;
   const roll =
     `${report.from}→${report.today}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired this week, ` +
@@ -1281,9 +1298,10 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["authorship", () => authorshipFindings(input, store)],
     ["vectors", () => vectorFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
-    // plus a pass over the ids when the console asks for the table probes — so
-    // when the session-start budget runs out this is the group it cuts, and the
-    // `Budget` finding below says so rather than leaving a silent gap.
+    // plus a pass over the ids for the table probes — so when the console's
+    // reading is cut short this is the group that goes, and the `Budget` finding
+    // below says so rather than leaving a silent gap. A budgeted reading does
+    // not take it at all; see `firedFindings`.
     ["fired", () => firedFindings(input, store)],
   ];
   const skipped: string[] = [];

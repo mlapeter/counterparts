@@ -629,7 +629,7 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
     previousTo: daysBefore(today, FIRED_DAYS),
   };
   const log = readLog(store, window);
-  const probed = opts.probes === false ? null : readProbes(store);
+  const probed = opts.probes === false ? null : readProbes(store, window);
 
   const rows: FiredRow[] = [];
   const notRead: string[] = [];
@@ -657,15 +657,22 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
     counts,
     wentQuiet: rows
       .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0)
-      .map((r) => r.label),
+      // A row whose table keeps only LIVED days was compared on the lived clock,
+      // which has run seven days across fifteen calendar ones — so the sentence
+      // says which clock answered rather than claiming a calendar week it did
+      // not measure.
+      .map((r) => (r.lastFiredIsDate ? r.label : `${r.label} (measured in lived days)`)),
   };
 }
 
-/** Silent first, then by state, then most-recently-fired first inside a state. */
+/** Silent first, then by state, then most-recently-fired first inside a state —
+ *  with the rows a lived clock answered after the dated ones, because the two
+ *  spellings do not compare and an order that pretended they did would shuffle. */
 export function sortRows(rows: readonly FiredRow[]): FiredRow[] {
   return [...rows].sort((a, b) => {
     const byState = STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state);
     if (byState !== 0) return byState;
+    if (a.lastFiredIsDate !== b.lastFiredIsDate) return a.lastFiredIsDate ? -1 : 1;
     if (a.lastFired !== b.lastFired) {
       if (a.lastFired === null) return 1;
       if (b.lastFired === null) return -1;
@@ -711,7 +718,7 @@ const EMPTY_READING: Reading = {
 };
 
 function rowFor(m: Mechanism, log: LogRead, probed: Probed | null, w: Window): FiredRow {
-  const read = readEvidence(m, log, probed, w);
+  const read = readEvidence(m, log, probed);
   const state = stateOf(m, read, w);
   return {
     id: m.id,
@@ -757,12 +764,12 @@ function noteFor(m: Mechanism, read: Reading, state: FiredState): string | null 
   return null;
 }
 
-function readEvidence(m: Mechanism, log: LogRead, probed: Probed | null, w: Window): Reading {
+function readEvidence(m: Mechanism, log: LogRead, probed: Probed | null): Reading {
   if (m.evidence.kind === "none") {
     return { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason };
   }
   if (m.evidence.kind === "probe") {
-    return probeReading(m.evidence.probe, m.evidence.undated ?? null, probed, w);
+    return probeReading(m.evidence.probe, m.evidence.undated ?? null, probed);
   }
   return eventReading(m.evidence.names, log);
 }
@@ -962,6 +969,10 @@ interface ProbeTally {
   lastLivedDay: number | null;
   /** The newest wall-clock instant, where the table keeps one. */
   lastAt: number | null;
+  /** Counted PER ROW, like the log's: a table whose newest row is inside the
+   *  window has not put every row it holds inside the window. */
+  inWindow: number;
+  inPreviousWindow: number;
 }
 
 interface Probed {
@@ -979,12 +990,13 @@ interface Probed {
  * It is the read the console and the dashboard pay and the session-start reading
  * does not.
  */
-function readProbes(store: Store): Probed {
+function readProbes(store: Store, w: Window): Probed {
   const byId = new Map<string, ProbeTally>();
+  const livedDay = store.livedDay();
   const bump = (id: string, at: { livedDay?: number | null; at?: number | null } = {}): void => {
     let t = byId.get(id);
     if (t === undefined) {
-      t = { total: 0, lastLivedDay: null, lastAt: null };
+      t = { total: 0, lastLivedDay: null, lastAt: null, inWindow: 0, inPreviousWindow: 0 };
       byId.set(id, t);
     }
     t.total += 1;
@@ -992,6 +1004,21 @@ function readProbes(store: Store): Probed {
     if (day !== null && (t.lastLivedDay === null || day > t.lastLivedDay)) t.lastLivedDay = day;
     const when = at.at ?? null;
     if (when !== null && (t.lastAt === null || when > t.lastAt)) t.lastAt = when;
+    // A wall clock answers in calendar days, which is the window this page uses.
+    // A lived day is all some of these tables keep, and a lived day spans one
+    // calendar day or more, so that window is a superset of the calendar one —
+    // the row prints `lived day N` rather than a date so the reader can see
+    // which clock answered.
+    if (when !== null) {
+      const date = dateOf(when);
+      if (date >= w.from && date <= w.to) t.inWindow += 1;
+      else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
+      return;
+    }
+    if (day === null) return;
+    const ago = livedDay - day;
+    if (ago < FIRED_DAYS) t.inWindow += 1;
+    else if (ago < FIRED_DAYS * 2) t.inPreviousWindow += 1;
   };
 
   for (const record of store.removalRecord()) bump("removals", { at: record.at });
@@ -1010,44 +1037,28 @@ function readProbes(store: Store): Probed {
       bump(`versions:${v.reason}`, { livedDay: v.version_day, at: v.archived_at });
     }
   }
-  return { byId, livedDay: store.livedDay(), truncated: scanned.length < ids.length };
+  return { byId, livedDay, truncated: scanned.length < ids.length };
 }
 
-function probeReading(
-  probe: ProbeId,
-  undated: string | null,
-  probed: Probed | null,
-  w: Window,
-): Reading {
+function probeReading(probe: ProbeId, undated: string | null, probed: Probed | null): Reading {
   const base: Reading = { ...EMPTY_READING, evidence: probeLabel(probe) };
   if (probed === null) return { ...base, blind: "the tables were not read on this pass" };
   const t = probed.byId.get(probe);
   if (t === undefined || t.total === 0) return base;
-  // A wall clock answers in calendar days, which is the window this page uses.
+  const counted = {
+    ...base,
+    total: t.total,
+    inWindow: t.inWindow,
+    inPreviousWindow: t.inPreviousWindow,
+  };
   if (t.lastAt !== null) {
-    const date = dateOf(t.lastAt);
-    return {
-      ...base,
-      total: t.total,
-      lastFired: date,
-      lastFiredIsDate: true,
-      inWindow: date >= w.from && date <= w.to ? t.total : 0,
-      inPreviousWindow: date >= w.previousFrom && date <= w.previousTo ? t.total : 0,
-    };
+    return { ...counted, lastFired: dateOf(t.lastAt), lastFiredIsDate: true };
   }
-  // A LIVED day is all this table keeps, so the window here is lived days too.
-  // A lived day spans one calendar day or more, which makes this window a
-  // superset of the calendar one — the row prints `lived day N` rather than a
-  // date so the reader can see which clock answered.
   if (t.lastLivedDay !== null) {
-    const ago = probed.livedDay - t.lastLivedDay;
     return {
-      ...base,
-      total: t.total,
+      ...counted,
       lastFired: `lived day ${String(t.lastLivedDay)}`,
       lastFiredIsDate: false,
-      inWindow: ago < FIRED_DAYS ? t.total : 0,
-      inPreviousWindow: ago >= FIRED_DAYS && ago < FIRED_DAYS * 2 ? t.total : 0,
     };
   }
   // Rows, and no date of any kind behind them: a count that cannot answer the
