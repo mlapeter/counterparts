@@ -1614,6 +1614,66 @@ describe("one capture scope per session, wherever the shell wanders", () => {
     }
   });
 
+  test("THE BATCH, END TO END: a session that answered and then sat idle leaves the fallback nothing to write", async () => {
+    // The end-state the 2026-09-17 authorship batch exists for, across all three
+    // of its changes at once: the session's spans are filed in ONE scope although
+    // its shell moved, its own deposit covers them, and an idle-past-the-window
+    // session therefore hands the crash fallback nothing: no interpreter call, no
+    // wake composed into a prompt, no fallback memory.
+    const project = join(work, "project");
+    const worktree = join(project, ".claude", "worktrees", "wt");
+    mkdirSync(worktree, { recursive: true });
+
+    expect(
+      runIn({ event: "SessionStart", session: "idle", cwd: project, source: "startup" }).code,
+    ).toBe(0);
+    expect(
+      runIn({
+        event: "PreCompact",
+        session: "idle",
+        cwd: worktree,
+        transcript: transcriptOf("IDLE"),
+      }).code,
+    ).toBe(0);
+    expect(spansIn(canonicalScope(worktree))).toBe(0);
+
+    const s = openServer({ dir: store, scope: project, owner: true });
+    try {
+      // CONTROL: before the author answers, this silent session IS the fallback's
+      // to read. `staleMs: 0` stands in for the twelve idle hours.
+      expect(s.counterpart.spans.crashedPending(s.scope, { staleMs: 0 }).uncovered).toBeGreaterThan(0);
+
+      const result = (
+        await s.call("session_end", {
+          session: "idle",
+          memories: [
+            {
+              content:
+                "A restore drill that never runs is a backup nobody has tested; schedule the drill, not only the copy.",
+            },
+          ],
+        })
+      ).structuredContent;
+      expect(result["deposited"]).toBe(1);
+      expect(s.counterpart.spans.crashedPending(s.scope, { staleMs: 0 }).uncovered).toBe(0);
+
+      const prompts: string[] = [];
+      const reports = await s.counterpart.sweepFallback({
+        crashStaleMs: 0,
+        interpret: async (chunk) => {
+          prompts.push(chunk.prompt);
+          return { proposals: [], stopReason: "end_turn" };
+        },
+      });
+      expect(prompts).toEqual([]);
+      expect(reports.some((r) => r.ran)).toBe(false);
+      expect(s.counterpart.store.countMemories({ type: "memory", source: "fallback" })).toBe(0);
+      expect(s.counterpart.store.countMemories({ type: "memory", source: "authored" })).toBe(1);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
   test("PRIVACY: a session that starts ON and walks into an OFF directory goes silent", () => {
     const project = join(work, "project");
     const secret = join(work, "secret");
