@@ -55,6 +55,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
@@ -98,19 +99,21 @@ export const PENDING_MAX_BYTES = 1024 * 1024;
 export const PENDING_MARKER_SLACK_BYTES = 16 * 1024;
 
 /**
- * **CAL.** How long a claim file must sit untouched before another run takes it
- * over.
+ * **CAL.** How long a claim may go untouched before another run takes it over.
  *
- * It has to outlive one worker's own apply, because a claim stolen from a run
- * that is still working on it would be applied twice — the one direction
- * `CONTRACT.md` §5 G4 rules out. An apply's worst case is bounded by the
- * database's own busy timeout (5 s, `store/db.ts`), so two minutes is about
- * twenty-four times the longest it can honestly take. Shorter than
- * `remember/`'s ten-minute span window on purpose: a claim that failed is work
- * already earned and waiting, and it should land at the next boundary rather
- * than the one after lunch.
+ * A claim is TOUCHED when it is taken (`claimPending` sets its mtime to the
+ * claim time), so this age is time since the claim, not time since the last
+ * append — `renameSync` keeps the pending file's mtime, and measured from that
+ * a claim taken during a quiet stretch looked hours old the moment it was made,
+ * which let a second worker steal it from a live one and apply the same deltas
+ * twice (second adversarial review, 2026-09-17). The window has to outlive the
+ * whole worker, not only one apply: the worker's watchdog is five minutes
+ * (`claude-code/config.ts` WATCHDOG_MS), a worker the watchdog killed releases
+ * nothing, and a live one may still be inside its apply. Ten minutes is twice
+ * that. Shorter than `remember/`'s span window on purpose: a claim that failed
+ * is work already earned and waiting, and it should land soon after.
  */
-export const PENDING_STALE_CLAIM_MS = 2 * 60_000;
+export const PENDING_STALE_CLAIM_MS = 10 * 60_000;
 
 export function associationDir(dataDir: string): string {
   return join(dataDir, SESSIONS_DIR, ASSOCIATION_DIR);
@@ -234,7 +237,7 @@ function parseLine(raw: string): PendingLine | null {
   if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return null;
   const rec = entry as Record<string, unknown>;
   const at = typeof rec["at"] === "number" ? rec["at"] : null;
-  const day = typeof rec["day"] === "number" ? rec["day"] : null;
+  const day = typeof rec["day"] === "number" && Number.isFinite(rec["day"]) && rec["day"] >= 0 ? Math.floor(rec["day"]) : null;
   if (at === null || day === null) return null;
   const dropped = typeof rec["dropped"] === "number" ? rec["dropped"] : 0;
   const pairs: PairDelta[] = [];
@@ -280,6 +283,18 @@ function readClaim(path: string): PendingClaim {
   return { path, passes, deltas, day, oldestAt, droppedPairs, corrupt };
 }
 
+/** A claim's age is measured from the moment it was taken (see
+ *  `PENDING_STALE_CLAIM_MS`). A touch that fails leaves the rename's mtime, and
+ *  the claim then only looks OLDER than it is, which is the safe direction for
+ *  the next run's takeover. */
+function touch(path: string, now: number): void {
+  try {
+    utimesSync(path, now / 1000, now / 1000);
+  } catch {
+    /* see above */
+  }
+}
+
 /**
  * Take the pending file and any claim a dead run left behind — each as its own
  * unit of work, oldest first.
@@ -312,6 +327,7 @@ export function claimPending(
   }
   try {
     renameSync(pendingPath(dataDir), join(dir, `${id}.jsonl`));
+    touch(join(dir, `${id}.jsonl`), now);
     claims.push(readClaim(join(dir, `${id}.jsonl`)));
   } catch {
     /* nothing pending, or a rename this process may not make: the orphans below
@@ -332,6 +348,7 @@ export function claimPending(
       taken += 1;
       const to = join(dir, `${id}.carried${taken}.jsonl`);
       renameSync(from, to);
+      touch(to, now);
       claims.push(readClaim(to));
     } catch {
       /* another run took it first, or it cannot be read: not this run's work. */

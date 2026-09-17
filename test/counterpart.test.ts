@@ -38,9 +38,11 @@ import {
   PENDING_MAX_BYTES,
   TUNABLES as ASSOCIATE,
   associationDir,
+  PENDING_STALE_CLAIM_MS,
   claimsDir,
   pendingPath,
 } from "../src/core/associate/index.js";
+import { TUNABLES as CLAUDE_CODE_TUNABLES } from "../src/adapters/claude-code/config.js";
 import { SWEEP_REASONS, TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
@@ -748,12 +750,48 @@ describe("co-activation crosses the process line on disk", () => {
 
     // The next worker run, past the staleness window: it takes the orphan over,
     // applies it, and the row says how long the work waited.
-    const later = c.applyPendingAssociations({ now: c.store.now() + 5 * 60_000 });
+    const later = c.applyPendingAssociations({ now: c.store.now() + 11 * 60_000 });
     expect(later.reason).toBe("flushed");
     expect(later.claims).toBe(1);
     expect(c.associate.linked(a, b)).toBe(true);
     expect(claimFiles()).toEqual([]);
-    expect(Number(flushRow(c)?.["oldestMs"])).toBeGreaterThan(4 * 60_000);
+    expect(Number(flushRow(c)?.["oldestMs"])).toBeGreaterThan(10 * 60_000);
+  }, 60_000);
+
+  test("a claim held by a LIVE run cannot be stolen inside the window, however old its deltas are", () => {
+    // Second adversarial review, 2026-09-17: `renameSync` keeps the pending
+    // file's mtime, so a claim taken during a quiet stretch looked hours old
+    // the moment it was made, and a second worker took it from a live one and
+    // applied the same deltas twice. The claim is now touched when taken.
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    // The deltas were appended an hour ago (a quiet stretch before the boundary).
+    const old = new Date(c.store.now() - 60 * 60_000);
+    utimesSync(pendingPath(dir), old, old);
+
+    // Run 1 claims but cannot apply (the lock is held) — it is still "live".
+    const lock = holdWriteLock();
+    expect(c.applyPendingAssociations().reason).toBe("failed");
+    lock.release();
+    expect(claimFiles().length).toBe(1);
+
+    // Run 2, one minute later: the claim is one minute old, not an hour, so it
+    // is NOT taken over.
+    const soon = c.applyPendingAssociations({ now: c.store.now() + 60_000 });
+    expect(soon.claims).toBe(0);
+    expect(c.associate.linked(a, b)).toBe(false);
+    expect(claimFiles().length).toBe(1);
+
+    // Past the window it is carried in exactly once.
+    const later = c.applyPendingAssociations({ now: c.store.now() + 11 * 60_000 });
+    expect(later.claims).toBe(1);
+    expect(c.associate.linked(a, b)).toBe(true);
+    expect(claimFiles()).toEqual([]);
+    // The window outlives the worker's watchdog, so a live worker's claim is
+    // never stealable and a killed worker's claim is picked up afterwards.
+    expect(PENDING_STALE_CLAIM_MS).toBeGreaterThan(CLAUDE_CODE_TUNABLES.WATCHDOG_MS);
   }, 60_000);
 
   test("two hook PROCESSES appending at once lose nothing", async () => {

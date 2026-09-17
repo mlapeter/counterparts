@@ -1807,6 +1807,8 @@ export function wakeOutcome(expected: string | null, arrival: WakeArrival): Wake
   if (!arrival.contentRecorded) {
     if (arrival.tailPrinted.matchesExpected) return "printed-unverified";
     if (arrival.tailPrinted.present) return "mismatch";
+    // Neither recorded nor printed: the attachment is not a wake at all.
+    if (!arrival.headPrinted.present) return "not-found";
   }
   return "truncated";
 }

@@ -1777,9 +1777,19 @@ export class Counterpart {
     if (failure !== null) out.reason = "failed";
     else if (out.pairs === 0) out.reason = "nothing-buffered";
 
+    // The lived day is a database read; a busy database must not lose the row
+    // over it (second review, 2026-09-17), so the newest day a claim carried
+    // stands in, and the row says which it used.
+    let rowDay: number | null = null;
+    try {
+      rowDay = this.store.livedDay();
+    } catch {
+      rowDay = null;
+    }
     const data: Record<string, unknown> = {
       reason: out.reason,
-      day: this.store.livedDay(),
+      day: rowDay ?? Math.max(0, ...claims.map((c) => c.day ?? 0)),
+      dayFrom: rowDay === null ? "claim" : "clock",
       claims: out.claims,
       passes: out.passes,
       pairs: out.pairs,
@@ -1804,7 +1814,7 @@ export class Counterpart {
     try {
       this.store.appendEvent({
         name: ASSOCIATE_FLUSH_EVENT,
-        day: this.store.livedDay(),
+        day: Number(data["day"]),
         payload: data,
       });
     } catch (err) {
