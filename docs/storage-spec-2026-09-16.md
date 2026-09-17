@@ -188,6 +188,18 @@ Findings:
     - The v1 identity layer on disk, read-only: 11 pages (self, craft, two persons, seven
       entities) and a 225-file first-person journal, 1.6 MB.
 
+    - **Diagnosed 2026-09-17** (`docs/finding-12-diagnosis-2026-09-17.md`, read-only, code claims
+      and headline counts re-checked by the session). The author is not losing a fight; it is
+      almost never invited. `MAX_CHAPTERS_PER_DAY = 4` is shared across every session a day
+      holds: 264 Stop moments raised 26 asks, 196 were refused by the cap. "Crashed" means no
+      `session-end` plus twelve hours of silence, so a terminal left open overnight is swept
+      while alive: 535 of the 888. Another 217 predate the 09-04 gate that made the sweep a
+      fallback at all, and 136 are genuine crashes. One sweep chunk writes about ten memories;
+      one authored deposit writes one. When asked, the model answered 9 of 9 times, 106 of
+      106 deposits accepted. Two code hazards: an unbound MCP server deposits under the
+      session id `"mcp"`, which covers no span (71 of the 193 authored); boundaries are
+      recorded per scope, so a session that also worked in a worktree stays "crashed" there.
+
 ## 5. Stratum 2 — what the eleven mechanisms ask of storage
 
 Against the field guide at `/ecosystem` (the owner's memory field guide, copied to the

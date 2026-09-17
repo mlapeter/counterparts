@@ -1,6 +1,41 @@
 # Handoff — resume here
 
-## 2026-09-16, evening — read this first: the architecture conversation happened; nothing built
+## 2026-09-17, morning — read this first: #116 merged; the owner's corrections; nothing built
+
+**State.** PR #116 merged (`54e419d`), shared checkout deployed there, docs only, no restart. **Step 1 of the
+owner's sequence is done:** the constitution amendments are PR #118 (branch `constitution/2026-09-17`; lines 4, 6,
+11 and the preamble; the commit message is the amendment record). He decided against a seventeenth line for "the
+everyday path outranks the one-off": it is acted on instead (no bulk import going forward; the parallel-run tests
+pinned into core get cleaned up in a near session, probably with the contracts review). Next, in conversation: walk
+the spec together, option D and the seeding first. Spec appends go on `docs/storage-spec-2026-09-17` (PR #117).
+
+**The owner's corrections to the section below (his words win over its wording).** "We haven't really finalized
+anything yet, or gone through the spec together": option D, the page design and the seeding are the carried
+recommendation, not rulings, and he wants to talk D and the seeding through in detail. Episodes are simply not
+decided yet, not "deliberately undecided". "We don't need to repair any memories we don't plan on importing", so
+G56's seeding of the 453 migrated rows is moot under the blank-store plan and the three held batches need a re-sort.
+Still firm: "readable" means viewable in a file or the database; memories as rows with ten to a hundred rendered
+pages; a fresh blank store after the rebuild. Of spec §10, about seven questions are still live: 1, 2, 5, 6, 8, 9,
+11, plus D's sub-parts. He prefers deciding in conversation, a few items at a time, over more documents.
+
+**The interim identity hook (spec §14 step 1): approved by the owner, not installed.** v1's session-start hook
+prints a pre-rendered `render/wake.md` (capped at 9,000 bytes, frozen about 09-10). Its `[core]` lines are the self
+page's stable core as v1's own consolidation compressed it, about 5.5 KB, first person; the person pages were never
+in v1's wake. The v1 pages' stable cores are far larger (self 18 KB, the owner's page 16 KB, stripped of machine
+comments), so the render's core is the source to use, verbatim, in a static file outside both stores, printed by a
+plain SessionStart hook that honors `bansai-optout.txt`. The host's auto-mode classifier refuses to let a session
+write that file or wire it (it reads as self-persistence), so the owner installs it himself or skips it.
+
+**The hook decision is deferred to 2026-09-18 by the owner:** he is running the three-way comparison (one instance
+each of engram, bansai and Counterparts) in other sessions on 09-17, and a global identity hook would confound it.
+
+**Finding 12 is diagnosed** (`docs/finding-12-diagnosis-2026-09-17.md`; summary in spec §4 finding 12). The author
+is rarely invited (four asks a day shared by every session; 26 asks from 264 Stops), sessions left open overnight
+are swept as crashed (535 of the 888), and a sweep chunk writes ten memories where a deposit writes one. When
+asked, the model answered every time. This is the rebuild's "fix the plumbing" item made specific; the cap and
+the crash predicate are rulings for the owner, not yet raised with him.
+
+## 2026-09-16, evening — read second: the architecture conversation happened; nothing built
 
 **Where the record is.** The owner's architecture session (Fable) ran in worktree
 `.claude/worktrees/storage-spec` on branch `docs/storage-spec-2026-09-16` (this PR) and produced
@@ -45,7 +80,7 @@ seeding is needed regardless; the three-way identity comparison is prepped, not 
 **Process for the next session:** work in a worktree, never the live checkout; agents on Opus; the spec is the
 record, so append to it rather than re-deriving; peer sessions can be reached with ListAgents/SendMessage.
 
-## 2026-09-16, close — read second
+## 2026-09-16, close — read third
 
 **Everything is committed, merged, deployed and recorded. No PR is open, no worktree holds work.** Master and the
 shared checkout are at the sha of this docs merge (`doctor` Checkout GREEN). The day's record is the 2026-09-16
