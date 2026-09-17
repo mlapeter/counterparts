@@ -58,8 +58,14 @@ from becoming the second front door CONTRACT §7 OQ1 warns about.
 registers it as:
 
 ```
-bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id> --scope <cwd>
+bun run <repo>/src/adapters/mcp/bin/serve.ts --session <id> --scope <project dir>
 ```
+
+Neither flag is reachable on Claude Code, which registers MCP servers from a static
+configuration. Without `--scope` the server resolves `CLAUDE_PROJECT_DIR` and then its
+own working directory (`server.ts#hostScope`) — the first of those is the one the hooks
+also file a session under, which is what makes a deposit's coverage land on the spans it
+covers rather than in another directory.
 
 `--owner` marks the owner's own session (confidential material is returned only
 there); `--observer` stands every tool down over the wire.

@@ -146,7 +146,9 @@ The fix is a note the hooks leave where the tool can read it —
 refreshed at Stop, closed at SessionEnd — plus an ask that now NAMES the session
 id, because on this host the id can only reach the server through the model. What
 the hooks owe the seam is exactly three things and they are all here: the record,
-its scope (the hook's own cwd, set once so a later hook cannot move it), and the
+its scope (the directory the session STARTED in — set at a start and never moved,
+and from 2026-09-17 the SOURCE every later hook reads its own scope back from, so
+a shell that walks into a worktree cannot file the session anywhere else), and the
 id in the ask's text. Everything about what the server then does with a claim is
 `mcp/CONTRACT.md` §5 G10 and its residual-risk note.
 

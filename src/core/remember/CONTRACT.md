@@ -251,12 +251,21 @@ declarable field carries an admission test and a named negative example — v1's
    retirement that consumes covered spans without any model call; an age-based sweep of
    the buffer on the lived-day clock; nothing at all, if the measured growth stays
    trivial.
-6. **A session that moved scope is judged per scope.** `crashedSessions` reads one
-   scope's `boundaries.jsonl`, so a session that captured under scope A and then ended
-   under scope B leaves A holding only `stop` boundaries — and A's spans for it are swept
-   once the window passes, even though the author did get the pen elsewhere. PR-1 found
-   11 real session ids under more than one scope, so this is not hypothetical; whether it
-   ever coincides with a session END in another scope is unmeasured.
+6. **A session that moved scope is judged per scope — and since 2026-09-17 no session on
+   the Claude Code adapter moves.** `crashedSessions` reads one scope's
+   `boundaries.jsonl`, so a session that captured under scope A and then ended under
+   scope B leaves A holding only `stop` boundaries — and A's spans for it are swept once
+   the window passes, even though the author did get the pen elsewhere. PR-1 found 11 real
+   session ids under more than one scope; the 2026-09-17 diagnosis found one session whose
+   spans were in four, its deposits in one, and 298 fallback memories with zero authored
+   ones in two worktree scopes. The CAUSE was in the adapter, not here: the hook payload's
+   `cwd` follows the agent into a worktree and was being used as the capture scope. That
+   adapter now files a session under one directory for its whole life
+   (`claude-code/CONTRACT.md` §5 G13), so the per-scope judgement below sees one scope per
+   session. The property itself is UNCHANGED and is still the right residual to record: an
+   embedder that hands this module two scopes for one session gets exactly the behaviour
+   described, and nothing here enforces otherwise. Stores written before that date keep
+   their split, by ruling: they are not repaired.
 7. **Is 12 hours the right window?** `CRASH_STALE_MS` is CAL and shipped enabled. It was
    raised from a guessed 60 minutes after the live store falsified that number — session
    `c781252f` sat idle 4h07m with its author still holding the pen, then resumed and
