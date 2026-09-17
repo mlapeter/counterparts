@@ -624,7 +624,8 @@ overbuild that part, to the detriment of the actual software that users will use
    them basically as they are; there may be more ideas for using them later, and they are great for
    debugging and looking back. A named deviation from line 3, under line 9.
 9. **Everything lives in the database for now; markdown is an export** (§10 question 2), and this may
-   evolve. Raised by the owner and recommended by the assistant, awaiting his yes: the journal ALSO gets
+   evolve. Raised by the owner, recommended by the assistant, and the OWNER SAID YES (2026-09-17: from his
+   side it is what it was before, a folder of markdown journal files): the journal ALSO gets
    a one-way markdown mirror (database to file, never read back), safe because chapters never change
    once a session ends, plus automatic rotating database snapshots as the real protection against a
    corrupt or wiped database. The lived argument: the self is being recovered from v1 right now because
@@ -680,3 +681,16 @@ v1's self over and the new-user bootstrap polish (their own later sessions).
   `--allowedTools` and `--permission-mode dontAsk`; it authenticates with the subscription login, and the
   thing to test from a background process is keychain access (`claude setup-token` is the documented
   route for unattended runs). The hermetic probe is unrun; it belongs to step 4.
+
+**The step-2 batch, as it went (2026-09-17).** PRs #119, #120, #121 merged through #122 (master `907c085`), with
+an end-to-end test (a session that moved into a worktree, answered, then sat idle leaves the fallback nothing to
+write); combined suite 2136 pass, 0 fail. NOT deployed at merge: the project's rule for core changes asks for
+an adversarial review first. That review (Opus, read-only, with proof tests) found no blocker and no privacy
+or egress hole on the owner's store, and one thing to fix before deploy: when every identity row is omitted
+from the fallback's wake, the composer's day-0 line told the fallback "no identity has formed here yet" and
+named the identity core. Also: the new doctor section still described the deleted day cap; the wake was
+composed on every quiet worker run (made lazy); `mostRestrictiveVerdict` had no direct test (all 25 pairs were
+verified correct). Pre-deploy checks on the live store: the only session at or over six asks died on 09-04;
+none of the 20 identity rows is protected. Pre-existing and NOT from this batch, recorded for a later fix:
+resuming a session in an `on` directory captures transcript lived in an `off` one. To verify on the first
+restarted session after deploy: the memory server reports `scope source: project`.
