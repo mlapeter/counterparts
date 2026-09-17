@@ -1752,7 +1752,11 @@ export class Counterpart {
         out.evicted += report.evictions.length;
         out.dropped += report.dropped;
       }
-      const applied = threw === null && report !== null && report.reason !== "failed";
+      // `busy` is not applied either, and it is the subtle one: `flush()`
+      // returns it WITHOUT draining, so the claim's deltas were never
+      // published. Removing the file there would drop them on the floor.
+      const applied =
+        threw === null && report !== null && report.reason !== "failed" && report.reason !== "busy";
       if (!applied) {
         // THE CLAIM STAYS. Its deltas are gone from this process's buffer (the
         // drain precedes the publish, by design) but they are still on disk,

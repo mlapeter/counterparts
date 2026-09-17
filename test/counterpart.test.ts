@@ -773,7 +773,11 @@ describe("co-activation crosses the process line on disk", () => {
       "utf8",
     );
     const tags = ["alpha", "beta", "gamma", "delta"];
-    const kids = tags.map((tag) => Bun.spawn(["bun", child, dir, tag], { stdout: "pipe", stderr: "pipe" }));
+    const kids = tags.map((tag) =>
+      // The runtime running this test, by path — not whatever `bun` a PATH
+      // resolves to on somebody else's machine.
+      Bun.spawn([process.execPath, child, dir, tag], { stdout: "pipe", stderr: "pipe" }),
+    );
     const codes = await Promise.all(kids.map((k) => k.exited));
     expect(codes).toEqual([0, 0, 0, 0]);
 

@@ -78,12 +78,17 @@ export const PENDING_PAIRS_PER_LINE = 16;
 
 /**
  * **CAL.** How large the pending file may get before a pass is dropped instead
- * of appended. A busy credited boundary writes a few hundred bytes, so this is
- * days of work for a worker that never runs — and it is a ceiling, not a
- * target: the ordinary file is emptied by the worker seconds after it is
- * written.
+ * of appended.
+ *
+ * A ceiling, not a target: the ordinary file is emptied by the worker seconds
+ * after it is written. The owner's store shows what ordinary means — 214 credit
+ * passes, six of which credited two or more memories, so a day of real work is
+ * a few hundred bytes. The size is set against the OTHER end: a pass crediting
+ * 64 memories at once is 2,016 pairs and measured 186 KB of lines, and a
+ * megabyte leaves room for several of those on top of a worker that has not run
+ * for a week.
  */
-export const PENDING_MAX_BYTES = 256 * 1024;
+export const PENDING_MAX_BYTES = 1024 * 1024;
 
 /**
  * **CAL.** The slack above the cap that the drop MARKERS may use. A drop is
