@@ -70,6 +70,25 @@ export const TUNABLES = {
   UPDATES_MARGIN: 0.1,
   /** Candidates scored per resolution. */
   UPDATES_CANDIDATES: 8,
+  /**
+   * CAL. Byte cap for the SELF the fallback interpreter is woken with before it
+   * reads a transcript (owner ruling 2026-09-17: "any background writer of
+   * memories gets as much of the self as is reasonable before it reads a
+   * transcript"). It is the compose budget handed to `self/`'s own composer, so
+   * the declared trim order does the cutting — a cap is never iteration luck.
+   *
+   * `null` means THE ORDINARY WAKE BUDGET: the injection ceiling the host
+   * reported for a live session's wake, so the fallback is woken with the same
+   * self a live session would have been, and there is one number to calibrate
+   * rather than two. A host that reported no ceiling composed no wake for its
+   * live sessions either, and gets none here — no invented default (scar §2.18).
+   *
+   * Set a number only to hold the sweep's copy BELOW the live one, and record
+   * the measurement that justified it: the cost of being wrong is prompt bytes
+   * per chunk on the owner's account, and the cost of being too small is a
+   * fallback that writes as a stranger again, which is the whole point.
+   */
+  SWEEP_WAKE_BYTES: null as number | null,
 } as const;
 
 /**

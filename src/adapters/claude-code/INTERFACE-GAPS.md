@@ -146,7 +146,9 @@ The fix is a note the hooks leave where the tool can read it —
 refreshed at Stop, closed at SessionEnd — plus an ask that now NAMES the session
 id, because on this host the id can only reach the server through the model. What
 the hooks owe the seam is exactly three things and they are all here: the record,
-its scope (the hook's own cwd, set once so a later hook cannot move it), and the
+its scope (the directory the session STARTED in — set at a start and never moved,
+and from 2026-09-17 the SOURCE every later hook reads its own scope back from, so
+a shell that walks into a worktree cannot file the session anywhere else), and the
 id in the ask's text. Everything about what the server then does with a claim is
 `mcp/CONTRACT.md` §5 G10 and its residual-risk note.
 
@@ -469,11 +471,13 @@ adapter-side and this is the entry that says what it is standing in for.
    (the template's commented placeholder included) and keeps every other line and
    comment; `credentials list` says which names the file holds. `install --force`
    keeping a file that holds a key (§E) was the other half.
-3. **The ask cap's day is UTC.** `input.at` is the host's UTC ISO date, chosen
-   because every other `date` field in the store is, and two clocks in one store
-   is a scar this repo already has a name for. The owner is at UTC−6, so their
-   day's ask allowance resets at 18:00 local. That is a DECISION to revisit with
-   a real per-owner zone, not a bug to patch here with a second clock.
+3. **The ask cap's day is UTC — MOOT 2026-09-17.** The cap counts per SESSION
+   now (`MAX_ASKS_PER_SESSION`), so there is no day to reset and no zone to get
+   wrong; an owner at UTC−6 no longer loses an evening's allowance at 18:00
+   local. `input.at` is still the host's UTC ISO date and still stamps every
+   `adapter.ask` row, because every other `date` field in the store is UTC and
+   two clocks in one store is a scar this repo already has a name for. A
+   per-owner zone, if it is ever wanted, is wanted for reading those rows.
 4. **The two poisoned titles are not repaired.** The embedder no longer chokes on
    them and the backfill no longer stalls behind them, but `mem_2cb8f1055650590a`
    and `mem_8303716a18ab0654` still hold a lone surrogate in their payload JSON,

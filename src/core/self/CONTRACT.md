@@ -3,7 +3,12 @@
 ## 1. Purpose
 
 The autobiographical self: identity documents, the first-person episode journal, and the
-wake briefing that restores a continuous self at session start.
+wake briefing that restores a continuous self — at session start for a live session, and,
+composed read-only against a caller's own budget, for any background writer of memories
+before it reads a transcript (owner ruling 2026-09-17). A composition bound for a model
+call outside this machine stands confidential and protected rows out with
+`BoundaryRequest.omit`; the published bundle and the identity rotation are written by
+`boundary()` and by nothing else, so no such reader can move what a live session wakes to.
 
 ## 2. Brain analog
 
@@ -52,8 +57,11 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   second pacer beside this one, and the two fired on different Stops — about a dozen asks
   in a 13-turn evening. The pacing itself had drifted too: v1 re-asked on bytes AND turns,
   v2 on bytes OR turns with a byte threshold a third of v1's. One ask, one pacer, a
-  conjunction — and a cap that is spent by the LIVED DAY rather than by the session, since
-  the calibration ("a work day gets about three") was always stated in days.*
+  conjunction — and a cap each SESSION spends on itself alone (`MAX_ASKS_PER_SESSION`).
+  Measured 2026-09-17: a cap of four shared by every session a calendar day held refused
+  196 of 264 Stops, and the crash-fallback sweep wrote 888 memories to the author's 193 —
+  the author was not losing a fight, it was almost never invited. The conjunction, not the
+  count, is what holds the cadence.*
 - **Episodes are context and source, in that order**, ingested once as ordinary self-kind
   memories with named handles. **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
   *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
@@ -123,8 +131,10 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
 ## 5. Contract
 
 **Inputs** — identity-kind memories and their strengths; the episode journal; open
-`unresolved` memories; the prospective horizon; the host's reported injection ceiling; the
-lived day; the observer predicate.
+`unresolved` memories; the prospective horizon; the host's reported injection ceiling (or,
+for a read-only composition, the caller's own byte cap); the lived day; the observer
+predicate; optionally a caller's `omit` predicate, which stands rows out before any lane
+sees them.
 **Outputs** — one pre-rendered briefing, published atomically; ingested episode memories;
 recompression proposals and their archive; render and delivery telemetry.
 
@@ -135,6 +145,10 @@ recompression proposals and their archive; render and delivery telemetry.
    *A wake that is a DELIVERY also composes its preface (G3), which costs two meta reads and
    one `COUNT(*)` — the store's size is a delivery-time fact a bundle rendered yesterday
    cannot state. Nothing else, and a non-delivering read still pays one meta row.*
+   **A second caller may compose without publishing** — `build()` ranks and renders and
+   writes nothing, so a background reader pays a scan and changes no durable state: not the
+   published bundle, not the identity lane's `self.rendered.<id>` rotation, not a counter.
+   Pinned by a test that snapshots both across a fallback sweep.
 2. **[M]** The budget governs the composed total, not each lane; the trim order is explicit
    and tested; the budget test runs **at production scale** — fixtures cannot reveal an
    overflow (scar §2.3). **The identity lane has a SHARE of that total** (`IDENTITY_SHARE`):
@@ -261,7 +275,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
 | `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |
-| `MAX_CHAPTERS_PER_DAY` | 4 | Chapters one LIVED DAY may open, across every session it holds. v1 measured "about three" on a work day; the fourth is headroom for a genuinely long one. |
+| `MAX_ASKS_PER_SESSION` | 6 | Asks ONE SESSION may raise, its own count and nobody else's. A backstop on the total, not the cadence — the re-ask pair puts six asks at roughly 46 real turns. Per day, shared, it refused 196 of 264 Stops (2026-09-17). |
 
 `PREFACE_RESERVE_BYTES` (128) is **not** tunable: it is the room the renderer subtracts from
 the host's ceiling because delivery will add exactly that line, and one test bounds the
@@ -270,9 +284,10 @@ preface at its widest plausible day, date and store size against the same consta
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and the regrow
-window run on lived days; the chapter CAP ran on them too from 2026-09-04, and moved to the
+window run on lived days; the ask CAP ran on them too from 2026-09-04 and moved to the
 CALENDAR DATE on 2026-09-11 — the lived-day clock advances only inside the sleep cycle a
-detached worker runs, so a worker that could not start left the cap spent forever, I32) · **the journal
+detached worker runs, so a worker that could not start left the cap spent forever, I32 —
+and on 2026-09-17 it moved onto the SESSION, where no clock spends it at all) · **the journal
 is neither a memory nor a duplicate of one** (every sleep phase walked every row: dedup
 merged the first real ingestion into its own journal at the boundary that minted it, and
 prune would have archived all 224 migrated episodes at the floor — one predicate,

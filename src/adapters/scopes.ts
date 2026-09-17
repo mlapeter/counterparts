@@ -397,7 +397,7 @@ export function describeScopeTrouble(read: ScopeRead, path: string): string | nu
  *  `paused` and `off` are one rank: they differ in what `--resume` restores,
  *  not in what a session may do. */
 function restrictionOf(mode: ScopeMode): number {
-  return STANCE_ORDER.indexOf(stanceOfMode(mode));
+  return rankOf(mode);
 }
 
 /** Is `dir` at or under `key`? Segment-aware: `/a/b` never matches `/a/bc`. */
@@ -457,6 +457,33 @@ export function stanceOfMode(mode: EffectiveMode): ScopeStance {
     default:
       return "on";
   }
+}
+
+/**
+ * THE SECOND COMBINATION RULE: the most restrictive of TWO VERDICTS, when one
+ * event has two directories to answer for.
+ *
+ * A session has a stable scope — the directory it started in, which is where
+ * everything it captures is filed (`claude-code/bin/hook.ts#sessionScope`) — and
+ * an event has a current one, which follows the agent's shell into a worktree or
+ * anywhere else it is told to go. Filing follows the first. PRIVACY MUST FOLLOW
+ * BOTH: a session that starts in a directory the owner said yes to and then
+ * walks into one he said `off` to has to go as quiet as the directory it walked
+ * into, or the stable scope would become a way to carry capture past an opt-out.
+ *
+ * So the two are looked up separately and the safe half wins, on the same order
+ * `effectiveStance` uses. `primary` is the SESSION's verdict and wins every tie,
+ * because a tie is two directories of equal stance and the session's own is the
+ * one whose entry should be named in the record — and the one the first-launch
+ * question (`unset`) is about.
+ */
+export function mostRestrictiveVerdict(primary: ScopeVerdict, other: ScopeVerdict): ScopeVerdict {
+  return rankOf(other.mode) > rankOf(primary.mode) ? other : primary;
+}
+
+/** How restrictive an effective mode is, on the one order every rule here uses. */
+function rankOf(mode: EffectiveMode): number {
+  return STANCE_ORDER.indexOf(stanceOfMode(mode));
 }
 
 /**

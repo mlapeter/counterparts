@@ -475,6 +475,63 @@ window is now UNKNOWN: a neutral finding that names what was not read and claims
 nothing about the store, because a confident wrong answer is the one thing a
 diagnostic may not produce.
 
+## The scope followed the shell, and everything but the deposits went with it (2026-09-17)
+
+`hookScope` preferred the hook payload's `cwd` on a measurement from 2026-09-04 that
+read it as "the project directory". It is not: the host documents it as "current
+working directory (follows Claude into worktrees)", and every piece of work in this
+repository happens in a worktree. So a session's spans, boundaries and coverage reads
+moved with the shell while the MCP server's scope stayed fixed at launch — and a
+deposit only covers spans in its own scope. One session on 2026-09-17 filed spans in
+four directories and deposits in one; two worktree scopes on the owner's store hold 298
+fallback memories and zero authored ones, because everything the session wrote
+elsewhere stayed uncovered until the crash fallback rewrote it twelve hours later.
+
+Three things the repair turned on, none of them obvious from the outside:
+
+**The session registry was already the right answer, and nobody was reading it.**
+`recordSession` has refused to rewrite a scope after a start since the day it shipped
+("`start` owns the scope, so a hook firing from a git worktree cannot rewrite the scope
+the server matched against"). The record held the correct directory the whole time; the
+hooks simply never read it back. `sessionScope` does, and the one string it returns is
+the same one `requireBoundSession` matches a deposit against.
+
+**A compaction fires SessionStart.** `source` is `startup`, `resume`, `clear`, `fork`
+or `compact`, and only the first four open a session. Treating all five as a start would
+have re-anchored a long session's scope at every compaction — the same bug through a
+different door — so an unrecognised or absent `source` deliberately does NOT re-anchor a
+session that already has a record.
+
+**`CLAUDE_PROJECT_DIR` reaches the MCP server too**, which is what makes the two
+adapters agree by construction rather than by both happening to have the same working
+directory. What the server's spawn cwd actually is, the host documents nowhere; it was
+measured once with `lsof`. The variable is documented, stable across `cd`, `/add-dir`
+and worktrees, and exported to hooks and stdio servers alike.
+
+And the scope had to become CANONICAL on both sides: span streams, cursors and coverage
+files are named from a hash of the exact string, so `/tmp/x` and `/private/tmp/x` are
+two memories of one directory. `sameScope` had been canonicalising for the BIND since
+the beginning; the filing had not.
+
+## One week of who did the writing, in the doctor (2026-09-17)
+
+Finding 12 measured the crash fallback out-writing the session itself 4.5 : 1 over the
+run, and every visible surface read healthy while it happened. The two facts that would
+have shown it were already in the store and were simply never read out: how often the
+session was OFFERED the pen (`adapter.ask` by `outcome`), and how much of the week's
+memory it wrote (`memories.source`). The `Authorship` section reads seven CALENDAR days
+of both — calendar, because the lived-day clock is advanced by the worker and has run
+seven lived days across fifteen calendar ones on this very store, so a lived-day window
+would have hidden exactly the weeks the worker was stuck.
+
+It counts `outcome` and not `reason` on purpose: `outcome` is a three-word closed
+vocabulary and `reason` is a finer one that is being renamed elsewhere. A diagnostic
+keyed on a string in motion is a diagnostic that reads zero one morning and nobody
+notices.
+
+Amber on two comparisons — the day's cap refusing more asks than it raises, the fallback
+out-writing the author — and never red: this is a balance, not a fault.
+
 ## What an adversarial read of the scope registry found (2026-09-15, PR #92 review)
 
 Five findings, and four of them are one mistake wearing different clothes: the
