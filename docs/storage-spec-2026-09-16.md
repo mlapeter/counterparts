@@ -619,3 +619,13 @@ overbuild that part, to the detriment of the actual software that users will use
 7. **What earns a page besides the self.** A person or project earns a page by coming up again across
    several separate days; the owner can add or remove one by hand; the owner's own page exists from day
    one. Anything mentioned once stays a row and never gets a page.
+8. **The journal stays a diary (this settles §10 question 1 for now).** Chapters are kept word for
+   word, not rewritten and not deleted; what fades is how readily an old one surfaces. The owner: leave
+   them basically as they are; there may be more ideas for using them later, and they are great for
+   debugging and looking back. A named deviation from line 3, under line 9.
+9. **Everything lives in the database for now; markdown is an export** (§10 question 2), and this may
+   evolve. Raised by the owner and recommended by the assistant, awaiting his yes: the journal ALSO gets
+   a one-way markdown mirror (database to file, never read back), safe because chapters never change
+   once a session ends, plus automatic rotating database snapshots as the real protection against a
+   corrupt or wiped database. The lived argument: the self is being recovered from v1 right now because
+   its pages and journal were plain files that outlived their system.
