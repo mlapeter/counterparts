@@ -599,3 +599,11 @@ overbuild that part, to the detriment of the actual software that users will use
    what it writes is not a stranger's paraphrase. Not in this spec before today; the owner raised it
    and the assistant had been holding the same thought. It stays labeled as fallback so the ratio of
    authored to fallback remains visible.
+4. **At wake the self is a chunk of prose, like bansai's, derived from the database.** It replaces the
+   rotating list of identity memories. The owner: polishing the new-user start is a later round (a few
+   brief interview questions, a review of past conversations, or blank and forming naturally with the
+   "still forming" and "lately" parts).
+5. **Who writes it: the simple version of option D.** One call per night, woken as the self, reads the
+   day's memories and revises the page in place; old versions kept, a size limit, and the dashboard shows
+   each night's change. The six safeguards in §6.3 are NOT built up front (line 15); one is added only
+   when the page is seen to drift.
