@@ -525,9 +525,20 @@ export const NARRATORS = {
     notable(`I handed the host who I have been — ${n(t, "bytes") ?? 0} bytes of briefing, at the start of a session.`),
   "adapter.wake.delivered": (t) => {
     const seen = t.p["seen"] === true || t.p["sentinelSeen"] === true || t.p["ok"] === true;
-    return seen
-      ? calm(`I checked the next turn and my briefing had arrived intact.`)
-      : amber(`I checked the next turn and could not confirm my briefing arrived. A wake nobody read is a day I started as a stranger.`);
+    if (seen) return calm(`I checked the next turn and my briefing had arrived intact.`);
+    // The check says WHY since 2026-09-17, and one of its answers is not a problem:
+    // a session that was owed no briefing (nothing was printed at its start).
+    const outcome = s(t, "outcome");
+    if (outcome === "no-wake-expected") {
+      return calm(`This session was owed no briefing, so there was nothing to check for.`);
+    }
+    if (outcome === "truncated") {
+      return amber(`My briefing arrived cut short — the closing marker was missing from what the session was given.`);
+    }
+    if (outcome === "mismatch") {
+      return amber(`A briefing arrived, but not the one I composed for this session — most likely a resumed session showing an earlier run's.`);
+    }
+    return amber(`I checked the next turn and could not confirm my briefing arrived. A wake nobody read is a day I started as a stranger.`);
   },
 
   // ── the host's session ─────────────────────────────────────────────────────

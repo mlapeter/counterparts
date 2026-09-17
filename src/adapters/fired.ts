@@ -340,6 +340,16 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    // The links table above says links EXIST; it could not say one was made this
+    // week, which is how this mechanism wrote nothing for two weeks unseen. Since
+    // 2026-09-17 each save at the end of a credit pass leaves a row of its own.
+    id: "association-saved",
+    label: "the links noticed during a session were saved before the session's process ended",
+    module: "associate/",
+    evidence: { kind: "event", names: ["associate.flush"] },
+    since: "2026-09-17",
+  },
+  {
     id: "spreading",
     label: "remembering one thing pulls its neighbours with it",
     module: "associate/spread.ts",
