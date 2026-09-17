@@ -120,10 +120,13 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   one.
 
   **The fallback reads as ITSELF, not as a stranger** (owner ruling 2026-09-17). Ahead of
-  the transcript its prompt carries the WAKE — the same composed self a live session is
-  given at session start, built once per sweep against a byte cap (`SWEEP_WAKE_BYTES`, or
-  the host's ordinary wake budget) — and it is told to write in the first person, in its
-  own voice, as the author would have at the time. What makes a model call "me" is the
+  the transcript its prompt carries a WAKE — composed by the same composer a live session's
+  wake uses, but *not* the same bundle: no prospective/horizon lane, no protected and no
+  confidential rows, and against the reported budget whole where a live wake first reserves
+  its preface. It is built at most once per sweep, lazily, on the first chunk that reaches
+  the interpreter, against a byte cap (`SWEEP_WAKE_BYTES`, or the host's ordinary wake
+  budget) — and the reader is told to write in the first person, in its own voice, as the
+  author would have at the time. What makes a model call "me" is the
   memory it wakes with; read cold, the fallback wrote the owner's own day back as
   paraphrase (`docs/finding-12-diagnosis-2026-09-17.md`: 888 fallback memories against 193
   authored). Three limits are mechanized, not intended: the wake is composed read-only and

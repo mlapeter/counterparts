@@ -367,7 +367,7 @@ export const NARRATORS = {
     if (t.p["included"] !== true) {
       if (reason === "not-reached") {
         return calm(
-          "I had my wake ready for the crash fallback and it was never needed: nothing had crashed, so no transcript was read. This line is here to prove the readiness is real." + held,
+          "Nothing had crashed, so no transcript was read and I composed no wake at all — a quiet sweep costs nothing to be ready. This line is here to prove the sweep looked." + held,
         );
       }
       if (reason === "no-budget") {

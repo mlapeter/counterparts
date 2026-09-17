@@ -51,6 +51,9 @@ import {
 } from "../../core/counterpart.js";
 import { Store, dateOf } from "../../core/store/index.js";
 import type { EventRow } from "../../core/store/index.js";
+// The ask allowance the amber hint names, read rather than retyped: a number in
+// a diagnostic's prose is a number that goes stale silently.
+import { SELF_TUNABLES } from "../../core/self/tunables.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
@@ -851,7 +854,9 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
  * Three readings, seven calendar days, nothing computed and nothing guessed:
  *
  *   - **The asks, by `outcome`** (`adapter.ask`). `asked` is an invitation that
- *     went out; `capped` is one the day's chapter cap refused; `paced` is one
+ *     went out; `capped` is one refused because the session had already spent
+ *     its own allowance of asks (`SELF_TUNABLES.MAX_ASKS_PER_SESSION` — per
+ *     session since 2026-09-17, never a shared daily ration); `paced` is one
  *     the substance pacer refused. The `reason` field is deliberately NOT what
  *     this counts — it is a finer vocabulary that is being renamed elsewhere,
  *     and a diagnostic keyed on a string in motion is a diagnostic that will
@@ -953,7 +958,7 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   const sweepWins = fallback > authored;
   const detail =
     `${from}→${input.today}: the session was invited to write ${String(asked)} ${asked === 1 ? "time" : "times"}, ` +
-    `refused ${String(capped)} by the day's cap and ${String(paced)} for pacing` +
+    `refused ${String(capped)} because a session had used its allowance and ${String(paced)} for pacing` +
     `${unlabelled === 0 ? "" : ` (${String(unlabelled)} older rows name no outcome)`}; ` +
     `it answered with ${String(deposits.rows.length)} ${deposits.rows.length === 1 ? "deposit" : "deposits"}; ` +
     `${String(authored)} live ${authored === 1 ? "memory" : "memories"} of that week ${authored === 1 ? "is" : "are"} its own, ` +
@@ -961,7 +966,7 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
   const fixes = [
     capBinds
-      ? "The day's chapter cap refuses the pen more often than it offers it — that cap is shared across every session of the day."
+      ? `A session's own allowance (${String(SELF_TUNABLES.MAX_ASKS_PER_SESSION)} asks) is refusing the pen more often than it offers it — sessions are running long enough to exhaust it, and that number is worth a look.`
       : "",
     sweepWins
       ? "The sweep writes what the session did not: check that sessions reach a session-end boundary in the scope they captured in, and that the Stop ask is reaching the model."

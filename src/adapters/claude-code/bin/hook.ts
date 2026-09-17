@@ -253,7 +253,12 @@ export function sessionScope(
     // `readSession` answers null on every failure rather than throwing, which is
     // the rule this whole path lives by: a hook may not fail the host (§5 G2).
     const recorded = readSession(dataDir, sessionId)?.scope;
-    if (recorded !== undefined && recorded.length > 0) return recorded;
+    // Canonicalised HERE rather than trusted from the file: `recordSession`
+    // canonicalises on write, so this is a no-op for every record this code
+    // wrote — and a record written by anything else (a hand edit, an older
+    // build, a future writer) would otherwise file this session's spans under a
+    // directory keyed by a hash of a string nothing else spells that way.
+    if (recorded !== undefined && recorded.length > 0) return canonicalScope(recorded);
   }
   return startDirectory(payload, env);
 }

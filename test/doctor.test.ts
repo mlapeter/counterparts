@@ -440,7 +440,7 @@ describe("doctor — the reading", () => {
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("green");
       expect(f.detail).toBe(
-        "2026-09-08→2026-09-14: the session was invited to write 3 times, refused 0 by the day's cap and 3 for pacing; " +
+        "2026-09-08→2026-09-14: the session was invited to write 3 times, refused 0 because a session had used its allowance and 3 for pacing; " +
           "it answered with 3 deposits; 6 live memories of that week are its own, 1 was written for it by the fallback sweep",
       );
       expect(f.fix).toBe("");
@@ -449,7 +449,7 @@ describe("doctor — the reading", () => {
       expect(f.data["fallback"]).toBe(1);
     });
 
-    test("AMBER when the day's cap refuses more asks than it raises", () => {
+    test("AMBER when a session's own ask allowance refuses more than it raises", () => {
       mintStore();
       writeConfig();
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
@@ -459,8 +459,11 @@ describe("doctor — the reading", () => {
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("amber");
-      expect(f.detail).toContain("refused 9 by the day's cap");
-      expect(f.fix).toContain("shared across every session of the day");
+      expect(f.detail).toContain("refused 9 because a session had used its allowance");
+      // The mechanism the hint sends the reader after must be the one that
+      // exists: per session since 2026-09-17, never a ration shared by the day.
+      expect(f.fix).toContain("A session's own allowance (6 asks)");
+      expect(f.fix).not.toContain("day");
       expect(anyRed(doctorFindings(input({ store: s })))).toBe(false);
     });
 
@@ -492,7 +495,7 @@ describe("doctor — the reading", () => {
       s.appendEvent({
         name: ADAPTER_ASK_EVENT,
         day: s.livedDay(),
-        payload: { date: "2026-09-14", reason: "day-chapter-cap" },
+        payload: { date: "2026-09-14", reason: "session-ask-cap" },
       });
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.data["asked"]).toBe(0);

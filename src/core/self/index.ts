@@ -177,6 +177,10 @@ export interface BoundaryRequest extends BriefingRequest {
    *
    * Filtering here rather than after ranking is deliberate: an omitted row must
    * not occupy a lane slot or a byte of the budget it will never render into.
+   *
+   * PASSING ONE ALSO SUPPRESSES THE DAY-0 LINE (see `build`): an empty identity
+   * lane means "nothing survived the filter" here, not "this store has no self",
+   * and the two must not render the same sentence.
    */
   readonly omit?: (s: Scanned) => boolean;
 }
@@ -328,7 +332,18 @@ export class Self {
     // must not pay for it — nor render the line. On a store that has lived
     // boundaries this branch is unreachable, which is also why the change cannot
     // move a byte of the owner's wake.
-    const coreName = lanes.identity.length === 0 ? identityCoreName(this.store) : null;
+    //
+    // AND BY `omit` (2026-09-17 review). A composition that passes `omit` is by
+    // definition not owner-facing, and the identity lane it sees is the
+    // POST-OMIT one: a store whose identity band is entirely protected or
+    // confidential would otherwise unlock this line and tell a model call — one
+    // being asked to write in the first person AS this self — that no identity
+    // has formed here. It would also render the core's NAME, which `omit` never
+    // saw: the core is a `type: "schema"` row and `scanActive` lists
+    // `type: "memory"`. Both by one clause: no day-0 line on a composition that
+    // filters.
+    const coreName =
+      req.omit === undefined && lanes.identity.length === 0 ? identityCoreName(this.store) : null;
     return render(
       lanes,
       {
