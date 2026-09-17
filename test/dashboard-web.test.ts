@@ -87,6 +87,7 @@ const ENDPOINTS = [
   "/api/mind",
   "/api/flow",
   "/api/health",
+  "/api/fired",
   "/api/activity",
   "/api/activity?limit=5",
   "/api/activity?sinceSeq=0",
@@ -243,6 +244,32 @@ describe("the router answers every endpoint over a store with a life in it", () 
       expect((health["phases"] as unknown[]).length).toBeGreaterThan(0);
       expect((health["blind"] as unknown[]).length).toBeGreaterThan(3);
       expect((health["heatmap"] as { cells: unknown[] }).cells.length).toBeGreaterThan(0);
+    } finally {
+      d.close();
+    }
+  });
+
+  /**
+   * The what-fired panel: one mechanism per row, every state in the vocabulary
+   * the page draws its groups from, and a blind row that says which row would
+   * fix it rather than showing an empty count.
+   */
+  test("the what-fired panel names every mechanism, in words, with its state", () => {
+    const d = open(richDir);
+    try {
+      const fired = get(d.src, "/api/fired").json;
+      const rows = fired["rows"] as { label: string; state: string; note: string | null }[];
+      expect(rows.length).toBeGreaterThan(20);
+      // The panel draws its groups from this list, so the page never restates it.
+      expect((fired["vocabulary"] as unknown[]).length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.label.length).toBeGreaterThan(12);
+        expect(row.label).not.toMatch(/^[a-z]+\.[a-z]/);
+        // A blind row is a fact with a repair on it, never a blank.
+        if (row.state === "blind") expect((row.note ?? "").length).toBeGreaterThan(40);
+      }
+      expect(rows.some((r) => r.state === "firing")).toBe(true);
+      expect(rows.some((r) => r.state === "blind")).toBe(true);
     } finally {
       d.close();
     }

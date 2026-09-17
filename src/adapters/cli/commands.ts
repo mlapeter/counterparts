@@ -110,6 +110,10 @@ import {
 } from "../scopes.js";
 import type { ScopeMode, ScopeRegistry } from "../scopes.js";
 import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../stance-env.js";
+// The what-fired reading, shared with `doctor` and the dashboard's health panel
+// so the three surfaces cannot disagree about what "silent" means.
+import { STATE_MEANING, STATE_ORDER, firedReport } from "../fired.js";
+import type { FiredReport } from "../fired.js";
 // THE HOST ADAPTER'S OWN READINGS, imported rather than re-derived — the same
 // direction `install.ts` already takes (`../claude-code/config.js`). `doctor`
 // and `credentials` are the console's face on the file and the store that
@@ -157,6 +161,9 @@ export const COMMANDS = [
   "repair-merged-beliefs",
   "rebrief",
   "probe-oq4",
+  // Constitution 11's last sentence as a command: which mechanisms fired this
+  // week, which have gone quiet, and which record nothing at all. Read-only.
+  "fired",
   // I32's two: the reading that says whether the background half is alive, and
   // the one-command repair for the file whose emptiness stopped it.
   "doctor",
@@ -337,6 +344,11 @@ export function usage(): string {
     "                      assistant later expanded by id, from recall.decision and",
     "                      recall.credit rows. Read-only; the footnote header is the",
     "                      one string the probe varies (recall/render.ts).",
+    "  fired               Which mechanisms have actually fired, and which have not.",
+    "                      One line each, SILENT FIRST: when it last fired, how many",
+    "                      times in the last 7 days, what it turned away, and — for",
+    "                      the ones nothing durable records — which row would fix it.",
+    "                      Read-only.",
     "  scope <path|.>      Which directories this memory is for. With a mode flag it",
     "                      writes <config dir>/scopes.json; with none it says what",
     "                      the directory resolves to and which entry decided.",
@@ -419,6 +431,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rebrief: ["budget", "config"],
   // Read-only, like `status`: rows in, a table out.
   "probe-oq4": [],
+  fired: [],
   // `doctor` takes `--config` for the same reason `rebrief` does: it reports on
   // the host configuration, and on a machine with two of them the reading is
   // about whichever one the hooks read.
@@ -466,6 +479,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   rebrief: "Re-render and republish the wake bundle NOW, through the boundary's own renderer.",
   "probe-oq4":
     "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows. Read-only.",
+  fired:
+    "Which mechanisms have actually fired. One line each, silent first: when it last fired, how often in the last 7 days, what it turned away, and — for the ones nothing records — why the store cannot tell. Read-only.",
   doctor:
     "Is the background half alive? The config, the credentials by name, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
   credentials:
@@ -1048,6 +1063,8 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return rebriefCommand(dir, io, parsed.flags["budget"], now, opts.home, named);
       case "probe-oq4":
         return probeCommand(dir, io, typeof parsed.flags["dir"] === "string");
+      case "fired":
+        return firedCommand(dir, io, typeof parsed.flags["dir"] === "string", now);
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -1126,6 +1143,89 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
   } finally {
     store.close();
   }
+}
+
+/**
+ * `fired` — which mechanisms have actually fired, and which have not.
+ *
+ * Read-only, and the same store-absent and open rules as `status`: it opens the
+ * store in OBSERVER stance whatever the console's own stance is, because reading
+ * what fired must not be able to change it.
+ *
+ * SILENT FIRST is the whole shape of the output. A page that opened with
+ * everything that worked would bury the one thing worth acting on — constitution
+ * 11's "one that stays silent is diagnosed and fixed" needs the silences on the
+ * first screen, and every group carries the one line that says what its state
+ * means so the reader never has to know the vocabulary in advance.
+ */
+function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number): number {
+  if (!storeExists(dir)) {
+    io.err(`No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`);
+    return EXIT.usage;
+  }
+  let store: Store;
+  try {
+    store = Store.open({ dir, observer: true });
+  } catch (err) {
+    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    return EXIT.failed;
+  }
+  try {
+    for (const line of firedLines(firedReport(store, dateOf(now())))) io.out(line);
+    return EXIT.ok;
+  } finally {
+    store.close();
+  }
+}
+
+/** The report as plain text: one mechanism per line, grouped by state. */
+export function firedLines(report: FiredReport): string[] {
+  const lines = [
+    `what has fired — ${report.from}→${report.today} (UTC), against ${report.previousFrom}→${report.previousTo}`,
+    "",
+  ];
+  if (report.wentQuiet.length > 0) {
+    lines.push(`Fired last week and not once this week: ${report.wentQuiet.join("; ")}`, "");
+  }
+  for (const state of STATE_ORDER) {
+    const rows = report.rows.filter((r) => r.state === state);
+    if (rows.length === 0) continue;
+    lines.push(`${state.toUpperCase()} (${String(rows.length)}) — ${STATE_MEANING[state]}`);
+    for (const row of rows) {
+      const when = row.lastFired === null ? "never" : row.lastFired;
+      const refused =
+        row.refusedInWindow === 0
+          ? ""
+          : `  refused ${String(row.refusedInWindow)}${row.topRefusal === null ? "" : ` (${row.topRefusal})`}`;
+      lines.push(
+        `  ${row.label}`,
+        `    last ${when}  ·  7d ${String(row.firedInWindow)}  ·  total ${String(row.total)}${refused}  ·  ${row.evidence}`,
+      );
+      // The line that turns an absence into a fact: what is missing, and what
+      // would fix it. Only the states that HAVE one carry it.
+      if (row.note !== null) lines.push(`    ${row.note}`);
+    }
+    lines.push("");
+  }
+  const bounds: string[] = [
+    `${String(report.rows.length)} mechanisms read; ` +
+      STATE_ORDER.map((s) => `${String(report.counts[s])} ${s}`).join(", "),
+  ];
+  if (report.notRead.length > 0) {
+    bounds.push(`Not read on this pass: ${report.notRead.join(", ")}.`);
+  }
+  if (report.truncated) {
+    bounds.push("The event read hit its ceiling, so every total above is a floor, not a count.");
+  }
+  if (report.probesTruncated) {
+    bounds.push("The id scan hit its ceiling, so every table count above is a floor.");
+  }
+  bounds.push(
+    "Events are bounded-retention telemetry: rows past the window are swept unless a replay latch " +
+      "holds them, so these are what I still have rather than everything that ever happened.",
+  );
+  lines.push(...bounds);
+  return lines;
 }
 
 function statusCommand(dir: string, io: Io, namedDir: boolean): number {

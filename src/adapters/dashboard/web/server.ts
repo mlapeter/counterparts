@@ -48,9 +48,10 @@ import type { Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isStoreError } from "../../../core/store/index.js";
+import { isStoreError, today as todayUtc } from "../../../core/store/index.js";
 import { Dashboard } from "../index.js";
 import type { DashboardSource } from "../source.js";
+import { firedPanel } from "./fired.js";
 import {
   activityView,
   eventDetail,
@@ -184,6 +185,7 @@ export function router(url: URL, host: string | null, src: DashboardSource): Rep
       return detail.found ? json(detail) : json({ error: `no such node: ${key}` }, 404);
     }
     if (path === "/api/health") return json(healthView(src));
+    if (path === "/api/fired") return json(firedPanel(src, todayUtc()));
     if (path === "/api/activity") {
       const sinceRaw = url.searchParams.get("sinceSeq");
       const opts: { limit: number; name?: string; sinceSeq?: number } = {
