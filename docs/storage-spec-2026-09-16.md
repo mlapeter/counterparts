@@ -636,3 +636,47 @@ overbuild that part, to the detriment of the actual software that users will use
     proves impossible or very complex, option 3 to start with (the first session of the next day does the
     night's work) and improve later. A keyed background call stays the route for hosts that can do
     neither. Option 2 is unverified until a hermetic probe shows a windowless session runs hooks and tools.
+
+## 16. The rebuild, in order (agreed 2026-09-17; the everyday path first)
+
+1. **A "what fired" view first**: per mechanism, when it last fired, how often, and what any cap refused;
+   doctor and the dashboard read the same rows. The list of mechanisms is the same "is it alive"
+   inventory the contracts sweep needs (the physics trial's method note), so that pass is used twice.
+2. **The authorship plumbing** — the owner said ship it EARLY, on the current floor (it does not depend
+   on storage). Built 2026-09-17 by three agents on separate branches; deploy waits for his word:
+   - the ask counts per session (`fix/ask-per-session`; six per session behind the AND pacer);
+   - one capture scope per session (`fix/one-scope-per-session`), with the privacy mode taken as the
+     more restrictive of the session's start directory and the event's directory, plus a doctor section
+     (asks raised / refused / paced, authored against fallback, last seven days);
+   - the fallback woken as the self (`feat/fallback-woken-as-self`).
+3. **The floor**: memories, versions and the journal into database rows; WAL and a busy timeout; rotating
+   snapshots (optionally to a second location); export writes pages and the journal as markdown; the
+   journal's one-way markdown mirror if the owner says yes.
+4. **The self page**: two parts, kept in the database with versions; a page-revision tool; the nightly
+   runner (a windowless host session first); the page replaces the list at wake; the dashboard shows the
+   page and each night's change; people and project pages by the earning rule.
+5. **The per-directory handoff pointer.**
+6. **Fresh store**; retire the parallel-run scaffolding and the tests it pinned into core.
+
+Left out on purpose: the six safeguards of §6.3 (added only on observed drift), any bulk import, bringing
+v1's self over and the new-user bootstrap polish (their own later sessions).
+
+**Found while preparing step 2 (2026-09-17), both measured on the live store, counts only:**
+- **The scope split.** `hookScope` prefers the hook payload's `cwd`, which follows the agent's shell. One
+  session that day had its spans filed under four scope directories (1, 7, 5 and 1 assistant spans) and
+  its coverage marks in one, because the MCP server's scope is fixed at launch and a deposit covers only
+  its own scope. The uncovered three would have been swept as a crashed session although the session
+  answered every ask. This is the mechanism behind the worktree scopes' 298 fallback and 0 authored, and
+  it is larger than the per-scope `session-end` hazard the diagnosis named.
+- **Credit for use is firing** since the 09-16 merges: 204 `recall.credit` rows, the latest the same day,
+  and four memories born in v2 with `uses > 0` and `reinforced_days > 0`. Finding 12's "zero ever used"
+  was true through 09-16 and is no longer. Verify-only, nothing to build.
+- **The twelve-hour crashed rule is left alone for now** (line 15). The adapter's live-session registry is
+  also silence-based (a four-hour window after the last boundary), so it cannot tell an idle open
+  terminal from a dead one; with per-session asks and one scope, what is left to sweep from an idle
+  session is a small tail. Measure with the doctor section before adding a process-liveness check.
+- **Option 2 for the nightly runner is feasible on paper** (docs check, no session started): a windowless
+  `claude -p` session runs SessionStart hooks and loads MCP servers; one tool can be pre-approved with
+  `--allowedTools` and `--permission-mode dontAsk`; it authenticates with the subscription login, and the
+  thing to test from a background process is keychain access (`claude setup-token` is the documented
+  route for unattended runs). The hermetic probe is unrun; it belongs to step 4.
