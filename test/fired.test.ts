@@ -28,6 +28,8 @@ import {
   firedReport,
 } from "../src/adapters/fired.js";
 import type { FiredReport, FiredRow } from "../src/adapters/fired.js";
+import { run } from "../src/adapters/cli/index.js";
+import type { Io } from "../src/adapters/cli/index.js";
 
 const TODAY = "2026-09-17";
 
@@ -393,6 +395,70 @@ describe("the tables that stand in for a mechanism with no event", () => {
     expect(r.rows.some((x) => x.id === "protection")).toBe(false);
     // Everything with an event of its own is still read.
     expect(r.rows.some((x) => x.id === "capture")).toBe(true);
+  });
+});
+
+// ── the console ─────────────────────────────────────────────────────────────
+
+describe("counterparts fired", () => {
+  /** A console that collects both streams. */
+  function consoleWith(): { io: Io; out: string[]; err: string[] } {
+    const out: string[] = [];
+    const err: string[] = [];
+    return { io: { out: (l) => out.push(l), err: (l) => err.push(l) }, out, err };
+  }
+
+  async function fired(): Promise<{ code: number; text: string; err: string }> {
+    const c = consoleWith();
+    const code = await run(["fired", "--dir", dir], { io: c.io, now: () => at(TODAY) });
+    return { code, text: c.out.join("\n"), err: c.err.join("\n") };
+  }
+
+  test("prints the whole table, grouped by state, silent first", async () => {
+    const s = store();
+    row(s, "adapter.boundary", TODAY);
+    row(s, "sweep.gate", daysBefore(TODAY, 8), { refusals: { NO_CRASHED_SESSION: 3 } });
+    row(s, "adapter.ask", TODAY, { outcome: "capped", reason: "session-ask-cap" });
+    s.close();
+    stores.length = 0;
+
+    const { code, text } = await fired();
+    expect(code).toBe(0);
+    expect(text).toContain("what has fired — 2026-09-11→2026-09-17 (UTC)");
+    // The group that says something changed leads the page.
+    expect(text).toContain("Fired last week and not once this week:");
+    expect(text.indexOf("QUIET (")).toBeLessThan(text.indexOf("FIRING ("));
+    expect(text.indexOf("QUIET (")).toBeLessThan(text.indexOf("BLIND ("));
+    // Each group carries what its state means, so nobody has to know first.
+    expect(text).toContain("it has fired before, but not in the last 7 days");
+    // One mechanism per line, in words, with its evidence beside it.
+    expect(text).toContain("the conversation is captured when a session pauses or ends");
+    expect(text).toContain("adapter.boundary");
+    expect(text).toContain("last 2026-09-17  ·  7d 1  ·  total 1");
+    expect(text).toContain("refused 1 (session-ask-cap ×1)");
+    // A blind row says which row would fix it.
+    expect(text).toContain("One `store.backup` event would fix it.");
+    // And the page states its own bounds.
+    expect(text).toContain("what I still have rather than everything that ever happened");
+  });
+
+  test("a store that is not there is a usage error with a sentence, not a stack", async () => {
+    const c = consoleWith();
+    const code = await run(["fired", "--dir", join(root, "nope")], { io: c.io });
+    expect(code).toBe(1);
+    expect(c.err.join("\n")).toContain("No store at");
+    expect(c.out).toEqual([]);
+  });
+
+  test("it is a READ: the store's own event count does not move", async () => {
+    const s = store();
+    row(s, "adapter.boundary", TODAY);
+    const before = s.eventLogCensus().rows;
+    s.close();
+    stores.length = 0;
+    await fired();
+    const after = store();
+    expect(after.eventLogCensus().rows).toBe(before);
   });
 });
 

@@ -1061,8 +1061,10 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
   const c = report.counts;
   const roll =
     `${report.from}→${report.today}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired this week, ` +
-    `${String(c.quiet)} have gone quiet, ${String(c.never)} have never fired, ${String(c.new)} are too new to grade, ` +
-    `${String(c.blind)} record nothing durable at all` +
+    `${String(c.quiet)} ${c.quiet === 1 ? "has" : "have"} gone quiet, ` +
+    `${String(c.never)} ${c.never === 1 ? "has" : "have"} never fired, ` +
+    `${String(c.new)} ${c.new === 1 ? "is" : "are"} too new to grade, ` +
+    `${String(c.blind)} ${c.blind === 1 ? "records" : "record"} nothing durable at all` +
     `${c.disabled + c.retired === 0 ? "" : ` (${String(c.disabled)} stood down, ${String(c.retired)} retired)`}` +
     `${report.notRead.length === 0 ? "" : `; ${String(report.notRead.length)} whose evidence is a table were not read on this pass`}` +
     `${report.truncated ? "; counts are a floor — the event read hit its limit" : ""}`;
