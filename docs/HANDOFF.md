@@ -9,21 +9,19 @@ association saved, #126 the wake-delivery check, #127 the "what fired" view, plu
 integration commits. Combined suite 2211 pass / 0 fail, `tsc` clean. Left unmerged ON PURPOSE so master equals what
 is live and `doctor` stays green overnight. The owner said "continue" and asked for this handoff.
 
-**To finish step 1 (a fresh session can do this; the owner's word is needed only at "merge"):**
-1. Read `docs/adversarial-review-step1-2026-09-17.md` (three MAJORs, all addressed by #128: the hook no longer
-   writes to the database for association, a pending file under `sessions/association/` is claimed and applied by
-   the worker; the wake check no longer reports `truncated` when a host records no `content`; the sentinel search is
-   linear; the FIFO guard). A SECOND adversarial pass on the redesign was running at close; its report is
-   `scratchpad/adversarial-review-step1b.md` in that session's scratchpad if it finished, else re-run one (read-only
-   Opus reviewer, attack the pending-file design: concurrency, claims, old-code layout compatibility, privacy of the
-   `sessions/` no-content rule). Fix anything MAJOR on a branch off the batch branch, base the PR on the batch branch.
-2. Open ONE PR `batch/step1-2026-09-17` → `master` (plain-language body; merging it closes #125–#128).
-3. Owner says merge → `gh pr merge` → `tools/deploy-checkout.sh` → `counterparts doctor --config
-   ~/.counterparts/claude-code.json` → `counterparts fired --config ~/.counterparts/claude-code.json`.
-4. Verify over the next days: `associate.flush` rows appear and edges gain a recent `last_day`; one
-   `adapter.wake.delivered` row per new session, outcome `delivered`; doctor's Authorship refusals now split by
-   reason, `session-ask-cap` near zero; the first NEW session's memory server reports `scope source: project` (a
-   step-2 check still owed).
+**To finish step 1 — everything is done except the owner's word.** Both adversarial passes are in
+(`docs/adversarial-review-step1-2026-09-17.md`, `docs/adversarial-review-step1b-2026-09-17.md`); every MAJOR is
+fixed (the hook no longer writes to the database for association; a pending file under `sessions/association/`
+is claimed and applied by the worker; a claim is touched when taken and its takeover window outlives the worker's
+watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129** = the whole batch against master,
+2212 pass / 0 fail, `tsc` clean. Merging #129 closes #125–#128.
+1. Owner says merge → `gh pr merge 129 -R mlapeter/counterparts --merge` → `tools/deploy-checkout.sh` →
+   `counterparts doctor --config ~/.counterparts/claude-code.json` → `counterparts fired --config
+   ~/.counterparts/claude-code.json`. No restart ritual (the parallel run's clock is stopped).
+2. Verify over the next days: `associate.flush` rows appear and edges gain a recent `last_day`; one
+   `adapter.wake.delivered` row per new session, outcome `delivered`; doctor's Authorship refusals split by reason
+   with `session-ask-cap` near zero; the first NEW session's memory server reports `scope source: project`.
+3. Clean worktrees after the merge: `step1-trial` and the five `agent-*` from 09-17 night.
 
 **Decisions waiting for the owner (each has an ELI5 in the 09-17 conversation or the named doc):**
 - **The ask cap.** Six asks for a session's whole life shipped in #119. The coordinating session of 09-17 used
