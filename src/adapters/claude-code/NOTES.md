@@ -41,13 +41,17 @@ adapter takes the assembled brain and adds nothing but host translation.
 
 ## 4. Delivery telemetry rides on the NEXT hook
 
-`sessionStart` records the sentinel it rendered; `userPromptSubmit` reports the
-last line the host actually placed in context. That ordering is forced: nothing
-inside the session-start hook can know what the host did with its return value.
-It is also exactly scar §2.3's shape — v1 shipped eleven days of truncated wakes
-because only the render was instrumented — so the two records are deliberately
-separate events (`adapter.wake.injected` vs `adapter.wake.delivered`), not one
-event with a flag.
+`sessionStart` records the sentinel it rendered; the session's first
+`userPromptSubmit` reports what the host actually placed in context. That
+ordering is forced: nothing inside the session-start hook can know what the host
+did with its return value. It is also exactly scar §2.3's shape — v1 shipped
+eleven days of truncated wakes because only the render was instrumented — so the
+two records are deliberately separate events (`adapter.wake.injected` vs
+`adapter.wake.delivered`), not one event with a flag.
+
+The "next hook" half of that was written and then left unwired for the whole
+parallel run; what closed it, and what the wiring cost, is the 2026-09-17 section
+near the end of this file.
 
 ## 5. The anti-loop guard is per (hook, session), in process
 
@@ -641,3 +645,56 @@ before the rename. That matters more than it first looked — a lost line is onl
 overriding back, which is the leak, not a cost. Closing the window entirely
 would take a lock two long-lived processes share, in the hot path of a tool that
 may not fail, which is why it is narrowed rather than closed.
+
+## The wake's arrival was checked against nothing (2026-09-17, S2)
+
+`adapter.wake.delivered` has 0 rows on the live store since 2026-09-03. Two
+faults, and the second is the interesting one.
+
+**The field nobody set.** The check sat behind `input.sentinelSeen !== undefined`
+and `sentinelSeen` was declared on `HookInput` and populated by no caller;
+`toHookInput` — the only live constructor of a hook input — never mentioned it,
+and neither did anything else in the repository. It was an interface waiting for
+a host that was never asked for it.
+
+**The map that could not survive its own process.** The expectation it would have
+compared against lived in `this.expected`, a `Map` on the adapter instance. Every
+hook is a fresh process. Even a populated field would have met `expected = null`
+at every turn of every session — the same shape as I32's refusal counter, which
+also counted "consecutive" inside a process that lives for one turn. This
+repository has now shipped that mistake twice, which is worth writing down: **a
+value read in a later hook than the one that wrote it has to be on disk.** The
+adapter has exactly one place for that, the session registry record, and it now
+carries the wake's sentinel beside the configuration path and the scope-ask mark.
+
+**What it reads.** The host records a SessionStart hook's output in the
+transcript as its own entry: `type: "attachment"`, with `attachment.type:
+"hook_success"`, the hook's command line, what it printed (`stdout`) and what the
+host says it injected (`content`). Measured 2026-09-17 on Claude Code 2.1.274,
+that entry is line 3 of a fresh session's file, before the first user message,
+and both sentinels stand inside it. `parseTranscript` skips attachments on
+purpose — injected context is not conversation — so the check has its own small
+reader (`transcript.ts#readWakeArrival`) that skips everything else.
+
+**Bounded, because the file is not.** 256 KiB and 40 lines from the front, one
+`read` at offset 0. The answer is always in the first handful of entries and a
+long session's file reaches megabytes. Measured on a 5.4 MB transcript: 0.06 ms
+median, 0.62 ms worst of 300 runs, against a wake of 8,908 bytes found four lines
+in. It runs ONCE per session — the flag that says so is in the same record — so
+the ongoing per-turn cost is the registry read alone, ~0.008 ms.
+
+**The verdict comes from the tail sentinel alone**, which is what the sentinel is
+for: "verify arrival from the last line". The head sentinel, the printed copies
+and the measured lengths ride on the row as evidence. Five answers: `delivered`,
+`truncated` (the tail is not in what the host injected), `mismatch` (a wake
+arrived and it is not this session's — what a resumed session whose record was
+pruned produces, because the head of its file holds the original run's
+attachment), `not-found`, and `no-wake-expected` (a cold start's bootstrap line
+states no sentinel, so nothing checkable was handed over; the file is not even
+opened).
+
+**Two things it deliberately does not do.** It never creates a session record: a
+boundary that finds none is how the retroactive-capture guard recognises the
+`off → on` flip (#92 review, F1), and a record written from the prompt path would
+take that evidence away. And it writes the durable row BEFORE the flag, so a
+failure duplicates a row rather than closing the question with nothing recorded.

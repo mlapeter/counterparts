@@ -67,6 +67,9 @@ import {
   openEmbedder,
   parseTranscript,
   permissionWarning,
+  readWakeArrival,
+  WAKE_HEAD_MAX_BYTES,
+  WAKE_HEAD_MAX_LINES,
   SCOPE_ENV,
   SESSION_ENV,
   backfillVectors,
@@ -108,6 +111,9 @@ let priorEmbedKey: string | undefined;
  *  read it would be reading production state and could flip with the day. */
 let abHome: string;
 let priorAbDir: string | undefined;
+/** Where the FAKE HOST keeps its transcripts — outside the data dir, because
+ *  the store refuses a top-level entry its own layout does not name. */
+let hostDir: string;
 const open: Counterpart[] = [];
 
 beforeEach(() => {
@@ -117,6 +123,7 @@ beforeEach(() => {
   priorAbDir = process.env[AB_DIR_ENV];
   dir = mkdtempSync(join(tmpdir(), "counterparts-cc-"));
   abHome = mkdtempSync(join(tmpdir(), "counterparts-ab-"));
+  hostDir = mkdtempSync(join(tmpdir(), "counterparts-host-"));
   process.env[ENV] = dir;
   process.env[AB_DIR_ENV] = abHome;
   process.env[API_KEY_ENV] = "sk-ant-test-not-a-real-key";
@@ -141,6 +148,7 @@ afterEach(() => {
   else process.env[EMBED_KEY_ENV] = priorEmbedKey;
   rmSync(dir, { recursive: true, force: true });
   rmSync(abHome, { recursive: true, force: true });
+  rmSync(hostDir, { recursive: true, force: true });
 });
 
 /** Write v1's assignment file into the redirected A/B directory. A string is
@@ -241,6 +249,65 @@ function input(over: Partial<HookInput> = {}): HookInput {
  */
 function live(a: ClaudeCodeAdapter, sessionId = "s1", scope = "proj"): void {
   recordSession(a.counterpart.store.dir, { sessionId, scope, phase: "start" });
+}
+
+/**
+ * A SESSION-START HOOK'S OUTPUT, AS THIS HOST RECORDS IT — the shape measured
+ * 2026-09-17 on Claude Code 2.1.274 from a live transcript: an entry of its own
+ * with `type: "attachment"`, before the first user message, carrying what the
+ * hook printed (`stdout`) beside what the host says it injected (`content`).
+ *
+ * Every hook on the event leaves one of these, which is why `command` is a
+ * field and not a constant: the check has to pick its own out of the pile.
+ */
+function hookAttachment(
+  over: {
+    stdout?: string;
+    content?: string;
+    command?: string;
+    hookEvent?: string;
+    hookName?: string;
+  } = {},
+): Record<string, unknown> {
+  const stdout = over.stdout ?? "";
+  return {
+    type: "attachment",
+    uuid: "att-1",
+    attachment: {
+      type: "hook_success",
+      hookEvent: over.hookEvent ?? "SessionStart",
+      hookName: over.hookName ?? "counterparts",
+      command: over.command ?? "bun run /repo/src/adapters/claude-code/bin/hook.ts",
+      stdout,
+      content: over.content ?? stdout,
+      stderr: "",
+      exitCode: 0,
+      durationMs: 37,
+      toolUseID: "hook-abc",
+    },
+  };
+}
+
+/** One JSONL file under the temp dir, named so each test gets its own. */
+let transcriptSeq = 0;
+function writeTranscript(entries: readonly unknown[]): string {
+  const root = hostDir;
+  transcriptSeq += 1;
+  const path = join(root, `t${String(transcriptSeq)}.jsonl`);
+  writeFileSync(path, `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`, "utf8");
+  return path;
+}
+
+/** The two entries that stand before the attachment in a real file. */
+const PREAMBLE: readonly unknown[] = [
+  { type: "summary", summary: "a resumed session's summary line", leafUuid: "x" },
+  { type: "system", subtype: "init", cwd: "/repo", uuid: "sys-1" },
+];
+
+/** The last `adapter.wake.delivered` row this adapter wrote, as data. */
+function deliveredRow(a: ClaudeCodeAdapter): Record<string, unknown> {
+  const rows = a.events("adapter.wake.delivered");
+  return (rows[rows.length - 1]?.data ?? {}) as Record<string, unknown>;
 }
 
 /** A fake SSE body: the exact frames the real endpoint emits, and nothing else. */
@@ -450,10 +517,10 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     // Composed at DELIVERY: the published row carries no preface at all.
     expect(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "").not.toContain("Counterparts memory, day ");
 
-    // And the delivered loop still closes, on the sentinel actually shipped.
-    a.userPromptSubmit(input({ prompt: "hello", sentinelSeen: result.sentinel }));
-    const delivered = a.events("adapter.wake.delivered");
-    expect(delivered[delivered.length - 1]?.data?.delivered).toBe(true);
+    // And the delivered loop still closes, on the bundle the host recorded.
+    const path = writeTranscript([...PREAMBLE, hookAttachment({ stdout: result.injection })]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    expect(deliveredRow(a)["outcome"]).toBe("delivered");
   });
 
   test("the budget REPORTED BY THE HOST is what the briefing composes to", async () => {
@@ -502,18 +569,323 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     expect(result.injection.length).toBeGreaterThan(0);
   });
 
-  test("delivery telemetry is DISTINCT from render telemetry (scar §2.3)", async () => {
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The wake's arrival
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Scar §2.3's other half, and the wiring fault that kept it inert.
+ *
+ * The check ran on a field nobody ever set, against an expectation held in a
+ * `Map` on an adapter instance — and every hook is its own process, so the
+ * expectation was always empty. `adapter.wake.delivered` wrote 0 rows in two
+ * weeks of live running (mechanism inventory 2026-09-17, S2). What it reads now
+ * is the host's own record of what it injected, in the head of the transcript.
+ */
+describe("the wake's arrival — one durable answer per session (scar §2.3)", () => {
+  /** A woken session: a published bundle, a SessionStart, the sentinel it printed. */
+  async function woken(sessionId = "s1"): Promise<{
+    a: ClaudeCodeAdapter;
+    injection: string;
+    sentinel: string;
+  }> {
     const { a } = adapter();
+    a.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The storage split put canonical prose on disk and one small operational database.",
+      salience: { novelty: null, relevance: 0.9, emotional: 0.6, predictive: 0.8 },
+      physics: { birthDay: 0, lastUsedDay: 0 },
+    });
     await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    const woke = a.sessionStart(input({ sessionId }));
+    expect(woke.sentinel).not.toBe(null);
+    return { a, injection: woke.injection, sentinel: woke.sentinel as string };
+  }
+
+  test("(a) an intact wake leaves ONE row saying `delivered`", async () => {
+    const { a, injection, sentinel } = await woken();
+    const path = writeTranscript([...PREAMBLE, hookAttachment({ stdout: injection })]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+
+    const rows = a.events("adapter.wake.delivered");
+    expect(rows.length).toBe(1);
+    const row = rows[0]?.data ?? {};
+    expect({
+      outcome: row["outcome"],
+      ok: row["ok"],
+      found: row["found"],
+      expected: row["expected"],
+      headInContent: row["headInContent"],
+      tailInContent: row["tailInContent"],
+      tailInStdout: row["tailInStdout"],
+      transcript: row["transcript"],
+    }).toEqual({
+      outcome: "delivered",
+      ok: true,
+      found: true,
+      expected: true,
+      headInContent: true,
+      tailInContent: true,
+      tailInStdout: true,
+      transcript: "read",
+    });
+    // The sentinels' own accounting, on the row: what the head declared, what
+    // the tail declared, and what actually arrived.
+    expect(row["headBytes"]).toBe(row["tailBytes"]);
+    expect(row["contentBytes"]).toBe(Buffer.byteLength(injection, "utf8"));
+    expect(sentinel).toContain(`bytes=${String(row["tailBytes"])}`);
+    // And the expectation lives where a FRESH PROCESS can read it.
+    expect(readSession(dir, "s1")?.wakeSentinel).toBe(sentinel);
+  });
+
+  test("(b) a tail the host never injected is `truncated`, with the byte numbers", async () => {
+    const { a, injection } = await woken();
+    // The host clipped the last line off what it placed in context. The hook
+    // still PRINTED it — which is exactly the pair v1 could not see.
+    const lines = injection.split("\n");
+    const clipped = lines.slice(0, -1).join("\n");
+    const path = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ stdout: injection, content: clipped }),
+    ]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+
+    const row = deliveredRow(a);
+    expect({
+      outcome: row["outcome"],
+      ok: row["ok"],
+      tailInContent: row["tailInContent"],
+      tailInStdout: row["tailInStdout"],
+      headInContent: row["headInContent"],
+    }).toEqual({
+      outcome: "truncated",
+      ok: false,
+      tailInContent: false,
+      tailInStdout: true,
+      headInContent: true,
+    });
+    // The numbers that say HOW MUCH was lost: the head sentinel's declared
+    // total, against what the host actually carried.
+    expect(row["headBytes"]).toBe(Buffer.byteLength(injection, "utf8"));
+    expect(row["contentBytes"]).toBe(Buffer.byteLength(clipped, "utf8"));
+    expect(row["stdoutBytes"]).toBe(Buffer.byteLength(injection, "utf8"));
+    expect(row["tailBytes"]).toBe(null);
+  });
+
+  test("(c) no attachment is `not-found` when a wake was expected", async () => {
+    const { a } = await woken();
+    const path = writeTranscript([
+      ...PREAMBLE,
+      { type: "user", message: { role: "user", content: "hello" } },
+    ]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    const row = deliveredRow(a);
+    expect({ outcome: row["outcome"], found: row["found"], transcript: row["transcript"] }).toEqual({
+      outcome: "not-found",
+      found: false,
+      transcript: "read",
+    });
+  });
+
+  test("(c) a cold start expected nothing, and the row says so rather than crying loss", () => {
+    // No published bundle: the wake is the bootstrap line, which states no
+    // sentinel, so nothing checkable was ever handed to the host.
+    const { a } = adapter();
     const woke = a.sessionStart(input());
+    expect(woke.sentinel).toBe(null);
+    expect(readSession(dir, "s1")?.wakeSentinel).toBe(undefined);
 
-    a.userPromptSubmit(input({ prompt: "hello", sentinelSeen: woke.sentinel }));
-    expect(a.events("adapter.wake.delivered")[0]?.data?.delivered).toBe(true);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: writeTranscript(PREAMBLE) }));
+    const row = deliveredRow(a);
+    expect({ outcome: row["outcome"], expected: row["expected"], transcript: row["transcript"] }).toEqual({
+      outcome: "no-wake-expected",
+      expected: false,
+      // Nothing was supposed to arrive, so the file is not opened at all.
+      transcript: "not-read",
+    });
+  });
 
-    // The truncated case: the host never got the last line.
-    a.userPromptSubmit(input({ sessionId: "s2", prompt: "hello", sentinelSeen: null }));
-    const records = a.events("adapter.wake.delivered");
-    expect(records[records.length - 1]?.data?.delivered).toBe(false);
+  test("(d) ANOTHER hook's SessionStart attachment is not this hook's answer", async () => {
+    const { a, injection } = await woken();
+    const path = writeTranscript([
+      ...PREAMBLE,
+      // A neighbour's hook, on the same event, printing a whole wake-looking
+      // block. Matching on the event alone would read this as ours.
+      hookAttachment({
+        hookName: "somebody-else",
+        command: "node /elsewhere/greet.js",
+        stdout: injection,
+      }),
+    ]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    expect(deliveredRow(a)["outcome"]).toBe("not-found");
+
+    // And with BOTH present, ours is the one that answers.
+    const { a: b, injection: mine } = await woken("s2");
+    const both = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ hookName: "somebody-else", command: "node /elsewhere/greet.js", stdout: "" }),
+      hookAttachment({ stdout: mine }),
+    ]);
+    b.userPromptSubmit(input({ sessionId: "s2", prompt: "hello", transcriptPath: both }));
+    expect(deliveredRow(b)["outcome"]).toBe("delivered");
+  });
+
+  test("(e) recorded ONCE per session, across fresh processes", async () => {
+    const { injection } = await woken();
+    const path = writeTranscript([...PREAMBLE, hookAttachment({ stdout: injection })]);
+    // Two more adapters over the same store: what a second and third hook
+    // process of the same session are.
+    const second = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(second.counterpart);
+    second.userPromptSubmit(input({ prompt: "one", transcriptPath: path }));
+    expect(second.events("adapter.wake.delivered").length).toBe(1);
+    expect(readSession(dir, "s1")?.wakeChecked).toBe(true);
+
+    const third = openAdapter(config(), { spawner: fakeSpawner().spawner });
+    open.push(third.counterpart);
+    third.userPromptSubmit(input({ prompt: "two", transcriptPath: path }));
+    third.userPromptSubmit(input({ prompt: "three", transcriptPath: path }));
+    expect(third.events("adapter.wake.delivered")).toEqual([]);
+
+    // One row in the store for the session, not one per turn.
+    const durable = second.counterpart.store.eventLog({ name: "adapter.wake.delivered", limit: 100 });
+    expect(durable.length).toBe(1);
+  });
+
+  test("(e) the flag never invents a session record the seal is watching for", () => {
+    // A session with NO record is the off→on flip (#92 review, F1). The check
+    // stands down entirely rather than writing one.
+    const { a } = adapter();
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: writeTranscript(PREAMBLE) }));
+    expect(a.events("adapter.wake.delivered")).toEqual([]);
+    expect(readSession(dir, "s1")).toBe(null);
+  });
+
+  test("(e) an observer checks nothing and writes nothing", async () => {
+    const { a, injection } = await woken();
+    const path = writeTranscript([...PREAMBLE, hookAttachment({ stdout: injection })]);
+    const watcher = openAdapter(config({ observer: true }), { spawner: fakeSpawner().spawner });
+    open.push(watcher.counterpart);
+    watcher.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    expect(watcher.events("adapter.wake.delivered")).toEqual([]);
+    expect(readSession(dir, "s1")?.wakeChecked).toBe(undefined);
+  });
+
+  test("(f) a malformed, absent or enormous head cannot throw and cannot blow the budget", async () => {
+    const { a, injection } = await woken();
+    // Not JSON at all, and bigger than the read bound several times over.
+    const junk = `${"x".repeat(WAKE_HEAD_MAX_BYTES * 3)}\n`;
+    const root = hostDir;
+    const huge = join(root, "huge.jsonl");
+    writeFileSync(huge, junk, "utf8");
+    const started = performance.now();
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: huge }));
+    const elapsed = performance.now() - started;
+    expect(deliveredRow(a)["outcome"]).toBe("not-found");
+    expect(Number(deliveredRow(a)["bytesRead"])).toBeLessThanOrEqual(WAKE_HEAD_MAX_BYTES);
+    expect(elapsed).toBeLessThan(250);
+
+    // A path the host named and nothing wrote.
+    const { a: b } = await woken("s2");
+    b.userPromptSubmit(input({ sessionId: "s2", prompt: "hello", transcriptPath: join(root, "nowhere.jsonl") }));
+    expect(deliveredRow(b)["transcript"]).toBe("absent");
+    expect(deliveredRow(b)["outcome"]).toBe("not-found");
+
+    // A payload with no path at all, which is every hook before this shipped.
+    const { a: c } = await woken("s3");
+    const result = c.userPromptSubmit(input({ sessionId: "s3", prompt: "what did we settle about storage?" }));
+    expect(deliveredRow(c)["outcome"]).toBe("not-found");
+    // And the TURN still happened: the check never costs the recall.
+    expect(result.ok).toBe(true);
+
+    // Lines that are not JSON are COUNTED, and the attachment behind them is
+    // still found (scar §2.4: nothing is silently swallowed).
+    const { a: d, injection: mine } = await woken("s4");
+    const mixed = join(root, "mixed.jsonl");
+    writeFileSync(
+      mixed,
+      `{not json\n\n${"}"}\n${JSON.stringify(hookAttachment({ stdout: mine }))}\n`,
+      "utf8",
+    );
+    d.userPromptSubmit(input({ sessionId: "s4", prompt: "hello", transcriptPath: mixed }));
+    expect(deliveredRow(d)["outcome"]).toBe("delivered");
+    expect(deliveredRow(d)["corrupt"]).toBe(2);
+  });
+
+  test("(f) the read is BOUNDED: an attachment past the head is not hunted for", async () => {
+    const { a, injection } = await woken();
+    const filler = Array.from({ length: WAKE_HEAD_MAX_LINES + 5 }, (_, i) => ({
+      type: "user",
+      message: { role: "user", content: `turn ${String(i)}` },
+    }));
+    const path = writeTranscript([...filler, hookAttachment({ stdout: injection })]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    expect(deliveredRow(a)["outcome"]).toBe("not-found");
+    expect(deliveredRow(a)["linesRead"]).toBe(WAKE_HEAD_MAX_LINES);
+  });
+
+  test("(g) NO WAKE TEXT ever reaches the payload — ring or store", async () => {
+    const { a, injection } = await woken();
+    expect(injection).toContain("storage split");
+    const path = writeTranscript([...PREAMBLE, hookAttachment({ stdout: injection })]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+
+    const ring = JSON.stringify(deliveredRow(a));
+    const durable = JSON.stringify(
+      a.counterpart.store
+        .eventLog({ name: "adapter.wake.delivered", limit: 10 })
+        .map((r) => JSON.parse(r.payload ?? "{}") as unknown),
+    );
+    for (const dump of [ring, durable]) {
+      expect(dump).not.toContain("storage split");
+      expect(dump).not.toContain("counterparts:wake");
+      expect(dump).not.toContain("Counterparts memory, day ");
+    }
+    // Numbers, booleans and short verdict words — nothing else.
+    for (const [key, value] of Object.entries(deliveredRow(a))) {
+      if (typeof value !== "string") continue;
+      expect({ key, long: value.length > 24 }).toEqual({ key, long: false });
+    }
+  });
+
+  test("(h) capture still SKIPS attachments — injected context is not conversation", () => {
+    const wake = "<!-- counterparts:wake day=1 elements=1 bytes=99 -->\nwho I have been\n<!-- counterparts:wake/end day=1 identity=1 craft=0 threads=0 hints=0 horizon=0 elements=1 bytes=99 -->";
+    const raw = [
+      JSON.stringify(hookAttachment({ stdout: wake })),
+      JSON.stringify({ type: "user", message: { role: "user", content: "hello" } }),
+    ].join("\n");
+    const read = parseTranscript(raw);
+    expect(read.turns).toEqual([{ role: "user", text: "hello", source: "conversation" }]);
+    expect(read.corrupt).toBe(0);
+  });
+
+  test("the reader, on a transcript head of realistic size", async () => {
+    // A real morning: two other hooks on the same event, a ~9 KB wake, and a
+    // megabyte of conversation after it. The check must not notice the tail.
+    const { injection } = await woken();
+    const chatter = Array.from({ length: 400 }, (_, i) => ({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: `${String(i)} ${"a real reply ".repeat(200)}` }] },
+    }));
+    const path = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ hookName: "other-a", command: "node /elsewhere/a.js", stdout: "hi" }),
+      hookAttachment({ stdout: injection }),
+      hookAttachment({ hookName: "other-b", command: "node /elsewhere/b.js", stdout: "hi" }),
+      ...chatter,
+    ]);
+    const runs: number[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      const started = performance.now();
+      const arrival = readWakeArrival(path);
+      runs.push(performance.now() - started);
+      expect(arrival.tail.line).toBe(injection.split("\n").slice(-1)[0] as string);
+    }
+    const slowest = Math.max(...runs);
+    expect(slowest).toBeLessThan(50);
   });
 });
 
@@ -1528,7 +1900,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
       physics: { birthDay: 0, lastUsedDay: 0 },
     });
     await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
-    const result = a.userPromptSubmit(input({ prompt: "what did we settle about storage?", sentinelSeen: "x" }));
+    const result = a.userPromptSubmit(input({ prompt: "what did we settle about storage?" }));
     expect({ injection: result.injection, reason: result.reason, surfaced: result.surfaced }).toEqual({
       injection: "",
       reason: "primacy-standdown",
@@ -1631,7 +2003,7 @@ describe("parallel.enabled — the delivering hooks stand down, and capture does
     assign({ override: "engram" });
     const { a } = adapter(PARALLEL);
     a.sessionStart(input());
-    a.userPromptSubmit(input({ prompt: "what about storage?", sentinelSeen: "nope" }));
+    a.userPromptSubmit(input({ prompt: "what about storage?" }));
     a.stop(input());
     const store = a.counterpart.store;
     const rows = (name: string): Record<string, unknown>[] =>

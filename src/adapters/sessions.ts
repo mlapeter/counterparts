@@ -10,8 +10,11 @@
  * does not. This file is the note the hooks leave where the server can read it.
  *
  * **It is host state, never memory** (constitution 5). It carries no content: an
- * id, a scope, three timestamps. Losing the whole directory costs a lazy bind
- * and nothing else, which is why `store/paths.ts` classifies it `backup: false`.
+ * id, a scope, three timestamps, and a few marks about what this session's hooks
+ * have already done — which configuration they read, whether the first-launch
+ * question went out, the wake's sentinel of counts and whether its arrival has
+ * been checked. Losing the whole directory costs a lazy bind and nothing else,
+ * which is why `store/paths.ts` classifies it `backup: false`.
  *
  * **Where it lives.** `<dataDir>/sessions/<id>.json`, because the data dir is the
  * one path both sides already agree on — the hooks resolve it in
@@ -104,6 +107,31 @@ export interface SessionRecord {
    * thing this flag exists to stop. Still host state, still no content.
    */
   readonly askedScope?: boolean;
+  /**
+   * THE TAIL SENTINEL THE WAKE WAS PRINTED WITH — the expectation the delivery
+   * check compares what arrived against, written by SessionStart at the moment
+   * it hands the bundle to the host.
+   *
+   * It is here because the check runs in a DIFFERENT PROCESS. Every hook is its
+   * own process; the expectation used to live in a `Map` on the adapter
+   * instance, so the hook that was meant to test it always met an empty one and
+   * `adapter.wake.delivered` never wrote a row in two weeks of running.
+   *
+   * Absent means no checkable wake was printed for this session — a cold start
+   * whose bundle is the bootstrap line, or a session whose SessionStart stood
+   * down — which is how "nothing was supposed to arrive" is told apart from "it
+   * was lost". Still host state, still no content: the sentinel is an HTML
+   * comment of counts (`<!-- counterparts:wake/end day=190 identity=3 … -->`),
+   * the same numbers the durable row carries.
+   */
+  readonly wakeSentinel?: string;
+  /**
+   * TRUE once the delivery check has run for this session. It runs at the first
+   * `UserPromptSubmit` and leaves one durable row; this is what keeps it from
+   * re-reading the transcript on every turn afterwards. One-way, like
+   * `askedScope`.
+   */
+  readonly wakeChecked?: boolean;
 }
 
 /**
@@ -201,6 +229,11 @@ export function recordSession(
     /** Set once, when the first-launch scope question is delivered (G41).
      *  Carried forward the same way, and never cleared by a later phase. */
     askedScope?: boolean;
+    /** The sentinel the wake was printed with, written by SessionStart.
+     *  Carried forward like `config`: the newest answer wins. */
+    wakeSentinel?: string;
+    /** Set once, when the delivery check has left its row. One-way. */
+    wakeChecked?: boolean;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -230,6 +263,18 @@ export function recordSession(
     // and a later phase written by a process that knows nothing about the
     // question must not un-ask it.
     ...(input.askedScope === true || prior?.askedScope === true ? { askedScope: true } : {}),
+    // Carried like `config` — newest answer wins — because a SessionStart that
+    // fires again inside one session (a compaction) renders a new bundle, and
+    // the expectation the next check tests has to be the one last printed.
+    ...(input.wakeSentinel !== undefined && input.wakeSentinel.length > 0
+      ? { wakeSentinel: input.wakeSentinel }
+      : prior?.wakeSentinel !== undefined
+        ? { wakeSentinel: prior.wakeSentinel }
+        : {}),
+    // One-way, like `askedScope`: a session that has been checked has been
+    // checked, and the flag is what stops the transcript being re-read at every
+    // turn for the rest of the session.
+    ...(input.wakeChecked === true || prior?.wakeChecked === true ? { wakeChecked: true } : {}),
   };
 
   try {
@@ -297,5 +342,11 @@ function parseRecord(raw: unknown): SessionRecord | null {
     // Optional for the same reason `config` is: every record written before
     // 2026-09-10 lacks it, and "not asked" is exactly what its absence means.
     ...(rec["askedScope"] === true ? { askedScope: true } : {}),
+    // Optional for the same reason again, and its absence is a real answer:
+    // "no checkable wake was printed for this session".
+    ...(typeof rec["wakeSentinel"] === "string" && rec["wakeSentinel"].length > 0
+      ? { wakeSentinel: rec["wakeSentinel"] }
+      : {}),
+    ...(rec["wakeChecked"] === true ? { wakeChecked: true } : {}),
   };
 }

@@ -469,7 +469,7 @@ describe("the lifecycle, through the adapter", () => {
     const woke = a.sessionStart(input({ sessionId: "s9", at: "2026-01-03" }));
     expect(woke.ok).toBe(true);
     expect(woke.injection).toContain("storage split");
-    a.userPromptSubmit(input({ sessionId: "s9", at: "2026-01-03", prompt: "hello", sentinelSeen: woke.sentinel }));
+    a.userPromptSubmit(input({ sessionId: "s9", at: "2026-01-03", prompt: "hello" }));
     expect(c.store.physicsOf(id).uses).toBe(0);
     expect(c.store.physicsOf(id).reinforcedDays).toBe(0);
   });
