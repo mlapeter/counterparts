@@ -38,8 +38,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   EMBED_BACKFILL_EVENT,
+  GATE_DEPOSIT_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
@@ -834,6 +836,161 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
   return out;
 }
 
+/**
+ * WHO IS DOING THE WRITING — one week of it, in the owner's own words.
+ *
+ * **The finding this answers (finding 12, diagnosed 2026-09-17).** Over the run
+ * the crash fallback out-wrote the session itself 4.5 : 1, and every visible
+ * surface read healthy while it happened: capture captured, deposits were
+ * accepted, nothing was red. The two facts that would have shown it are not
+ * hard to read and were simply never read out — how often the session was
+ * OFFERED the pen, and how much of the week's memory it actually wrote. Both
+ * come out of rows the store already keeps (constitution 11: the system itself
+ * shows what fired).
+ *
+ * Three readings, seven calendar days, nothing computed and nothing guessed:
+ *
+ *   - **The asks, by `outcome`** (`adapter.ask`). `asked` is an invitation that
+ *     went out; `capped` is one the day's chapter cap refused; `paced` is one
+ *     the substance pacer refused. The `reason` field is deliberately NOT what
+ *     this counts — it is a finer vocabulary that is being renamed elsewhere,
+ *     and a diagnostic keyed on a string in motion is a diagnostic that will
+ *     quietly read zero one morning.
+ *   - **The answers** (`gate.deposit`): what the session handed back.
+ *   - **The memories** (`memories.source`): how many live memories of the week
+ *     the session wrote itself, against how many were written for it later.
+ *
+ * AMBER on either of two comparisons, and never red — this is a balance, not a
+ * fault, and nothing here means the machine is broken.
+ *
+ * The window is CALENDAR days, taken from the payload's own `date` (else the
+ * row's wall clock), never the lived-day column: the lived clock is advanced by
+ * the worker and has run seven lived days across fifteen calendar ones on this
+ * very store. `sinceDay` is used only to keep the SQL cheap, and a lived day is
+ * never longer than a calendar day, so `livedDay - 7` cannot miss a row inside
+ * the window.
+ */
+export const AUTHORSHIP_DAYS = 7;
+
+/** The ceiling on one authorship read. A week of the owner's busiest recorded
+ *  day (137 ask decisions) is two orders of magnitude inside this; a read that
+ *  hits it says so rather than reporting the prefix as the whole. */
+const AUTHORSHIP_LIMIT = 20000;
+
+/** `YYYY-MM-DD`, `back` days before `today`. UTC, like every date in this store. */
+function daysBefore(today: string, back: number): string {
+  const at = Date.parse(`${today}T00:00:00Z`);
+  if (Number.isNaN(at)) return today;
+  return new Date(at - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Every row of one name whose CALENDAR date is on or after `from`. */
+function rowsInWindow(
+  store: Store,
+  name: string,
+  livedDay: number,
+  from: string,
+): { rows: EventRow[]; truncated: boolean } {
+  const all = store.eventLog({
+    name,
+    sinceDay: Math.max(0, livedDay - AUTHORSHIP_DAYS),
+    limit: AUTHORSHIP_LIMIT,
+  });
+  return {
+    rows: all.filter((r) => {
+      const date = rowDate(r);
+      return date !== null && date >= from;
+    }),
+    // `eventLog` orders ASCENDING, so a full read is the OLDEST rows of the
+    // window and the newest days are the ones missing. The counts are a floor
+    // and the line says so; a confident wrong number is the one thing a
+    // diagnostic may never produce.
+    truncated: all.length >= AUTHORSHIP_LIMIT,
+  };
+}
+
+function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
+  const livedDay = store.livedDay();
+  // Inclusive of today: seven calendar days means today and the six before it.
+  const from = daysBefore(input.today, AUTHORSHIP_DAYS - 1);
+  const asks = rowsInWindow(store, ADAPTER_ASK_EVENT, livedDay, from);
+  const deposits = rowsInWindow(store, GATE_DEPOSIT_EVENT, livedDay, from);
+  let asked = 0;
+  let capped = 0;
+  let paced = 0;
+  let unlabelled = 0;
+  for (const row of asks.rows) {
+    switch (str(payloadOf(row), "outcome")) {
+      case "asked":
+        asked += 1;
+        break;
+      case "capped":
+        capped += 1;
+        break;
+      case "paced":
+        paced += 1;
+        break;
+      default:
+        // Rows from before the single pacer carry no `outcome` at all. Counted
+        // apart rather than folded into one of the three, and named only when
+        // there are any — a bucket that is always zero is noise.
+        unlabelled += 1;
+    }
+  }
+  const authored = store.countMemories({
+    type: "memory",
+    archived: false,
+    source: "authored",
+    learnedOnFrom: from,
+  });
+  const fallback = store.countMemories({
+    type: "memory",
+    archived: false,
+    source: "fallback",
+    learnedOnFrom: from,
+  });
+  const capBinds = capped > asked;
+  const sweepWins = fallback > authored;
+  const detail =
+    `${from}→${input.today}: the session was invited to write ${String(asked)} ${asked === 1 ? "time" : "times"}, ` +
+    `refused ${String(capped)} by the day's cap and ${String(paced)} for pacing` +
+    `${unlabelled === 0 ? "" : ` (${String(unlabelled)} older rows name no outcome)`}; ` +
+    `it answered with ${String(deposits.rows.length)} ${deposits.rows.length === 1 ? "deposit" : "deposits"}; ` +
+    `${String(authored)} live ${authored === 1 ? "memory" : "memories"} of that week ${authored === 1 ? "is" : "are"} its own, ` +
+    `${String(fallback)} ${fallback === 1 ? "was" : "were"} written for it by the fallback sweep` +
+    `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
+  const fixes = [
+    capBinds
+      ? "The day's chapter cap refuses the pen more often than it offers it — that cap is shared across every session of the day."
+      : "",
+    sweepWins
+      ? "The sweep writes what the session did not: check that sessions reach a session-end boundary in the scope they captured in, and that the Stop ask is reaching the model."
+      : "",
+  ].filter((s) => s.length > 0);
+  const data = {
+    from,
+    to: input.today,
+    asked,
+    capped,
+    paced,
+    unlabelled,
+    deposits: deposits.rows.length,
+    authored,
+    fallback,
+    truncated: asks.truncated || deposits.truncated,
+  };
+  return [
+    finding(
+      "authorship",
+      capBinds || sweepWins ? "amber" : "green",
+      "Authorship",
+      detail,
+      fixes.join(" "),
+      data,
+    ),
+  ];
+}
+
 /** The spawn seam: the persisted counters and the rows they explain. */
 function spawnFindings(input: DoctorInput, store: Store): Finding[] {
   const livedDay = store.livedDay();
@@ -1006,6 +1163,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["spawn", () => spawnFindings(input, store)],
     ["clock", () => clockFindings(input, store)],
     ["rows", () => rowFindings(input, store)],
+    ["authorship", () => authorshipFindings(input, store)],
     ["vectors", () => vectorFindings(store)],
   ];
   const skipped: string[] = [];

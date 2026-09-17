@@ -50,7 +50,7 @@ export type {
   Tier,
 } from "./deliberate.js";
 
-export { McpServer, SERVER_NAME, SERVER_VERSION, resolveScope } from "./server.js";
+export { McpServer, SERVER_NAME, SERVER_VERSION, hostScope, resolveScope } from "./server.js";
 export type {
   McpEvent,
   McpServerOptions,

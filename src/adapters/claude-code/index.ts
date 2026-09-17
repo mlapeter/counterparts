@@ -43,6 +43,7 @@ export {
 export type { CredentialLoad } from "./credentials.js";
 
 export {
+  AUTHORSHIP_DAYS,
   CHECKOUT_BUDGET_MS,
   CHECKOUT_TIMEOUT_MS,
   NOTICE_MAX_CHARS,
