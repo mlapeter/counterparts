@@ -19,9 +19,11 @@
  *   append**, which is `remember/`'s property; the adapter's job is to hand it
  *   the same session key every time and never to re-slice the transcript itself.
  *   **§2.3 — delivery telemetry is distinct from render telemetry.** The wake
- *   states its own sentinel; the NEXT hook reports the last line the host
- *   actually placed in context. v1 shipped eleven days of truncated wakes
- *   because only the render was instrumented.
+ *   states its own sentinel; the FIRST PROMPT of the session reads the head of
+ *   the host's transcript and reports what the host recorded as injected. The
+ *   expectation is carried in the session registry record, because every hook is
+ *   its own process. v1 shipped eleven days of truncated wakes because only the
+ *   render was instrumented.
  *   **§2 G10/G11 — conversational text only, and injected context is excluded
  *   from PACING but kept in CAPTURE.** `substanceOf` counts one and
  *   `captureSpans` receives the other; the two are computed from the same turns
@@ -67,7 +69,7 @@ import type { ScopeVerdict } from "../scopes.js";
 import { countTranslated, readHandleResolutions, translateExpansions } from "../expansions.js";
 import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
-import type { SessionPhase } from "../sessions.js";
+import type { SessionPhase, SessionRecord } from "../sessions.js";
 
 import { capabilities, interpretSeat } from "./config.js";
 import { TUNABLES } from "./config.js";
@@ -79,7 +81,8 @@ import type { CheckoutReading } from "./doctor.js";
 import { primacy } from "./primacy.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
-import type { Expansion } from "./transcript.js";
+import { NO_ARRIVAL, readWakeArrival } from "./transcript.js";
+import type { Expansion, WakeArrival } from "./transcript.js";
 
 /** Every hook this adapter installs, by the name it is wired under. */
 export const HOOKS = [
@@ -119,8 +122,14 @@ export interface HookInput {
   readonly expansions?: readonly Expansion[];
   /** What the user typed this turn (`user-prompt-submit`). */
   readonly prompt?: string;
-  /** The last line the host actually placed in context — delivery, not render. */
-  readonly sentinelSeen?: string | null;
+  /**
+   * WHERE THE HOST IS KEEPING THIS SESSION'S TRANSCRIPT — the path the payload
+   * named, carried so the delivery check can read the head of it and see what
+   * the host recorded as injected at SessionStart (`transcript.ts`). The turns
+   * above come from the same file, parsed for conversation; this is the same
+   * file read for the one thing that parse deliberately skips.
+   */
+  readonly transcriptPath?: string;
   /** Today's calendar date, for the temporal channel and the horizon lane. */
   readonly at?: string;
   /**
@@ -140,7 +149,12 @@ export interface HookResult {
   /** What to add to the host's context. The EMPTY STRING on a quiet hook. */
   readonly injection: string;
   readonly bytes: number;
-  /** The render's own tail line, for the next hook's delivery check. */
+  /**
+   * The render's own tail line. At SessionStart it is also the expectation the
+   * delivery check tests: it is written into the session registry record, and
+   * the session's first prompt compares it against what the host's transcript
+   * says arrived.
+   */
   readonly sentinel: string | null;
   readonly surfaced: readonly string[];
   readonly footnotes: readonly string[];
@@ -348,8 +362,6 @@ export class ClaudeCodeAdapter {
   private readonly ring: AdapterEvent[] = [];
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
-  /** The sentinel the LAST render stated, per session — delivery's expectation. */
-  private readonly expected = new Map<string, string | null>();
   /**
    * Consecutive identical spawn refusals, per reason (scar E4's escalation) —
    * IN MEMORY ONLY when this adapter cannot write, which is the observer case.
@@ -470,7 +482,12 @@ export class ClaudeCodeAdapter {
       const woke = this.counterpart.wake(budget, {
         ...(input.at === undefined ? {} : { date: input.at }),
       });
-      this.expected.set(input.sessionId, woke.sentinel);
+      // THE EXPECTATION, WRITTEN WHERE THE NEXT PROCESS CAN READ IT. This used
+      // to be a `Map` on this instance, which is a line that only looks like it
+      // works: every hook is its own process, so the hook that tests it always
+      // met an empty map. `adapter.wake.delivered` wrote no row in two weeks of
+      // running (mechanism inventory 2026-09-17, S2).
+      this.noteWakeExpectation(input, woke.sentinel);
 
       if (budget !== undefined && woke.bytes > budget) {
         // Exceeding a reported limit is an EVENT, never silent degradation. The
@@ -581,9 +598,10 @@ export class ClaudeCodeAdapter {
   // ── the turn ───────────────────────────────────────────────────────────────
 
   /**
-   * Recall for this turn. The delivery check for the PREVIOUS render runs first
-   * (scar §2.3), then the composed recall — all three borrowed channels bound by
-   * the composition root, with today's date so the temporal channel exists.
+   * Recall for this turn. The check that the SESSION'S WAKE ARRIVED runs first,
+   * once per session (scar §2.3), then the composed recall — all three borrowed
+   * channels bound by the composition root, with today's date so the temporal
+   * channel exists.
    */
   userPromptSubmit(input: HookInput): HookResult {
     return this.guard("user-prompt-submit", input, (out) => {
@@ -593,11 +611,7 @@ export class ClaudeCodeAdapter {
       if (!this.deliveryVerdict("user-prompt-submit", input)) {
         return { ...out, ok: true, reason: "primacy-standdown" };
       }
-      if (input.sentinelSeen !== undefined) {
-        const expected = this.expected.get(input.sessionId) ?? null;
-        const delivered = this.counterpart.noteWakeDelivered(input.sentinelSeen, expected);
-        this.record(WAKE_DELIVERED_EVENT, input, { delivered, expected: expected !== null });
-      }
+      this.checkWakeArrival(input);
       const text = input.prompt ?? "";
       if (text.trim().length === 0) {
         return { ...out, ok: true, reason: "empty-prompt" };
@@ -613,7 +627,11 @@ export class ClaudeCodeAdapter {
         { ...(input.at === undefined ? {} : { at: input.at }) },
       );
       const decision = result.decision;
-      this.expected.set(input.sessionId, decision.sentinel);
+      // The recall block states its own sentinel too, and nothing checks it: the
+      // line that used to hold it was the same dead `Map` the wake's expectation
+      // lived in. A recall-arrival check would need the same shape as the wake's
+      // — a persisted expectation and a turn-scoped read — and is an open ask
+      // (INTERFACE-GAPS §11), not a thing this row can pretend to.
       this.record(RECALL_DELIVERED_EVENT, input, {
         reason: decision.reason,
         surfaced: decision.surfaced.length,
@@ -1198,6 +1216,142 @@ export class ClaudeCodeAdapter {
     }
   }
 
+  /**
+   * WRITE DOWN WHAT THE HOST WAS JUST HANDED, so a later process can ask whether
+   * it arrived. A second write of the same phase, for the same reason
+   * `deliverScopeAsk` makes one: the first write happens before the delivery
+   * verdict and the bundle is composed after it.
+   *
+   * A wake with NO sentinel — the bootstrap line a store with nothing in it
+   * publishes — writes nothing, and the absence is the answer: there was no
+   * checkable bundle, so nothing was supposed to arrive.
+   */
+  private noteWakeExpectation(input: HookInput, sentinel: string | null): void {
+    if (this.observer) return;
+    if (input.sessionId.length === 0) return;
+    if (sentinel === null || sentinel.length === 0) return;
+    const marked = recordSession(this.counterpart.store.dir, {
+      sessionId: input.sessionId,
+      scope: input.scope,
+      phase: "start",
+      at: this.nowFn(),
+      wakeSentinel: sentinel,
+      ...(this.configPath === undefined || this.configPath.length === 0
+        ? {}
+        : { config: this.configPath }),
+    });
+    this.emit("adapter.wake.expected", { recorded: marked !== null });
+  }
+
+  /**
+   * DID THE WAKE THIS SESSION COMPOSED REACH THE SESSION? — once, at the first
+   * prompt, and never again for this session.
+   *
+   * **Why here and not at the end.** Nothing inside the SessionStart hook can
+   * know what the host did with its return value, and SessionEnd's hooks share
+   * 1.5 s between them. The first `UserPromptSubmit` is the earliest moment the
+   * host has written the record of its own injection, and it is once per session
+   * rather than once per turn.
+   *
+   * **What it reads.** The head of the host's transcript, bounded
+   * (`transcript.ts#readWakeArrival`): this package's SessionStart attachment
+   * carries what the hook printed beside what the host says it injected, and the
+   * wake's two sentinels stand inside both. The comparison is against
+   * `wakeSentinel` from the session record — the expectation a fresh process
+   * cannot otherwise have.
+   *
+   * **What it records.** One `adapter.wake.delivered` row: ids, numbers, flags
+   * and an outcome. Never a byte of the bundle.
+   *
+   * **What it cannot do.** Fail the hook (§5 G2) or cost the turn its recall. A
+   * session with no registry record is left entirely alone — it is either an
+   * observer, a session older than this code, or the off→on flip the
+   * retroactive-capture guard reads that same absence to detect, and a record
+   * written from here would take that evidence away.
+   */
+  private checkWakeArrival(input: HookInput): void {
+    if (this.observer) return;
+    if (input.sessionId.length === 0) return;
+    const started = this.nowFn();
+    let record: SessionRecord | null;
+    try {
+      record = readSession(this.counterpart.store.dir, input.sessionId);
+    } catch {
+      return;
+    }
+    if (record === null || record.wakeChecked === true) return;
+    const expected = record.wakeSentinel ?? null;
+    try {
+      // Nothing was supposed to arrive: no expectation, no read. A cold start's
+      // bootstrap line and a SessionStart that stood down both land here, and
+      // the row says so rather than reporting a wake that was never composed.
+      const arrival = expected === null ? NO_ARRIVAL : readWakeArrival(input.transcriptPath);
+      const outcome = wakeOutcome(expected, arrival);
+      this.record(WAKE_DELIVERED_EVENT, input, {
+        outcome,
+        // `ok` and `delivered` say the same thing under the two names this row's
+        // readers already look for.
+        ok: outcome === "delivered",
+        delivered: outcome === "delivered",
+        expected: expected !== null,
+        found: arrival.found,
+        transcript: arrival.reason,
+        // The two sentinels in what the HOST SAYS IT INJECTED, and in what the
+        // hook PRINTED. A tail present in one and not the other is the shape
+        // scar §2.3 is about: the render was whole and the delivery was not.
+        headInContent: arrival.head.present,
+        tailInContent: arrival.tail.present,
+        headInStdout: arrival.headPrinted.present,
+        tailInStdout: arrival.tailPrinted.present,
+        // What each sentinel DECLARED, against what actually arrived.
+        headBytes: arrival.head.bytes,
+        headElements: arrival.head.elements,
+        tailBytes: arrival.tail.bytes,
+        tailElements: arrival.tail.elements,
+        contentBytes: arrival.contentBytes,
+        stdoutBytes: arrival.stdoutBytes,
+        linesRead: arrival.linesRead,
+        bytesRead: arrival.bytesRead,
+        corrupt: arrival.corrupt,
+        elapsedMs: this.nowFn() - started,
+      });
+      this.counterpart.noteWakeDelivered(arrival.tail.line, expected);
+    } catch (err) {
+      this.emit("adapter.wake.check.failed", {
+        code: codeOf(err),
+        elapsedMs: this.nowFn() - started,
+      });
+    }
+    // AFTER the row, never before: a flag written first and a row that then
+    // failed would close the question for this session with nothing recorded,
+    // which is I32's shape. This order can duplicate a row if the flag write
+    // fails — the cheaper of the two.
+    this.markWakeChecked(input, record);
+  }
+
+  /**
+   * Close the question for this session. `boundary` creates a record when one is
+   * missing, so this is only ever called with a record already read — and it is
+   * written at the clock the record already carried, because a prompt is not a
+   * boundary and the lazy bind's liveness window is measured from those.
+   */
+  private markWakeChecked(input: HookInput, prior: SessionRecord): void {
+    try {
+      recordSession(this.counterpart.store.dir, {
+        sessionId: input.sessionId,
+        scope: input.scope,
+        phase: "boundary",
+        at: prior.lastBoundaryAt,
+        wakeChecked: true,
+        ...(this.configPath === undefined || this.configPath.length === 0
+          ? {}
+          : { config: this.configPath }),
+      });
+    } catch {
+      /* the check runs again next turn; a hook may not fail the host (§5 G2) */
+    }
+  }
+
   /** The orphanable tail: bounded and measured, never pretended away (§13). */
   private noteTail(input: HookInput): void {
     try {
@@ -1602,6 +1756,33 @@ export function substanceOf(turns: readonly HostTurn[]): { turns: number; bytes:
     bytes += Buffer.byteLength(turn.text, "utf8");
   }
   return { turns: count, bytes };
+}
+
+/** The five answers the delivery check can give, in plain words. */
+export type WakeOutcome =
+  | "delivered"
+  | "truncated"
+  | "mismatch"
+  | "not-found"
+  | "no-wake-expected";
+
+/**
+ * THE VERDICT, read from the TAIL SENTINEL ALONE — which is the whole point of
+ * the sentinel: "verify arrival from the last line" (§1 G2, scar §2.3). The
+ * head sentinel and the measured lengths ride on the row as evidence; they are
+ * not inputs to this answer, because a bundle clipped in transit loses its tail
+ * first and a reader that needed both would report nothing when it mattered.
+ *
+ * `mismatch` is the case a resumed session produces: the head of the file holds
+ * the SessionStart attachment of the run that created it, so a wake arrived and
+ * it is not the one this session composed. "Something else arrived" and "it was
+ * cut off" are different mornings.
+ */
+export function wakeOutcome(expected: string | null, arrival: WakeArrival): WakeOutcome {
+  if (expected === null) return "no-wake-expected";
+  if (!arrival.found) return "not-found";
+  if (arrival.tail.line === null) return "truncated";
+  return arrival.tail.line === expected ? "delivered" : "mismatch";
 }
 
 function codeOf(err: unknown): string {

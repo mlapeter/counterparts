@@ -452,6 +452,51 @@ adapter-side and this is the entry that says what it is standing in for.
 
 ---
 
+## 11. `self/` does not export what a sentinel LOOKS like (2026-09-17, S2)
+
+*Written from the wake-delivery repair.*
+
+**The ask.** `self/briefing.ts` composes both wake sentinels and holds the two
+regexes that read them back — `OPEN_RE` and `SENTINEL_RE` — as module-private
+constants. `readSentinel` is exported, but it answers only for a string that IS a
+whole bundle: it takes the LAST LINE and requires the stated bytes to equal the
+string's own. What arrives at the host is not that string. It is the injected
+block (the wake plus, on a first launch, the scope question) or, on a day that
+carried a notice, the JSON envelope the hook printed — so the sentinel has to be
+recognised INSIDE a larger text, and its stated bytes cannot be checked against
+that text's length.
+
+**What the adapter does instead.** `transcript.ts` carries a second spelling of
+both patterns, unanchored at the ends so a match is the sentinel string byte for
+byte. Two copies of one shape, in two modules, which is exactly the arrangement
+`FOREIGN_MARKERS` exists as one exported constant to avoid.
+
+**What would say it instead:** export the two patterns from `self/`, or a
+`findSentinels(text)` that answers `{ head, tail }` over an arbitrary string
+beside today's whole-bundle `readSentinel`. A handful of lines, and a CORE
+change — which is why the repair shipped adapter-side and this entry stands in
+for it.
+
+**A residual of the repair: the check identifies its own hook BY ITS COMMAND
+LINE.** `COUNTERPARTS_HOOK_COMMAND` knows two spellings — the source path the
+owner's host runs (what the 2026-09-17 measurement read off a live transcript)
+and the `counterparts-hook` bin `package.json` installs. A third is possible and
+unmeasured: a compiled binary under some other name, which the runtime question
+in LAUNCH-STATUS may yet produce. The cost of missing it is a session that reads
+`not-found` on a wake that actually arrived — visible rather than silent, and
+one token to fix once the launch wiring is decided.
+
+**The second half, still open: nothing checks that RECALL arrived.** A recall
+block states its own sentinel at every `UserPromptSubmit`, and the line that used
+to hold it was the same dead in-process `Map` the wake's expectation lived in, so
+it never answered either. The wake's answer works because the bundle is delivered
+ONCE per session and the host records it in an attachment at the head of the
+file; a recall block is delivered every turn, and checking each one means a
+per-turn expectation and a read positioned against the turn rather than the head.
+That is a different mechanism, not a wider parameter, and it is not built.
+
+---
+
 ## What the spawn-seam repair still owes (I32/I33, 2026-09-11)
 
 1. **Nothing SAYS the worker has not run — CLOSED 2026-09-14.** `spawnRefusals()`

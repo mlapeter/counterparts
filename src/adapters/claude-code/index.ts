@@ -71,6 +71,7 @@ export {
   SESSION_ENDING,
   SPAWN_REFUSAL_PREFIX,
   substanceOf,
+  wakeOutcome,
 } from "./hooks.js";
 export type {
   AdapterEvent,
@@ -80,6 +81,7 @@ export type {
   HookResult,
   HostTurn,
   SessionEndingHook,
+  WakeOutcome,
 } from "./hooks.js";
 
 export { InterpretError, SYSTEM_PROMPT, extractJson, interpretClient, readStream } from "./interpret-client.js";
@@ -118,13 +120,23 @@ export {
 export type { BackfillReport, LagReport } from "./vectors.js";
 
 export {
+  COUNTERPARTS_HOOK_COMMAND,
   FOREIGN_MARKERS,
+  NO_ARRIVAL,
+  WAKE_HEAD_MAX_BYTES,
+  WAKE_HEAD_MAX_LINES,
   attributePeers,
   classifyBlock,
   parseTranscript,
   readTranscript,
+  readWakeArrival,
 } from "./transcript.js";
-export type { PeerAttribution, TranscriptRead } from "./transcript.js";
+export type {
+  PeerAttribution,
+  SentinelSighting,
+  TranscriptRead,
+  WakeArrival,
+} from "./transcript.js";
 
 export { AB_DIR_ENV, V2_OVERRIDE, abDir, assignmentHealth, assignmentPath, primacy, readAssignment } from "./primacy.js";
 export type { Assignment, AssignmentHealth, AssignmentState, Primacy, PrimacyReason } from "./primacy.js";
