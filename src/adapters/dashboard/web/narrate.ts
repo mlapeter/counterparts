@@ -365,6 +365,11 @@ export const NARRATORS = {
         ? ""
         : ` ${omitted} confidential or permanent ${omitted === 1 ? "line" : "lines"} stayed behind, as ${omitted === 1 ? "it" : "they"} always will.`;
     if (t.p["included"] !== true) {
+      if (reason === "not-reached") {
+        return calm(
+          "I had my wake ready for the crash fallback and it was never needed: nothing had crashed, so no transcript was read. This line is here to prove the readiness is real." + held,
+        );
+      }
       if (reason === "no-budget") {
         return calm(
           "The crash fallback read a transcript without me: this host never said how much context it can carry, so there was no wake to compose against." + held,
@@ -385,12 +390,13 @@ export const NARRATORS = {
       );
     }
     const trimmed = n(t, "trimmed") ?? 0;
+    const chunks = n(t, "chunks") ?? 0;
     const cut =
       trimmed === 0
         ? ""
         : ` The cap set aside ${trimmed} element${trimmed === 1 ? "" : "s"} that would not fit.`;
     return notable(
-      `The crash fallback read a transcript as ME: ${elements} element${elements === 1 ? "" : "s"} of my wake, ${num(bytes)} bytes, went in front of it.${cut}${held}`,
+      `The crash fallback read a transcript as ME: ${elements} element${elements === 1 ? "" : "s"} of my wake, ${num(bytes)} bytes, went in front of ${chunks} chunk${chunks === 1 ? "" : "s"}.${cut}${held}`,
     );
   },
 

@@ -189,6 +189,7 @@ describe("the fallback reads a transcript as itself", () => {
     const [row] = wakeRows(c);
     expect(row?.["included"]).toBe(true);
     expect(row?.["reason"]).toBe("composed");
+    expect(row?.["chunks"]).toBe(1);
     expect(row?.["elements"]).toBe(1);
     expect(row?.["bytes"]).toBeGreaterThan(0);
     expect(row?.["cap"]).toBe(BUDGET);
@@ -223,6 +224,28 @@ describe("the fallback reads a transcript as itself", () => {
     expect([...nonces][0]).not.toBe("none");
     // ...and exactly ONE row was written for the run, not one per chunk.
     expect(wakeRows(c).length).toBe(1);
+    expect(wakeRows(c)[0]?.["chunks"]).toBe(prompts.length);
+  });
+
+  test("the ORDINARY day — nothing crashed — says the wake was ready, never that it fired", async () => {
+    const c = brain();
+    seedSelf(c);
+    // A session that stopped and is still live: the author has the pen, so the
+    // gate refuses and no chunk is ever built. The row must not claim otherwise.
+    c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
+    c.boundary({ session: "s1", scope: "proj", kind: "stop" });
+
+    const prompts = await sweepCapturingPrompts(c);
+    expect(prompts.length).toBe(0);
+
+    const [row] = wakeRows(c);
+    expect(row?.["chunks"]).toBe(0);
+    expect(row?.["included"]).toBe(false);
+    expect(row?.["reason"]).toBe("not-reached");
+    // The self WAS composed and is still measured — "ready" and "fired" are two
+    // facts, and the row carries both rather than collapsing them.
+    expect(row?.["elements"]).toBe(1);
+    expect(row?.["bytes"]).toBeGreaterThan(0);
   });
 });
 

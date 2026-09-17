@@ -233,24 +233,33 @@ export const SWEEP_GATE_EVENT = "sweep.gate";
  *
  * It is its own row rather than a field on `sweep.gate` because it answers a
  * different question — "did this mechanism fire", constitution 11's `done means
- * seen firing` — and because it is written BEFORE the sweep, so a run that dies
- * inside a chunk still leaves the evidence that the wake was composed.
+ * seen firing`.
+ *
+ * **`included` MEANS A PROMPT ACTUALLY CARRIED IT.** The ordinary day is
+ * "nothing crashed": the wake composes fine and not one chunk is read. A row
+ * saying `included: true` on that day would be the silence-as-activity failure
+ * this log exists to prevent (scar §2.4), so the row is written AFTER the run,
+ * `chunks` is on it, and a composed wake no chunk ever saw is `not-reached`.
  *
  * CONTENT-FREE, and that is structural: the wake is the self in its own words,
  * and a telemetry row is not a place to keep a second copy of it. `included`,
- * `reason`, `bytes`, `cap`, `elements`, `trimmed`, `omitted` — counts, a flag
- * and a name. A reader can tell the mechanism fired, how much of the self went,
- * and whether the cap cut anything; it cannot read one line of the self from
- * here. `omitted` is the confidential/protected stand-aside, COUNTED rather than
- * silent (scar §2.4) — a filter nobody can see firing is a filter nobody can
- * trust.
+ * `reason`, `chunks`, `bytes`, `cap`, `elements`, `trimmed`, `omitted` — counts,
+ * a flag and a name. A reader can tell the mechanism fired, how much of the self
+ * went, and whether the cap cut anything; it cannot read one line of the self
+ * from here. `bytes` is the SELF's bytes, not the block's: the fence and its
+ * instructions add a fixed 683 bytes on top, per chunk. `omitted` is the
+ * confidential/protected stand-aside, COUNTED rather than silent — a filter
+ * nobody can see firing is a filter nobody can trust.
  */
 export const SWEEP_WAKE_EVENT = "sweep.wake";
 
 /** Why a sweep carried a wake, or did not. One name, and it lands on the row. */
 export type SweepWakeReason =
-  /** A self was composed and rides in the prompt. */
+  /** A self was composed and at least one chunk's prompt carried it. */
   | "composed"
+  /** A self was composed and no chunk was read — the ordinary "nothing crashed"
+   *  day. The wake was ready; there was nothing to read it to. */
+  | "not-reached"
   /** Nothing to carry: no element rendered (a fresh store, or one whose whole
    *  active set was stood aside). Today's behaviour, exactly. */
   | "cold-start"
@@ -1962,7 +1971,6 @@ export class Counterpart {
     // system lived. Composed ONCE per sweep, beside the cards and for the same
     // reason, and never per chunk.
     const wake = this.sweepWake(entry.wakeBytes);
-    this.recordSweepWake(wake, entry.date ?? null);
     const options = {
       interpret: this.wrapSweepInterpret(
         entry.interpret,
@@ -1983,6 +1991,14 @@ export class Counterpart {
         ? [await sweep(this.spans, { ...options, scope: entry.scope })]
         : await sweepAll(this.spans, options);
     this.recordSweepGate(reports, entry.date ?? null);
+    // AFTER the run, and with the chunk count on it: on the ordinary day the
+    // gate answers "nothing crashed" and no prompt is built at all, so a row
+    // written before the sweep would claim the wake went somewhere it did not.
+    this.recordSweepWake(
+      wake,
+      reports.reduce((n, r) => n + r.chunks.length, 0),
+      entry.date ?? null,
+    );
     return reports;
   }
 
@@ -2381,10 +2397,14 @@ export class Counterpart {
    * `recordSweepGate` is — an observer writes nothing, and an append that fails
    * costs the ROW and never the sweep.
    */
-  private recordSweepWake(wake: SweepWake, date: string | null): void {
+  private recordSweepWake(wake: SweepWake, chunks: number, date: string | null): void {
+    // A composed wake that no chunk ever read is NOT this mechanism firing.
+    const reason: SweepWakeReason =
+      wake.text !== null && chunks === 0 ? "not-reached" : wake.reason;
     const payload = {
-      included: wake.text !== null,
-      reason: wake.reason,
+      included: reason === "composed",
+      reason,
+      chunks,
       bytes: wake.bytes,
       cap: wake.cap,
       elements: wake.elements,
