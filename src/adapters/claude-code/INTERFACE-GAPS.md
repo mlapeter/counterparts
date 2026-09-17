@@ -469,11 +469,13 @@ adapter-side and this is the entry that says what it is standing in for.
    (the template's commented placeholder included) and keeps every other line and
    comment; `credentials list` says which names the file holds. `install --force`
    keeping a file that holds a key (§E) was the other half.
-3. **The ask cap's day is UTC.** `input.at` is the host's UTC ISO date, chosen
-   because every other `date` field in the store is, and two clocks in one store
-   is a scar this repo already has a name for. The owner is at UTC−6, so their
-   day's ask allowance resets at 18:00 local. That is a DECISION to revisit with
-   a real per-owner zone, not a bug to patch here with a second clock.
+3. **The ask cap's day is UTC — MOOT 2026-09-17.** The cap counts per SESSION
+   now (`MAX_ASKS_PER_SESSION`), so there is no day to reset and no zone to get
+   wrong; an owner at UTC−6 no longer loses an evening's allowance at 18:00
+   local. `input.at` is still the host's UTC ISO date and still stamps every
+   `adapter.ask` row, because every other `date` field in the store is UTC and
+   two clocks in one store is a scar this repo already has a name for. A
+   per-owner zone, if it is ever wanted, is wanted for reading those rows.
 4. **The two poisoned titles are not repaired.** The embedder no longer chokes on
    them and the backfill no longer stalls behind them, but `mem_2cb8f1055650590a`
    and `mem_8303716a18ab0654` still hold a lone surrogate in their payload JSON,

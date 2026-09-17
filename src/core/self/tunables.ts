@@ -77,18 +77,31 @@ export interface SelfTunables {
   /** Further substance since the last ask, in bytes, before another chapter. CAL. */
   REASK_BYTES: number;
   /**
-   * Chapters one LIVED DAY may open, across every session it holds. The
-   * orphanable-tail bound is measured against the re-ask pair, never hidden
-   * (§13 known gap). CAL.
+   * Asks ONE SESSION may raise. A backstop on the COUNT; the re-ask pair is what
+   * bounds the cadence, and the orphanable tail is measured against that pair,
+   * never hidden (§13 known gap). CAL.
    *
-   * Per day, not per session: v1's calibration is stated in days — "a drive-by
-   * gets none, a conversation gets one, a work day gets about three"
-   * (behavioral-spec §13 G1) — while this host opens a session per invocation,
-   * so a per-session cap multiplies the day's asks by however many times the
-   * owner typed `claude`. Measured 2026-09-04: a per-session cap of 6 was
-   * reached inside ONE evening conversation.
+   * **The measurement against per-session, and why it no longer holds.** On
+   * 2026-09-04 a per-session cap of 6 was reached inside ONE evening
+   * conversation, and the cap moved to the lived day (later the calendar date,
+   * I32) at v1's day calibration: "a work day gets about three". That evening
+   * was measured under the OLD re-ask rule — two pacers, an OR, and a byte half
+   * a third of v1's, so the model's own chapter-writing reply could re-trigger
+   * the ask. The SAME DAY the rule became one pacer and an AND
+   * (`episodes.ts#askDue`: `sinceTurns >= REASK_TURNS && sinceBytes >=
+   * REASK_BYTES`). Under the AND, six asks in one session need roughly
+   * 6 + 5×8 = 46 real turns AND the bytes to go with them, so frequency is held
+   * by the pacer and this number is only a ceiling on a very long session.
+   *
+   * **What the day cap cost, measured 2026-09-17**
+   * (`docs/finding-12-diagnosis-2026-09-17.md`): shared across every session a
+   * calendar day held, it refused 196 of 264 Stop moments, and the crash-fallback
+   * sweep wrote 888 memories against the author's 193. The owner runs five or
+   * more sessions a day, so the day's four asks were spent before most sessions
+   * began — the author was not losing a fight, it was never invited. Per
+   * session, keeping the substance pacer, is the owner's ruling of 2026-09-17.
    */
-  MAX_CHAPTERS_PER_DAY: number;
+  MAX_ASKS_PER_SESSION: number;
   /** Lived days an episode may be re-ingested after its first ingest. The window
    *  CLOSES — a deliberate deviation from human reconsolidation (§13 G12). CAL. */
   REGROW_WINDOW_DAYS: number;
@@ -113,7 +126,7 @@ export const SELF_TUNABLES: SelfTunables = {
   SOLO_ASK_BYTES: 12_000,
   REASK_TURNS: 8,
   REASK_BYTES: 8_000,
-  MAX_CHAPTERS_PER_DAY: 4,
+  MAX_ASKS_PER_SESSION: 6,
   REGROW_WINDOW_DAYS: 3,
 };
 

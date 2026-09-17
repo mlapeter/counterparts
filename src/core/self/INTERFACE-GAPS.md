@@ -189,32 +189,27 @@ the only way the pre-migration years get a threads lane at all.
 
 ---
 
-## The cap's day is UTC, and that is a decision (I32, 2026-09-11)
+## The cap has no day at all, so it has no zone — CLOSED 2026-09-17
 
-The chapter cap now keys on the calendar date a caller supplies. On this host
-that date is the hook's `input.at` — `new Date().toISOString().slice(0, 10)`,
-UTC — chosen so that it matches every other `date` field in the store rather
-than introducing a second clock.
+This section used to name a live decision: the chapter cap keyed on a calendar
+date, that date was the hook's UTC `input.at`, and an owner at UTC−6 therefore
+got their day's ask allowance back at 18:00 local — a real consequence of
+keeping one zone in the store, named rather than hidden, with a per-owner zone
+listed as the fix if a mid-evening reset was ever felt.
 
-For an owner at UTC−6 this means the day's ask allowance resets at 18:00 local,
-in the middle of an evening's work. Nobody has decided that is right; it is what
-falls out of having one zone. The alternatives, none taken here:
+The cap is the SESSION's now (`MAX_ASKS_PER_SESSION`), so there is no day to put
+in a zone: a session's count starts with the session and ends with it. The gap
+closes without being decided. **What the zone question survives in** is the
+`date` stamped on every `adapter.ask` row — still UTC, still the same zone as
+every other `date` in the store, and still the number any "how often today"
+reading is grouped by. If a per-owner zone is ever wanted, it is wanted there,
+for reporting, and not for a gate.
 
-1. a `timezone` in the adapter config, applied where `input.at` is composed —
-   one place, one field, and the store's other dates stay UTC (they are records
-   of when something happened, not of whose day it was);
-2. the owner's identity core carries the zone, and `self/` resolves the key —
-   more correct in principle, and it puts a host concern inside core;
-3. leave it, and revisit only if a reset mid-evening is ever actually felt.
+## The tail verdict and the ask read the same state — CLOSED 2026-09-17
 
-What must NOT happen is the cap silently reading one zone while the gate rows
-beside it read another. If this changes, it changes in one place and the change
-is named.
-
-## The tail verdict and the ask now share a counter
-
-`noteOrphanTail` takes the same optional `date` and passes it to `askDue`, so the
-"what did the last ask not cover" telemetry is computed against the counter the
-ask was actually charged to. Threading it was two lines; not threading it would
-have left a ring line reporting `day-chapter-cap` for a day with asks left, which
-is the shape of finding this bug twice.
+This said `noteOrphanTail` had to be handed the same `date` as the ask, or the
+"what did the last ask not cover" telemetry would be computed against a
+different day counter and report a cap for a day that had asks left — the shape
+of finding one bug twice. With the cap on the session, both sides read the
+session's own `asks` and there is no second counter to disagree with. The
+guarantee is unchanged and now free: the tail verdict is the ask's verdict.

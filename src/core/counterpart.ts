@@ -1488,11 +1488,8 @@ export class Counterpart {
     sessionId: string,
     substance: { turns: number; bytes: number },
     day?: number,
-    /** The host's calendar date (UTC). The day's ask cap is charged to it when
-     *  present — see `self/episodes.ts#dayKey` and I32. */
-    date?: string,
   ): ChapterAsk {
-    return this.self.openChapter(sessionId, substance, day, date);
+    return this.self.openChapter(sessionId, substance, day);
   }
 
   /**
@@ -1551,9 +1548,8 @@ export class Counterpart {
     sessionId: string,
     substance: { turns: number; bytes: number },
     day?: number,
-    date?: string,
   ): void {
-    this.self.noteOrphanTail(sessionId, substance, day, date);
+    this.self.noteOrphanTail(sessionId, substance, day);
   }
 
   /**

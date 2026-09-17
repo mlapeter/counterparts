@@ -1094,24 +1094,29 @@ export class ClaudeCodeAdapter {
   private askAtStop(input: HookInput): string | null {
     try {
       // The host's re-fire of a blocked Stop. Nothing is evaluated: no pacing
-      // advance, no day-cap slot, no row — the previous pass already left one.
+      // advance, no ask slot, no row — the previous pass already left one.
       if (input.reFired === true) return null;
       const substance = substanceOf(input.turns ?? []);
-      // THE DAY'S CAP IS CHARGED TO THE CALENDAR DATE, not the lived day (I32).
-      // `input.at` is the host's UTC ISO date — the same zone as every other
-      // `date` field in this store. The worker advances the lived-day clock, so
-      // keying the cap on it made the cap depend on the very machinery whose
-      // failure it then hid: a frozen clock meant `self.episode.day.185 = 4`
-      // forever, and the model was never asked for a chapter again.
-      const chapter = this.counterpart.episodeAsk(
-        input.sessionId,
-        substance,
-        undefined,
-        input.at,
-      );
+      // THE CAP IS THIS SESSION'S OWN (2026-09-17), so nothing outside the
+      // session can spend it and no clock has to be right for it to reset.
+      //
+      // It used to be the day's, four asks shared by every session a day held,
+      // and that cap kept two failures alive. I32: the day was the LIVED day,
+      // whose clock only the detached worker advances, so a worker that could
+      // not start froze `self.episode.day.185 = 4` and the model was never
+      // asked for a chapter again; keying it to `input.at` fixed the freeze but
+      // not the sharing. Finding 12: with the owner running five or more
+      // sessions a day, 196 of 264 Stops were refused `capped` and the
+      // crash-fallback sweep wrote 888 memories to the author's 193.
+      //
+      // The date is still on every `adapter.ask` row below (`record` stamps
+      // `input.at`, a UTC ISO date, the same zone as every other `date` in this
+      // store), because "how often was the pen offered today" is a question the
+      // rows answer — it is just no longer a question the cap asks.
+      const chapter = this.counterpart.episodeAsk(input.sessionId, substance);
       const outcome = chapter.asked
         ? "asked"
-        : chapter.verdict.reason === "day-chapter-cap"
+        : chapter.verdict.reason === "session-ask-cap"
           ? "capped"
           : "paced";
       let coverage: { spans: number; covered: number; uncovered: number; unaskableSpans: number; unaskableBytes: number } | null =
@@ -1196,13 +1201,10 @@ export class ClaudeCodeAdapter {
   /** The orphanable tail: bounded and measured, never pretended away (§13). */
   private noteTail(input: HookInput): void {
     try {
-      // The same counter the ask above is charged to, for the same reason.
-      this.counterpart.noteOrphanTail(
-        input.sessionId,
-        substanceOf(input.turns ?? []),
-        undefined,
-        input.at,
-      );
+      // The same session state the ask above reads, for the same reason: a tail
+      // line that disagreed with the ask about why is how this bug gets found
+      // twice.
+      this.counterpart.noteOrphanTail(input.sessionId, substanceOf(input.turns ?? []));
     } catch (err) {
       this.emit("adapter.tail.failed", { code: codeOf(err) });
     }
