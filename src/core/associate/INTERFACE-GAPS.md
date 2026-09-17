@@ -78,18 +78,32 @@ which is enough for one host process with a hook that can re-enter, and nothing 
 all for two processes.
 **Why it was not built here:** the honest options were a `meta` row (read-modify-write
 — scar §2.1's exact shape, and `recall/INTERFACE-GAPS.md` §1 already records that
-trap) or a lock file in the data dir (which `Store.assertLayout()` would reject as
-an unclassified top-level path, correctly). Both are worse than declaring the gap.
+trap) or a lock file at the top level of the data dir (which `Store.assertLayout()`
+would reject as an unclassified path, correctly). Both are worse than declaring the gap.
 **Real fix:** a lock the operational database can hold — a `locks` table with an
 owner token and an expiry, taken and released inside box 2's transaction, or an
-advisory `BEGIN IMMEDIATE` seam exposed by the store. Until then there are **as many
-flushers as there are boundaries**: since 2026-09-17 the credit pass publishes what
-it buffered before its own process exits (`counterpart.ts#publishCoactivation`), so
-two concurrent sessions in one data dir are two flushers by construction. The failure
-mode of two flushers is not corruption (`linkMany` is one transaction and rows are
-absolute) but a lost-update race between two absolute writes — which lands in the
-same "bounded loss, never doubling" tolerance the contract already accepts, and which
-is now the ordinary case rather than the warned-against one.
+advisory `BEGIN IMMEDIATE` seam exposed by the store.
+
+**Until then the flushers are the WORKERS, one per boundary** — the credit pass does
+not flush at all. It drains its buffer to `sessions/association/pending.jsonl`
+(`pending.ts`) and the boundary's detached worker claims that file by renaming it
+aside, absorbs the deltas and flushes them in its own process
+(`counterpart.ts#applyPendingAssociations`). **Each pass is claimed by exactly one
+worker**, because the rename is atomic and a second claimant meets an ENOENT. Two
+workers running at once are still two flushers, and the failure mode of two flushers
+is not corruption (`linkMany` is one transaction and rows are absolute) but a
+lost-update race between two absolute writes — inside the same "bounded loss, never
+doubling" tolerance the contract already accepts.
+
+**Two residuals of the claim, named rather than hidden.** (a) A claim whose apply
+fails is left on disk and retried by a later run, so nothing is lost; a claim that
+was applied and then could not be REMOVED (the `rmSync` and the rename-aside that
+follows it both failing) would be applied a second time, which is the doubling G4
+rules out. It is counted — `stuck` on the `associate.flush` row and a
+`counterpart.associate.claim.stuck` event — rather than assumed away. (b) A claim
+file renamed aside as `.applied` after a failed remove is never claimed again and is
+never cleaned up either; on the machine where that has happened, it is a file of
+counts and ids sitting in `sessions/association/claims/`.
 
 ## 4. Nobody calls `retargetOnSupersede` — supersede does not know about edges
 
@@ -119,9 +133,11 @@ resolutions would be two clocks, and there is one.
 `flush()` publishes, so the two must run in the same process or nothing is ever
 written. Deferring the flush to the session boundary is only safe where the boundary
 is the same process; on this host every hook is a fresh one, and for the whole of
-the parallel run the buffer died at hook exit. The credit pass now flushes what it
-buffered (`counterpart.ts#publishCoactivation`), and `sessionEnd`'s flush is what a
-single-process caller still gets.
+the parallel run the buffer died at hook exit. What crosses the process line now is
+the FILE: the credit pass drains its buffer into `sessions/association/pending.jsonl`
+(`pending.ts`) and the boundary's worker claims it and flushes it
+(`counterpart.ts#applyPendingAssociations`). `sessionEnd`'s own flush is what a
+single-process caller still gets, and it runs before the carried claims.
 
 ## 6. `store.edgesFrom(src)` is the only edge read
 

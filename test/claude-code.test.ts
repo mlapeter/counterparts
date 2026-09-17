@@ -263,7 +263,9 @@ function live(a: ClaudeCodeAdapter, sessionId = "s1", scope = "proj"): void {
 function hookAttachment(
   over: {
     stdout?: string;
-    content?: string;
+    content?: string | null;
+    /** Leave the `content` key OFF entirely — a host build that records only stdout. */
+    contentAbsent?: boolean;
     command?: string;
     hookEvent?: string;
     hookName?: string;
@@ -279,7 +281,7 @@ function hookAttachment(
       hookName: over.hookName ?? "counterparts",
       command: over.command ?? "bun run /repo/src/adapters/claude-code/bin/hook.ts",
       stdout,
-      content: over.content ?? stdout,
+      ...(over.contentAbsent === true ? {} : { content: over.content === undefined ? stdout : over.content }),
       stderr: "",
       exitCode: 0,
       durationMs: 37,
@@ -877,16 +879,155 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
       hookAttachment({ hookName: "other-b", command: "node /elsewhere/b.js", stdout: "hi" }),
       ...chatter,
     ]);
+    const expected = injection.split("\n").slice(-1)[0] as string;
     const runs: number[] = [];
     for (let i = 0; i < 20; i += 1) {
       const started = performance.now();
-      const arrival = readWakeArrival(path);
+      const arrival = readWakeArrival(path, { expect: expected });
       runs.push(performance.now() - started);
-      expect(arrival.tail.line).toBe(injection.split("\n").slice(-1)[0] as string);
+      expect(arrival.tail.matchesExpected).toBe(true);
     }
     const slowest = Math.max(...runs);
     expect(slowest).toBeLessThan(50);
   });
+
+  // ── the review's three fences (2026-09-17) ────────────────────────────────
+
+  test("a host that records no `content` is `printed-unverified`, never `truncated`", async () => {
+    // `content` is a field of the host's PRIVATE format, measured once. A build
+    // that drops it leaves nothing to judge delivery from, and the first draft
+    // read that absence as an empty injection — so every session on such a host
+    // would report the one word that means v1's silent-loss bug is back.
+    const { a, injection } = await woken();
+    const path = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ stdout: injection, contentAbsent: true }),
+    ]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+    const row = deliveredRow(a);
+    expect({
+      outcome: row["outcome"],
+      ok: row["ok"],
+      contentRecorded: row["contentRecorded"],
+      tailInStdout: row["tailInStdout"],
+      tailInContent: row["tailInContent"],
+    }).toEqual({
+      outcome: "printed-unverified",
+      ok: false,
+      contentRecorded: false,
+      tailInStdout: true,
+      tailInContent: false,
+    });
+
+    // `content: null` is the same fact spelled differently.
+    const { a: b, injection: mine } = await woken("s2");
+    const nulled = writeTranscript([...PREAMBLE, hookAttachment({ stdout: mine, content: null })]);
+    b.userPromptSubmit(input({ sessionId: "s2", prompt: "hello", transcriptPath: nulled }));
+    expect(deliveredRow(b)["outcome"]).toBe("printed-unverified");
+    expect(deliveredRow(b)["contentRecorded"]).toBe(false);
+
+    // And an EMPTY STRING that is PRESENT still means an empty delivery: the
+    // host said what it injected, and it injected nothing.
+    const { a: c, injection: third } = await woken("s3");
+    const empty = writeTranscript([...PREAMBLE, hookAttachment({ stdout: third, content: "" })]);
+    c.userPromptSubmit(input({ sessionId: "s3", prompt: "hello", transcriptPath: empty }));
+    expect(deliveredRow(c)["outcome"]).toBe("truncated");
+    expect(deliveredRow(c)["contentRecorded"]).toBe(true);
+
+    // A host that records no content AND printed a wake that is not this
+    // session's is still `mismatch` — the absence widens the evidence, it does
+    // not excuse it.
+    const { a: d, injection: fourth } = await woken("s4");
+    const lines = fourth.split("\n");
+    lines[lines.length - 1] = (lines[lines.length - 1] as string).replace(/bytes=\d+ -->/, "bytes=1 -->");
+    const other = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ stdout: lines.join("\n"), contentAbsent: true }),
+    ]);
+    d.userPromptSubmit(input({ sessionId: "s4", prompt: "hello", transcriptPath: other }));
+    expect(deliveredRow(d)["outcome"]).toBe("mismatch");
+  });
+
+  test("the sentinel search is LINEAR: a body of unterminated prefixes cannot stall a turn", async () => {
+    // The reviewer's probe: thousands of `<!-- counterparts:wake ` prefixes with
+    // no `>` between them. Against the old unanchored `[^>]*` this backtracked
+    // for 680 ms at 200 KB, four times per attachment, on the prompt path.
+    const { injection } = await woken();
+    const expected = injection.split("\n").slice(-1)[0] as string;
+    const poison = `${"<!-- counterparts:wake ".repeat(8000)}${injection}`;
+    const path = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ stdout: poison, content: poison }),
+    ]);
+    // The read bound is 256 KiB on the live path; this probe raises it so the
+    // whole poisoned attachment is actually scanned — the reviewer's 200 KB at
+    // the size the bound would allow, rather than a line the reader drops.
+    const started = performance.now();
+    const arrival = readWakeArrival(path, { expect: expected, maxBytes: 1024 * 1024 });
+    const elapsed = performance.now() - started;
+    expect(elapsed).toBeLessThan(100);
+    // And the real sentinel is still the answer: a match that IS the
+    // expectation beats an earlier one that is not.
+    expect(arrival.tail.matchesExpected).toBe(true);
+  });
+
+  test("no string from the wake body can reach a payload, a session record or an error", async () => {
+    // The poison case: a memory body that opens a sentinel it never closes, so
+    // the old matcher swallowed everything up to the real one and returned it
+    // on `SentinelSighting.line`.
+    const { a, injection } = await woken();
+    const secret = "THE OWNERS SECRET MEMORY TEXT LIVES HERE AND HAS NO ANGLE BRACKET";
+    const poisoned = `<!-- counterparts:wake ${secret} ${injection}`;
+    const path = writeTranscript([
+      ...PREAMBLE,
+      hookAttachment({ stdout: poisoned, content: poisoned }),
+    ]);
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: path }));
+
+    const expected = injection.split("\n").slice(-1)[0] as string;
+    const arrival = readWakeArrival(path, { expect: expected });
+    const durable = JSON.stringify(
+      a.counterpart.store
+        .eventLog({ name: "adapter.wake.delivered", limit: 10 })
+        .map((r) => JSON.parse(r.payload ?? "{}") as unknown),
+    );
+    const record = JSON.stringify(readSession(dir, "s1"));
+    // NOTHING from the body reaches any of them — payload, ring, session record
+    // or the adapter's own error events.
+    for (const dump of [JSON.stringify(arrival), JSON.stringify(deliveredRow(a)), durable, record, JSON.stringify(a.events()), JSON.stringify(a.counterpart.events())]) {
+      expect(dump).not.toContain(secret);
+    }
+    // And no sentinel-shaped string reaches a payload at all. The session
+    // record is the one place a sentinel legitimately lives — it is the one we
+    // PRINTED, written there for the next process, and it is that exactly.
+    for (const dump of [JSON.stringify(arrival), JSON.stringify(deliveredRow(a)), durable]) {
+      expect(dump).not.toContain("counterparts:wake");
+    }
+    expect(readSession(dir, "s1")?.wakeSentinel).toBe(expected);
+    // The sighting is numbers and flags — no string field at all.
+    for (const value of Object.values(arrival.tail)) {
+      expect(typeof value === "string").toBe(false);
+    }
+  });
+
+  test("a transcript path that is not a REGULAR FILE is refused, never opened", async () => {
+    const { a } = await woken();
+    // A directory: `existsSync` says yes, and an open would have to fail
+    // somewhere — it fails here, cheaply, with a reason.
+    a.userPromptSubmit(input({ prompt: "hello", transcriptPath: hostDir }));
+    expect(deliveredRow(a)["transcript"]).toBe("unreadable");
+
+    // A FIFO: `openSync` on one BLOCKS until a writer arrives, which would hang
+    // the prompt until the host's own hook timeout. Nothing opens it.
+    const fifo = join(hostDir, "transcript.fifo");
+    const made = Bun.spawnSync(["mkfifo", fifo]);
+    if (made.exitCode === 0) {
+      const started = performance.now();
+      const arrival = readWakeArrival(fifo);
+      expect(performance.now() - started).toBeLessThan(1000);
+      expect(arrival.reason).toBe("unreadable");
+    }
+  }, 10_000);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

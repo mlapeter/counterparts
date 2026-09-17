@@ -254,6 +254,10 @@ export async function runOnce(input: {
       swept,
       minted,
       edges: report.edges.reason,
+      // What this run carried in from the hooks' pending file — the host's own
+      // learned association, which no hook writes any more.
+      carried: report.carried?.reason ?? "threw",
+      carriedRows: report.carried?.rows ?? 0,
       interpret: hasInterpretCredential,
     });
     return { ran: true, reason: "ran", swept, minted, code: null, lag, backfill };

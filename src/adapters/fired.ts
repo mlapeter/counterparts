@@ -342,9 +342,10 @@ export const MECHANISMS: readonly Mechanism[] = [
   {
     // The links table above says links EXIST; it could not say one was made this
     // week, which is how this mechanism wrote nothing for two weeks unseen. Since
-    // 2026-09-17 each save at the end of a credit pass leaves a row of its own.
+    // 2026-09-17 the boundary's worker leaves a row each time it saves what the
+    // session's hooks noticed and left on disk for it.
     id: "association-saved",
-    label: "the links noticed during a session were saved before the session's process ended",
+    label: "the links noticed during a session were written down by the boundary's worker",
     module: "associate/",
     evidence: { kind: "event", names: ["associate.flush"] },
     since: "2026-09-17",

@@ -76,7 +76,9 @@ export const NO_EVENT_OF_ITS_OWN: Partial<Record<NodeKey, string>> = {
   // says nothing at all about a wiring pass that wrote none. The buffer was
   // filled in the hook process and flushed in the detached worker, so nothing
   // was ever published — and with no event of its own, no surface could tell
-  // that from a graph with nothing to add. `associate.flush` is the node's row.
+  // that from a graph with nothing to add. The hook now leaves its deltas on
+  // disk and the worker applies them; `associate.flush` is that apply's row,
+  // and the node's.
   prospective: "An intention's state lives in its own row (armed, fired, referenced, expired), not in the event log. The rows are the record.",
   physics: "Physics writes no event of its own, ever. It is arithmetic; the phase that ACTS on a verdict is what records it — so a promotion reads as sleep's line, not as physics'.",
   self: "Identity and episodes are written through the store like anything else. The one name that ever reached the log from here is historical.",
@@ -362,9 +364,9 @@ export const EVENT_NODE = {
   "self.briefing": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
-  // The wiring that follows that decision, in the same pass: what the reply used
-  // together got linked together. `recall.credit` says which memories; this says
-  // what the graph did about it.
+  // The wiring that follows that decision: what the reply used together got
+  // linked together, by the worker the boundary spawned. `recall.credit` says
+  // which memories; this says what the graph did about it.
   "associate.flush": "associate",
   // Retrieval: the decision, and the adapter's composed injection.
   "recall.decision": "recall",

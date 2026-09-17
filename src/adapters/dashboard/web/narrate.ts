@@ -286,27 +286,33 @@ export const NARRATORS = {
   "associate.flush": (t) => {
     const rows = n(t, "rows") ?? 0;
     const pairs = n(t, "pairs") ?? 0;
-    const eligible = n(t, "eligible") ?? 0;
     const evicted = n(t, "evicted") ?? 0;
+    const waited = n(t, "oldestMs") ?? 0;
     const reason = s(t, "reason");
     if (reason === "failed" || reason === "threw") {
       const lost = n(t, "dropped") ?? 0;
       return amber(
-        `I could not write down what the last boundary wired together (${s(t, "error") ?? "no code"}); ${lost} ${lost === 1 ? "link was" : "links were"} lost, and the memories themselves are untouched.`,
+        `I could not write down what the sessions wired together (${s(t, "error") ?? "no code"}); ${lost} ${lost === 1 ? "link is" : "links are"} still waiting on disk for the next boundary, and the memories themselves are untouched.`,
       );
     }
     if (reason === "observer") return calm("I watched a boundary wire nothing: an instrument leaves the graph as it found it.");
     if (rows > 0) {
       const tail = evicted > 0 ? `, and ${evicted} weaker ${evicted === 1 ? "link" : "links"} made way for them` : "";
+      // Over a minute means the work waited for a later boundary than the one
+      // that earned it — worth saying, because it is what a busy database or a
+      // worker that never ran looks like from here.
+      const late = waited > 60_000 ? ` The oldest of it had been waiting ${Math.round(waited / 60_000)} minutes.` : "";
       return notable(
-        `${pairs} ${pairs === 1 ? "pair" : "pairs"} of memories that were used together got more connected${tail}.`,
+        `${pairs} ${pairs === 1 ? "pair" : "pairs"} of memories that were used together got more connected${tail}.${late}`,
       );
     }
-    return calm(
-      eligible < 2
-        ? `Only ${eligible} ${eligible === 1 ? "memory" : "memories"} could be wired at that boundary, and one thing cannot be linked to anything.`
-        : "A boundary had memories to wire and nothing new came of it.",
-    );
+    const dropped = n(t, "pendingDropped") ?? 0;
+    if (dropped > 0) {
+      return amber(
+        `${dropped} ${dropped === 1 ? "link was" : "links were"} noticed while nothing was writing them down, and the file holding them was full.`,
+      );
+    }
+    return calm("A boundary carried in what the sessions had wired and nothing new came of it.");
   },
   "sweep.gate": (t) => {
     const scopes = n(t, "scopes") ?? 0;
@@ -531,6 +537,11 @@ export const NARRATORS = {
     const outcome = s(t, "outcome");
     if (outcome === "no-wake-expected") {
       return calm(`This session was owed no briefing, so there was nothing to check for.`);
+    }
+    if (outcome === "printed-unverified") {
+      return calm(
+        `My briefing was printed intact; this host does not record what it delivered, so I could not check further.`,
+      );
     }
     if (outcome === "truncated") {
       return amber(`My briefing arrived cut short — the closing marker was missing from what the session was given.`);
