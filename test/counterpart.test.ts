@@ -1782,6 +1782,8 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     reason: string;
     code?: string;
     reconciled?: number;
+    budgetExhausted?: boolean;
+    skippedForBudget?: number;
   }
   const phasesOf = (payload: Record<string, unknown>): PhaseLine[] =>
     payload["phases"] as PhaseLine[];
@@ -1808,6 +1810,18 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     expect(row["code"]).toBe(null);
     for (const count of ["promoted", "pruned", "merged", "bandUp", "bandDown", "trimmed"]) {
       expect(typeof row[count]).toBe("number");
+    }
+    // WHETHER EACH PHASE RAN OUT OF ROAD (2026-09-18). The report has carried
+    // this since the budgets existed and nothing durable copied it, so the store
+    // could not say that a phase had stopped at its cap — which is how a
+    // consolidate pass reaching a third of the store stayed invisible for two
+    // weeks. The boolean rides EVERY phase, false included; the count of rows
+    // not reached rides only the phases that left some, so a quiet night's row
+    // stays small. The true case is `sleep.test.ts` on the phase report and
+    // `doctor.test.ts` on the line that reads this payload back.
+    for (const p of phasesOf(row)) {
+      expect(p.budgetExhausted).toBe(false);
+      expect(p.skippedForBudget).toBeUndefined();
     }
   });
 

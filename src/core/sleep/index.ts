@@ -27,6 +27,7 @@ export { runCycle, todayDate, census } from "./cycle.js";
 export type { SleepOptions } from "./cycle.js";
 
 export {
+  CURSOR_PREFIX,
   MARKER_PREFIX,
   MARKER_UNSET,
   MERGE_ARCHIVE_REASON,
@@ -44,10 +45,14 @@ export {
   advanceMarker,
   budgetFor,
   cadenceFor,
+  cursorKey,
   initializeMarkers,
   markerDue,
   markerKey,
+  readCursor,
   readMarker,
+  resumeIndex,
+  writeCursor,
 } from "./markers.js";
 export type { DueVerdict, MarkerHealth, MarkerRead } from "./markers.js";
 

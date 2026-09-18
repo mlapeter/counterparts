@@ -517,6 +517,31 @@ function str(p: Record<string, unknown>, key: string): string | null {
   return typeof v === "string" ? v : null;
 }
 
+/**
+ * The phases of one `sleep.cycle` row that stopped at their budget, phrased.
+ * Read STRUCTURALLY — an older row carries no `budgetExhausted` at all, and a
+ * phase that left nothing behind carries no count, so both read as "nothing to
+ * say" rather than as a zero anybody could mistake for a measurement.
+ */
+function budgetTruncatedPhases(p: Record<string, unknown>): string[] {
+  const phases = p["phases"];
+  if (!Array.isArray(phases)) return [];
+  const out: string[] = [];
+  for (const entry of phases as unknown[]) {
+    if (entry === null || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    if (e["budgetExhausted"] !== true) continue;
+    const name = str(e, "phase") ?? "a phase";
+    const left = num(e, "skippedForBudget");
+    out.push(
+      left === null
+        ? `${name} ran out of budget`
+        : `${name} ran out of budget (${String(left)} rows not reached this run)`,
+    );
+  }
+  return out;
+}
+
 /** The config file itself: the one the hooks read, and whether it was readable. */
 function configFindings(input: DoctorInput): Finding[] {
   const out: Finding[] = [];
@@ -771,12 +796,20 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     const p = payloadOf(cycle);
     const reason = str(p, "reason") ?? "(none)";
     const failed = num(p, "failed") ?? 0;
+    // WHICH PHASES RAN OUT OF ROAD, from the row's own phase entries (durable
+    // since 2026-09-18). Not a severity: with a resume cursor a big store is
+    // MEANT to take several nights over a full pass, and grading that amber
+    // would teach the reader to ignore this line. It is here so that "the
+    // consolidate pass reached a third of the store" is readable at all — the
+    // fact that hid for two weeks was not that it happened but that nothing said so.
+    const truncated = budgetTruncatedPhases(p);
     const detail =
       `newest sleep.cycle ${rowDate(cycle) ?? "?"}: reason ${reason}, ${failed} failed phase${failed === 1 ? "" : "s"}` +
-      (str(p, "failedPhase") === null ? "" : `, died in ${String(str(p, "failedPhase"))}`);
+      (str(p, "failedPhase") === null ? "" : `, died in ${String(str(p, "failedPhase"))}`) +
+      (truncated.length === 0 ? "" : `; ${truncated.join(", ")}`);
     // `reason` is "ran" | "clock-failed" | "threw" (`counterpart.ts#recordSleepCycle`),
     // so anything but "ran" is a night that did not happen, not a cadence.
-    const data = { reason, failed, date: rowDate(cycle) };
+    const data = { reason, failed, date: rowDate(cycle), budgetTruncated: truncated.length };
     out.push(
       reason !== "ran"
         ? finding("sleep", "red", "Sleep", detail, "The nightly cycle is not completing — decay, prune, dedup and consolidate are not running.", data)

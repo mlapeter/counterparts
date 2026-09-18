@@ -16,7 +16,7 @@
  * the seam offers today, and it is transactional, which is the load-bearing part.
  */
 
-import { MARKER_PREFIX, MARKER_UNSET, TUNABLES } from "./tunables.js";
+import { CURSOR_PREFIX, MARKER_PREFIX, MARKER_UNSET, TUNABLES } from "./tunables.js";
 import type { Phase, SleepStore } from "./types.js";
 import { PHASES } from "./types.js";
 
@@ -92,6 +92,65 @@ export function initializeMarkers(
     }
   }
   return touched;
+}
+
+// ── where a phase stopped, as opposed to when it last ran ───────────────────
+
+/**
+ * A phase's RESUME CURSOR: the id of the last row it visited. The marker above
+ * says WHEN the phase last ran; this says WHERE it stopped, and the two answer
+ * different questions.
+ *
+ * A budget is still not a debt (§3) — nothing here is owed, and the marker still
+ * advances on a truncated phase. What the cursor changes is only the place the
+ * next run starts from: without one, a budget smaller than the store means the
+ * same head of it is examined every night and the tail never once. Measured on
+ * the live store 2026-09-17 (`docs/promotion-diagnosis-2026-09-17.md`): 15,292
+ * rows against a consolidate budget of 5,000, and two thirds of the store had
+ * never been asked whether it should consolidate or cross into identity.
+ *
+ * Same seam as the markers — one meta row per phase in box 2, transactional —
+ * and the same forward-safety: an unset or unreadable cursor reads as null,
+ * which means "start at the head", which is always a legal place to start.
+ */
+export function cursorKey(phase: Phase): string {
+  return `${CURSOR_PREFIX}${phase}`;
+}
+
+export function readCursor(store: Pick<SleepStore, "getMeta">, phase: Phase): string | null {
+  const raw = store.getMeta(cursorKey(phase));
+  return raw === undefined || raw.length === 0 ? null : raw;
+}
+
+export function writeCursor(
+  store: Pick<SleepStore, "setMeta">,
+  phase: Phase,
+  id: string,
+): void {
+  store.setMeta(cursorKey(phase), id);
+}
+
+/**
+ * The position in an ASCENDING id list to resume at: the first id strictly
+ * greater than the cursor.
+ *
+ * Strictly greater, so no row is re-examined merely because it was the last one
+ * of the previous run. The list is `store.list()`'s `ORDER BY id`, which is what
+ * makes a cursor mean anything at all. Two cases fall out of the comparison
+ * rather than needing their own branch: a cursor whose row has since been
+ * deleted, archived out of the filter or renamed lands on the next id that IS
+ * still there, and a cursor past the end of the list wraps to the head.
+ */
+export function resumeIndex(ids: readonly string[], cursor: string | null): number {
+  if (cursor === null || ids.length === 0) return 0;
+  let lo = 0;
+  let hi = ids.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((ids[mid] as string) <= cursor) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo === ids.length ? 0 : lo;
 }
 
 export function cadenceFor(phase: Phase, override?: Partial<Record<Phase, number>>): number {

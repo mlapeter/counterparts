@@ -64,6 +64,8 @@ export const MARKER_UNSET = -1;
 
 /** Box-2 meta key prefixes. See INTERFACE-GAPS.md §3 — these want real tables. */
 export const MARKER_PREFIX = "sleep.marker.";
+/** Where a budgeted phase stopped, so the next run resumes there (`markers.ts`). */
+export const CURSOR_PREFIX = "sleep.cursor.";
 export const PRUNE_RECORD_PREFIX = "sleep.pruned.";
 export const PROMOTION_RECORD_PREFIX = "sleep.promoted.";
 export const MERGE_RECORD_PREFIX = "sleep.merged.";

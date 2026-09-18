@@ -219,6 +219,53 @@ not done is not owed: tomorrow's cycle starts from tomorrow's store, not from a
 backlog. A phase that FAILS is the opposite case — its marker does not advance, so
 the next lived day retries it.
 
+**A budget is not a blindfold either — the consolidate cursor, 2026-09-18.** "Not
+owed" was read as "start from the head again", and on a store bigger than the
+budget those are very different sentences. `runConsolidate` walked
+`store.list()` — `ORDER BY id`, every row — from index 0 and stopped at 5,000.
+Measured on the live store the day before
+(`docs/promotion-diagnosis-2026-09-17.md`): 15,292 examinable rows, so the pass
+had never looked past about the 5,300th of them, **10,000+ memories had never once
+been asked whether they consolidate or belong to who the owner is, and under those
+settings never would.** The tell was arithmetic rather than anecdote — of the ten
+most-reinforced semantic rows, the only one inside the window was the only one
+consolidated.
+
+The phase now keeps a resume cursor (`markers.ts`, one box-2 meta row per phase,
+`sleep.cursor.<phase>`, beside the completion marker): the marker says WHEN the
+phase last ran, the cursor says WHERE it stopped. It resumes strictly after the
+cursor, wraps to the head when it reaches the end, and visits each id at most once
+per run, so a store of N rows is covered in `ceil(N / budget)` runs. The ordering
+is `list()`'s own, which is why a cursor means anything; "strictly after" is why
+the row it stopped on is not re-read; and a cursor whose row has since gone lands
+on the next id that is still there, out of the comparison rather than a branch of
+its own. The cursor moves only under `ctx.apply`, so an observer's read-only
+report does not move the store's place in the store, and a run killed mid-phase
+re-walks the same stretch — the marker's own bargain.
+
+**Raising the budget was the other option and was NOT taken here.** It is one
+number (`tunables.ts`) against a store that will keep growing; the cursor makes
+the budget mean "per night" rather than "ever", which is what it always read as.
+The two are independent, and the number is still the owner's to raise.
+
+**And the durable row now says a phase ran out of road.** `sleep.cycle`'s phase
+entries carry `budgetExhausted` (always) and `skippedForBudget` (only where a
+phase left rows behind), and doctor's Sleep line names them — *"consolidate ran
+out of budget (N rows not reached this run)"*, without a severity, because with a
+cursor a big store is MEANT to take several nights over a pass. The report has
+carried both numbers since the budgets existed and nothing durable copied them:
+the truncation was not wrong, it was unsayable, which is scar §2.4's shape and
+what hid this for two weeks.
+
+**The other budgeted phases were left alone, on purpose.** `decay` (20,000) and
+`prune` (1,000) have the identical start-from-index-0 shape over `store.list()`;
+neither is truncating on this store today, and a cursor changes what they see, so
+that is a decision to take with a measurement rather than by symmetry. `dedup`
+(1,000) iterates candidate PAIRS, not rows, and the pair list is rebuilt each run
+from the grouping — a row cursor would not even be the right key. `log` (5,000)
+deletes oldest-first, so the work it does is consumed and the next pass naturally
+continues; it needs no cursor at all.
+
 The three-way vocabulary that makes this legible (§5 G6, scar §2.4):
 
 | status | reason | means |

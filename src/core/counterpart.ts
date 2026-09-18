@@ -2437,6 +2437,17 @@ export class Counterpart {
       // table had nothing wrong" and "this row cannot tell you" are different
       // facts; a phase that did not run carries no field at all.
       ...(p.reconciled === undefined ? {} : { reconciled: p.reconciled }),
+      // WHETHER THE PHASE RAN OUT OF ROAD. The report has carried this since the
+      // budgets existed and nothing durable copied it, so the store could not
+      // say that a phase had stopped at its cap — which is how a consolidate
+      // pass examining a third of the store stayed invisible for two weeks
+      // (`docs/promotion-diagnosis-2026-09-17.md`, scar §2.4's shape again).
+      // The boolean rides every phase, false included, because "it had room" and
+      // "this row cannot tell you" are different facts; the count of rows not
+      // reached rides only the phases that left some, so a quiet night's row
+      // stays small.
+      budgetExhausted: p.budgetExhausted,
+      ...(p.skippedForBudget === 0 ? {} : { skippedForBudget: p.skippedForBudget }),
     }));
     const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";
