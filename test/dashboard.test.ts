@@ -42,7 +42,6 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -895,18 +894,19 @@ describe("browse — the memory list, and one memory opened", () => {
     expect(text).toContain("kind place");
   });
 
-  test("opening a memory shows its PROSE PATH, and the file is really there", async () => {
+  test("opening a memory names the RECORD it is — id, revision, content hash", async () => {
     const s = await seed();
-    const text = stripAnsi(dash().browse({ id: s.authoredId }));
-    expect(text).toContain("prose");
-    const line = text.split("\n").find((l) => l.trim().startsWith("prose"));
-    const path = (line ?? "").trim().replace(/^prose\s+/, "");
-    expect(path.endsWith(".md")).toBe(true);
-    expect(existsSync(path)).toBe(true);
-    expect(statSync(path).isFile()).toBe(true);
-    // Constitution line 6: the owner reads the store itself. The body shown here
-    // and the file on disk are the same prose.
-    expect(readFileSync(path, "utf8")).toContain("storage split");
+    const d = dash();
+    const row = d.store.row(s.authoredId);
+    const text = stripAnsi(d.browse({ id: s.authoredId }));
+    const line = text.split("\n").find((l) => l.trim().startsWith("record"));
+    expect(line).toBeDefined();
+    const said = (line ?? "").trim().replace(/^record\s+/, "");
+    expect(said).toBe(`${s.authoredId} · rev ${row?.revision} · ${row?.content_hash}`);
+    // Constitution line 6: the owner reads the store itself. The hash printed
+    // here addresses the same text the view shows below it.
+    expect(d.store.readProse(s.authoredId).body).toContain("storage split");
+    expect(row?.content_hash).not.toBe("");
   });
 
   test("an opened memory resolves everything it points at, right now", async () => {

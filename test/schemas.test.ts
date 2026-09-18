@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Store } from "../src/core/store/index.js";
-import type { PutInput } from "../src/core/store/index.js";
+import type { PutInput, StoreEvent } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS, pruneVerdict, sal } from "../src/core/physics/index.js";
 import { occursAsWholeWord } from "../src/core/encode/words.js";
 import { preselectSchemas, renderSchemaContext } from "../src/core/encode/preselect.js";
@@ -1386,5 +1386,77 @@ describe("statement bodies cross the secrets gate at the source (PR-6 review SF1
     expect(body).not.toContain("AIzaSyD-1234567890abcdefghijklmnopqrstuv");
     // And the slice the sweep would show carries the redacted form too.
     expect(s.slices()[0]?.beliefs[0]?.statement).toContain("[REDACTED:");
+  });
+});
+
+describe("the index build is a look at the ADDRESS, not at the memory", () => {
+  test("opening Schemas over an archived element spends no archived-read telemetry", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Counterparts",
+      kind: "entity",
+      source: "Counterparts is the successor",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = s.addBelief({
+      entityId,
+      statement: "it embeds into any host",
+      day: 0,
+    }).id as string;
+    s.store.archive(beliefId, "owner-retired-it");
+    s.store.close();
+    open.length = 0;
+
+    const seen: StoreEvent[] = [];
+    const store = Store.open({ dir, onEvent: (e) => seen.push(e) });
+    open.push(store);
+    // The whole scan, archived row included — and `element` on top of it, which
+    // is the other read that goes round `Store.read` for the same reason.
+    const reopened = Schemas.open({ store });
+    expect(reopened.element(beliefId)?.statement).toBe("it embeds into any host");
+    expect(seen.filter((e) => e.name === "store.archived.read")).toEqual([]);
+
+    // NOT vacuous: the row really is archived, and the read that DOES count as a
+    // look at archived content still says so.
+    expect(store.row(beliefId)?.archived).toBe(1);
+    expect(store.read(beliefId).archived).toBe(true);
+    expect(seen.filter((e) => e.name === "store.archived.read").map((e) => e.ref)).toEqual([
+      beliefId,
+    ]);
+  });
+
+  test("a DARK-stage removal does not take the next open down", () => {
+    const s = schemas();
+    const entityId = s.mention({
+      name: "Ada",
+      kind: "entity",
+      source: "Ada prefers async review",
+      chunkRef: "c1",
+      day: 0,
+    }).id as string;
+    const beliefId = s.addBelief({
+      entityId,
+      statement: "Ada prefers async review",
+      day: 0,
+    }).id as string;
+    // `dark` marks the id and leaves the row and the file until the chase. The
+    // scan walks every schema row at every open, so a refusal here would be the
+    // next session failing to start, not one memory hidden — the deny-list is
+    // answered where the OWNER asks (`read`), and that is still true below.
+    s.store.appendRemovalRecord({
+      memoryId: beliefId,
+      stage: "dark",
+      actor: "owner",
+      reason: "test",
+    });
+    s.store.close();
+    open.length = 0;
+
+    const store = Store.open({ dir });
+    open.push(store);
+    expect(() => Schemas.open({ store })).not.toThrow();
+    expect(store.deniedIds()).toContain(beliefId);
+    expect(() => store.read(beliefId)).toThrow();
   });
 });

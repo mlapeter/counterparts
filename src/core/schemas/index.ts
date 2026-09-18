@@ -48,7 +48,7 @@ import type { MemoryPhysics } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
 import { containsSecret, redactSecrets } from "../encode/secrets.js";
 import { occursAsWholeWord } from "../encode/words.js";
-import { Store, hashText, readProseFile } from "../store/index.js";
+import { Store, hashText } from "../store/index.js";
 import type { MemoryRow, PutInput } from "../store/index.js";
 import type { Band, Kind, Salience } from "../types.js";
 import { AliasIndex, collision, handleKey } from "./aliases.js";
@@ -179,8 +179,8 @@ export class Schemas {
 
   /**
    * One scan at open, because box 2 indexes type/kind/band/archived and has no
-   * meta query (INTERFACE-GAPS §2). Prose is read directly rather than through
-   * `Store.read`, so building an index does not spend the store's
+   * meta query (INTERFACE-GAPS §2). Prose comes through `readProseQuiet` rather
+   * than `Store.read`, so building an index does not spend the store's
    * archived-read telemetry — that event answers "did anyone look at archived
    * CONTENT", and an index build is not a look.
    */
@@ -188,7 +188,7 @@ export class Schemas {
     for (const id of this.store.list({ type: "schema" })) {
       const row = this.store.row(id);
       if (row === undefined) continue;
-      const doc = readProseFile(this.store.absolutePath(row.prose_path), id);
+      const doc = this.store.readProseQuiet(id, row);
       const rec = toMetaRecord(doc.meta);
       if (rec === null) continue;
       this.remember(id, rec);
@@ -1121,7 +1121,7 @@ export class Schemas {
       id,
       entityId: rec.entityId ?? "",
       role: rec.role,
-      statement: readProseFile(this.store.absolutePath(row.prose_path), id).body,
+      statement: this.store.readProseQuiet(id, row).body,
       kind: row.kind,
       archived: row.archived === 1,
       supersededBy: row.superseded_by,

@@ -218,6 +218,21 @@ export interface PathCensus {
   readonly blank: number;
 }
 
+/**
+ * A memory's confidentiality class, read from the prose payload's `meta`.
+ *
+ * The truth table lives HERE, beside the read that carries it, because it is a
+ * gate: `recall/activate.ts#isConfidential` is the same answer by the same
+ * function, so the surfacing boundary and `StoredMemory.confidential` can never
+ * disagree. It reads `meta` today; when the body moves into the row it reads a
+ * column, and nothing above this line notices.
+ */
+export function confidentialByMeta(meta: Readonly<Record<string, unknown>>): boolean {
+  if (meta["confidential"] === true) return true;
+  const klass = meta["confidentiality"];
+  return typeof klass === "string" && klass !== "" && klass !== "open" && klass !== "normal";
+}
+
 export interface StoredMemory {
   doc: ProseDoc;
   physics: MemoryPhysics;
@@ -228,6 +243,11 @@ export interface StoredMemory {
   supersededBy: string | null;
   revision: number;
   contentHash: string;
+  /** The confidentiality class, computed from `doc.meta` (`confidentialByMeta`).
+   *  Carried on the read so a caller gates on a boolean rather than on a JSON
+   *  payload it had to re-interpret — a gate that parses on every read is a gate
+   *  that will one day fail open. */
+  confidential: boolean;
 }
 
 export interface PruneReport {
@@ -1710,11 +1730,45 @@ export class Store {
       supersededBy: row.superseded_by,
       revision: row.revision,
       contentHash: row.content_hash,
+      confidential: confidentialByMeta(doc.meta),
     };
   }
 
   readProse(id: string): ProseDoc {
     return this.read(id).doc;
+  }
+
+  /**
+   * The prose of a row an index is WALKING, not of a memory anyone asked for.
+   *
+   * Two exemptions from `read`, both of them what the callers already had by
+   * reading the file themselves — which was the last reason anything outside
+   * this module knew where the file was. Stated here so they are one door
+   * instead of three hand-rolled ones:
+   *
+   *   1. **No archived-read telemetry.** `store.archived.read` answers "did
+   *      anyone look at archived CONTENT", and an index build, a repair plan or
+   *      a listing is a look at the address.
+   *   2. **No deny-list refusal.** A `dark`-stage removal marks the id and
+   *      leaves the row and the file until the chase, and `schemas/index.ts#load`
+   *      runs over every schema row at every open — refusing here would take the
+   *      next session down instead of hiding one memory. The deny-list does its
+   *      work where the owner is answered: `read`, `resolve`, `readVersion` and
+   *      the render seams above them, which is where the dashboard's "its words
+   *      are gone at once" is enforced.
+   *
+   * So: this is a walk, and nothing here may answer a question the owner asked.
+   *
+   * `row` is the caller's own `row(id)` when it already has one — every one of
+   * these walks reads the row's columns too, and looking it up twice per id is
+   * 54% of the walk over 16,000 rows today and most of it once the body is in
+   * the row. A row for a DIFFERENT id is caught: the payload's own id is
+   * checked against `id` below (`PROSE_PAYLOAD_MISMATCH`).
+   */
+  readProseQuiet(id: string, row?: MemoryRow): ProseDoc {
+    const r = row ?? this.row(id);
+    if (r === undefined) throw new StoreError("ID_UNKNOWN", { id });
+    return readProseFile(this.absolutePath(r.prose_path), id);
   }
 
   physicsOf(id: string): MemoryPhysics {

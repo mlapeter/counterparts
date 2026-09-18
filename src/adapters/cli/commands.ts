@@ -71,7 +71,6 @@ import {
   explicitDirSetting,
   isWithin,
   paths,
-  readProseFile,
   storeExists,
 } from "../../core/store/index.js";
 import type { EventLogCensus, PathCensus, VectorFormatCensus } from "../../core/store/index.js";
@@ -3353,12 +3352,12 @@ function mergedBeliefs(store: Store): MergedBelief[] {
   for (const id of [...ids].sort()) {
     const row = store.row(id);
     if (row === undefined) continue;
-    // Prose read DIRECTLY, the way `schemas/index.ts#load` reads it: the
+    // Prose read QUIETLY, the way `schemas/index.ts#load` reads it: the
     // store's archived-read telemetry answers "did anyone look at archived
     // CONTENT", and a repair plan is a look at the address, not at the memory.
     let doc: { body: string; meta: Record<string, unknown> } | null = null;
     try {
-      doc = readProseFile(store.absolutePath(row.prose_path), id);
+      doc = store.readProseQuiet(id, row);
     } catch {
       doc = null;
     }
@@ -3396,21 +3395,20 @@ function mergeRecordOf(store: Store, id: string): { originalId: string | null; d
 }
 
 function entityNameOf(store: Store, entityId: string): string | null {
-  const row = store.row(entityId);
-  if (row === undefined) return null;
   try {
-    const name = readProseFile(store.absolutePath(row.prose_path), entityId).meta["name"];
+    const name = store.readProseQuiet(entityId).meta["name"];
     return typeof name === "string" && name.length > 0 ? name : null;
   } catch {
+    // An id with no row, and prose that will not read, are the same answer here
+    // — the name is unavailable. `readProseQuiet` refuses the first by name, so
+    // the row lookup this used to do first has nothing left to add.
     return null;
   }
 }
 
 function previewOf(store: Store, id: string, max: number): string | null {
-  const row = store.row(id);
-  if (row === undefined) return null;
   try {
-    return oneLine(readProseFile(store.absolutePath(row.prose_path), id).body, max);
+    return oneLine(store.readProseQuiet(id).body, max);
   } catch {
     return null;
   }

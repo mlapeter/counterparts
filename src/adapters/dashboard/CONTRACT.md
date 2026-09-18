@@ -27,8 +27,11 @@ Legibility is the product's answer to the trust question a brain never has to fa
   contested belief — the ledger's explainability, restored visually.
 - **Identity-band and protected lists, enumerable on demand.** [review finding 2]
   Permanence and inspectability scale together (scar §2.19).
-- **Prose views the owner can open.** The dashboard links every memory to its markdown
-  file — the owner reads the store itself, not only renderings of it (constitution line 6).
+- **The record, named.** The owner reads the store itself, not only renderings of it
+  (constitution line 6), so an opened memory says which record it is: id, revision and
+  content hash. For now that is what it prints; until 2026-09-18 it printed the markdown
+  file's path instead, which named a filesystem layout rather than the memory, and which
+  the bodies-in-rows work takes away.
 
 ## 4. Drops / simplifies
 
