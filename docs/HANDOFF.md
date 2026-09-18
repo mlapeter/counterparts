@@ -1,6 +1,49 @@
 # Handoff — resume here
 
-## 2026-09-17, evening — read this first: the walk happened, step 2 is LIVE, the rebuild order is set
+## 2026-09-17, night — read this first: step 1 is built and reviewed, waiting for the owner's word
+
+**State.** LIVE (master and the shared checkout) is `64f77d3`: the constitution amendments, the step-2 authorship
+batch (#119–#123) and the day's docs. **Step 1 is built, reviewed and green but NOT merged and NOT deployed**, on
+branch `batch/step1-2026-09-17` (worktree `.claude/worktrees/step1-trial`; the branch is pushed): #125 learned
+association saved, #126 the wake-delivery check, #127 the "what fired" view, plus the review fixes (#128) and two
+integration commits. Combined suite 2211 pass / 0 fail, `tsc` clean. Left unmerged ON PURPOSE so master equals what
+is live and `doctor` stays green overnight. The owner said "continue" and asked for this handoff.
+
+**To finish step 1 — everything is done except the owner's word.** Both adversarial passes are in
+(`docs/adversarial-review-step1-2026-09-17.md`, `docs/adversarial-review-step1b-2026-09-17.md`); every MAJOR is
+fixed (the hook no longer writes to the database for association; a pending file under `sessions/association/`
+is claimed and applied by the worker; a claim is touched when taken and its takeover window outlives the worker's
+watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129** = the whole batch against master,
+2212 pass / 0 fail, `tsc` clean. Merging #129 closes #125–#128.
+1. Owner says merge → `gh pr merge 129 -R mlapeter/counterparts --merge` → `tools/deploy-checkout.sh` →
+   `counterparts doctor --config ~/.counterparts/claude-code.json` → `counterparts fired --config
+   ~/.counterparts/claude-code.json`. No restart ritual (the parallel run's clock is stopped).
+2. Verify over the next days: `associate.flush` rows appear and edges gain a recent `last_day`; one
+   `adapter.wake.delivered` row per new session, outcome `delivered`; doctor's Authorship refusals split by reason
+   with `session-ask-cap` near zero; the first NEW session's memory server reports `scope source: project`.
+3. Clean worktrees after the merge: `step1-trial` and the five `agent-*` from 09-17 night.
+
+**Decisions waiting for the owner (each has an ELI5 in the 09-17 conversation or the named doc):**
+- **The ask cap.** Six asks for a session's whole life shipped in #119. The coordinating session of 09-17 used
+  all six in one working day; its own handoff work fell after the sixth and was never offered the pen. Options:
+  per session per calendar day; a higher number; or the enough-real-work pacer alone with no count cap.
+- **Promotion never fires because the consolidation pass stops at 5,000 rows and restarts from the same place**
+  (`docs/promotion-diagnosis-2026-09-17.md`; verified against the code and the store: 14,817 live memories, 517
+  consolidated). Smallest fix: a budget that covers the store, or a cursor, plus `budgetExhausted` persisted on the
+  `sleep.cycle` row. Not urgent for a store that will be replaced, but it is a cap cutting off two thirds of the
+  store unseen, and the fired view will show it once the row exists. The inventory's guess (the 0.85 bar) was wrong.
+- **The floor plan** (`docs/plan-step3-the-floor-2026-09-17.md`): eight phases; no migration; a clean cut at a tag;
+  new code refuses a pre-rows store by name; WAL + snapshots can ship first on the current store. Six questions at
+  its end, the sharpest: the 90-day version prune would delete his own words once bodies are rows.
+- The third piece of step 1: the "what was prevented" rows (blockedBy on `sleep.cycle`, `mcp.recall`,
+  `prospective.fire`, `adapter.spawn.started`, `store.backup`). Held until he has seen the view.
+- Still open from earlier: the interim identity hook (his decision on 09-18); the seven physics contract rulings.
+
+**Process, unchanged:** work in a worktree, never the live checkout; absolute paths / `git -C` / subshells; agents on
+Opus; read-only store queries via `sqlite3 -readonly "file:...?immutable=1"`, counts only; keep decisions light
+("for now", not "never"); a core batch = adversarial review before deploy; the parallel run's clock is stopped.
+
+## 2026-09-17, evening — read second: the walk happened, step 2 is LIVE, the rebuild order is set
 
 **Where the record is.** `docs/storage-spec-2026-09-16.md` §15 (ten working defaults agreed in conversation; defaults,
 not stone) and §16 (the rebuild in order, and how the step-2 batch went). Inputs saved beside it:
@@ -35,7 +78,7 @@ conversation, and the host's classifier will not let a session install it); the 
 on the first NEW session after this deploy: the memory server reports `scope source: project`. Recorded for a
 later fix, pre-existing: resuming a session in an `on` directory captures transcript lived in an `off` one.
 
-## 2026-09-17, morning — read second: #116 merged; the owner's corrections; nothing built
+## 2026-09-17, morning — read third: #116 merged; the owner's corrections; nothing built
 
 **State.** PR #116 merged (`54e419d`), shared checkout deployed there, docs only, no restart. **Step 1 of the
 owner's sequence is done:** the constitution amendments are PR #118 (branch `constitution/2026-09-17`; lines 4, 6,
@@ -70,7 +113,7 @@ are swept as crashed (535 of the 888), and a sweep chunk writes ten memories whe
 asked, the model answered every time. This is the rebuild's "fix the plumbing" item made specific; the cap and
 the crash predicate are rulings for the owner, not yet raised with him.
 
-## 2026-09-16, evening — read third: the architecture conversation happened; nothing built
+## 2026-09-16, evening — read fourth: the architecture conversation happened; nothing built
 
 **Where the record is.** The owner's architecture session (Fable) ran in worktree
 `.claude/worktrees/storage-spec` on branch `docs/storage-spec-2026-09-16` (this PR) and produced
@@ -115,7 +158,7 @@ seeding is needed regardless; the three-way identity comparison is prepped, not 
 **Process for the next session:** work in a worktree, never the live checkout; agents on Opus; the spec is the
 record, so append to it rather than re-deriving; peer sessions can be reached with ListAgents/SendMessage.
 
-## 2026-09-16, close — read fourth
+## 2026-09-16, close — read fifth
 
 **Everything is committed, merged, deployed and recorded. No PR is open, no worktree holds work.** Master and the
 shared checkout are at the sha of this docs merge (`doctor` Checkout GREEN). The day's record is the 2026-09-16
