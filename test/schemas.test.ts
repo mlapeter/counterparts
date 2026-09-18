@@ -13,6 +13,7 @@
  * gate recorded zero births AND zero refusals and nobody could say which.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1591,12 +1592,15 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
       // DECIDED, and worth being plain about: the two BELIEF rows are NOT
       // removed — removal does not cascade to what hangs off its target (the
       // plan's contamination scan REPORTS similar rows, it does not chase
-      // them). They are orphaned: invisible in every slice and every alias
-      // lookup, because rendering goes through the entity, and still readable
-      // by their own id. That is the honest state, not a claim that they were
-      // destroyed. Whether the ceremony should chase them is `cli/removal.ts`'s
-      // question, and it is open.
-      expect(c.store.read(ids.first).doc.body).toContain("prefers async review");
+      // them). They are orphaned: gone from every path that starts at an
+      // entity, and ordinary rows to every path that does not. That is the
+      // honest state, not a claim that they were destroyed. Whether the
+      // ceremony should chase them is `cli/removal.ts`'s question and the
+      // owner's call. The assertion carries the word, because this assertion is
+      // now the only thing between "decided" and "regression".
+      const decided = "DECIDED: an orphan survives its entity's removal";
+      expect(`${decided} — ${c.store.read(ids.first).doc.body.includes("prefers async review")}`)
+        .toBe(`${decided} — true`);
       expect(c.schemas.element(ids.first)?.statement).toContain("prefers async review");
       expect(c.schemas.element(ids.first)?.entityId).toBe(ids.entityId);
       // The owner can still find them: they are exactly the elements whose
@@ -1627,5 +1631,89 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
       );
       expect(c.schemas.aliasIndex().lookup("ada")).toEqual([ids.entityId]);
     });
+  });
+
+  test("`loadSkips` tells a removal from a corruption, because only one is explained", () => {
+    const s = schemas();
+    const ids = person(s);
+    s.store.close();
+    open.length = 0;
+    removeIt(ids.first);
+
+    const store = Store.open({ dir });
+    open.push(store);
+    const after = Schemas.open({ store });
+    // One skip, and the store can account for it: the owner removed it.
+    expect(after.loadSkips()).toEqual({ removed: 1, unaccounted: [] });
+    expect(store.deniedIds()).toContain(ids.first);
+    // Non-vacuous: an untouched store skips nothing at all.
+    const clean = mkdtempSync(join(tmpdir(), "counterparts-schemas-clean-"));
+    try {
+      const other = Store.open({ dir: clean });
+      open.push(other);
+      expect(Schemas.open({ store: other }).loadSkips()).toEqual({ removed: 0, unaccounted: [] });
+    } finally {
+      rmSync(clean, { recursive: true, force: true });
+    }
+  });
+
+  test("a blank pointer with NO removal record is skipped too, and counted as unexplained", () => {
+    const s = schemas();
+    const ids = person(s);
+    s.store.close();
+    open.length = 0;
+    // The shape a half-written migration or a disk event leaves: the pointer is
+    // gone and NOTHING says who took it. There is no store API for this, and
+    // there should not be — the chase is the only thing that blanks a pointer
+    // on purpose — so the test writes it the way the damage would.
+    const db = new Database(join(dir, "operational.sqlite"));
+    db.run("UPDATE memories SET prose_path = '' WHERE id = ?", [ids.second]);
+    db.close();
+
+    const store = Store.open({ dir });
+    open.push(store);
+    const after = Schemas.open({ store });
+    expect(after.loadSkips()).toEqual({ removed: 0, unaccounted: [ids.second] });
+    expect(store.deniedIds()).toEqual([]);
+    // Skipped, not fatal, and not pretending it was a removal.
+    expect(after.element(ids.second)).toBeUndefined();
+    expect(after.beliefs(ids.entityId).map((b) => b.id)).toEqual([ids.first]);
+  });
+
+  test("a walk asks the deny-list ONCE, however many entities and however long the list", () => {
+    const s = schemas();
+    // SEVERAL entities, because one would make this pass either way: the old
+    // `entities()` asked per entity, so the count is the whole assertion.
+    const names = ["Ada", "Bea", "Cleo", "Dara", "Esme"];
+    for (const [i, name] of names.entries()) {
+      s.mention({ name, kind: "entity", source: `${name} is here`, chunkRef: `c${i}`, day: 0 });
+    }
+    // 200 removals of ordinary memories: none of them is a schema row, so the
+    // answer must not change — and the walk must not get slower per removal.
+    // Asking per entity measured, at 300 entities, 10.0 ms against an empty
+    // deny-list and 172.9 ms against 1,000; one query for the walk is 6.1 and
+    // 6.7 ms. A deny-list only ever grows.
+    for (let i = 0; i < 200; i++) {
+      const id = s.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `an ordinary memory number ${i}`,
+        physics: { birthDay: 0, lastUsedDay: 0 },
+      });
+      s.store.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner", reason: "t" });
+    }
+    expect(s.store.deniedIds()).toHaveLength(200);
+
+    // Counted rather than timed: a wall-clock assertion on a walk is a flaky
+    // test, and "how many times it asks" is the thing that actually changed.
+    let queries = 0;
+    const real = s.store.deniedIds.bind(s.store);
+    (s.store as unknown as { deniedIds: () => string[] }).deniedIds = () => {
+      queries += 1;
+      return real();
+    };
+    const seen = s.entities();
+    expect(queries).toBe(1);
+    expect(seen.map((e) => e.name).sort()).toEqual([...names].sort());
   });
 });

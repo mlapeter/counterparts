@@ -126,14 +126,27 @@ name/alias resolution; birth and death telemetry.
    attached and no reinforcement for `D_floor` lived days fades out of preselection and is
    archived, keeping its id resolvable. No model can kill an entity.
    **7b. [M] The OWNER can, and this index survives it.** `counterparts remove` accepts a
-   schema target, and after the chase the row is still listed with its pointer blanked. A
-   removed entity or element is SKIPPED — by `load`, by `entity` and by `element` — so it
-   is absent from every rendering: no slice, no alias, no match.
+   schema target, and after the chase the row is still listed with its pointer blanked. The
+   REMOVED ROW is SKIPPED — by `load`, by `entity` and by `element` — so it is in no slice,
+   no alias lookup, no preselection and no schema context, and nothing built on this index
+   can render it. (A long-lived process that has not reopened can still *match* a
+   dark-marked entity through its cached alias index; it cannot surface it — `recall/`
+   filters denied ids before candidates are formed. NOTES §13.)
    Until 2026-09-18 it was not skipped: reading it threw out of `Schemas.open`, out of
    `Counterpart.open`, and the hook caught that and exited 0, so the owner's next session
-   simply had no memory and said nothing about it. Removal does NOT cascade — elements
-   hanging off a removed entity keep their rows and are orphaned rather than destroyed,
-   which is `cli/removal.ts`'s question, not this module's.
+   simply had no memory and said nothing about it.
+   **Removal does NOT cascade, and the consequence is visible.** Elements hanging off a
+   removed entity keep their rows: they are orphaned, not destroyed. They vanish from every
+   path that STARTS AT AN ENTITY — the four above — and remain ordinary rows to every path
+   that does not. The proved example is the dashboard's identity view, whose band and
+   protected lists enumerate `store.list({ band, archived })` and read the prose directly
+   (`adapters/dashboard/identity.ts` over `self/identity.ts#enumerate`): a promoted belief
+   about a removed person still prints there, in full, while `browse --id <entity>` says
+   `[removed by the owner]`. `Schemas.element(id)` and `Store.read(id)` answer for them too,
+   by design — they were not removed. **Whether removal should cascade to what hangs off its
+   target is the owner's open question**, and it is `cli/removal.ts`'s to implement, not this
+   module's: the difference between "forget this person" and "forget everything I ever
+   concluded about her".
 8. **[M] Beliefs and current state render verbatim in every schema slice**; elided items
    are announced as a count, never silently omitted.
 9. **[M] Every element has a stable handle, and compression may shorten a statement but

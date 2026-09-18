@@ -208,18 +208,50 @@ now a statement above the read, with its `catch` narrowed to `REMOVED` /
 `ID_UNKNOWN` (`isAbsence`) so a broken database cannot present as a quietly empty
 index.
 
+**The two skips are counted apart.** A row the deny-list names was removed by the
+owner, and its absence is the point. A row with a blanked `prose_path` and NO
+removal record is something else — a half-written migration, a disk event — and
+skipping that one buys uptime with data disappearing without a word. Both are
+still skipped, because a session that cannot start helps nobody, but `load` keeps
+the counts apart and `loadSkips()` returns them (a count for the removed, the ids
+for the unaccounted, which is what a `doctor` or `verify` line would want to
+print). Nothing prints them yet; that is the hook for the follow-up, and it was
+left out of this change because those files are being edited elsewhere.
+
+**Removal does not cascade, and the consequence is VISIBLE — the first draft of
+this section was wrong about that.** Beliefs hanging off a removed entity keep
+their rows: orphaned, not destroyed. They vanish from every path that starts at
+an entity — slices, the alias index, preselection, the rendered schema context,
+and so recall — and they remain ordinary rows to every path that does not.
+
+The proved counter-example is the owner's own dashboard. `counterparts dashboard
+identity` enumerates `store.list({ band: "identity", archived: false })` and
+`store.list({ archived: false })` (`self/identity.ts#enumerate`) and reads the
+prose itself (`adapters/dashboard/identity.ts`). It never asks an entity anything.
+So after removing a person, a promoted belief ABOUT her still prints there in
+full, under "Identity band", while `browse --id <her entity>` correctly says
+`[removed by the owner]`. The protected list is the same loop and the same story.
+`Schemas.element(id)` and `Store.read(id)` answer for the orphans too, by design —
+they were not removed.
+
+This is not a regression: before the fix the store could not be opened at all
+after such a removal, so nothing rendered because nothing ran. It is what a
+working session then shows, and "I removed her and her salary is still on the
+screen" is the worst possible way for the owner to find out that removal does not
+cascade. **So the cascade question goes to him, in words, rather than being
+discovered.** Implementing it — chasing an entity's elements, or teaching
+`enumerate` to skip elements whose entity is denied — is a behaviour change and
+`cli/removal.ts`'s to make; naming the orphaned state is this file's.
+
 **What this does NOT reach, because `Schemas` builds its index at open and no
 process tells another one anything.** In a long-lived process — the MCP server —
 a removal run from the CLI is invisible to `this.meta` and `this.index` until the
 next start. So in that window `liveElementIds`'s `attached` count still counts a
 dark-marked belief (a number, off by one; it renders nothing), and a dark-marked
 ENTITY is still in the alias index, so `aliasIndex().lookup("ada")` returns it.
+The stale alias cannot leak text: its only consumer is `retrieval.ts` →
+`Turn.aliases` → recall, and `recall/activate.ts` filters denied ids before
+candidates are formed, so such an entity can be MATCHED and never SURFACED.
 Neither is new and neither is removal's fault: it is the same staleness the
 server already has for every write another process makes. Worth closing when
 something needs cross-process invalidation, not before.
-
-**Removal does not cascade, and this does not make it.** Beliefs hanging off a
-removed entity keep their rows. They are invisible in every rendering — every
-path starts at an entity and hers is gone — and still readable by their own id.
-Whether the ceremony should chase them is `cli/removal.ts`'s question; naming
-the orphaned state is this file's.
