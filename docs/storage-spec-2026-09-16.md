@@ -95,6 +95,9 @@ Read-only. Method, so it can be re-run: row counts via
 (immutable mode takes no lock), file counts via `find`, sizes via `du`, roles via grep on
 the prose payload line. Counts by kind only; no body text was read for content.
 
+> **2026-09-18 — do not reuse this recipe once the store is in WAL mode (F1, PR #137).** `?immutable=1` makes SQLite ignore the `-wal`, so every query reads the database as of the last checkpoint — silently short, no error (proved in `docs/adversarial-review-f1-2026-09-18.md`). Use plain `sqlite3 -readonly <path>`. What is written here is what was run at the time, under DELETE mode, where it was right.
+
+
 | on disk | count | size |
 |---|---|---|
 | prose files (memories 15,639 · episodes 235 · schemas 492) | 16,366 | 67 MB |

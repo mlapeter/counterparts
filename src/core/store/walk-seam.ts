@@ -2,7 +2,7 @@
  * The WALKING read — the prose of a row an index is walking past, not of a
  * memory anyone asked for.
  *
- * It exists because three consumers outside `store/` used to read prose by PATH
+ * It exists because five call sites outside `store/` used to read prose by PATH
  * (`readProseFile(store.absolutePath(row.prose_path), id)`), which was the last
  * reason anything above the store knew there was a filesystem under it. Taking
  * them off the layout means giving them a read that keeps the two exemptions
@@ -26,7 +26,8 @@
  * adapter and every future contributor gets without asking for it, and §4's
  * "owner-initiated removal is unreachable from any model path" would stop being
  * true of the store's own surface. Reaching this one takes a deliberate import
- * from one of four files, and `test/cli.test.ts` pins that list.
+ * from one of two files — `schemas/index.ts` and `adapters/cli/commands.ts`,
+ * four call sites between them — and `test/cli.test.ts` pins that list.
  *
  * **It is still a hole.** One hole, with a name on it, in the seam where it can
  * be seen and one day closed — `schemas/index.ts` skipping removed rows closes

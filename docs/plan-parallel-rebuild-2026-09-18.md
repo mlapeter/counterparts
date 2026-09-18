@@ -162,8 +162,10 @@ Deploys to the live store, each on the owner's word, one batch at a time so a re
 - Nobody works in `/Users/mlapeter/counterparts` (it is the live runtime). All work is in
   `.claude/worktrees/`; use absolute paths, `git -C`, or subshells.
 - `~/.bansai` and `~/.claude-engram` are never touched. `~/.counterparts` is read only by doctor, the fired
-  view, and `sqlite3 -readonly "file:…?immutable=1"` count queries; nothing here writes to it except a
-  deploy the owner approved. Tests are hermetic: fresh temp dirs, always.
+  view, and `sqlite3 -readonly <path>` count queries (plain `-readonly`, WITHOUT `?immutable=1`: once F1 is
+  live the store is in WAL mode, and `immutable=1` makes SQLite ignore the `-wal`, so every such query is
+  silently short by whatever was written since the last checkpoint — proved in
+  `docs/adversarial-review-f1-2026-09-18.md`); nothing here writes to it except a deploy the owner approved. Tests are hermetic: fresh temp dirs, always.
 - New code never opens the old store as a writer. F5's refusal-by-name lands in the same PR as schema v6,
   with its acceptance test, and is the first thing the F5 reviewers attack.
 - No commit carries Claude attribution (`Co-Authored-By`, "Generated with"). PR bodies may.
