@@ -45,6 +45,13 @@ last checkpoint (the reviewer's probe: three rows in the `-wal`, `immutable=1` s
 (`promotion-diagnosis`, `recall-surfacing-diagnosis`, `finding-12-diagnosis`, `mechanism-inventory`, storage spec §4)
 record what was run at the time, under DELETE mode, where it was right — do not copy the recipe out of them.
 
+**DONE on the owner's word ("yes to 1, go ahead and merge. i'll do 2 later"): #137 (F1), #134 (N2) and this docs PR #140
+are MERGED; master = `33be244` plus this PR's merge. F1 is NOT deployed: the live checkout stays detached at `039cd5d`
+until the owner runs "Deploy day for F1" below himself. Until then `counterparts doctor` reads the Checkout line as
+behind `origin/master` — that is expected, and nobody fixes it by running `tools/deploy-checkout.sh` without his word.
+F2's last pass also landed (head `5a5f990`, 2291 / 0 by the builder); the coordinator reads that diff and runs the suite
+itself rather than sending it round a third time.**
+
 **Night: where every PR stands, the batches proposed to the owner, and DEPLOY DAY FOR F1 on paper (the coordinating
 session is closed while it runs). NOTHING is merged; every merge and every deploy below waits for the owner's word.**
 
