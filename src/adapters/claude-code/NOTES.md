@@ -718,3 +718,75 @@ boundary that finds none is how the retroactive-capture guard recognises the
 `off → on` flip (#92 review, F1), and a record written from the prompt path would
 take that evidence away. And it writes the durable row BEFORE the flag, so a
 failure duplicates a row rather than closing the question with nothing recorded.
+
+## The quiet hook now says when it is a fault (H1, 2026-09-18)
+
+"A failed hook is a quiet hook, never a failed session" (§5 G2) has been right
+since day 0, and the quiet was the part that hurt. The stand-down line goes to
+stderr, and on this host a hook's stderr goes nowhere the owner looks. Three
+reviews in one day hit the same wall from three directions: fully removing a
+belief left a row that made `Counterpart.open` throw at every session start; a
+missing prose file on ANY schema row does the same thing today; and a `--config`
+typo stood the adapter down just as invisibly. Each of them costs no wake, no
+recall and no capture in EVERY session, for as long as it lasts, with every
+visible surface green — which is I32's shape again, and the constitution's own
+sentence about silence not masquerading as health.
+
+**What is new is a classification, not a channel.** The channel is the one I32
+already measured and G22 already documents: a top-level `systemMessage`, which
+this host DISPLAYS, non-blocking, on SessionStart and UserPromptSubmit. What
+`bin/hook.ts` could not do before was tell its two kinds of stand-down apart, so
+`standdown.ts` is where that judgement lives and where its vocabulary is kept:
+
+- **Deliberate, and unchanged.** A directory scoped `off` (G19, silent on both
+  channels, and the `off` return still comes first so its silence stays
+  byte-for-byte); an observer with no store to read (`STORE_UNINITIALIZED`); the
+  explicit-dir guard's two refusals. The guard is the interesting one: in a real
+  session it is a fault from the owner's point of view, and it is also the normal
+  state of every agent and test shell in this project, all of which export
+  `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`. `describeGuardRefusal` already gives it
+  a sentence with the entry point's own remedy; a red line in every hermetic
+  shell is how a warning becomes wallpaper, so its treatment is kept.
+- **A fault, and said once.** Everything else, including the two refusals of a
+  configuration somebody NAMED. One `systemMessage`, exit 0, and nothing else in
+  the object: no wake, no `additionalContext`. The stderr line stays.
+
+**Once per session, and the marker cannot live in the store.** The store is what
+failed, and UserPromptSubmit fires every turn, so the mark is a file beside the
+session records — `<dataDir>/sessions/<id>.standdown.json`, the directory
+`sessions.ts` and `expansions.ts` already use, which needs no database. Host
+state, never memory: an id, a time, an event name and a code. SessionStart always
+says it (a compaction re-fires it, and the owner has just had his terminal
+rewritten); UserPromptSubmit says it only while the session has not been told.
+Two stand-downs leave NO mark and therefore say it every turn: a named
+configuration that could not be read (nothing has named a store yet, so there is
+nowhere to keep one) and one that did not typecheck (`hostConfig` has by then
+resolved `dataDir` to the DEFAULT store, and not touching that store's host state
+is the whole reason that stand-down exists). A mark that cannot be written is
+swallowed and the message is shown anyway: repeating is noise, and silence is the
+incident.
+
+**One ordering rule that is not obvious.** Nothing may be printed after the wake.
+The host reads stdout as JSON only when the WHOLE of it parses, so an object
+printed after a plain-text wake would turn the wake into ordinary text and inject
+the warning into the model's context instead of showing it to the owner. The
+`Said` record carries `wroteStdout` for exactly that, and a fault thrown after
+the wake went out stays on stderr alone.
+
+**And `doctor` reads the open.** Its `Store` finding reads the DIRECTORY, so it
+could print GREEN Store while `Counterpart.open` threw at every session start —
+which is what happened. `readCounterpartOpen` does an OBSERVER open of the
+counterpart the way a hook's read path does it, including the `Schemas` index
+scan that reads every schema row's prose, closes immediately, and reports in the
+hook's own words. `STORE_UNINITIALIZED` there is AMBER rather than red: an
+instrument may not write at open, and the next hook running as owner initializes
+or migrates the same store — red would make the console lie for the window
+between a deploy and the first hook after it.
+
+**What this makes visible that was not a bug of its own.** I38 — `database is
+locked` when a hook meets a store another process holds — is a stand-down like
+any other, and it reaches UserPromptSubmit. Measured over 15 scripted sessions on
+a fresh store, 2026-09-18: 5 of 45 prompt events on `origin/master` (039cd5d) and
+3 of 45 on this branch wrote the stderr line, so the rate is the same and only
+the visibility is new. The marker bounds it to one line per session. It is not
+this change's fault and it is this change's most likely first sighting.

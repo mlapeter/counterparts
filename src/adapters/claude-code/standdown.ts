@@ -1,0 +1,234 @@
+/**
+ * WHY A HOOK STOOD DOWN, IN WORDS, AND WHETHER THE OWNER SHOULD HEAR IT.
+ *
+ * **The gap this closes (H1, 2026-09-18).** `bin/hook.ts` has always ended a
+ * failed run with one line on stderr and exit 0 — "a failed hook is a quiet
+ * hook, never a failed session". The principle is right; the quiet is the
+ * problem. A hook's stderr goes nowhere the owner looks, and three reviews in
+ * one day hit the same wall: a fully-removed belief left a row that made
+ * `Counterpart.open` throw at every session start; a missing prose file on any
+ * schema row still does; a config typo that stood the adapter down was equally
+ * invisible. No wake, no recall, no capture, every session — and every visible
+ * surface green. The constitution's own sentence: silence must never masquerade
+ * as health.
+ *
+ * So a stand-down is now one of two things, and this file is where they are told
+ * apart:
+ *
+ *   - **DELIBERATE** — a directory scoped `off`, an observer with no store to
+ *     read, the explicit-dir guard refusing a store nobody named. Nothing is
+ *     wrong; the stand-down IS the behaviour. Quiet, exactly as before.
+ *   - **A FAULT** — the store would not open, the named configuration could not
+ *     be honoured. Something the owner has to fix, and until he does he has no
+ *     memory. Said out loud, on the two events the host displays a
+ *     `systemMessage` on (`bin/hook.ts#standDown`).
+ *
+ * It sits beside `doctor.ts` rather than under `bin/` because both read it: the
+ * console's `Store open` finding asks the same question the hook's catch asks —
+ * "would this store open the way a session opens it, and if not, in what words?"
+ * — and two vocabularies for one question is how the terminal and the console
+ * come to disagree about what "healthy" means (constitution 16).
+ */
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { isStoreError } from "../../core/store/index.js";
+import type { StoreErrorCode } from "../../core/store/index.js";
+import { SESSIONS_DIR, isSessionId } from "../sessions.js";
+
+/** The last words of every stand-down message, and the only ones never cut. */
+export const STANDDOWN_TAIL = "Run: counterparts doctor";
+
+/**
+ * How long the REASON clause may be.
+ *
+ * The message rides the same 10,000-character channel the notice does
+ * (`doctor.ts#NOTICE_MAX_CHARS` states the host's cap), but the ceiling that
+ * matters here is smaller and is about content, not transport: an error's own
+ * message is the one part of this that nobody here wrote, and a stand-down line
+ * that fills the terminal with somebody's stack trace is a line people learn to
+ * scroll past. Two hundred characters holds a code, a path and a sentence.
+ */
+export const STANDDOWN_REASON_MAX_CHARS = 200;
+
+/** A stand-down worth saying out loud: a stable code, and plain words for it. */
+export interface StandDownFault {
+  /** A `StoreErrorCode`, or one of this file's own for a non-store failure. */
+  readonly code: string;
+  /** One clause of plain words. Never memory text; a path is allowed. */
+  readonly reason: string;
+}
+
+/** The configuration a caller NAMED could not be honoured (`config-path.ts`). */
+export const CONFIG_REFUSED = "CONFIG_REFUSED";
+/** A named configuration parsed but did not typecheck, so it resolved observer. */
+export const CONFIG_UNREADABLE = "CONFIG_UNREADABLE";
+/** Anything that is not a `StoreError` — the code is the error's own message. */
+export const HOOK_FAILED = "HOOK_FAILED";
+
+/**
+ * THE STAND-DOWNS THAT STAY QUIET, and why each one is not a fault.
+ *
+ *   - `IMPLICIT_DEFAULT_DIR_REFUSED` / `EXPLICIT_DIR_GUARD_MALFORMED` — the
+ *     explicit-dir guard. In a real session it is a fault from the owner's point
+ *     of view, and it is also the NORMAL state of every agent and test shell in
+ *     this project, which all export `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`.
+ *     `describeGuardRefusal` already gives it a sentence with the entry point's
+ *     own remedy, and the red notice has never carried it; that treatment is
+ *     kept rather than turned into a red line in every hermetic shell.
+ *   - `STORE_UNINITIALIZED` — an OBSERVER opened a store that is not there yet,
+ *     or is a schema behind (`cli/INTERFACE-GAPS` §7). Initializing would be
+ *     writing at open, which an instrument may not do, so standing down is the
+ *     behaviour and not a fault. An owner hook on the same store initializes and
+ *     migrates it.
+ */
+export function isDeliberate(err: unknown): boolean {
+  return (
+    isStoreError(err, "IMPLICIT_DEFAULT_DIR_REFUSED") ||
+    isStoreError(err, "EXPLICIT_DIR_GUARD_MALFORMED") ||
+    isStoreError(err, "STORE_UNINITIALIZED")
+  );
+}
+
+/**
+ * Plain words for the store codes a session's READ PATH can actually meet.
+ *
+ * Deliberately partial. A code with no entry gets the general sentence below,
+ * which is true of every one of them; inventing prose for codes nobody has seen
+ * from a hook would be a glossary that goes stale where nobody reads it.
+ */
+const PLAIN_WORDS: Partial<Record<StoreErrorCode, string>> = {
+  PROSE_FILE_MISSING: "a memory's prose file is missing from the store",
+  PROSE_FRONTMATTER_MISSING: "a memory's prose file has no frontmatter",
+  PROSE_PAYLOAD_MISSING: "a memory's prose file carries no payload",
+  PROSE_PAYLOAD_MALFORMED: "a memory's prose file has a payload this build cannot read",
+  PROSE_PAYLOAD_MISMATCH: "a memory's prose file and its row disagree about which memory it is",
+  PROSE_BODY_INVALID: "a memory's prose file has a body this build cannot read",
+  ID_DANGLING: "a row points at a memory that is not in the store",
+  ID_CYCLE: "a revision chain in the store points back at itself",
+  ID_CHAIN_TOO_DEEP: "a revision chain in the store is longer than this build follows",
+  STORED_PATH_ESCAPES: "a stored path points outside the store",
+  SCHEMA_AHEAD: "this store was written by a newer build than the one running",
+  SQLITE_UNAVAILABLE: "this runtime has no SQLite binding",
+  DATA_DIR_FORBIDDEN: "the configured data dir is one this build refuses to open",
+  STORE_UNINITIALIZED: "there is no store here yet, or it is a schema behind",
+};
+
+/** The sentence for a code with no entry above. True of all of them. */
+export const OPEN_FAILED_WORDS = "the store would not open";
+
+/**
+ * A code and plain words for ANY failure — including the deliberate ones, which
+ * `doctor` still has to name even though the hook stays quiet about them.
+ */
+export function describeFault(err: unknown): StandDownFault {
+  if (isStoreError(err)) {
+    return { code: err.code, reason: PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS };
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return { code: HOOK_FAILED, reason: message.trim().length === 0 ? OPEN_FAILED_WORDS : message };
+}
+
+/** The fault to SAY, or null when this stand-down is one of the quiet ones. */
+export function classifyStandDown(err: unknown): StandDownFault | null {
+  return isDeliberate(err) ? null : describeFault(err);
+}
+
+/**
+ * The ONE PATH-SHAPED FACT a repair needs, when the error carried one.
+ *
+ * `StoreError.detail` is ids and counts by contract (§5 G10) — never body text —
+ * so taking one named field out of it is safe to print. Only `path`, because
+ * that is the field the read path's own failures carry and the only one a reader
+ * can act on.
+ */
+export function faultPath(err: unknown): string | null {
+  if (!isStoreError(err)) return null;
+  const path = err.detail["path"];
+  return typeof path === "string" && path.length > 0 ? path : null;
+}
+
+/** Whitespace collapsed: an error message is not this file's to format. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * THE ONE RED LINE IN THE OWNER'S TERMINAL.
+ *
+ * Short on purpose. It says the consequence first — memory is off — because that
+ * is the fact a person scanning a session start needs, then the reason, then the
+ * code a search finds, then the one command that explains the rest. Nothing from
+ * a memory ever reaches it: the reason is either this file's own prose or an
+ * error message, and error messages in this codebase carry codes, ids and paths.
+ */
+export function standDownMessage(fault: StandDownFault): string {
+  const reason = oneLine(fault.reason);
+  const said =
+    reason.length <= STANDDOWN_REASON_MAX_CHARS
+      ? reason
+      : `${reason.slice(0, STANDDOWN_REASON_MAX_CHARS - 1)}…`;
+  return `Counterparts memory is OFF for this session: ${said} (${fault.code}). ${STANDDOWN_TAIL}`;
+}
+
+// ── saying it once per session ──────────────────────────────────────────────
+
+/**
+ * WHERE "THIS SESSION HAS BEEN TOLD" LIVES, and why it is a file.
+ *
+ * A store that will not open cannot remember anything, and `UserPromptSubmit`
+ * fires every turn — so without a mark the owner would get the same red line on
+ * every prompt for the rest of the session, which is how a warning becomes
+ * wallpaper. The mark therefore has to survive in something that does not need
+ * the database: `<dataDir>/sessions/`, where `adapters/sessions.ts` already
+ * keeps one small file per session and `adapters/expansions.ts` keeps its own.
+ * It is host state, never memory (constitution 5) — an id, a time, an event name
+ * and a code.
+ *
+ * Everything here swallows its own failures. An unwritable marker means the
+ * message is said again next turn, which is the fail direction this whole track
+ * is about: repeating is noise, and silence is I32.
+ */
+export const STANDDOWN_MARKER_SUFFIX = ".standdown.json";
+
+export function standDownMarkerPath(dataDir: string, sessionId: string): string | null {
+  if (!isSessionId(sessionId)) return null;
+  return join(dataDir, SESSIONS_DIR, `${sessionId}${STANDDOWN_MARKER_SUFFIX}`);
+}
+
+/** Has this session already been told? False on every failure, and on a session
+ *  whose store nobody could name — "say it again" beats "say nothing". */
+export function toldThisSession(dataDir: string | undefined, sessionId: string): boolean {
+  if (dataDir === undefined || dataDir.length === 0) return false;
+  const path = standDownMarkerPath(dataDir, sessionId);
+  if (path === null) return false;
+  try {
+    return readFileSync(path, "utf8").trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Leave the mark. Returns whether it landed; never throws. */
+export function noteTold(
+  dataDir: string | undefined,
+  sessionId: string,
+  fault: StandDownFault,
+  event: string,
+  at: number = Date.now(),
+): boolean {
+  if (dataDir === undefined || dataDir.length === 0) return false;
+  const path = standDownMarkerPath(dataDir, sessionId);
+  if (path === null) return false;
+  try {
+    mkdirSync(join(dataDir, SESSIONS_DIR), { recursive: true });
+    writeFileSync(
+      path,
+      `${JSON.stringify({ sessionId, at: new Date(at).toISOString(), event, code: fault.code })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}

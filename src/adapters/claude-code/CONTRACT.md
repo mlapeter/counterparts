@@ -381,6 +381,27 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     byte-for-byte — with `scopeRegistry: "unreadable" | "partial" | null` on the
     session-start row for the day after. Both writers refuse rather than dropping
     an entry they could not read: the console unless `--force`, the MCP tool always.
+24. **[M] A stand-down that is a FAULT reaches the owner's terminal; one that is
+    DELIBERATE stays as quiet as it was.** G2 is why every failure is swallowed;
+    it is not a reason for the owner never to learn of one. Until now a hook that
+    could not open its store wrote one line to stderr — which on this host goes
+    nowhere anybody looks — so a store with one missing prose file meant no wake,
+    no recall and no capture in every session, silently, while every visible
+    surface read green. So `bin/hook.ts` classifies its stand-downs
+    (`standdown.ts`): a directory scoped `off`, an observer with no store to read
+    (`STORE_UNINITIALIZED`), and the explicit-dir guard's two refusals are
+    DELIBERATE and unchanged; anything else is a FAULT and prints one
+    `systemMessage` — the channel I32 measured (G22) — on **SessionStart and
+    UserPromptSubmit**, the two events this host displays one on. Exit 0 as
+    always, nothing else in the object, no wake and no `additionalContext`, and
+    the stderr line is kept. SessionStart says it; UserPromptSubmit says it only
+    while this session has not been told, marked by a file under
+    `<dataDir>/sessions/` because the thing that failed is the store. A mark that
+    cannot be written means it is said again rather than not at all. The message
+    carries a code, one clause of plain words and the command that explains the
+    rest, capped at `STANDDOWN_REASON_MAX_CHARS`; `counterparts doctor` reads the
+    same open and says RED in the same words (`doctor.ts#readCounterpartOpen`),
+    so the terminal and the console cannot disagree about what happened.
 
 ## 6. Scars honored
 

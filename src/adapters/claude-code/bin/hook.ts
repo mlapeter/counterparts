@@ -41,6 +41,15 @@ import { loadCredentials, permissionWarning } from "../credentials.js";
 import type { CredentialLoad } from "../credentials.js";
 import { HOOKS, openAdapter } from "../index.js";
 import type { HookInput, HookName } from "../hooks.js";
+import {
+  CONFIG_REFUSED,
+  CONFIG_UNREADABLE,
+  classifyStandDown,
+  noteTold,
+  standDownMessage,
+  toldThisSession,
+} from "../standdown.js";
+import type { StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
 
 /**
@@ -357,6 +366,73 @@ export function toHookInput(
   };
 }
 
+/**
+ * THE TWO EVENTS THE HOST DISPLAYS A `systemMessage` ON — measured by the
+ * owner's probe on 2026-09-11 and re-stated in `hostDelivery` below. Every other
+ * event's stand-down has nowhere to be seen, so it stays on stderr alone.
+ */
+const SAYS_SO_HOOKS: readonly HookName[] = ["session-start", "user-prompt-submit"];
+
+/**
+ * WHAT THE STAND-DOWN PATH KNOWS ABOUT THIS EVENT SO FAR.
+ *
+ * Filled in as `main` learns each fact, because a fault can arrive before any of
+ * them is known: an unopenable store throws after the configuration is read, a
+ * refused configuration throws before there is a store to mark anything in.
+ */
+interface Said {
+  readonly hook: HookName;
+  readonly sessionId: string;
+  /** The store this run meant to use, once a configuration named one. */
+  dataDir: string | undefined;
+  /**
+   * TRUE once anything has gone to stdout. Nothing may follow it: the host reads
+   * stdout as JSON only when the WHOLE of it parses, so a JSON object printed
+   * after the wake would turn the wake into plain text and inject the warning
+   * into the model's context instead of showing it to the owner.
+   */
+  wroteStdout: boolean;
+}
+
+/**
+ * ONE LINE ON STDERR ALWAYS — AND, WHEN THIS WAS A FAULT, ONE RED LINE WHERE
+ * THE OWNER WILL SEE IT.
+ *
+ * Exit code is untouched (0, always) and nothing else is injected: no wake, no
+ * context, just the `systemMessage` the host displays. `marker` is false for the
+ * two configuration refusals — the first has no store at all, and the second
+ * stands down precisely so as not to touch the DEFAULT store's host state on the
+ * way out (see its call site) — so those say it every turn rather than leaving a
+ * file behind. `standdown.ts` states why saying it again beats saying nothing.
+ */
+function standDown(
+  said: Said,
+  what: { readonly line: string; readonly fault: StandDownFault | null; readonly marker: boolean },
+): void {
+  process.stderr.write(`[counterparts] hook stood down: ${what.line}\n`);
+  const fault = what.fault;
+  if (fault === null) return;
+  if (!SAYS_SO_HOOKS.includes(said.hook) || said.wroteStdout) return;
+  // SessionStart always says it; UserPromptSubmit fires every turn, so it says
+  // it only while this session has not been told.
+  const dataDir = what.marker ? said.dataDir : undefined;
+  if (said.hook === "user-prompt-submit" && toldThisSession(dataDir, said.sessionId)) return;
+  process.stdout.write(JSON.stringify({ systemMessage: standDownMessage(fault) }));
+  said.wroteStdout = true;
+  noteTold(dataDir, said.sessionId, fault, said.hook);
+}
+
+/**
+ * A configuration refusal as a REASON clause. `config-path.ts` writes its
+ * sentences to stand alone on stderr, so each opens with `refused: ` — which
+ * inside this message would read "memory is OFF for this session: refused: …".
+ * Said once.
+ */
+function refusalReason(sentence: string): string {
+  const opener = "refused: ";
+  return sentence.startsWith(opener) ? sentence.slice(opener.length) : sentence;
+}
+
 async function main(): Promise<void> {
   let payload: Record<string, unknown> = {};
   try {
@@ -372,6 +448,36 @@ async function main(): Promise<void> {
   // than guessed. A caller who named one and named it badly gets a stand-down,
   // never a silent fall-back onto the default store (`config-path.ts`).
   const choice = hookConfigChoice();
+  const said: Said = {
+    hook: name,
+    sessionId: typeof payload["session_id"] === "string" ? payload["session_id"] : "",
+    dataDir: undefined,
+    wroteStdout: false,
+  };
+  // THE FAULT HANDLER, HERE RATHER THAN AT THE ENTRY POINT, because this is
+  // where the event's own facts are in scope — which hook, which session, which
+  // store — and all three are needed to say a stand-down out loud once. The
+  // entry point's handler below stays exactly what it was: the last resort for
+  // anything that fails before any of this is known.
+  try {
+    await runHook(name, payload, choice, said);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const remedy = `Set "dataDir" in ${choice.path}, or set ${DATA_DIR_ENV}.`;
+    standDown(said, {
+      line: describeGuardRefusal(err, remedy) ?? detail,
+      fault: classifyStandDown(err),
+      marker: true,
+    });
+  }
+}
+
+async function runHook(
+  name: HookName,
+  payload: Record<string, unknown>,
+  choice: ConfigChoice,
+  said: Said,
+): Promise<void> {
   // `namedConfigRefusal` covers the flag's own refusals AND the one the first
   // review of this rule found: an absolute path to a file that is not there was
   // honoured silently, read as an absent config, and fell through to `dataDir()`
@@ -382,9 +488,22 @@ async function main(): Promise<void> {
   // `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` an UNNAMED configuration stands the
   // hook down too, because the default one names a store. The live host never
   // sets it, so the no-flag, no-env case there resolves exactly what it did.
-  const refusal = namedConfigRefusal(choice) ?? implicitConfigRefusal(choice);
+  //
+  // ONE OF THE TWO IS A FAULT AND THE OTHER IS NOT. A configuration somebody
+  // NAMED and that could not be honoured is the third of the three invisible
+  // stand-downs H1 is about — a typo, and the adapter is off with nothing said.
+  // The guard's refusal keeps the treatment it has: it is the normal state of
+  // every agent and test shell in this project, and a red line in each of them
+  // is how a warning becomes wallpaper (`standdown.ts#isDeliberate`).
+  const named = namedConfigRefusal(choice);
+  const refusal = named ?? implicitConfigRefusal(choice);
   if (refusal !== null) {
-    process.stderr.write(`[counterparts] hook stood down: ${refusal}\n`);
+    // No marker: nothing has named a store yet, so there is nowhere to keep one.
+    standDown(said, {
+      line: refusal,
+      fault: named === null ? null : { code: CONFIG_REFUSED, reason: refusalReason(named) },
+      marker: false,
+    });
     return;
   }
   // WHICH DIRECTORY, AND WHAT THIS HOST WAS TOLD ABOUT IT — decided here,
@@ -434,9 +553,20 @@ async function main(): Promise<void> {
   // DEFAULT is unchanged — observer, as it always was.
   const unreadable = namedUnreadableRefusal(choice, reason);
   if (unreadable !== null) {
-    process.stderr.write(`[counterparts] hook stood down: ${unreadable}\n`);
+    // Said out loud, and with NO marker: `hostConfig` has already resolved
+    // `dataDir` to the DEFAULT store, and leaving a file under it is exactly the
+    // host state this stand-down exists to keep its hands off. So it says it
+    // every turn instead — the cost of not touching a store this run refused.
+    standDown(said, {
+      line: unreadable,
+      fault: { code: CONFIG_UNREADABLE, reason: refusalReason(unreadable) },
+      marker: false,
+    });
     return;
   }
+  // From here the configuration was understood, so the store it names is the one
+  // a stand-down may leave its once-per-session mark under.
+  said.dataDir = loaded.dataDir;
   // THE SESSION'S OWN DIRECTORY — the one everything this event captures will be
   // FILED under, whatever directory the agent's shell has wandered into. It is
   // resolved here rather than above because its first source is the session
@@ -505,7 +635,13 @@ async function main(): Promise<void> {
     // "the terminal said nothing" and "there was nothing to say" are different
     // facts about the same morning (scar §2.4).
     if (delivery.dropped !== null) adapter.noteNoticeDropped(delivery.dropped);
-    if (delivery.stdout.length > 0) process.stdout.write(delivery.stdout);
+    if (delivery.stdout.length > 0) {
+      process.stdout.write(delivery.stdout);
+      // Recorded, not inferred: a fault thrown after this point (the close in
+      // the `finally` below is inside the same try) may not print a second
+      // object, or the wake stops being JSON and lands in the model's context.
+      said.wroteStdout = true;
+    }
     if (delivery.stderr.length > 0) process.stderr.write(delivery.stderr);
     process.exitCode = delivery.exitCode;
   } finally {
