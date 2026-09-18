@@ -3,6 +3,9 @@
 Read-only diagnosis. No code changed, no store written. Live store read only through
 `sqlite3 -readonly "file:…/operational.sqlite?immutable=1"`; counts and aggregates only.
 
+> **2026-09-18 — do not reuse this recipe once the store is in WAL mode (F1, PR #137).** `?immutable=1` makes SQLite ignore the `-wal`, so every query reads the database as of the last checkpoint — silently short, no error (proved in `docs/adversarial-review-f1-2026-09-18.md`). Use plain `sqlite3 -readonly <path>`. What is written here is what was run at the time, under DELETE mode, where it was right.
+
+
 ---
 
 ## The answer, plainly

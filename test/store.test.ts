@@ -9,7 +9,15 @@
  * "it threw".
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -47,7 +55,7 @@ import {
   vectorFormats,
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
-import { openDb } from "../src/core/store/db.js";
+import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../src/core/store/db.js";
 // The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
 // the seam's copy of it is pinned equal rather than hoped equal.
 import { MERGE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
@@ -57,6 +65,29 @@ const STORE_SRC = fileURLToPath(new URL("../src/core/store/", import.meta.url));
 let dir: string;
 let priorEnv: string | undefined;
 const open: Store[] = [];
+/** Temp directories OUTSIDE the store, removed with it. A file inside the data
+ *  dir would be an unclassified top-level path and the next open would refuse. */
+const scratches: string[] = [];
+
+/**
+ * The canonical database AS IT STANDS: the file AND its `-wal`. Under WAL a
+ * commit lives in the sidecar until a checkpoint moves it into the file, so a
+ * compare of the file alone would pass over exactly the write these tests watch
+ * for.
+ */
+function databaseBytes(path: string): string {
+  const wal = `${path}-wal`;
+  return [
+    readFileSync(path).toString("base64"),
+    existsSync(wal) ? readFileSync(wal).toString("base64") : "",
+  ].join("|");
+}
+
+function scratch(): string {
+  const at = mkdtempSync(join(tmpdir(), "counterparts-scratch-"));
+  scratches.push(at);
+  return at;
+}
 
 function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
   const s = Store.open(opts);
@@ -100,6 +131,7 @@ afterEach(() => {
     }
   }
   rmSync(dir, { recursive: true, force: true });
+  for (const at of scratches.splice(0)) rmSync(at, { recursive: true, force: true });
   if (priorEnv === undefined) delete process.env[DATA_DIR_ENV];
   else process.env[DATA_DIR_ENV] = priorEnv;
 });
@@ -1150,7 +1182,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     writer.advanceClock("2026-08-25");
     writer.close();
     open.length = 0;
-    const before = readFileSync(paths.operational(dir));
+    const before = databaseBytes(paths.operational(dir));
 
     const instrument = store({ observer: true });
     expect(instrument.list().length).toBe(1);
@@ -1162,7 +1194,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // upserts on EVERY open, which takes SQLite's write lock — so an instrument
     // could be refused, or refuse someone else, purely by opening. A live
     // `counterparts backup` threw "database is locked" that way.
-    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
   });
 
   test("a writer opening a current store does not rewrite it either", () => {
@@ -1170,10 +1202,10 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     first.put(mem("already here"));
     first.close();
     open.length = 0;
-    const before = readFileSync(paths.operational(dir));
+    const before = databaseBytes(paths.operational(dir));
     store().close();
     open.length = 0;
-    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
   });
 
   test("a store BELOW the read floor refuses under observer rather than migrating itself", () => {
@@ -1209,13 +1241,13 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     writer.setMeta("schemaVersion", String(OBSERVER_READ_FLOOR));
     writer.close();
     open.length = 0;
-    const before = readFileSync(paths.operational(dir));
+    const before = databaseBytes(paths.operational(dir));
     const observer = store({ observer: true });
     expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
     expect(observer.read(id).doc.body).toBe("readable through a v5 instrument while still v4");
     observer.close();
     open.length = 0;
-    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
     // The writer that follows migrates it, as before.
     expect(store().getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
@@ -1437,6 +1469,433 @@ describe("layout", () => {
     const s = store();
     writeFileSync(join(dir, "surprise-sidecar.json"), "{}", "utf8");
     expect(code(() => s.assertLayout())).toBe("LAYOUT_UNCLASSIFIED");
+  });
+});
+
+// ── WAL, the busy timeout, and I39 ───────────────────────────────────────────
+
+/**
+ * Several processes hold this one small database open at once — the session
+ * hooks, a long-running MCP server, the nightly worker, the dashboard — and
+ * "database is locked" (I38/I39) is what that cost in DELETE mode with the busy
+ * timeout set LAST, after the journal-mode statement it was there to protect.
+ *
+ * Written against the deploy: the live store is a v5 file in DELETE mode with a
+ * server holding an open handle on it. So the cases that matter are the flip
+ * happening underneath that handle, the flip being refused, and what a
+ * read-only instrument can still open afterwards.
+ *
+ * TWO MEASURED FACTS SHAPE THESE FIXTURES, both bun:sqlite 1.3:
+ *   - `close()` does not release the file to this PROCESS — a closed connection
+ *     still holds the exclusive lock WAL → DELETE needs, so a store is put back
+ *     into DELETE mode by copying it, not by a pragma.
+ *   - unlinking a `-shm` a handle in this process has mapped poisons the next
+ *     open here (`SQLITE_IOERR_VNODE`) and nothing in another process. So the
+ *     one question that follows a deleted sidecar is asked in a fresh process.
+ */
+describe("WAL, the busy timeout, and I39", () => {
+  const opPath = (): string => paths.operational(dir);
+
+  /**
+   * A real v5 store standing in DELETE mode, the way the live one stands before
+   * this deploys. Built with `VACUUM INTO`, which writes a fresh database in the
+   * default journal mode — see the note above on why the pragma cannot.
+   */
+  function deleteModeStore(): string {
+    const seeded = store();
+    seeded.close();
+    open.length = 0;
+    const at = scratch();
+    const src = openDb(opPath());
+    try {
+      src.exec(`VACUUM INTO '${paths.operational(at)}'`);
+    } finally {
+      src.close();
+    }
+    // Box 3 as well: an old-build store has both in DELETE, and which of the two
+    // an instrument may convert is a real distinction (see the box-3 test).
+    mkdirSync(paths.cacheDir(at), { recursive: true });
+    const box3 = openDb(paths.cache(dir));
+    try {
+      box3.exec(`VACUUM INTO '${paths.cache(at)}'`);
+    } finally {
+      box3.close();
+    }
+    expect({
+      box2: journalModeOf(paths.operational(at)),
+      box3: journalModeOf(paths.cache(at)),
+    }).toEqual({ box2: "delete", box3: "delete" });
+    return at;
+  }
+
+  /** Ask this file a question in a process that has never opened it. */
+  async function inFreshProcess(source: string): Promise<string> {
+    const script = join(scratch(), "child.ts");
+    writeFileSync(script, source, "utf8");
+    const child = Bun.spawn([process.execPath, "run", script], { stdout: "pipe", stderr: "pipe" });
+    const out = await new Response(child.stdout).text();
+    const err = await new Response(child.stderr).text();
+    await child.exited;
+    return `${out}${err}`.trim();
+  }
+
+  test("busy_timeout is set FIRST, before every other pragma (I39)", () => {
+    // The order is the fix: every statement after it can contend for a lock, and
+    // without the timeout SQLite fails them instantly instead of waiting. The
+    // journal-mode statement used to run in that gap.
+    const src = readFileSync(join(STORE_SRC, "db.ts"), "utf8");
+    const body = src.slice(src.indexOf("export function openDb("));
+    expect([...body.matchAll(/PRAGMA (\w+)/g)].map((m) => m[1])).toEqual([
+      "busy_timeout",
+      "foreign_keys",
+      "synchronous",
+    ]);
+    // …with the journal-mode decision between the second and the fourth.
+    expect(body.indexOf("convertToWal(db)")).toBeGreaterThan(body.indexOf("PRAGMA foreign_keys"));
+    expect(body.indexOf("convertToWal(db)")).toBeLessThan(body.indexOf("PRAGMA synchronous"));
+
+    // And the connection really carries it.
+    const db = openDb(join(scratch(), "probe.sqlite"));
+    expect(db.get<{ timeout: number }>("PRAGMA busy_timeout")?.timeout).toBe(BUSY_TIMEOUT_MS);
+    db.close();
+  });
+
+  test("a WRITER converts the file to WAL; an INSTRUMENT opening a DELETE store leaves it alone", () => {
+    store().close();
+    open.length = 0;
+    expect(journalModeOf(opPath())).toBe("wal");
+    // Read before set: the second writer open rewrites nothing.
+    const before = databaseBytes(opPath());
+    store().close();
+    open.length = 0;
+    expect(databaseBytes(opPath())).toEqual(before);
+
+    // The observer rule (§5): changing the journal mode is a write at open, and
+    // an instrument converting the file it came to read is the same wrong as
+    // running the DDL under it.
+    const at = deleteModeStore();
+    const instrument = Store.open({ dir: at, observer: true });
+    expect(instrument.list()).toEqual([]);
+    instrument.close();
+    expect(journalModeOf(paths.operational(at))).toBe("delete");
+
+    // The next WRITER converts it.
+    Store.open({ dir: at }).close();
+    expect(journalModeOf(paths.operational(at))).toBe("wal");
+  });
+
+  test("a second handle WAITS for a held write lock instead of failing instantly", async () => {
+    const s = store();
+    s.put(mem("something for the lock to be held over"));
+    s.close();
+    open.length = 0;
+
+    // The lock is held from ANOTHER PROCESS, because bun:sqlite blocks the
+    // thread: a timer in this one could never release it.
+    const at = scratch();
+    const script = join(at, "holder.ts");
+    const marker = join(at, "held");
+    writeFileSync(
+      script,
+      [
+        `import { Database } from "bun:sqlite";`,
+        `import { writeFileSync } from "node:fs";`,
+        `const [path, marker, holdMs] = process.argv.slice(2) as [string, string, string];`,
+        `const db = new Database(path);`,
+        `db.exec("PRAGMA busy_timeout = 0");`,
+        `db.exec("BEGIN IMMEDIATE");`,
+        `db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('f1-holder', 'held')");`,
+        `writeFileSync(marker, "held");`,
+        `await Bun.sleep(Number(holdMs));`,
+        `db.exec("ROLLBACK");`,
+        `db.close();`,
+      ].join("\n"),
+      "utf8",
+    );
+    const child = Bun.spawn([process.execPath, "run", script, opPath(), marker, "700"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      const deadline = Date.now() + 5000;
+      while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(10);
+      expect(existsSync(marker)).toBe(true);
+
+      // The control, and the shape of the bug: a connection that will not wait
+      // fails at once. This is what every pragma at open used to do.
+      const { Database } = await import("bun:sqlite");
+      const impatient = new Database(opPath());
+      impatient.exec("PRAGMA busy_timeout = 0");
+      const instantStart = Date.now();
+      let refusedInstantly = false;
+      try {
+        impatient.exec("BEGIN IMMEDIATE");
+      } catch {
+        refusedInstantly = true;
+      } finally {
+        impatient.close();
+      }
+      expect({ refusedInstantly, fast: Date.now() - instantStart < 300 }).toEqual({
+        refusedInstantly: true,
+        fast: true,
+      });
+
+      // The store's own handle waits for the holder, then writes.
+      const patient = openDb(opPath());
+      const waitStart = Date.now();
+      patient.transaction(() => {
+        patient.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "f1-waited", "1");
+      });
+      const waited = Date.now() - waitStart;
+      expect(patient.get<{ value: string }>("SELECT value FROM meta WHERE key = 'f1-waited'")?.value).toBe("1");
+      patient.close();
+      // It waited — and it went as soon as the lock cleared, rather than sitting
+      // out the whole five seconds.
+      expect({ waited: waited > 100, promptly: waited < BUSY_TIMEOUT_MS }).toEqual({
+        waited: true,
+        promptly: true,
+      });
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  });
+
+  test("THE DEPLOY: a handle opened in DELETE mode reads AND writes after another flips the file to WAL", () => {
+    const at = deleteModeStore();
+    const path = paths.operational(at);
+
+    // The long-running process — the MCP server — opens the store as it stands
+    // and goes idle.
+    const longLived = openDb(path);
+    expect(longLived.get<{ n: number }>("SELECT COUNT(*) AS n FROM meta")?.n).toBeGreaterThan(0);
+
+    // The deploy: the next writer open converts the file underneath it.
+    const flipper = openDb(path, { wal: true });
+    flipper.transaction(() => {
+      flipper.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "after-flip", "1");
+    });
+    flipper.close();
+    expect(journalModeOf(path)).toBe("wal");
+
+    // The handle that predates the flip sees the new row and writes its own.
+    expect(longLived.get<{ value: string }>("SELECT value FROM meta WHERE key = 'after-flip'")?.value).toBe("1");
+    longLived.transaction(() => {
+      longLived.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "idle-handle-wrote", "1");
+    });
+    expect(longLived.get<{ value: string }>("SELECT value FROM meta WHERE key = 'idle-handle-wrote'")?.value).toBe(
+      "1",
+    );
+    longLived.close();
+  });
+
+  test("a conversion that cannot take the lock leaves the open standing, and does not stall it", async () => {
+    const at = deleteModeStore();
+    const path = paths.operational(at);
+
+    const { Database } = await import("bun:sqlite");
+    const holder = new Database(path);
+    holder.exec("PRAGMA busy_timeout = 0");
+    holder.exec("BEGIN IMMEDIATE");
+    holder.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('f1-holder', 'held')");
+
+    const started = Date.now();
+    const opened = openDb(path, { wal: true });
+    const elapsed = Date.now() - started;
+    // SQLite does not run the busy handler for a journal-mode change: it refuses
+    // in about a millisecond rather than after the five-second wait. So a hook
+    // opening mid-commit neither throws nor hangs — it works in the old mode.
+    expect({ quick: elapsed < 1000, mode: journalModeOf(path) }).toEqual({ quick: true, mode: "delete" });
+    expect(opened.get<{ n: number }>("SELECT COUNT(*) AS n FROM meta")?.n).toBeGreaterThan(0);
+    opened.close();
+
+    holder.exec("ROLLBACK");
+    holder.close();
+
+    // Nothing is stuck: the next open converts it.
+    openDb(path, { wal: true }).close();
+    expect(journalModeOf(path)).toBe("wal");
+  });
+
+  test("the first instrument open converts BOX 3 — and leaves box 2 exactly as it stands", () => {
+    // The one write an observer open DOES make on a store built by the previous
+    // build, named here rather than discovered on the live one. Box 3 is
+    // declared rebuildable and the constructor already materializes its
+    // directory under an instrument; box 2 is canonical, so nothing touches it
+    // until a writer comes.
+    const at = deleteModeStore();
+    const instrument = Store.open({ dir: at, observer: true });
+    expect(instrument.list()).toEqual([]);
+    instrument.close();
+    expect({
+      box2: journalModeOf(paths.operational(at)),
+      box3: journalModeOf(paths.cache(at)),
+    }).toEqual({ box2: "delete", box3: "wal" });
+
+    // And it happens ONCE: the mode is read before it is set, so the next
+    // instrument open moves no byte of box 3 either.
+    const before = databaseBytes(paths.cache(at));
+    Store.open({ dir: at, observer: true }).close();
+    expect(databaseBytes(paths.cache(at))).toEqual(before);
+  });
+
+  test("a READER makes the converting open WAIT, and it converts when the read ends", async () => {
+    // The other arm of the test above, and the correction to what that one used
+    // to claim for both: SQLite skips the busy handler for a journal-mode change
+    // only against a WRITER. Against a shared lock the handler DOES run, so the
+    // one converting open waits out the reader — up to `BUSY_TIMEOUT_MS` — and
+    // then converts. A reader that outlasts the timeout leaves the file as it
+    // was, which is the same wait the first WRITE would have paid under DELETE.
+    const at = deleteModeStore();
+    const path = paths.operational(at);
+    const scriptAt = scratch();
+    const script = join(scriptAt, "reader.ts");
+    const marker = join(scriptAt, "reading");
+    writeFileSync(
+      script,
+      [
+        `import { Database } from "bun:sqlite";`,
+        `import { writeFileSync } from "node:fs";`,
+        `const [path, marker, holdMs] = process.argv.slice(2) as [string, string, string];`,
+        `const db = new Database(path);`,
+        `db.exec("PRAGMA busy_timeout = 0");`,
+        `db.exec("BEGIN");`,
+        `db.prepare("SELECT COUNT(*) AS n FROM meta").get();`,
+        `writeFileSync(marker, "reading");`,
+        `await Bun.sleep(Number(holdMs));`,
+        `db.exec("ROLLBACK");`,
+        `db.close();`,
+      ].join("\n"),
+      "utf8",
+    );
+    const child = Bun.spawn([process.execPath, "run", script, path, marker, "600"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      const deadline = Date.now() + 5000;
+      while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(10);
+      expect(existsSync(marker)).toBe(true);
+
+      const started = Date.now();
+      openDb(path, { wal: true }).close();
+      const waited = Date.now() - started;
+      expect({ waited: waited > 100, mode: journalModeOf(path) }).toEqual({ waited: true, mode: "wal" });
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  });
+
+  test("a corrupt file still refuses loudly — only the LOCKED case is swallowed", () => {
+    const path = join(scratch(), "not-a-database.sqlite");
+    writeFileSync(path, "not a database", "utf8");
+    // The guard this protects is `verify --rebuild`'s: it counts vectors before
+    // it drops anything, and a handle onto an unreadable file would let it count
+    // zero and call that a clean rebuild.
+    expect(() => openDb(path, { wal: true })).toThrow();
+  });
+
+  test("a READ-ONLY open of a WAL store works — and what it costs when the sidecars are gone", async () => {
+    const { Database } = await import("bun:sqlite");
+    const s = store({ embed: fakeEmbed });
+    s.put(mem("read from a second process"));
+    s.close();
+    open.length = 0;
+    expect(journalModeOf(opPath())).toBe("wal");
+    expect({ wal: existsSync(`${opPath()}-wal`), shm: existsSync(`${opPath()}-shm`) }).toEqual({
+      wal: true,
+      shm: true,
+    });
+
+    // How `tools/parallel/readers.ts` opens a live store: read-only, on purpose.
+    const reader = new Database(opPath(), { readonly: true });
+    expect((reader.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n).toBe(1);
+    reader.close();
+
+    // THE ONE THING WAL COSTS A READER, pinned so it is known rather than met on
+    // a Tuesday: a read-only connection cannot CREATE the `-shm`, so a WAL
+    // database whose sidecars have been removed is unreadable to it (floor plan
+    // risk 1). Nothing in the product removes them; `sqlite3 <file> .quit` does
+    // — after checkpointing, which is why the checkpoint is part of the fixture:
+    // a `-wal` deleted BEFORE one takes the commits inside it with it.
+    const checkpoint = openDb(opPath());
+    checkpoint.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    checkpoint.close();
+    rmSync(`${opPath()}-wal`, { force: true });
+    rmSync(`${opPath()}-shm`, { force: true });
+    let refused = "";
+    let orphan: InstanceType<typeof Database> | null = null;
+    try {
+      orphan = new Database(opPath(), { readonly: true });
+      orphan.prepare("SELECT COUNT(*) AS n FROM memories").get();
+    } catch (err) {
+      refused = String((err as { code?: string }).code ?? (err as Error).message);
+    } finally {
+      try {
+        orphan?.close();
+      } catch {
+        /* it never opened */
+      }
+    }
+    expect(refused).toContain("SQLITE_CANTOPEN");
+
+    // And the repair is any ordinary open: every handle this codebase takes on
+    // box 2 is read-WRITE, the dashboard's and the census's included, which is
+    // why neither of them breaks — and why one of them puts the sidecars back.
+    expect(
+      await inFreshProcess(
+        [
+          `import { openDb } from ${JSON.stringify(join(STORE_SRC, "db.ts"))};`,
+          `import { Database } from "bun:sqlite";`,
+          `const path = ${JSON.stringify(opPath())};`,
+          `const rw = openDb(path);`,
+          `rw.get("SELECT COUNT(*) AS n FROM memories");`,
+          `rw.close();`,
+          `const ro = new Database(path, { readonly: true });`,
+          `console.log("rows:" + (ro.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n);`,
+          `ro.close();`,
+        ].join("\n"),
+      ),
+    ).toBe("rows:1");
+  });
+
+  test("the sidecars are classified, and `VACUUM INTO` still copies a consistent database", () => {
+    const s = store({ embed: fakeEmbed });
+    const id = s.put(mem("copied through SQLite's own snapshot path"));
+    // The `-wal`/`-shm` are on disk while the store is open, and `LAYOUT`'s
+    // database entry matches by PREFIX — so the store still opens (§5 G11).
+    expect(readdirSync(dir).filter((n) => n.startsWith("operational.sqlite-")).sort()).toEqual([
+      "operational.sqlite-shm",
+      "operational.sqlite-wal",
+    ]);
+    for (const name of readdirSync(dir)) {
+      expect({ name, classified: classifyTopLevel(name) !== undefined }).toEqual({ name, classified: true });
+    }
+    s.assertLayout();
+    expect(s.backupSet().sort()).toEqual(["operational.sqlite", "prose", "spans", "versions"]);
+
+    // The copy route `backup` and `export` take, with an uncommitted write held
+    // open across it — under WAL the committed row lives in the `-wal`, which is
+    // exactly what a raw file copy of the database alone would miss.
+    const holder = openDb(opPath());
+    holder.exec("BEGIN IMMEDIATE");
+    holder.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", "uncommitted", "never-visible");
+    const target = join(scratch(), "copy.sqlite");
+    const source = openDb(opPath());
+    source.exec(`VACUUM INTO '${target}'`);
+    source.close();
+    holder.exec("ROLLBACK");
+    holder.close();
+
+    const copy = openDb(target);
+    expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
+    expect(copy.get("SELECT value FROM meta WHERE key = ?", "uncommitted")).toBeUndefined();
+    // The copy is a plain database in its own right: `VACUUM INTO` writes the
+    // default journal mode, so a restored snapshot is converted by its first
+    // writer, exactly as the live store is.
+    expect(copy.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode).toBe("delete");
+    copy.close();
   });
 });
 

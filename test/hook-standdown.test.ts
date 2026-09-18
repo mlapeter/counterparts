@@ -37,19 +37,22 @@ import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/cl
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import {
+  BUSY_SESSION_START_MESSAGE,
+  BUSY_TURN_MESSAGE,
   CONFIG_REFUSED,
   STANDDOWN_REASON_MAX_CHARS,
   STANDDOWN_TAIL,
   classifyStandDown,
+  decideSay,
   describeFault,
   isDeliberate,
-  noteTold,
+  readMark,
   standDownMarkerPath,
   standDownMessage,
-  toldThisSession,
+  writeMark,
 } from "../src/adapters/claude-code/standdown.js";
 import { canonicalScopePath, scopesPath } from "../src/adapters/scopes.js";
-import { Store, StoreError } from "../src/core/store/index.js";
+import { Store, StoreError, isDatabaseSidecar } from "../src/core/store/index.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const BUDGET_BYTES = 9000;
@@ -159,11 +162,21 @@ function breakTheStore(dir: string, body: string): string {
   }
 }
 
-/** Every file under `dir`, by relative path, hashed by CONTENT. */
+/**
+ * Every file under `dir`, by relative path, hashed by CONTENT.
+ *
+ * The `-shm` is skipped and NOTHING else, the way master's suites do it since
+ * box 2 and box 3 went to WAL: it is the shared index every connection writes
+ * read-marks into, a read-only one included (`store/paths.ts#isDatabaseSidecar`).
+ * The `-wal` is hashed, because committed pages live in it until a checkpoint
+ * and a hash that skipped it would pass over exactly the write this is here to
+ * catch.
+ */
 function fingerprint(dir: string): Record<string, string> {
   const out: Record<string, string> = {};
   const walk = (at: string, prefix: string): void => {
     for (const name of readdirSync(at).sort()) {
+      if (isDatabaseSidecar(name)) continue;
       const full = join(at, name);
       const rel = prefix === "" ? name : `${prefix}/${name}`;
       if (statSync(full).isDirectory()) walk(full, rel);
@@ -236,6 +249,39 @@ describe("a store that will not open", () => {
     expect(record["event"]).toBe("session-start");
     expect(record["code"]).toBe("PROSE_FILE_MISSING");
     expect(typeof record["at"]).toBe("string");
+    expect(record["told"]).toBe(true);
+    expect(record["transient"]).toEqual({ count: 0, at: "", told: false });
+  });
+
+  test("the hook reads and rewrites the WHOLE mark, transient counters included", () => {
+    // The transient DISPLAY path cannot be driven from a test: a contended
+    // database is a race, and under WAL a reader is not blocked by a writer at
+    // all, so there is no way to schedule one. What a process CAN prove is the
+    // wiring either side of `decideSay` — that the hook reads the mark this
+    // session already has, and writes back what the rule decided — and the rule
+    // itself is proved exhaustively below, without a filesystem.
+    breakTheStore(store, "a belief the store holds");
+    mkdirSync(join(store, "sessions"), { recursive: true });
+    writeFileSync(
+      join(store, "sessions", "s-carry.standdown.json"),
+      `${JSON.stringify({
+        sessionId: "s-carry",
+        at: "2026-09-18T00:00:00.000Z",
+        event: "user-prompt-submit",
+        code: "HOOK_FAILED",
+        told: false,
+        transient: { count: 1, at: "2026-09-18T00:00:00.000Z", told: false },
+      })}\n`,
+      "utf8",
+    );
+    // A PERSISTENT fault: said, because this session has not been told one —
+    // and the busy count it inherited survives.
+    expect(systemMessage(runHook("UserPromptSubmit", "s-carry"))).toContain(SAID);
+    const after = readMark(store, "s-carry");
+    expect(after?.told).toBe(true);
+    expect(after?.transient.count).toBe(1);
+    // And now it is told, the next turn is quiet.
+    expect(runHook("UserPromptSubmit", "s-carry").stdout).toBe("");
   });
 
   test("a marker that cannot be written still shows the message, and throws nothing", () => {
@@ -486,35 +532,153 @@ describe("the stand-down vocabulary", () => {
   });
 
   test("anything that is not a StoreError is HOOK_FAILED and carries its message", () => {
-    expect(describeFault(new Error("database is locked"))).toEqual({
+    expect(describeFault(new Error("nothing like a lock"))).toEqual({
       code: "HOOK_FAILED",
-      reason: "database is locked",
+      reason: "nothing like a lock",
+      kind: "persistent",
     });
     expect(describeFault(new Error("   ")).reason.length).toBeGreaterThan(0);
   });
 
+  test("a busy database is TRANSIENT, under every spelling db.ts knows", () => {
+    for (const err of [
+      new Error("database is locked"),
+      new Error("database table is locked"),
+      Object.assign(new Error("whatever"), { code: "SQLITE_BUSY" }),
+      Object.assign(new Error("whatever"), { code: "SQLITE_LOCKED_SHAREDCACHE" }),
+      new StoreError("SQLITE_UNAVAILABLE", {}),
+    ]) {
+      const expected = err instanceof StoreError ? "persistent" : "transient";
+      expect(`${String(err.message)}: ${describeFault(err).kind}`).toBe(
+        `${String(err.message)}: ${expected}`,
+      );
+    }
+  });
+
   test("the message is capped, and the tail survives the cut", () => {
-    const message = standDownMessage({ code: "HOOK_FAILED", reason: "x".repeat(2000) });
+    const message = standDownMessage({
+      code: "HOOK_FAILED",
+      reason: "x".repeat(2000),
+      kind: "persistent",
+    });
     expect(message.length).toBeLessThan(STANDDOWN_REASON_MAX_CHARS + 120);
     expect(message).toEndWith(STANDDOWN_TAIL);
     expect(message).toContain("…");
   });
 
   test("a multi-line error message is collapsed to one line", () => {
-    const message = standDownMessage({ code: "HOOK_FAILED", reason: "one\n\ntwo\tthree " });
+    const message = standDownMessage({
+      code: "HOOK_FAILED",
+      reason: "one\n\ntwo\tthree ",
+      kind: "persistent",
+    });
     expect(message).toContain("one two three (HOOK_FAILED)");
     expect(message).not.toContain("\n");
   });
 
+  test("no transient message ever says OFF, and both name the busy database", () => {
+    for (const message of [BUSY_TURN_MESSAGE, BUSY_SESSION_START_MESSAGE]) {
+      expect(message).not.toContain("OFF");
+      expect(message).not.toContain("for this session");
+      expect(message).toContain("busy");
+      expect(message).toEndWith("If this keeps happening, run: counterparts doctor");
+    }
+    expect(BUSY_TURN_MESSAGE).toStartWith("Counterparts skipped this turn:");
+    expect(BUSY_SESSION_START_MESSAGE).toStartWith(
+      "Counterparts could not load memory at session start:",
+    );
+  });
+
   test("the marker helpers never throw, and answer false when they cannot", () => {
-    const fault = { code: "PROSE_FILE_MISSING", reason: "gone" };
-    expect(toldThisSession(undefined, "s1")).toBe(false);
-    expect(noteTold(undefined, "s1", fault, "session-start")).toBe(false);
+    const mark = {
+      sessionId: "s1",
+      at: "2026-09-18T00:00:00.000Z",
+      event: "session-start",
+      code: "PROSE_FILE_MISSING",
+      told: true,
+      transient: { count: 0, at: "", told: false },
+    };
+    expect(readMark(undefined, "s1")).toBeNull();
+    expect(writeMark(undefined, "s1", mark)).toBe(false);
     // An id that is not one path segment is never turned into a filename.
     expect(standDownMarkerPath(store, "../escape")).toBeNull();
-    expect(noteTold(store, "../escape", fault, "session-start")).toBe(false);
-    expect(noteTold(store, "s1", fault, "session-start")).toBe(true);
-    expect(toldThisSession(store, "s1")).toBe(true);
+    expect(writeMark(store, "../escape", mark)).toBe(false);
+    expect(readMark(store, "s-never-written")).toBeNull();
+    expect(writeMark(store, "s1", mark)).toBe(true);
+    expect(readMark(store, "s1")).toEqual(mark);
+  });
+
+  test("a mark written in the shape before the transient counters still reads", () => {
+    mkdirSync(join(store, "sessions"), { recursive: true });
+    writeFileSync(
+      join(store, "sessions", "s-old.standdown.json"),
+      `${JSON.stringify({ sessionId: "s-old", at: "t", event: "session-start", code: "X" })}\n`,
+      "utf8",
+    );
+    const mark = readMark(store, "s-old");
+    // The old shape was only ever written when a persistent line HAD been said.
+    expect(mark?.told).toBe(true);
+    expect(mark?.transient).toEqual({ count: 0, at: "", told: false });
+  });
+});
+
+// ── persistent and transient are decided apart ──────────────────────────────
+
+describe("the say rule", () => {
+  const busy = describeFault(new Error("database is locked"));
+  const broken = describeFault(new StoreError("PROSE_FILE_MISSING", { path: "/x" }));
+  const at = Date.parse("2026-09-18T12:00:00.000Z");
+
+  test("a persistent fault: SessionStart always, a prompt only while untold", () => {
+    const first = decideSay(broken, "session-start", "s", null, at);
+    expect(first.message).toContain("memory is OFF for this session");
+    expect(first.mark.told).toBe(true);
+    // A compaction re-fires SessionStart, and it says it again.
+    expect(decideSay(broken, "session-start", "s", first.mark, at).message).not.toBeNull();
+    expect(decideSay(broken, "user-prompt-submit", "s", first.mark, at).message).toBeNull();
+    const cold = decideSay(broken, "user-prompt-submit", "s", null, at);
+    expect(cold.message).toContain("memory is OFF for this session");
+  });
+
+  test("a busy database at a prompt: quiet the first time, said the second, then quiet", () => {
+    const one = decideSay(busy, "user-prompt-submit", "s", null, at);
+    expect(one.message).toBeNull();
+    expect(one.mark.transient).toEqual({ count: 1, at: new Date(at).toISOString(), told: false });
+
+    const two = decideSay(busy, "user-prompt-submit", "s", one.mark, at);
+    expect(two.message).toBe(BUSY_TURN_MESSAGE);
+    expect(two.mark.transient.count).toBe(2);
+    expect(two.mark.transient.told).toBe(true);
+
+    const three = decideSay(busy, "user-prompt-submit", "s", two.mark, at);
+    expect(three.message).toBeNull();
+    expect(three.mark.transient.count).toBe(3);
+  });
+
+  test("a busy database at SESSION START is said the first time: there is no wake at all", () => {
+    const first = decideSay(busy, "session-start", "s", null, at);
+    expect(first.message).toBe(BUSY_SESSION_START_MESSAGE);
+    expect(first.mark.transient).toEqual({ count: 1, at: new Date(at).toISOString(), told: true });
+    // And having been told once, the session is not told again.
+    expect(decideSay(busy, "user-prompt-submit", "s", first.mark, at).message).toBeNull();
+  });
+
+  test("the two are tracked APART: a persistent fault after a transient still says it", () => {
+    const one = decideSay(busy, "user-prompt-submit", "s", null, at);
+    const two = decideSay(busy, "user-prompt-submit", "s", one.mark, at);
+    expect(two.mark.told).toBe(false);
+    const then = decideSay(broken, "user-prompt-submit", "s", two.mark, at);
+    expect(then.message).toContain("memory is OFF for this session");
+    // …and the transient count it inherited is not lost.
+    expect(then.mark.transient.count).toBe(2);
+    expect(then.mark.told).toBe(true);
+  });
+
+  test("and a transient after a persistent fault stays quiet on its first turn", () => {
+    const told = decideSay(broken, "session-start", "s", null, at);
+    const one = decideSay(busy, "user-prompt-submit", "s", told.mark, at);
+    expect(one.message).toBeNull();
+    expect(one.mark.told).toBe(true);
   });
 });
 

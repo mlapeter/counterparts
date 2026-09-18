@@ -50,7 +50,8 @@ import {
   SWEEP_GATE_EVENT,
 } from "../../core/counterpart.js";
 import { Counterpart } from "../../core/counterpart.js";
-import { Store, dateOf, isStoreError } from "../../core/store/index.js";
+import { Store, dateOf, isStoreError, paths } from "../../core/store/index.js";
+import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
@@ -472,6 +473,14 @@ export interface OpenReading {
    * hook that follows it.
    */
   readonly migratable: boolean;
+  /**
+   * TRUE for the other refusal that is not a fault of the store: it was BUSY.
+   * Another process held it for the moment this reading wanted it, which says
+   * nothing about whether a session could open it a second later. Amber, and the
+   * fix is to ask again — the same judgement the hook's transient stand-down
+   * makes with the same predicate (`db.ts#isLocked`).
+   */
+  readonly busy: boolean;
   /** The path the error named, when it named one. Never memory text (§5 G10). */
   readonly path: string | null;
 }
@@ -487,7 +496,7 @@ export function readCounterpartOpen(
     // OBSERVER, because `doctor` is an instrument: it reads and never writes,
     // and an owner open of a store that is not there would MINT one.
     opened = open(dir);
-    return { dir, ok: true, code: null, reason: "", migratable: false, path: null };
+    return { dir, ok: true, code: null, reason: "", migratable: false, busy: false, path: null };
   } catch (err) {
     const fault = describeFault(err);
     return {
@@ -496,6 +505,7 @@ export function readCounterpartOpen(
       code: fault.code,
       reason: fault.reason,
       migratable: isStoreError(err, "STORE_UNINITIALIZED"),
+      busy: fault.kind === "transient",
       path: faultPath(err),
     };
   } finally {
@@ -1370,6 +1380,7 @@ function openFindings(reading: OpenReading): Finding[] {
     dir: reading.dir,
     ok: reading.ok,
     code: reading.code,
+    busy: reading.busy,
     path: reading.path,
   };
   if (reading.ok) {
@@ -1378,6 +1389,22 @@ function openFindings(reading: OpenReading): Finding[] {
     ];
   }
   const said = `${reading.dir}: will not open — ${reading.code ?? "?"}: ${reading.reason}`;
+  if (reading.busy) {
+    // NOT A STATE OF THE STORE. Another process held it for the moment this
+    // reading wanted it; a second later it may open perfectly. Grading that red
+    // would put an alarm on a race, which is how a diagnostic teaches its reader
+    // to skip a line.
+    return [
+      finding(
+        "store-open",
+        "amber",
+        "Store open",
+        `${reading.dir}: the database was busy right now, so the open was not graded`,
+        "Run: counterparts doctor again. If it stays busy, something is holding the store — read the Journal line.",
+        data,
+      ),
+    ];
+  }
   if (reading.migratable) {
     return [
       finding(
@@ -1405,6 +1432,36 @@ function openFindings(reading: OpenReading): Finding[] {
 }
 
 /** Coverage of the semantic channel — `verify`'s two census numbers, reused. */
+/**
+ * Which journal mode box 2 is actually in — the one surface on which a
+ * conversion that did not take becomes visible.
+ *
+ * `openDb` asks for WAL on a writer open and swallows a refusal, because a hook
+ * must not die because the worker happened to be committing (`store/db.ts`).
+ * That is right, and it is silent, so the MODE is the report. Reading it takes
+ * no lock and converts nothing: this is an observer's question, and the console
+ * that asks it is standing down.
+ */
+function journalFindings(store: Store): Finding[] {
+  const mode = journalModeOf(paths.operational(store.dir));
+  const data = { mode };
+  if (mode === "wal") {
+    return [
+      finding("journal", "green", "Journal mode", `wal (busy timeout ${BUSY_TIMEOUT_MS} ms)`, "", data),
+    ];
+  }
+  return [
+    finding(
+      "journal",
+      "amber",
+      "Journal mode",
+      `${mode}, not wal — several processes hold this store open at once, and only in wal does a reader never wait for the writer`,
+      "Open one session, or run any command that writes: the next writer open converts it. If it keeps reading this, something on an older build is opening the store and setting it back.",
+      data,
+    ),
+  ];
+}
+
 function vectorFindings(store: Store): Finding[] {
   const unembedded = store.unembeddedCount();
   const skipped = store.skippedVectorIds().length;
@@ -1461,6 +1518,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["clock", () => clockFindings(input, store)],
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
+    ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's

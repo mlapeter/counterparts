@@ -165,6 +165,16 @@ by reference only.
     on an explicit documented exclusion list. Adding a directory breaks the build until it
     is classified (scar §2.11 — v1 silently omitted the canonical episode journal from
     snapshots for three weeks).
+    *Note (2026-09-18, when the boxes went to WAL): the database entry classifies by PREFIX,
+    so `operational.sqlite-wal` and `-shm` are covered, and `backupSet()` is unchanged —
+    but* **`operational.sqlite` is no longer the database on its own.** *Pages committed
+    since the last checkpoint live in the `-wal`, so a copy of the file alone opens and is
+    silently short, and deleting a `-wal` deletes what is inside it. The copies that are
+    whole are `counterparts backup` and `export` — both `VACUUM INTO`, whose output is a
+    plain DELETE-mode database readable on any medium by any build — or a copy of the whole
+    directory, sidecars included. For the same reason `sqlite3 "file:…?immutable=1"` reads
+    the store as of the last checkpoint and says nothing; plain `-readonly` is right. What
+    is true for now, not a rule: `store/NOTES.md` carries the measurements.*
 12. **[A] Raw conversational text is not the system of record.** The shipped default keeps
     none; where a developer opts in, the window is as short as the retry path needs.
 13. **[M] Reads of archived, superseded, and removal-record content emit an event.** v1

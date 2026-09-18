@@ -32,6 +32,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isLocked } from "../../core/store/db.js";
 import { isStoreError } from "../../core/store/index.js";
 import type { StoreErrorCode } from "../../core/store/index.js";
 import { SESSIONS_DIR, isSessionId } from "../sessions.js";
@@ -51,12 +52,30 @@ export const STANDDOWN_TAIL = "Run: counterparts doctor";
  */
 export const STANDDOWN_REASON_MAX_CHARS = 200;
 
+/**
+ * WHICH KIND OF FAULT — and the distinction is not cosmetic, it is what keeps
+ * this from becoming wallpaper.
+ *
+ *   - `persistent` — the store will not open, or the configuration cannot be
+ *     honoured. It will be exactly as broken next turn, and the session has no
+ *     memory until somebody fixes it.
+ *   - `transient` — the database was BUSY: another process held it for the
+ *     moment this hook wanted it (`db.ts#isLocked`, which is also what F1's
+ *     WAL conversion swallows). The turn really did nothing, and the next one
+ *     will probably be fine. Measured on a fresh store on 2026-09-18, before
+ *     WAL: roughly one prompt in ten. A line that says "memory is OFF for this
+ *     session" about that is both untrue and, at that rate, a line people learn
+ *     to scroll past.
+ */
+export type StandDownKind = "persistent" | "transient";
+
 /** A stand-down worth saying out loud: a stable code, and plain words for it. */
 export interface StandDownFault {
   /** A `StoreErrorCode`, or one of this file's own for a non-store failure. */
   readonly code: string;
   /** One clause of plain words. Never memory text; a path is allowed. */
   readonly reason: string;
+  readonly kind: StandDownKind;
 }
 
 /** The configuration a caller NAMED could not be honoured (`config-path.ts`). */
@@ -122,11 +141,20 @@ export const OPEN_FAILED_WORDS = "the store would not open";
  * `doctor` still has to name even though the hook stays quiet about them.
  */
 export function describeFault(err: unknown): StandDownFault {
+  // BUSY FIRST, because a contended database arrives under several spellings —
+  // a bare `Error` from either driver, or a `StoreError` wrapping one — and
+  // which class it is says nothing about whether it will still be true next
+  // turn. `isLocked` is `db.ts`'s own test, imported rather than mirrored.
+  const kind: StandDownKind = isLocked(err) ? "transient" : "persistent";
   if (isStoreError(err)) {
-    return { code: err.code, reason: PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS };
+    return { code: err.code, reason: PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS, kind };
   }
   const message = err instanceof Error ? err.message : String(err);
-  return { code: HOOK_FAILED, reason: message.trim().length === 0 ? OPEN_FAILED_WORDS : message };
+  return {
+    code: HOOK_FAILED,
+    reason: message.trim().length === 0 ? OPEN_FAILED_WORDS : message,
+    kind,
+  };
 }
 
 /** The fault to SAY, or null when this stand-down is one of the quiet ones. */
@@ -171,64 +199,179 @@ export function standDownMessage(fault: StandDownFault): string {
   return `Counterparts memory is OFF for this session: ${said} (${fault.code}). ${STANDDOWN_TAIL}`;
 }
 
+/**
+ * THE TWO THINGS A BUSY DATABASE SAYS, and neither of them says OFF.
+ *
+ * A lock at a PROMPT costs that turn: no recall was composed, nothing was
+ * captured, and the next turn is very likely fine. A lock at SESSION START
+ * costs the whole session's wake — nothing was injected and nothing will be,
+ * because SessionStart does not come round again — so it is not a blip and is
+ * said the first time it happens. Both are fixed sentences: there is exactly one
+ * cause, and an error message adds nothing a reader can act on.
+ */
+export const BUSY_TURN_MESSAGE =
+  "Counterparts skipped this turn: the memory database was busy (database is locked). " +
+  "If this keeps happening, run: counterparts doctor";
+
+export const BUSY_SESSION_START_MESSAGE =
+  "Counterparts could not load memory at session start: the memory database was busy. " +
+  "This session has no wake; recall will work once the database is free. " +
+  "If this keeps happening, run: counterparts doctor";
+
 // ── saying it once per session ──────────────────────────────────────────────
 
 /**
- * WHERE "THIS SESSION HAS BEEN TOLD" LIVES, and why it is a file.
+ * WHAT THIS SESSION HAS ALREADY BEEN TOLD, and why it is a file.
  *
  * A store that will not open cannot remember anything, and `UserPromptSubmit`
- * fires every turn — so without a mark the owner would get the same red line on
+ * fires every turn — so without a mark the owner would get the same line on
  * every prompt for the rest of the session, which is how a warning becomes
  * wallpaper. The mark therefore has to survive in something that does not need
  * the database: `<dataDir>/sessions/`, where `adapters/sessions.ts` already
  * keeps one small file per session and `adapters/expansions.ts` keeps its own.
- * It is host state, never memory (constitution 5) — an id, a time, an event name
- * and a code.
+ * It is host state, never memory (constitution 5) — an id, times, an event name,
+ * a code and two counters.
  *
- * Everything here swallows its own failures. An unwritable marker means the
+ * THE TWO KINDS ARE TRACKED APART. A session that met a busy database and then
+ * met a store that will not open has learned two different things, and the
+ * second has to be said whether or not the first was.
+ *
+ * Everything here swallows its own failures. An unwritable mark means the
  * message is said again next turn, which is the fail direction this whole track
  * is about: repeating is noise, and silence is I32.
  */
 export const STANDDOWN_MARKER_SUFFIX = ".standdown.json";
+
+export interface StandDownMark {
+  readonly sessionId: string;
+  /** When the last stand-down of this session was recorded, ISO. */
+  readonly at: string;
+  /** The event and code of that last one — facts, for the durable row (3) owes. */
+  readonly event: string;
+  readonly code: string;
+  /** A PERSISTENT stand-down has been said out loud in this session. */
+  readonly told: boolean;
+  /** The busy-database story: how many this session has met, when the last one
+   *  was, and whether one has been said. */
+  readonly transient: { readonly count: number; readonly at: string; readonly told: boolean };
+}
 
 export function standDownMarkerPath(dataDir: string, sessionId: string): string | null {
   if (!isSessionId(sessionId)) return null;
   return join(dataDir, SESSIONS_DIR, `${sessionId}${STANDDOWN_MARKER_SUFFIX}`);
 }
 
-/** Has this session already been told? False on every failure, and on a session
- *  whose store nobody could name — "say it again" beats "say nothing". */
-export function toldThisSession(dataDir: string | undefined, sessionId: string): boolean {
-  if (dataDir === undefined || dataDir.length === 0) return false;
+/**
+ * The mark, or null on every failure — absent, unreadable, no store named.
+ *
+ * TOLERANT OF THE SHAPE BEFORE THIS ONE, which carried no `told` and no
+ * `transient`: a file existing at all meant a persistent line had been said, so
+ * that is what an absent `told` reads as. A field that is not the type it should
+ * be reads as its own zero rather than rejecting the whole record; the worst a
+ * wrong guess costs is one repeated line.
+ */
+export function readMark(dataDir: string | undefined, sessionId: string): StandDownMark | null {
+  if (dataDir === undefined || dataDir.length === 0) return null;
   const path = standDownMarkerPath(dataDir, sessionId);
-  if (path === null) return false;
+  if (path === null) return null;
+  let raw: unknown;
   try {
-    return readFileSync(path, "utf8").trim().length > 0;
+    raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {
-    return false;
+    return null;
   }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const t = rec["transient"];
+  const trans = t !== null && typeof t === "object" ? (t as Record<string, unknown>) : {};
+  return {
+    sessionId: typeof rec["sessionId"] === "string" ? rec["sessionId"] : sessionId,
+    at: typeof rec["at"] === "string" ? rec["at"] : "",
+    event: typeof rec["event"] === "string" ? rec["event"] : "",
+    code: typeof rec["code"] === "string" ? rec["code"] : "",
+    told: rec["told"] === undefined ? true : rec["told"] === true,
+    transient: {
+      count: typeof trans["count"] === "number" ? trans["count"] : 0,
+      at: typeof trans["at"] === "string" ? trans["at"] : "",
+      told: trans["told"] === true,
+    },
+  };
 }
 
 /** Leave the mark. Returns whether it landed; never throws. */
-export function noteTold(
+export function writeMark(
   dataDir: string | undefined,
   sessionId: string,
-  fault: StandDownFault,
-  event: string,
-  at: number = Date.now(),
+  mark: StandDownMark,
 ): boolean {
   if (dataDir === undefined || dataDir.length === 0) return false;
   const path = standDownMarkerPath(dataDir, sessionId);
   if (path === null) return false;
   try {
     mkdirSync(join(dataDir, SESSIONS_DIR), { recursive: true });
-    writeFileSync(
-      path,
-      `${JSON.stringify({ sessionId, at: new Date(at).toISOString(), event, code: fault.code })}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
+    writeFileSync(path, `${JSON.stringify(mark)}\n`, { encoding: "utf8", mode: 0o600 });
     return true;
   } catch {
     return false;
   }
+}
+
+/** The two events the host DISPLAYS a `systemMessage` on. */
+export type SaysSoHook = "session-start" | "user-prompt-submit";
+
+/** What this event should print, and what the session should remember of it. */
+export interface SayDecision {
+  /** The message to display, or null to stay on stderr alone. */
+  readonly message: string | null;
+  /** The mark this event leaves. Written whether or not anything was said — a
+   *  transient nobody was told about is still one this session has met. */
+  readonly mark: StandDownMark;
+}
+
+/**
+ * WHETHER TO SAY IT, given what this session has already been told. Pure, so the
+ * rule is provable without a process and without a filesystem.
+ *
+ * **Persistent**: SessionStart always says it — a compaction re-fires that event
+ * and the owner has just had his terminal rewritten. UserPromptSubmit says it
+ * only while the session has not been told.
+ *
+ * **Transient**: at most once per session, and — at a PROMPT — only from the
+ * SECOND one. One blip is noise at the rate a contended database produced before
+ * F1's WAL conversion (roughly one prompt in ten, measured 2026-09-18); a repeat
+ * inside one session is a signal. The first is recorded in the mark and stays on
+ * stderr. SessionStart is the exception and says it the first time: a lock there
+ * means no wake was injected at all, and that event does not come round again.
+ */
+export function decideSay(
+  fault: StandDownFault,
+  hook: SaysSoHook,
+  sessionId: string,
+  prior: StandDownMark | null,
+  at: number = Date.now(),
+): SayDecision {
+  const now = new Date(at).toISOString();
+  const was = prior?.transient ?? { count: 0, at: "", told: false };
+  const base = {
+    sessionId,
+    at: now,
+    event: hook,
+    code: fault.code,
+    told: prior?.told === true,
+    transient: was,
+  };
+  if (fault.kind === "persistent") {
+    const say = hook === "session-start" || !base.told;
+    return { message: say ? standDownMessage(fault) : null, mark: { ...base, told: base.told || say } };
+  }
+  const count = was.count + 1;
+  const say = !was.told && (hook === "session-start" || count >= 2);
+  return {
+    message: say
+      ? hook === "session-start"
+        ? BUSY_SESSION_START_MESSAGE
+        : BUSY_TURN_MESSAGE
+      : null,
+    mark: { ...base, transient: { count, at: now, told: was.told || say } },
+  };
 }

@@ -45,11 +45,11 @@ import {
   CONFIG_REFUSED,
   CONFIG_UNREADABLE,
   classifyStandDown,
-  noteTold,
-  standDownMessage,
-  toldThisSession,
+  decideSay,
+  readMark,
+  writeMark,
 } from "../standdown.js";
-import type { StandDownFault } from "../standdown.js";
+import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
 
 /**
@@ -371,7 +371,12 @@ export function toHookInput(
  * owner's probe on 2026-09-11 and re-stated in `hostDelivery` below. Every other
  * event's stand-down has nowhere to be seen, so it stays on stderr alone.
  */
-const SAYS_SO_HOOKS: readonly HookName[] = ["session-start", "user-prompt-submit"];
+const SAYS_SO_HOOKS: readonly SaysSoHook[] = ["session-start", "user-prompt-submit"];
+
+/** Narrowed, so the say rule is written against the two events it is about. */
+function saysSo(hook: HookName): hook is SaysSoHook {
+  return (SAYS_SO_HOOKS as readonly HookName[]).includes(hook);
+}
 
 /**
  * WHAT THE STAND-DOWN PATH KNOWS ABOUT THIS EVENT SO FAR.
@@ -399,11 +404,16 @@ interface Said {
  * THE OWNER WILL SEE IT.
  *
  * Exit code is untouched (0, always) and nothing else is injected: no wake, no
- * context, just the `systemMessage` the host displays. `marker` is false for the
- * two configuration refusals — the first has no store at all, and the second
- * stands down precisely so as not to touch the DEFAULT store's host state on the
- * way out (see its call site) — so those say it every turn rather than leaving a
- * file behind. `standdown.ts` states why saying it again beats saying nothing.
+ * context, just the `systemMessage` the host displays. WHAT to say and WHETHER
+ * to say it is `standdown.ts#decideSay`'s, which is the rule that tells a store
+ * that will not open from a database that was merely busy; this function is the
+ * process end of it — the two channels, the mark, and the ordering.
+ *
+ * `marker` is false for the two configuration refusals — the first has no store
+ * at all, and the second stands down precisely so as not to touch the DEFAULT
+ * store's host state on the way out (see its call site) — so those keep no count
+ * and say it every turn. `standdown.ts` states why saying it again beats saying
+ * nothing.
  */
 function standDown(
   said: Said,
@@ -412,14 +422,15 @@ function standDown(
   process.stderr.write(`[counterparts] hook stood down: ${what.line}\n`);
   const fault = what.fault;
   if (fault === null) return;
-  if (!SAYS_SO_HOOKS.includes(said.hook) || said.wroteStdout) return;
-  // SessionStart always says it; UserPromptSubmit fires every turn, so it says
-  // it only while this session has not been told.
+  if (!saysSo(said.hook) || said.wroteStdout) return;
   const dataDir = what.marker ? said.dataDir : undefined;
-  if (said.hook === "user-prompt-submit" && toldThisSession(dataDir, said.sessionId)) return;
-  process.stdout.write(JSON.stringify({ systemMessage: standDownMessage(fault) }));
+  const decision = decideSay(fault, said.hook, said.sessionId, readMark(dataDir, said.sessionId));
+  // THE MARK IS WRITTEN EITHER WAY. A busy database nobody was told about is
+  // still one this session has met, and the count is what decides the next one.
+  writeMark(dataDir, said.sessionId, decision.mark);
+  if (decision.message === null) return;
+  process.stdout.write(JSON.stringify({ systemMessage: decision.message }));
   said.wroteStdout = true;
-  noteTold(dataDir, said.sessionId, fault, said.hook);
 }
 
 /**
@@ -501,7 +512,8 @@ async function runHook(
     // No marker: nothing has named a store yet, so there is nowhere to keep one.
     standDown(said, {
       line: refusal,
-      fault: named === null ? null : { code: CONFIG_REFUSED, reason: refusalReason(named) },
+      fault:
+        named === null ? null : { code: CONFIG_REFUSED, reason: refusalReason(named), kind: "persistent" },
       marker: false,
     });
     return;
@@ -559,7 +571,7 @@ async function runHook(
     // every turn instead — the cost of not touching a store this run refused.
     standDown(said, {
       line: unreadable,
-      fault: { code: CONFIG_UNREADABLE, reason: refusalReason(unreadable) },
+      fault: { code: CONFIG_UNREADABLE, reason: refusalReason(unreadable), kind: "persistent" },
       marker: false,
     });
     return;

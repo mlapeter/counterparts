@@ -783,10 +783,43 @@ instrument may not write at open, and the next hook running as owner initializes
 or migrates the same store — red would make the console lie for the window
 between a deploy and the first hook after it.
 
-**What this makes visible that was not a bug of its own.** I38 — `database is
-locked` when a hook meets a store another process holds — is a stand-down like
-any other, and it reaches UserPromptSubmit. Measured over 15 scripted sessions on
-a fresh store, 2026-09-18: 5 of 45 prompt events on `origin/master` (039cd5d) and
-3 of 45 on this branch wrote the stderr line, so the rate is the same and only
-the visibility is new. The marker bounds it to one line per session. It is not
-this change's fault and it is this change's most likely first sighting.
+**A fault is PERSISTENT or TRANSIENT, and the difference is what keeps this from
+becoming wallpaper.** The first draft said "memory is OFF for this session" about
+everything, and then measured what that would mean. I38 — `database is locked`
+when a hook meets a store another process holds — is a stand-down like any other
+and it reaches UserPromptSubmit: over 15 scripted sessions on a fresh store,
+2026-09-18, **5 of 45 prompt events on `origin/master` (039cd5d) and 3 of 45 on
+the first draft of this branch** wrote the stderr line. Roughly one prompt in ten
+on a HEALTHY store. Saying "OFF for this session" about it is untrue — the turn
+was skipped, the next one is fine — and at that rate it is a line people learn to
+scroll past, which is the failure mode this whole entry is about arriving by the
+other door.
+
+So `describeFault` asks `db.ts#isLocked` — the same predicate F1's WAL conversion
+swallows its own contention with, imported rather than mirrored — and a busy
+database gets its own wording and its own rule:
+
+- **At a prompt**, the first one is counted in the mark and stays on stderr; from
+  the second it says `Counterparts skipped this turn: the memory database was
+  busy (database is locked). If this keeps happening, run: counterparts doctor`,
+  once per session. One blip is noise; a repeat inside one session is a signal.
+- **At SessionStart** it says it the first time, in its own words —
+  `Counterparts could not load memory at session start: the memory database was
+  busy. This session has no wake; recall will work once the database is free.` —
+  because a lock there costs the whole session's wake and that event does not
+  come round again.
+- **The two counters are apart**, so a session that met a busy database still
+  hears about a store that will not open.
+
+**And after F1 the noise is gone.** Re-measured on the merged branch with the same
+harness, 2026-09-18: **0 of 90 prompt events over 30 sessions**, and 0 on
+`origin/master` (03297c6) over 15 — down from 5 of 45. WAL is what did it; the
+second-occurrence rule costs nothing now and is the floor under the next time a
+store is contended for some other reason.
+
+**What could not be tested with a process.** The transient DISPLAY path. A
+contended database is a race, and under WAL a reader is not blocked by a writer
+at all, so there is no way to schedule one from a test. The rule is proved
+exhaustively over `decideSay`, which is pure; the wiring either side of it — the
+hook reading this session's mark and writing back what the rule decided, whole,
+transient counters included — is proved by a real process.

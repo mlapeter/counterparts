@@ -714,6 +714,10 @@ This memory is for Your Name. No identity has formed here yet — identity is ea
 `elements=0` is not a bug: the `Who I am:` heading and the line under it are
 furniture, and the counts report statements. The preface's date and its two
 counts are composed at delivery, so they are today's rather than the render's.
+That is also why `rebrief` prints a *smaller* number than the marker does for the
+same bundle: on the store above it says `elements 0, bytes 470` — the body it
+composed — and the marker says 572, which is that body plus the 102-byte delivery
+preface. A longer name moves both.
 The counts are different populations and say so: `N memories` is the live
 `type: "memory"` rows, `M live rows` is every live row — memories, journal
 episodes, beliefs and entities — and `M` is the same number `recall` reports as

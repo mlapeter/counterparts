@@ -395,14 +395,28 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     already uses for the red notice — on **SessionStart and
     UserPromptSubmit**, the two events this host displays one on. Exit 0 as
     always, nothing else in the object, no wake and no `additionalContext`, and
-    the stderr line is kept. SessionStart says it; UserPromptSubmit says it only
-    while this session has not been told, marked by a file under
-    `<dataDir>/sessions/` because the thing that failed is the store. A mark that
-    cannot be written means it is said again rather than not at all. The message
-    carries a code, one clause of plain words and the command that explains the
-    rest, capped at `STANDDOWN_REASON_MAX_CHARS`; `counterparts doctor` reads the
-    same open and says RED in the same words (`doctor.ts#readCounterpartOpen`),
-    so the terminal and the console cannot disagree about what happened.
+    the stderr line is kept. What is said, and whether, is marked in a file under
+    `<dataDir>/sessions/` — because the thing that failed is the store, the mark
+    cannot live in it — and a mark that cannot be written means it is said again
+    rather than not at all.
+
+    **A FAULT IS PERSISTENT OR TRANSIENT, and they are not said the same way.**
+    A store that will not open is exactly as broken next turn: "memory is OFF for
+    this session", once, with a code and one clause of plain words capped at
+    `STANDDOWN_REASON_MAX_CHARS` — SessionStart always, UserPromptSubmit while the
+    session has not been told. A database that was merely BUSY (`db.ts#isLocked`,
+    one predicate for this and for F1's WAL conversion) is not that, and saying
+    it were would be both untrue and, at the rate a rollback-mode store produced,
+    a line people learn to scroll past. So: at a prompt it is recorded and stays
+    on stderr the FIRST time and is said from the second, at most once a session
+    ("skipped this turn"); at SessionStart it is said the first time, in its own
+    words, because a lock there means no wake was injected at all and that event
+    does not come round again. The two counters are kept apart, so a session that
+    met a busy database still hears about a store that will not open.
+    `counterparts doctor` reads the same open with the same predicates
+    (`doctor.ts#readCounterpartOpen`) — RED for a store that will not open, AMBER
+    for one that was busy or that only an owner may initialize — so the terminal
+    and the console cannot disagree about what happened.
 
 ## 6. Scars honored
 
