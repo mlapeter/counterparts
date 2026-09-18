@@ -119,6 +119,7 @@ export const PUBLIC_SURFACE = [
   "beliefs",
   "currentState",
   "slices",
+  "loadSkips",
   "aliasIndex",
   "aliasMap",
   "bandOf",
@@ -167,6 +168,8 @@ export class Schemas {
   private readonly birthsPerChunk = new Map<string, number>();
   private readonly increments: PressureIncrement[] = [];
   private readonly ring: SchemaEvent[] = [];
+  /** What `load` left out, by whether the store could account for it. */
+  private readonly skips = { removed: 0, unaccounted: [] as string[] };
   private readonly onEvent: ((e: SchemaEvent) => void) | undefined;
   private readonly retarget: ((oldId: string, newId: string, day: number) => void) | undefined;
 
@@ -187,11 +190,33 @@ export class Schemas {
    * rather than `Store.read`, so building an index does not spend the store's
    * archived-read telemetry — that event answers "did anyone look at archived
    * CONTENT", and an index build is not a look.
+   *
+   * **A REMOVED ROW IS SKIPPED, and that is what keeps the session alive.** The
+   * deny-list is fetched once here rather than asked per id: this runs at every
+   * open, over every schema row, and a removal must cost the index one query,
+   * not one per row.
+   *
+   * **The two skips are counted apart, because only one of them is explained.**
+   * A row the deny-list names was removed by the owner and its absence is the
+   * point. A row with a blanked `prose_path` and NO removal record is something
+   * else — a half-written migration, a disk event — and skipping it buys uptime
+   * with data disappearing without a word. Both are skipped (a session that
+   * cannot start helps nobody), and `loadSkips()` says which was which, so the
+   * difference is a fact rather than a silence. Nothing prints it yet.
    */
   private load(): void {
+    const denied = new Set(this.store.deniedIds());
     for (const id of this.store.list({ type: "schema" })) {
       const row = this.store.row(id);
       if (row === undefined) continue;
+      if (denied.has(id)) {
+        this.skips.removed += 1;
+        continue;
+      }
+      if (row.prose_path === "") {
+        this.skips.unaccounted.push(id);
+        continue;
+      }
       const doc = readProseWalking(this.store, id, row);
       const rec = toMetaRecord(doc.meta);
       if (rec === null) continue;
@@ -1089,27 +1114,63 @@ export class Schemas {
 
   // ── reads ──────────────────────────────────────────────────────────────────
 
+  /**
+   * A row this index must not hold, because the owner removed it.
+   *
+   * Two states, and the first one is the crash. **Chased:** `prose_path` is
+   * blanked and the file is gone (`store/owner-op-seam.ts`), so reading the
+   * prose throws `PROSE_FILE_MISSING` — out of `Schemas.open`, out of
+   * `Counterpart.open`, and the hook catches that and exits 0, which is a
+   * session with no wake, no recall and no capture and one line on stderr.
+   * Free to check: the row is already in hand. **Dark:** marked but not yet
+   * chased, so the row and the file are both still there and only the deny-list
+   * knows. `denied` is passed in where the caller has a whole WALK to do, so a
+   * walk costs one query and not one per row.
+   *
+   * `load` does not use this — it counts its two skips apart, which this cannot
+   * (a blanked pointer alone does not say who blanked it).
+   *
+   * Skipping is the honest answer. A removed belief or entity is absent from
+   * this index, so it is absent from everything built on it; what hangs off a
+   * removed entity is orphaned rather than destroyed, and §7b says where that
+   * still shows. The store keeps saying `REMOVED` by name to anyone who asks
+   * for it by id (`Store.read`), which is where "removed" and "never existed"
+   * stay distinguishable.
+   */
+  private removed(id: string, row: MemoryRow, denied?: ReadonlySet<string>): boolean {
+    if (row.prose_path === "") return true;
+    return denied === undefined ? this.store.deniedIds().includes(id) : denied.has(id);
+  }
+
+  /** What `load` left out and whether the store could account for it — see
+   *  `load`. Read-only: the caller gets copies, never the counters. */
+  loadSkips(): { readonly removed: number; readonly unaccounted: readonly string[] } {
+    return { removed: this.skips.removed, unaccounted: [...this.skips.unaccounted] };
+  }
+
   entity(id: string): EntityView | undefined {
     const rec = this.meta.get(id);
     const row = this.store.row(id);
     if (rec === undefined || rec.role !== "entity" || row === undefined) return undefined;
-    return {
-      id,
-      name: rec.name ?? "",
-      kind: row.kind,
-      aliases: [...(rec.aliases ?? [])],
-      archived: row.archived === 1,
-      archivedReason: row.archived_reason,
-      birthDay: row.birth_day,
-    };
+    // One caller, one id: asking the deny-list live is the right cost here, and
+    // it is what makes a removal visible to a long-lived process before it
+    // reopens. A WALK must not pay it per row — see `entities` below.
+    if (this.removed(id, row)) return undefined;
+    return entityViewOf(id, rec, row);
   }
 
   entities(opts: { includeArchived?: boolean } = {}): EntityView[] {
     const out: EntityView[] = [];
+    // ONE deny-list query for the whole walk. Asking per entity made this
+    // O(entities × removals): at 300 entities it measured 10.4 ms against an
+    // empty deny-list and 111 ms against 1,000 removals, and a deny-list only
+    // ever grows. `slices()` is built on this.
+    const denied = new Set(this.store.deniedIds());
     for (const [id, rec] of this.meta) {
       if (rec.role !== "entity") continue;
-      const view = this.entity(id);
-      if (view === undefined) continue;
+      const row = this.store.row(id);
+      if (row === undefined || this.removed(id, row, denied)) continue;
+      const view = entityViewOf(id, rec, row);
       if (view.archived && opts.includeArchived !== true) continue;
       out.push(view);
     }
@@ -1121,6 +1182,30 @@ export class Schemas {
     const row = this.store.row(id);
     if (rec === undefined || row === undefined) return undefined;
     if (rec.role === "entity") return undefined;
+    // ── the removal gate, and it runs BEFORE the prose is read ──────────────
+    //
+    // Chased: the pointer is blanked, so reading it is the `PROSE_FILE_MISSING`
+    // that used to come out of `Counterpart.open`. Free to see; the row is in
+    // hand.
+    if (row.prose_path === "") return undefined;
+    // Dark: marked, not yet chased — row and file both still there, and only
+    // the deny-list knows. `physicsOf` asks it (`requireRow` → `refuseIfDenied`)
+    // and this call has to happen anyway, so the gate costs nothing; what
+    // changed on 2026-09-18 is that it is a STATEMENT, above the read, instead
+    // of a field evaluated after `statement` in the literal below. That ordering
+    // was luck: reordering two lines lost the gate, and the removed text was
+    // read off disk into memory before the throw discarded it. An in-process
+    // `Schemas` can be older than a removal the owner has since run, which is
+    // why the question is asked here and not trusted from `load`.
+    let salience;
+    try {
+      salience = this.store.physicsOf(id).salience;
+    } catch (err) {
+      // Removed, or the row went while we were looking: no element either way.
+      // Anything else is a real store failure and is not this module's to eat.
+      if (!isAbsence(err)) throw err;
+      return undefined;
+    }
     const view: ElementView = {
       id,
       entityId: rec.entityId ?? "",
@@ -1130,7 +1215,7 @@ export class Schemas {
       archived: row.archived === 1,
       supersededBy: row.superseded_by,
       protected: row.protected === 1,
-      salience: this.store.physicsOf(id).salience,
+      salience,
     };
     if (rec.statedOn !== undefined) view.statedOn = rec.statedOn;
     if (rec.statedOnDay !== undefined) view.statedOnDay = rec.statedOnDay;
@@ -1305,6 +1390,30 @@ export class Schemas {
       }))
       .sort((a, b) => a.kind.localeCompare(b.kind));
   }
+}
+
+/** The entity view, built in one place so `entity` and the `entities` walk —
+ *  which ask the deny-list differently — cannot drift into two shapes. */
+function entityViewOf(id: string, rec: MetaRecord, row: MemoryRow): EntityView {
+  return {
+    id,
+    name: rec.name ?? "",
+    kind: row.kind,
+    aliases: [...(rec.aliases ?? [])],
+    archived: row.archived === 1,
+    archivedReason: row.archived_reason,
+    birthDay: row.birth_day,
+  };
+}
+
+/**
+ * "There is no memory at this id" — the owner removed it, or the row is gone.
+ * Anything else out of a store read is a real failure, and swallowing it here
+ * would turn a broken database into a quietly empty index.
+ */
+function isAbsence(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "REMOVED" || code === "ID_UNKNOWN";
 }
 
 /** A newborn schema is empty except its names — a place for memories to attach,
