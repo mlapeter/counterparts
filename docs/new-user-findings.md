@@ -16,9 +16,10 @@ finding per entry, in this shape:
 
 Plain words. A finding nobody can act on without reading the code is not finished.
 
-This file is not in `package.json`'s `files` list, so it does not ship in the tarball —
-and nothing in `README.md` or `docs/QUICKSTART.md` should link to it, because the install
-loop's step 3 fails any relative doc link the package does not carry.
+Today this file is not in `package.json`'s `files` list, so it does not ship in the
+tarball — which also means a relative link to it from `README.md` or `docs/QUICKSTART.md`
+fails the install loop's step 3, since that step checks every relative doc link against
+what the package actually carries.
 
 ---
 
@@ -31,9 +32,9 @@ Then the walk by hand: pack → `bun add -g` → `counterparts --help` → `inst
 block → the MCP line → the SessionStart hook → `note`/`recall` → the MCP round trip over
 stdio → `status` → `doctor` → `fired` → the dashboard → `rebrief` → the day-0 wake.
 
-**The install itself is in good shape: nothing blocks it.** 0 BLOCKS INSTALL, 4 CONFUSING,
-7 ROUGH, 3 NIT. The trouble is all on the other side of the install — what the tools *say*
-to somebody on day 1.
+**The install itself is in good shape: nothing blocks it.** Sixteen findings — 0 BLOCKS
+INSTALL, 4 CONFUSING, 9 ROUGH, 3 NIT. The trouble is all on the other side of the install —
+what the tools *say* to somebody on day 1.
 
 ### 1. A new user with no API keys — which both pages call supported — gets a red doctor and a red line in the terminal every session
 
@@ -131,7 +132,7 @@ you restart, here is how you know": no `/mcp` check, no "ask the assistant to ca
 *Why a new user stalls:* the failure mode is silence. The product's own §4 says a hook that
 stands down "says so on stderr and exits 0 … and no hook will tell you."
 
-*Severity:* CONFIRMED gap, CONFUSING. *Disposition:* **a choice for the owner** — a
+*Severity:* CONFUSING. *Disposition:* **a choice for the owner** — a
 `doctor` "Host" line that reads the settings file and the MCP registration and says which
 of the five events it found; or a short "your first session should look like this"
 paragraph in §4 (what the assistant sees, what `/mcp` should list); or both. The second is
@@ -282,7 +283,7 @@ upgrades independently of `bun add -g`.
 the printed path points inside bun's global install and that this is right, and that
 pointing it at a clone is the §2 "running from the clone" mode, not a fix.
 
-### 13. No uninstall and no start-over
+### 13. No uninstall (the start-over half is N1, already planned)
 
 *Where:* nowhere. Neither page contains "uninstall", "start over", "start fresh" or
 `bun remove -g`.
