@@ -149,9 +149,12 @@ compared on logical content, not bytes.
 `db.ts` selects `bun:sqlite` under Bun and `node:sqlite` otherwise, via
 `createRequire` so a missing module is a caught, named error rather than an import
 crash. `PRAGMA foreign_keys = ON` at every open (SQLite defaults it OFF, and §5 G4
-puts referential integrity in the store). Journal mode is deliberately **DELETE, not
-WAL**: WAL leaves permanent `-wal`/`-shm` sidecars, and every top-level path must be
-classified (§5 G11).
+puts referential integrity in the store).
+
+Journal mode was **DELETE**, because WAL leaves permanent `-wal`/`-shm` sidecars and
+every top-level path must be classified (§5 G11). That reason expired: `LAYOUT`'s
+database entry matches by PREFIX, so the sidecars have been classified all along. It
+is **WAL since 2026-09-18** — see the dated note below.
 
 **The Node branch is structurally present but has not been live-verified**: this
 machine runs Node 20 and `node:sqlite` landed in 22. Verify at packaging, together
@@ -838,6 +841,131 @@ was reconciled that day.
 **Checked, not believed:** `counterparts verify` counts live non-journal rows
 whose column disagrees with box 3 (`cli/commands.ts#bandOfRecordCensus`), and it
 is 0 after a decay pass that its budget did not cut short.
+
+## WAL, and the busy timeout first (I38/I39, 2026-09-18)
+
+`openDb` sets its pragmas in this order, and the order is the fix:
+
+1. `PRAGMA busy_timeout = 5000` — **first**. Every statement after it can contend
+   for a lock, and without it SQLite fails them INSTANTLY. It used to be set LAST,
+   which meant the journal-mode statement ran with zero wait inside another
+   writer's commit window: I39, and the shape of the I38 "database is locked"
+   reports.
+2. `PRAGMA foreign_keys = ON` (unchanged).
+3. The journal mode is **read, then set only when it differs from `wal`** — and
+   only when the caller asked (`openDb(path, { wal: true })`). Reading is free;
+   setting is a write that takes the exclusive lock, so an opener that converted a
+   file it had come to read would be writing at open (§5, the observer rule). The
+   default is OFF for the openers that matter: `vacuumInto` opens the SOURCE of a
+   backup this way, and `cli` opens box 3 read-only for the vector census. The
+   writer path asks (`openOperational` when `initialize !== false`), and so does
+   `openCache` unconditionally — box 3 is declared rebuildable and its sidecars
+   live inside `cache/`, the same licence the constructor already takes to
+   materialize that directory under an instrument.
+4. `PRAGMA synchronous = FULL` — unchanged. WAL's usual pairing is `NORMAL`; that
+   is a durability ruling for the owner, not a cleanup to make in passing.
+   TUNABLE, and the one knob here that trades fsyncs for commit speed.
+
+**Why WAL at all:** several processes hold this one small database open at once —
+the session hooks, a long-running MCP server, the nightly worker, the dashboard —
+and in WAL a reader no longer blocks the writer.
+
+**What was measured getting here** (bun:sqlite 1.3, macOS; all of it is pinned in
+`test/store.test.ts`'s "WAL, the busy timeout, and I39"):
+
+- **What a contended conversion costs depends on who holds the lock.** Against a
+  WRITER, SQLite does not run the busy handler: the statement fails in about a
+  millisecond (measured: 3 ms), the open continues in the old mode, and the next
+  open tries again. Against a READER the handler DOES run, so the open waits for
+  the reader and then converts — a 600 ms read costs 600 ms, and a reader holding
+  for longer than `BUSY_TIMEOUT_MS` costs the full five seconds and leaves the
+  file as it was (measured: 5,297 ms). So the ONE converting open can wait, once,
+  up to five seconds; every open after it reads `wal` and returns without a
+  statement, and in DELETE mode that opener's first WRITE would have waited on
+  the same shared lock anyway. *(The first cut of this note said "about a
+  millisecond" for both, which was measured against a writer and generalized.)*
+  Only SQLITE_BUSY/LOCKED is swallowed: "file is not a database" arrives on the
+  same statement, and `verify --rebuild`'s guard has to fail closed on it. One
+  consequence not to be surprised by: `SQLITE_READONLY` now propagates out of a
+  WRITER open on read-only media, where the old code opened and failed at the
+  first write.
+- A handle opened while the file was in DELETE mode keeps reading **and writing**
+  correctly after another connection flips it to WAL. That is deploy day for the
+  MCP server: no restart needed.
+- A **read-only** connection cannot create the `-shm`, so a WAL database whose
+  sidecars are BOTH missing is unreadable to one (`SQLITE_CANTOPEN`; with the
+  `-wal` still there and only the `-shm` gone it succeeds — SQLite's read-only
+  fallback). Every handle in this codebase is read-write — the dashboard's and
+  the census's included — so the exposure is `tools/parallel/readers.ts` alone,
+  and any ordinary open puts the sidecars back. **How often that state occurs is
+  a property of the SQLite build, not of this code**: Apple's system SQLite
+  enables persistent WAL, so on this machine the sidecars survive a clean close;
+  stock SQLite removes them on the last one, which means on Linux or a packaged
+  build a store nobody has open is in exactly this state. Deleting a `-wal` that
+  has not been checkpointed takes the commits inside it too: the sidecars are
+  part of the database, not litter.
+- `close()` does not release the file to the PROCESS: a closed connection still
+  holds the lock a WAL → DELETE conversion needs. It is why the tests build a
+  DELETE-mode store with `VACUUM INTO` rather than a pragma, and why the sidecars
+  outlive a close here where SQLite would normally remove them.
+- **A database's size is `page_count * page_size`, not a file size.** The file
+  alone under-reports (a cache mid-conversion read 1.8 MiB with 3.7 MB in the
+  `-wal`, enough to print "nothing to do" over a real compaction debt). The file
+  PLUS the `-wal` over-reports, and that was the first cut of `cli`'s
+  `databaseBytes`: the `-wal` holds COPIES of pages the file already counts, so a
+  fat one read as space a `VACUUM` would give back — 4,144,752 bytes of
+  reclaimable on a cache with nothing to reclaim, over the floor that sends
+  `migrate-cache --apply` into a pointless full VACUUM. What returns those bytes
+  is a checkpoint, and a checkpoint happens on its own. The two pragmas are true
+  wherever the pages are sitting and take no lock.
+
+`counterparts verify` prints the mode and the timeout, and `counterparts doctor`
+grades it — green in `wal`, amber otherwise with the reason and the way out — so
+"is it on yet", and "did a conversion quietly not take", are both one command
+rather than a `sqlite3` incantation. Amber is the only trace a swallowed refusal
+leaves, deliberately: the alternative was an event row written from inside
+`openDb`, which would mean a write at open on the path that exists to avoid one.
+
+**Three things a WAL store cannot do that a DELETE store could.** None is a
+reason to go back; all three are worth knowing before they are met.
+
+1. **Read-only media.** With the sidecars absent and the directory not writable,
+   an instrument open of a WAL store fails `SQLITE_READONLY_DIRECTORY` and a
+   read-only one fails `SQLITE_CANTOPEN`; a DELETE store reads its rows in both.
+   The copies the owner actually takes are safe: `counterparts backup` and
+   `export` go through `VACUUM INTO`, whose output is always a plain DELETE-mode
+   database, so a snapshot is readable anywhere, on any medium, by any build. It
+   is the LIVE directory, copied as it stands onto read-only media, that refuses.
+2. **`operational.sqlite` on its own is no longer the database.** A copy of the
+   file alone opens read-write and is *silently short* by everything committed
+   since the last checkpoint (it refuses `SQLITE_CANTOPEN` read-only, which is
+   the honest half). The supported copies are `counterparts backup`, `export`,
+   and a copy of the whole directory INCLUDING the sidecars. Deleting a `-wal`
+   deletes the memories inside it — a store went from 20 rows to "no such table"
+   that way in review.
+3. **`sqlite3 "file:…?immutable=1"` now reads a short database.** `immutable=1`
+   promises SQLite the file cannot change, and SQLite keeps its side by ignoring
+   the `-wal` entirely — so the read returns the store as of the last checkpoint,
+   with no error. Plain `sqlite3 -readonly "<path>"` reads the `-wal` and is
+   correct. A fabricated number is what scar §2.4 is about, and this one arrives
+   through a diagnostic recipe.
+
+**Filesystems.** WAL needs real shared-memory `mmap` between processes, so a
+network mount (NFS, SMB) is out: either the conversion is silently refused and
+the store runs in DELETE forever, or the header takes and every later open fails
+`SQLITE_IOERR_SHMOPEN`. A synced folder (iCloud, Dropbox) is an ordinary local
+filesystem and works, but the sync client now has three files it must capture at
+one instant and will not — a store in one is a worse idea after this than before
+it. `counterparts doctor` reports the mode, which is where a silent refusal shows.
+
+
+**The byte-identity suites keep their teeth.** Five of them hash a store
+directory and mean "nothing wrote": the dashboard's, the probe's (scar E7),
+`encode`'s gated chunk, the parallel run's input manifest, `verify`'s census.
+Under WAL a commit lands in the `-wal` until a checkpoint moves it into the file,
+so they hash the `-wal` WITH the database and skip only the `-shm`, which every
+connection writes read-marks into (`isDatabaseSidecar`, `paths.ts`). All five are
+green with the `-wal` in the hash — an instrument writes nothing there either.
 
 ## The walking read and `StoredMemory.confidential` (2026-09-18)
 
