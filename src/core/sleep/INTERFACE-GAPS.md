@@ -103,7 +103,10 @@ pruned memory stays readable. The only other durable seam is `setMeta`.
 §5 G3 needs. `setMeta` is transactional, which is the load-bearing part.
 **Cost:** the keyspace is unbounded and unenumerable — the same shape
 `recall/INTERFACE-GAPS.md` §1 filed for gate state, and SEAMS.md #5's
-`gate_session` proposal.
+`gate_session` proposal. *The phase's own small state takes the same seam and
+costs nothing like as much: `sleep.marker.<phase>` and, since 2026-09-18,
+`sleep.cursor.<phase>` — one row each, a bounded keyspace, and transactional,
+which is the load-bearing part.*
 **Real fix:** one `sleep_record` table in box 2 (`memory_id`, `kind`, `day`,
 `payload`), pruned alongside `pruneSupersededVersions`. One table serves all
 three record types and all three become queryable, which is what the dashboard

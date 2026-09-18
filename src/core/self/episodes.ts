@@ -160,6 +160,17 @@ export interface EpisodeState {
   chapters: number;
   /** Asks COMMITTED (committed before the ask blocks). The pacer's own count. */
   asks: number;
+  /**
+   * Asks committed on `asksDay` — the count `MAX_ASKS_PER_SESSION` is spent
+   * against, kept apart from `asks` on purpose. `asks` stays the session's whole
+   * life because two other rules read it: the first-ask branch below (`asks ===
+   * 0`) and `appendChapter`'s "is a chapter open?" test. Zeroing that one at
+   * midnight would re-open chapter 1 and re-run first-ask pacing against the
+   * whole session's substance, on a session already forty turns deep.
+   */
+  asksToday: number;
+  /** The calendar day `asksToday` is charged to. Null until the first ask. */
+  asksDay: string | null;
   /** The ask index at the last append: how "is a new chapter open?" is decided. */
   appendedAtAsk: number;
   /** Substance at the last COMMITTED ask (committed before the ask blocks). */
@@ -183,6 +194,8 @@ export function freshEpisodeState(sessionId: string, day: number): EpisodeState 
     episodeId: null,
     chapters: 0,
     asks: 0,
+    asksToday: 0,
+    asksDay: null,
     appendedAtAsk: 0,
     askedAtTurns: 0,
     askedAtBytes: 0,
@@ -212,6 +225,9 @@ export function loadEpisodeState(
     // written — which is exactly the divergence this split exists to end.
     if (typeof parsed.asks !== "number") merged.asks = parsed.chapters;
     if (merged.episodeId === null) merged.chapters = 0;
+    // A state written before the day stamp (2026-09-18) carries no `asksDay`, so
+    // the fresh defaults stand and `asksSpentOn` reads it as nothing spent today.
+    // See that function for why zero is the safe direction.
     return { state: merged, status: "loaded" };
   } catch {
     return { state: freshEpisodeState(sessionId, day), status: "unreadable" };
@@ -239,11 +255,33 @@ export interface AskVerdict {
   readonly sinceBytes: number;
 }
 
+/**
+ * Asks this session has spent on `today` — what the cap is measured against.
+ *
+ * WHICH DAY: the CALENDAR date, and the store's own (`Store#today`, UTC), not the
+ * lived day. The lived clock advances only inside the sleep cycle the detached
+ * worker runs, and I32 is the scar: a worker that could not start froze that
+ * clock for seven days while the calendar kept going, and a cap whose reset
+ * depends on the machinery it is capping is a cap that can be spent forever. It
+ * is the same key the old shared day cap settled on for the same reason. The
+ * zone consequence is real and named rather than hidden (INTERFACE-GAPS): an
+ * owner at UTC−6 gets the allowance back at 18:00 local.
+ *
+ * A state written before the day stamp existed reads as ZERO spent rather than
+ * as today's count. The wrong way round costs at most one extra allowance on the
+ * day the stamp lands, and the pacer still spaces those out; the other way, a
+ * session already at its cap stays capped on every later day too, with no write
+ * that could ever move it off — which is the starvation this exists to end.
+ */
+export function asksSpentOn(state: EpisodeState, today: string): number {
+  return state.asksDay === today ? state.asksToday : 0;
+}
+
 export function askDue(
   state: EpisodeState,
   substance: Substance,
   t: SelfTunables,
-  opts: { observer: boolean },
+  opts: { observer: boolean; today: string },
 ): AskVerdict {
   const sinceTurns = Math.max(0, substance.turns - state.askedAtTurns);
   const sinceBytes = Math.max(0, substance.bytes - state.askedAtBytes);
@@ -262,13 +300,17 @@ export function askDue(
   // instrument runs leave no episode.
   if (opts.observer) return no("observer");
   if (state.sessionId.trim().length === 0) return no("anonymous-session");
-  // The cap is THIS SESSION'S OWN, and it is a backstop, not the cadence: the
-  // re-ask pair below is what spaces the asks out. Shared across a whole
-  // calendar day, this cap refused 196 of 264 Stops on the live store and left
-  // the crash fallback writing four and a half times what the author wrote
-  // (2026-09-17; owner's ruling the same day). A session that did no real work
-  // is still refused — by substance, one gate down.
-  if (state.asks >= t.MAX_ASKS_PER_SESSION) return no("session-ask-cap");
+  // The cap is THIS SESSION'S OWN, PER CALENDAR DAY, and it is a backstop, not
+  // the cadence: the re-ask pair below is what spaces the asks out. Shared
+  // across a whole calendar day, this cap refused 196 of 264 Stops on the live
+  // store and left the crash fallback writing four and a half times what the
+  // author wrote (2026-09-17; owner's ruling the same day). Spent over a
+  // session's whole life, it starved the long ones instead: a coordinating
+  // session on 2026-09-17 used all six inside one working day and its
+  // end-of-day handoff was never offered the pen (owner's ruling 2026-09-18).
+  // Same-day exhaustion still binds; for now that is accepted. A session that
+  // did no real work is still refused — by substance, one gate down.
+  if (asksSpentOn(state, opts.today) >= t.MAX_ASKS_PER_SESSION) return no("session-ask-cap");
 
   if (state.asks === 0) {
     const paced =

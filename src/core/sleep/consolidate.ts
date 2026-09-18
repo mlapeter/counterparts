@@ -33,9 +33,14 @@
 import { consolidationEligibility, promote } from "../physics/index.js";
 import type { PromotionReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
+import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 import { PROMOTION_RECORD_PREFIX } from "./tunables.js";
-import type { PhaseCtx, PhaseOutcome, PromotionRecord } from "./types.js";
+import type { Phase, PhaseCtx, PhaseOutcome, PromotionRecord } from "./types.js";
 import { countSkip, emptyOutcome, isJournal } from "./types.js";
+
+/** This phase's own name, for the cursor it keeps. Typed, so a rename in the
+ *  phase vocabulary fails `tsc` here rather than reading an empty cursor. */
+const CONSOLIDATE_PHASE: Phase = "consolidate";
 
 export const CONSOLIDATION_SKIPS = [
   // The three housekeeping entries. The rest of this list IS physics' reason
@@ -72,14 +77,30 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
   const denied = new Set(store.deniedIds());
   const ids = store.list();
 
-  let index = 0;
-  for (const id of ids) {
+  // WHERE THE LAST RUN STOPPED. `store.list()` is `ORDER BY id`, so the rotation
+  // is stable and a cursor means something: this run resumes strictly after it
+  // and wraps to the head once it reaches the end, visiting each id at most once
+  // per run. A store larger than the budget is therefore covered in
+  // ceil(N / budget) runs instead of the first budget's worth being re-examined
+  // every night and the rest never. Measured 2026-09-17
+  // (`docs/promotion-diagnosis-2026-09-17.md`): 15,292 rows against a budget of
+  // 5,000, and 10,000+ memories had never once been asked whether they belong to
+  // who the owner is. A budget is still not a debt (§3) — the marker still
+  // advances and nothing is owed; only the STARTING PLACE moved.
+  const start = resumeIndex(ids, readCursor(store, CONSOLIDATE_PHASE));
+  let visited = 0;
+  let stoppedAt: string | null = null;
+
+  while (visited < ids.length) {
     if (out.examined >= ctx.budget) {
       out.budgetExhausted = true;
-      out.skippedForBudget = ids.length - index;
+      out.skippedForBudget = ids.length - visited;
       break;
     }
-    index += 1;
+    const id = ids[(start + visited) % ids.length] as string;
+    const index = visited + 1;
+    visited += 1;
+    stoppedAt = id;
     const row = store.row(id);
     if (row === undefined) continue;
     if (denied.has(id)) {
@@ -160,6 +181,13 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     });
     ctx.step("item", { index, id });
   }
+
+  // The cursor moves only where a row was actually visited, and only under
+  // `apply`: an observer's read-only report may not move the store's place in
+  // the store (§5 G10). A run killed mid-phase leaves the cursor where it was
+  // and re-walks the same stretch, which is the marker's own bargain — replay a
+  // day exactly once rather than skip it.
+  if (ctx.apply && stoppedAt !== null) writeCursor(store, CONSOLIDATE_PHASE, stoppedAt);
 
   return { ...out, consolidated, promoted, promotionBlocked };
 }

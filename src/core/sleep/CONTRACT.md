@@ -40,7 +40,8 @@ alone.
   between the clock ticking and the work finishing **replays that day exactly once**. Markers
   only move forward. [v1 §5 G3, engram E8]
 - **A budget is not a debt** — a day the work wasn't needed is not arrears to make up.
-  [v1 §5 G4]
+  [v1 §5 G4] *Where a phase RESUMES under that rule is a separate question, and a working
+  answer rather than a guarantee: `NOTES.md` §8.*
 - **Phase order is behavior, not implementation.** [v1 §5 G5] The consequences that must
   survive: decay runs *after* the boundary's own writes (hence the same-lived-day
   reinforcement exemption); revision-dependent renders run *after* revision, so they see this

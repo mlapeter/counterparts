@@ -57,11 +57,13 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
   second pacer beside this one, and the two fired on different Stops — about a dozen asks
   in a 13-turn evening. The pacing itself had drifted too: v1 re-asked on bytes AND turns,
   v2 on bytes OR turns with a byte threshold a third of v1's. One ask, one pacer, a
-  conjunction — and a cap each SESSION spends on itself alone (`MAX_ASKS_PER_SESSION`).
-  Measured 2026-09-17: a cap of four shared by every session a calendar day held refused
-  196 of 264 Stops, and the crash-fallback sweep wrote 888 memories to the author's 193 —
-  the author was not losing a fight, it was almost never invited. The conjunction, not the
-  count, is what holds the cadence.*
+  conjunction — and a cap each SESSION spends on itself alone, per calendar day
+  (`MAX_ASKS_PER_SESSION`). Measured 2026-09-17: a cap of four shared by every session a
+  calendar day held refused 196 of 264 Stops, and the crash-fallback sweep wrote 888
+  memories to the author's 193 — the author was not losing a fight, it was almost never
+  invited. Amended 2026-09-18: spent over a session's whole life the same cap starved the
+  long sessions instead, so the count starts over with the store's calendar date. The
+  conjunction, not the count, is what holds the cadence.*
 - **Episodes are context and source, in that order**, ingested once as ordinary self-kind
   memories with named handles. **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
   *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
@@ -275,7 +277,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
 | `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |
-| `MAX_ASKS_PER_SESSION` | 6 | Asks ONE SESSION may raise, its own count and nobody else's. A backstop on the total, not the cadence — the re-ask pair puts six asks at roughly 46 real turns. Per day, shared, it refused 196 of 264 Stops (2026-09-17). |
+| `MAX_ASKS_PER_SESSION` | 6 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence — the re-ask pair puts six asks at roughly 46 real turns. Per day, shared, it refused 196 of 264 Stops (2026-09-17); over a session's whole life it starved a session that spanned days (2026-09-18). |
 
 `PREFACE_RESERVE_BYTES` (128) is **not** tunable: it is the room the renderer subtracts from
 the host's ceiling because delivery will add exactly that line, and one test bounds the

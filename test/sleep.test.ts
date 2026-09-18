@@ -42,6 +42,9 @@ import {
   phaseReport,
   promotionRecordKey,
   pruneRecordKey,
+  readCursor,
+  resumeIndex,
+  runConsolidate,
   runCycle,
   runDecay,
   runDedup,
@@ -50,6 +53,7 @@ import {
   sqliteStrengthCache,
   strengthCachePath,
   validateWatchdog,
+  writeCursor,
 } from "../src/core/sleep/index.js";
 import type {
   CycleStep,
@@ -648,6 +652,105 @@ describe("consolidation and the identity crossing", () => {
     const second = runCycle({ store: s, date: "2026-01-03" });
     expect(phaseReport(second, "consolidate").reason).toBe("not-due-this-cadence");
     expect(phaseReport(second, "decay").reason).not.toBe("not-due-this-cadence");
+  });
+
+  /**
+   * THE RESUME CURSOR (2026-09-18). Measured on the live store the day before
+   * (`docs/promotion-diagnosis-2026-09-17.md`): 15,292 rows against a budget of
+   * 5,000, started from the same place every night, so 10,000+ memories had never
+   * once been asked whether they consolidate or belong to who the owner is. A
+   * budget is still not a debt — only the STARTING PLACE moved.
+   */
+  describe("the pass resumes where it stopped", () => {
+    /** Every id the phase looked at, in order, however it then judged it. */
+    function visitedIds(s: Store, budget: number): string[] {
+      const seen: string[] = [];
+      const wrapped = wrap(s, {
+        row: (id) => {
+          seen.push(id);
+          return s.row(id);
+        },
+      });
+      runConsolidate(ctx(wrapped, 1, { budget }));
+      return seen;
+    }
+
+    test("a store larger than the budget is fully covered across successive runs, each row once per run", () => {
+      const s = store();
+      const ids: string[] = [];
+      for (let i = 0; i < 7; i += 1) {
+        ids.push(put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } }));
+      }
+      // ceil(7 / 3) = 3 runs to reach every row at least once.
+      const runs = [visitedIds(s, 3), visitedIds(s, 3), visitedIds(s, 3)];
+      for (const run of runs) {
+        expect(run.length).toBe(3);
+        // Never the same row twice inside ONE run, even once the rotation wraps.
+        expect(new Set(run).size).toBe(run.length);
+      }
+      const reached = new Set(runs.flat());
+      for (const id of ids) expect(reached.has(id)).toBe(true);
+      // ...and it is the FIRST three that the second run stopped re-reading.
+      expect(runs[0]).toEqual(ids.slice(0, 3));
+      expect(runs[1]).toEqual(ids.slice(3, 6));
+      // Run three takes the last one and wraps to the head.
+      expect(runs[2]).toEqual([ids[6] as string, ids[0] as string, ids[1] as string]);
+      // The proof that matters: every row got the question, not just the visit.
+      for (const id of ids) expect(s.physicsOf(id).consolidated).toBe(true);
+    });
+
+    test("a store smaller than the budget makes ONE full pass and flies no exhaustion flag", () => {
+      const s = store();
+      for (let i = 0; i < 3; i += 1) {
+        put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } });
+      }
+      const out = runConsolidate(ctx(wrap(s), 1, { budget: 10 }));
+      expect(out.examined).toBe(3);
+      expect(out.budgetExhausted).toBe(false);
+      expect(out.skippedForBudget).toBe(0);
+    });
+
+    test("an empty store leaves the cursor alone rather than writing a place that is not there", () => {
+      const s = store();
+      const out = runConsolidate(ctx(wrap(s), 1, { budget: 10 }));
+      expect(out.examined).toBe(0);
+      expect(readCursor(s, "consolidate")).toBeNull();
+    });
+
+    test("a cursor whose row is gone resumes at the next row that IS there", () => {
+      const s = store();
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        ids.push(put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } }));
+      }
+      // A cursor that sorts between rows 2 and 3 — what is left behind when the
+      // row the last run stopped on has since been removed from the list.
+      writeCursor(s, "consolidate", `${ids[1] as string}zz`);
+      expect(visitedIds(s, 1)).toEqual([ids[2] as string]);
+    });
+
+    test("an observer moves no cursor: the read-only report may not move the store's place", () => {
+      const s = store();
+      for (let i = 0; i < 3; i += 1) {
+        put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } });
+      }
+      runConsolidate(ctx(wrap(s), 1, { budget: 1, apply: false }));
+      expect(readCursor(s, "consolidate")).toBeNull();
+    });
+
+    test("resumeIndex: strictly after the cursor, wrapping at the end, and 0 for nothing to go on", () => {
+      const ids = ["a", "c", "e"];
+      expect(resumeIndex(ids, null)).toBe(0);
+      expect(resumeIndex([], "c")).toBe(0);
+      // Strictly after: the row the last run stopped ON is not re-examined.
+      expect(resumeIndex(ids, "a")).toBe(1);
+      expect(resumeIndex(ids, "c")).toBe(2);
+      // A cursor whose row is gone lands on the next one that is still there.
+      expect(resumeIndex(ids, "b")).toBe(1);
+      // Past the end wraps to the head.
+      expect(resumeIndex(ids, "e")).toBe(0);
+      expect(resumeIndex(ids, "z")).toBe(0);
+    });
   });
 });
 

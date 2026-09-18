@@ -90,6 +90,7 @@ import {
   appendChapter,
   askDue,
   askText,
+  asksSpentOn,
   findIngested,
   freshEpisodeState,
   ingestKey,
@@ -731,6 +732,7 @@ export class Self {
     const d = day ?? this.store.livedDay();
     return askDue(this.episodeState(sessionId, d), substance, this.tunables, {
       observer: this.observer,
+      today: this.store.today(),
     });
   }
 
@@ -741,9 +743,14 @@ export class Self {
    */
   openChapter(sessionId: string, substance: Substance, day?: number): ChapterAsk {
     const d = day ?? this.store.livedDay();
+    // The CALENDAR day the allowance is charged to, read once so the verdict and
+    // the advance cannot straddle midnight (`episodes.ts#asksSpentOn` carries
+    // why it is the calendar date and not the lived one).
+    const today = this.store.today();
     const state = this.episodeState(sessionId, d);
     const verdict = askDue(state, substance, this.tunables, {
       observer: this.observer,
+      today,
     });
     if (!verdict.due) {
       this.emit("self.episode.ask.skipped", sessionId, {
@@ -760,6 +767,8 @@ export class Self {
     const advanced: EpisodeState = {
       ...state,
       asks: state.asks + 1,
+      asksToday: asksSpentOn(state, today) + 1,
+      asksDay: today,
       askedAtTurns: substance.turns,
       askedAtBytes: substance.bytes,
       lastDay: d,
@@ -770,11 +779,15 @@ export class Self {
       reason: verdict.reason,
       turns: substance.turns,
       bytes: substance.bytes,
-      // Asks THIS SESSION has now spent, against `MAX_ASKS_PER_SESSION` — the
-      // distance to its cap, readable in the ring. How many asks a calendar
-      // DATE held is a question the durable `adapter.ask` rows answer, each
-      // stamped with its date and outcome; no second counter is kept for it.
+      // Asks THIS SESSION has raised in its whole life, and the ones it has
+      // spent TODAY — the second is the one `MAX_ASKS_PER_SESSION` refuses on,
+      // so the distance to the cap is readable in the ring. How many asks a
+      // calendar DATE held ACROSS sessions is a question the durable
+      // `adapter.ask` rows answer, each stamped with its date and outcome; no
+      // second counter is kept for it.
       asks: advanced.asks,
+      asksToday: advanced.asksToday,
+      asksDay: today,
     });
     return { asked: true, verdict, ask: askText(verdict.chapter), chapter: verdict.chapter };
   }

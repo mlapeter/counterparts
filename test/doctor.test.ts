@@ -302,6 +302,67 @@ describe("doctor — the reading", () => {
     expect(by(findings, "sleep").detail).toContain("dedup");
   });
 
+  /**
+   * A phase that stopped at its cap is SAID, and is not a severity. With a resume
+   * cursor a big store is meant to take several nights over a full pass, so
+   * grading that amber would teach the reader to ignore the line. What hid the
+   * consolidate truncation for two weeks was not that it happened but that
+   * nothing said so (`docs/promotion-diagnosis-2026-09-17.md`).
+   */
+  test("a phase that stopped at its budget is named on the Sleep line, with the rows it did not reach", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: SLEEP_CYCLE_EVENT,
+      day: s.livedDay(),
+      payload: {
+        reason: "ran",
+        failed: 0,
+        date: "2026-09-14",
+        phases: [
+          { phase: "decay", status: "ran", reason: "completed", budgetExhausted: false },
+          {
+            phase: "consolidate",
+            status: "ran",
+            reason: "completed",
+            budgetExhausted: true,
+            skippedForBudget: 10_292,
+          },
+        ],
+      },
+    });
+    const sleep = by(doctorFindings(input({ store: s })), "sleep");
+    expect(sleep.severity).toBe("green");
+    expect(sleep.detail).toContain("consolidate ran out of budget (10292 rows not reached this run)");
+    expect(sleep.detail).not.toContain("decay ran out");
+    expect(sleep.data["budgetTruncated"]).toBe(1);
+  });
+
+  test("an older sleep.cycle row, from before the budget fields, says nothing about budgets", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: SLEEP_CYCLE_EVENT,
+      day: s.livedDay(),
+      // The shape written before 2026-09-18: phases, no `budgetExhausted`. A
+      // reader that turned that absence into a zero would be claiming a
+      // measurement nobody took (scar §2.4).
+      payload: {
+        reason: "ran",
+        failed: 0,
+        date: "2026-09-14",
+        phases: [{ phase: "consolidate", status: "ran", reason: "completed" }],
+      },
+    });
+    const sleep = by(doctorFindings(input({ store: s })), "sleep");
+    expect(sleep.detail).not.toContain("budget");
+    expect(sleep.data["budgetTruncated"]).toBe(0);
+  });
+
   /** I33: one bad backfill is a flaky provider; the same zero twice is a
    *  poisoned input that will never clear itself. */
   test("a backfill that embedded nothing twice running is red; once is amber", () => {
@@ -464,11 +525,12 @@ describe("doctor — the reading", () => {
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("amber");
-      expect(f.detail).toContain("refused 9 on a cap (9 by a session's own allowance)");
+      expect(f.detail).toContain("refused 9 on a cap (9 by a session's own allowance for the day)");
       // The mechanism the hint sends the reader after must be the one that
-      // exists: per session since 2026-09-17, never a ration shared by the day.
-      expect(f.fix).toContain("A session's own allowance (6 asks)");
-      expect(f.fix).not.toContain("day");
+      // exists: per session since 2026-09-17, per session per day since
+      // 2026-09-18, never a ration SHARED by the day.
+      expect(f.fix).toContain("A session's own allowance for the day (6 asks)");
+      expect(f.fix).not.toContain("shared");
       expect(anyRed(doctorFindings(input({ store: s })))).toBe(false);
     });
 
@@ -492,7 +554,7 @@ describe("doctor — the reading", () => {
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.detail).toContain(
-        "refused 11 on a cap (1 by a session's own allowance, 9 by the old shared day cap, 1 naming no cap)",
+        "refused 11 on a cap (1 by a session's own allowance for the day, 9 by the old shared day cap, 1 naming no cap)",
       );
       expect(f.data["capped"]).toBe(11);
       expect(f.data["cappedBySession"]).toBe(1);

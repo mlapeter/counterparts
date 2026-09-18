@@ -77,9 +77,9 @@ export interface SelfTunables {
   /** Further substance since the last ask, in bytes, before another chapter. CAL. */
   REASK_BYTES: number;
   /**
-   * Asks ONE SESSION may raise. A backstop on the COUNT; the re-ask pair is what
-   * bounds the cadence, and the orphanable tail is measured against that pair,
-   * never hidden (§13 known gap). CAL.
+   * Asks ONE SESSION may raise ON ONE CALENDAR DAY. A backstop on the COUNT; the
+   * re-ask pair is what bounds the cadence, and the orphanable tail is measured
+   * against that pair, never hidden (§13 known gap). CAL.
    *
    * **The measurement against per-session, and why it no longer holds.** On
    * 2026-09-04 a per-session cap of 6 was reached inside ONE evening
@@ -100,6 +100,15 @@ export interface SelfTunables {
    * more sessions a day, so the day's four asks were spent before most sessions
    * began — the author was not losing a fight, it was never invited. Per
    * session, keeping the substance pacer, is the owner's ruling of 2026-09-17.
+   *
+   * **And why the session's whole life was too long a window, 2026-09-18.** A
+   * coordinating session spent all six inside one working day; its end-of-day
+   * handoff — the stretch most worth writing — was never offered the pen, and
+   * nothing could give the allowance back short of a new session. So the count
+   * is per session PER CALENDAR DAY (owner's ruling), on the store's own date
+   * rather than the lived day, for the reason I32 gave. Exhausting it inside one
+   * day still binds; for now that is accepted, and the pacer means six asks in a
+   * day is already about 46 real turns.
    */
   MAX_ASKS_PER_SESSION: number;
   /** Lived days an episode may be re-ingested after its first ingest. The window

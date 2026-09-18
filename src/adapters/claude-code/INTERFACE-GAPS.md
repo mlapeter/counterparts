@@ -518,13 +518,15 @@ That is a different mechanism, not a wider parameter, and it is not built.
    (the template's commented placeholder included) and keeps every other line and
    comment; `credentials list` says which names the file holds. `install --force`
    keeping a file that holds a key (§E) was the other half.
-3. **The ask cap's day is UTC — MOOT 2026-09-17.** The cap counts per SESSION
-   now (`MAX_ASKS_PER_SESSION`), so there is no day to reset and no zone to get
-   wrong; an owner at UTC−6 no longer loses an evening's allowance at 18:00
-   local. `input.at` is still the host's UTC ISO date and still stamps every
-   `adapter.ask` row, because every other `date` field in the store is UTC and
-   two clocks in one store is a scar this repo already has a name for. A
-   per-owner zone, if it is ever wanted, is wanted for reading those rows.
+3. **The ask cap's day is UTC — LIVE AGAIN 2026-09-18.** This read MOOT from
+   2026-09-17, when the cap counted per SESSION for the session's whole life and
+   had no day at all. It counts per session PER CALENDAR DAY again, on
+   `Store#today` (UTC), so an owner at UTC−6 gets the day's allowance back at
+   18:00 local. `input.at` is still the host's UTC ISO date and still stamps
+   every `adapter.ask` row, because every other `date` field in the store is UTC
+   and two clocks in one store is a scar this repo already has a name for. The
+   fix, if the mid-evening reset is ever felt, is one per-owner zone read
+   wherever a day is decided — `self/INTERFACE-GAPS` carries the decision.
 4. **The two poisoned titles are not repaired.** The embedder no longer chokes on
    them and the backfill no longer stalls behind them, but `mem_2cb8f1055650590a`
    and `mem_8303716a18ab0654` still hold a lone surrogate in their payload JSON,

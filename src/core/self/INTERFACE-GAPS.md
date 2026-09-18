@@ -189,21 +189,23 @@ the only way the pre-migration years get a threads lane at all.
 
 ---
 
-## The cap has no day at all, so it has no zone — CLOSED 2026-09-17
+## The cap has a day again, so the zone question is live again — REOPENED 2026-09-18
 
-This section used to name a live decision: the chapter cap keyed on a calendar
-date, that date was the hook's UTC `input.at`, and an owner at UTC−6 therefore
-got their day's ask allowance back at 18:00 local — a real consequence of
-keeping one zone in the store, named rather than hidden, with a per-owner zone
-listed as the fix if a mid-evening reset was ever felt.
+This closed on 2026-09-17, when the cap became the session's own for the
+session's whole life: no day, so no zone. The cap is now the session's own **per
+calendar day** (`MAX_ASKS_PER_SESSION`, owner's ruling 2026-09-18), and that day
+is `Store#today` — UTC, the same zone as every other `date` in this store, on
+purpose: two clocks in one store is a scar this repo already has a name for.
 
-The cap is the SESSION's now (`MAX_ASKS_PER_SESSION`), so there is no day to put
-in a zone: a session's count starts with the session and ends with it. The gap
-closes without being decided. **What the zone question survives in** is the
-`date` stamped on every `adapter.ask` row — still UTC, still the same zone as
-every other `date` in the store, and still the number any "how often today"
-reading is grouped by. If a per-owner zone is ever wanted, it is wanted there,
-for reporting, and not for a gate.
+**The consequence, named rather than hidden:** an owner at UTC−6 gets the day's
+allowance back at 18:00 local. A session working through the evening therefore
+starts a fresh six mid-evening rather than at midnight. Nobody has reported
+feeling it, and the pacer still spaces asks at roughly eight turns apart, so the
+visible effect is at most a few more asks in a late session. The fix, if it is
+ever wanted, is a per-owner zone — one clock, read wherever a day is decided —
+and not a second clock bolted on here. **What the zone question also survives
+in** is the `date` stamped on every `adapter.ask` row, which is the number any
+"how often today" reading is grouped by.
 
 ## The tail verdict and the ask read the same state — CLOSED 2026-09-17
 

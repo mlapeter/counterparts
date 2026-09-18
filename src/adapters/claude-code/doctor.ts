@@ -517,6 +517,31 @@ function str(p: Record<string, unknown>, key: string): string | null {
   return typeof v === "string" ? v : null;
 }
 
+/**
+ * The phases of one `sleep.cycle` row that stopped at their budget, phrased.
+ * Read STRUCTURALLY — an older row carries no `budgetExhausted` at all, and a
+ * phase that left nothing behind carries no count, so both read as "nothing to
+ * say" rather than as a zero anybody could mistake for a measurement.
+ */
+function budgetTruncatedPhases(p: Record<string, unknown>): string[] {
+  const phases = p["phases"];
+  if (!Array.isArray(phases)) return [];
+  const out: string[] = [];
+  for (const entry of phases as unknown[]) {
+    if (entry === null || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    if (e["budgetExhausted"] !== true) continue;
+    const name = str(e, "phase") ?? "a phase";
+    const left = num(e, "skippedForBudget");
+    out.push(
+      left === null
+        ? `${name} ran out of budget`
+        : `${name} ran out of budget (${String(left)} rows not reached this run)`,
+    );
+  }
+  return out;
+}
+
 /** The config file itself: the one the hooks read, and whether it was readable. */
 function configFindings(input: DoctorInput): Finding[] {
   const out: Finding[] = [];
@@ -771,12 +796,20 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     const p = payloadOf(cycle);
     const reason = str(p, "reason") ?? "(none)";
     const failed = num(p, "failed") ?? 0;
+    // WHICH PHASES RAN OUT OF ROAD, from the row's own phase entries (durable
+    // since 2026-09-18). Not a severity: with a resume cursor a big store is
+    // MEANT to take several nights over a full pass, and grading that amber
+    // would teach the reader to ignore this line. It is here so that "the
+    // consolidate pass reached a third of the store" is readable at all — the
+    // fact that hid for two weeks was not that it happened but that nothing said so.
+    const truncated = budgetTruncatedPhases(p);
     const detail =
       `newest sleep.cycle ${rowDate(cycle) ?? "?"}: reason ${reason}, ${failed} failed phase${failed === 1 ? "" : "s"}` +
-      (str(p, "failedPhase") === null ? "" : `, died in ${String(str(p, "failedPhase"))}`);
+      (str(p, "failedPhase") === null ? "" : `, died in ${String(str(p, "failedPhase"))}`) +
+      (truncated.length === 0 ? "" : `; ${truncated.join(", ")}`);
     // `reason` is "ran" | "clock-failed" | "threw" (`counterpart.ts#recordSleepCycle`),
     // so anything but "ran" is a night that did not happen, not a cadence.
-    const data = { reason, failed, date: rowDate(cycle) };
+    const data = { reason, failed, date: rowDate(cycle), budgetTruncated: truncated.length };
     out.push(
       reason !== "ran"
         ? finding("sleep", "red", "Sleep", detail, "The nightly cycle is not completing — decay, prune, dedup and consolidate are not running.", data)
@@ -866,7 +899,9 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
  *     that one outcome: rows written before 2026-09-17 carry
  *     `day-chapter-cap` — the old ration four sessions of one day shared, whose
  *     clock only the worker advanced — and rows since carry `session-ask-cap`,
- *     this session's own allowance (`SELF_TUNABLES.MAX_ASKS_PER_SESSION`).
+ *     this session's own allowance for the day
+ *     (`SELF_TUNABLES.MAX_ASKS_PER_SESSION`, which starts over with the calendar
+ *     date from 2026-09-18).
  *     Counting them together let the line blame the per-session allowance for
  *     refusals it never made, which is a diagnostic naming the wrong door. The
  *     amber hint therefore keys on the NEW reason alone; the old one is still
@@ -988,7 +1023,7 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   const capBinds = cappedBySession > asked;
   const sweepWins = fallback > authored;
   const cappedSplit = [
-    cappedBySession === 0 ? "" : `${String(cappedBySession)} by a session's own allowance`,
+    cappedBySession === 0 ? "" : `${String(cappedBySession)} by a session's own allowance for the day`,
     cappedByDay === 0 ? "" : `${String(cappedByDay)} by the old shared day cap`,
     capped - cappedBySession - cappedByDay === 0
       ? ""
@@ -1005,7 +1040,7 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
   const fixes = [
     capBinds
-      ? `A session's own allowance (${String(SELF_TUNABLES.MAX_ASKS_PER_SESSION)} asks) is refusing the pen more often than it offers it — sessions are running long enough to exhaust it, and that number is worth a look.`
+      ? `A session's own allowance for the day (${String(SELF_TUNABLES.MAX_ASKS_PER_SESSION)} asks) is refusing the pen more often than it offers it — sessions are running long enough to exhaust it within a day, and that number is worth a look.`
       : "",
     sweepWins
       ? "The sweep writes what the session did not: check that sessions reach a session-end boundary in the scope they captured in, and that the Stop ask is reaching the model."
