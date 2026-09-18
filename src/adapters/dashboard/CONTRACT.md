@@ -38,7 +38,10 @@ Legibility is the product's answer to the trust question a brain never has to fa
 
 ## 5. Contract
 
-**Inputs** — the canonical stores (read-only), the event log, the registry of kinds/bands.
+**Inputs** — the canonical stores (read-only), the event log, the registry of kinds/bands,
+the written self page and its versions (2026-09-18; shown as a list with bodies, newest
+first — there is no precedent here for a text diff between two revisions, and a page is
+prose a person reads rather than a field that changed).
 **Outputs** — rendered views only. **Guarantees:** **[M]** the dashboard runs in observer
 mode by construction (`docs/observer-mode.md`): it strengthens nothing, deposits nothing,
 resolves no references, and a test asserts its process holds no write handle to any

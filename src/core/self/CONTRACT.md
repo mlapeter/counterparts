@@ -132,13 +132,14 @@ pathway, a documented bug of human cognition rather than architecture (owner rul
 
 ## 5. Contract
 
-**Inputs** — identity-kind memories and their strengths; the episode journal; open
-`unresolved` memories; the prospective horizon; the host's reported injection ceiling (or,
-for a read-only composition, the caller's own byte cap); the lived day; the observer
-predicate; optionally a caller's `omit` predicate, which stands rows out before any lane
-sees them.
+**Inputs** — identity-kind memories and their strengths; the episode journal; **the written
+self page, when the store holds one**; open `unresolved` memories; the prospective horizon;
+the host's reported injection ceiling (or, for a read-only composition, the caller's own
+byte cap); the lived day; the observer predicate; optionally a caller's `omit` predicate,
+which stands rows out before any lane sees them.
 **Outputs** — one pre-rendered briefing, published atomically; ingested episode memories;
-recompression proposals and their archive; render and delivery telemetry.
+**one revision of the self page, with its version and a durable row**; recompression
+proposals and their archive; render and delivery telemetry.
 
 **Guarantees** — **[M]** mechanized · **[A]** advisory:
 
@@ -261,6 +262,29 @@ recompression proposals and their archive; render and delivery telemetry.
     case (§13 G2), not an edge. Measured 2026-09-04: with the ask advancing the chapter
     count, the hook's number reached 7 in a session whose episode held nothing.
 
+15. **[M]** **The self page is one row, written through one seam, and outside sleep's
+    reach** (2026-09-18, owner rulings 8 and 9). `revisePage(body, { reason, by })` is the
+    only door — the MCP tool, the owner's console and the nightly writer all arrive there —
+    and it crosses the same gate battery the journal does, so a credential cannot land in
+    the one piece of prose every session reads. Every accepted revision leaves a version
+    (`store.revise` archives the prior one first) and a durable `self.page.revised` row;
+    every refusal leaves a `self.page.refused` row and a named reason; an observer writes
+    neither. The page is `type: "schema"`, `kind: "self"`, `meta.role = "page"`, born
+    `protected` — which is what keeps the floor prune off it; dedup already skips schema
+    rows, and `scanActive` already cannot see it. Its OLD VERSIONS take the ordinary
+    retention, deliberately un-special-cased (owner ruling 1). Proved by a test that runs a
+    full cycle and the prune over a store holding a page with two versions.
+16. **[M]** **The page is what "Who I am" prints, first and as is**, under
+    `PAGE_WAKE_BYTES` clamped to the caller's budget; over it, the page renders cut at a
+    section or paragraph boundary with a marker naming the bytes shown, the bytes there
+    are, and the command that reads it whole. It replaces the rotating identity list by
+    emptying the lane before the share, the trim order or the counts see it, so
+    `counts.identity` and `elements=` state what the bundle actually carries and no
+    `TrimEvent` is written for elements nothing dropped. It is furniture, like the day-0
+    line: no `- ` bullet, no place in the counts. While NO page exists the wake renders
+    exactly what it rendered before (`PAGE_EMPTY_SHOWS_LIST`, the owner's unmade choice),
+    and the page's still-forming line is about the PAGE, never about identity.
+
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.
 
@@ -274,6 +298,10 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
 | `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
+| `PAGE_WAKE_BYTES` | 6,144 | Bytes of the wake the self page may take, clamped to the caller's budget. Over it the page RENDERS cut, at a section or paragraph boundary, with a marker naming both numbers. |
+| `PAGE_MAX_BYTES` | 16,384 | The hard WRITE limit. Past it a revision is refused rather than cut — what gets cut at write time is the only copy. |
+| `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
+| `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
 | `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
 | `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |

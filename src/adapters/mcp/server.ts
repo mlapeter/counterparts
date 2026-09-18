@@ -234,6 +234,20 @@ export type ScopeSource = "flag" | "project" | "cwd" | "store";
 
 /** The kind enum, for a refusal that names it (session_end). Derived from
  *  `Kind` so that adding a kind without listing it here fails `tsc`. */
+/**
+ * Why a page write did not land, in the words the model needs to do something
+ * about it. The keys are `self/`'s own refusal vocabulary, so a reason it can
+ * return and this map does not carry falls back to one plain sentence rather
+ * than to silence.
+ */
+const PAGE_REFUSAL_DETAIL: Record<string, string> = {
+  empty: "A page has to say something. Nothing worth writing is a real answer — leave the page alone instead.",
+  "too-large":
+    "That page is past the hard limit, so it was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter and send it again.",
+  "gate-refused":
+    "The gate battery turned it away — most often because what was sent was nothing but a credential, or too short to be a page. Nothing was written.",
+};
+
 const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, skill: true, place: true, fact: true };
 const MEMORY_KINDS = Object.keys(KIND_SET) as readonly Kind[];
 
@@ -391,6 +405,8 @@ export class McpServer {
         return this.chapterTool(args);
       case "scope":
         return this.scopeTool(args);
+      case "self_page":
+        return this.selfPageTool(args);
       default:
         return this.refuse(name, "unknown-tool", { tool: name });
     }
@@ -1072,6 +1088,93 @@ export class McpServer {
         ...(written.gate === null ? {} : { gate: written.gate }),
       },
       !written.appended,
+    );
+  }
+
+  /**
+   * `self_page` — read the page, or write it whole.
+   *
+   * **It binds no session, exactly as `note` does not.** The page is not one
+   * session's account of itself the way a chapter is; it is the standing one,
+   * and a session that can write a note about the world can write the page about
+   * itself. The `by` field on the row says `session` for everything that comes
+   * through here, and no argument can change it: the console writes `owner` and
+   * the nightly writer will write `writer`, from their own doors.
+   *
+   * READING is allowed in every stance the tool answers in at all, including
+   * observer — "what does my page say" must always be answerable — and the
+   * stand-down guards the WRITE alone, which is the shape `scope` already has.
+   */
+  private selfPageTool(args: Record<string, unknown>): ToolResult {
+    const body = args["body"];
+    if (body === undefined) return this.selfPageRead();
+    if (this.observer) return this.standDown("self_page");
+    if (typeof body !== "string" || body.trim().length === 0) {
+      return this.refuse("self_page", "body-required", {
+        detail:
+          "A page has to say something. Pass the whole page; omit `body` entirely to read the one that is there.",
+      });
+    }
+    const reason = args["reason"];
+    const written = this.counterpart.revisePage(body, {
+      reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
+      by: "session",
+    });
+    this.emit("mcp.self_page", written.id ?? undefined, {
+      stored: written.written,
+      reason: written.reason,
+      bytes: written.bytes,
+      version: written.version,
+    });
+    if (!written.written) {
+      return this.refuse("self_page", written.reason, {
+        bytes: written.bytes,
+        ...(written.gate === null ? {} : { gate: written.gate }),
+        detail: PAGE_REFUSAL_DETAIL[written.reason] ?? "The page was not written.",
+      });
+    }
+    return this.result(
+      {
+        stored: true,
+        reason: written.reason,
+        id: written.id,
+        version: written.version,
+        bytes: written.bytes,
+        ...(written.warning === null ? {} : { warning: written.warning }),
+        // WHEN IT WILL BE READ. The bundle every session wakes with is composed
+        // at a boundary and served unchanged until the next one, so "it is live
+        // now" would be false for as long as this session lasts.
+        appearsAtWake: "the next boundary",
+      },
+      false,
+    );
+  }
+
+  private selfPageRead(): ToolResult {
+    const page = this.counterpart.selfPage();
+    if (page === null) {
+      return this.result(
+        {
+          present: false,
+          reason: "still-forming",
+          detail:
+            "No page has been written here yet. Write one when you have something true to say about yourself; while there is nothing, the honest page says it is still forming.",
+        },
+        false,
+      );
+    }
+    return this.result(
+      {
+        present: true,
+        body: page.body,
+        bytes: page.bytes,
+        revisedOn: page.revisedOn,
+        by: page.by,
+        version: page.version,
+        stale: this.counterpart.self.pageStale(page),
+        versions: this.counterpart.selfPageVersions().length,
+      },
+      false,
     );
   }
 

@@ -55,6 +55,9 @@ import {
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
+// The self page's two, from `self/` itself (2026-09-18, S1): a written page is
+// not a briefing render, and a refused write is not an accepted one.
+import { SELF_PAGE_REFUSED_EVENT, SELF_PAGE_REVISED_EVENT } from "../../core/self/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -108,6 +111,8 @@ export type DurableEventName =
   | typeof SWEEP_WAKE_EVENT
   | typeof SLEEP_CYCLE_EVENT
   | typeof SELF_BRIEFING_EVENT
+  | typeof SELF_PAGE_REVISED_EVENT
+  | typeof SELF_PAGE_REFUSED_EVENT
   | typeof RECALL_CREDIT_EVENT
   | typeof ASSOCIATE_FLUSH_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -170,6 +175,11 @@ export const DURABLE_EVENTS = {
   // be answered from the store at all.
   "sleep.cycle": "the consolidation cycle ran (every phase by name, with its status, and the run's counts)",
   "self.briefing": "the wake briefing was re-rendered (what rendered per lane, and which elements the trim dropped)",
+  // The page's two (2026-09-18, S1). The refusal has a row of its own because a
+  // cap reports what it refused where the owner will see it (owner ruling 2's
+  // corollary): the 196 refused asks sat in the events table unseen.
+  "self.page.revised": "the written self page was amended (who wrote it, why, how big, and which version it produced)",
+  "self.page.refused": "a write to the self page was turned away (empty, past the hard limit, or stopped by the gate battery)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with

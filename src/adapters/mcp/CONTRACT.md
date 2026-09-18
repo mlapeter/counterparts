@@ -49,9 +49,16 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 ## 4. Drops / simplifies
 
 - **The v1 self-store tool is superseded by experiencer authorship** — self-writing became
-  the primary path (owner decision, settled). This adapter therefore exposes **no
-  self-authorship tool**: identity writing happens at the boundary, by construction, not
-  through a tool description. The plain note survives as the named exception it always was.
+  the primary path (owner decision, settled). This adapter therefore exposes **no tool that
+  writes an identity element**: what enters the identity band is decided by promotion and
+  reinforcement at the boundary, by construction, not through a tool description. The plain
+  note survives as the named exception it always was.
+  *Amended 2026-09-18 (owner rulings 8 and 9, `docs/plan-parallel-rebuild-2026-09-18.md`
+  §2), and the amendment is narrower than it looks: `self_page` writes the PAGE — the prose
+  the wake now opens with, one row with versions — and touches the identity band not at all.
+  It cannot promote a memory, protect one, or move a strength. The doctrine the drop
+  protected is "identity strength comes from lived salience", and that is exactly what still
+  decides what the page has to work with. Written down is not the same as earned.*
 - **`protected.add` as a callable operation is dropped** with the second-signature queue.
   **PROPOSED** — owner call at check-in; see `schemas/CONTRACT.md` §4 for the evidence and
   counter-argument.
@@ -78,7 +85,8 @@ take the same optional dimensions, `chapter(session, text[, title])`; the sessio
 role; the launch's session, scope and data dir when the host can supply them.
 **Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
 census (status), an appended chapter with the episode's id and the chapter number the store
-actually wrote (chapter); telemetry by reference.
+actually wrote (chapter), the written self page or the version a write to it produced
+(`self_page`, 2026-09-18); telemetry by reference.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 

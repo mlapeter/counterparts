@@ -72,6 +72,7 @@ import {
   WAKE_SYSTEM,
   applyPreface,
   flatten,
+  pageDateline,
   prefaceLine,
   readSentinel,
   render,
@@ -79,10 +80,25 @@ import {
 import type {
   BriefingRequest,
   BriefingResult,
+  PageBlock,
   Resolve,
   Resolved,
   SentinelReading,
 } from "./briefing.js";
+import {
+  PAGE_META_BY,
+  PAGE_META_REASON,
+  PAGE_META_REVISED_DAY,
+  PAGE_META_REVISED_ON,
+  PAGE_TITLE,
+  SELF_PAGE_REFUSED_EVENT,
+  SELF_PAGE_REVISED_EVENT,
+  SELF_PAGE_ROLE,
+  findSelfPage,
+  readSelfPage,
+  renderPage,
+} from "./page.js";
+import type { SelfPage, SelfPageAuthor } from "./page.js";
 import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
 import {
@@ -112,6 +128,7 @@ import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 
 export * from "./briefing.js";
+export * from "./page.js";
 export * from "./episodes.js";
 export * from "./freeze.js";
 export * from "./identity.js";
@@ -278,6 +295,33 @@ export interface ChapterAppend {
   readonly reason: "appended" | "observer" | "anonymous-session" | "gate-refused";
 }
 
+/** Why a page write did not land. Every one of them is named to the caller. */
+export type PageRefusal = "empty" | "too-large" | "gate-refused";
+
+export interface PageRevision {
+  readonly written: boolean;
+  /** `created` / `revised` when it landed; the refusal's own name when it did
+   *  not, with `observer` for a stood-down instrument. */
+  readonly reason: "created" | "revised" | PageRefusal | "observer";
+  readonly id: string | null;
+  /** The version this write produced — 0 for a page written for the first time. */
+  readonly version: number | null;
+  readonly bytes: number;
+  /** Which gate refused, when one did. Null on every other outcome. */
+  readonly gate: { readonly gate: string; readonly reason: string } | null;
+  /** Accepted, and larger than the wake will show: the page is kept whole and
+   *  the wake renders a cut of it. Not a refusal — a warning the caller prints. */
+  readonly warning: "over-wake-cap" | null;
+}
+
+/** Whole days between two `YYYY-MM-DD` dates, or null when either is unreadable. */
+function daysBetween(from: string, to: string): number | null {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
 const EVENT_RING = 500;
 
 export class Self {
@@ -345,16 +389,221 @@ export class Self {
     // filters.
     const coreName =
       req.omit === undefined && lanes.identity.length === 0 ? identityCoreName(this.store) : null;
+    // THE PAGE, cut here rather than in the renderer: the cap is a byte decision
+    // that needs the caller's budget AND the page's own prose, and `briefing.ts`
+    // composes rather than reads. Clamped to the budget so a page can never on
+    // its own be larger than the whole wake; when page plus furniture still will
+    // not fit, the floor publishes with `overBudget: true`, which is the
+    // tripwire that already exists for an under-floor ceiling.
+    //
+    // It renders on an `omit` composition TOO — the fallback woken as the self
+    // (spec §15 item 3) is the one composition that most needs to know who it is
+    // writing as. `omit` stands aside protected and confidential MEMORIES; the
+    // page's own `protected` flag is the prune's vocabulary, not a
+    // confidentiality class, and the page is the self's own standing account of
+    // itself.
+    const page = this.pageBlock(req.budgetBytes, req.day);
     return render(
       lanes,
       {
         budgetBytes: req.budgetBytes,
         day: req.day,
         ...(coreName === null ? {} : { coreName }),
+        ...(page === null ? {} : { page }),
       },
       resolve,
       this.tunables,
     );
+  }
+
+  // ── the self page ────────────────────────────────────────────────────────
+
+  /**
+   * THE PAGE, READ. Null when none has been written — never a fabricated one:
+   * a store with nothing to say says so (contract §3, and the day-0 lane's own
+   * reasoning). Pure: no write, no event.
+   */
+  page(): SelfPage | null {
+    return readSelfPage(this.store);
+  }
+
+  /**
+   * Has the page gone unrevised longer than the tunable allows? CALENDAR days,
+   * against the store's own clock — the lived clock has run seven days across
+   * fifteen calendar ones on the owner's store, so a lived window would report a
+   * fortnight of silence as three days.
+   */
+  pageStale(page: SelfPage | null = this.page()): boolean {
+    if (page === null) return false;
+    const on = page.revisedOn.trim();
+    if (on === "") return true;
+    const days = daysBetween(on, this.store.today());
+    return days === null ? false : days > this.tunables.PAGE_STALE_DAYS;
+  }
+
+  /** Every earlier state of the page, newest first. Empty when there is none. */
+  pageVersions(): { seq: number; reason: string; day: number; body: string | null }[] {
+    const id = findSelfPage(this.store);
+    if (id === null) return [];
+    return this.store
+      .versions(id)
+      .slice()
+      .sort((a, b) => b.seq - a.seq)
+      .map((v) => {
+        let body: string | null = null;
+        try {
+          body = this.store.readVersion(id, v.seq).body;
+        } catch {
+          body = null;
+        }
+        return { seq: v.seq, reason: v.reason, day: v.version_day, body };
+      });
+  }
+
+  /**
+   * THE ONE SEAM that writes the page — the MCP tool, the owner's console and
+   * (later) the nightly writer all arrive here, so there is one place the row
+   * shape, the caps and the durable row are decided.
+   *
+   * Refusals are NAMED and DURABLE (owner ruling 2's corollary, 2026-09-18: a
+   * cap reports what it refused where the owner will see it). There is no silent
+   * no-op on this path: every call returns a reason and, unless the store itself
+   * is refusing writes, leaves a row saying which it was.
+   *
+   * `by` is the caller's and is not claimable from the outside by anything but
+   * the adapter that opened this seam — the MCP tool writes `session`, the
+   * console writes `owner`, and `writer` is S2's.
+   */
+  revisePage(body: string, opts: { reason: string; by: SelfPageAuthor; day?: number }): PageRevision {
+    const day = opts.day ?? this.store.livedDay();
+    const draft = body.replace(/\r\n/g, "\n").trim();
+    let bytes = byteLength(draft);
+    const refuse = (
+      reason: PageRefusal,
+      detail: Record<string, string | number | boolean>,
+      gate: { gate: string; reason: string } | null = null,
+    ): PageRevision => {
+      this.emit("self.page.refused", undefined, { reason, by: opts.by, ...detail });
+      try {
+        this.store.appendEvent({
+          name: SELF_PAGE_REFUSED_EVENT,
+          day,
+          payload: { reason, by: opts.by, ...detail },
+        });
+      } catch {
+        /* a refusal that cannot be recorded is still a refusal (§5 G7) */
+      }
+      return { written: false, reason, id: null, version: null, bytes, warning: null, gate };
+    };
+
+    if (this.observer) {
+      // The stand-down comes FIRST and writes nothing at all, the durable row
+      // included: an instrument that logged its own refusal would be changing
+      // the store it is reading (observer-mode G3).
+      this.emit("self.observer.standdown", undefined, { site: "revisePage" });
+      return { written: false, reason: "observer", id: null, version: null, bytes, warning: null, gate: null };
+    }
+    if (draft.length === 0) return refuse("empty", { bytes: 0 });
+    if (bytes > this.tunables.PAGE_MAX_BYTES) {
+      // Refused, never cut: what gets cut at write time is the only copy.
+      return refuse("too-large", { bytes, limit: this.tunables.PAGE_MAX_BYTES });
+    }
+    // THE BATTERY, on the page as on the journal (SEAMS H). The page is prose
+    // that will be injected into every session from here on, so a credential
+    // written into it would be the most durable place on the machine to leave
+    // one. `NO_GATE`'s refusal is the behaviour of a door nobody wired a battery
+    // into, and it is loud rather than open.
+    const verdict = this.gate({ text: draft, handles: [], sessionId: `page:${opts.by}` });
+    if (!verdict.ok) {
+      return refuse(
+        "gate-refused",
+        { bytes, gate: verdict.gate, gateReason: verdict.reason },
+        { gate: verdict.gate, reason: verdict.reason },
+      );
+    }
+    // The GATE's text, never the draft: the battery may have redacted it.
+    const text = verdict.text !== undefined && verdict.text.length > 0 ? verdict.text : draft;
+    bytes = byteLength(text);
+
+    const existing = findSelfPage(this.store);
+    const meta: Record<string, unknown> = {
+      role: SELF_PAGE_ROLE,
+      [PAGE_META_BY]: opts.by,
+      [PAGE_META_REASON]: opts.reason,
+      [PAGE_META_REVISED_ON]: this.store.today(),
+      [PAGE_META_REVISED_DAY]: day,
+    };
+    let id: string;
+    let version: number;
+    if (existing === null) {
+      id = this.store.put({
+        type: "schema",
+        kind: "self",
+        title: PAGE_TITLE,
+        body: text,
+        meta,
+        learnedOn: this.store.today(),
+        // PROTECTED AT BIRTH — the one flag that keeps the floor prune off it
+        // (`physics#pruneVerdict` blocks on it by name). It is not a
+        // confidentiality class and it buys no exemption anywhere else.
+        physics: { protected: true },
+      });
+      version = 0;
+    } else {
+      id = existing;
+      version = this.store.revise(id, { body: text, title: PAGE_TITLE, meta, reason: opts.reason });
+      // A page written before this flag existed — or one whose row was minted by
+      // hand — is put beyond the prune here rather than at some later repair.
+      if (this.store.row(id)?.protected !== 1) this.store.updatePhysics(id, { protected: true });
+    }
+    const warning =
+      bytes > this.tunables.PAGE_WAKE_BYTES
+        ? (`over-wake-cap` as const)
+        : null;
+    this.store.appendEvent({
+      name: SELF_PAGE_REVISED_EVENT,
+      day,
+      ref: id,
+      payload: {
+        by: opts.by,
+        reason: opts.reason,
+        bytes,
+        version,
+        created: existing === null,
+        wakeCap: this.tunables.PAGE_WAKE_BYTES,
+        ...(warning === null ? {} : { warning }),
+      },
+    });
+    this.emit("self.page.revised", id, {
+      by: opts.by,
+      bytes,
+      version,
+      created: existing === null,
+      ...(warning === null ? {} : { warning }),
+    });
+    return {
+      written: true,
+      reason: existing === null ? "created" : "revised",
+      id,
+      version,
+      bytes,
+      warning,
+      gate: null,
+    };
+  }
+
+  /** The page as the wake will print it, or null. Pure. */
+  private pageBlock(budgetBytes: number, _day: number): PageBlock | null {
+    const page = this.page();
+    if (page === null) return null;
+    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, Math.max(0, budgetBytes));
+    const rendered = renderPage(page.body, cap);
+    return {
+      text: rendered.text,
+      dateline: pageDateline(page.revisedOn, this.pageStale(page), this.tunables.PAGE_STALE_DAYS),
+      truncated: rendered.truncated,
+      wholeBytes: rendered.wholeBytes,
+    };
   }
 
   /**

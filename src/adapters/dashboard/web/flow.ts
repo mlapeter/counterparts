@@ -362,6 +362,10 @@ export const EVENT_NODE = {
   // but what the row DESCRIBES is the bundle — what rendered, what was trimmed —
   // so it lights the node the owner will actually read it against.
   "self.briefing": "wake",
+  // The page is what the wake now LEADS with, so both of its rows belong to the
+  // wake node: written at one boundary, read at every one after it.
+  "self.page.revised": "wake",
+  "self.page.refused": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
   // The wiring that follows that decision: what the reply used together got

@@ -122,6 +122,9 @@ import type {
   ChapterAsk,
   IdentityCoreSpec,
   IngestResult,
+  PageRevision,
+  SelfPage,
+  SelfPageAuthor,
   WakeDelivery,
   WakeResult,
 } from "./self/index.js";
@@ -1910,6 +1913,37 @@ export class Counterpart {
   /** Through the REAL battery: a first-person reflection is not exempt (SEAMS H). */
   ingestEpisode(input: { sessionId: string; day?: number; handles?: readonly string[] }): IngestResult {
     return this.self.ingestEpisode(input);
+  }
+
+  // ── the self page ──────────────────────────────────────────────────────────
+
+  /** The written page, or null while none has been written. A pure read. */
+  selfPage(): SelfPage | null {
+    return this.self.page();
+  }
+
+  /** Every earlier state of the page, newest first. A pure read. */
+  selfPageVersions(): ReturnType<Self["pageVersions"]> {
+    return this.self.pageVersions();
+  }
+
+  /**
+   * THE ONE DOOR TO THE PAGE — the MCP tool, the owner's console and the nightly
+   * writer (S2) all arrive here, and they arrive THROUGH THE BATTERY.
+   *
+   * The gate is the journal's, and the reason is the journal's (SEAMS H, found
+   * by the caller-universality test): the page is canonical prose that is
+   * injected into every session from here on, so a credential written into it
+   * would be the most durable place on the machine to leave one. It is applied
+   * inside `self/`, on the gate this root injected, so there is ONE refusal path
+   * and one durable row — and `self/`'s refusing default (`NO_GATE`) stays the
+   * behaviour of a page door nobody wired a battery into.
+   */
+  revisePage(
+    body: string,
+    opts: { reason: string; by: SelfPageAuthor; day?: number },
+  ): PageRevision {
+    return this.self.revisePage(body, opts);
   }
 
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */

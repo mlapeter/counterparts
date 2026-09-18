@@ -34,7 +34,7 @@ import {
   isJournal,
   readMarker,
 } from "../../../core/sleep/index.js";
-import { FRAMING, LANE_ORDER } from "../../../core/self/index.js";
+import { FRAMING, LANE_ORDER, pageSections } from "../../../core/self/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 import { NEVER, NONE, num } from "../layout.js";
 import { BANDS, CYCLE_PHASES, DURABLE_EVENTS, DURABLE_EVENT_NAMES, KINDS } from "../registries.js";
@@ -1057,6 +1057,33 @@ export interface MindView {
     readonly lanes: WakeLane[];
     readonly absent: string | null;
   };
+  /**
+   * THE WRITTEN PAGE, and what it used to say (2026-09-18, S1). Read-only, like
+   * everything else here: the dashboard shows the page and its versions and
+   * offers no door to write one — the doors are the MCP tool and the console.
+   *
+   * The BODIES ride along rather than a diff. The current dashboard has no
+   * precedent for rendering a change between two revisions (`divergentPair` is
+   * a side-by-side of two CONTESTED statements, not a text diff), and a page is
+   * prose a person reads rather than a field that changed — so this is the
+   * simple list the brief named as the fallback, newest first.
+   */
+  readonly page: {
+    readonly present: boolean;
+    readonly body: string;
+    readonly bytes: number;
+    readonly revisedOn: string;
+    readonly by: string | null;
+    readonly reason: string | null;
+    readonly version: number;
+    readonly stale: boolean;
+    readonly core: string;
+    readonly lately: string;
+    readonly headed: boolean;
+  } | null;
+  /** The honest absence line when no page has been written. */
+  readonly pageAbsent: string | null;
+  readonly pageVersions: { seq: number; reason: string; day: number; body: string | null }[];
   readonly chapters: ChapterRow[];
   readonly chaptersAbsent: string | null;
   readonly stories: StoryView[];
@@ -1068,6 +1095,7 @@ export function mindView(src: DashboardSource): MindView {
   const day = store.livedDay();
   const e = src.self.enumerate(day);
   const wake = src.self.wake();
+  const page = src.self.page();
   const everLived = day > 0 || store.list().length > 0;
   const seen = new Set(e.identity.map((el) => el.id));
   const unreadable = store
@@ -1112,6 +1140,22 @@ export function mindView(src: DashboardSource): MindView {
       lanes: wake.ok ? wakeLanes(wake.text) : [],
       absent: wake.ok ? null : everLived ? NONE : NEVER,
     },
+    page:
+      page === null
+        ? null
+        : {
+            present: true,
+            body: page.body,
+            bytes: page.bytes,
+            revisedOn: page.revisedOn,
+            by: page.by,
+            reason: page.reason,
+            version: page.version,
+            stale: src.self.pageStale(page),
+            ...pageSections(page.body),
+          },
+    pageAbsent: page === null ? (everLived ? NONE : NEVER) : null,
+    pageVersions: page === null ? [] : src.self.pageVersions(),
     chapters: chapters(src, 12),
     chaptersAbsent: chapters(src, 1).length === 0 ? (everLived ? NONE : NEVER) : null,
     stories: storyViews(src),

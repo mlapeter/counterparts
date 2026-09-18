@@ -147,6 +147,59 @@ export function identityCoreLine(name: string): string {
   return `This memory is for ${flatten(name)}. No identity has formed here yet — identity is earned at the boundary that ends a session, from what recurs across distinct days.`;
 }
 
+/**
+ * THE PAGE, IN "WHO I AM" — furniture, like the day-0 line, and for the same
+ * reason: it is not a ranked element, it carries no `- ` bullet, and `counts`
+ * and the sentinel's `elements=` stay true of a bundle that holds it.
+ *
+ * The page prints FIRST and AS IS. Not re-wrapped, not re-ordered, not
+ * summarised: a page reassembled here would be a page this module wrote, and
+ * what the owner and the session are promised is the thing they wrote.
+ * `FRAMING.context`'s "each line opens with the date it was learned" is a claim
+ * about the element lines — the day-0 line has carried no date since it shipped
+ * — and the page carries its own date on its own line instead.
+ */
+export interface PageBlock {
+  /** The page as it will be injected: already cut to the cap, marker included. */
+  readonly text: string;
+  /** The page's own "last revised" line, or null when the page carries no date. */
+  readonly dateline: string | null;
+  /** True when the cap cut it — `text` already carries the marker that says so. */
+  readonly truncated: boolean;
+  /** The page's own bytes, whole, whatever was rendered. */
+  readonly wholeBytes: number;
+}
+
+/**
+ * What "Who I am" prints BESIDE the ranked elements. Both fields are decided by
+ * `render` from the tunables and handed down, so `compose` stays a renderer with
+ * no policy of its own.
+ */
+export interface IdentityBlock {
+  /** The written page, when one exists. It replaces the list (spec §15 item 4). */
+  readonly page: PageBlock | null;
+  /** Printed when there is NO page and the list has been switched off. */
+  readonly forming: string | null;
+}
+
+/** What "Who I am" says when no page has been written and the list is off. */
+export const PAGE_FORMING_LINE =
+  "Still forming — no page has been written here yet. It is written at a boundary, from what recurs, and can be amended by hand.";
+
+/**
+ * The page's own date, under the page. It states the DATE and — when the page
+ * has gone stale — how long the silence was allowed to be, rather than "N days
+ * ago": the bundle is composed at a boundary and then served unchanged until
+ * the next one, so a delta computed here goes wrong while a date does not.
+ */
+export function pageDateline(revisedOn: string, stale: boolean, staleDays: number): string | null {
+  const on = revisedOn.trim();
+  if (on === "") return null;
+  return stale
+    ? `(Last revised ${on} — more than ${staleDays} days before this wake was composed.)`
+    : `(Last revised ${on}.)`;
+}
+
 /** Id → the verbatim statement AND its dates, at render time only. */
 export interface Resolved {
   readonly statement: string;
@@ -182,6 +235,16 @@ export interface BriefingRequest {
    * is the caller's because it reads prose, and `self/` invents no name.
    */
   readonly coreName?: string;
+  /**
+   * THE WRITTEN SELF PAGE, already cut to its cap and dated by the caller
+   * (`Self.build` → `page.ts#renderPage`). Present means "Who I am" prints this
+   * and NOT the rotating list; absent means the list renders as it always has,
+   * or — when `PAGE_EMPTY_SHOWS_LIST` is off — the still-forming line does.
+   *
+   * It arrives ready because the cap is a byte decision that needs the caller's
+   * budget and the page's own prose, and this module composes rather than reads.
+   */
+  readonly page?: PageBlock;
 }
 
 export interface TrimEvent {
@@ -212,6 +275,10 @@ export interface BriefingResult extends Composed {
    *  fit the caller's budget. The floor still publishes: an under-floor budget is
    *  a host misconfiguration, and the wake never fails the session (§1 G7). */
   readonly overBudget: boolean;
+  /** The page as it RENDERED — null when no page was handed to this render. The
+   *  bytes are the injected ones (the marker included), so a cut page's cost and
+   *  its true size are both readable. */
+  readonly page: { readonly bytes: number; readonly truncated: boolean; readonly wholeBytes: number } | null;
 }
 
 
@@ -349,26 +416,46 @@ export function compose(
   day: number,
   resolve: Resolve,
   coreName?: string,
+  identity?: IdentityBlock,
 ): Composed {
   const counts = emptyCounts();
   for (const lane of LANE_ORDER) counts[lane] = kept[lane].length;
   const elements = LANE_ORDER.reduce((n, lane) => n + counts[lane], 0);
   // The day-0 lane: a heading and one line of furniture, never an element. The
   // counts and `elements` above are untouched, so `elements=0` in the header and
-  // `identity=0` in the sentinel stay true of a bundle that carries it.
+  // `identity=0` in the sentinel stay true of a bundle that carries it. The same
+  // is true of the page and the still-forming line below.
+  const page = identity?.page ?? null;
+  const forming = identity?.forming ?? null;
   const dayZero =
-    kept.identity.length === 0 && coreName !== undefined && coreName.length > 0 ? coreName : null;
+    page === null && kept.identity.length === 0 && coreName !== undefined && coreName.length > 0
+      ? coreName
+      : null;
 
   const build = (bytes: string): string => {
     const lines: string[] = [headerLine(day, elements, bytes), FRAMING.context];
     for (const lane of LANE_ORDER) {
       const items = kept[lane];
-      if (items.length === 0) {
-        if (lane === "identity" && dayZero !== null) {
-          lines.push("", laneHeading(lane), identityCoreLine(dayZero));
+      if (lane === "identity") {
+        const furniture = page !== null || forming !== null || dayZero !== null;
+        if (items.length === 0 && !furniture) continue;
+        lines.push("", laneHeading(lane));
+        // THE PAGE FIRST, and then nothing else that speaks for the same thing:
+        // `render` empties the lane when a page exists, so the loop below is a
+        // no-op there. A direct caller that hands both is rendered both rather
+        // than silently cut, because `counts.identity` would otherwise state a
+        // number the bundle does not carry.
+        if (page !== null) {
+          lines.push(page.text);
+          if (page.dateline !== null) lines.push(page.dateline);
+        } else {
+          if (forming !== null) lines.push(forming);
+          if (dayZero !== null) lines.push(identityCoreLine(dayZero));
         }
+        for (const item of items) lines.push(elementLine(item, resolve));
         continue;
       }
+      if (items.length === 0) continue;
       lines.push("", laneHeading(lane));
       for (const item of items) lines.push(elementLine(item, resolve));
     }
@@ -448,13 +535,14 @@ function offerLeftover(
   req: BriefingRequest,
   resolve: Resolve,
   coreName: string | undefined,
+  identity: IdentityBlock,
 ): Composed {
   let current = composed;
   while (held.length > 0) {
     const next = held[0];
     if (next === undefined) break;
     kept.identity.push(next);
-    const candidate = compose(kept, req.day, resolve, coreName);
+    const candidate = compose(kept, req.day, resolve, coreName, identity);
     if (candidate.bytes > req.budgetBytes) {
       kept.identity.pop();
       break;
@@ -507,6 +595,21 @@ export function render(
   // that looks the name up. A store that HAS identity says nothing about not
   // having it, whatever the budget did to the lane.
   const coreName = lanes.identity.length === 0 ? req.coreName : undefined;
+  // THE PAGE REPLACES THE LIST (spec §15 item 4), and it replaces it HERE — by
+  // emptying the lane before the share, the trim order or the counts see it —
+  // so `counts.identity` and the sentinel's `elements=` state what the bundle
+  // actually carries. The lane's elements are not "trimmed": nothing was
+  // dropped for want of room, so no `TrimEvent` is written for them, and the
+  // rotation memory (`RENDERED_PREFIX`) simply stops advancing while a page is
+  // what renders.
+  //
+  // The still-forming line is the OTHER value of the same switch: no page, and
+  // the owner has chosen not to keep the list meanwhile.
+  const identity: IdentityBlock = {
+    page: req.page ?? null,
+    forming: req.page === undefined && !t.PAGE_EMPTY_SHOWS_LIST ? PAGE_FORMING_LINE : null,
+  };
+  if (identity.page !== null || identity.forming !== null) kept.identity.length = 0;
   // THE SHARE, applied BEFORE the trim order rather than inside it: identity
   // trims last by policy, so by the time the trim loop could bound identity
   // every other lane is already gone. Held-back elements are not trimmed —
@@ -514,7 +617,7 @@ export function render(
   const held = withheldForShare(kept, req.budgetBytes, resolve, t);
 
   for (;;) {
-    const c = compose(kept, req.day, resolve, coreName);
+    const c = compose(kept, req.day, resolve, coreName, identity);
     const fits = c.bytes <= req.budgetBytes;
     let cut: TrimEvent | null = null;
     if (!fits) {
@@ -533,7 +636,8 @@ export function render(
       // would make the share decide the opposite of what it was set for. When
       // the other lanes are all present and the budget is still not spent, the
       // held-back identity elements take it back, in rank order, whole.
-      const composed = trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName) : c;
+      const composed =
+        trimmed.length === 0 ? offerLeftover(kept, held, c, req, resolve, coreName, identity) : c;
       return {
         ...composed,
         budgetBytes: req.budgetBytes,
@@ -548,6 +652,14 @@ export function render(
         trimmed,
         pressure: composed.bytes >= req.budgetBytes * t.BUDGET_PRESSURE,
         overBudget: !fits,
+        page:
+          identity.page === null
+            ? null
+            : {
+                bytes: byteLength(identity.page.text),
+                truncated: identity.page.truncated,
+                wholeBytes: identity.page.wholeBytes,
+              },
       };
     }
     trimmed.push(cut);

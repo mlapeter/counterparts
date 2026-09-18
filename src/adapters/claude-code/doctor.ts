@@ -54,6 +54,8 @@ import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
+// The page's own reader, so this line cannot drift from what the wake prints.
+import { readSelfPage } from "../../core/self/page.js";
 import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
@@ -1292,6 +1294,62 @@ function vectorFindings(store: Store): Finding[] {
   return [finding("vectors", "green", "Vectors", detail, "", data)];
 }
 
+/**
+ * THE SELF PAGE (2026-09-18, S1) — one line: is there one, how big, how old.
+ *
+ * GREEN when absent, amber when stale, and never red. A store with no page has
+ * not written one yet, which is the correct state of a fresh install and on the
+ * first day after this ships — absence is a fact, not a fault, and a line that
+ * nags from the moment it lands is a line people learn to read past (the same
+ * rule `fired.ts` states for its `blind` rows). Staleness is the reading worth
+ * an amber: a page that exists and has stopped being revised means something
+ * that was running has stopped.
+ *
+ * The reading is two row reads and a date comparison, so it sits with the cheap
+ * groups rather than with `fired`.
+ */
+export function selfPageFindings(store: Store): Finding[] {
+  const page = readSelfPage(store);
+  if (page === null) {
+    return [
+      finding(
+        "self-page",
+        "green",
+        "Self page",
+        "no page written yet — the wake says it is still forming",
+        "",
+        { present: false },
+      ),
+    ];
+  }
+  const stale = pageStaleOn(page.revisedOn, dateOf(store.now()), SELF_TUNABLES.PAGE_STALE_DAYS);
+  const detail =
+    `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
+    `${page.by === null ? "" : ` by ${page.by}`}`;
+  const data = { present: true, bytes: page.bytes, version: page.version, revisedOn: page.revisedOn, stale };
+  return [
+    stale
+      ? finding(
+          "self-page",
+          "amber",
+          "Self page",
+          `${detail} — stale (over ${SELF_TUNABLES.PAGE_STALE_DAYS} days)`,
+          "Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.",
+          data,
+        )
+      : finding("self-page", "green", "Self page", detail, "", data),
+  ];
+}
+
+/** Calendar days, like every other window here. Unrecorded reads as stale. */
+function pageStaleOn(revisedOn: string, today: string, limit: number): boolean {
+  if (revisedOn.trim() === "") return true;
+  const a = Date.parse(`${revisedOn}T00:00:00Z`);
+  const b = Date.parse(`${today}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.round((b - a) / 86_400_000) > limit;
+}
+
 // ── the reading ─────────────────────────────────────────────────────────────
 
 const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
@@ -1332,6 +1390,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
     ["vectors", () => vectorFindings(store)],
+    ["self-page", () => selfPageFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

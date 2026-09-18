@@ -143,6 +143,7 @@ import {
 import { ownerRemoval, planRemoval } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
+import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
@@ -169,6 +170,9 @@ export const COMMANDS = [
   "doctor",
   "credentials",
   "scope",
+  // The written page the wake leads with: read it, write it whole, and read
+  // back what it used to say (2026-09-18, S1).
+  "self-page",
 ] as const;
 export type Command = (typeof COMMANDS)[number];
 
@@ -201,6 +205,14 @@ export const OWNER_OPS: readonly Command[] = [
   // gate is per command, and `list` paying for `set`'s rule is the cheap
   // direction: the names are in the file, and `doctor` prints them anyway.
   "credentials",
+  // `self-page` is NOT here either, and for a reason of its own: the command
+  // both READS and writes, and reading the page must work from an instrument —
+  // "what does my page actually say" is the first question anyone asks when the
+  // wake looks wrong, and a stood-down console is exactly what is running while
+  // somebody is asking it. So the refusal lives at the WRITE, inside
+  // `self/#revisePage`, in the same sentence every other write refuses in, and
+  // a stood-down `--write` says so and changes nothing.
+  //
   // `scope` is NOT here, and the omission is the ruling: it writes the HOST's
   // configuration, never a store, so the observer rule that governs it is its
   // own. An instrument may READ the registry — that is how a stood-down session
@@ -349,6 +361,15 @@ export function usage(): string {
     "                      times in the last 7 days, what it turned away, and — for",
     "                      the ones nothing durable records — which row would fix it.",
     "                      Read-only.",
+    "  self-page           The written page the wake opens with. With no flags it",
+    "                      prints the page, its size, its version and the date it",
+    "                      was last revised (and says when that has gone stale).",
+    "                      --write --file <path>, or --write --stdin, replaces it",
+    '                      whole — --reason "<why>" is kept with the version that',
+    "                      write produces. --versions lists the earlier ones;",
+    "                      --version <seq> prints one in full. Reading works under",
+    "                      observer; writing refuses there. A page written here",
+    "                      reaches the wake at the next boundary (or 'rebrief').",
     "  scope <path|.>      Which directories this memory is for. With a mode flag it",
     "                      writes <config dir>/scopes.json; with none it says what",
     "                      the directory resolves to and which entry decided.",
@@ -447,6 +468,10 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // `SCOPE_FLAG_HELP`, which is the sentence this command's help page prints
   // for it instead of the shared one.
   scope: ["on", "off", "pause", "resume", "list", "note", "force", "config"],
+  // There is deliberately no flag that CARRIES the page: a page on the command
+  // line is a page in shell history, and the same argument that keeps a
+  // credential off argv keeps prose that is injected into every session off it.
+  "self-page": ["write", "file", "stdin", "reason", "versions", "version"],
 };
 
 /**
@@ -487,6 +512,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Put one key in the credentials file the config names, 0600, with the value from stdin or --from-env and never from the command line. 'credentials list' says which names the file holds.",
   scope:
     "Which directories this memory is for: on, observer, off, or paused until you resume it. It writes the host's own registry beside claude-code.json, opens no store, and needs no --dir. A subdirectory inherits its nearest ancestor's entry. On this one command --observer names the MODE, not the console's stance.",
+  "self-page":
+    "The written page the wake opens with. With no flags it prints the page, its date and its size; --write --file <path> or --write --stdin replaces it whole, keeping every earlier version; --versions lists those and --version <seq> prints one. Reading works under observer; writing refuses there.",
 };
 
 /** The invocation line, where a command takes something that is not a flag. */
@@ -526,7 +553,10 @@ const FLAG_HELP: Record<string, string> = {
   passphrase: "encrypt the export with this secret",
   plaintext: "do not encrypt the export (said on purpose, never by default)",
   confirm: "actually do it — without this, removal is a dry run",
-  reason: "the reason, recorded with the removal",
+  // TWO COMMANDS, ONE SENTENCE, as `--json` already is: `remove --reason` is
+  // recorded with the removal, `self-page --reason` with the version the write
+  // produces. The table is keyed by flag NAME, so the sentence is true of both.
+  reason: "the reason, recorded with the change it makes",
   "strike-by-content-across-scopes":
     "for a memory whose provenance records no project: chase its words through EVERY project's capture buffer (an exact jot, never a substring). Look at what the dry run lists first",
   rebuild: "drop and rebuild the cache instead of counting it",
@@ -548,8 +578,14 @@ const FLAG_HELP: Record<string, string> = {
   // was false of `note` and of `migrate-cache` itself). `migrate-cache` is the
   // one command left with a `--yes`, and `--apply` there does require `--dir`.
   yes: "skip the typed confirmation, and nothing else — it never stands in for --dir, which --apply requires",
-  stdin: "read the value from standard input (the default whenever stdin is not a terminal)",
+  // True of both commands that take it: `credentials` reads the key here,
+  // `self-page --write` reads the page.
+  stdin: "read it from standard input (the default whenever stdin is not a terminal)",
   "from-env": "read the value from this environment variable instead of from stdin",
+  write: "replace the page with what --from or --stdin gives, keeping every earlier version",
+  file: "the file to read the page from",
+  versions: "list the earlier versions, newest first",
+  version: "print one earlier version in full, by its seq from --versions",
   on: "remember here: capture, deposit, wake and recall, as everywhere else",
   off: "nothing here: the hooks produce no output and write nothing, and the tools refuse",
   pause: "off for now, remembering what to go back to",
@@ -631,6 +667,8 @@ const VALUED_FLAGS: readonly string[] = [
   "sample",
   "from-env",
   "note",
+  "file",
+  "version",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -788,6 +826,14 @@ export function parse(argv: readonly string[]): Parsed {
       // that read that as "absent" would fall through to stdin and hang.
       stdin: { type: "boolean" },
       "from-env": { type: "string" },
+      // `self-page`'s own three that are not already declared. `--file` and
+      // `--version` are strings for the reason every valued flag here is: a
+      // trailing `--from` would otherwise arrive as the boolean `true` and be
+      // read as "no file named".
+      write: { type: "boolean" },
+      file: { type: "string" },
+      versions: { type: "boolean" },
+      version: { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
       // `scope`'s five. Declared as booleans for the same reason `rebuild` is:
@@ -1065,6 +1111,15 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         return probeCommand(dir, io, typeof parsed.flags["dir"] === "string");
       case "fired":
         return firedCommand(dir, io, typeof parsed.flags["dir"] === "string", now);
+      case "self-page":
+        return await selfPageCommand(
+          dir,
+          io,
+          parsed,
+          observer,
+          typeof parsed.flags["dir"] === "string",
+          opts.stdin,
+        );
     }
   } catch (err) {
     io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
@@ -1175,6 +1230,122 @@ function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number)
     return EXIT.ok;
   } finally {
     store.close();
+  }
+}
+
+/**
+ * `self-page` — the owner's door to the written page (2026-09-18, S1).
+ *
+ * Four modes on one command, and they are the four questions the owner has:
+ * what does it say, what did it used to say, what did version N say, and
+ * replace it. Every rule about the write is the core seam's
+ * (`self/#revisePage`); this decides nothing but which of the four ran.
+ *
+ * The store is opened in the CONSOLE's stance rather than always as an
+ * observer, because `--write` is a real write. A read under observer works, and
+ * a `--write` under observer refuses at the seam, which is where every other
+ * write refuses (see the note on `OWNER_OPS`).
+ */
+async function selfPageCommand(
+  dir: string,
+  io: Io,
+  parsed: Parsed,
+  observer: boolean,
+  namedDir: boolean,
+  stdin?: RunOptions["stdin"],
+): Promise<number> {
+  if (!storeExists(dir)) {
+    io.err(`No store at ${dir}. Run 'counterparts init${namedDir ? ` --dir ${dir}` : ""}' to create one.`);
+    return EXIT.usage;
+  }
+  const write = parsed.flags["write"] === true;
+  const wantsVersions = parsed.flags["versions"] === true;
+  const seq = parsed.flags["version"];
+  if (write && (wantsVersions || typeof seq === "string")) {
+    io.err("refused: --write replaces the page; --versions and --version read it. Pass one.");
+    return EXIT.usage;
+  }
+
+  // THE PAGE IS READ FROM STDIN BEFORE THE STORE OPENS, so a pipe that never
+  // closes cannot leave a store open behind it.
+  let body: string | null = null;
+  if (write) {
+    const from = parsed.flags["file"];
+    const wantsStdin = parsed.flags["stdin"] === true;
+    if (typeof from === "string" && wantsStdin) {
+      io.err("refused: --file and --stdin both name where the page comes from; pass one.");
+      return EXIT.usage;
+    }
+    if (typeof from !== "string" && !wantsStdin) {
+      io.err("refused: --write needs the page: --file <path>, or --stdin.");
+      return EXIT.usage;
+    }
+    if (typeof from === "string") {
+      const read = bodyFrom({ file: from }, () => "");
+      if ("error" in read) {
+        io.err(`refused: ${read.error}`);
+        return EXIT.usage;
+      }
+      body = read.body;
+    } else {
+      if (stdin === undefined) {
+        io.err("refused: this console has no standard input to read the page from.");
+        return EXIT.usage;
+      }
+      if (stdin.isTty) {
+        io.err(
+          "refused: stdin is a terminal. Pipe the page in (cat page.md | counterparts self-page --write --stdin), or use --file <path>.",
+        );
+        return EXIT.usage;
+      }
+      body = await stdin.read();
+    }
+  }
+
+  let counterpart: Counterpart;
+  try {
+    counterpart = openCounterpart(dir, observer);
+  } catch (err) {
+    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    return EXIT.failed;
+  }
+  try {
+    if (write) {
+      const reason = parsed.flags["reason"];
+      const written = counterpart.revisePage(body ?? "", {
+        reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "owner edit",
+        by: "owner",
+      });
+      const out = writeLines(written, counterpart.self.tunables.PAGE_WAKE_BYTES);
+      for (const line of out.lines) (out.ok ? io.out : io.err)(line);
+      return out.ok ? EXIT.ok : EXIT.refused;
+    }
+    if (wantsVersions) {
+      for (const line of versionLines(counterpart.selfPageVersions())) io.out(line);
+      return EXIT.ok;
+    }
+    if (typeof seq === "string") {
+      const want = Number(seq);
+      const found = counterpart.selfPageVersions().find((v) => v.seq === want);
+      if (found === undefined) {
+        io.err(`refused: no version ${seq}. 'self-page --versions' lists the ones there are.`);
+        return EXIT.usage;
+      }
+      io.out(`version ${found.seq} — lived day ${found.day}, ${found.reason}`);
+      io.out("");
+      for (const line of (found.body ?? "(this version's prose could not be read)").split("\n")) io.out(line);
+      return EXIT.ok;
+    }
+    const page = counterpart.selfPage();
+    if (page === null) {
+      for (const line of NO_PAGE_LINES) io.out(line);
+      return EXIT.ok;
+    }
+    const lines = pageLines(page, counterpart.self.pageStale(page), counterpart.selfPageVersions().length);
+    for (const line of lines) io.out(line);
+    return EXIT.ok;
+  } finally {
+    counterpart.store.close();
   }
 }
 

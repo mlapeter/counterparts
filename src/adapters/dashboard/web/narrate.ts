@@ -486,6 +486,30 @@ export const NARRATORS = {
     );
   },
 
+  /**
+   * THE PAGE'S TWO ROWS (2026-09-18). Calm on both arms: an amendment is the
+   * mechanism working, and a refusal is a cap doing its job out loud rather
+   * than a fault.
+   */
+  "self.page.revised": (t) => {
+    const by = s(t, "by") ?? "someone";
+    const bytes = n(t, "bytes") ?? 0;
+    const why = s(t, "reason");
+    const who =
+      by === "owner"
+        ? "the owner wrote my page"
+        : by === "writer"
+          ? "the nightly writer revised my page"
+          : "I amended my page";
+    const because = why === null || why.length === 0 ? "" : `, ${why}`;
+    return calm(`${who}: ${num(bytes)} bytes${because}.`);
+  },
+  "self.page.refused": (t) => {
+    const why = s(t, "reason") ?? "refused";
+    const by = s(t, "by") ?? "someone";
+    return calm(`A write to my page was turned away (${why}), from ${by}. The page is unchanged.`);
+  },
+
   // ── retrieval ──────────────────────────────────────────────────────────────
   "recall.decision": (t) => {
     const surfaced = idsIn(t, "surfaced");
@@ -682,6 +706,11 @@ export const REF_KIND = {
   // BUNDLE. The ids they do carry (the trimmed elements) ride in the payload.
   "sleep.cycle": "none",
   "self.briefing": "none",
+  // The revision points at the PAGE's own row, which is a real id in the store
+  // and resolves like any other; a refusal wrote nothing, so it points at
+  // nothing rather than at the page it did not change.
+  "self.page.revised": "memory",
+  "self.page.refused": "none",
   "recall.credit": "none",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge
   // rows, where they are the record; the row carries counts.
