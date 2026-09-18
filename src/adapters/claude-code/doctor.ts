@@ -1376,14 +1376,16 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     (oldest === null ? "" : `, oldest ${oldest.slice(0, 10)}`) +
     (keep === DEFAULT_KEEP ? "" : ` (keeping ${keep})`);
   const full = { ...data, date, kept, oldest, files: num(p, "files") };
-  const stale = date === null || date < daysBefore(input.today, SNAPSHOT_STALE_DAYS);
+  // Two or more calendar days back is a daily mechanism that has missed one, so
+  // the boundary day itself is already amber.
+  const stale = date === null || date <= daysBefore(input.today, SNAPSHOT_STALE_DAYS);
   return [
     stale
       ? finding(
           "snapshot",
           "amber",
           "Snapshot",
-          `${detail} — more than ${SNAPSHOT_STALE_DAYS} days ago`,
+          `${detail} — ${SNAPSHOT_STALE_DAYS} days ago or more`,
           "The copy is taken by the worker after a boundary; read the Spawn line below.",
           full,
         )

@@ -769,3 +769,13 @@ writes nothing either: it is a configuration fact that will not change on its ow
 so doctor's Snapshot line says it in words. Everything that stopped a copy that
 should have happened is a `snapshot.failed` row with its `reason` and `step`, and
 the directory refusals are deduped per calendar date.
+
+**No lock between two workers, on purpose.** Two runs that overlap on the same
+UTC day both see no snapshot for today, both copy into their own pid-stamped
+partial, and both rename — so a day can end with two copies and two
+`snapshot.taken` rows. Both rotations may also report deleting the same
+directory, because `rmSync(..., { force: true })` swallows the second. Every part
+of that is the safe direction (an extra copy, a duplicated record), and a lock
+file would be a new thing that can go stale and refuse a backup on the day it
+matters. If the duplicates ever become noise, the gate is the place to tighten,
+not the copy.

@@ -472,7 +472,15 @@ describe("doctor — the reading", () => {
     });
     const snap = by(doctorFindings(input({ store: s })), "snapshot");
     expect(snap.severity).toBe("amber");
-    expect(snap.detail).toContain("more than 2 days ago");
+    expect(snap.detail).toContain("2 days ago or more");
+    // THE BOUNDARY DAY, pinned rather than left to a reader's guess: two
+    // calendar days back is a daily mechanism that has already missed one.
+    s.appendEvent({
+      name: SNAPSHOT_TAKEN_EVENT,
+      day: s.livedDay(),
+      payload: { date: "2026-09-12", name: "2026-09-12T03-00-00-000Z", kept: 10, oldest: null },
+    });
+    expect(by(doctorFindings(input({ store: s })), "snapshot").severity).toBe("amber");
     // And one taken yesterday is not.
     s.appendEvent({
       name: SNAPSHOT_TAKEN_EVENT,

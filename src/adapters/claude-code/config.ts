@@ -397,10 +397,11 @@ export function loadConfig(raw: unknown): LoadedConfig {
       }
       const keep = sn["keep"];
       if (keep !== undefined) {
-        // The same reading `num` gives every other number here, which means a
-        // `keep: 0` is a configuration nobody can act on rather than an
-        // instruction to delete every copy.
-        if (typeof keep !== "number" || !Number.isFinite(keep) || keep <= 0) unreadable = true;
+        // `num`'s reading, plus WHOLE — which means a `keep: 0` is a
+        // configuration nobody can act on rather than an instruction to delete
+        // every copy, and a `keep: 1.5` says so here rather than being read as
+        // the default several files away.
+        if (typeof keep !== "number" || !Number.isInteger(keep) || keep <= 0) unreadable = true;
         else parsed.keep = keep;
       }
       out.snapshots = parsed;

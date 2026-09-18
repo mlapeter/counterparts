@@ -507,6 +507,30 @@ describe("one run", () => {
     expect(rowsOf(c, SNAPSHOT_FAILED_EVENT).length).toBe(3);
   });
 
+  /**
+   * THE CAP'S OWN CONFIDENTLY-WRONG ANSWER. `eventLog` is `ORDER BY seq ASC
+   * LIMIT`, so a full read is the OLDEST rows and today's are exactly the ones
+   * missing — and under a frozen lived-day clock (I32, a week of it) every row
+   * sits in one `day`, so the window fills and the cap would read zero forever.
+   */
+  test("a failure window too full to read counts as exhausted, not as zero", () => {
+    const c = seeded();
+    makeCopiesFail();
+    const day = c.store.livedDay();
+    // More rows than the read's limit, none of them today's.
+    for (let i = 0; i < 1000; i += 1) {
+      c.store.appendEvent({
+        name: SNAPSHOT_FAILED_EVENT,
+        day,
+        payload: { date: "2026-09-01", step: "copy", reason: "old" },
+      });
+    }
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    // Fail-closed, and the cheap direction: what is refused is a RETRY, never a
+    // backup — the copy beside the store is untouched either way.
+    expect(report.reason).toBe("attempts-exhausted");
+  });
+
   test("an aborted watchdog stops the copy before it starts", () => {
     const c = seeded();
     const controller = new AbortController();
@@ -624,7 +648,10 @@ describe("the mirror", () => {
     expect(report.mirror?.ok).toBe(false);
     expect(report.errors.some((e) => e.startsWith("mirror:"))).toBe(true);
     expect(snapshotNamesIn(snapsDir).length).toBe(1);
-    expect(payload(rowsOf(c, SNAPSHOT_TAKEN_EVENT)[0])["mirror"]).toBe("failed");
+    const p = payload(rowsOf(c, SNAPSHOT_TAKEN_EVENT)[0]);
+    expect(p["mirror"]).toBe("failed");
+    // "failed" with no why is the half-record this project keeps finding in v1.
+    expect(p["mirrorWhy"]).toContain("home directory");
   });
 });
 
@@ -658,6 +685,9 @@ describe("the `snapshots` configuration key", () => {
       // nobody can act on, not an instruction.
       { snapshots: { keep: 0 } },
       { snapshots: { keep: -1 } },
+      // Whole, too — so a fractional `keep` says so here rather than being
+      // silently read as the default several files away.
+      { snapshots: { keep: 1.5 } },
     ]) {
       const loaded = loadConfig(bad);
       expect(loaded.reason, JSON.stringify(bad)).toBe("unreadable");

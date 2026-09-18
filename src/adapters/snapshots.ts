@@ -88,6 +88,11 @@ export const PARTIAL_PREFIX = ".partial-";
  * it. Comfortably past the worker's watchdog (`claude-code/config.ts` TUNABLES,
  * 5 minutes), because the one thing this must not do is delete the directory a
  * CONCURRENT run is still writing into.
+ *
+ * It is fixed while `watchdogMs` is configurable, so a host that set a watchdog
+ * longer than this could in principle have a partial swept out from under a live
+ * copy. The direction is safe: that run's rename then fails, its `snapshot.failed`
+ * row says so, and — because a failed copy never rotates — nothing old is lost.
  */
 export const PARTIAL_STALE_MS = 30 * 60_000;
 
@@ -356,6 +361,9 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
       oldest: rotation.oldest,
       deleted: rotation.deleted.length,
       mirror: mirror === null ? "off" : mirror.ok ? "ok" : "failed",
+      // The mirror's reason rides on this row too: "failed" with no why is the
+      // half-record this project keeps finding in v1.
+      mirrorWhy: mirror === null || mirror.ok ? null : mirror.why,
     },
     undefined,
   );
@@ -612,7 +620,20 @@ export function cleanPartials(dir: string, now: number, errors: string[]): numbe
 
 // ── the durable record ──────────────────────────────────────────────────────
 
-/** How many copy attempts already failed today. The cap's input. */
+/**
+ * How many copy attempts already failed today. The cap's input.
+ *
+ * `eventLog` is `ORDER BY seq ASC LIMIT`, so a read that comes back FULL is the
+ * OLDEST rows and today's are exactly the ones missing — the same trap
+ * `doctor.ts#newestRows` carries a paragraph about. It bites hardest under the
+ * failure this project has already lived through: a frozen lived-day clock (I32)
+ * leaves every row inside one `day`, the window fills, and the cap silently
+ * reads zero forever. So the limit is generous, and a read that REACHES it is
+ * treated as exhausted rather than as zero — the fail-closed direction, and the
+ * cheap one, because the thing being refused is a retry rather than a backup.
+ */
+const FAILED_READ_LIMIT = 1000;
+
 function failedAttemptsToday(store: Store, date: string): number {
   try {
     const livedDay = store.livedDay();
@@ -621,8 +642,9 @@ function failedAttemptsToday(store: Store, date: string): number {
     const rows = store.eventLog({
       name: SNAPSHOT_FAILED_EVENT,
       sinceDay: Math.max(0, livedDay - 2),
-      limit: 64,
+      limit: FAILED_READ_LIMIT,
     });
+    if (rows.length >= FAILED_READ_LIMIT) return MAX_ATTEMPTS_PER_DAY;
     let n = 0;
     for (const row of rows) {
       if (row.payload === null) continue;
