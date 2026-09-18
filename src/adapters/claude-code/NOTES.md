@@ -718,3 +718,54 @@ boundary that finds none is how the retroactive-capture guard recognises the
 `off → on` flip (#92 review, F1), and a record written from the prompt path would
 take that evidence away. And it writes the durable row BEFORE the flag, so a
 failure duplicates a row rather than closing the question with nothing recorded.
+
+## The daily copy is beside the store, and it is the only thing that deletes (2026-09-18, F2)
+
+The owner's memory had no automatic protection at all against a corrupt or wiped
+database: `counterparts backup` existed, nothing ran it, and — the part that
+matters for a project whose whole absence discipline is about telling "never
+happened" from "gone" — **nothing said so**. A store copied every night and a
+store never copied once were the same silence.
+
+Four choices this took, and why:
+
+**The step is in the worker, not in the cycle.** `bin/runner.ts` runs it fourth,
+after `sessionEnd` returns and inside the `finally`, so the copy happens on the
+failed path too — the day the worker breaks is the day a backup is worth most —
+and so the store is still open when it is taken. It is not a `core/sleep/` phase
+on purpose: sleep must not learn that the floor is changing.
+
+**Rotation lives in an adapter because rotation deletes.** The store exports no
+delete of any kind (store §5 G2), and every rule about what may go is in one file
+a person can read start to finish. The refusals are the design: a directory
+inside the store, a directory containing the store, a filesystem root, the home
+directory, v1's live stores, a symlink whose TARGET is any of those. Both sides
+are `realpath`ed before they are compared — `resolve` does not follow links, and
+on macOS `$TMPDIR` is itself one, so a check comparing a realpathed side against a
+merely resolved one says "no" to the same directory. A path that does not exist
+yet is normal on a fresh install, so the deepest existing ancestor is realpathed
+and the rest put back on.
+
+**The partial name is the real protection against the watchdog.**
+`cli/snapshot.ts#snapshot` is fully synchronous — `copyFileSync` per file — so the
+`AbortController` this process arms cannot interrupt it; only the parent's kill
+ends an overrun. So the copy goes to `.partial-<instant>-<pid>` and is RENAMED
+into place: a process killed at any instant leaves either a complete snapshot or
+something that is not a snapshot by name, and there is no state in between. A
+partial is swept by a later run only once it is older than `PARTIAL_STALE_MS`,
+comfortably past the watchdog, because deleting a fresh one would be this module
+destroying a concurrent run's copy.
+
+Measured on a synthetic store larger than the owner's — 18,800 files, 78 MB —
+**one copy takes about 2.3 seconds** against a 300,000 ms watchdog
+(`TUNABLES.WATCHDOG_MS`). It collapses to a handful of files on the rows-only
+floor. The cost is not a concern; the retry cost was, which is why a failing copy
+is tried at most three times a calendar day rather than at every boundary.
+
+**Which skips leave a row.** `already-today` and `attempts-exhausted` write
+nothing — today's `snapshot.taken` row and the failures they counted already are
+the record, and a row per boundary is a flood rather than a fact. `no-default-dir`
+writes nothing either: it is a configuration fact that will not change on its own,
+so doctor's Snapshot line says it in words. Everything that stopped a copy that
+should have happened is a `snapshot.failed` row with its `reason` and `step`, and
+the directory refusals are deduped per calendar date.

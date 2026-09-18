@@ -28,7 +28,13 @@
  *      durable `sweep.gate` row so the silence is evidenced (owner ruling
  *      2026-09-04, `remember/fallback.ts`);
  *   2. the Hebbian flush;
- *   3. the sleep cycle, whose last content write is the wake briefing.
+ *   3. the sleep cycle, whose last content write is the wake briefing;
+ *   4. the DAILY ROTATING SNAPSHOT (`adapters/snapshots.ts`), last and outside
+ *      the cycle. Last because it copies the state the three steps above just
+ *      left; outside because sleep must not learn that the floor is changing —
+ *      it is not a `core/sleep/` phase and never becomes one. It runs in the
+ *      `finally` below, so a boundary that FAILED still gets its copy: the day
+ *      the worker breaks is the day a backup is worth most.
  *
  * **IT DEGRADES, STEP BY STEP; IT DOES NOT REFUSE** (I32, 2026-09-11). Exactly
  * one of the five jobs above needs a model credential — the sweep — and until
@@ -70,6 +76,8 @@ import { API_KEY_ENV, EMBED_KEY_ENV } from "../config.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
 import { backfillVectors, laggedSemantic } from "../vectors.js";
 import type { BackfillReport, LagReport } from "../vectors.js";
+import { runSnapshot } from "../../snapshots.js";
+import type { SnapshotRunReport } from "../../snapshots.js";
 
 /**
  * The default, unchanged: the same file the hook reads when nobody says
@@ -102,6 +110,9 @@ export interface RunReport {
    *  the run refused before reaching them. */
   readonly lag: LagReport | null;
   readonly backfill: BackfillReport | null;
+  /** The day's copy of the store, or what stopped it. Null when the run refused
+   *  before it opened a store at all. */
+  readonly snapshot: SnapshotRunReport | null;
 }
 
 /**
@@ -130,13 +141,13 @@ export async function runOnce(input: {
   const emit = input.onEvent ?? ((): void => {});
   if (config.dataDir === undefined || config.dataDir.trim().length === 0) {
     emit("runner.refused", { reason: "no-data-dir" });
-    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null };
+    return { ran: false, reason: "no-data-dir", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null };
   }
   if (config.observer === true) {
     // A cycle advances the clock, decays the store and rewrites the briefing:
     // the instrument mutating what it measures (§15 G3).
     emit("runner.refused", { reason: "observer" });
-    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null };
+    return { ran: false, reason: "observer", swept: 0, minted: 0, code: null, lag: null, backfill: null, snapshot: null };
   }
 
   // The embedder, when the owner switched it on. This is the composition root
@@ -225,6 +236,11 @@ export async function runOnce(input: {
     noteFailure(counterpart, emit, code, "vectors", today);
   }
 
+  // Step 4's answer, filled in the `finally` below and joined to whichever of
+  // the two results the boundary produced. A `let` rather than a fourth return
+  // arm because the copy must happen on BOTH paths and before `close()`.
+  let snapshotReport: SnapshotRunReport | null = null;
+  let result: RunReport;
   try {
     // NO INTERPRETER IS BUILT when there is no key. Not a client that would
     // refuse at its first call — the sweep would then claim spans, hand them to
@@ -260,7 +276,7 @@ export async function runOnce(input: {
       carriedRows: report.carried?.rows ?? 0,
       interpret: hasInterpretCredential,
     });
-    return { ran: true, reason: "ran", swept, minted, code: null, lag, backfill };
+    result = { ran: true, reason: "ran", swept, minted, code: null, lag, backfill, snapshot: null };
   } catch (err) {
     const code =
       err !== null && typeof err === "object" && typeof (err as { code?: unknown }).code === "string"
@@ -271,10 +287,34 @@ export async function runOnce(input: {
     // the boundary is the failure a person most needs to be able to read
     // tomorrow, and this process's stderr goes nowhere (I32).
     noteFailure(counterpart, emit, code, "sessionEnd", today);
-    return { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill };
+    result = { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill, snapshot: null };
   } finally {
+    // 4. THE DAY'S COPY OF THE STORE — after everything above has written, on
+    // the failed path as well as the good one, and before the store is closed.
+    // It never throws by construction (`adapters/snapshots.ts`); the try is
+    // belt and braces, because a backup that took the worker down with it would
+    // be the mechanism defeating its own purpose.
+    try {
+      snapshotReport = runSnapshot({
+        counterpart,
+        dataDir: config.dataDir,
+        ...(config.snapshots === undefined ? {} : { config: config.snapshots }),
+        date: today,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+      });
+      emit("runner.snapshot", {
+        reason: snapshotReport.reason,
+        name: snapshotReport.name,
+        kept: snapshotReport.rotation?.kept ?? 0,
+        deleted: snapshotReport.rotation?.deleted.length ?? 0,
+        ms: snapshotReport.ms,
+      });
+    } catch (err) {
+      emit("snapshot.threw", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    }
     counterpart.close();
   }
+  return { ...result, snapshot: snapshotReport };
 }
 
 /**

@@ -472,6 +472,25 @@ export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
  * The core knows a string; it knows nothing about git.
  */
 export const CHECKOUT_EVENT = "adapter.checkout";
+/**
+ * THE DAILY ROTATING SNAPSHOT (2026-09-18, owner ruling 3).
+ *
+ * Until this date a backup that had run and a backup that had never run were the
+ * same silence — no row, no ring, no directory the system read back — which is
+ * scar §2.4 on the one mechanism whose absence costs everything. Three names,
+ * because three different things happen: a copy landed, a copy did not, and old
+ * copies were let go. The third says WHAT went and HOW MANY remain, because it
+ * is the only mechanism in this package that deletes.
+ *
+ * Here, beside the two spawn names and the checkout one, for the same narrow
+ * reason they are: `dashboard/registries.ts` derives `DurableEventName` from
+ * these literals, so a durable event whose name lived only in the adapter would
+ * fail the registry's totality silently. The core knows a string; it knows
+ * nothing about directories, rotation or `keep`.
+ */
+export const SNAPSHOT_TAKEN_EVENT = "snapshot.taken";
+export const SNAPSHOT_FAILED_EVENT = "snapshot.failed";
+export const SNAPSHOT_ROTATED_EVENT = "snapshot.rotated";
 export interface CreditReferencesInput {
   readonly assistantTurns: readonly string[];
   readonly expansions: readonly string[];
@@ -538,6 +557,9 @@ export type AdapterDurableEventName =
   | typeof SPAWN_FAILED_EVENT
   | typeof RUNNER_FAILED_EVENT
   | typeof CHECKOUT_EVENT
+  | typeof SNAPSHOT_TAKEN_EVENT
+  | typeof SNAPSHOT_FAILED_EVENT
+  | typeof SNAPSHOT_ROTATED_EVENT
   | typeof RECALL_CREDIT_EVENT;
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER body text (store §5 G10). */

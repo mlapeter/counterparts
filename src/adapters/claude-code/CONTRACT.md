@@ -382,6 +382,32 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     session-start row for the day after. Both writers refuse rather than dropping
     an entry they could not read: the console unless `--force`, the MCP tool always.
 
+24. **[M] THE WORKER TAKES ONE COPY OF THE STORE A DAY, AND THE COPY IS THE ONLY
+    THING HERE THAT DELETES.** A fourth step in `bin/runner.ts`, after the sleep
+    cycle and inside the `finally` so a failed boundary still gets its copy —
+    deliberately NOT a `core/sleep/` phase, because sleep must not learn that the
+    floor is changing. What it copies is `cli/snapshot.ts#snapshot` unchanged
+    (`Store.backupSet()`, so it is right on both floors); WHERE is a `snapshots/`
+    directory beside the store, never inside it; HOW MANY is `keep`, default 14,
+    one copy per calendar day UTC. It never throws, so a snapshot problem cannot
+    cost a consolidation cycle, and it writes `snapshot.taken` / `snapshot.failed`
+    / `snapshot.rotated` where tomorrow can read them.
+
+    The two consequential rules live in `adapters/snapshots.ts` and are tested one
+    by one: **rotation deletes only what it can prove is a snapshot** (a directory
+    directly inside the resolved directory, matching the one name pattern this
+    package writes, never through a symlink, never the copy just taken, never
+    after a copy that FAILED, and a broken `keep` reads as the default rather than
+    as "delete them all"); and **a half-copy is never a snapshot** — the copy is
+    written under a `.partial-…` name and renamed into place, so a worker killed
+    mid-copy leaves something that is not counted toward `keep`, does not satisfy
+    "today's exists", and is swept once it is too old to be a live run's.
+
+    *For now:* the default directory applies only inside the layout this package
+    creates (the store is the `store/` subdirectory of a base directory). A store
+    somebody pointed elsewhere takes no copy until `snapshots.dir` names one, and
+    doctor's Snapshot line says so in words rather than leaving a row per boundary.
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

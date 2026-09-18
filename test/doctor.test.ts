@@ -37,6 +37,7 @@ import {
   GATE_DEPOSIT_EVENT,
   RECALL_CREDIT_EVENT,
   SLEEP_CYCLE_EVENT,
+  SNAPSHOT_TAKEN_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
@@ -427,6 +428,84 @@ describe("doctor — the reading", () => {
     expect(sleep.detail).toContain("could not be determined");
     expect(sleep.detail).toContain(SLEEP_CYCLE_EVENT);
     expect(sleep.detail).not.toContain("threw");
+  });
+
+  /**
+   * THE SNAPSHOT LINE — "if this database were wiped this afternoon, what would
+   * come back". Amber, never red: a missing backup is not a broken memory, and
+   * one colour for both teaches the reader to read past the one that matters.
+   */
+  test("the snapshot line reads the newest row: last taken, how many kept, the oldest", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    s.appendEvent({
+      name: SNAPSHOT_TAKEN_EVENT,
+      day: s.livedDay(),
+      payload: {
+        date: "2026-09-14",
+        name: "2026-09-14T03-00-00-000Z",
+        files: 16_400,
+        kept: 14,
+        oldest: "2026-09-01T03-00-00-000Z",
+      },
+    });
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("green");
+    expect(snap.detail).toContain("last snapshot 2026-09-14");
+    expect(snap.detail).toContain("14 kept");
+    expect(snap.detail).toContain("oldest 2026-09-01");
+  });
+
+  test("a snapshot older than two days is amber", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    // `today` in the fixture is 2026-09-14, so this copy is three days behind —
+    // a daily mechanism that has missed one.
+    s.appendEvent({
+      name: SNAPSHOT_TAKEN_EVENT,
+      day: s.livedDay(),
+      payload: { date: "2026-09-11", name: "2026-09-11T03-00-00-000Z", kept: 9, oldest: null },
+    });
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain("more than 2 days ago");
+    // And one taken yesterday is not.
+    s.appendEvent({
+      name: SNAPSHOT_TAKEN_EVENT,
+      day: s.livedDay(),
+      payload: { date: "2026-09-13", name: "2026-09-13T03-00-00-000Z", kept: 10, oldest: null },
+    });
+    expect(by(doctorFindings(input({ store: s })), "snapshot").severity).toBe("green");
+  });
+
+  test("no snapshot is green on a store that has never reached a boundary, amber once it has", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    // A fresh install: nothing has run, so an amber here would be decoration.
+    expect(by(doctorFindings(input({ store: s })), "snapshot").severity).toBe("green");
+    s.appendEvent({ name: BOUNDARY_EVENT, day: s.livedDay(), payload: { date: "2026-09-13" } });
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain("no snapshot has ever been taken");
+  });
+
+  test("a store outside the package's layout says WHY no copy is being taken", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    // The one skip that leaves no durable row at all — it is a configuration
+    // fact, not an event, so this line is the whole surface for it.
+    const snap = by(doctorFindings(input({ store: s, dir: root })), "snapshot");
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain("no default place to keep copies");
+    expect(snap.fix).toContain('"snapshots"');
   });
 
   test("spawn refusals at the escalation threshold are red and name the reason", () => {

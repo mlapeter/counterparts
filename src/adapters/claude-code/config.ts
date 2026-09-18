@@ -215,6 +215,29 @@ export interface AdapterConfig {
    * whether v2 speaks. RETIRED at PROMOTE.
    */
   readonly parallel?: { readonly enabled: boolean };
+  /**
+   * THE DAILY ROTATING SNAPSHOT (owner ruling 3, 2026-09-18).
+   *
+   * All three sub-keys are optional and the block as a whole may be absent: the
+   * worker then keeps the newest `DEFAULT_KEEP` copies in a `snapshots/`
+   * directory beside the store. `dir` names one explicitly — required when the
+   * store is not the `store/` subdirectory of a base directory this package
+   * created, because in that case there is no base directory to put copies
+   * beside and helping ourselves to a sibling of somebody's own directory is not
+   * this package's to do (`adapters/snapshots.ts#resolveSnapshotsDir`).
+   *
+   * `mirror` is a second location that receives the same copy and rotates on its
+   * own terms; a mirror failure is reported and never fatal.
+   *
+   * `keep` goes through the same `num` reading as every other number here, so a
+   * `keep: 0` — which would mean "delete them all" — takes the whole
+   * configuration to observer rather than being read as a preference.
+   */
+  readonly snapshots?: {
+    readonly dir?: string;
+    readonly keep?: number;
+    readonly mirror?: string;
+  };
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
@@ -253,6 +276,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     models?: { interpret?: ModelSeat; embed?: ModelSeat };
     embedder?: { enabled: boolean };
     parallel?: { enabled: boolean };
+    snapshots?: { dir?: string; keep?: number; mirror?: string };
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -352,6 +376,34 @@ export function loadConfig(raw: unknown): LoadedConfig {
       unreadable = true;
     } else {
       out.parallel = { enabled: p["enabled"] };
+    }
+  }
+  const snapshots = rec["snapshots"];
+  if (snapshots !== undefined) {
+    if (typeof snapshots !== "object" || snapshots === null || Array.isArray(snapshots)) {
+      unreadable = true;
+    } else {
+      const sn = snapshots as Record<string, unknown>;
+      const parsed: { dir?: string; keep?: number; mirror?: string } = {};
+      // `dir` and `mirror` are read exactly like `dataDir` and for the same
+      // reason: a path this package will WRITE INTO — and, for `dir`, ROTATE
+      // inside — is either a string the owner wrote or a configuration we did
+      // not understand, and the second one stands down rather than guessing.
+      for (const key of ["dir", "mirror"] as const) {
+        const value = sn[key];
+        if (value === undefined) continue;
+        if (typeof value !== "string") unreadable = true;
+        else parsed[key] = value;
+      }
+      const keep = sn["keep"];
+      if (keep !== undefined) {
+        // The same reading `num` gives every other number here, which means a
+        // `keep: 0` is a configuration nobody can act on rather than an
+        // instruction to delete every copy.
+        if (typeof keep !== "number" || !Number.isFinite(keep) || keep <= 0) unreadable = true;
+        else parsed.keep = keep;
+      }
+      out.snapshots = parsed;
     }
   }
   const identity = rec["identity"];

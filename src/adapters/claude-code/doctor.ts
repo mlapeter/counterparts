@@ -45,6 +45,8 @@ import {
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
+  SNAPSHOT_FAILED_EVENT,
+  SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
@@ -59,6 +61,7 @@ import type { AskReason } from "../../core/self/episodes.js";
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
 import { STATE_MEANING, firedReport } from "../fired.js";
+import { DEFAULT_KEEP, keepOf, resolveSnapshotsDir } from "../snapshots.js";
 import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
@@ -1292,6 +1295,102 @@ function vectorFindings(store: Store): Finding[] {
   return [finding("vectors", "green", "Vectors", detail, "", data)];
 }
 
+/** How stale the newest snapshot may be before this line goes amber. A daily
+ *  mechanism that has not fired for two calendar days has missed one. */
+export const SNAPSHOT_STALE_DAYS = 2;
+
+/**
+ * IS THERE A RECENT COPY OF THE STORE, AND HOW MANY ARE KEPT.
+ *
+ * The one line that answers "if this database were wiped this afternoon, what
+ * would come back". It reads the newest `snapshot.taken` row — which carries the
+ * rotation's own counts, because the copy and the rotation happen in one run —
+ * and falls back to naming the reason when no copy is possible at all.
+ *
+ * Amber, never red: a missing backup is not a broken memory, and a diagnostic
+ * that shouts the same colour for both teaches its reader to read past the one
+ * that matters.
+ */
+function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
+  const livedDay = store.livedDay();
+  const resolved = resolveSnapshotsDir(input.dir, input.config.snapshots?.dir);
+  const keep = keepOf(input.config.snapshots?.keep);
+  const data: Record<string, string | number | boolean | null> = { keep, where: resolved.reason };
+  if (resolved.dir === null) {
+    // Not a fault and not a silence: this store is not the `store/` subdirectory
+    // of a base directory, so there is nowhere by convention to put copies.
+    return [
+      finding(
+        "snapshot",
+        "amber",
+        "Snapshot",
+        "no daily snapshot is being taken: this store is not inside a base directory, so there is no default place to keep copies",
+        'Add "snapshots": { "dir": "<a path outside the store>" } to the configuration.',
+        data,
+      ),
+    ];
+  }
+  const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
+  if (read.unknown) {
+    return [finding("snapshot", "green", "Snapshot", undetermined(SNAPSHOT_TAKEN_EVENT), "", { ...data, unknown: true })];
+  }
+  const row = read.rows[0];
+  if (row === undefined) {
+    // The same rule the row findings use: an absent row is only evidence once a
+    // boundary has been reached. On a fresh install there has been no worker run
+    // to take a first copy, and an amber there is decoration.
+    const boundaries = newestRows(store, BOUNDARY_EVENT, 1, livedDay);
+    const lived = boundaries.unknown || boundaries.rows.length > 0;
+    const failed = newestRows(store, SNAPSHOT_FAILED_EVENT, 1, livedDay);
+    const failedRow = failed.rows[0];
+    const why =
+      failedRow === undefined
+        ? ""
+        : ` — newest ${SNAPSHOT_FAILED_EVENT} ${rowDate(failedRow) ?? "?"} (${str(payloadOf(failedRow), "step") ?? "?"}: ${str(payloadOf(failedRow), "reason") ?? "?"})`;
+    return [
+      lived
+        ? finding(
+            "snapshot",
+            "amber",
+            "Snapshot",
+            `no snapshot has ever been taken here${why}`,
+            "The worker takes one after the sleep cycle; the next boundary should leave a snapshot.taken row.",
+            { ...data, rows: 0 },
+          )
+        : finding(
+            "snapshot",
+            "green",
+            "Snapshot",
+            "no snapshot yet — and no boundary has been reached here yet",
+            "",
+            { ...data, rows: 0 },
+          ),
+    ];
+  }
+  const p = payloadOf(row);
+  const date = rowDate(row);
+  const kept = num(p, "kept") ?? 0;
+  const oldest = str(p, "oldest");
+  const detail =
+    `last snapshot ${date ?? "?"}, ${kept} kept` +
+    (oldest === null ? "" : `, oldest ${oldest.slice(0, 10)}`) +
+    (keep === DEFAULT_KEEP ? "" : ` (keeping ${keep})`);
+  const full = { ...data, date, kept, oldest, files: num(p, "files") };
+  const stale = date === null || date < daysBefore(input.today, SNAPSHOT_STALE_DAYS);
+  return [
+    stale
+      ? finding(
+          "snapshot",
+          "amber",
+          "Snapshot",
+          `${detail} — more than ${SNAPSHOT_STALE_DAYS} days ago`,
+          "The copy is taken by the worker after a boundary; read the Spawn line below.",
+          full,
+        )
+      : finding("snapshot", "green", "Snapshot", detail, "", full),
+  ];
+}
+
 // ── the reading ─────────────────────────────────────────────────────────────
 
 const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
@@ -1332,6 +1431,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
     ["vectors", () => vectorFindings(store)],
+    ["snapshot", () => snapshotFindings(input, store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding
