@@ -1635,13 +1635,74 @@ describe("episodes", () => {
     expect(capped.asked).toBe(false);
     expect(capped.verdict.reason).toBe("session-ask-cap");
     expect(self.episodeState("s1", 4).asks).toBe(2);
-    // A new day does NOT refill it: the count belongs to the session, and this
-    // is the same session.
+    // A new LIVED day does not refill it — the allowance is the calendar day's,
+    // and the lived clock moves only when the detached worker runs (I32).
     expect(self.openChapter("s1", { turns: 60, bytes: 60_000 }, 5).verdict.reason).toBe(
       "session-ask-cap",
     );
     // A session that has not spent it is still asked on that same day.
     expect(self.openChapter("s2", SUBSTANCE, 5).asked).toBe(true);
+  });
+
+  test("the allowance starts over with the CALENDAR day — a session that spans days is not starved", () => {
+    // Measured 2026-09-17: a coordinating session spent all six asks inside one
+    // working day and kept running, so its end-of-day handoff — the stretch most
+    // worth writing — was never offered the pen. Owner's ruling 2026-09-18: six
+    // per session PER DAY.
+    let at = Date.parse("2026-09-18T09:00:00Z");
+    const s = store({ now: () => at });
+    const self = new Self({ store: s, tunables: { MAX_ASKS_PER_SESSION: 2 } });
+    expect(self.openChapter("s1", SUBSTANCE, 4).asked).toBe(true);
+    expect(self.openChapter("s1", { turns: 18, bytes: 15_000 }, 4).asked).toBe(true);
+    const capped = self.openChapter("s1", { turns: 40, bytes: 40_000 }, 4);
+    expect(capped.verdict.reason).toBe("session-ask-cap");
+    expect(self.episodeState("s1", 4).asksDay).toBe("2026-09-18");
+    expect(self.episodeState("s1", 4).asksToday).toBe(2);
+
+    // The date turns. The SAME session, the same lived day, a fresh allowance.
+    at = Date.parse("2026-09-19T09:00:00Z");
+    const next = self.openChapter("s1", { turns: 60, bytes: 60_000 }, 4);
+    expect(next.asked).toBe(true);
+    expect(self.episodeState("s1", 4).asksToday).toBe(1);
+    // The WHOLE-LIFE count keeps counting: the first-ask branch and
+    // `appendChapter`'s "is a chapter open?" test both read it, and neither
+    // means "today".
+    expect(self.episodeState("s1", 4).asks).toBe(3);
+    expect(next.verdict.reason).toBe("due-substance");
+  });
+
+  test("a state written before the day stamp loads, and reads as nothing spent today", () => {
+    const s = store();
+    // Exactly what `openChapter` wrote before 2026-09-18: no `asksToday`, no
+    // `asksDay`. Read as today's count instead, this session would be capped on
+    // every later day too with no write that could move it off.
+    s.setMeta(
+      stateKey("s1"),
+      JSON.stringify({
+        sessionId: "s1",
+        episodeId: null,
+        chapters: 0,
+        asks: 6,
+        appendedAtAsk: 0,
+        askedAtTurns: 40,
+        askedAtBytes: 40_000,
+        lastDay: 4,
+        ingestedKey: null,
+        ingestedMemoryId: null,
+        firstIngestDay: null,
+      }),
+    );
+    const self = new Self({ store: s, tunables: { MAX_ASKS_PER_SESSION: 2 } });
+    const state = self.episodeState("s1", 4);
+    expect(state.asks).toBe(6);
+    expect(state.asksToday).toBe(0);
+    expect(state.asksDay).toBeNull();
+    // Further substance, so the re-ask pacer is satisfied and the cap is the
+    // only thing that could refuse. It does not.
+    const ask = self.openChapter("s1", { turns: 60, bytes: 60_000 }, 4);
+    expect(ask.asked).toBe(true);
+    expect(self.episodeState("s1", 4).asksToday).toBe(1);
+    expect(self.episodeState("s1", 4).asksDay).toBe(s.today());
   });
 
   test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {

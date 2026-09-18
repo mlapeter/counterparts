@@ -866,7 +866,9 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
  *     that one outcome: rows written before 2026-09-17 carry
  *     `day-chapter-cap` — the old ration four sessions of one day shared, whose
  *     clock only the worker advanced — and rows since carry `session-ask-cap`,
- *     this session's own allowance (`SELF_TUNABLES.MAX_ASKS_PER_SESSION`).
+ *     this session's own allowance for the day
+ *     (`SELF_TUNABLES.MAX_ASKS_PER_SESSION`, which starts over with the calendar
+ *     date from 2026-09-18).
  *     Counting them together let the line blame the per-session allowance for
  *     refusals it never made, which is a diagnostic naming the wrong door. The
  *     amber hint therefore keys on the NEW reason alone; the old one is still
@@ -988,7 +990,7 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
   const capBinds = cappedBySession > asked;
   const sweepWins = fallback > authored;
   const cappedSplit = [
-    cappedBySession === 0 ? "" : `${String(cappedBySession)} by a session's own allowance`,
+    cappedBySession === 0 ? "" : `${String(cappedBySession)} by a session's own allowance for the day`,
     cappedByDay === 0 ? "" : `${String(cappedByDay)} by the old shared day cap`,
     capped - cappedBySession - cappedByDay === 0
       ? ""
@@ -1005,7 +1007,7 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     `${asks.truncated || deposits.truncated ? " (counts are a floor: the event read hit its limit)" : ""}`;
   const fixes = [
     capBinds
-      ? `A session's own allowance (${String(SELF_TUNABLES.MAX_ASKS_PER_SESSION)} asks) is refusing the pen more often than it offers it — sessions are running long enough to exhaust it, and that number is worth a look.`
+      ? `A session's own allowance for the day (${String(SELF_TUNABLES.MAX_ASKS_PER_SESSION)} asks) is refusing the pen more often than it offers it — sessions are running long enough to exhaust it within a day, and that number is worth a look.`
       : "",
     sweepWins
       ? "The sweep writes what the session did not: check that sessions reach a session-end boundary in the scope they captured in, and that the Stop ask is reaching the model."

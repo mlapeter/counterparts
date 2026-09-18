@@ -464,11 +464,12 @@ describe("doctor — the reading", () => {
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.severity).toBe("amber");
-      expect(f.detail).toContain("refused 9 on a cap (9 by a session's own allowance)");
+      expect(f.detail).toContain("refused 9 on a cap (9 by a session's own allowance for the day)");
       // The mechanism the hint sends the reader after must be the one that
-      // exists: per session since 2026-09-17, never a ration shared by the day.
-      expect(f.fix).toContain("A session's own allowance (6 asks)");
-      expect(f.fix).not.toContain("day");
+      // exists: per session since 2026-09-17, per session per day since
+      // 2026-09-18, never a ration SHARED by the day.
+      expect(f.fix).toContain("A session's own allowance for the day (6 asks)");
+      expect(f.fix).not.toContain("shared");
       expect(anyRed(doctorFindings(input({ store: s })))).toBe(false);
     });
 
@@ -492,7 +493,7 @@ describe("doctor — the reading", () => {
       memory(s, "2026-09-14", "authored", 3);
       const f = by(doctorFindings(input({ store: s })), "authorship");
       expect(f.detail).toContain(
-        "refused 11 on a cap (1 by a session's own allowance, 9 by the old shared day cap, 1 naming no cap)",
+        "refused 11 on a cap (1 by a session's own allowance for the day, 9 by the old shared day cap, 1 naming no cap)",
       );
       expect(f.data["capped"]).toBe(11);
       expect(f.data["cappedBySession"]).toBe(1);

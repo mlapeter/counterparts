@@ -324,7 +324,7 @@ thing one refactor later.
 
 ---
 
-## The cap moved off the lived day, then off the day (I32, 2026-09-11; finding 12, 2026-09-17)
+## The cap moved off the lived day, then off the shared day, then back onto a day of its own (I32, 2026-09-11; finding 12, 2026-09-17; the long session, 2026-09-18)
 
 **First move, and the scar under it.** `dayKey` keyed the ask cap on the store's
 LIVED day from 2026-09-04, and the reasoning was sound as far as it went: E8 says
@@ -347,16 +347,42 @@ sessions a day, so the day's allowance was usually spent by sessions that had
 ended before this one began — the experiencer was not losing a fight about who
 writes, it was almost never invited. When it was asked it answered every time.
 
-**The rule now:** the cap is the SESSION's own (`MAX_ASKS_PER_SESSION`, 6), and a
-session must still have done real work first — the substance pacer is untouched,
-and it is the pacer, not the count, that spaces asks out: six of them need roughly
-6 + 5×8 turns AND the bytes to match. The 2026-09-04 measurement against
-per-session (six asks in one evening) was taken under the OLD re-ask rule, an OR
-across two pacers with a byte half a third of v1's; the AND landed the same day.
+**Third move: a session's whole life was too long a window the other way.** On
+2026-09-17 a coordinating session spent all six asks inside one working day and
+then kept running; its end-of-day handoff work — the stretch most worth writing —
+was never offered the pen, and nothing short of a new session could give the
+allowance back. The cap was doing to one long session what the shared day cap did
+to every short one.
+
+**The rule now:** the cap is the SESSION's own **per calendar day**
+(`MAX_ASKS_PER_SESSION`, 6, owner's ruling 2026-09-18), and a session must still
+have done real work first — the substance pacer is untouched, and it is the pacer,
+not the count, that spaces asks out: six of them need roughly 6 + 5×8 turns AND the
+bytes to match. The 2026-09-04 measurement against per-session (six asks in one
+evening) was taken under the OLD re-ask rule, an OR across two pacers with a byte
+half a third of v1's; the AND landed the same day.
+
+**Which day, and why that one.** The store's CALENDAR date (`Store#today`, UTC),
+not the lived day — I32's argument unchanged: the lived clock is advanced by the
+detached worker, and a cap whose reset depends on the machinery it is capping is a
+cap that can be spent forever. It is held on the session's own state
+(`asksToday` + `asksDay`) rather than in a counter of its own, so nothing outside
+the session can spend it and there is no second row to go stale. `asks` stays the
+session's whole-life count, because the first-ask branch and `appendChapter`'s
+"is a chapter open?" test both read it and neither means "today".
+
+**A state written before the day stamp reads as zero spent today**, not as today's
+count. Read the other way a session already at its cap would be capped on every
+later day too, with no write that could ever move it off — the starvation this move
+exists to end; read this way it costs at most one extra allowance on the day the
+stamp lands, and the pacer still spaces those out.
 
 **What is deliberately unchanged.** Episode PACING and the regrow window still run
-on lived days (E8 stands). Refusals stay on the record: a capped Stop still writes
-an `adapter.ask` row with `outcome: "capped"` and `reason: "session-ask-cap"`.
+on lived days (E8 stands). Exhausting the allowance INSIDE one day still binds —
+accepted for now. Refusals stay on the record: a capped Stop still writes an
+`adapter.ask` row with `outcome: "capped"` and `reason: "session-ask-cap"`, the
+same reason string as before, because the door is the same one and only its window
+moved.
 
 **What went away with the day.** `dayKey`, `Self.dayAsks`, `bumpDayAsks` and the
 `self.episode.day.*` meta rows: nothing read them but the cap, and "how many asks

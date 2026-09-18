@@ -1115,8 +1115,9 @@ export class ClaudeCodeAdapter {
       // advance, no ask slot, no row — the previous pass already left one.
       if (input.reFired === true) return null;
       const substance = substanceOf(input.turns ?? []);
-      // THE CAP IS THIS SESSION'S OWN (2026-09-17), so nothing outside the
-      // session can spend it and no clock has to be right for it to reset.
+      // THE CAP IS THIS SESSION'S OWN, PER CALENDAR DAY (2026-09-17, amended
+      // 2026-09-18), so nothing outside the session can spend it and a session
+      // that spans days gets its allowance back with each one.
       //
       // It used to be the day's, four asks shared by every session a day held,
       // and that cap kept two failures alive. I32: the day was the LIVED day,
@@ -1125,12 +1126,17 @@ export class ClaudeCodeAdapter {
       // asked for a chapter again; keying it to `input.at` fixed the freeze but
       // not the sharing. Finding 12: with the owner running five or more
       // sessions a day, 196 of 264 Stops were refused `capped` and the
-      // crash-fallback sweep wrote 888 memories to the author's 193.
+      // crash-fallback sweep wrote 888 memories to the author's 193. Then the
+      // session's whole life turned out to be too long a window in the other
+      // direction — a coordinating session spent all six inside one working day
+      // and its end-of-day handoff was never offered the pen — so the count now
+      // starts over on the store's own calendar date (`self/episodes.ts`), the
+      // key I32 already argued for and for the same reason.
       //
       // The date is still on every `adapter.ask` row below (`record` stamps
       // `input.at`, a UTC ISO date, the same zone as every other `date` in this
-      // store), because "how often was the pen offered today" is a question the
-      // rows answer — it is just no longer a question the cap asks.
+      // store), because "how often was the pen offered today" ACROSS sessions is
+      // a question the rows answer and no counter is kept for.
       const chapter = this.counterpart.episodeAsk(input.sessionId, substance);
       const outcome = chapter.asked
         ? "asked"
