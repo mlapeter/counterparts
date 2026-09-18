@@ -263,27 +263,51 @@ proposals and their archive; render and delivery telemetry.
     count, the hook's number reached 7 in a session whose episode held nothing.
 
 15. **[M]** **The self page is one row, written through one seam, and outside sleep's
-    reach** (2026-09-18, owner rulings 8 and 9). `revisePage(body, { reason, by })` is the
-    only door — the MCP tool, the owner's console and the nightly writer all arrive there —
-    and it crosses the same gate battery the journal does, so a credential cannot land in
-    the one piece of prose every session reads. Every accepted revision leaves a version
-    (`store.revise` archives the prior one first) and a durable `self.page.revised` row;
-    every refusal leaves a `self.page.refused` row and a named reason; an observer writes
-    neither. The page is `type: "schema"`, `kind: "self"`, `meta.role = "page"`, born
-    `protected` — which is what keeps the floor prune off it; dedup already skips schema
-    rows, and `scanActive` already cannot see it. Its OLD VERSIONS take the ordinary
-    retention, deliberately un-special-cased (owner ruling 1). Proved by a test that runs a
-    full cycle and the prune over a store holding a page with two versions.
+    reach** (2026-09-18, owner rulings 8 and 9). `revisePage(body, { reason, by, session?,
+    ifVersion? })` is the only door — the MCP tool, the owner's console and the nightly
+    writer all arrive there — and it crosses the same gate battery the journal does, so a
+    credential cannot land in the one piece of prose every session reads. **A redaction is
+    reported**: accepted is not the same as unaltered, and both doors say so. Every
+    accepted revision leaves a version (`store.revise` archives the prior one first) and a
+    durable `self.page.revised` row; every refusal leaves a `self.page.refused` row and a
+    named reason; an observer writes neither. The page is `type: "schema"`,
+    `kind: "self"`, `meta.role = "page"`, born `protected` — which is what keeps the floor
+    prune off it; dedup and (since 2026-09-18) consolidate skip schema rows, so nothing
+    promotes it into the identity band, and `scanActive` cannot see it. **It is not a
+    recall candidate and cannot be expanded by id**: the page is delivered whole at every
+    wake, and a row that is already in the context is not a memory coming to mind. Its OLD
+    VERSIONS take the ordinary retention, deliberately un-special-cased (owner ruling 1).
+    Proved by a test that runs a full cycle and the prune over a store holding a page with
+    two versions.
 16. **[M]** **The page is what "Who I am" prints, first and as is**, under
-    `PAGE_WAKE_BYTES` clamped to the caller's budget; over it, the page renders cut at a
-    section or paragraph boundary with a marker naming the bytes shown, the bytes there
-    are, and the command that reads it whole. It replaces the rotating identity list by
+    `PAGE_WAKE_BYTES` clamped to the caller's budget **less `PAGE_FLOOR_RESERVE_BYTES`, the
+    furniture the wake wraps it in** — the page is furniture the trim loop cannot pop, so a
+    page sized against the whole ceiling puts the composition over it with nothing left to
+    trim. Over the cap it renders cut, at a section then paragraph then line boundary and
+    only where that boundary KEEPS most of the room, with a marker naming the bytes shown,
+    the bytes there are, and the command that reads it whole. Where the room is too small
+    to be a page the wake says the page exists and does not fit, in one line; where there
+    is no room for that either it says nothing. It replaces the rotating identity list by
     emptying the lane before the share, the trim order or the counts see it, so
     `counts.identity` and `elements=` state what the bundle actually carries and no
     `TrimEvent` is written for elements nothing dropped. It is furniture, like the day-0
     line: no `- ` bullet, no place in the counts. While NO page exists the wake renders
     exactly what it rendered before (`PAGE_EMPTY_SHOWS_LIST`, the owner's unmade choice),
     and the page's still-forming line is about the PAGE, never about identity.
+17. **[M]** **`protected` on the page is the floor prune's word, and it no longer implies
+    "stays on this machine."** A composition that filters (`omit`) is one that will leave
+    the machine, and whether the page goes with it is `PAGE_ON_EGRESS` — a switch, default
+    TRUE, which is the owner's decision of 2026-09-17 (spec §15 item 3: the background
+    writer is woken as the self before it reads a transcript). Turned off, that composition
+    gets no page and falls back to the identity list the predicate left standing. Nothing
+    marks a page confidential: there is one page, and the switch is the decision.
+18. **[M]** **A page is unwritten, never removed.** `clearPage` keeps the body as a version
+    and archives the row, so the store reads as having no page — the wake returns to its
+    empty-page behaviour — while the id still resolves, the prose is still on disk and
+    `restorePage(seq)` puts any version back as an ordinary (itself versioned) revision.
+    It is the OWNER's door: no MCP tool reaches it, because a session that could unwrite
+    the page could erase the self between two turns. The owner's `remove` refuses the page
+    row by name and points at it.
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.
@@ -302,6 +326,12 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_MAX_BYTES` | 16,384 | The hard WRITE limit. Past it a revision is refused rather than cut — what gets cut at write time is the only copy. |
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
 | `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
+| `PAGE_ON_EGRESS` | true | Whether a composition that FILTERS (`omit` — the crash fallback woken as the self) carries the page. The owner's decision of 2026-09-17; `false` gives that composition no page and the identity list the filter left standing. |
+
+`PAGE_FLOOR_RESERVE_BYTES` (512) and `PAGE_MIN_RENDER_BYTES` (240) are **not** tunable, for
+the reason `PREFACE_RESERVE_BYTES` is not: the first is the room the wake's own furniture
+takes around the page — measured at its widest (444) by a test, not guessed — and the
+second is the smallest room worth rendering a page into rather than a fragment.
 | `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
 | `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |

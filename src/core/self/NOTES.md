@@ -525,3 +525,91 @@ yet — identity is earned at the boundary that ends a session, from what recurs
 across distinct days."* If the owner wants the page's own sentence verbatim on a
 fresh store, the switch is one value away — which is what a switch with two
 values and an unmade choice is for.
+
+## 13. What the adversarial review of the page found, and what each fix cost (2026-09-18)
+
+Two blockers, four majors. The two blockers were both in `self/`, both small,
+and both the same mistake in different clothes: a number that looked like it
+bounded something and did not.
+
+**The cut threw away the room it had.** `cutAtBoundary` took the last blank line
+in the window wherever it was. A page that opens `## Core\n\n` and then runs
+without another blank line — a markdown bullet list, or one long paragraph, which
+between them are most of what a model writes for "who I am" — has its only `\n\n`
+at byte 7, so a 9,698-byte page rendered 110 bytes: a heading and a marker. The
+write had been ACCEPTED, with a warning that said the wake would show a cut of it.
+And because a page suppresses the identity list, the wake then carried no identity
+at all — the silence failure scar §2.3 is about, reached through a door that said
+everything was fine. The fix is a threshold: take a boundary only if it keeps more
+than `BOUNDARY_KEEP_SHARE` (a quarter) of the room, else fall to the next finer
+one, else cut bytes. A quarter and not a half on purpose — a page whose only break
+sits at 2.5 KB of a 6 KB room should take that clean cut rather than fall through
+to a mid-sentence one.
+
+**The cap was measured against the wrong number.** The page was clamped to the
+whole budget, so a long page filled the budget exactly and the header, the framing
+line, the heading, the dateline and the sentinel pushed the composition past it —
+with nothing to trim, because the identity lane is empty by then and the page is
+furniture the trim loop cannot pop. An 8,657-byte page published `overBudget` at
+400, 900, 2,000 and 6,000. This is the same measurement that kept the
+still-forming line out of the default switch (§12a), and the review's sharpest
+observation is that the argument had been accepted against a 127-byte sentence
+and not applied to a 6 KB block. `PAGE_FLOOR_RESERVE_BYTES` (512, against a
+measured widest of 444) is subtracted first, and two floors sit under it: below
+`PAGE_MIN_RENDER_BYTES` the wake says the page exists and does not fit in one
+line, and below the furniture itself it says nothing at all, because a ceiling
+that small has no room for prose about prose and the over-budget tripwire should
+be left for a host that really is misconfigured.
+
+**`protected` meant two things and the comment said one.** The page is born
+`protected` so the floor prune cannot take it; `sweepFallback` filters on exactly
+that flag to decide what leaves the machine, and its own comment said "nothing
+protected or confidential" — which this page made false. The flag is the prune's
+vocabulary and does not settle egress by itself, but it is close enough that the
+answer has to be written down: `PAGE_ON_EGRESS`, default true (the owner's
+decision of 2026-09-17), with the comment and the contract corrected to say what
+goes out and why. **Nothing marks a page confidential.** There is one page; the
+switch is the decision.
+
+**Removal was the only way out, and it was a loaded gun.** `revisePage("")`
+refuses, the dashboard is read-only, and the page is the most conspicuous schema
+row an owner has — `enumerate()` lists it and `status` prints its id. So the one
+affordance for "stop leading my wake with this" was `counterparts remove <id>`,
+which tombstones the row and leaves `Schemas.load` reading a blank `prose_path`:
+a store that will not open, with the wake hook swallowing the error so the symptom
+is silence. (Pre-existing — the identity core has had it since it shipped — and
+the `schemas/` skip is its own PR.) The door this needed is `--clear`, and the
+shape of it is the interesting part: the body becomes a VERSION and the row is
+ARCHIVED, so "no page" is a state every reader already understands
+(`findSelfPage` lists live rows) and nothing is destroyed. Blanking the body was
+the alternative and it is worse — a live page whose text is a placeholder is the
+"empty is a valid state" failure the bootstrap line exists to avoid.
+
+**The version log named the wrong write.** `store.revise` records the REPLACING
+write's reason on the row it archives, so version 1 — the first page — was
+labelled with the second write's words, while the current page's own
+`Last change:` line read the row's meta and was right. One word meaning opposite
+things on two surfaces. The durable rows carry what is wanted, and the arithmetic
+is exact: the write that produced version `seq` is the one whose row says
+`version: seq - 1`, because a revision archives the body that was standing and
+numbers it with the revision it is making. The store is untouched; only the
+presentation changed, with `replacedBy` keeping the store's value under its true
+name.
+
+**Two writers, last one wins, both told it worked.** Not data loss — every lost
+body is a version — but silent reversion of the page every session reads, which
+is the same felt outcome and harder to notice. `ifVersion` is optional on purpose:
+passed, a write that crossed with another is refused and handed the current page
+to merge; omitted, nothing changes. That is a courtesy between writers rather than
+a lock, which is what keeps it inside the owner's "no safeguards up front".
+
+**And the page could be promoted.** `consolidate.ts` had no `isSchemaRow` guard
+where `dedup.ts` has had one since it shipped, so forty cycles over a page
+carrying the physics repeated recall credit leaves produced `promoted_identity`,
+`band identity` and a `band.promoted` crossing record — on a row no lane can ever
+rank. The wake was unaffected; the telemetry was not, and the promotion
+diagnostics counted it. One line, mirroring dedup's, and it covers the identity
+core too. Excluding the page from recall — which the coordinator decided, and
+which is right on its own terms, since the page is already delivered whole every
+morning — closes the credit path that made it reachable. Both are one line to
+reverse.

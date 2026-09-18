@@ -1313,7 +1313,9 @@ async function selfPageCommand(
       const read = bodyFrom({ file: from }, () => "");
       if ("error" in read) {
         io.err(`refused: ${read.error}`);
-        return EXIT.usage;
+        // A missing file is a command line that is wrong; one that is there and
+        // will not open is the machine failing, and `EXIT.failed` exists for it.
+        return read.missing === true ? EXIT.usage : EXIT.failed;
       }
       body = read.body;
     } else {

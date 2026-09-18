@@ -58,7 +58,9 @@ load-bearing, and this adapter is designed on the assumption that it will be use
   the wake now opens with, one row with versions — and touches the identity band not at all.
   It cannot promote a memory, protect one, or move a strength. The doctrine the drop
   protected is "identity strength comes from lived salience", and that is exactly what still
-  decides what the page has to work with. Written down is not the same as earned.*
+  decides what the page has to work with. Written down is not the same as earned.
+  Nor can it UNWRITE the page: clearing and restoring are the owner's console alone, because
+  a session that could erase the self between two turns would be a different kind of tool.*
 - **`protected.add` as a callable operation is dropped** with the second-signature queue.
   **PROPOSED** — owner call at check-in; see `schemas/CONTRACT.md` §4 for the evidence and
   counter-argument.

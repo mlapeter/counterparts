@@ -96,7 +96,7 @@ export function versionLines(versions: readonly PageVersion[]): string[] {
 export function bodyFrom(
   flags: { file?: string | boolean | undefined; stdin?: string | boolean | undefined },
   readStdin: () => string,
-): { body: string } | { error: string } {
+): { body: string } | { error: string; missing?: boolean } {
   const from = typeof flags.file === "string" ? flags.file : null;
   const stdin = flags.stdin === true || typeof flags.stdin === "string";
   if (from !== null && stdin) {
@@ -109,7 +109,14 @@ export function bodyFrom(
     try {
       return { body: readFileSync(from, "utf8") };
     } catch (err) {
-      return { error: `could not read ${from}: ${String((err as Error).message ?? err)}` };
+      // A file that is not THERE is a command line that is wrong; a file that is
+      // there and will not open is the machine failing. `EXIT.failed` exists for
+      // the second, and the caller reads `missing` to tell them apart (n5).
+      const code = (err as NodeJS.ErrnoException).code ?? "";
+      return {
+        error: `could not read ${from}: ${String((err as Error).message ?? err)}`,
+        missing: code === "ENOENT",
+      };
     }
   }
   return { body: readStdin() };

@@ -80,6 +80,12 @@ page must work from an instrument, because "what does my page actually say" is t
 question anyone asks when the wake looks wrong, and a stood-down console is what is running
 while they ask it. The refusal therefore lives at the WRITE, inside `self/#revisePage`, in
 the same sentence every other write refuses in.*
+*It is also the ONLY door that unwrites a page (`--clear`) or puts an earlier one back
+(`--restore <seq>`); no MCP tool reaches either. `remove` refuses the page row by name and
+points here — removal tombstones a row, and the schema index reads every schema row's
+prose at open, so removing the page (or the identity core, which has had the same exposure
+since it shipped) leaves a store that will not open, with the wake hook swallowing the
+error so the symptom is silence.*
 **Outputs** — human-readable output; durable state changes for owner operations only;
 snapshots and exports; the removal record; telemetry by reference.
 
