@@ -1,6 +1,56 @@
 # Handoff — resume here
 
-## 2026-09-18, midday — read this first: the rest of the rebuild runs in parallel from one plan
+## 2026-09-18, afternoon — read this first: Wave 1 is launched (five builders), nothing merged yet
+
+**The brief is still `docs/plan-parallel-rebuild-2026-09-18.md`.** A coordinating session started from its §8 prompt.
+
+**State at launch.** LIVE = master = `039cd5d` (the plan says `dc66c81`; the difference is docs PR #133 only, deployed
+since). Doctor 0 red / 2 amber / 13 green; the ambers are the same week-window baselines (Authorship's old day-cap
+refusals, Fired's quiet mechanisms). No open PRs before the wave.
+
+**Wave 1, five Opus builders, each in its own worktree under `.claude/worktrees/agent-*`, each told: build, full
+suite + `bun run typecheck`, push its branch, ONE PR, no merge, no deploy:**
+- **F1** `floor/f1-wal` — busy timeout first, journal mode read before it is set, WAL (also the cache). Extra proofs
+  asked for beyond the floor plan: an idle DELETE-mode handle survives another handle's flip to WAL (the long-running
+  MCP server on deploy day); a refused flip never throws at open; a read-only open of a WAL store works (the
+  dashboard; floor plan risk 1); every raw database copy is still consistent under WAL.
+- **F2** `floor/f2-snapshots` — ruling 3. Asked for: rotation deletes only what it can prove is a snapshot; copy to a
+  temp name and rename, so a watchdog kill mid-copy never counts as a snapshot; the watchdog value measured against a
+  copy of a store the live one's size; the `snapshot.*` rows, the fired entry, the doctor line.
+- **F3** `floor/f3-consumers-off-files` — refactor only; the `confidential` flag's truth table pinned by a test before
+  the swap, because it is a privacy gate; a list of the call sites left for F5.
+- **S1** `self/s1-page` — one row through the existing Store API (nothing under `src/core/store/` changes); two headed
+  sections; one core seam S2 will call; an MCP tool and a CLI command; the page first in "Who I am" under a tunable
+  size limit; proof that a full sleep cycle and the prune leave the page alone. **What the wake shows while the page
+  is empty is built as a two-value switch, defaulting to "still forming" plus today's identity list, so a deploy changes
+  nothing in the owner's wake until a page is written. Which value ships is the owner's choice and is not made yet.**
+- **N2** `newuser/n2-quickstart-dry-run` — the stranger's walk in a temp HOME, never launching `claude`; creates
+  `docs/new-user-findings.md` (that is N3); only small obviously-right doc fixes go in.
+
+**What the owner said at the start of this session, which is narrower than plan §2 ruling 7 reads at first:** merges
+to master are pre-authorized only AFTER the live checkout is pinned at `floor/v5-last`. Every Wave 1 merge is before
+the pin, so each one needs his word, as does every deploy. `tools/deploy-checkout.sh` deploys whatever `origin/master`
+is, so "one batch, one suspect" means: merge F1 → deploy F1 alone → doctor, fired, `counterparts verify` prints the
+WAL line, the dashboard opens → only then merge F2 / F3 / S1.
+
+**Expected file collisions, all additive:** `src/adapters/cli/commands.ts` (F1 one line, F3 three call sites, S1 one
+registration); `src/adapters/fired.ts` and `doctor.ts` (F2 owns; S1 adds one entry each and rebases after F2);
+`src/core/counterpart.ts` and `dashboard/web/views.ts` (F3 and S1). Trial-merge and run the combined suite before any
+second merge.
+
+**After F1 is live, a caution for whoever runs count queries:** `sqlite3 -readonly "file:…?immutable=1"` does not read
+the `-wal`, so counts can look stale. That is not a regression.
+
+**Next, in order:** adversarial review per PR as each builder reports (F1's reviewer attacks the read-only open under
+WAL first; F2's attacks rotation; S1's attacks sleep eating the page) → decisions to the owner two or three at a time
+→ F4 from F3's merge → F5 builds once F3 and F4 are in, and merges only after the owner has what he wants live →
+teach `tools/deploy-checkout.sh` a `--ref <tag>` in its own small PR before the pin.
+
+**Housekeeping:** the stale `agent-a11dfb43cfd08a945` registration is pruned (its directory was already gone). The
+untracked `review/` in the live checkout is still left for the owner. This section is being written in worktree
+`.claude/worktrees/coord-wave1` (branch `docs/2026-09-18-wave1`).
+
+## 2026-09-18, midday — read second: the rest of the rebuild runs in parallel from one plan
 
 **The brief for what comes next is `docs/plan-parallel-rebuild-2026-09-18.md`** — the owner's rulings of the day
 (§2), the tracks (§3), the order and the pin (§4), how the work is run (§5), and the prompt a fresh coordinating
