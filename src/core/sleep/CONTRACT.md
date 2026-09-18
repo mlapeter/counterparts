@@ -40,12 +40,8 @@ alone.
   between the clock ticking and the work finishing **replays that day exactly once**. Markers
   only move forward. [v1 §5 G3, engram E8]
 - **A budget is not a debt** — a day the work wasn't needed is not arrears to make up.
-  [v1 §5 G4] *A budget is not a blindfold either: the consolidate pass keeps a resume
-  cursor, so a store larger than its budget is covered in `ceil(N / budget)` runs instead
-  of the same head being re-examined every night. Nothing is owed and the marker still
-  advances; only the starting place moved. Measured 2026-09-17 — 15,292 rows against a
-  budget of 5,000, and 10,000+ memories had never once been asked whether they consolidate
-  or belong to who the owner is (`docs/promotion-diagnosis-2026-09-17.md`).*
+  [v1 §5 G4] *Where a phase RESUMES under that rule is a separate question, and a working
+  answer rather than a guarantee: `NOTES.md` §8.*
 - **Phase order is behavior, not implementation.** [v1 §5 G5] The consequences that must
   survive: decay runs *after* the boundary's own writes (hence the same-lived-day
   reinforcement exemption); revision-dependent renders run *after* revision, so they see this

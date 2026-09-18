@@ -1815,12 +1815,47 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     // this since the budgets existed and nothing durable copied it, so the store
     // could not say that a phase had stopped at its cap — which is how a
     // consolidate pass reaching a third of the store stayed invisible for two
-    // weeks. The boolean rides EVERY phase, false included; the count of rows
-    // not reached rides only the phases that left some, so a quiet night's row
-    // stays small. The true case is `sleep.test.ts` on the phase report and
-    // `doctor.test.ts` on the line that reads this payload back.
-    for (const p of phasesOf(row)) {
+    // weeks. On a phase that RAN, `false` is a measurement: it had room. The
+    // count of rows not reached rides only the phases that left some, so a quiet
+    // night's row stays small. The true case is `sleep.test.ts` on the phase
+    // report and `doctor.test.ts` on the line that reads this payload back.
+    const ranPhases = phasesOf(row).filter(
+      (p) => p.status === "ran" || p.status === "ran-nothing-found",
+    );
+    expect(ranPhases.length).toBeGreaterThan(0);
+    for (const p of ranPhases) {
       expect(p.budgetExhausted).toBe(false);
+      expect(p.skippedForBudget).toBeUndefined();
+    }
+  });
+
+  /**
+   * A phase that never ran has no answer to the budget question, and `false` on
+   * it would read as "it had room" — the conflation the field exists to avoid.
+   * Absence is the honest record; doctor reads `=== true`, so it stays quiet
+   * either way.
+   */
+  test("a phase that did not run, and one that failed, carry NO budgetExhausted at all", async () => {
+    const c = brain();
+    seed(c);
+    c.wake(BUDGET_BYTES);
+    const boom = Object.assign(new Error("no"), { code: "VERSIONS_BOOM" });
+    (c.store as unknown as { pruneSupersededVersions: () => never }).pruneSupersededVersions =
+      () => {
+        throw boom;
+      };
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+    // A second boundary on the same lived day: every cadenced phase is
+    // `did-not-run` / `already-done-today`.
+    await c.sessionEnd({ date: "2026-01-02", budgetBytes: BUDGET_BYTES });
+
+    const rows = rowsOf(c, SLEEP_CYCLE_EVENT);
+    const idle = rows.flatMap(phasesOf).filter((p) => p.status === "did-not-run");
+    const failed = rows.flatMap(phasesOf).filter((p) => p.status === "failed");
+    expect(idle.length).toBeGreaterThan(0);
+    expect(failed.length).toBeGreaterThan(0);
+    for (const p of [...idle, ...failed]) {
+      expect("budgetExhausted" in p).toBe(false);
       expect(p.skippedForBudget).toBeUndefined();
     }
   });

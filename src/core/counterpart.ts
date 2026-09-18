@@ -2442,11 +2442,17 @@ export class Counterpart {
       // say that a phase had stopped at its cap — which is how a consolidate
       // pass examining a third of the store stayed invisible for two weeks
       // (`docs/promotion-diagnosis-2026-09-17.md`, scar §2.4's shape again).
-      // The boolean rides every phase, false included, because "it had room" and
-      // "this row cannot tell you" are different facts; the count of rows not
-      // reached rides only the phases that left some, so a quiet night's row
-      // stays small.
-      budgetExhausted: p.budgetExhausted,
+      //
+      // ONLY ON A PHASE THAT RAN, and `false` there is a real measurement: it
+      // had room. A phase that never ran — not due this cadence, no render fn,
+      // failed — has no answer to give, and `false` on it would read as "it had
+      // room" when what is true is "this row cannot tell you". The cycle report
+      // carries a plain boolean because its skeleton needs one; the durable row
+      // is where the distinction has to survive. The count of rows not reached
+      // rides only the phases that left some, so a quiet night's row stays small.
+      ...(p.status === "ran" || p.status === "ran-nothing-found"
+        ? { budgetExhausted: p.budgetExhausted }
+        : {}),
       ...(p.skippedForBudget === 0 ? {} : { skippedForBudget: p.skippedForBudget }),
     }));
     const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;

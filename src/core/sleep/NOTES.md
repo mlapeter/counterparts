@@ -243,6 +243,17 @@ its own. The cursor moves only under `ctx.apply`, so an observer's read-only
 report does not move the store's place in the store, and a run killed mid-phase
 re-walks the same stretch — the marker's own bargain.
 
+**What the rotation changes for a NEW memory, named rather than left to be
+found.** Ids are random hex, so a memory written today lands anywhere in the
+rotation, not at the end of it. Before, a row in the first budget's worth was
+looked at every night and everything past it never; now every row is looked at,
+and a new one waits up to `ceil(N / budget)` nights for its first look — about
+three on a 15,000-row store at 5,000. Against a consolidate cadence of 3 lived
+days that is a shift of the same order, not a new kind of delay, and the trade is
+"a few nights later for every memory" against "never, for two thirds of them".
+For now that reads as clearly the better side; if the wait on fresh memories is
+ever felt, raising the budget shortens it directly.
+
 **Raising the budget was the other option and was NOT taken here.** It is one
 number (`tunables.ts`) against a store that will keep growing; the cursor makes
 the budget mean "per night" rather than "ever", which is what it always read as.
