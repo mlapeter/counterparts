@@ -379,6 +379,26 @@ function saysSo(hook: HookName): hook is SaysSoHook {
 }
 
 /**
+ * MAY THIS EVENT'S FAULT REACH THE OWNER'S TERMINAL AT ALL — the three gates,
+ * ahead of the question of what to say (`standdown.ts#decideSay`).
+ *
+ * Exported because a close-time throw cannot be induced from a hermetic test:
+ * it needs a patched tree, which is how the review that found the `didWork` gap
+ * proved it. The rule is worth pinning even so, and a pure predicate is the
+ * honest shape for a thing a process cannot reach.
+ */
+export function reachesTheOwner(
+  said: Pick<Said, "hook" | "wroteStdout" | "didWork">,
+): said is Pick<Said, "hook" | "wroteStdout" | "didWork"> & { hook: SaysSoHook } {
+  // The work already happened, so this is the tidying-up failing: stderr's.
+  if (said.didWork) return false;
+  // Nothing may follow the wake, or stdout stops parsing as JSON.
+  if (said.wroteStdout) return false;
+  // And only where the host displays a `systemMessage` at all.
+  return saysSo(said.hook);
+}
+
+/**
  * WHAT THE STAND-DOWN PATH KNOWS ABOUT THIS EVENT SO FAR.
  *
  * Filled in as `main` learns each fact, because a fault can arrive before any of
@@ -397,6 +417,21 @@ interface Said {
    * into the model's context instead of showing it to the owner.
    */
   wroteStdout: boolean;
+  /**
+   * TRUE once this event's WORK IS DONE — recall composed, the turn captured,
+   * the session record written. A failure after that point is not a failure of
+   * the turn, and must not be reported as one.
+   *
+   * It is a second flag rather than a reading of `wroteStdout`, and the review
+   * that found this says why: `wroteStdout` is an ORDERING guard, and on
+   * SessionStart the two coincide because SessionStart always writes stdout.
+   * On UserPromptSubmit they come apart — an ordinary prompt with nothing to
+   * inject writes nothing — so a throw from the `close()` in the `finally`
+   * below, which is I38's own shape, told the owner "skipped this turn" about a
+   * turn that had just succeeded. A warning that is sometimes false is the one
+   * outcome this whole track cannot afford.
+   */
+  didWork: boolean;
 }
 
 /**
@@ -422,7 +457,7 @@ function standDown(
   process.stderr.write(`[counterparts] hook stood down: ${what.line}\n`);
   const fault = what.fault;
   if (fault === null) return;
-  if (!saysSo(said.hook) || said.wroteStdout) return;
+  if (!reachesTheOwner(said)) return;
   const dataDir = what.marker ? said.dataDir : undefined;
   const decision = decideSay(fault, said.hook, said.sessionId, readMark(dataDir, said.sessionId));
   // THE MARK IS WRITTEN EITHER WAY. A busy database nobody was told about is
@@ -464,6 +499,7 @@ async function main(): Promise<void> {
     sessionId: typeof payload["session_id"] === "string" ? payload["session_id"] : "",
     dataDir: undefined,
     wroteStdout: false,
+    didWork: false,
   };
   // THE FAULT HANDLER, HERE RATHER THAN AT THE ENTRY POINT, because this is
   // where the event's own facts are in scope — which hook, which session, which
@@ -473,6 +509,15 @@ async function main(): Promise<void> {
   try {
     await runHook(name, payload, choice, said);
   } catch (err) {
+    // MASTER'S EXIT CODE, RESTORED EXACTLY. On master a throw out of `main`
+    // reached the entry point's rejection handler, which always exits 0 — so a
+    // Stop that had set `exitCode = 2` for an ask and then threw on `close()`
+    // exited 0. Catching the throw HERE let that 2 survive, which would have
+    // blocked the stop and fed this hook's whole stderr back to the model as
+    // Stop-hook feedback. Maybe an improvement; not this PR's to make. The one
+    // thing that changes on this branch is that two displayed events gain a
+    // `systemMessage`.
+    process.exitCode = 0;
     const detail = err instanceof Error ? err.message : String(err);
     const remedy = `Set "dataDir" in ${choice.path}, or set ${DATA_DIR_ENV}.`;
     standDown(said, {
@@ -637,6 +682,12 @@ async function runHook(
     // resolutions of one value is the shape scar §2.13 is about.
     const input = toHookInput(payload, { scope });
     const result = adapter.hook(name, input);
+    // THE WORK HAPPENED. Recall was composed, the turn was captured, the session
+    // record was written — whatever this event's job was, `adapter.hook` has
+    // done it and swallowed its own failures doing so (§5 G2). Anything that
+    // throws from here on is a failure of the tidying-up, not of the turn, and
+    // `standDown` keeps it to stderr.
+    said.didWork = true;
     // THE NOTICE, AFTER THE WAKE AND ONLY AT SESSION START. Never on
     // user-prompt-submit: the owner asked for a warning, not a nag. `notice()`
     // is red-only, bounded, and returns null rather than throwing, so the line

@@ -4064,14 +4064,16 @@ function doctorCommand(
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  // WOULD A SESSION OPEN THIS STORE — asked FIRST, and closed again inside the
-  // call, so this reading and the console's own handle never hold the same
-  // database at once. It is the check the `Store` finding cannot make: that
-  // finding reads the directory, and a store can pass it while
-  // `Counterpart.open` throws at every session start (H1).
-  const open = storeExists(dir) ? readCounterpartOpen(dir) : undefined;
   let store: Store | null = null;
   try {
+    // WOULD A SESSION OPEN THIS STORE — asked FIRST, and closed again inside the
+    // call, so this reading and the console's own handle never hold the same
+    // database at once. It is the check the `Store` finding cannot make: that
+    // finding reads the directory, and a store can pass it while
+    // `Counterpart.open` throws at every session start (H1). Inside this `try`
+    // rather than above it, because `doctor` is the command people run BECAUSE
+    // something is wrong, and its own reading must not be the thing that throws.
+    const open = storeExists(dir) ? readCounterpartOpen(dir) : undefined;
     if (storeExists(dir)) store = Store.open({ dir, observer: true });
     const findings = doctorFindings({
       configPath,

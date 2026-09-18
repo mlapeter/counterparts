@@ -22,12 +22,14 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,12 +38,15 @@ import { join, resolve } from "node:path";
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
+import { reachesTheOwner } from "../src/adapters/claude-code/bin/hook.js";
 import {
   BUSY_SESSION_START_MESSAGE,
   BUSY_TURN_MESSAGE,
   CONFIG_REFUSED,
   STANDDOWN_REASON_MAX_CHARS,
   STANDDOWN_TAIL,
+  TRANSIENT_ESCALATE_AFTER,
+  busyWedgedMessage,
   classifyStandDown,
   decideSay,
   describeFault,
@@ -51,6 +56,7 @@ import {
   standDownMessage,
   writeMark,
 } from "../src/adapters/claude-code/standdown.js";
+import type { StandDownMark } from "../src/adapters/claude-code/standdown.js";
 import { canonicalScopePath, scopesPath } from "../src/adapters/scopes.js";
 import { Store, StoreError, isDatabaseSidecar } from "../src/core/store/index.js";
 
@@ -250,7 +256,7 @@ describe("a store that will not open", () => {
     expect(record["code"]).toBe("PROSE_FILE_MISSING");
     expect(typeof record["at"]).toBe("string");
     expect(record["told"]).toBe(true);
-    expect(record["transient"]).toEqual({ count: 0, at: "", told: false });
+    expect(record["transient"]).toEqual({ count: 0, at: "", told: false, escalated: false });
   });
 
   test("the hook reads and rewrites the WHOLE mark, transient counters included", () => {
@@ -270,7 +276,7 @@ describe("a store that will not open", () => {
         event: "user-prompt-submit",
         code: "HOOK_FAILED",
         told: false,
-        transient: { count: 1, at: "2026-09-18T00:00:00.000Z", told: false },
+        transient: { count: 1, at: "2026-09-18T00:00:00.000Z", told: false, escalated: false },
       })}\n`,
       "utf8",
     );
@@ -300,6 +306,31 @@ describe("a store that will not open", () => {
     } finally {
       chmodSync(sessions, 0o700);
     }
+  });
+
+  test("the mark is never written through a symlink, and lands atomically", () => {
+    breakTheStore(store, "a belief the store holds");
+    const outside = join(work, "outside.txt");
+    writeFileSync(outside, "not the marker's to touch\n", "utf8");
+    mkdirSync(join(store, "sessions"), { recursive: true });
+    symlinkSync(outside, join(store, "sessions", "s-link.standdown.json"));
+
+    // Said, because the message never depends on the mark landing.
+    expect(systemMessage(runHook("SessionStart", "s-link"))).toContain(SAID);
+    // And the file outside the store is exactly what it was.
+    expect(readFileSync(outside, "utf8")).toBe("not the marker's to touch\n");
+    expect(lstatSync(join(store, "sessions", "s-link.standdown.json")).isSymbolicLink()).toBe(true);
+    // No half-written temp file left behind either.
+    expect(readdirSync(join(store, "sessions")).filter((n) => n.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("a directory sitting where the mark goes is refused, not written into", () => {
+    breakTheStore(store, "a belief the store holds");
+    mkdirSync(join(store, "sessions", "s-dir.standdown.json"), { recursive: true });
+    const run = runHook("SessionStart", "s-dir");
+    expect(run.code).toBe(0);
+    expect(systemMessage(run)).toContain(SAID);
+    expect(readdirSync(join(store, "sessions", "s-dir.standdown.json"))).toEqual([]);
   });
 
   test("no memory text and no prose body reaches either channel", () => {
@@ -422,6 +453,77 @@ describe("a deliberate stand-down says nothing in the terminal", () => {
       runHook(event, "s-nomarker");
     }
     expect(existsSync(join(store, "sessions", "s-nomarker.standdown.json"))).toBe(false);
+  });
+});
+
+// ── the wall around v1's live stores holds ──────────────────────────────────
+
+describe("a data dir this build refuses to open", () => {
+  /**
+   * HERMETIC, AND IT HAS TO BE: the directory names below are the ones the store
+   * layer refuses BY NAME, so the test builds fakes under its own temp `HOME`
+   * and the hook resolves `homedir()` from that. The real `~/.bansai` and
+   * `~/.claude-engram` are neither read nor written here or anywhere in this
+   * suite (CLAUDE.md's second standing rule).
+   */
+  for (const name of [".bansai", ".claude-engram"]) {
+    test(`says it, and writes not one byte under a fake ${name}`, () => {
+      const forbidden = join(home, name, "nested");
+      const config = join(work, `forbidden${name}.json`);
+      writeFileSync(config, JSON.stringify({ dataDir: forbidden }), "utf8");
+      const run = runHook("SessionStart", "s-forbidden", { args: ["--config", config] });
+      expect(run.code).toBe(0);
+      // The fault is real and is said — it is the WRITE that is refused.
+      expect(systemMessage(run)).toContain("(DATA_DIR_FORBIDDEN)");
+      // Nothing was created. Not the marker, not the chain of directories to it.
+      expect(existsSync(join(home, name))).toBe(false);
+    });
+  }
+
+  test("it is a fault, not a deliberate stand-down — which is why it was reachable", () => {
+    // `standdown.ts` has a `PLAIN_WORDS` entry for this code, so the path was
+    // always going to be walked; the mark write is what had to be stopped, not
+    // the message.
+    const err = new StoreError("DATA_DIR_FORBIDDEN", { root: "/somewhere" });
+    expect(isDeliberate(err)).toBe(false);
+    expect(describeFault(err)).toEqual({
+      code: "DATA_DIR_FORBIDDEN",
+      reason: "the configured data dir is one this build refuses to open",
+      kind: "persistent",
+    });
+  });
+
+  test("the guard is inside the mark's own try, so a refusal is just 'no mark'", () => {
+    // Proved against the temp HOME above; here the point is the shape — neither
+    // door throws at a caller, whatever it is handed.
+    expect(() => readMark(join(home, ".bansai"), "s1")).not.toThrow();
+    expect(readMark(join(home, ".bansai"), "s1")).toBeNull();
+  });
+});
+
+// ── the Stop hook's exit code is master's ───────────────────────────────────
+
+describe("a fault never changes an exit code", () => {
+  test("Stop on a store that will not open exits 0, silently", () => {
+    breakTheStore(store, "a belief the store holds");
+    for (const active of [false, true]) {
+      const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT, "--config", configPath], {
+        input: JSON.stringify({
+          hook_event_name: "Stop",
+          session_id: "s-stop-exit",
+          cwd: work,
+          ...(active ? { stop_hook_active: true } : {}),
+        }),
+        encoding: "utf8",
+        env: { PATH: emptyBin, HOME: home, USERPROFILE: home },
+        timeout: 60_000,
+      });
+      // Master's behaviour exactly: a throw out of the run exits 0, whatever the
+      // ask had set. Exit 2 would block the stop and feed this hook's whole
+      // stderr — the stand-down line included — back into the model's context.
+      expect(`active=${String(active)} exit`).toBe(`active=${String(active)} exit`);
+      expect({ active, code: r.status, stdout: r.stdout }).toEqual({ active, code: 0, stdout: "" });
+    }
   });
 });
 
@@ -596,7 +698,7 @@ describe("the stand-down vocabulary", () => {
       event: "session-start",
       code: "PROSE_FILE_MISSING",
       told: true,
-      transient: { count: 0, at: "", told: false },
+      transient: { count: 0, at: "", told: false, escalated: false },
     };
     expect(readMark(undefined, "s1")).toBeNull();
     expect(writeMark(undefined, "s1", mark)).toBe(false);
@@ -618,7 +720,7 @@ describe("the stand-down vocabulary", () => {
     const mark = readMark(store, "s-old");
     // The old shape was only ever written when a persistent line HAD been said.
     expect(mark?.told).toBe(true);
-    expect(mark?.transient).toEqual({ count: 0, at: "", told: false });
+    expect(mark?.transient).toEqual({ count: 0, at: "", told: false, escalated: false });
   });
 });
 
@@ -643,7 +745,12 @@ describe("the say rule", () => {
   test("a busy database at a prompt: quiet the first time, said the second, then quiet", () => {
     const one = decideSay(busy, "user-prompt-submit", "s", null, at);
     expect(one.message).toBeNull();
-    expect(one.mark.transient).toEqual({ count: 1, at: new Date(at).toISOString(), told: false });
+    expect(one.mark.transient).toEqual({
+      count: 1,
+      at: new Date(at).toISOString(),
+      told: false,
+      escalated: false,
+    });
 
     const two = decideSay(busy, "user-prompt-submit", "s", one.mark, at);
     expect(two.message).toBe(BUSY_TURN_MESSAGE);
@@ -658,7 +765,12 @@ describe("the say rule", () => {
   test("a busy database at SESSION START is said the first time: there is no wake at all", () => {
     const first = decideSay(busy, "session-start", "s", null, at);
     expect(first.message).toBe(BUSY_SESSION_START_MESSAGE);
-    expect(first.mark.transient).toEqual({ count: 1, at: new Date(at).toISOString(), told: true });
+    expect(first.mark.transient).toEqual({
+      count: 1,
+      at: new Date(at).toISOString(),
+      told: true,
+      escalated: false,
+    });
     // And having been told once, the session is not told again.
     expect(decideSay(busy, "user-prompt-submit", "s", first.mark, at).message).toBeNull();
   });
@@ -679,6 +791,106 @@ describe("the say rule", () => {
     const one = decideSay(busy, "user-prompt-submit", "s", told.mark, at);
     expect(one.message).toBeNull();
     expect(one.mark.told).toBe(true);
+  });
+
+  /** Walk `count` prompts and answer with what the owner would have seen. */
+  const prompts = (n: number, from: StandDownMark | null = null): (string | null)[] => {
+    const seen: (string | null)[] = [];
+    let mark = from;
+    for (let i = 0; i < n; i += 1) {
+      const step = decideSay(busy, "user-prompt-submit", "s", mark, at);
+      seen.push(step.message);
+      mark = step.mark;
+    }
+    return seen;
+  };
+
+  test("a database that STAYS busy escalates once, and says OFF only then", () => {
+    // `isLocked` is a test on an error and cannot tell a 40 ms contention from a
+    // lock nothing will release. Without this, prompts 3…n are silent forever —
+    // I32 again, wearing the transient branch's clothes.
+    const seen = prompts(6);
+    expect(seen[0]).toBeNull();
+    expect(seen[1]).toBe(BUSY_TURN_MESSAGE);
+    expect(seen[2]).toBeNull();
+    expect(seen[3]).toBeNull();
+    expect(seen[4]).toBe(busyWedgedMessage(TRANSIENT_ESCALATE_AFTER));
+    expect(seen[5]).toBeNull();
+    // Said exactly once, and it is the one transient line allowed to say OFF.
+    expect(seen.filter((m) => m !== null && m.includes("effectively off"))).toHaveLength(1);
+    expect(busyWedgedMessage(5)).toContain("skipped 5 turns this session");
+  });
+
+  test("a locked SessionStart still reaches the escalation, and only once", () => {
+    const start = decideSay(busy, "session-start", "s", null, at);
+    expect(start.message).toBe(BUSY_SESSION_START_MESSAGE);
+    // Counts 2…6 at prompts: the soft line is spent, so the next thing the owner
+    // hears is the escalation at 5 — and nothing after it.
+    const seen = prompts(5, start.mark);
+    expect(seen).toEqual([null, null, null, busyWedgedMessage(TRANSIENT_ESCALATE_AFTER), null]);
+  });
+
+  test("the escalation outranks a soft line the session has not had yet", () => {
+    // A mark carrying a big count and no `told` — the shape a session gets when
+    // its early locks landed on events the host displays nothing for.
+    const prior = {
+      sessionId: "s",
+      at: "",
+      event: "stop",
+      code: "HOOK_FAILED",
+      told: false,
+      transient: { count: TRANSIENT_ESCALATE_AFTER - 1, at: "", told: false, escalated: false },
+    };
+    const step = decideSay(busy, "user-prompt-submit", "s", prior, at);
+    expect(step.message).toBe(busyWedgedMessage(TRANSIENT_ESCALATE_AFTER));
+    expect(step.mark.transient.escalated).toBe(true);
+    expect(step.mark.transient.told).toBe(true);
+  });
+
+  test("a negative count in a mark cannot buy back the silence", () => {
+    mkdirSync(join(store, "sessions"), { recursive: true });
+    writeFileSync(
+      join(store, "sessions", "s-neg.standdown.json"),
+      `${JSON.stringify({ sessionId: "s-neg", transient: { count: -1_000_000 } })}\n`,
+      "utf8",
+    );
+    expect(readMark(store, "s-neg")?.transient.count).toBe(0);
+  });
+});
+
+// ── a failure AFTER the turn's work is not a failure of the turn ────────────
+
+describe("what may reach the owner at all", () => {
+  /**
+   * A close-time throw cannot be induced hermetically — it needs a patched tree,
+   * which is how the review that found this proved it — so the rule is pinned
+   * where it lives. The other half, a throw BEFORE the work, is proved by a real
+   * process above: every "a store that will not open" test throws inside
+   * `openAdapter`, and every one of them says it.
+   */
+  test("once the work is done, a later throw is stderr's and nothing else", () => {
+    for (const hook of ["session-start", "user-prompt-submit"] as const) {
+      expect(`${hook}: ${String(reachesTheOwner({ hook, wroteStdout: false, didWork: true }))}`).toBe(
+        `${hook}: false`,
+      );
+    }
+  });
+
+  test("a throw before the work, on a displayed event, does reach the owner", () => {
+    for (const hook of ["session-start", "user-prompt-submit"] as const) {
+      expect(`${hook}: ${String(reachesTheOwner({ hook, wroteStdout: false, didWork: false }))}`).toBe(
+        `${hook}: true`,
+      );
+    }
+  });
+
+  test("nothing follows the wake, and nothing is said on an undisplayed event", () => {
+    expect(reachesTheOwner({ hook: "session-start", wroteStdout: true, didWork: false })).toBe(false);
+    for (const hook of ["stop", "session-end", "pre-compact"] as const) {
+      expect(`${hook}: ${String(reachesTheOwner({ hook, wroteStdout: false, didWork: false }))}`).toBe(
+        `${hook}: false`,
+      );
+    }
   });
 });
 

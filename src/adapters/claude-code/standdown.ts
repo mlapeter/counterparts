@@ -29,11 +29,12 @@
  * — and two vocabularies for one question is how the terminal and the console
  * come to disagree about what "healthy" means (constitution 16).
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { isLocked } from "../../core/store/db.js";
-import { isStoreError } from "../../core/store/index.js";
+import { assertSafeDataDir, isStoreError } from "../../core/store/index.js";
 import type { StoreErrorCode } from "../../core/store/index.js";
 import { SESSIONS_DIR, isSessionId } from "../sessions.js";
 
@@ -141,6 +142,20 @@ export const OPEN_FAILED_WORDS = "the store would not open";
  * `doctor` still has to name even though the hook stays quiet about them.
  */
 export function describeFault(err: unknown): StandDownFault {
+  // TOTAL, and the reason is not theoretical politeness: this runs inside the
+  // handler that exists so a hook never fails the host, and everything below
+  // touches a property of an object nobody here made. A throwable with a
+  // throwing `code` getter, or one with a null prototype, would throw out of the
+  // handler and take the process's exit code with it. The general sentence is
+  // true of every failure, so it is the right thing to fall back to.
+  try {
+    return readFault(err);
+  } catch {
+    return { code: HOOK_FAILED, reason: OPEN_FAILED_WORDS, kind: "persistent" };
+  }
+}
+
+function readFault(err: unknown): StandDownFault {
   // BUSY FIRST, because a contended database arrives under several spellings —
   // a bare `Error` from either driver, or a `StoreError` wrapping one — and
   // which class it is says nothing about whether it will still be true next
@@ -182,6 +197,19 @@ function oneLine(text: string): string {
 }
 
 /**
+ * The home directory written `~`, the way every shell writes it.
+ *
+ * The `HOOK_FAILED` reason is a THIRD-PARTY message — `EACCES: permission
+ * denied, mkdir '/Users/…/store/prose'` — and the absolute path in it is both
+ * noise and the owner's name on his own screen. Only the prefix is replaced:
+ * the rest of the path is what a reader acts on. The full message is still on
+ * stderr, verbatim, where a diagnostic belongs.
+ */
+function tildeHome(text: string, home: string = homedir()): string {
+  return home.length > 1 ? text.split(home).join("~") : text;
+}
+
+/**
  * THE ONE RED LINE IN THE OWNER'S TERMINAL.
  *
  * Short on purpose. It says the consequence first — memory is off — because that
@@ -191,7 +219,7 @@ function oneLine(text: string): string {
  * error message, and error messages in this codebase carry codes, ids and paths.
  */
 export function standDownMessage(fault: StandDownFault): string {
-  const reason = oneLine(fault.reason);
+  const reason = tildeHome(oneLine(fault.reason));
   const said =
     reason.length <= STANDDOWN_REASON_MAX_CHARS
       ? reason
@@ -217,6 +245,28 @@ export const BUSY_SESSION_START_MESSAGE =
   "Counterparts could not load memory at session start: the memory database was busy. " +
   "This session has no wake; recall will work once the database is free. " +
   "If this keeps happening, run: counterparts doctor";
+
+/**
+ * HOW MANY SKIPPED TURNS BEFORE "BUSY" STOPS MEANING TEMPORARY.
+ *
+ * `isLocked` is a test on an error, and an error cannot tell a 40 ms contention
+ * from a lock nothing will ever release — a crashed worker, a stale `-shm` a
+ * reboot left wedged, a network filesystem. Without this the wedged case is I32
+ * again inside the transient branch: one soft line that says it will pass, and
+ * then silence for however many turns die. Five is where a run of them stops
+ * being a coincidence and is small enough that the owner hears it in the same
+ * sitting; nothing downstream depends on the number.
+ */
+export const TRANSIENT_ESCALATE_AFTER = 5;
+
+/** The escalation, said once. It is allowed to say OFF, because by now it is true. */
+export function busyWedgedMessage(count: number): string {
+  return (
+    `Counterparts has skipped ${String(count)} turns this session: the memory database stays ` +
+    "busy (database is locked). Memory is effectively off until that clears. " +
+    "Run: counterparts doctor"
+  );
+}
 
 // ── saying it once per session ──────────────────────────────────────────────
 
@@ -251,9 +301,18 @@ export interface StandDownMark {
   readonly code: string;
   /** A PERSISTENT stand-down has been said out loud in this session. */
   readonly told: boolean;
-  /** The busy-database story: how many this session has met, when the last one
-   *  was, and whether one has been said. */
-  readonly transient: { readonly count: number; readonly at: string; readonly told: boolean };
+  /**
+   * The busy-database story: how many this session has met, when the last one
+   * was, whether one has been said, and whether the "this is not passing"
+   * escalation has been said. Two flags rather than one, because they are said
+   * at two different moments and each is once.
+   */
+  readonly transient: {
+    readonly count: number;
+    readonly at: string;
+    readonly told: boolean;
+    readonly escalated: boolean;
+  };
 }
 
 export function standDownMarkerPath(dataDir: string, sessionId: string): string | null {
@@ -276,6 +335,12 @@ export function readMark(dataDir: string | undefined, sessionId: string): StandD
   if (path === null) return null;
   let raw: unknown;
   try {
+    // THE WALL, ASKED ON THE READ SIDE TOO. The rule is that this repository's
+    // code never touches v1's live stores — not writes them, not reads them —
+    // and a `dataDir` reaches this function before anything else has validated
+    // it (`Store.open` is what usually throws, and by then we are in the
+    // handler). Inside the `try`, so a refusal reads as "no prior mark".
+    assertSafeDataDir(dataDir);
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch {
     return null;
@@ -291,14 +356,39 @@ export function readMark(dataDir: string | undefined, sessionId: string): StandD
     code: typeof rec["code"] === "string" ? rec["code"] : "",
     told: rec["told"] === undefined ? true : rec["told"] === true,
     transient: {
-      count: typeof trans["count"] === "number" ? trans["count"] : 0,
+      // CLAMPED, and not out of tidiness: a negative count read verbatim
+      // suppresses every transient message for the life of the session, so a
+      // hand-edited or half-written file could buy back exactly the silence
+      // this track exists to end.
+      count:
+        typeof trans["count"] === "number" && Number.isFinite(trans["count"])
+          ? Math.max(0, Math.floor(trans["count"]))
+          : 0,
       at: typeof trans["at"] === "string" ? trans["at"] : "",
       told: trans["told"] === true,
+      escalated: trans["escalated"] === true,
     },
   };
 }
 
-/** Leave the mark. Returns whether it landed; never throws. */
+/**
+ * Leave the mark. Returns whether it landed; never throws.
+ *
+ * **It may not write into a store this build refuses to open.** `said.dataDir`
+ * is whatever the configuration named, and it is set BEFORE `Store.open` has
+ * had a chance to refuse it — so without this line a config naming
+ * `~/.bansai/anything` gets a `mkdir -p` and a file through the wall that exists
+ * so nothing here can touch v1's live memory (CLAUDE.md's second standing rule).
+ * It never fires on the owner's own deployment; it fires for agents, reviewers
+ * and replay tooling, which is the population the guard was built for. A refusal
+ * costs the mark and nothing else — the message is still shown.
+ *
+ * **And it is atomic, and does not follow a symlink**, which is `sessions.ts`'s
+ * own rule 3 for the same directory: a temp file beside the target and a
+ * `rename`, which REPLACES a symlink rather than writing through it, plus a
+ * refusal if what is there is not a regular file. Same directory, so the rename
+ * is a rename.
+ */
 export function writeMark(
   dataDir: string | undefined,
   sessionId: string,
@@ -307,9 +397,17 @@ export function writeMark(
   if (dataDir === undefined || dataDir.length === 0) return false;
   const path = standDownMarkerPath(dataDir, sessionId);
   if (path === null) return false;
+  const tmp = `${path}.${String(process.pid)}.tmp`;
   try {
+    assertSafeDataDir(dataDir);
+    // `lstat`, not `stat`: the question is what is AT the path, and a symlink
+    // answers for its target under `stat`. Anything but a regular file — a
+    // symlink, a directory, a socket — is refused rather than replaced.
+    const there = lstatSync(path, { throwIfNoEntry: false });
+    if (there !== undefined && !there.isFile()) return false;
     mkdirSync(join(dataDir, SESSIONS_DIR), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(mark)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(tmp, `${JSON.stringify(mark)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(tmp, path);
     return true;
   } catch {
     return false;
@@ -342,6 +440,13 @@ export interface SayDecision {
  * inside one session is a signal. The first is recorded in the mark and stays on
  * stderr. SessionStart is the exception and says it the first time: a lock there
  * means no wake was injected at all, and that event does not come round again.
+ *
+ * **And once more, at `TRANSIENT_ESCALATE_AFTER`.** The soft line tells the owner
+ * the database is busy and will clear. When it does not clear — a wedged lock,
+ * which no test on an error can tell from a contended one — that sentence is a
+ * lie and the silence after it is I32 wearing the transient branch's clothes. So
+ * a session that reaches five skipped turns says so once, and that one is
+ * allowed to use the word OFF, because by then it is true.
  */
 export function decideSay(
   fault: StandDownFault,
@@ -351,7 +456,7 @@ export function decideSay(
   at: number = Date.now(),
 ): SayDecision {
   const now = new Date(at).toISOString();
-  const was = prior?.transient ?? { count: 0, at: "", told: false };
+  const was = prior?.transient ?? { count: 0, at: "", told: false, escalated: false };
   const base = {
     sessionId,
     at: now,
@@ -365,6 +470,15 @@ export function decideSay(
     return { message: say ? standDownMessage(fault) : null, mark: { ...base, told: base.told || say } };
   }
   const count = was.count + 1;
+  // THE ESCALATION OUTRANKS THE SOFT LINE, and is its own once: a session that
+  // has already been told "busy" is exactly the session that must hear it when
+  // busy turns out to be permanent.
+  if (count >= TRANSIENT_ESCALATE_AFTER && !was.escalated) {
+    return {
+      message: busyWedgedMessage(count),
+      mark: { ...base, transient: { count, at: now, told: true, escalated: true } },
+    };
+  }
   const say = !was.told && (hook === "session-start" || count >= 2);
   return {
     message: say
@@ -372,6 +486,6 @@ export function decideSay(
         ? BUSY_SESSION_START_MESSAGE
         : BUSY_TURN_MESSAGE
       : null,
-    mark: { ...base, transient: { count, at: now, told: was.told || say } },
+    mark: { ...base, transient: { count, at: now, told: was.told || say, escalated: was.escalated } },
   };
 }

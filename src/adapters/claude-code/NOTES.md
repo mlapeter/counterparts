@@ -823,3 +823,43 @@ at all, so there is no way to schedule one from a test. The rule is proved
 exhaustively over `decideSay`, which is pure; the wiring either side of it — the
 hook reading this session's mark and writing back what the rule decided, whole,
 transient counters included — is proved by a real process.
+
+## Three things the adversarial review found, and what they taught (2026-09-18)
+
+**A flag doing two jobs came apart on the event that fires every turn.**
+`wroteStdout` was an ORDERING guard — nothing may follow the wake — and the first
+draft also leaned on it as a DID-THE-WORK-HAPPEN guard. On SessionStart the two
+coincide, because SessionStart always writes stdout. On UserPromptSubmit they do
+not: an ordinary prompt with nothing to inject writes nothing. So a throw from
+the `close()` in the `finally` — which is I38's own shape, the one close-time
+failure this project has on record — told the owner *Counterparts skipped this
+turn* about a turn where recall, capture and the session record had all just
+succeeded. The fix is a second flag, `didWork`, set the moment `adapter.hook`
+returns; the general lesson is that two guards that agree on one code path are
+still two guards. A close-time throw cannot be induced hermetically, so the rule
+is pinned as an exported predicate (`reachesTheOwner`) rather than left to a
+process test that cannot reach it.
+
+**A new writer met an old wall from the wrong side.** `said.dataDir` is whatever
+the configuration named, and it is set BEFORE `Store.open` has had the chance to
+refuse it — so a config naming `~/.bansai/anything` got a `mkdir -p` and a marker
+file through the guard that exists so nothing here can touch v1's live memory.
+It never fires on the owner's deployment; it fires for agents, reviewers and
+replay tooling, which is exactly the population the guard was built for. Both
+doors of the mark now ask `assertSafeDataDir` inside their own `try`, so a
+forbidden root reads as "no mark" like any other unwritable one — and the message
+is still shown, because the message never depended on the mark landing.
+
+**A new escape hatch has to keep the old file's promises.** `sessions.ts` states
+its writes are atomic and do not follow symlinks; the marker, a new file in the
+same directory, was a bare `writeFileSync` and a planted symlink sent it through
+to a file outside the store. It is now `lstat`-then-tmp-then-rename: anything but
+a regular file at the path is refused, and a rename replaces a symlink rather
+than writing through it.
+
+**And one deliberate non-change.** Catching the fault inside `main` let a Stop's
+`exitCode = 2` survive a later throw, where master's top-level handler always
+exited 0 — so the ask would have been delivered instead of dropped. That is
+plausibly an improvement and it is not this change's to make: the one thing that
+moves on this branch is that two displayed events gain a `systemMessage`. The
+catch sets `process.exitCode = 0` and a test pins it.

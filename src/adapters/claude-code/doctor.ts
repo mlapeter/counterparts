@@ -485,6 +485,14 @@ export interface OpenReading {
   readonly path: string | null;
 }
 
+/**
+ * "Writes nothing" here means NO STORE CONTENT. It is an observer open, so no
+ * row, no prose file and no meta key changes — but any reader of a WAL database
+ * touches the `-shm`, and one that finds no `-shm` or `-wal` beside the file
+ * CREATES them, exactly as every other reader does (`store/paths.ts#isDatabaseSidecar`
+ * is the same exception master's own suites take when they hash a store and mean
+ * "nothing wrote"). Anyone comparing store directories should expect that.
+ */
 export function readCounterpartOpen(
   dir: string,
   /** Injectable so the failure branches are provable without a broken fixture;

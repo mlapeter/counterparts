@@ -411,8 +411,24 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     on stderr the FIRST time and is said from the second, at most once a session
     ("skipped this turn"); at SessionStart it is said the first time, in its own
     words, because a lock there means no wake was injected at all and that event
-    does not come round again. The two counters are kept apart, so a session that
-    met a busy database still hears about a store that will not open.
+    does not come round again; and at `TRANSIENT_ESCALATE_AFTER` skipped turns it
+    is said ONCE more, in the only transient wording allowed to use the word OFF,
+    because no test on an error can tell a contended database from a wedged one
+    and the soft line's promise that it will clear has by then become a lie. The
+    two counters are kept apart, so a session that met a busy database still
+    hears about a store that will not open.
+
+    **AND A FAILURE AFTER THE TURN'S WORK IS NOT A FAILURE OF THE TURN.** Once
+    `adapter.hook` has returned, this event's job is done — recall composed, the
+    turn captured, the session record written — and anything that throws after
+    that is the tidying-up, not the work. It stays on stderr, exactly as on
+    master. Without that gate a throw from the `close()` in the `finally` (I38's
+    own shape) told the owner "skipped this turn" about a turn that had just
+    succeeded, and a warning that is sometimes false is the one outcome this
+    guarantee cannot afford. The mark is never written into a directory the store
+    layer refuses to open, and never through a symlink: `writeMark` asks
+    `assertSafeDataDir` and writes tmp-then-rename, `sessions.ts`'s own rule for
+    the same directory.
     `counterparts doctor` reads the same open with the same predicates
     (`doctor.ts#readCounterpartOpen`) — RED for a store that will not open, AMBER
     for one that was busy or that only an owner may initialize — so the terminal
