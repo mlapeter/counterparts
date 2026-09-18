@@ -843,3 +843,38 @@ connection on the canonical database at every boundary, which under today's
 spend the day's whole copy budget. The existing `cli.test.ts` case holds an open
 write transaction across the copy and passes, so the common case is fine; this is
 an ordering preference, not a defect. Re-measure after F1 lands.
+
+**What the SECOND adversarial read changed (2026-09-18).** One finding, and it is
+the same shape as the first review's: new code in the one decision that deletes
+had gained a way to stop deleting without saying so. The LAYOUT rule added for
+MINOR-7 — a rotation candidate must hold something the store's layout classifies
+— dropped a rejected candidate from the directory read entirely, so it was
+invisible to rotation, to "today's exists", to `kept`, to `oldest`, to doctor and
+to every row. `LAYOUT` is read at runtime, so the rule can change underneath
+copies that already exist. The rule is unchanged; rejections are now counted and
+named, on the rows and on the doctor line.
+
+Also from that read: the mirrored copy is verified before its rename, exactly as
+the primary is (a `cpSync` that returns having written a truncated tree would
+otherwise be renamed into place and rotate a good copy out of the mirror); a
+mirror equal to, inside, or containing the primary directory is refused in words
+rather than dying on a raw `ENOTEMPTY` — a second location inside the first dies
+with the same disk and doubles local storage while nothing says there are two
+trees; `verifyCopy`'s `finally` swallows a close failure, so "it never throws" is
+structural rather than true only because the runner catches; a run `date` that is
+not a calendar date falls back to the clock and says so, because it would
+otherwise build a name matching neither pattern — a full copy at every boundary,
+never rotated, never swept; the `ignored` phrases are stripped of control
+characters and bounded before they reach a terminal; "future" is compared as
+calendar dates so doctor and rotation cannot disagree by a day; and a partial
+whose mtime is in the future is swept rather than kept forever by a negative age.
+
+**Two facts about the copy are now pinned by a test, and they are a cross-PR
+coupling.** `VACUUM INTO` writes a ROLLBACK-mode database even from a WAL source,
+and `verifyCopy` does not convert it — F1 makes WAL conversion opt-in and
+`verifyCopy` calls `openDb` with no options. Both were measured by the reviewer
+rather than asserted anywhere, and a WAL-mode database cannot be opened on
+read-only media, which is exactly where archived backups end up. Adding
+`{ wal: true }` to that one call would convert every snapshot at verification
+time. The test reads the header bytes and checks for sidecars, and it holds on
+either floor.

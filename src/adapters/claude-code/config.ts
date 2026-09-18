@@ -438,17 +438,49 @@ export function loadConfig(raw: unknown): LoadedConfig {
  * fallback and is not restated; the two paths fall back to "no configured path",
  * which means the default location beside the store.
  */
+/** How much of one ignored line, and how many lines, ever leave this function. */
+const IGNORED_LINE_CHARS = 120;
+const IGNORED_LINES = 8;
+
+/**
+ * The `ignored` phrases, made safe to print.
+ *
+ * They are built from the owner's own configuration file, and they end up on a
+ * doctor line in his terminal. A key carrying ANSI escapes was measured reaching
+ * that terminal raw, and a 200,000-character value made a 200,000-character line
+ * (second F2 review, MINOR-d). Control characters go, each line is capped, and
+ * the list is capped — sanitized HERE, at the one place the phrases are made,
+ * rather than at each of the surfaces that print them.
+ */
+function tidy(lines: readonly string[]): string[] {
+  const clean = lines.map((line) => {
+    const stripped = line.replace(/[\u0000-\u001f\u007f]/g, "");
+    return stripped.length > IGNORED_LINE_CHARS
+      ? `${stripped.slice(0, IGNORED_LINE_CHARS - 1)}…`
+      : stripped;
+  });
+  if (clean.length <= IGNORED_LINES) return clean;
+  return [
+    ...clean.slice(0, IGNORED_LINES),
+    `and ${String(clean.length - IGNORED_LINES)} more`,
+  ];
+}
+
 function readSnapshots(raw: unknown): {
   dir?: string;
   keep?: number;
   mirror?: string;
   ignored?: string[];
 } {
-  const ignored: string[] = [];
+  const raws: string[] = [];
+  const ignored = (line: string): void => {
+    raws.push(line);
+  };
   const out: { dir?: string; keep?: number; mirror?: string; ignored?: string[] } = {};
-  const done = (): typeof out => (ignored.length === 0 ? out : { ...out, ignored });
+  const done = (): typeof out =>
+    raws.length === 0 ? out : { ...out, ignored: tidy(raws) };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    ignored.push('"snapshots" was not an object; the whole block was ignored');
+    ignored('"snapshots" was not an object; the whole block was ignored');
     return done();
   }
   const sn = raw as Record<string, unknown>;
@@ -457,26 +489,26 @@ function readSnapshots(raw: unknown): {
     // An unknown sub-key is REPORTED rather than dropped in silence: a typo'd
     // `"mirrors"` that quietly did nothing is how somebody believes they have a
     // second copy and does not.
-    if (!known.has(key)) ignored.push(`"snapshots.${key}" is not a setting this reads`);
+    if (!known.has(key)) ignored(`"snapshots.${key}" is not a setting this reads`);
   }
   for (const key of ["dir", "mirror"] as const) {
     const value = sn[key];
     if (value === undefined) continue;
     if (typeof value !== "string") {
-      ignored.push(`"snapshots.${key}" was not a path; using the default location`);
+      ignored(`"snapshots.${key}" was not a path; using the default location`);
       continue;
     }
     if (value.trim().length === 0) {
       // Blank meaning "the default" was measured as a surprise: somebody who
       // blanks the value to switch snapshots OFF gets the default location.
-      ignored.push(`"snapshots.${key}" was blank; using the default location`);
+      ignored(`"snapshots.${key}" was blank; using the default location`);
       continue;
     }
     if (!isAbsolute(value)) {
       // A relative path resolves against the WORKER's current directory, which
       // is whatever directory the host session happened to be in — copies would
       // scatter one per project and rotation would run inside each.
-      ignored.push(`"snapshots.${key}" must be an absolute path; using the default location`);
+      ignored(`"snapshots.${key}" must be an absolute path; using the default location`);
       continue;
     }
     out[key] = value;
@@ -484,7 +516,7 @@ function readSnapshots(raw: unknown): {
   const keep = sn["keep"];
   if (keep !== undefined) {
     if (typeof keep !== "number" || !Number.isInteger(keep) || keep <= 0) {
-      ignored.push(
+      ignored(
         `"snapshots.keep" was ${JSON.stringify(keep)}; using ${String(SNAPSHOT_DEFAULT_KEEP)}`,
       );
     } else {

@@ -548,6 +548,30 @@ describe("doctor — the reading", () => {
     expect(snap.detail).toContain('"snapshots.keep" was 0; using 14');
   });
 
+  test("a directory that is named like a snapshot but is not one is counted and NAMED", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    fakeSnapshot("2026-09-14T03-00-00-000Z");
+    // What a copy taken on an older floor looks like once the layout moves on:
+    // correctly named, holding nothing this package recognises. It is kept — we
+    // never delete what we cannot prove we made — but it is also never rotated,
+    // so without this line it would be permanent invisible residue in the one
+    // directory the owner relies on (second F2 review, MAJOR-A).
+    const strange = join(root, "snapshots", "2026-08-01T00-00-00-000Z");
+    mkdirSync(strange, { recursive: true });
+    writeFileSync(join(strange, "an-older-floor.db"), "unrecognised");
+
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain("will never be rotated");
+    expect(snap.detail).toContain("2026-08-01T00-00-00-000Z");
+    expect(snap.data["unrecognised"]).toBe(1);
+    // And it is not counted as a copy you could restore from.
+    expect(snap.data["onDisk"]).toBe(1);
+  });
+
   test("a copy dated in the future is counted and named, never deleted", () => {
     mintStore();
     writeConfig();

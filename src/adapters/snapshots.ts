@@ -161,6 +161,9 @@ export interface RotationReport {
   /** Copies whose name is more than a day ahead of the clock — a clock-skewed
    *  boundary's, kept but counted, because they hold a `keep` slot forever. */
   readonly future: number;
+  /** Correctly-named directories the layout rule does not recognise as copies.
+   *  Never deleted, never counted toward `keep` — and never silent. */
+  readonly unrecognised: readonly string[];
   readonly errors: readonly string[];
 }
 
@@ -174,7 +177,15 @@ export interface SnapshotRunReport {
   readonly ms: number;
   readonly rotation: RotationReport | null;
   /** The mirror's own result, or null when no mirror is configured. */
-  readonly mirror: { readonly ok: boolean; readonly why: string; readonly rotation: RotationReport | null } | null;
+  readonly mirror: {
+    readonly ok: boolean;
+    readonly why: string;
+    /** The step a failed mirror died at, for its own durable row. Null when it
+     *  worked. Never `copy`/`rename`/`verify` — the mirror must not spend the
+     *  primary's daily attempt budget. */
+    readonly step: string | null;
+    readonly rotation: RotationReport | null;
+  } | null;
   /** Everything that went wrong, in the order it went wrong. */
   readonly errors: readonly string[];
 }
@@ -185,6 +196,7 @@ const EMPTY_ROTATION: RotationReport = {
   oldest: null,
   cleaned: 0,
   future: 0,
+  unrecognised: [],
   errors: [],
 };
 
@@ -342,7 +354,18 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
   const started = Date.now();
   const errors: string[] = [];
   const now = input.now ?? started;
-  const date = input.date ?? dateOf(now);
+  // THE RUN'S DATE IS THE FIRST HALF OF EVERY NAME THIS MODULE WRITES, so a
+  // caller that handed in something that is not a calendar date would build a
+  // name matching neither of the two load-bearing patterns: never recognised as
+  // a snapshot, so a full copy at every boundary; never rotated; and its partial
+  // never swept (second F2 review, MINOR-a). No caller can do that today — the
+  // worker derives the date from the clock — but a `--date` flag on the worker
+  // is one line away, and this project has them elsewhere.
+  const asked = input.date;
+  const date = asked !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : dateOf(now);
+  if (asked !== undefined && asked !== date) {
+    errors.push(`"${asked}" is not a calendar date; this run is filed under ${date}`);
+  }
   const counterpart = input.counterpart;
   const store: Store = counterpart.store;
 
@@ -415,7 +438,10 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
   // and a run that starts at 23:59:59 and copies at 00:00:01 would otherwise
   // file the copy under tomorrow while the row said today — so "today's exists"
   // would never find it and yesterday would end with no copy at all (F2 review,
-  // N-2). The time of day is the real instant; only the date is pinned.
+  // N-2). The time of day is the real instant; only the date is pinned — so a
+  // copy taken at 00:00:05 on the 19th for a run about the 18th reads
+  // `2026-09-18T00-00-05-000Z`, which looks odd and is harmless: sorting is by
+  // date and there is at most one copy per date.
   const name = `${date}T${snapshotName(now).slice(11)}`;
   const copy = copyInto(store, dir, name, errors);
   if (!copy.ok) {
@@ -443,9 +469,27 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
       // The mirror's reason rides on this row too: "failed" with no why is the
       // half-record this project keeps finding in v1.
       mirrorWhy: mirror === null || mirror.ok ? null : mirror.why,
+      // Named directories the layout rule does not recognise: kept, never
+      // rotated, and never silent about it.
+      unrecognised: rotation.unrecognised.length,
+      unrecognisedNames: rotation.unrecognised.length === 0 ? null : fewOf(rotation.unrecognised),
     },
     undefined,
   );
+  // A MIRROR THAT FAILED GETS ITS OWN ROW. The `snapshot.taken` row carries
+  // `mirror: "failed"` and the reason, but the fired view reads failures by
+  // NAME, and a second copy that has been silently broken for a month is exactly
+  // the thing this track exists to make visible. Its `step` is never one the
+  // daily attempt cap counts: the primary landed, and the mirror must not spend
+  // tomorrow's budget for it.
+  if (mirror !== null && !mirror.ok) {
+    note(
+      counterpart,
+      SNAPSHOT_FAILED_EVENT,
+      { date, step: mirror.step ?? "mirror", reason: mirror.why },
+      `${SNAPSHOT_FAILED_EVENT}:mirror:${date}`,
+    );
+  }
   // Only when something actually went (scar §2.4: every discard says what and
   // how much). A daily row saying "nothing was deleted" would make a store that
   // has not filled up yet read like a rotation that is working.
@@ -461,6 +505,8 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
         // A clock-skewed name holds a `keep` slot forever, so it is on the row
         // that discards rather than left to be noticed as a missing day.
         future: rotation.future,
+        unrecognised: rotation.unrecognised.length,
+        unrecognisedNames: rotation.unrecognised.length === 0 ? null : fewOf(rotation.unrecognised),
         kept: rotation.kept,
         oldest: rotation.oldest,
       },
@@ -576,7 +622,15 @@ export function verifyCopy(partial: string, files: number): string | null {
   } catch (err) {
     return `the copy's database would not open: ${messageOf(err)}`;
   } finally {
-    handle?.close();
+    // A `finally` that throws REPLACES the return and propagates — out of
+    // `copyInto`, out of `runSnapshot`, past "it never throws" (second F2
+    // review, MINOR-c). The runner's own try would catch it, but that is belt
+    // and braces rather than the structural promise this module makes.
+    try {
+      handle?.close();
+    } catch {
+      /* a handle that will not close has already told us what it could */
+    }
   }
 }
 
@@ -603,14 +657,41 @@ function mirrorTo(
   errors: string[],
 ): SnapshotRunReport["mirror"] {
   if (configured === undefined || configured.trim().length === 0) return null;
+  let verifyFailed = false;
   try {
     const target = assertRotatableDir(store.dir, configured);
+    // A SECOND LOCATION HAS TO BE A SECOND LOCATION (second F2 review, MINOR-e).
+    // A mirror nested inside the primary directory dies with the same disk while
+    // silently doubling local storage, and the outer rotation cannot see it —
+    // its name does not match — so nothing ever says there are two trees. A
+    // mirror EQUAL to it used to fail with a raw `ENOTEMPTY` from the rename.
+    // Realpaths, because that is the only spelling that settles it.
+    if (target === dir) {
+      throw new Error(`the mirror is the snapshots directory itself: ${target}`);
+    }
+    if (isWithin(dir, target)) {
+      throw new Error(`the mirror is inside the snapshots directory, so it is not a second place: ${target}`);
+    }
+    if (isWithin(target, dir)) {
+      throw new Error(`the mirror contains the snapshots directory, so it is not a second place: ${target}`);
+    }
     // The same guard the primary copy passes through, on the FULL destination.
     assertSafeTarget(store.dir, join(target, name));
     const partial = join(target, `${PARTIAL_PREFIX}${name}-${String(process.pid)}`);
     cleanPartials(target, now, errors);
     try {
       cpSync(join(dir, name), partial, { recursive: true });
+      // VERIFIED LIKE THE PRIMARY (second F2 review, MINOR-b). A `cpSync` that
+      // throws is cleaned up below; one that returns having written a truncated
+      // tree — a filling mirror volume is the obvious case — would otherwise be
+      // renamed into place, counted toward the mirror's own `keep`, and rotate a
+      // good copy out of it on day 15. The mirror is the copy you reach for when
+      // the primary is gone.
+      const bad = verifyCopy(partial, countFiles(partial));
+      if (bad !== null) {
+        verifyFailed = true;
+        throw new Error(`the mirrored copy did not verify: ${bad}`);
+      }
       renameSync(partial, join(target, name));
     } catch (err) {
       try {
@@ -620,12 +701,12 @@ function mirrorTo(
       }
       throw err;
     }
-    const rotation = rotate(target, keep, name, 0, errors);
-    return { ok: true, why: "mirrored", rotation };
+    const rotation = rotate(target, keep, name, 0, errors, now);
+    return { ok: true, why: "mirrored", step: null, rotation };
   } catch (err) {
     const why = messageOf(err);
     errors.push(`mirror: ${why}`);
-    return { ok: false, why, rotation: null };
+    return { ok: false, why, step: verifyFailed ? "mirror-verify" : "mirror", rotation: null };
   }
 }
 
@@ -658,7 +739,8 @@ export function rotate(
   now: number = Date.now(),
 ): RotationReport {
   const limit = keepOf(keep);
-  const names = snapshotNamesIn(dir);
+  const read = readSnapshotsDir(dir);
+  const names = read.names;
   const deleted: string[] = [];
   const rotationErrors: string[] = [];
   // Newest last. Everything before the final `limit` entries goes, oldest first.
@@ -681,6 +763,7 @@ export function rotate(
     oldest: remaining[0] ?? null,
     cleaned,
     future: futureNamesIn(remaining, now).length,
+    unrecognised: read.unrecognised,
     errors: rotationErrors,
   };
 }
@@ -705,15 +788,16 @@ export function snapshotNamesIn(dir: string): string[] {
  * store that has not taken a copy yet, the other is copies that have gone
  * missing — and this module's own callers do not care.
  */
-export function readSnapshotsDir(dir: string): { names: string[]; readable: boolean } {
+export function readSnapshotsDir(dir: string): SnapshotsDirRead {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // A directory that does not exist yet holds no snapshots. Not an error.
-    return { names: [], readable: false };
+    return { names: [], readable: false, unrecognised: [] };
   }
   const names: string[] = [];
+  const unrecognised: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (!SNAPSHOT_NAME_RE.test(entry.name)) continue;
@@ -724,10 +808,52 @@ export function readSnapshotsDir(dir: string): { names: string[]; readable: bool
     // rule becomes "a directory this package wrote" rather than "a directory
     // whose name looks like one". Classified top-level names only, read from the
     // store's own LAYOUT so the check cannot go stale when the floor changes.
-    if (!looksCopied(join(dir, entry.name))) continue;
+    //
+    // A REJECTION IS COUNTED AND NAMED, NEVER JUST SKIPPED (second F2 review,
+    // MAJOR-A). Because `LAYOUT` is read at runtime, this rule can change
+    // underneath copies that already exist — a floor change, or a copy somebody
+    // partly cleaned out — and a rejected directory is invisible to rotation, to
+    // "today's exists", to `kept`, to `oldest` and to every row. Permanent
+    // uncounted residue in the one directory the owner relies on is the same
+    // silence this module exists to remove, one level down. The rule stays as
+    // strict; it just says what it did.
+    if (!looksCopied(join(dir, entry.name))) {
+      unrecognised.push(entry.name);
+      continue;
+    }
     names.push(entry.name);
   }
-  return { names: names.sort(), readable: true };
+  return { names: names.sort(), readable: true, unrecognised: unrecognised.sort() };
+}
+
+export interface SnapshotsDirRead {
+  readonly names: string[];
+  readonly readable: boolean;
+  /** Correctly-named directories that hold nothing the store's layout
+   *  classifies. Kept — we never delete what we cannot prove we made — but
+   *  counted, so "not rotated" can never mean "nobody noticed". */
+  readonly unrecognised: string[];
+}
+
+/** How many files a finished copy holds — the mirror's input to `verifyCopy`,
+ *  which the primary gets for free from `snapshot()`'s own report. */
+function countFiles(dir: string): number {
+  let n = 0;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      n += entry.isDirectory() ? countFiles(join(dir, entry.name)) : 1;
+    }
+  } catch {
+    /* an unreadable copy counts as nothing, which `verifyCopy` refuses */
+  }
+  return n;
+}
+
+/** The first few of a list, and how many more — for a row or a line that must
+ *  stay readable however long the list is. */
+function fewOf(names: readonly string[], limit = 3): string {
+  if (names.length <= limit) return names.join(", ");
+  return `${names.slice(0, limit).join(", ")} and ${String(names.length - limit)} more`;
 }
 
 /** Does this directory hold at least one top-level entry the store's layout
@@ -756,8 +882,13 @@ function looksCopied(path: string): boolean {
  * "silently" is gone.
  */
 export function futureNamesIn(names: readonly string[], now: number): string[] {
-  const cutoff = new Date(now + 86_400_000).toISOString().replace(/[:.]/g, "-");
-  return names.filter((n) => n > cutoff);
+  // COMPARED AS CALENDAR DATES, not as instants. Doctor asks this question with
+  // midnight today and rotation asks it with the live clock, and an instant
+  // cutoff made the two disagree by up to a day — one surface saying "1 dated in
+  // the future" while the other's row said none (second F2 review, MINOR-f).
+  // Every caller on the same day now gets the same answer.
+  const cutoff = dateOf(now + 86_400_000);
+  return names.filter((n) => n.slice(0, 10) > cutoff);
 }
 
 /** Today's snapshot, by name, or null. The names are UTC ISO instants, so the
@@ -788,7 +919,10 @@ export function cleanPartials(dir: string, now: number, errors: string[]): numbe
     if (!PARTIAL_NAME_RE.test(entry.name)) continue;
     const path = join(dir, entry.name);
     try {
-      if (now - statSync(path).mtimeMs < PARTIAL_STALE_MS) continue;
+      // ABSOLUTE, so a partial whose mtime is in the FUTURE — the same
+      // clock-skew family as a future-dated copy — is not kept forever by a
+      // negative age that is always under the bound (second F2 review, NIT-2).
+      if (Math.abs(now - statSync(path).mtimeMs) < PARTIAL_STALE_MS) continue;
       rmSync(path, { recursive: true, force: true });
       cleaned += 1;
     } catch (err) {

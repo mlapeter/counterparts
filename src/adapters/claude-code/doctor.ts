@@ -1368,7 +1368,24 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
   const newest = disk.names[onDisk - 1] ?? null;
   const oldest = disk.names[0] ?? null;
   const future = futureNamesIn(disk.names, Date.parse(`${input.today}T00:00:00Z`)).length;
-  const held = { ...data, onDisk, newest, oldest, readable: disk.readable, future };
+  // A correctly-named directory the layout rule does not recognise as a copy is
+  // KEPT — this package never deletes what it cannot prove it made — but it is
+  // never counted and never rotated either, so without this clause it would be
+  // permanent, invisible residue in the one directory the owner relies on
+  // (second F2 review, MAJOR-A).
+  const strange =
+    disk.unrecognised.length === 0
+      ? ""
+      : `; ${String(disk.unrecognised.length)} director${disk.unrecognised.length === 1 ? "y is" : "ies are"} named like snapshots but do not look like copies of a store, so they are not counted and will never be rotated: ${disk.unrecognised.slice(0, 3).join(", ")}${disk.unrecognised.length > 3 ? ` and ${String(disk.unrecognised.length - 3)} more` : ""}`;
+  const held = {
+    ...data,
+    onDisk,
+    newest,
+    oldest,
+    readable: disk.readable,
+    future,
+    unrecognised: disk.unrecognised.length,
+  };
 
   const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
   const row = read.unknown ? undefined : read.rows[0];
@@ -1382,7 +1399,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
         "snapshot",
         "amber",
         "Snapshot",
-        `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.`,
+        `${disk.readable ? "the snapshots directory is empty" : "the snapshots directory is missing or unreadable"} — but a snapshot.taken row says one was made${rowDated === null ? "" : ` on ${rowDated}`}. There is nothing to restore from.${strange}`,
         RESTORE_STEPS,
         { ...held, rows: 1 },
       ),
@@ -1407,7 +1424,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
             "snapshot",
             "amber",
             "Snapshot",
-            `no snapshot has ever been taken here${why}${misread}`,
+            `no snapshot has ever been taken here${why}${strange}${misread}`,
             "The worker takes one after the sleep cycle; the next boundary should leave a snapshot.taken row.",
             { ...held, rows: 0 },
           )
@@ -1415,7 +1432,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
             "snapshot",
             "green",
             "Snapshot",
-            `no snapshot yet — and no boundary has been reached here yet${misread}`,
+            `no snapshot yet — and no boundary has been reached here yet${strange}${misread}`,
             "",
             { ...held, rows: 0 },
           ),
@@ -1433,13 +1450,14 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     (rowDated !== null && rowDated > newestDate
       ? `; the newest snapshot.taken row says ${rowDated}, which is not on disk`
       : "") +
+    strange +
     misread;
   // Two or more calendar days back is a daily mechanism that has missed one, so
   // the boundary day itself is already amber.
   const stale = newestDate === "" || newestDate <= daysBefore(input.today, SNAPSHOT_STALE_DAYS);
   const disagrees = rowDated !== null && rowDated > newestDate;
   return [
-    stale || disagrees || future > 0 || ignored.length > 0
+    stale || disagrees || future > 0 || disk.unrecognised.length > 0 || ignored.length > 0
       ? finding(
           "snapshot",
           "amber",

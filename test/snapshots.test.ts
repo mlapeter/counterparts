@@ -28,6 +28,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
@@ -55,6 +56,7 @@ import {
   PARTIAL_STALE_MS,
   SNAPSHOT_NAME_RE,
   assertRotatableDir,
+  cleanPartials,
   futureNamesIn,
   keepOf,
   readSnapshotsDir,
@@ -391,6 +393,47 @@ describe("rotation deletes only what it can prove is a snapshot", () => {
    * shared with another tool: a folder of theirs that happens to wear the name
    * used to be `rm -rf`ed, and a `.partial-my-own-thing` used to be swept.
    */
+  /**
+   * MAJOR-A OF THE SECOND F2 REVIEW. The LAYOUT rule is right — never delete
+   * what we cannot prove we made — but a candidate it rejects used to be dropped
+   * from the return value, so it was invisible to rotation, to "today's exists",
+   * to `kept`, to `oldest`, to doctor and to every row. `LAYOUT` is read at
+   * runtime, so the rule can change underneath copies that already exist (a
+   * floor change; a copy somebody partly cleaned out) and nothing said so:
+   * permanent, uncounted residue in the one directory the owner relies on. The
+   * rule is unchanged; the silence is gone.
+   */
+  test("a rejected candidate is counted and NAMED, on the report and on the row", () => {
+    const c = seeded();
+    mkdirSync(snapsDir, { recursive: true });
+    for (let i = 1; i <= 3; i += 1) fakeSnapshot(`2026-09-0${String(i)}T00-00-00-000Z`);
+    // What a copy taken on an older floor looks like after the layout moves on.
+    for (const name of ["2026-08-01T00-00-00-000Z", "2026-08-02T00-00-00-000Z"]) {
+      const old = join(snapsDir, name);
+      mkdirSync(old, { recursive: true });
+      writeFileSync(join(old, "an-older-floor.db"), "a copy we cannot recognise");
+    }
+
+    const read = readSnapshotsDir(snapsDir);
+    expect(read.names.length).toBe(3);
+    expect(read.unrecognised).toEqual(["2026-08-01T00-00-00-000Z", "2026-08-02T00-00-00-000Z"]);
+
+    const report = runSnapshot({ counterpart: c, dataDir: dir, config: { keep: 1 }, now: NOW, date: TODAY });
+    expect(report.reason).toBe("taken");
+    expect(report.rotation?.unrecognised).toEqual([
+      "2026-08-01T00-00-00-000Z",
+      "2026-08-02T00-00-00-000Z",
+    ]);
+    // Kept, never deleted — we do not destroy what we cannot prove we made.
+    expect(existsSync(join(snapsDir, "2026-08-01T00-00-00-000Z"))).toBe(true);
+    // And said out loud, on the row a person reads tomorrow.
+    const taken = payload(rowsOf(c, SNAPSHOT_TAKEN_EVENT)[0]);
+    expect(taken["unrecognised"]).toBe(2);
+    expect(String(taken["unrecognisedNames"])).toContain("2026-08-01T00-00-00-000Z");
+    const rotated = payload(rowsOf(c, SNAPSHOT_ROTATED_EVENT)[0]);
+    expect(rotated["unrecognised"]).toBe(2);
+  });
+
   test("a directory wearing the name but holding nothing of ours is neither counted nor deleted", () => {
     mkdirSync(snapsDir, { recursive: true });
     const theirs = join(snapsDir, "2026-01-01T00-00-00-000Z");
@@ -429,12 +472,41 @@ describe("rotation deletes only what it can prove is a snapshot", () => {
     expect(existsSync(join(snapsDir, "2099-01-01T00-00-00-000Z"))).toBe(true);
   });
 
+  /**
+   * MINOR-f OF THE SECOND F2 REVIEW. Rotation asks this with the live clock and
+   * doctor asks it with midnight today; an INSTANT cutoff made the two disagree
+   * by up to a day, so doctor could say "1 dated in the future" while the row
+   * for the same directory said none. Two surfaces that are supposed to agree
+   * (constitution 16).
+   */
+  test('"future" means the same thing whatever instant of the day asks', () => {
+    const names = ["2026-09-19T08-00-00-000Z"];
+    const midnight = Date.parse(`${TODAY}T00:00:00Z`);
+    expect(futureNamesIn(names, NOW)).toEqual(futureNamesIn(names, midnight));
+    expect(futureNamesIn(names, Date.parse(`${TODAY}T23:59:59Z`))).toEqual(
+      futureNamesIn(names, midnight),
+    );
+  });
+
+  test("a partial whose mtime is in the FUTURE is still swept", () => {
+    mkdirSync(snapsDir, { recursive: true });
+    const skewed = join(snapsDir, `${PARTIAL_PREFIX}2026-09-18T09-00-00-000Z-4242`);
+    mkdirSync(skewed, { recursive: true });
+    // A negative age is always below the staleness bound, so it used to be kept
+    // forever (second F2 review, NIT-2) — the same clock-skew family as a
+    // future-dated copy.
+    const ahead = (NOW + PARTIAL_STALE_MS + 60_000) / 1000;
+    utimesSync(skewed, ahead, ahead);
+    expect(cleanPartials(snapsDir, NOW, [])).toBe(1);
+    expect(existsSync(skewed)).toBe(false);
+  });
+
   test("a missing directory and an empty one are different answers", () => {
     // Doctor needs those apart: one is a store that has not taken a copy yet,
     // the other is copies that have gone missing.
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [] });
     mkdirSync(snapsDir, { recursive: true });
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [] });
   });
 
   test("the name pattern is exactly what `snapshotName` writes", () => {
@@ -709,6 +781,27 @@ describe("one run", () => {
     expect(healthy.reason).toBe("taken");
   });
 
+  /**
+   * MINOR-a OF THE SECOND F2 REVIEW. The run's date is the first half of every
+   * name this module writes, so a `date` that is not a calendar date built a
+   * name matching neither load-bearing pattern: never recognised as a snapshot
+   * (so a full copy at every boundary), never rotated, and its partial never
+   * swept — unbounded disk growth from one bad string. No caller can do it
+   * today; a `--date` flag on the worker is one line away.
+   */
+  test("a run date that is not a calendar date falls back to the clock and says so", () => {
+    const c = seeded();
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: "not-a-date" });
+    expect(report.reason).toBe("taken");
+    expect(report.name?.startsWith(`${TODAY}T`)).toBe(true);
+    expect(SNAPSHOT_NAME_RE.test(report.name as string)).toBe(true);
+    expect(report.errors.join(" ")).toContain("not a calendar date");
+    // Which means the copy is a real snapshot: counted, and found by tomorrow's
+    // "today's exists" gate rather than copied again at every boundary.
+    expect(snapshotNamesIn(snapsDir)).toEqual([report.name as string]);
+    expect(todaysSnapshot(snapsDir, TODAY)).toBe(report.name);
+  });
+
   test("an observer takes no copy and leaves no directory", () => {
     // The runner refuses under observer before it opens a store, so nothing
     // reaches this today — but `noteAdapterEvent` standing the ROW down while the
@@ -802,6 +895,12 @@ describe("a half-copy is never a snapshot", () => {
     mkdirSync(snapsDir, { recursive: true });
     const live = join(snapsDir, `${PARTIAL_PREFIX}2026-09-18T11-59-00-000Z-99`);
     mkdirSync(live, { recursive: true });
+    // Its mtime is set against the run's clock rather than the machine's. Before
+    // NIT-2's `Math.abs` this test passed for the wrong reason: the fixture's
+    // instant is years from the real clock, so the age came out NEGATIVE and a
+    // negative age was always "fresh".
+    const minuteAgo = (NOW - 60_000) / 1000;
+    utimesSync(live, minuteAgo, minuteAgo);
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
     expect(report.rotation?.cleaned).toBe(0);
     // A sweep that deleted this would be the module destroying another run's
@@ -849,6 +948,44 @@ describe("a snapshot can actually be restored", () => {
     expect(restored.store.search("rebuilt").length).toBeGreaterThan(0);
   });
 
+  /**
+   * NIT-5 OF THE SECOND F2 REVIEW, and the one cross-PR coupling worth pinning.
+   *
+   * An archived snapshot ends up on read-only media, and a WAL-mode database
+   * cannot be opened there. Two facts keep that working, and both were MEASURED
+   * rather than asserted: `VACUUM INTO` writes a rollback-mode file even from a
+   * WAL source, and `verifyCopy` does not convert it, because F1 makes WAL
+   * conversion opt-in and `verifyCopy` calls `openDb` with no options. Either is
+   * one edit away from silently becoming false — adding `{ wal: true }` to that
+   * call would convert every snapshot at verification time.
+   *
+   * Written to hold on EITHER floor: today's source is rollback-mode, F1's will
+   * be WAL, and the copy must read rollback-mode in both cases.
+   */
+  test("a snapshot's database is rollback-mode with no sidecars, before and after verification", () => {
+    const c = seeded();
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    const copy = join(snapsDir, report.name as string);
+    const db = join(copy, "operational.sqlite");
+
+    // Header bytes 18 and 19 are the file-format read/write versions: 1 is
+    // rollback (journal), 2 is WAL. Read as bytes so this needs no connection
+    // and cannot itself change the file.
+    const header = (): number[] => {
+      const bytes = readFileSync(db);
+      return [bytes[18] as number, bytes[19] as number];
+    };
+    expect(header()).toEqual([1, 1]);
+    // Three verifications later it is still rollback-mode...
+    for (let i = 0; i < 3; i += 1) expect(verifyCopy(copy, report.files)).toBe(null);
+    expect(header()).toEqual([1, 1]);
+    // ...and no sidecar has appeared beside it. A `-wal` in an archive is a
+    // database that will not open on read-only media.
+    for (const suffix of ["-wal", "-shm", "-journal"]) {
+      expect(existsSync(`${db}${suffix}`), suffix).toBe(false);
+    }
+  });
+
   test("the restore steps doctor prints name the rebuild and the cost of skipping the key", () => {
     // The steps are a string rather than prose in a file precisely so this can
     // be asserted: a procedure nobody can find is not a procedure.
@@ -883,6 +1020,53 @@ describe("the mirror", () => {
     // No partial left in the mirror either.
     expect(readdirSync(mirror).filter((n) => n.startsWith(PARTIAL_PREFIX))).toEqual([]);
     expect(payload(rowsOf(c, SNAPSHOT_TAKEN_EVENT)[0])["mirror"]).toBe("ok");
+  });
+
+  test("the mirrored copy is verified before ITS rename, and a bad one leaves the primary alone", () => {
+    const c = seeded();
+    const mirror = join(root, "mirror");
+    mkdirSync(mirror, { recursive: true });
+    // A mirror volume that accepts the copy and then cannot be read back: the
+    // `cpSync` returns, so only a look at what was written catches it (second F2
+    // review, MINOR-b). Simulated by making the mirror unwritable AFTER the
+    // guard — `cpSync` fails and the same arm handles it — and then by the
+    // honest case below.
+    chmodSync(mirror, 0o500);
+    chmodded.push(mirror);
+    const report = runSnapshot({ counterpart: c, dataDir: dir, config: { mirror }, now: NOW, date: TODAY });
+    // The primary landed regardless. That is the whole rule.
+    expect(report.reason).toBe("taken");
+    expect(report.mirror?.ok).toBe(false);
+    expect(snapshotNamesIn(snapsDir).length).toBe(1);
+    // Nothing half-written was renamed into place in the mirror.
+    expect(snapshotNamesIn(mirror)).toEqual([]);
+    // And the mirror's failure has a row of its own, with a step the daily
+    // attempt cap does not count.
+    const failed = rowsOf(c, SNAPSHOT_FAILED_EVENT).map(payload);
+    expect(failed.length).toBe(1);
+    expect(String(failed[0]?.["step"])).toContain("mirror");
+    // The cap counts only copy/rename/verify, so tomorrow's budget is intact.
+    expect(runSnapshot({ counterpart: c, dataDir: dir, now: at("2026-09-19"), date: "2026-09-19" }).reason).toBe(
+      "taken",
+    );
+  });
+
+  test("a mirror that is the snapshots directory, or inside it, is refused in words", () => {
+    const c = seeded();
+    // A "second location" nested inside the first dies with the same disk and
+    // silently doubles local storage, and the outer rotation cannot see it
+    // (second F2 review, MINOR-e). `mirror === dir` used to fail with a raw
+    // ENOTEMPTY from the rename.
+    for (const mirror of [snapsDir, join(snapsDir, "offsite"), root]) {
+      rmSync(snapsDir, { recursive: true, force: true });
+      const report = runSnapshot({ counterpart: c, dataDir: dir, config: { mirror }, now: NOW, date: TODAY });
+      expect(report.reason, mirror).toBe("taken");
+      expect(report.mirror?.ok, mirror).toBe(false);
+      expect(report.mirror?.why, mirror).toMatch(/second place|snapshots directory itself|contains the store/);
+      expect(report.mirror?.why, mirror).not.toContain("ENOTEMPTY");
+      // The primary is untouched either way.
+      expect(snapshotNamesIn(snapsDir).length, mirror).toBe(1);
+    }
   });
 
   test("a mirror failure is reported and NEVER fatal", () => {
@@ -968,6 +1152,28 @@ describe("the `snapshots` configuration key", () => {
       // `keepOf` is what the fallback actually is, and it is not restated.
       expect(keepOf(loaded.config.snapshots?.keep), what).toBe(DEFAULT_KEEP);
     }
+  });
+
+  /**
+   * MINOR-d OF THE SECOND F2 REVIEW. These phrases are built from the owner's
+   * own configuration file and end up on a doctor line in his terminal: a key
+   * carrying ANSI escapes was measured reaching that terminal raw, and a
+   * 200,000-character value made a 200,000-character line.
+   */
+  test("the ignored phrases are stripped of control characters and bounded", () => {
+    const escaped = loadConfig({ snapshots: { "\u001b[2J\u001b[Hmirror": "/x" } });
+    const line = (escaped.config.snapshots?.ignored ?? []).join("");
+    expect(line).toContain("snapshots.");
+    expect(line).not.toMatch(/[\u0000-\u001f\u007f]/);
+
+    const long = loadConfig({ snapshots: { keep: "q".repeat(200_000) } });
+    for (const l of long.config.snapshots?.ignored ?? []) expect(l.length).toBeLessThanOrEqual(120);
+
+    const many: Record<string, unknown> = {};
+    for (let i = 0; i < 2000; i += 1) many[`key${String(i)}`] = 1;
+    const capped = loadConfig({ snapshots: many }).config.snapshots?.ignored ?? [];
+    expect(capped.length).toBeLessThanOrEqual(9);
+    expect(capped[capped.length - 1]).toContain("more");
   });
 
   test("everything OUTSIDE the block keeps the file's strict rule", () => {
