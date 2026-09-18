@@ -272,8 +272,9 @@ proposals and their archive; render and delivery telemetry.
     durable `self.page.revised` row; every refusal leaves a `self.page.refused` row and a
     named reason; an observer writes neither. The page is `type: "schema"`,
     `kind: "self"`, `meta.role = "page"`, born `protected` — which is what keeps the floor
-    prune off it; dedup and (since 2026-09-18) consolidate skip schema rows, so nothing
-    promotes it into the identity band, and `scanActive` cannot see it. **It is not a
+    prune off it; dedup skips schema rows and (since 2026-09-18) so does the PROMOTION ARM
+    of consolidate, so nothing promotes it into the identity band while beliefs go on
+    consolidating unchanged, and `scanActive` cannot see it. **It is not a
     recall candidate and cannot be expanded by id**: the page is delivered whole at every
     wake, and a row that is already in the context is not a memory coming to mind. Its OLD
     VERSIONS take the ordinary retention, deliberately un-special-cased (owner ruling 1).
@@ -307,7 +308,10 @@ proposals and their archive; render and delivery telemetry.
     `restorePage(seq)` puts any version back as an ordinary (itself versioned) revision.
     It is the OWNER's door: no MCP tool reaches it, because a session that could unwrite
     the page could erase the self between two turns. The owner's `remove` refuses the page
-    row by name and points at it.
+    row by name and points at it. *Named limit: the cleared page's history is reachable
+    while it is the LAST thing cleared — the row is found by its own durable row rather
+    than by id order — and a new page written over it becomes the one the console reads.
+    Nothing is destroyed either way; the messages that offer `--restore` say so.*
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.

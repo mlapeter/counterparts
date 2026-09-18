@@ -266,7 +266,10 @@ function cutAtBoundary(body: string, room: number): string {
   // rendering its replacement character.
   const prefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, room));
   const clean = prefix.replace(/�+$/u, "");
-  const floor = room * BOUNDARY_KEEP_SHARE;
+  // The floor is in CHARACTERS, because the indices it is compared against are:
+  // `lastIndexOf` counts characters and `room` counts bytes, so on multibyte
+  // prose a byte floor rejects clean breaks that are past the share in chars.
+  const floor = clean.length * BOUNDARY_KEEP_SHARE;
   const paragraph = clean.lastIndexOf("\n\n");
   if (paragraph > floor) return clean.slice(0, paragraph).trimEnd();
   const line = clean.lastIndexOf("\n");

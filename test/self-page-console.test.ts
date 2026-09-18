@@ -434,6 +434,24 @@ describe("the page is visible where mechanisms are", () => {
     reader.store.close();
   });
 
+  test("after a clear the dashboard shows the history the console shows", () => {
+    withPage(PAGE);
+    const w = Counterpart.open({ dir });
+    w.clearPage({ reason: "cleared" });
+    w.store.close();
+
+    const c = Counterpart.open({ dir, observer: true });
+    const view = mindView(sourceOf(c));
+    expect(view.page).toBeNull();
+    expect(view.pageAbsent).not.toBeNull();
+    // The history is NOT gone with the live row — the console lists it, and two
+    // surfaces answering "what did the page used to say" differently is the
+    // mismatch the version reasons already were.
+    expect(view.pageVersions.some((v) => v.body === PAGE)).toBe(true);
+    c.store.close();
+
+  });
+
   test("the dashboard says a blank store has no page rather than showing an empty one", () => {
     withPage(null);
     const c = Counterpart.open({ dir, observer: true });

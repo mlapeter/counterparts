@@ -313,7 +313,8 @@ export type PageRefusal =
   | "too-large"
   | "gate-refused"
   | "version-moved"
-  | "forged-markers";
+  | "forged-markers"
+  | "no-such-version";
 
 export interface PageRevision {
   readonly written: boolean;
@@ -608,12 +609,15 @@ export class Self {
       redacted: null,
       current: null,
     } as const;
+    // Two different absences, named apart: no page has ever been written here,
+    // and there is no version by that number. A caller reaching this seam
+    // directly (S2) gets the one that is true.
     if (id === null) return { ...none, written: false, reason: "empty" };
     let body: string;
     try {
       body = this.store.readVersion(id, seq).body;
     } catch {
-      return { ...none, written: false, reason: "empty" };
+      return { ...none, written: false, reason: "no-such-version" };
     }
     return this.revisePage(body, {
       reason: opts.reason ?? `restored version ${seq}`,
@@ -630,6 +634,23 @@ export class Self {
   private pageRowId(): string | null {
     const live = findSelfPage(this.store);
     if (live !== null) return live;
+    // NO LIVE PAGE: the one that was CLEARED MOST RECENTLY, read off its own
+    // durable row rather than off the id order. Clear → restore → clear leaves
+    // two archived page-role rows, and `store.list` is `ORDER BY id` over hashed
+    // ids, so a scan would return whichever happened to sort first — and the
+    // `--restore <seq>` pointer `--clear` had just printed would then be read
+    // against the wrong row's version log.
+    try {
+      const cleared = this.store.eventLog({ name: SELF_PAGE_REVISED_EVENT });
+      for (let i = cleared.length - 1; i >= 0; i--) {
+        const row = cleared[i];
+        if (row === undefined || row.ref === null) continue;
+        const payload = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
+        if (payload["cleared"] === true) return row.ref;
+      }
+    } catch {
+      /* fall through to the scan, which is still better than nothing */
+    }
     for (const id of this.store.list({ type: "schema", kind: "self" })) {
       try {
         if (this.store.readProse(id).meta["role"] === SELF_PAGE_ROLE) return id;

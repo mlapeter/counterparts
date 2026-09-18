@@ -108,12 +108,14 @@ alone.
 
 **Inputs** — the store; the lived-day clock and its completion markers; the lock; the
 observer predicate; the host's reported execution ceiling.
-*`consolidate` skips SCHEMA rows from 2026-09-18, as `dedup` always has and for the reason
-`dedup` does: a belief, an entity, the identity core and the self page are standing claims
-with their own machinery for changing, and "this row crossed into the identity band" is a
-claim about a MEMORY. Proved reachable by the self page's adversarial review — forty cycles
-over a page carrying the physics repeated credit leaves produced a `band.promoted` record
-on a row no lane can rank.*
+*A SCHEMA ROW DOES NOT CROSS into the identity band, from 2026-09-18. Only the crossing is
+withheld — a belief is still consolidated exactly as it always was, so no strength
+trajectory changes — because "this row entered the identity band" is a claim about a
+MEMORY, and a belief, an entity, the identity core and the self page are standing claims
+with their own machinery for changing. `dedup` has skipped schema rows whole since it
+shipped; this is the narrower half of the same thought. Proved reachable by the self page's
+adversarial review: forty cycles over a page carrying the physics repeated credit leaves
+produced a `band.promoted` record on a row no lane can rank.*
 **Outputs** — a refreshed strength cache; dedup merges; consolidation links; prune verdicts
 and their records; the next session's briefing, written last; a per-cycle summary vector
 (content-by-reference).

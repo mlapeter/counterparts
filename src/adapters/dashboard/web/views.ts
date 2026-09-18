@@ -1165,7 +1165,11 @@ export function mindView(src: DashboardSource): MindView {
             headed: sections.headed,
           },
     pageAbsent: page === null ? (everLived ? NONE : NEVER) : null,
-    pageVersions: page === null ? [] : src.self.pageVersions(),
+    // NOT guarded on the live page: a CLEARED page has no live row and still has
+    // a history, and the console lists it. Two surfaces answering "what did the
+    // page used to say" differently is the same class of mismatch the version
+    // reasons were (M3). `pageVersions` handles the no-live-row case itself.
+    pageVersions: src.self.pageVersions(),
     chapters: chapters(src, 12),
     chaptersAbsent: chapters(src, 1).length === 0 ? (everLived ? NONE : NEVER) : null,
     stories: storyViews(src),

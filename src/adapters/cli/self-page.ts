@@ -37,7 +37,8 @@ export const NO_PAGE_LINES: readonly string[] = [
   "",
   ...PAGE_TEMPLATE.trimEnd().split("\n").map((l) => `  ${l}`),
   "",
-  "If a page was written here and cleared, its versions are still listed:",
+  "If a page was written here and cleared, its versions are still listed —",
+  "until a new page is written, which then becomes the one this command reads:",
   "  counterparts self-page --versions   ·   counterparts self-page --restore <seq>",
 ];
 
@@ -176,8 +177,7 @@ export function writeLines(
     return {
       lines: [
         `Cleared the page — the ${written.bytes} bytes that were there are kept as version ${written.version}.`,
-        "The wake goes back to what it showed before a page existed. Put it back with: counterparts self-page --restore " +
-          `${written.version}.`,
+        `The wake goes back to what it showed before a page existed. Put it back with: counterparts self-page --restore ${written.version} — while this is the page the console reads, which it is until a NEW page is written over it.`,
       ],
       ok: true,
     };

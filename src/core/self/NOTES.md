@@ -613,3 +613,29 @@ core too. Excluding the page from recall — which the coordinator decided, and
 which is right on its own terms, since the page is already delivered whole every
 morning — closes the credit path that made it reachable. Both are one line to
 reverse.
+
+### 13a. Three things the second pass narrowed or fixed (2026-09-18)
+
+**The promotion guard is the promotion ARM, not the phase.** The first cut
+skipped schema rows from `consolidate` whole, mirroring `dedup`. That also stops
+a belief being CONSOLIDATED — `+CONS_BONUS` on `base` — which changes the
+strength trajectory of every belief on the owner's live store from the first
+cycle after deploy, for a fix about a telemetry row. Only the crossing is
+withheld now: a belief consolidates exactly as it always has and simply never
+crosses, which is the whole of what "this row entered the identity band" should
+never say about a standing claim.
+
+**A cleared page is found by its own durable row, not by id order.** Clear →
+restore → clear leaves TWO archived page-role rows and no live one, and
+`store.list` is `ORDER BY id` over hashed ids — so the version log would have
+read whichever sorted first, and the `--restore <seq>` pointer the clear had just
+printed would have been resolved against the wrong row. `pageRowId` reads the
+newest `self.page.revised` row carrying `cleared: true` and takes its `ref`.
+
+**What clear/restore does NOT carry, said out loud.** The history of a cleared
+page is reachable for as long as it is the last thing cleared. Write a NEW page
+and the live row wins: the older cleared page's versions sit on an archived row
+no console door reaches. That is an acceptable limit for now — nothing is
+destroyed, and the row is still in the store for anyone who goes looking — and
+the two messages that offer `--restore` say "until a new page is written" rather
+than promising more than they can keep.

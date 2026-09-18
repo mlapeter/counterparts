@@ -48,7 +48,6 @@ export const CONSOLIDATION_SKIPS = [
   "archived",
   "removed",
   "journal",
-  "schema",
   "already-consolidated",
   "born-today",
   "below-semantic-floor",
@@ -118,22 +117,6 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
       countSkip(out, "journal");
       continue;
     }
-    // NOR IS A SCHEMA ROW PROMOTED (2026-09-18). `dedup.ts` has skipped schema
-    // rows since it shipped, for a reason this phase shares: a belief, an
-    // entity, the identity core and the self page are standing claims with
-    // their own machinery for changing, and "this row crossed into the identity
-    // band" is a claim about a MEMORY. Adversarial review of the self page
-    // proved it reachable: give the page the physics that repeated recall
-    // credit leaves and forty cycles later it carries `promoted_identity`,
-    // `band identity` and a `band.promoted` crossing record — a promotion
-    // event on a row `scanActive` can never rank, counted by the promotion
-    // diagnostics and printed by `status` as an identity-band memory. The wake
-    // was unaffected; the telemetry was not. The identity core has had the same
-    // exposure since it shipped and is covered by the same line.
-    if (isSchemaRow(row)) {
-      countSkip(out, "schema");
-      continue;
-    }
     out.examined += 1;
 
     let p = rowToPhysics(row);
@@ -154,6 +137,26 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     }
 
     // ── 2. the identity crossing ────────────────────────────────────────────
+    //
+    // A SCHEMA ROW DOES NOT CROSS (2026-09-18). `dedup.ts` has skipped schema
+    // rows whole since it shipped; this is the narrower version of the same
+    // thought, and only the CROSSING is withheld — a belief goes on being
+    // consolidated exactly as it always has, so no strength trajectory on a live
+    // store changes. What "this row crossed into the identity band" says is a
+    // claim about a MEMORY: a belief, an entity, the identity core and the self
+    // page are standing claims with their own machinery for changing.
+    //
+    // Proved reachable by the self page's adversarial review: give the page the
+    // physics repeated recall credit leaves and forty cycles later it carries
+    // `promoted_identity`, `band identity` and a `band.promoted` crossing record
+    // — on a row `scanActive` can never rank, counted by the promotion
+    // diagnostics and printed by `status` as an identity-band memory. The wake
+    // was unaffected; the telemetry was not. The identity core has had the same
+    // exposure since it shipped and is covered by the same line.
+    if (isSchemaRow(row)) {
+      countSkip(out, "promotion:schema");
+      continue;
+    }
     const outcome = promote(p, day);
     if (!outcome.promoted || outcome.crossing === null) {
       // Promotion needs ALL conditions, so ALL blocking reasons are reported —

@@ -123,6 +123,12 @@ describe("the page's row", () => {
     expect(doc.meta["role"]).toBe(SELF_PAGE_ROLE);
     expect(doc.title).toBe(PAGE_TITLE);
     expect(doc.body).toBe(PAGE);
+    // AND AN ORDINARY PAGE REPORTS NO REDACTION. The signal is only worth
+    // anything if it is silent when nothing was taken out — pinned here against
+    // a gate that later starts normalizing what it is handed.
+    expect(out.redacted).toBeNull();
+    expect(out.warning).toBeNull();
+    expect(out.gate).toBeNull();
   });
 
   test("the identity core and the page are two rows and neither finds the other", () => {
@@ -606,6 +612,42 @@ describe("clearing and restoring", () => {
     expect(me.page()?.reason).toBe("restored version 1");
     // Itself undoable: the restore archived PAGE_TWO as a version of its own.
     expect(me.pageVersions().some((v) => v.body === PAGE_TWO)).toBe(true);
+  });
+
+  test("clear, restore, clear again still reads the page that was cleared LAST", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.clearPage({ reason: "cleared once" });
+    // A second page, on a NEW row — the first is archived — and cleared too.
+    me.revisePage(PAGE_TWO, { reason: "second page", by: "owner" });
+    const secondId = findSelfPage(s) as string;
+    me.clearPage({ reason: "cleared twice" });
+
+    // Two archived page-role rows now. `store.list` is ORDER BY id over hashed
+    // ids, so a scan would return whichever sorted first; the version log has to
+    // be the one the owner was just told about.
+    expect(me.page()).toBeNull();
+    const versions = me.pageVersions();
+    expect(versions.some((v) => v.body === PAGE_TWO)).toBe(true);
+    expect(versions.some((v) => v.body === PAGE)).toBe(false);
+    // And the `--restore <seq>` pointer the second clear printed resolves.
+    const seq = versions[0]?.seq as number;
+    expect(me.restorePage(seq).written).toBe(true);
+    expect(me.page()?.body).toBe(PAGE_TWO);
+    // A restore after a clear mints a FRESH live row rather than resurrecting
+    // the archived one — the same rule as writing a page again after a clear,
+    // and the archived rows keep their own histories where they are.
+    expect(findSelfPage(s)).not.toBe(secondId);
+    expect(s.row(secondId)?.archived).toBe(1);
+  });
+
+  test("restoring a version that is not there is named apart from having no page", () => {
+    const s = store();
+    const me = self(s);
+    expect(me.restorePage(1).reason).toBe("empty");
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    expect(me.restorePage(9).reason).toBe("no-such-version");
   });
 
   test("clearing a store that has no page changes nothing and says so", () => {
