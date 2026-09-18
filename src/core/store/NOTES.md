@@ -893,11 +893,17 @@ and in WAL a reader no longer blocks the writer.
   correctly after another connection flips it to WAL. That is deploy day for the
   MCP server: no restart needed.
 - A **read-only** connection cannot create the `-shm`, so a WAL database whose
-  sidecars are missing is unreadable to one (`SQLITE_CANTOPEN`). Every handle in
-  this codebase is read-write — the dashboard's and the census's included — so the
-  exposure is `tools/parallel/readers.ts` alone, and any ordinary open puts the
-  sidecars back. Deleting a `-wal` that has not been checkpointed takes the
-  commits inside it too: the sidecars are part of the database, not litter.
+  sidecars are BOTH missing is unreadable to one (`SQLITE_CANTOPEN`; with the
+  `-wal` still there and only the `-shm` gone it succeeds — SQLite's read-only
+  fallback). Every handle in this codebase is read-write — the dashboard's and
+  the census's included — so the exposure is `tools/parallel/readers.ts` alone,
+  and any ordinary open puts the sidecars back. **How often that state occurs is
+  a property of the SQLite build, not of this code**: Apple's system SQLite
+  enables persistent WAL, so on this machine the sidecars survive a clean close;
+  stock SQLite removes them on the last one, which means on Linux or a packaged
+  build a store nobody has open is in exactly this state. Deleting a `-wal` that
+  has not been checkpointed takes the commits inside it too: the sidecars are
+  part of the database, not litter.
 - `close()` does not release the file to the PROCESS: a closed connection still
   holds the lock a WAL → DELETE conversion needs. It is why the tests build a
   DELETE-mode store with `VACUUM INTO` rather than a pragma, and why the sidecars

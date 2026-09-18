@@ -2695,10 +2695,11 @@ async function migrateCacheCommand(
     io.out(
       `First, copy box 3 aside — 'counterparts backup' skips the cache on purpose (it is rebuildable), so it does not cover this:`,
     );
-    io.out(`  cp ${path} ${path}.bak-<date> && cp ${path}-wal ${path}-wal.bak-<date>`);
-    io.out(`  (with every session closed — a copy of a database being written is not a copy of it;`);
-    io.out(`   and since WAL the file ALONE is not the database: its '-wal' holds every page`);
-    io.out(`   committed since the last checkpoint, so a copy without it is silently short)`);
+    io.out(`  cp ${path} ${path}.bak-<date>`);
+    io.out(`  cp ${path}-wal ${path}-wal.bak-<date>   (when it is there)`);
+    io.out(`  (with every session closed — a copy of a database being written is not a copy of it —`);
+    io.out(`   and BOTH files: since WAL the database file alone is not the database, its '-wal' holds`);
+    io.out(`   every page committed since the last checkpoint, so a copy without it is silently short)`);
     io.out(`Then re-run with --apply to convert (batches of ${batch}).`);
     return EXIT.ok;
   }
