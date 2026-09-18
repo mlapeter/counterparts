@@ -1,6 +1,36 @@
 # Handoff — resume here
 
-## 2026-09-17, night — read this first: step 1 is built and reviewed, waiting for the owner's word
+## 2026-09-18, midday — read this first: the rest of the rebuild runs in parallel from one plan
+
+**The brief for what comes next is `docs/plan-parallel-rebuild-2026-09-18.md`** — the owner's rulings of the day
+(§2), the tracks (§3), the order and the pin (§4), how the work is run (§5), and the prompt a fresh coordinating
+session starts from (§8). The owner asked for it this way: gather what is needed from him first, one plan, one
+thorough prompt, then many agents at once.
+
+**State.** LIVE = master = `dc66c81`. Doctor 13 green / 2 amber / 0 red (both ambers are week-before-deploy
+baselines). Merged and deployed today on the owner's word: **PR #131** — the ask allowance is six per session per
+UTC calendar day; the consolidation pass resumes from a `sleep.cursor.<phase>` meta row and wraps; `sleep.cycle`
+phases that ran carry `budgetExhausted`; doctor's Sleep line names rows not reached. Adversarial review clean
+(`docs/adversarial-review-pr131-2026-09-18.md`). To watch over the next nights: the cursor advancing and the
+consolidated count rising past 517; one `adapter.wake.delivered` row per new session (the first landed 09-18).
+
+**Found today: the reinforcement loop is starved at its source** (`docs/recall-surfacing-diagnosis-2026-09-18.md`).
+Of 396 prompt-time recalls since 09-10, 3 showed a memory in full; the rest were footnotes. One bar does it: 4.5 cue
+units, calibrated 09-04 on thirteen conversational prompts; work sessions score about half as high. A separate real
+fault: `SEMANTIC_WEIGHT` is still 1.0 on a 0–1 cosine scale against cue sums of 10–40, so the embedding leg cannot
+change an outcome. All 28 credits in the window came from expanding a footnote id with the recall tool; the quote
+door has produced nothing. So the association fix has almost nothing to work on, and the consolidation cursor alone
+will not make promotion fire. **On hold by the owner** (the bench is costly and nothing in the plan depends on it).
+
+**The four-way identity experiment finished** (`~/random/three-way/TAKEAWAYS.md`). The owner's read: consider it,
+do not overweight it; promotion stays the road to a growing identity, and the written self page is where that
+growth shows. The interim identity hook is skipped; the self page gets built into the product (plan track S1).
+
+**Housekeeping left:** worktree `agent-a11dfb43cfd08a945` (PR #131's, merged) can be removed; an untracked
+`review/` directory sits in the live checkout since 09-16 (doctor reads the checkout as clean; leave it for the
+owner).
+
+## 2026-09-17, night — read second: step 1 is built and reviewed, waiting for the owner's word
 
 **State.** LIVE (master and the shared checkout) is `64f77d3`: the constitution amendments, the step-2 authorship
 batch (#119–#123) and the day's docs. **Step 1 is built, reviewed and green but NOT merged and NOT deployed**, on
@@ -9,6 +39,12 @@ association saved, #126 the wake-delivery check, #127 the "what fired" view, plu
 integration commits. Combined suite 2211 pass / 0 fail, `tsc` clean. Left unmerged ON PURPOSE so master equals what
 is live and `doctor` stays green overnight. The owner said "continue" and asked for this handoff.
 
+**DONE 2026-09-18 00:xx UTC: the owner said merge. #129 and #130 merged; shared checkout deployed at `5c7431e`;
+doctor 13 green / 2 amber (Authorship: 2 refused by the session allowance against 171 by the old day cap in the
+window; Fired: 19 of 47 firing, 5 quiet, 4 never, 1 new, 15 blind); `counterparts fired --dir ~/.counterparts/store
+--observer` prints the table (the command takes `--dir`/`--observer`, not `--config`). Worktrees cleaned. What
+follows is the record of how it stood before that word.**
+
 **To finish step 1 — everything is done except the owner's word.** Both adversarial passes are in
 (`docs/adversarial-review-step1-2026-09-17.md`, `docs/adversarial-review-step1b-2026-09-17.md`); every MAJOR is
 fixed (the hook no longer writes to the database for association; a pending file under `sessions/association/`
@@ -16,8 +52,8 @@ is claimed and applied by the worker; a claim is touched when taken and its take
 watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129** = the whole batch against master,
 2212 pass / 0 fail, `tsc` clean. Merging #129 closes #125–#128.
 1. Owner says merge → `gh pr merge 129 -R mlapeter/counterparts --merge` → `tools/deploy-checkout.sh` →
-   `counterparts doctor --config ~/.counterparts/claude-code.json` → `counterparts fired --config
-   ~/.counterparts/claude-code.json`. No restart ritual (the parallel run's clock is stopped).
+   `counterparts doctor --config ~/.counterparts/claude-code.json` → `counterparts fired --dir
+   ~/.counterparts/store --observer`. No restart ritual (the parallel run's clock is stopped).
 2. Verify over the next days: `associate.flush` rows appear and edges gain a recent `last_day`; one
    `adapter.wake.delivered` row per new session, outcome `delivered`; doctor's Authorship refusals split by reason
    with `session-ask-cap` near zero; the first NEW session's memory server reports `scope source: project`.
@@ -43,7 +79,7 @@ watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129*
 Opus; read-only store queries via `sqlite3 -readonly "file:...?immutable=1"`, counts only; keep decisions light
 ("for now", not "never"); a core batch = adversarial review before deploy; the parallel run's clock is stopped.
 
-## 2026-09-17, evening — read second: the walk happened, step 2 is LIVE, the rebuild order is set
+## 2026-09-17, evening — read third: the walk happened, step 2 is LIVE, the rebuild order is set
 
 **Where the record is.** `docs/storage-spec-2026-09-16.md` §15 (ten working defaults agreed in conversation; defaults,
 not stone) and §16 (the rebuild in order, and how the step-2 batch went). Inputs saved beside it:
@@ -78,7 +114,7 @@ conversation, and the host's classifier will not let a session install it); the 
 on the first NEW session after this deploy: the memory server reports `scope source: project`. Recorded for a
 later fix, pre-existing: resuming a session in an `on` directory captures transcript lived in an `off` one.
 
-## 2026-09-17, morning — read third: #116 merged; the owner's corrections; nothing built
+## 2026-09-17, morning — read fourth: #116 merged; the owner's corrections; nothing built
 
 **State.** PR #116 merged (`54e419d`), shared checkout deployed there, docs only, no restart. **Step 1 of the
 owner's sequence is done:** the constitution amendments are PR #118 (branch `constitution/2026-09-17`; lines 4, 6,
@@ -113,7 +149,7 @@ are swept as crashed (535 of the 888), and a sweep chunk writes ten memories whe
 asked, the model answered every time. This is the rebuild's "fix the plumbing" item made specific; the cap and
 the crash predicate are rulings for the owner, not yet raised with him.
 
-## 2026-09-16, evening — read fourth: the architecture conversation happened; nothing built
+## 2026-09-16, evening — read fifth: the architecture conversation happened; nothing built
 
 **Where the record is.** The owner's architecture session (Fable) ran in worktree
 `.claude/worktrees/storage-spec` on branch `docs/storage-spec-2026-09-16` (this PR) and produced
@@ -158,7 +194,7 @@ seeding is needed regardless; the three-way identity comparison is prepped, not 
 **Process for the next session:** work in a worktree, never the live checkout; agents on Opus; the spec is the
 record, so append to it rather than re-deriving; peer sessions can be reached with ListAgents/SendMessage.
 
-## 2026-09-16, close — read fifth
+## 2026-09-16, close — read sixth
 
 **Everything is committed, merged, deployed and recorded. No PR is open, no worktree holds work.** Master and the
 shared checkout are at the sha of this docs merge (`doctor` Checkout GREEN). The day's record is the 2026-09-16
