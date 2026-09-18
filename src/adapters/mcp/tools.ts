@@ -648,8 +648,8 @@ const SELF_PAGE: ToolSpec = {
     },
     {
       claim:
-        "Pass `ifVersion` — the `version` a read gave you — and a write that crossed with somebody else's is REFUSED rather than landing on top of it, and you are handed the page as it stands now so you can fold your change into theirs. Leave it out and the last write wins, as it always has. It is a courtesy between writers, not a lock.",
-      mechanizedBy: "src/core/self/index.ts#revisePage (ifVersion -> version-moved, current)",
+        "Pass `ifVersion` — the `version` a read gave you, which is -1 when there was no page — and a write that crossed with somebody else's is REFUSED rather than landing on top of it, and you are handed the page as it stands now so you can fold your change into theirs. It works on a first write too: -1 means 'there was nothing when I looked', and a page that appeared meanwhile refuses rather than being overwritten. Leave it out and the last write wins, as it always has. It is a courtesy between writers, not a lock.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (ifVersion -> version-moved / no-page / page-appeared, current)",
     },
     {
       claim:
@@ -706,9 +706,9 @@ const SELF_PAGE: ToolSpec = {
       },
       ifVersion: {
         type: "integer",
-        minimum: 0,
+        minimum: -1,
         description:
-          "The `version` the read gave you. Pass it and a write that crossed with somebody else's is refused, with the current page handed back to merge; omit it and the last write wins.",
+          "The `version` the read gave you — -1 when the read said there was no page. Pass it and a write that crossed with somebody else's is refused, with the current page handed back to merge; omit it and the last write wins.",
       },
     },
     required: [],

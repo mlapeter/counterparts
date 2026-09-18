@@ -76,6 +76,7 @@ import {
   success,
 } from "./protocol.js";
 import type { Id, Request, Response } from "./protocol.js";
+import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { TOOL_NAMES, toolDefinitions, toolSpec } from "./tools.js";
 import type { ToolName } from "./tools.js";
 
@@ -250,6 +251,10 @@ const PAGE_REFUSAL_DETAIL: Record<string, string> = {
     "That page contains the wake's own structural markers (`<!-- counterparts:wake`). Those lines are the bundle's bookkeeping, and a page carrying them reads to the next session as the end of its memory. Write the page in ordinary prose; headings are fine.",
   "version-moved":
     "Somebody else wrote the page after the version you read — another session, the owner, or the nightly writer. Nothing was written, and nothing of theirs was lost. `currentVersion` and `currentBody` here are what is actually there: fold your change into that and send it back with the new `ifVersion`.",
+  "no-page":
+    "You named a version and there is no page here at all — nobody wrote over you. Omit `ifVersion` to write the first page, or pass -1, which is the version a read of an empty store reports.",
+  "page-appeared":
+    "You wrote as if there were no page, and one has appeared since you looked. Nothing was written. `currentVersion` and `currentBody` are what is there: read it, fold your change into it, and send it back with that version.",
 };
 
 const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, skill: true, place: true, fact: true };
@@ -1126,9 +1131,13 @@ export class McpServer {
     }
     const reason = args["reason"];
     const ifVersion = args["ifVersion"];
-    if (ifVersion !== undefined && (typeof ifVersion !== "number" || !Number.isInteger(ifVersion))) {
+    if (
+      ifVersion !== undefined &&
+      (typeof ifVersion !== "number" || !Number.isInteger(ifVersion) || ifVersion < NO_PAGE_VERSION)
+    ) {
       return this.refuse("self_page", "if-version-not-a-number", {
-        detail: "`ifVersion` is the whole number the read gave you as `version`, or leave it out.",
+        detail:
+          "`ifVersion` is the whole number the read gave you as `version` (-1 when there was no page), or leave it out.",
       });
     }
     const written = this.counterpart.revisePage(body, {
@@ -1193,8 +1202,13 @@ export class McpServer {
         {
           present: false,
           reason: "still-forming",
+          // THE VERSION OF "NOTHING", so a session that was told to pass the
+          // version back can do it on a first write too. Without a value here,
+          // the natural `0` was refused with a sentence saying somebody else had
+          // written the page, which was untrue (adversarial review MINOR-C).
+          version: NO_PAGE_VERSION,
           detail:
-            "No page has been written here yet. Write one when you have something true to say about yourself; while there is nothing, the honest page says it is still forming.",
+            "No page has been written here yet. Write one when you have something true to say about yourself; while there is nothing, the honest page says it is still forming. Pass this `version` back as `ifVersion` if you want the write refused should one appear meanwhile.",
         },
         false,
       );

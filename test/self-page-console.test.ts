@@ -339,6 +339,24 @@ describe("the page is visible where mechanisms are", () => {
     written.close();
   });
 
+  test("doctor says CLEARED for a page that was written and cleared, not 'never written'", () => {
+    withPage(PAGE);
+    const w = Counterpart.open({ dir });
+    w.clearPage({ reason: "no longer true" });
+    w.store.close();
+
+    const s = Store.open({ dir, observer: true });
+    const found = selfPageFindings(s)[0];
+    expect(found?.severity).toBe("green");
+    expect(found?.data["present"]).toBe(false);
+    expect(found?.data["cleared"]).toBe(true);
+    expect(found?.detail).toContain("cleared");
+    expect(found?.detail).toContain("no longer true");
+    expect(found?.detail).not.toContain("no page written yet");
+    expect(found?.fix).toContain("--restore");
+    s.close();
+  });
+
   test("a page that has stopped being revised goes amber", () => {
     withPage(PAGE);
     const today = dateOf(Date.now());

@@ -89,11 +89,48 @@ export const PAGE_TEMPLATE = [
 export const PAGE_TITLE = "Who I am";
 
 /**
- * The archive reason a CLEARED page carries, so the row says why it is not live
- * rather than looking like something the prune or a merge took. Nothing is
- * destroyed: the id resolves, the prose is on disk, the versions are listed.
+ * ONE ROW FOR THE LIFE OF THE PAGE, cleared or not (2026-09-18, second review).
+ *
+ * The first design archived the row on `--clear`. That read as "no page"
+ * correctly, but `revisePage` finds LIVE rows, so the next write — including the
+ * `--restore <seq>` the clear message itself recommends — minted a fresh row and
+ * left four versions with full attribution on a row no surface could reach. The
+ * undo mechanism closed behind the owner as he walked through it.
+ *
+ * So a clear is an ordinary REVISION to this body, with `meta.cleared` set. The
+ * row stays live and keeps its whole version chain; the body it replaced becomes
+ * an ordinary version, attributed like every other. Every reader — the wake, the
+ * doctor, the dashboard, the MCP read, the console — asks `readSelfPage`, which
+ * returns null for a cleared row, so the store reads as having no page exactly
+ * as if none had ever been written. The next write or restore revises the same
+ * row and drops the flag.
+ *
+ * Two properties fall out, and both are asserted: there is never more than one
+ * page row, live or archived; and nothing needs the event log to find the page
+ * or its history (attribution still reads it, and says "unrecorded" when a row
+ * has been pruned).
  */
-export const PAGE_CLEARED_REASON = "page-cleared";
+export const PAGE_CLEARED_BODY =
+  "This page has been cleared. Nothing stands here now; what it used to say is kept in this row's versions.";
+
+/** `meta.cleared` on a page row: when, and why. Absent or null means live. */
+export const PAGE_META_CLEARED = "cleared";
+
+export interface PageCleared {
+  readonly on: string;
+  readonly reason: string;
+}
+
+/** The `cleared` marker on a page's prose meta, or null when the page stands. */
+export function clearedMarker(meta: Record<string, unknown>): PageCleared | null {
+  const raw = meta[PAGE_META_CLEARED];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  return {
+    on: typeof rec["on"] === "string" ? rec["on"] : "",
+    reason: typeof rec["reason"] === "string" ? rec["reason"] : "",
+  };
+}
 
 /** Prose meta the page keeps beside its body — the page's own provenance. */
 export const PAGE_META_REVISED_ON = "revisedOn";
@@ -123,6 +160,24 @@ export interface SelfPage {
  * the role wins, and a second would be a category error no door here can make.
  */
 export function findSelfPage(store: Store): string | null {
+  const row = findPageRow(store);
+  if (row === null) return null;
+  // A CLEARED row is still the page's row — it holds the history — but it is not
+  // a page. Every reader that asks "is there a page" comes through here.
+  try {
+    return clearedMarker(store.readProse(row).meta) === null ? row : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE PAGE'S ROW, cleared or not. The surfaces that read the page's HISTORY —
+ * versions, restore — ask for this; the ones that read the PAGE ask
+ * `findSelfPage`. There is at most one, by construction: `revisePage` mints only
+ * when this returns null, and nothing archives it.
+ */
+export function findPageRow(store: Store): string | null {
   for (const id of store.list({ type: "schema", kind: "self", archived: false })) {
     try {
       if (store.readProse(id).meta["role"] === SELF_PAGE_ROLE) return id;
@@ -151,7 +206,7 @@ export function isSelfPageRow(store: Store, id: string): boolean {
 /** The page as a value, or null. A page whose prose will not read is not a
  *  reason to fail a wake (§5 G7) — it reads as absent. */
 export function readSelfPage(store: Store): SelfPage | null {
-  const id = findSelfPage(store);
+  const id = findPageRow(store);
   if (id === null) return null;
   let doc: ProseDoc;
   try {
@@ -159,6 +214,9 @@ export function readSelfPage(store: Store): SelfPage | null {
   } catch {
     return null;
   }
+  // Cleared reads as absent, which is what makes the wake go back to its
+  // empty-page behaviour without anything else in the tree knowing the word.
+  if (clearedMarker(doc.meta) !== null) return null;
   const row = store.row(id);
   const by = doc.meta[PAGE_META_BY];
   const revisedDay = doc.meta[PAGE_META_REVISED_DAY];

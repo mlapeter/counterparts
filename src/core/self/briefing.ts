@@ -251,6 +251,15 @@ export interface BriefingRequest {
    * budget and the page's own prose, and this module composes rather than reads.
    */
   readonly page?: PageBlock;
+  /**
+   * TRUE when the store HAS a page, whatever this render could fit of it. A
+   * ceiling with no room for the wake's own furniture carries no page block at
+   * all, and without this the renderer could not tell that from a store that has
+   * never been written to — so with `PAGE_EMPTY_SHOWS_LIST` off it printed "no
+   * page has been written here yet" over a store holding one (adversarial review
+   * MINOR-D). Absent means the caller did not say, which reads as "no page".
+   */
+  readonly pageExists?: boolean;
 }
 
 export interface TrimEvent {
@@ -625,11 +634,14 @@ export function render(
   // is already there, and the switch's other value is one word away for an
   // owner who wants the sentence verbatim. See NOTES §12.
   const page = req.page ?? null;
+  const exists = page !== null || req.pageExists === true;
   const suppressList = page !== null || !t.PAGE_EMPTY_SHOWS_LIST;
   if (suppressList) kept.identity.length = 0;
   const identity: IdentityBlock = {
     page,
-    forming: page === null && !t.PAGE_EMPTY_SHOWS_LIST ? PAGE_FORMING_LINE : null,
+    // A page this ceiling could not carry is still a page, so the line that says
+    // none has been written stays off it (MINOR-D).
+    forming: !exists && !t.PAGE_EMPTY_SHOWS_LIST ? PAGE_FORMING_LINE : null,
   };
   // THE SHARE, applied BEFORE the trim order rather than inside it: identity
   // trims last by policy, so by the time the trim loop could bound identity

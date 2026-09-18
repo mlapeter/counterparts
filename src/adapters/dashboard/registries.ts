@@ -179,7 +179,7 @@ export const DURABLE_EVENTS = {
   // cap reports what it refused where the owner will see it (owner ruling 2's
   // corollary): the 196 refused asks sat in the events table unseen.
   "self.page.revised": "the written self page was amended (who wrote it, why, how big, and which version it produced)",
-  "self.page.refused": "a write to the self page was turned away (empty, past the hard limit, or stopped by the gate battery)",
+  "self.page.refused": "a write to the self page was turned away (empty, past the hard limit, stopped by the gate battery, carrying the wake's own markers, or naming a version the page has moved past)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with

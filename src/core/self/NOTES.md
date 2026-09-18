@@ -639,3 +639,58 @@ no console door reaches. That is an acceptable limit for now — nothing is
 destroyed, and the row is still in the store for anyone who goes looking — and
 the two messages that offer `--restore` say "until a new page is written" rather
 than promising more than they can keep.
+
+## 14. One row for the life of the page, and a guard that fits the finding (2026-09-18, second review)
+
+**The undo closed behind the owner.** `--clear` archived the row; `revisePage`
+looks for a LIVE page; so the `--restore <seq>` the clear message itself
+recommends minted a fresh row, and four versions with full attribution sat on a
+row no surface could reach. Proved through the real console: `--versions` listing
+four, then `--restore 4`, then `--versions` answering "No earlier versions". The
+mechanism built to answer "the owner can see and undo a bad write" destroyed
+access to exactly what it was protecting, on its main path.
+
+**The shape that fixes it is one row for the life of the page.** A clear is an
+ordinary REVISION — so the body it replaces becomes an ordinary version,
+attributed like any other — to a fixed cleared-body line, with `meta.cleared`
+set. The row stays live and keeps its whole chain. `readSelfPage` returns null
+for a cleared row, so every reader sees a store with no page and the wake goes
+back to its empty-page behaviour; the next write or restore revises the SAME row
+and drops the flag. Two properties fall out and both are asserted: there is never
+a second page row, live or archived, however often it is cleared; and nothing
+needs the event log to find the page or its history. The named limit from the
+first attempt — an older cleared page's versions unreachable once a new page is
+written — does not exist any more, because there is no older row. So does
+MINOR-E: the cleared-page lookup no longer depends on rows sleep prunes at 90
+days, and there is no arbitrary id-ordered fallback to pick the wrong page with.
+
+The reviewer's own preferred fix was a `Store.unarchive`. This gets the same
+result without a new store verb, which matters while the floor (F5) is being
+rebuilt underneath.
+
+**And a guard that fits the finding.** The promotion guard was schema rows
+generally. `physics#decay` returns 1 for a promoted row, so withholding the
+crossing from beliefs, current-states and entities stops them becoming
+decay-exempt — a retention change for three row classes across the owner's whole
+store, inside a PR about one page. Measured, master against the branch, identical
+fixtures, 40 cycles:
+
+```
+             master                          first attempt
+memory       band identity, promoted 1       identical
+belief       band identity, promoted 1       band semantic, promoted 0
+current-state band identity, promoted 1      band semantic, promoted 0
+entity       band identity, promoted 1       band semantic, promoted 0
+page         band identity, promoted 1       band semantic, promoted 0
+band.promoted events: 5                      1
+```
+
+The guard is now the PAGE, by role, and the same measurement over the fix leaves
+one line different: the page, and `band.promoted` 5 → 4. Whether a belief should
+cross into the identity band at all is a real question — it is odd, and
+`enumerate()` has no type filter, so beliefs that crossed appear in `status`'s
+identity list — but it has a one-query answer against the live store that nobody
+has, and it is not this change's to take.
+
+The identity core is deliberately NOT exempted: it could cross on master, and
+exempting it would be the same quiet retention change one row smaller.

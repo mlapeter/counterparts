@@ -36,7 +36,7 @@ import { rowToPhysics } from "../store/operational.js";
 import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 import { PROMOTION_RECORD_PREFIX } from "./tunables.js";
 import type { Phase, PhaseCtx, PhaseOutcome, PromotionRecord } from "./types.js";
-import { countSkip, emptyOutcome, isJournal, isSchemaRow } from "./types.js";
+import { countSkip, emptyOutcome, isJournal } from "./types.js";
 
 /** This phase's own name, for the cursor it keeps. Typed, so a rename in the
  *  phase vocabulary fails `tsc` here rather than reading an empty cursor. */
@@ -64,6 +64,24 @@ export interface ConsolidateResult extends PhaseOutcome {
 
 export function promotionRecordKey(id: string): string {
   return `${PROMOTION_RECORD_PREFIX}${id}`;
+}
+
+/**
+ * Is this the SELF PAGE's row? Read structurally rather than by importing
+ * `self/page.ts` — `sleep/` depends on nothing in `self/`, and a shape check
+ * that fails reads as "not the page", which is master's behaviour and therefore
+ * the safe direction. The role string's owner is `self/page.ts#SELF_PAGE_ROLE`.
+ *
+ * Only ever called for a `type: "schema"`, `kind: "self"` row, so the prose read
+ * costs the page, the identity core and any belief held about the self — two or
+ * three rows on a real store, once per cycle each.
+ */
+function isThePage(store: PhaseCtx["store"], id: string): boolean {
+  try {
+    return store.read(id).doc.meta["role"] === "page";
+  } catch {
+    return false;
+  }
 }
 
 export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
@@ -138,23 +156,31 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
 
     // ── 2. the identity crossing ────────────────────────────────────────────
     //
-    // A SCHEMA ROW DOES NOT CROSS (2026-09-18). `dedup.ts` has skipped schema
-    // rows whole since it shipped; this is the narrower version of the same
-    // thought, and only the CROSSING is withheld — a belief goes on being
-    // consolidated exactly as it always has, so no strength trajectory on a live
-    // store changes. What "this row crossed into the identity band" says is a
-    // claim about a MEMORY: a belief, an entity, the identity core and the self
-    // page are standing claims with their own machinery for changing.
+    // THE SELF PAGE DOES NOT CROSS (2026-09-18) — and nothing else changes.
     //
-    // Proved reachable by the self page's adversarial review: give the page the
-    // physics repeated recall credit leaves and forty cycles later it carries
-    // `promoted_identity`, `band identity` and a `band.promoted` crossing record
-    // — on a row `scanActive` can never rank, counted by the promotion
-    // diagnostics and printed by `status` as an identity-band memory. The wake
-    // was unaffected; the telemetry was not. The identity core has had the same
-    // exposure since it shipped and is covered by the same line.
-    if (isSchemaRow(row)) {
-      countSkip(out, "promotion:schema");
+    // The page can be promoted: give it the physics repeated recall credit
+    // leaves and forty cycles later it carries `promoted_identity`, `band
+    // identity` and a `band.promoted` crossing record, on a row `scanActive` can
+    // never rank, counted by the promotion diagnostics and printed by `status`
+    // as an identity-band memory. The wake is unaffected; the telemetry is not.
+    //
+    // **The guard is THE PAGE and not schema rows generally**, which is where a
+    // first attempt went wrong and the second review caught it: `physics#decay`
+    // returns 1 for a promoted row, so withholding the crossing from beliefs,
+    // current-states and entities would stop them becoming decay-exempt — a
+    // retention change for three row classes across the owner's whole store,
+    // measured at four rows crossing on master and none here, inside a PR about
+    // one page. Whether a belief should cross at all is a real question with a
+    // one-query answer nobody has yet; it is not this change's to take.
+    //
+    // The prose read is gated on the row's own columns, so only a schema row of
+    // the self kind pays for it — the page, the identity core, and any belief
+    // held about the self. The identity core is deliberately NOT exempted: it
+    // could cross on master, and exempting it would be the same kind of quiet
+    // retention change.
+    if (row.type === "schema" && row.kind === "self" && isThePage(store, id)) {
+      promotionBlocked["self-page"] = (promotionBlocked["self-page"] ?? 0) + 1;
+      countSkip(out, "promotion:self-page");
       continue;
     }
     const outcome = promote(p, day);

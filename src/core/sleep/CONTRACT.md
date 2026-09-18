@@ -108,14 +108,16 @@ alone.
 
 **Inputs** — the store; the lived-day clock and its completion markers; the lock; the
 observer predicate; the host's reported execution ceiling.
-*A SCHEMA ROW DOES NOT CROSS into the identity band, from 2026-09-18. Only the crossing is
-withheld — a belief is still consolidated exactly as it always was, so no strength
-trajectory changes — because "this row entered the identity band" is a claim about a
-MEMORY, and a belief, an entity, the identity core and the self page are standing claims
-with their own machinery for changing. `dedup` has skipped schema rows whole since it
-shipped; this is the narrower half of the same thought. Proved reachable by the self page's
-adversarial review: forty cycles over a page carrying the physics repeated credit leaves
-produced a `band.promoted` record on a row no lane can rank.*
+*THE SELF PAGE does not cross into the identity band, from 2026-09-18 — and nothing else
+changes. Proved reachable: forty cycles over a page carrying the physics repeated credit
+leaves produced a `band.promoted` record on a row no lane can rank. The guard is the PAGE
+by role, and deliberately NOT schema rows generally: `physics#decay` returns 1 for a
+promoted row, so withholding the crossing from beliefs, current-states and entities would
+stop them becoming decay-exempt — a retention change for three row classes across a live
+store, measured at four rows crossing on master and none under the wider guard. Whether a
+belief should cross at all is a real question with a one-query answer against the live
+store that nobody has; it is not this change's to take. The identity core is not exempted
+either, for the same reason.*
 **Outputs** — a refreshed strength cache; dedup merges; consolidation links; prune verdicts
 and their records; the next session's briefing, written last; a per-cycle summary vector
 (content-by-reference).

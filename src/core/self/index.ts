@@ -93,11 +93,13 @@ import {
   PAGE_META_REASON,
   PAGE_META_REVISED_DAY,
   PAGE_META_REVISED_ON,
-  PAGE_CLEARED_REASON,
+  PAGE_CLEARED_BODY,
+  PAGE_META_CLEARED,
   PAGE_TITLE,
   SELF_PAGE_REFUSED_EVENT,
   SELF_PAGE_REVISED_EVENT,
   SELF_PAGE_ROLE,
+  findPageRow,
   findSelfPage,
   readSelfPage,
   renderPage,
@@ -313,8 +315,22 @@ export type PageRefusal =
   | "too-large"
   | "gate-refused"
   | "version-moved"
+  | "no-page"
+  | "page-appeared"
   | "forged-markers"
   | "no-such-version";
+
+/**
+ * The `ifVersion` a caller passes to mean "I read NO PAGE". A version is a
+ * non-negative integer, so -1 cannot collide with one, and the two ends of the
+ * check then speak the same vocabulary: `present: false` on a read carries this
+ * number, and passing it back is the claim "nothing was there when I looked".
+ */
+export const NO_PAGE_VERSION = -1;
+
+/** `pageBlock`'s third answer: there IS a page and this ceiling has no room for
+ *  a word about it. Distinct from `null`, which means there is none. */
+export const NO_ROOM = Symbol("self-page-no-room");
 
 export interface PageRevision {
   readonly written: boolean;
@@ -471,14 +487,20 @@ export class Self {
     // §15 item 3). Turn it off and a filtering composition gets no page and
     // falls back to the identity list `omit` left standing, which is what that
     // composition carried before the page existed.
-    const page =
+    const block =
       req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
         ? null
         : this.pageBlock(req.budgetBytes);
+    // A page that will not FIT is not a page that does not EXIST: the renderer
+    // is told `pageExists` so the still-forming line stays off a store that has
+    // one, whatever the ceiling did (MINOR-D).
+    const page = block === NO_ROOM ? null : block;
+    const pageExists = block !== null;
     return render(
       lanes,
       {
         budgetBytes: req.budgetBytes,
+        pageExists,
         day: req.day,
         ...(coreName === null ? {} : { coreName }),
         ...(page === null ? {} : { page }),
@@ -632,33 +654,14 @@ export class Self {
    * page read as no page — so the version log needs its own lookup.
    */
   private pageRowId(): string | null {
-    const live = findSelfPage(this.store);
-    if (live !== null) return live;
-    // NO LIVE PAGE: the one that was CLEARED MOST RECENTLY, read off its own
-    // durable row rather than off the id order. Clear → restore → clear leaves
-    // two archived page-role rows, and `store.list` is `ORDER BY id` over hashed
-    // ids, so a scan would return whichever happened to sort first — and the
-    // `--restore <seq>` pointer `--clear` had just printed would then be read
-    // against the wrong row's version log.
-    try {
-      const cleared = this.store.eventLog({ name: SELF_PAGE_REVISED_EVENT });
-      for (let i = cleared.length - 1; i >= 0; i--) {
-        const row = cleared[i];
-        if (row === undefined || row.ref === null) continue;
-        const payload = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
-        if (payload["cleared"] === true) return row.ref;
-      }
-    } catch {
-      /* fall through to the scan, which is still better than nothing */
-    }
-    for (const id of this.store.list({ type: "schema", kind: "self" })) {
-      try {
-        if (this.store.readProse(id).meta["role"] === SELF_PAGE_ROLE) return id;
-      } catch {
-        continue;
-      }
-    }
-    return null;
+    // ONE ROW, cleared or not — so the history is found by the same lookup that
+    // finds the page, and nothing here depends on the event log. The first
+    // design archived a cleared page and found it again through its
+    // `self.page.revised` row; the second review proved that sleep prunes those
+    // at 90 lived days and that the fallback scan then picked the WRONG cleared
+    // page, whose body `--restore` would have written as the live one. That
+    // whole class of question is gone with the row.
+    return findPageRow(this.store);
   }
 
   /**
@@ -737,11 +740,21 @@ export class Self {
     // every session reads, which is the same felt outcome and harder to notice.
     const before = readSelfPage(this.store);
     if (opts.ifVersion !== undefined) {
-      const at = before?.version ?? null;
+      // "I READ NO PAGE" HAS A VALUE, and it is `NO_PAGE_VERSION` (-1). With no
+      // page, `version` is not a number at all, so every integer mismatched and
+      // the first write a careful session made — one that read `present: false`
+      // and passed the natural 0 back, as the description tells it to — was
+      // refused with a sentence saying somebody else had written the page. That
+      // was untrue, and there was nothing handed back to merge against
+      // (adversarial review MINOR-C). `no-page` and `page-appeared` name the two
+      // directions apart from a genuine race.
+      const at = before?.version ?? NO_PAGE_VERSION;
       if (at !== opts.ifVersion) {
+        const reason: PageRefusal =
+          before === null ? "no-page" : opts.ifVersion === NO_PAGE_VERSION ? "page-appeared" : "version-moved";
         return refuse(
-          "version-moved",
-          { bytes, expected: opts.ifVersion, at: at ?? -1 },
+          reason,
+          { bytes, expected: opts.ifVersion, at },
           {
             current:
               before === null ? null : { version: before.version, body: before.body },
@@ -771,13 +784,17 @@ export class Self {
     const redacted = text === draft ? null : { gate: "secrets", bytesBefore: bytes };
     bytes = byteLength(text);
 
-    const existing = findSelfPage(this.store);
+    // THE PAGE'S ROW, cleared or not: a write after a clear revives the SAME row
+    // and its whole version chain rather than minting a fresh one beside it.
+    // `store.revise` merges meta, so the cleared flag is dropped explicitly.
+    const existing = findPageRow(this.store);
     const meta: Record<string, unknown> = {
       role: SELF_PAGE_ROLE,
       [PAGE_META_BY]: opts.by,
       [PAGE_META_REASON]: opts.reason,
       [PAGE_META_REVISED_ON]: this.store.today(),
       [PAGE_META_REVISED_DAY]: day,
+      [PAGE_META_CLEARED]: null,
     };
     let id: string;
     let version: number;
@@ -855,17 +872,26 @@ export class Self {
    * store that will not open at all. This is the door that removal was standing
    * in for.
    *
-   * **How "no page" is represented, and why.** The row is ARCHIVED, with the
-   * body kept as a version first. `findSelfPage` lists `archived: false`, so the
-   * store reads as having no page from the next call on and the wake returns to
-   * its empty-page behaviour — while nothing is destroyed: the id still
-   * resolves, the prose is still on disk, every version is still listed, and
-   * writing a page again mints a fresh row beside the archived one. The two
-   * alternatives were worse. Deleting is not a verb `store/` has, on purpose.
-   * Blanking the body would leave a live page whose text is a placeholder, which
-   * is the "empty is a valid state" failure the wake's own bootstrap line exists
-   * to avoid (§1 G5) — a page that says nothing and a store with no page must
-   * not render the same.
+   * **How "no page" is represented, and why.** ONE ROW FOR THE LIFE OF THE PAGE:
+   * the clear is an ordinary REVISION — so the body it replaces becomes an
+   * ordinary version, attributed like every other — to a fixed cleared-body line,
+   * with `meta.cleared` set. The row stays live and keeps its whole version
+   * chain. `readSelfPage` returns null for a cleared row, so every reader — the
+   * wake, the doctor, the dashboard, the MCP read, the console — sees a store
+   * with no page and the wake goes back to its empty-page behaviour exactly as
+   * if none had ever been written. The next write or restore revises the SAME
+   * row and drops the flag.
+   *
+   * The first design archived the row instead, and the second review proved what
+   * that cost: `revisePage` finds live rows, so the next write — including the
+   * `--restore <seq>` the clear message itself recommends — minted a fresh row
+   * and orphaned four versions with full attribution on a row no surface could
+   * reach. The undo mechanism closed behind the owner as he walked through it.
+   * Deleting was never available (not a verb `store/` has, on purpose), and
+   * blanking the body would leave a live page whose text is a placeholder, which
+   * is the "empty is a valid state" failure the bootstrap line exists to avoid
+   * (§1 G5): a page that says nothing and a store with no page must not render
+   * the same. The flag is what tells those two apart.
    *
    * It is the owner's door alone: no MCP tool reaches it. A session that could
    * unwrite the page could erase the self between two turns, and nothing about
@@ -888,15 +914,16 @@ export class Self {
     }
     const page = readSelfPage(this.store);
     if (page === null) return { ...none, written: false, reason: "empty" };
-    // The body becomes a VERSION before the row leaves: `revise` archives what
-    // was there first, so `self-page --versions` still lists the page that was
-    // cleared and `--restore` can put it back.
+    // `revise` archives what was there FIRST, so the page that was cleared is a
+    // version on this same row and `--restore <seq>` reaches it.
     const version = this.store.revise(page.id, {
-      body: page.body,
-      meta: { [PAGE_META_REASON]: opts.reason },
+      body: PAGE_CLEARED_BODY,
+      meta: {
+        [PAGE_META_REASON]: opts.reason,
+        [PAGE_META_CLEARED]: { on: this.store.today(), reason: opts.reason },
+      },
       reason: opts.reason,
     });
-    this.store.archive(page.id, PAGE_CLEARED_REASON);
     this.store.appendEvent({
       name: SELF_PAGE_REVISED_EVENT,
       day,
@@ -927,7 +954,7 @@ export class Self {
    * page exists and does not fit, in one line — the one thing that is both true
    * and short enough to say.
    */
-  private pageBlock(budgetBytes: number): PageBlock | null {
+  private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
     const page = this.page();
     if (page === null) return null;
     const dateline = pageDateline(
@@ -941,7 +968,13 @@ export class Self {
     // sentence that puts the bundle over. At this size every lane is empty too,
     // and the floor's own over-budget tripwire is left for a host that really is
     // misconfigured rather than spent on prose about prose.
-    if (room <= 0) return null;
+    //
+    // `NO_ROOM` and not `null`: a page that does not FIT and a page that does not
+    // EXIST must not reach the renderer as the same thing. With
+    // `PAGE_EMPTY_SHOWS_LIST` off, `null` here made a store that HAS a page print
+    // "no page has been written here yet" — the class of lie PR #71's rule
+    // forbids, moved from identity to the page (adversarial review MINOR-D).
+    if (room <= 0) return NO_ROOM;
     const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, room);
     if (cap < PAGE_MIN_RENDER_BYTES && page.bytes > cap) {
       return {

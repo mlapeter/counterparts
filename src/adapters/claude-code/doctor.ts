@@ -55,7 +55,7 @@ import type { EventRow } from "../../core/store/index.js";
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
-import { readSelfPage } from "../../core/self/page.js";
+import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
 import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
@@ -1311,6 +1311,26 @@ function vectorFindings(store: Store): Finding[] {
 export function selfPageFindings(store: Store): Finding[] {
   const page = readSelfPage(store);
   if (page === null) {
+    // CLEARED is not NEVER WRITTEN. The wake says the same thing either way — it
+    // has no page — but a line telling the owner nothing was ever written, about
+    // a page he cleared last week, is the diagnostic getting it wrong in the one
+    // place he would look to check (adversarial review MINOR-F).
+    const cleared = clearedPage(store);
+    if (cleared !== null) {
+      return [
+        finding(
+          "self-page",
+          "green",
+          "Self page",
+          `cleared ${cleared.on === "" ? "(date unrecorded)" : `on ${cleared.on}`}` +
+            `${cleared.reason === "" ? "" : ` — ${cleared.reason}`}; ${cleared.versions} version${cleared.versions === 1 ? "" : "s"} kept`,
+          cleared.versions > 0
+            ? `Put one back with: counterparts self-page --restore ${cleared.newest}.`
+            : "",
+          { present: false, cleared: true, on: cleared.on, versions: cleared.versions },
+        ),
+      ];
+    }
     return [
       finding(
         "self-page",
@@ -1318,7 +1338,7 @@ export function selfPageFindings(store: Store): Finding[] {
         "Self page",
         "no page written yet — the wake says it is still forming",
         "",
-        { present: false },
+        { present: false, cleared: false },
       ),
     ];
   }
@@ -1339,6 +1359,25 @@ export function selfPageFindings(store: Store): Finding[] {
         )
       : finding("self-page", "green", "Self page", detail, "", data),
   ];
+}
+
+/** A page that was written and then cleared: when, why, and what is restorable.
+ *  Null when no page row exists at all. */
+function clearedPage(
+  store: Store,
+): { on: string; reason: string; versions: number; newest: number } | null {
+  const id = findPageRow(store);
+  if (id === null) return null;
+  let marker: { on: string; reason: string } | null = null;
+  try {
+    marker = clearedMarker(store.readProse(id).meta);
+  } catch {
+    return null;
+  }
+  if (marker === null) return null;
+  const versions = store.versions(id);
+  const newest = versions.reduce((n, v) => Math.max(n, v.seq), 0);
+  return { ...marker, versions: versions.length, newest };
 }
 
 /**

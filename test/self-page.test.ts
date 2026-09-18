@@ -20,7 +20,8 @@ import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
 import {
   FRAMING,
-  PAGE_CLEARED_REASON,
+  NO_PAGE_VERSION,
+  PAGE_CLEARED_BODY,
   PAGE_CORE_HEADING,
   PAGE_FLOOR_RESERVE_BYTES,
   PAGE_FORMING_LINE,
@@ -32,7 +33,9 @@ import {
   SELF_PAGE_ROLE,
   Self,
   byteLength,
+  clearedMarker,
   findIdentityCore,
+  findPageRow,
   findSelfPage,
   identityCoreLine,
   identityCoreName,
@@ -446,6 +449,34 @@ describe("the page in the wake", () => {
     expect(b.overBudget).toBe(false);
   });
 
+  /**
+   * MINOR-D. A page that does not FIT and a page that does not EXIST reached the
+   * renderer as the same `null`, so with the switch off a store holding a page
+   * printed "no page has been written here yet" — PR #71's rule broken, moved
+   * from identity to the page.
+   */
+  test("a ceiling too small for the page never says the page was never written", () => {
+    const s = store();
+    const me = self(s, { PAGE_EMPTY_SHOWS_LIST: false });
+    me.revisePage(`## ${PAGE_CORE_HEADING}\n\n${"Placeholder prose. ".repeat(500)}`, {
+      reason: "long",
+      by: "owner",
+    });
+    // Below the furniture reserve: nothing about the page can be said at all…
+    const tiny = me.build({ budgetBytes: 400, day: 5 });
+    expect(tiny.text).not.toContain(PAGE_FORMING_LINE);
+    expect(tiny.overBudget).toBe(false);
+    // …and just above it, the wake says the page exists and does not fit.
+    const small = me.build({ budgetBytes: 700, day: 5 });
+    expect(small.text).not.toContain(PAGE_FORMING_LINE);
+    expect(small.text).toContain("no room for it in this wake");
+    // A store that really has none still says so, at both sizes.
+    const blank = store({ dir: mkdtempSync(join(tmpdir(), "counterparts-page-c-")) });
+    expect(self(blank, { PAGE_EMPTY_SHOWS_LIST: false }).build({ budgetBytes: 400, day: 5 }).text).toContain(
+      PAGE_FORMING_LINE,
+    );
+  });
+
   test("the reserve covers the widest furniture the wake can wrap a page in", () => {
     const header = "<!-- counterparts:wake day=999999 elements=999999 bytes=999999 -->";
     const sentinel =
@@ -554,13 +585,45 @@ describe("the optimistic version check", () => {
     expect(me.revisePage(PAGE, { reason: "third", by: "owner" }).written).toBe(true);
   });
 
-  test("ifVersion on a store with no page expects nothing to be there", () => {
+  /**
+   * MINOR-C. "I read no page" had no value, so every integer mismatched and the
+   * first write a careful session made — one that read `present: false` and
+   * passed the natural 0 back, as the description tells it to — was refused with
+   * a sentence saying somebody else had written the page. Untrue, and with
+   * nothing handed back to merge against.
+   */
+  test("ifVersion can say I READ NO PAGE, and names the two directions apart", () => {
     const s = store();
     const me = self(s);
-    expect(me.revisePage(PAGE, { reason: "first", by: "owner", ifVersion: 0 }).reason).toBe(
-      "version-moved",
-    );
+    // A version that cannot be there is refused as `no-page`, not as a race.
+    const wrong = me.revisePage(PAGE, { reason: "first", by: "owner", ifVersion: 0 });
+    expect(wrong.reason).toBe("no-page");
+    expect(wrong.current).toBeNull();
     expect(me.page()).toBeNull();
+
+    // The sentinel is what a read of an empty store reports, and it lands.
+    expect(me.revisePage(PAGE, { reason: "first", by: "owner", ifVersion: NO_PAGE_VERSION }).written).toBe(
+      true,
+    );
+    // And the other direction: claiming there was none when there is one.
+    const appeared = me.revisePage(PAGE_TWO, {
+      reason: "second",
+      by: "session",
+      ifVersion: NO_PAGE_VERSION,
+    });
+    expect(appeared.reason).toBe("page-appeared");
+    expect(appeared.current).toEqual({ version: 0, body: PAGE });
+    expect(me.page()?.body).toBe(PAGE);
+  });
+
+  test("after a clear, the sentinel is what the page reads as again", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.clearPage({ reason: "cleared" });
+    expect(me.revisePage(PAGE_TWO, { reason: "again", by: "owner", ifVersion: NO_PAGE_VERSION }).written).toBe(
+      true,
+    );
   });
 });
 
@@ -579,24 +642,30 @@ describe("clearing and restoring", () => {
     expect(me.page()).toBeNull();
     expect(findSelfPage(s)).toBeNull();
     expect(me.build({ budgetBytes: 9000, day: 5 }).page).toBeNull();
-    // And nothing is destroyed: the row is archived with its own reason, the id
-    // still resolves, the prose is still there, and the body is a version.
-    expect(s.row(id)?.archived).toBe(1);
-    expect(s.row(id)?.archived_reason).toBe(PAGE_CLEARED_REASON);
-    expect(s.resolve(id)).toBe(id);
+    // ONE ROW, still live, still the page's row: the clear is a revision, so the
+    // history stays on it and every door that reads history still reaches it.
+    expect(s.row(id)?.archived).toBe(0);
+    expect(findPageRow(s)).toBe(id);
+    expect(s.readProse(id).body).toBe(PAGE_CLEARED_BODY);
+    expect(clearedMarker(s.readProse(id).meta)?.reason).toBe("no longer true");
     expect(me.pageVersions().some((v) => v.body === PAGE)).toBe(true);
     expect(s.eventLog({ name: SELF_PAGE_REVISED_EVENT })).toHaveLength(2);
   });
 
-  test("writing again after a clear starts a fresh page beside the archived one", () => {
+  test("writing again after a clear revises the SAME row and keeps the history", () => {
     const s = store();
     const me = self(s);
     me.revisePage(PAGE, { reason: "first", by: "owner" });
+    const id = findSelfPage(s) as string;
     me.clearPage({ reason: "starting over" });
     const again = me.revisePage(PAGE_TWO, { reason: "second thoughts", by: "owner" });
     expect(again.written).toBe(true);
+    expect(again.id).toBe(id);
     expect(me.page()?.body).toBe(PAGE_TWO);
-    expect(findSelfPage(s)).not.toBe(again.id === null ? "" : "");
+    // The cleared flag is dropped, and the page that was cleared is still a
+    // version of this row.
+    expect(clearedMarker(s.readProse(id).meta)).toBeNull();
+    expect(me.pageVersions().some((v) => v.body === PAGE)).toBe(true);
   });
 
   test("--restore puts a version back, and is itself a version", () => {
@@ -614,32 +683,87 @@ describe("clearing and restoring", () => {
     expect(me.pageVersions().some((v) => v.body === PAGE_TWO)).toBe(true);
   });
 
-  test("clear, restore, clear again still reads the page that was cleared LAST", () => {
+  /**
+   * MAJOR-A. `--clear` used to archive the row, and `revisePage` finds LIVE rows,
+   * so the `--restore <seq>` the clear message itself recommends minted a fresh
+   * row and orphaned every version on the old one: the undo mechanism closed
+   * behind the owner as he walked through it. One row for the life of the page.
+   */
+  test("clear then restore keeps the whole history, on one row, through two cycles", () => {
     const s = store();
     const me = self(s);
     me.revisePage(PAGE, { reason: "first", by: "owner" });
+    const id = findSelfPage(s) as string;
+    me.revisePage(PAGE_TWO, { reason: "second", by: "session" });
     me.clearPage({ reason: "cleared once" });
-    // A second page, on a NEW row — the first is archived — and cleared too.
-    me.revisePage(PAGE_TWO, { reason: "second page", by: "owner" });
-    const secondId = findSelfPage(s) as string;
-    me.clearPage({ reason: "cleared twice" });
-
-    // Two archived page-role rows now. `store.list` is ORDER BY id over hashed
-    // ids, so a scan would return whichever sorted first; the version log has to
-    // be the one the owner was just told about.
     expect(me.page()).toBeNull();
-    const versions = me.pageVersions();
-    expect(versions.some((v) => v.body === PAGE_TWO)).toBe(true);
-    expect(versions.some((v) => v.body === PAGE)).toBe(false);
-    // And the `--restore <seq>` pointer the second clear printed resolves.
-    const seq = versions[0]?.seq as number;
+
+    // THE COMMAND THE CLEAR MESSAGE RECOMMENDS, and the history survives it.
+    const seq = me.pageVersions()[0]?.seq as number;
     expect(me.restorePage(seq).written).toBe(true);
     expect(me.page()?.body).toBe(PAGE_TWO);
-    // A restore after a clear mints a FRESH live row rather than resurrecting
-    // the archived one — the same rule as writing a page again after a clear,
-    // and the archived rows keep their own histories where they are.
-    expect(findSelfPage(s)).not.toBe(secondId);
-    expect(s.row(secondId)?.archived).toBe(1);
+    expect(me.pageVersions().length).toBeGreaterThanOrEqual(3);
+    expect(me.pageVersions().some((v) => v.body === PAGE)).toBe(true);
+
+    // And again, to prove there is no accumulating second row to get confused by.
+    me.clearPage({ reason: "cleared twice" });
+    expect(me.page()).toBeNull();
+    const seq2 = me.pageVersions()[0]?.seq as number;
+    expect(me.restorePage(seq2).written).toBe(true);
+    expect(me.page()?.body).toBe(PAGE_TWO);
+    expect(me.pageVersions().some((v) => v.body === PAGE)).toBe(true);
+    expect(findSelfPage(s)).toBe(id);
+  });
+
+  test("there is NEVER a second page row — live or archived — however often it is cleared", () => {
+    const s = store();
+    const me = self(s);
+    const pageRows = (): string[] =>
+      s
+        .list({ type: "schema", kind: "self" })
+        .filter((id) => {
+          try {
+            return s.readProse(id).meta["role"] === SELF_PAGE_ROLE;
+          } catch {
+            return false;
+          }
+        });
+
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    for (let i = 0; i < 4; i++) {
+      me.clearPage({ reason: `cleared ${i}` });
+      expect(pageRows()).toHaveLength(1);
+      me.revisePage(PAGE_TWO, { reason: `written ${i}`, by: "owner" });
+      expect(pageRows()).toHaveLength(1);
+      const seq = me.pageVersions()[0]?.seq as number;
+      me.restorePage(seq);
+      expect(pageRows()).toHaveLength(1);
+    }
+  });
+
+  test("a cleared store wakes exactly like a store that never had a page", () => {
+    const never = store();
+    identity(never, "A placeholder identity element.");
+    const a = self(never).build({ budgetBytes: 9000, day: 5 });
+
+    // A SECOND store, written to and then cleared. The wake text must match the
+    // one above byte for byte — "cleared" is a state of the row, never of the
+    // bundle (adversarial review's requested proof).
+    const other = mkdtempSync(join(tmpdir(), "counterparts-page-b-"));
+    try {
+      const s2 = Store.open({ dir: other });
+      open.push(s2);
+      identity(s2, "A placeholder identity element.");
+      const me = self(s2);
+      me.revisePage(PAGE, { reason: "first", by: "owner" });
+      me.clearPage({ reason: "cleared" });
+      const b = me.build({ budgetBytes: 9000, day: 5 });
+      expect(b.text).toBe(a.text);
+      expect(b.bytes).toBe(a.bytes);
+      expect(b.page).toBeNull();
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 
   test("restoring a version that is not there is named apart from having no page", () => {
@@ -721,22 +845,67 @@ describe("the page survives sleep", () => {
    * and printed as an identity-band memory. `dedup` has skipped schema rows
    * since it shipped; `consolidate` now does too.
    */
-  test("a schema row is never consolidated or promoted into the identity band", () => {
+  /**
+   * THE PAGE DOES NOT CROSS — and everything else crosses exactly as it did.
+   *
+   * A first attempt guarded schema rows generally. `physics#decay` returns 1 for
+   * a promoted row, so that stopped beliefs, current-states and entities
+   * becoming decay-exempt: a retention change for three row classes across the
+   * owner's whole store, inside a PR about one page (adversarial review
+   * MAJOR-B). This test is the branch half of the master-vs-branch diff that
+   * found it — the four non-page classes must still promote here.
+   */
+  test("the page never crosses into the identity band, and nothing else changes", () => {
     const s = store();
+    const ready = {
+      salience: { novelty: 0.9, relevance: 0.95, emotional: 0.8, predictive: 0.9 },
+      physics: { uses: 40, reinforcedDays: 20, birthDay: 0, lastUsedDay: 0 },
+    } as const;
+    const memory = s.put({ type: "memory", kind: "fact", body: "A placeholder memory used constantly.", ...ready });
+    const belief = s.put({
+      type: "schema",
+      kind: "person",
+      body: "A placeholder belief about a placeholder person.",
+      meta: { role: "belief", entityId: "ent_placeholder" },
+      ...ready,
+    });
+    const entity = s.put({
+      type: "schema",
+      kind: "entity",
+      body: "Placeholder Entity",
+      meta: { role: "entity", name: "Placeholder Entity", aliases: [] },
+      ...ready,
+    });
     const me = self(s);
     me.revisePage(PAGE, { reason: "first", by: "owner" });
-    const id = findSelfPage(s) as string;
-    // The state repeated use would leave, handed to it directly.
-    s.updatePhysics(id, { uses: 40, reinforcedDays: 20, lastUsedDay: 0 });
-    for (let i = 2; i <= 9; i++) {
-      runCycle({ store: s, date: `2026-01-0${i}`, render: () => ({ bytes: 1 }) });
+    const page = findSelfPage(s) as string;
+    // The same physics the others carry, so the page is promotion-READY and the
+    // only thing standing between it and the band is the guard.
+    s.updatePhysics(page, {
+      uses: 40,
+      reinforcedDays: 20,
+      birthDay: 0,
+      lastUsedDay: 0,
+      salience: { novelty: 0.9, relevance: 0.95, emotional: 0.8, predictive: 0.9 },
+    });
+
+    for (let i = 1; i <= 12; i++) {
+      runCycle({ store: s, date: `2026-03-${String(i).padStart(2, "0")}`, render: () => ({ bytes: 1 }) });
     }
-    const row = s.row(id);
-    expect(row?.promoted_identity).toBe(0);
-    expect(row?.consolidated).toBe(0);
-    expect(row?.band).not.toBe("identity");
-    expect(s.eventLog({ name: "band.promoted", ref: id })).toHaveLength(0);
-    expect(self(s).enumerate().identity.some((e) => e.id === id)).toBe(false);
+
+    // The three that always crossed still cross, and stay decay-exempt.
+    for (const id of [memory, belief, entity]) {
+      expect({ id, promoted: s.row(id)?.promoted_identity }).toEqual({ id, promoted: 1 });
+      expect(s.row(id)?.band).toBe("identity");
+    }
+    // The page does not, and leaves no crossing record.
+    expect(s.row(page)?.promoted_identity).toBe(0);
+    expect(s.row(page)?.band).not.toBe("identity");
+    expect(s.eventLog({ name: "band.promoted", ref: page })).toHaveLength(0);
+    expect(self(s).enumerate().identity.some((e) => e.id === page)).toBe(false);
+    // And the page is still CONSOLIDATED, like every other row — only the
+    // crossing is withheld.
+    expect(s.row(page)?.consolidated).toBe(1);
   });
 
   test("a second page-shaped row is never merged into the page: schema rows skip dedup", () => {

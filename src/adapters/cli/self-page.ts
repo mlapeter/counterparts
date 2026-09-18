@@ -159,11 +159,28 @@ export function writeLines(
       case "version-moved":
         return {
           lines: [
-            `refused: the page has moved on since the version you named — ${written.current === null ? "there is no page there now" : `it is at version ${written.current.version}`}.`,
+            `refused: the page has moved on since the version you named — it is at version ${written.current === null ? "?" : written.current.version} now.`,
             "Nothing was written. Read it again ('counterparts self-page'), fold in what you meant to change, and write that.",
           ],
           ok: false,
         };
+      case "no-page":
+        return {
+          lines: [
+            "refused: you named a version, and there is no page here at all — nobody wrote over you. Drop --if-version to write the first one.",
+          ],
+          ok: false,
+        };
+      case "page-appeared":
+        return {
+          lines: [
+            `refused: you wrote as if there were no page, and there is one — version ${written.current === null ? "?" : written.current.version}.`,
+            "Nothing was written. Read it first ('counterparts self-page'), then write with that version.",
+          ],
+          ok: false,
+        };
+      case "no-such-version":
+        return { lines: ["refused: there is no version by that number."], ok: false };
       default:
         return {
           lines: [
@@ -177,7 +194,11 @@ export function writeLines(
     return {
       lines: [
         `Cleared the page — the ${written.bytes} bytes that were there are kept as version ${written.version}.`,
-        `The wake goes back to what it showed before a page existed. Put it back with: counterparts self-page --restore ${written.version} — while this is the page the console reads, which it is until a NEW page is written over it.`,
+        // TRUE NOW: the clear is a revision of the same row, so the history is
+        // this row's for good and a restore revises it back. The first design
+        // archived the row and the restore minted a fresh one, which orphaned
+        // the very versions this line was promising.
+        `The wake goes back to what it showed before a page existed. Put it back with: counterparts self-page --restore ${written.version}.`,
       ],
       ok: true,
     };

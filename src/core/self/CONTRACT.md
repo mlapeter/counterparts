@@ -302,16 +302,19 @@ proposals and their archive; render and delivery telemetry.
     writer is woken as the self before it reads a transcript). Turned off, that composition
     gets no page and falls back to the identity list the predicate left standing. Nothing
     marks a page confidential: there is one page, and the switch is the decision.
-18. **[M]** **A page is unwritten, never removed.** `clearPage` keeps the body as a version
-    and archives the row, so the store reads as having no page — the wake returns to its
-    empty-page behaviour — while the id still resolves, the prose is still on disk and
-    `restorePage(seq)` puts any version back as an ordinary (itself versioned) revision.
-    It is the OWNER's door: no MCP tool reaches it, because a session that could unwrite
-    the page could erase the self between two turns. The owner's `remove` refuses the page
-    row by name and points at it. *Named limit: the cleared page's history is reachable
-    while it is the LAST thing cleared — the row is found by its own durable row rather
-    than by id order — and a new page written over it becomes the one the console reads.
-    Nothing is destroyed either way; the messages that offer `--restore` say so.*
+18. **[M]** **ONE ROW FOR THE LIFE OF THE PAGE, and a page is unwritten rather than
+    removed.** `clearPage` is an ordinary revision — the body it replaces becomes an
+    ordinary version, attributed like any other — to a fixed cleared line, with
+    `meta.cleared` set. The row stays live and keeps its whole version chain;
+    `readSelfPage` returns null for it, so every reader sees a store with no page and the
+    wake goes back to its empty-page behaviour exactly as if none had been written. The
+    next write or `restorePage(seq)` revises the SAME row and drops the flag. Two
+    properties follow and both are asserted: **there is never a second page row, live or
+    archived**, however often it is cleared; and **nothing needs the event log** to find
+    the page or its history (attribution still reads it, and says so when a row has been
+    pruned). It is the OWNER's door: no MCP tool reaches it, because a session that could
+    unwrite the page could erase the self between two turns. The owner's `remove` refuses
+    the page row by name and points at it.
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.

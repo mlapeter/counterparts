@@ -144,6 +144,7 @@ import { ownerRemoval, planRemoval } from "./removal.js";
 import { repairDates } from "./repair-dates.js";
 import type { Confidence } from "./repair-dates.js";
 import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./self-page.js";
+import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { snapshot, snapshotName } from "./snapshot.js";
 
 export const COMMANDS = [
@@ -585,7 +586,7 @@ const FLAG_HELP: Record<string, string> = {
   write: "replace the page with what --file or --stdin gives, keeping every earlier version",
   restore: "put an earlier version back, by its seq — itself a new version, itself undoable",
   clear: "unwrite the page: it is kept as a version and the wake goes back to having none",
-  "if-version": "only write if the page is still at this version; otherwise refuse and change nothing",
+  "if-version": "only write if the page is still at this version (or 'none' if there was no page); otherwise refuse and change nothing",
   file: "the file to read the page from",
   versions: "list the earlier versions, newest first",
   version: "print one earlier version in full, by its seq from --versions",
@@ -1288,9 +1289,13 @@ async function selfPageCommand(
   }
   let ifVersion: number | undefined;
   if (typeof ifVersionFlag === "string") {
-    ifVersion = Number(ifVersionFlag);
-    if (!Number.isInteger(ifVersion) || ifVersion < 0) {
-      io.err(`refused: --if-version takes the version number a read printed, not '${ifVersionFlag}'.`);
+    // `none` is the value that says "I read no page", so the guard can be used
+    // on a first write as well as an amendment.
+    ifVersion = ifVersionFlag.trim().toLowerCase() === "none" ? NO_PAGE_VERSION : Number(ifVersionFlag);
+    if (!Number.isInteger(ifVersion) || ifVersion < NO_PAGE_VERSION) {
+      io.err(
+        `refused: --if-version takes the version number a read printed, or 'none' for a page that was not there, not '${ifVersionFlag}'.`,
+      );
       return EXIT.usage;
     }
   }
