@@ -158,3 +158,45 @@ The refusal itself — `status-on-identity-refused` — is the ~72 KB lesson
 mechanized. It refuses on the *identity schema*, not on "status-shaped text",
 because a text classifier here would be a second, softer gate with no admission
 test (scar §2.16).
+
+## 13. A removed schema row is skipped, not read (2026-09-18)
+
+Found by the adversarial review of the F3 refactor, pre-existing since removal
+shipped, and proved end to end through the real command rather than the seam.
+
+`MEMORY_BEARING` permits a `schema` target, so an entity or a belief is a legal
+`counterparts remove`. The chase KEEPS the row and blanks `prose_path`
+(`store/owner-op-seam.ts`); `store.list({type: "schema"})` still returns it; and
+`load` had no guard, so `readProseFile("")` threw `PROSE_FILE_MISSING` out of
+`Schemas.open` and therefore out of `Counterpart.open`.
+
+**What that looked like is the reason this could not wait for the floor work.**
+Not a crash. The hook entry point catches everything out of `main()`, writes one
+line to stderr and exits 0, so every session after the removal had no wake, no
+recall and no capture — silently. The CLI and the MCP server fail loudly; the
+hook is the path the owner actually lives in. One `remove` on a person would have
+switched his memory off until someone read the stderr.
+
+The second face of the same root cause: in the dark-only state (marked, chase not
+yet run) `slices()` threw `REMOVED`, through `element` → `physicsOf` →
+`requireRow`. `slices()` is a model path.
+
+**The fix is to skip, in one predicate three callers share.** Chased is free to
+detect (`prose_path === ""`, and the row is already in hand); dark needs the
+deny-list, which `load` fetches ONCE for the whole walk and `entity`/`element`
+ask per call, because an in-process `Schemas` can be older than a removal the
+owner has since run. Skipping — rather than rendering a placeholder — is the
+honest answer: `Store.read` still refuses the id BY NAME, so "removed" and "never
+existed" stay distinguishable to anyone who asks for it directly.
+
+It also turns a piece of luck into a check. `element` refused a denied id before
+this only because `physicsOf` happened to be evaluated *after* `statement` in the
+same object literal: reordering two lines would have lost the gate, and the
+removed prose was read off disk into memory before the throw discarded it. The
+check now runs before the read.
+
+**Removal does not cascade, and this does not make it.** Beliefs hanging off a
+removed entity keep their rows. They are invisible in every rendering — every
+path starts at an entity and hers is gone — and still readable by their own id.
+Whether the ceremony should chase them is `cli/removal.ts`'s question; naming
+the orphaned state is this file's.

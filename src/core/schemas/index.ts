@@ -187,11 +187,18 @@ export class Schemas {
    * rather than `Store.read`, so building an index does not spend the store's
    * archived-read telemetry — that event answers "did anyone look at archived
    * CONTENT", and an index build is not a look.
+   *
+   * **A REMOVED ROW IS SKIPPED, and that is what keeps the session alive.** The
+   * deny-list is fetched once here rather than asked per id: this runs at every
+   * open, over every schema row, and a removal must cost the index one query,
+   * not one per row.
    */
   private load(): void {
+    const denied = new Set(this.store.deniedIds());
     for (const id of this.store.list({ type: "schema" })) {
       const row = this.store.row(id);
       if (row === undefined) continue;
+      if (this.removed(id, row, denied)) continue;
       const doc = readProseWalking(this.store, id, row);
       const rec = toMetaRecord(doc.meta);
       if (rec === null) continue;
@@ -1089,10 +1096,34 @@ export class Schemas {
 
   // ── reads ──────────────────────────────────────────────────────────────────
 
+  /**
+   * A row this index must not hold, because the owner removed it.
+   *
+   * Two states, and the first one is the crash. **Chased:** `prose_path` is
+   * blanked and the file is gone (`store/owner-op-seam.ts`), so reading the
+   * prose throws `PROSE_FILE_MISSING` — out of `Schemas.open`, out of
+   * `Counterpart.open`, and the hook catches that and exits 0, which is a
+   * session with no wake, no recall and no capture and one line on stderr.
+   * Free to check: the row is already in hand. **Dark:** marked but not yet
+   * chased, so the row and the file are both still there and only the deny-list
+   * knows. `denied` is passed in where the caller has a whole walk to do.
+   *
+   * Skipping is the honest answer for both. A removed belief or entity is
+   * simply absent from the index: not rendered, not matched, not an alias. The
+   * store keeps saying `REMOVED` by name to anyone who asks for it by id
+   * (`Store.read`), which is where "removed" and "never existed" stay
+   * distinguishable.
+   */
+  private removed(id: string, row: MemoryRow, denied?: ReadonlySet<string>): boolean {
+    if (row.prose_path === "") return true;
+    return denied === undefined ? this.store.deniedIds().includes(id) : denied.has(id);
+  }
+
   entity(id: string): EntityView | undefined {
     const rec = this.meta.get(id);
     const row = this.store.row(id);
     if (rec === undefined || rec.role !== "entity" || row === undefined) return undefined;
+    if (this.removed(id, row)) return undefined;
     return {
       id,
       name: rec.name ?? "",
@@ -1121,6 +1152,30 @@ export class Schemas {
     const row = this.store.row(id);
     if (rec === undefined || row === undefined) return undefined;
     if (rec.role === "entity") return undefined;
+    // ── the removal gate, and it runs BEFORE the prose is read ──────────────
+    //
+    // Chased: the pointer is blanked, so reading it is the `PROSE_FILE_MISSING`
+    // that used to come out of `Counterpart.open`. Free to see; the row is in
+    // hand.
+    if (row.prose_path === "") return undefined;
+    // Dark: marked, not yet chased — row and file both still there, and only
+    // the deny-list knows. `physicsOf` asks it (`requireRow` → `refuseIfDenied`)
+    // and this call has to happen anyway, so the gate costs nothing; what
+    // changed on 2026-09-18 is that it is a STATEMENT, above the read, instead
+    // of a field evaluated after `statement` in the literal below. That ordering
+    // was luck: reordering two lines lost the gate, and the removed text was
+    // read off disk into memory before the throw discarded it. An in-process
+    // `Schemas` can be older than a removal the owner has since run, which is
+    // why the question is asked here and not trusted from `load`.
+    let salience;
+    try {
+      salience = this.store.physicsOf(id).salience;
+    } catch (err) {
+      // Removed, or the row went while we were looking: no element either way.
+      // Anything else is a real store failure and is not this module's to eat.
+      if (!isAbsence(err)) throw err;
+      return undefined;
+    }
     const view: ElementView = {
       id,
       entityId: rec.entityId ?? "",
@@ -1130,7 +1185,7 @@ export class Schemas {
       archived: row.archived === 1,
       supersededBy: row.superseded_by,
       protected: row.protected === 1,
-      salience: this.store.physicsOf(id).salience,
+      salience,
     };
     if (rec.statedOn !== undefined) view.statedOn = rec.statedOn;
     if (rec.statedOnDay !== undefined) view.statedOnDay = rec.statedOnDay;
@@ -1305,6 +1360,16 @@ export class Schemas {
       }))
       .sort((a, b) => a.kind.localeCompare(b.kind));
   }
+}
+
+/**
+ * "There is no memory at this id" — the owner removed it, or the row is gone.
+ * Anything else out of a store read is a real failure, and swallowing it here
+ * would turn a broken database into a quietly empty index.
+ */
+function isAbsence(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "REMOVED" || code === "ID_UNKNOWN";
 }
 
 /** A newborn schema is empty except its names — a place for memories to attach,

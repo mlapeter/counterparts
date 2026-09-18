@@ -125,6 +125,15 @@ name/alias resolution; birth and death telemetry.
 7. **[M] Death is decay, not deletion by decision.** An entity with no live memories
    attached and no reinforcement for `D_floor` lived days fades out of preselection and is
    archived, keeping its id resolvable. No model can kill an entity.
+   **7b. [M] The OWNER can, and this index survives it.** `counterparts remove` accepts a
+   schema target, and after the chase the row is still listed with its pointer blanked. A
+   removed entity or element is SKIPPED — by `load`, `entity` and `element`, all through
+   one predicate — so it is absent from every rendering: no slice, no alias, no match.
+   Until 2026-09-18 it was not skipped: reading it threw out of `Schemas.open`, out of
+   `Counterpart.open`, and the hook caught that and exited 0, so the owner's next session
+   simply had no memory and said nothing about it. Removal does NOT cascade — elements
+   hanging off a removed entity keep their rows and are orphaned rather than destroyed,
+   which is `cli/removal.ts`'s question, not this module's.
 8. **[M] Beliefs and current state render verbatim in every schema slice**; elided items
    are announced as a count, never silently omitted.
 9. **[M] Every element has a stable handle, and compression may shorten a statement but
