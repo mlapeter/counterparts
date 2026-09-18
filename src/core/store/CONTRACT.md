@@ -180,7 +180,19 @@ by reference only.
 13. **[M] Reads of archived, superseded, and removal-record content emit an event.** v1
     could not answer "did the archival mechanisms ever pay for themselves" because nothing
     logged a read-back (log-audit §3). This is a v2 instrumentation requirement, not a
-    preference.
+    preference. The exemption is `walk-seam.ts#readProseWalking`, for a caller WALKING
+    rows rather than answering for one — an index build, a repair plan. It is a look at the
+    address, so it fires no event and asks the deny-list nothing; the callers that need it
+    (`schemas/index.ts#load`, `cli/commands.ts`'s unmerge helpers) had exactly that by
+    reading the file behind the store's back until 2026-09-18, and this is the same
+    exemption said once, in one place, where it can be seen and one day closed. It is
+    **not** a `Store` method, for the reason `chaseRemoved` is not: §4's "unreachable from
+    any model path" has to stay true of the store's own surface, and `Counterpart.store` is
+    public. Two files may import it and `test/cli.test.ts` pins which.
+    `StoredMemory.confidential` rides on the ordinary read for the opposite reason: the
+    confidentiality class is a gate, and a gate that re-parses JSON at every call site is a
+    gate that will one day fail open (`confidentialByMeta`, the one truth table, which
+    `recall/activate.ts#isConfidential` is a door onto).
 14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
     `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
     owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots

@@ -218,6 +218,21 @@ export interface PathCensus {
   readonly blank: number;
 }
 
+/**
+ * A memory's confidentiality class, read from the prose payload's `meta`.
+ *
+ * The truth table lives HERE, beside the read that carries it, because it is a
+ * gate: `recall/activate.ts#isConfidential` is the same answer by the same
+ * function, so the surfacing boundary and `StoredMemory.confidential` can never
+ * disagree. It reads `meta` today; when the body moves into the row it reads a
+ * column, and nothing above this line notices.
+ */
+export function confidentialByMeta(meta: Readonly<Record<string, unknown>>): boolean {
+  if (meta["confidential"] === true) return true;
+  const klass = meta["confidentiality"];
+  return typeof klass === "string" && klass !== "" && klass !== "open" && klass !== "normal";
+}
+
 export interface StoredMemory {
   doc: ProseDoc;
   physics: MemoryPhysics;
@@ -228,6 +243,11 @@ export interface StoredMemory {
   supersededBy: string | null;
   revision: number;
   contentHash: string;
+  /** The confidentiality class, computed from `doc.meta` (`confidentialByMeta`).
+   *  Carried on the read so a caller gates on a boolean rather than on a JSON
+   *  payload it had to re-interpret — a gate that parses on every read is a gate
+   *  that will one day fail open. */
+  confidential: boolean;
 }
 
 export interface PruneReport {
@@ -1710,6 +1730,7 @@ export class Store {
       supersededBy: row.superseded_by,
       revision: row.revision,
       contentHash: row.content_hash,
+      confidential: confidentialByMeta(doc.meta),
     };
   }
 

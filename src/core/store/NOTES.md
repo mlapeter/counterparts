@@ -966,3 +966,63 @@ Under WAL a commit lands in the `-wal` until a checkpoint moves it into the file
 so they hash the `-wal` WITH the database and skip only the `-shm`, which every
 connection writes read-marks into (`isDatabaseSidecar`, `paths.ts`). All five are
 green with the `-wal` in the hash — an instrument writes nothing there either.
+
+## The walking read and `StoredMemory.confidential` (2026-09-18)
+
+Consumers outside this module read prose by PATH —
+`readProseFile(store.absolutePath(row.prose_path), id)` in `schemas/index.ts`,
+`cli/commands.ts`, `dashboard/`. That is the last reason anything above the store
+knows there is a filesystem under it, and the bodies-in-rows work cannot start
+while it is true. Two additions took them off it, and both are about a gate.
+
+**The walking read is an exemption, not a convenience.** `Store.read` fires
+`store.archived.read` (contract §5 G13) and refuses a denied id. The walking
+callers wanted neither, which is why they went round the store in the first
+place. Both exemptions had to be kept exactly:
+
+- *The event.* `Schemas.load` scans every schema row at every open, so routing it
+  through `read` would file one archived-read per archived schema row per session
+  and invert what the event means. It answers "did anyone look at archived
+  CONTENT", and an index build is a look at the address.
+- *The deny-list, which is the one that bit.* The first draft used `requireRow`,
+  which refuses a denied id — and a `dark`-stage removal marks the id while
+  leaving the row and the file until the chase. `Counterpart.open` then threw on
+  every subsequent session (`test/dashboard.test.ts`, "a protected element
+  removed since stops resolving", caught it). So the quiet read asks the
+  deny-list nothing, exactly as the direct file reads did; the refusal belongs
+  where the OWNER is answered — `read`, `resolve`, `readVersion` and the render
+  seams. It is a hole either way, but it is now one hole with a name on it
+  instead of five hand-rolled ones spread over two modules.
+
+**And it is not on `Store`.** The first draft put it on `Store.prototype` beside
+`read`. The adversarial review's objection was structural, not behavioural: no
+live path was worse off, but `Counterpart.store` is public, so the method handed
+every adapter and every future contributor a removal bypass they did not ask for,
+and §4's "owner-initiated removal is unreachable from any model path" stopped
+being true of the store's own surface. So it moved to `walk-seam.ts` — the
+`chaseRemoved` pattern, a deliberate import from a pinned list of two files —
+and the name carries the dangerous half rather than only the quiet one
+(`readProseQuiet` → `readProseWalking`). The same review found the mitigating
+fact that `Schemas.element` still refused a denied id only by *evaluation order*
+(`physicsOf` happens to run after `statement` in the object literal), which is
+luck; the follow-up that makes `schemas/` skip removed rows turns it into a
+check.
+
+It takes the caller's own `row` when the caller has one: every walk reads the
+row's columns too, and a second lookup per id measured 54% of a 16,000-row walk
+(650 ms → 990 ms on this machine). That is 3% with the row passed, and it matters
+more once the body IS the row and the file read stops dominating. A row for the
+wrong id is refused by name in the seam itself rather than relying on
+`readProseFile`'s `expectId` check, which the bodies-in-rows work deletes.
+
+**`StoredMemory.confidential` is the opposite move.** The confidentiality class
+was a predicate over `doc.meta` that every caller re-derived
+(`recall/activate.ts#isConfidential`). It is a gate, and a gate that parses JSON
+at every call site is a gate that will one day fail open — so the truth table is
+`confidentialByMeta` here, `read` carries the answer, and `isConfidential` is a
+thin door for callers holding a bare `ProseDoc` (`dashboard/web/reveal.ts`,
+`mcp/deliberate.ts`). It reads `meta` today and a column later; nothing above
+notices. The table is odd in two places and both are preserved on purpose, with a
+test per value: the class comparison is case-sensitive and untrimmed (`"OPEN"`
+and `" open"` are confidential), and `confidential` is checked with `=== true`
+(`1` and `"true"` are not).

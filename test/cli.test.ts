@@ -2870,6 +2870,51 @@ describe("the destruction path is importable from this directory only", () => {
     expect(offenders).toEqual([]);
   });
 
+  test("the WALKING read is imported by two files, and is on no class anyone holds", () => {
+    // `store/walk-seam.ts` skips the archived-read telemetry AND the deny-list,
+    // so it is deliberately not a `Store` method: `Counterpart.store` is public,
+    // and a method beside `read` would hand every adapter a removal bypass it
+    // did not ask for (§16 G2, the same reasoning as `chaseRemoved` above).
+    // TWO files may reach it — the index build and the repair plan — and the
+    // list is short on purpose. Adding a third is a decision, not an import.
+    const ALLOWED = [
+      join("core", "schemas", "index.ts"),
+      join("adapters", "cli", "commands.ts"),
+    ];
+    const root = join(import.meta.dir, "..", "src");
+    const offenders: string[] = [];
+    const walk = (path: string): void => {
+      for (const name of readdirSync(path)) {
+        const full = join(path, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!name.endsWith(".ts")) continue;
+        if (full.endsWith(join("core", "store", "walk-seam.ts"))) continue;
+        const body = readFileSync(full, "utf8");
+        if (!/walk-seam\.js/.test(body)) continue;
+        if (ALLOWED.some((suffix) => full.endsWith(suffix))) continue;
+        offenders.push(full);
+      }
+    };
+    walk(root);
+    expect(offenders).toEqual([]);
+    // NOT VACUOUS: both allowed files really do import it, so this cannot pass
+    // because the seam went away.
+    for (const suffix of ALLOWED) {
+      const body = readFileSync(join(root, suffix), "utf8");
+      expect(`${suffix} imports the seam: ${/walk-seam\.js/.test(body)}`).toBe(
+        `${suffix} imports the seam: true`,
+      );
+    }
+    // And it is not re-exported from the store's index, so `import { … } from
+    // "../store/index.js"` cannot reach it either.
+    const index = readFileSync(join(import.meta.dir, "..", "src/core/store/index.ts"), "utf8");
+    expect(index).not.toContain("walk-seam");
+    expect(index).not.toContain("readProseWalking");
+  });
+
   test("the strike is not re-exported from remember's index either", () => {
     const index = readFileSync(join(import.meta.dir, "..", "src/core/remember/index.ts"), "utf8");
     expect(index).not.toContain("owner-strike-seam");
