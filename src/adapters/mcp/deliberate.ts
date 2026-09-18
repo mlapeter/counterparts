@@ -25,7 +25,7 @@
  */
 import type { Counterpart } from "../../core/counterpart.js";
 import { strength } from "../../core/physics/index.js";
-import { isConfidential } from "../../core/recall/index.js";
+import { isConfidential, isSelfPage } from "../../core/recall/index.js";
 import type { CandidateVerdict, SemanticSource, Verdict } from "../../core/recall/index.js";
 
 /**
@@ -405,6 +405,14 @@ export function expandHandle(
 
   const id = matches[0] as string;
   const read = store.read(id);
+  // THE SELF PAGE IS NOT EXPANDED HERE either (2026-09-18). It is excluded from
+  // activation, so it never appears in a result to be followed up — and the one
+  // way left to reach it was to pass its id, which would credit a use for a row
+  // that is delivered whole at every wake. `self_page` is its door, and it has
+  // no cap and no tier.
+  if (isSelfPage(read.doc)) {
+    return { ...base, reason: "handle-unknown", memories: [], considered: 0 };
+  }
   if (!opts.owner && isConfidential(read.doc)) {
     return { ...base, reason: "handle-confidential-withheld", memories: [], considered: 1 };
   }

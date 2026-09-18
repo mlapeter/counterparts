@@ -632,7 +632,7 @@ const SELF_PAGE: ToolSpec = {
   negativeExamples: [
     "Do NOT call it to record what happened today — that is `chapter`, the journal, and the page is not a diary.",
     "Do NOT call it for what you are working on or what is still open; the wake already carries those lanes, and a task list on the page goes stale in a day.",
-    "Do NOT rewrite a part of the page you have no new reason to change: you pass the WHOLE page, so anything you drop is dropped. Read it first, keep what still holds, and change the part that moved.",
+    "Do NOT rewrite a part of the page you have no new reason to change: you pass the WHOLE page, so anything you drop is dropped. Read it first, keep what still holds, change the part that moved, and pass back the `version` the read gave you as `ifVersion` so a write that crossed with somebody else's is refused instead of quietly reverting it.",
     "Do NOT put anything on it you would not want read aloud at the start of every session for months — it is the most durable text on this machine.",
   ],
   privileges: [
@@ -643,8 +643,23 @@ const SELF_PAGE: ToolSpec = {
     },
     {
       claim:
-        "The page is prose that will be injected into every session from here on, so it crosses the same gate battery a memory does: credentials are redacted before anything is stored, and a page that was nothing but a credential is refused outright.",
+        "The page is prose that will be injected into every session from here on, so it crosses the same gate battery a memory does: credentials are redacted before anything is stored, and a page that was nothing but a credential is refused outright. When a redaction DID change what you sent, the answer says so — accepted is not the same as unaltered.",
       mechanizedBy: "src/core/self/index.ts#revisePage -> src/core/bridge.ts#episodeGate -> src/core/encode/battery.ts#gateProposal",
+    },
+    {
+      claim:
+        "Pass `ifVersion` — the `version` a read gave you — and a write that crossed with somebody else's is REFUSED rather than landing on top of it, and you are handed the page as it stands now so you can fold your change into theirs. Leave it out and the last write wins, as it always has. It is a courtesy between writers, not a lock.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (ifVersion -> version-moved, current)",
+    },
+    {
+      claim:
+        "A page may not carry the wake bundle's own structural comment markers: they are the bookkeeping the next session reads as the end of its memory, so a page containing them is refused. Your headings and your prose are yours.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (WAKE_MARKER -> forged-markers)",
+    },
+    {
+      claim:
+        "This tool cannot unwrite the page. Clearing it is the owner's door alone, from their console — a session that could erase the self between two turns would be a different kind of tool.",
+      mechanizedBy: "src/core/self/index.ts#clearPage (reached only from src/adapters/cli/commands.ts)",
     },
     {
       claim:
@@ -688,6 +703,12 @@ const SELF_PAGE: ToolSpec = {
         type: "string",
         description:
           "One short line saying what changed and why, kept beside the version this write produces. Omit it and the revision is recorded as an ordinary amendment.",
+      },
+      ifVersion: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "The `version` the read gave you. Pass it and a write that crossed with somebody else's is refused, with the current page handed back to merge; omit it and the last write wins.",
       },
     },
     required: [],

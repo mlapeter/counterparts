@@ -194,7 +194,13 @@ export const PAGE_FORMING_LINE =
  */
 export function pageDateline(revisedOn: string, stale: boolean, staleDays: number): string | null {
   const on = revisedOn.trim();
-  if (on === "") return null;
+  // A page with no readable date SAYS SO. Returning null printed the page with
+  // no date and no staleness signal at all while every other surface called it
+  // stale — the one state where the wake said less than it knew (adversarial
+  // review m6). Only reachable on a hand-minted or hand-edited row.
+  if (on === "" || !/^\d{4}-\d{2}-\d{2}$/.test(on) || !Number.isFinite(Date.parse(`${on}T00:00:00Z`))) {
+    return "(Last revised — the page carries no readable date.)";
+  }
   return stale
     ? `(Last revised ${on} — more than ${staleDays} days before this wake was composed.)`
     : `(Last revised ${on}.)`;
@@ -765,6 +771,41 @@ export const WAKE_SYSTEM = "Counterparts";
  * gains a word.
  */
 export const PREFACE_RESERVE_BYTES = 160;
+
+/**
+ * THE ROOM THE WAKE'S OWN FURNITURE TAKES AROUND THE PAGE, in bytes — the
+ * number `Self.build` subtracts from the caller's ceiling before it caps the
+ * page. Structural, not tunable, and measured rather than guessed: a test
+ * composes the widest plausible furniture (a six-digit day and six-digit lane
+ * counts in both comment lines, the stale dateline at a six-digit threshold)
+ * and asserts it fits under this.
+ *
+ * It exists because of the adversarial review of PR #138. The page's cap was
+ * clamped to the WHOLE budget, so a long page filled the budget exactly and the
+ * header, `FRAMING.context`, the heading, the dateline and the sentinel pushed
+ * the composition past it — and nothing could trim it back, because the identity
+ * lane is empty by then and the page is furniture the trim loop cannot pop. An
+ * 8,657-byte page published `overBudget: true` at host budgets of 400, 900,
+ * 2,000 and 6,000. That is scar §2.18's guarantee paying for a block of prose,
+ * and it is the same measurement that kept the still-forming line out of the
+ * default switch (NOTES §12a) — applied to the page this time.
+ *
+ * Widest measured furniture: 444 bytes. 512 is that plus room for a line to
+ * gain a word.
+ */
+export const PAGE_FLOOR_RESERVE_BYTES = 512;
+
+/**
+ * The smallest room worth rendering a PAGE into. Below it the wake says the
+ * page exists and does not fit, in one short line, rather than handing the
+ * reader a sentence and a marker — a fragment of a self is not a smaller self.
+ */
+export const PAGE_MIN_RENDER_BYTES = 240;
+
+/** The one short line a wake with no room for the page prints instead of it. */
+export function pageTooLargeLine(bytes: number): string {
+  return `(My page is ${bytes} bytes — no room for it in this wake. Read it with 'counterparts self-page'.)`;
+}
 
 export interface PrefaceFacts {
   /** Which memory system composed and is delivering this. */

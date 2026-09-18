@@ -20,7 +20,9 @@ import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
 import {
   FRAMING,
+  PAGE_CLEARED_REASON,
   PAGE_CORE_HEADING,
+  PAGE_FLOOR_RESERVE_BYTES,
   PAGE_FORMING_LINE,
   PAGE_LATELY_HEADING,
   PAGE_TEMPLATE,
@@ -34,7 +36,10 @@ import {
   findSelfPage,
   identityCoreLine,
   identityCoreName,
+  SELF_TUNABLES,
+  pageDateline,
   pageSections,
+  pageTooLargeLine,
   readSelfPage,
   renderPage,
   truncationMarker,
@@ -152,9 +157,17 @@ describe("the page's row", () => {
 
     const versions = me.pageVersions();
     expect(versions.map((v) => v.seq)).toEqual([2, 1]);
-    expect(versions.map((v) => v.reason)).toEqual(["third", "second"]);
-    expect(versions[0]?.body).toBe(PAGE_TWO);
-    expect(versions[1]?.body).toBe(PAGE);
+    // EACH BODY LABELLED BY THE WRITE THAT PRODUCED IT, not by the one that
+    // replaced it (adversarial review M3). `store.revise` records the replacing
+    // reason on the row it archives, so reading it straight through labelled the
+    // first page with the second write's words while the current page's own
+    // `Last change:` line was right — one word, two meanings, two surfaces.
+    expect(versions.map((v) => v.body)).toEqual([PAGE_TWO, PAGE]);
+    expect(versions.map((v) => v.reason)).toEqual(["second", "first"]);
+    expect(versions.map((v) => v.by)).toEqual(["owner", "session"]);
+    // The store's own value is kept, named for what it actually is.
+    expect(versions.map((v) => v.replacedBy)).toEqual(["third", "second"]);
+    expect(versions.map((v) => v.bytes)).toEqual([byteLength(PAGE_TWO), byteLength(PAGE)]);
     expect(me.page()?.body).toBe(`${PAGE_TWO}\n\nA third placeholder paragraph.`);
     expect(me.page()?.version).toBe(2);
   });
@@ -326,14 +339,13 @@ describe("the page in the wake", () => {
 
   test("a page over the cap renders cut at a paragraph boundary, with a marker that names both numbers", () => {
     const s = store();
-    const me = self(s, { PAGE_WAKE_BYTES: 180, PAGE_MAX_BYTES: 8000 });
+    const me = self(s, { PAGE_WAKE_BYTES: 420, PAGE_MAX_BYTES: 8000 });
     const long = [
       `## ${PAGE_CORE_HEADING}`,
       "",
       "Core: placeholder one.",
       "",
-      "Core: placeholder two, which is a longer placeholder paragraph than the one above it.",
-      "",
+      ...Array.from({ length: 8 }, (_, i) => `Core: placeholder paragraph ${i}, of an ordinary length.\n`),
       `## ${PAGE_LATELY_HEADING}`,
       "",
       "Lately: placeholder, long enough to be cut off by the cap above it.",
@@ -343,7 +355,7 @@ describe("the page in the wake", () => {
 
     expect(b.page?.truncated).toBe(true);
     expect(b.page?.wholeBytes).toBe(byteLength(long));
-    expect(b.page?.bytes).toBeLessThanOrEqual(180);
+    expect(b.page?.bytes).toBeLessThanOrEqual(420);
     expect(b.text).toContain("Core: placeholder one.");
     expect(b.text).toContain(`the first ${b.text.match(/shows the first (\d+)/)?.[1] ?? ""}`);
     expect(b.text).toContain(`This page is ${byteLength(long)} bytes`);
@@ -351,6 +363,92 @@ describe("the page in the wake", () => {
     // Cut at a boundary: the kept part does not end mid-word.
     expect(b.text).not.toContain("Lately: placeholder, long enough to be cut off by the cap");
     expect(readSentinelBytes(b.text)).toBe(byteLength(b.text));
+  });
+
+  /**
+   * B1 — the cut used to take the last blank line wherever it was, so a page
+   * whose only `\n\n` sits at byte 7 rendered as a heading and a marker: 110
+   * bytes of a 9.5 KB page, in a wake whose identity list the page had just
+   * suppressed. Four shapes, at the real cap, each asserted to use most of the
+   * room it was given.
+   */
+  test("every page shape renders close to the cap — none of them collapses to a stub", () => {
+    const cap = SELF_TUNABLES.PAGE_WAKE_BYTES;
+    const shapes: [string, string, number][] = [
+      // A bullet list under one heading: the single most likely shape, and the
+      // one that rendered 110 bytes.
+      [
+        "a bullet list",
+        `## ${PAGE_CORE_HEADING}\n\n${Array.from({ length: 400 }, (_, i) => `- Placeholder item ${i}, of an ordinary length.`).join("\n")}`,
+        0.8,
+      ],
+      // One paragraph, no blank line at all after the heading: no boundary
+      // exists, so the byte fallback is correct and must be nearly exact.
+      [
+        "one long paragraph",
+        `## ${PAGE_CORE_HEADING}\n\n${"Placeholder prose that runs on without a break. ".repeat(200)}`,
+        0.95,
+      ],
+      // Many short paragraphs: this shape always worked; it must keep working.
+      [
+        "many short paragraphs",
+        Array.from({ length: 300 }, (_, i) => `Placeholder paragraph ${i}, of an ordinary length.`).join("\n\n"),
+        0.8,
+      ],
+      // No newline anywhere.
+      ["no newline at all", "Placeholder prose. ".repeat(600), 0.95],
+    ];
+    for (const [name, body, floor] of shapes) {
+      const out = renderPage(body, cap);
+      expect(out.truncated).toBe(true);
+      expect(out.bytes).toBeLessThanOrEqual(cap);
+      // The assertion that would have caught it: a real share of the room used.
+      expect({ name, used: out.bytes >= cap * floor }).toEqual({ name, used: true });
+    }
+  });
+
+  /**
+   * B2 — the cap was clamped to the WHOLE budget, so the header, the framing
+   * line, the heading, the dateline and the sentinel pushed the composition past
+   * the ceiling with nothing left to trim. The same budget ladder the review
+   * measured, with the page it measured.
+   */
+  test("a long page never puts the wake over the host's ceiling, at any budget", () => {
+    const s = store();
+    const me = self(s);
+    const long = `## ${PAGE_CORE_HEADING}\n\n${Array.from({ length: 200 }, (_, i) => `Placeholder paragraph ${i}, of an ordinary length for a page.`).join("\n\n")}`;
+    me.revisePage(long, { reason: "long", by: "owner" });
+    expect(me.page()?.bytes).toBeGreaterThan(8000);
+    for (const budgetBytes of [400, 900, 2000, 6000, 9000, 20000]) {
+      const b = me.build({ budgetBytes, day: 5 });
+      expect({ budgetBytes, over: b.overBudget }).toEqual({ budgetBytes, over: false });
+      expect({ budgetBytes, fits: b.bytes <= budgetBytes }).toEqual({ budgetBytes, fits: true });
+    }
+  });
+
+  test("a ceiling with no room for a page says so in one line rather than a fragment", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(`## ${PAGE_CORE_HEADING}\n\n${"Placeholder prose. ".repeat(100)}`, {
+      reason: "long",
+      by: "owner",
+    });
+    const bytes = me.page()?.bytes ?? 0;
+    const b = me.build({ budgetBytes: 700, day: 5 });
+    expect(b.text).toContain(pageTooLargeLine(bytes));
+    expect(b.text).not.toContain("Placeholder prose.");
+    expect(b.overBudget).toBe(false);
+  });
+
+  test("the reserve covers the widest furniture the wake can wrap a page in", () => {
+    const header = "<!-- counterparts:wake day=999999 elements=999999 bytes=999999 -->";
+    const sentinel =
+      "<!-- counterparts:wake/end day=999999 identity=999999 craft=999999 threads=999999 hints=999999 horizon=999999 elements=999999 bytes=999999 -->";
+    const dateline = pageDateline("2026-09-18", true, 999999) as string;
+    const widest = byteLength(
+      [header, FRAMING.context, "", FRAMING.identity, dateline, "", sentinel].join("\n"),
+    );
+    expect(widest).toBeLessThanOrEqual(PAGE_FLOOR_RESERVE_BYTES);
   });
 
   test("the cap is clamped to the caller's budget, so a page never outgrows the wake", () => {
@@ -402,6 +500,130 @@ describe("the page in the wake", () => {
     expect(b.text).toContain(PAGE);
     expect(b.text).not.toContain("No identity has formed here yet");
   });
+
+  test("PAGE_ON_EGRESS off keeps the page off a filtering composition, and the list comes back", () => {
+    const s = store();
+    identity(s, "A placeholder identity element.");
+    const me = self(s, { PAGE_ON_EGRESS: false });
+    me.revisePage(PAGE, { reason: "first", by: "session" });
+    // The owner's own wake passes no `omit` and is untouched by the switch.
+    expect(me.build(req).text).toContain(PAGE);
+    // A composition that filters gets no page — and falls back to whatever the
+    // predicate left standing, which is what it carried before S1.
+    const out = me.build({ ...req, omit: () => false });
+    expect(out.text).not.toContain("Core: placeholder.");
+    expect(out.text).toContain("A placeholder identity element.");
+    expect(out.counts.identity).toBe(1);
+    expect(out.page).toBeNull();
+  });
+
+  test("a page with no readable date says so, and reads as stale rather than fresh", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    // Only reachable on a hand-edited row; the point is which way it fails.
+    s.revise(findSelfPage(s) as string, { meta: { revisedOn: "not-a-date" } });
+    expect(me.pageStale()).toBe(true);
+    expect(me.build(req).text).toContain("(Last revised — the page carries no readable date.)");
+  });
+});
+
+// ── the doors' other halves ─────────────────────────────────────────────────
+
+describe("the optimistic version check", () => {
+  test("a write that crossed with another is refused, and hands back what is there", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "session" });
+    // A second writer that read before the first wrote.
+    const stale = me.revisePage(PAGE_TWO, { reason: "second", by: "session", ifVersion: 7 });
+    expect(stale.written).toBe(false);
+    expect(stale.reason).toBe("version-moved");
+    expect(stale.current).toEqual({ version: 0, body: PAGE });
+    expect(me.page()?.body).toBe(PAGE);
+    expect(s.eventLog({ name: SELF_PAGE_REFUSED_EVENT })).toHaveLength(1);
+    // The version it actually read lands.
+    expect(me.revisePage(PAGE_TWO, { reason: "second", by: "session", ifVersion: 0 }).written).toBe(true);
+    // And omitting it behaves exactly as it always has: last write wins.
+    expect(me.revisePage(PAGE, { reason: "third", by: "owner" }).written).toBe(true);
+  });
+
+  test("ifVersion on a store with no page expects nothing to be there", () => {
+    const s = store();
+    const me = self(s);
+    expect(me.revisePage(PAGE, { reason: "first", by: "owner", ifVersion: 0 }).reason).toBe(
+      "version-moved",
+    );
+    expect(me.page()).toBeNull();
+  });
+});
+
+describe("clearing and restoring", () => {
+  test("--clear keeps the body as a version and the store reads as having no page", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    const id = findSelfPage(s) as string;
+
+    const cleared = me.clearPage({ reason: "no longer true" });
+    expect(cleared.written).toBe(true);
+    expect(cleared.reason).toBe("cleared");
+    // NO PAGE, from every reader's point of view — so the wake goes back to its
+    // empty-page behaviour.
+    expect(me.page()).toBeNull();
+    expect(findSelfPage(s)).toBeNull();
+    expect(me.build({ budgetBytes: 9000, day: 5 }).page).toBeNull();
+    // And nothing is destroyed: the row is archived with its own reason, the id
+    // still resolves, the prose is still there, and the body is a version.
+    expect(s.row(id)?.archived).toBe(1);
+    expect(s.row(id)?.archived_reason).toBe(PAGE_CLEARED_REASON);
+    expect(s.resolve(id)).toBe(id);
+    expect(me.pageVersions().some((v) => v.body === PAGE)).toBe(true);
+    expect(s.eventLog({ name: SELF_PAGE_REVISED_EVENT })).toHaveLength(2);
+  });
+
+  test("writing again after a clear starts a fresh page beside the archived one", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.clearPage({ reason: "starting over" });
+    const again = me.revisePage(PAGE_TWO, { reason: "second thoughts", by: "owner" });
+    expect(again.written).toBe(true);
+    expect(me.page()?.body).toBe(PAGE_TWO);
+    expect(findSelfPage(s)).not.toBe(again.id === null ? "" : "");
+  });
+
+  test("--restore puts a version back, and is itself a version", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.revisePage(PAGE_TWO, { reason: "second", by: "session" });
+    expect(me.page()?.body).toBe(PAGE_TWO);
+
+    const back = me.restorePage(1);
+    expect(back.written).toBe(true);
+    expect(me.page()?.body).toBe(PAGE);
+    expect(me.page()?.reason).toBe("restored version 1");
+    // Itself undoable: the restore archived PAGE_TWO as a version of its own.
+    expect(me.pageVersions().some((v) => v.body === PAGE_TWO)).toBe(true);
+  });
+
+  test("clearing a store that has no page changes nothing and says so", () => {
+    const s = store();
+    const out = self(s).clearPage({ reason: "nothing to clear" });
+    expect(out.written).toBe(false);
+    expect(out.reason).toBe("empty");
+    expect(s.eventLog({ name: SELF_PAGE_REVISED_EVENT })).toHaveLength(0);
+  });
+
+  test("an observer clears nothing and writes no row", () => {
+    const s = store();
+    self(s).revisePage(PAGE, { reason: "first", by: "owner" });
+    const instrument = store({ observer: true });
+    expect(self(instrument).clearPage({ reason: "should not land" }).reason).toBe("observer");
+    const after = store();
+    expect(self(after).page()?.body).toBe(PAGE);
+  });
 });
 
 // ── the sleep cycle ─────────────────────────────────────────────────────────
@@ -449,6 +671,32 @@ describe("the page survives sleep", () => {
     expect(me.page()?.body).toBe(PAGE_TWO);
   });
 
+  /**
+   * The adversarial review gave the page the physics that repeated recall
+   * credit leaves and ran forty cycles: it came out `promoted_identity 1`,
+   * `band identity`, with a `band.promoted` crossing record — a promotion event
+   * on a row `scanActive` can never rank, counted by the promotion diagnostics
+   * and printed as an identity-band memory. `dedup` has skipped schema rows
+   * since it shipped; `consolidate` now does too.
+   */
+  test("a schema row is never consolidated or promoted into the identity band", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    const id = findSelfPage(s) as string;
+    // The state repeated use would leave, handed to it directly.
+    s.updatePhysics(id, { uses: 40, reinforcedDays: 20, lastUsedDay: 0 });
+    for (let i = 2; i <= 9; i++) {
+      runCycle({ store: s, date: `2026-01-0${i}`, render: () => ({ bytes: 1 }) });
+    }
+    const row = s.row(id);
+    expect(row?.promoted_identity).toBe(0);
+    expect(row?.consolidated).toBe(0);
+    expect(row?.band).not.toBe("identity");
+    expect(s.eventLog({ name: "band.promoted", ref: id })).toHaveLength(0);
+    expect(self(s).enumerate().identity.some((e) => e.id === id)).toBe(false);
+  });
+
   test("a second page-shaped row is never merged into the page: schema rows skip dedup", () => {
     const s = store();
     const me = self(s);
@@ -475,8 +723,11 @@ describe("the seam S2 will call", () => {
     expect(c.selfPage()?.by).toBe("writer");
     expect(c.selfPage()?.reason).toBe("first");
     c.revisePage(PAGE_TWO, { reason: "second", by: "owner" });
-    expect(c.selfPageVersions().map((v) => v.reason)).toEqual(["second"]);
+    expect(c.selfPageVersions().map((v) => v.reason)).toEqual(["first"]);
     expect(c.selfPageVersions()[0]?.body).toBe(PAGE);
+    // The count does not read a single body off disk (adversarial review m9).
+    expect(c.selfPageVersionCount()).toBe(1);
+    expect(c.selfPageVersions({ bodies: false })[0]?.body).toBeNull();
   });
 });
 

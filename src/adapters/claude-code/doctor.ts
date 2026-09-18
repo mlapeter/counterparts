@@ -1341,12 +1341,17 @@ export function selfPageFindings(store: Store): Finding[] {
   ];
 }
 
-/** Calendar days, like every other window here. Unrecorded reads as stale. */
+/**
+ * Calendar days, like every other window here. A date that is absent or does
+ * not READ reads as stale — the same direction `self/#pageStale` takes, and the
+ * two are asserted to agree.
+ */
 function pageStaleOn(revisedOn: string, today: string, limit: number): boolean {
-  if (revisedOn.trim() === "") return true;
-  const a = Date.parse(`${revisedOn}T00:00:00Z`);
+  const on = revisedOn.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on) || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return true;
+  const a = Date.parse(`${on}T00:00:00Z`);
   const b = Date.parse(`${today}T00:00:00Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return true;
   return Math.round((b - a) / 86_400_000) > limit;
 }
 

@@ -471,7 +471,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // There is deliberately no flag that CARRIES the page: a page on the command
   // line is a page in shell history, and the same argument that keeps a
   // credential off argv keeps prose that is injected into every session off it.
-  "self-page": ["write", "file", "stdin", "reason", "versions", "version"],
+  "self-page": ["write", "file", "stdin", "reason", "versions", "version", "restore", "clear", "if-version"],
 };
 
 /**
@@ -582,7 +582,10 @@ const FLAG_HELP: Record<string, string> = {
   // `self-page --write` reads the page.
   stdin: "read it from standard input (the default whenever stdin is not a terminal)",
   "from-env": "read the value from this environment variable instead of from stdin",
-  write: "replace the page with what --from or --stdin gives, keeping every earlier version",
+  write: "replace the page with what --file or --stdin gives, keeping every earlier version",
+  restore: "put an earlier version back, by its seq — itself a new version, itself undoable",
+  clear: "unwrite the page: it is kept as a version and the wake goes back to having none",
+  "if-version": "only write if the page is still at this version; otherwise refuse and change nothing",
   file: "the file to read the page from",
   versions: "list the earlier versions, newest first",
   version: "print one earlier version in full, by its seq from --versions",
@@ -669,6 +672,8 @@ const VALUED_FLAGS: readonly string[] = [
   "note",
   "file",
   "version",
+  "restore",
+  "if-version",
 ];
 
 /** Levenshtein, small and local. Only ever used to say "did you mean". */
@@ -834,6 +839,9 @@ export function parse(argv: readonly string[]): Parsed {
       file: { type: "string" },
       versions: { type: "boolean" },
       version: { type: "string" },
+      restore: { type: "string" },
+      clear: { type: "boolean" },
+      "if-version": { type: "string" },
       observer: { type: "boolean" },
       help: { type: "boolean" },
       // `scope`'s five. Declared as booleans for the same reason `rebuild` is:
@@ -1259,11 +1267,32 @@ async function selfPageCommand(
     return EXIT.usage;
   }
   const write = parsed.flags["write"] === true;
+  const clear = parsed.flags["clear"] === true;
+  const restore = parsed.flags["restore"];
   const wantsVersions = parsed.flags["versions"] === true;
   const seq = parsed.flags["version"];
-  if (write && (wantsVersions || typeof seq === "string")) {
-    io.err("refused: --write replaces the page; --versions and --version read it. Pass one.");
+  // ONE MODE PER INVOCATION. Three of these change the page and two read it;
+  // a line that names two of them means something the console would have to
+  // guess at, and the store it would guess against is the owner's memory.
+  const modes = [write, clear, typeof restore === "string", wantsVersions, typeof seq === "string"];
+  if (modes.filter(Boolean).length > 1) {
+    io.err(
+      "refused: --write, --clear, --restore, --versions and --version are five different things to do. Pass one.",
+    );
     return EXIT.usage;
+  }
+  const ifVersionFlag = parsed.flags["if-version"];
+  if (ifVersionFlag !== undefined && !write) {
+    io.err("refused: --if-version guards a --write. Pass it with one, or leave it out.");
+    return EXIT.usage;
+  }
+  let ifVersion: number | undefined;
+  if (typeof ifVersionFlag === "string") {
+    ifVersion = Number(ifVersionFlag);
+    if (!Number.isInteger(ifVersion) || ifVersion < 0) {
+      io.err(`refused: --if-version takes the version number a read printed, not '${ifVersionFlag}'.`);
+      return EXIT.usage;
+    }
   }
 
   // THE PAGE IS READ FROM STDIN BEFORE THE STORE OPENS, so a pipe that never
@@ -1310,15 +1339,44 @@ async function selfPageCommand(
     return EXIT.failed;
   }
   try {
-    if (write) {
-      const reason = parsed.flags["reason"];
-      const written = counterpart.revisePage(body ?? "", {
-        reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "owner edit",
-        by: "owner",
-      });
-      const out = writeLines(written, counterpart.self.tunables.PAGE_WAKE_BYTES);
+    const cap = counterpart.self.tunables.PAGE_WAKE_BYTES;
+    const say = (out: ReturnType<typeof writeLines>): number => {
       for (const line of out.lines) (out.ok ? io.out : io.err)(line);
       return out.ok ? EXIT.ok : EXIT.refused;
+    };
+    const reason = parsed.flags["reason"];
+    const why = (fallback: string): string =>
+      typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : fallback;
+
+    if (write) {
+      return say(
+        writeLines(
+          counterpart.revisePage(body ?? "", {
+            reason: why("owner edit"),
+            by: "owner",
+            ...(ifVersion === undefined ? {} : { ifVersion }),
+          }),
+          cap,
+        ),
+      );
+    }
+    if (clear) {
+      // The door removal was standing in for. Nothing is destroyed: the body
+      // becomes a version, the row is archived, and the store reads as having
+      // no page from the next call on.
+      return say(writeLines(counterpart.clearPage({ reason: why("owner cleared the page") }), cap));
+    }
+    if (typeof restore === "string") {
+      const want = Number(restore);
+      if (!Number.isInteger(want) || want < 1) {
+        io.err(`refused: --restore takes a version seq from 'self-page --versions', not '${restore}'.`);
+        return EXIT.usage;
+      }
+      if (!counterpart.selfPageVersions({ bodies: false }).some((v) => v.seq === want)) {
+        io.err(`refused: no version ${want}. 'self-page --versions' lists the ones there are.`);
+        return EXIT.usage;
+      }
+      return say(writeLines(counterpart.restorePage(want, { reason: why(`restored version ${want}`) }), cap));
     }
     if (wantsVersions) {
       for (const line of versionLines(counterpart.selfPageVersions())) io.out(line);
@@ -1331,8 +1389,12 @@ async function selfPageCommand(
         io.err(`refused: no version ${seq}. 'self-page --versions' lists the ones there are.`);
         return EXIT.usage;
       }
-      io.out(`version ${found.seq} — lived day ${found.day}, ${found.reason}`);
-      io.out("");
+      // The header goes to STDERR, so `self-page --version 1 > file` writes the
+      // page and nothing else. The owner had to hand-edit it out before, which
+      // is half of why `--restore` exists.
+      io.err(
+        `version ${found.seq} — lived day ${found.day}, ${found.by === null ? "" : `${found.by}: `}${found.reason ?? "(reason unrecorded)"}`,
+      );
       for (const line of (found.body ?? "(this version's prose could not be read)").split("\n")) io.out(line);
       return EXIT.ok;
     }
@@ -1341,7 +1403,9 @@ async function selfPageCommand(
       for (const line of NO_PAGE_LINES) io.out(line);
       return EXIT.ok;
     }
-    const lines = pageLines(page, counterpart.self.pageStale(page), counterpart.selfPageVersions().length);
+    // COUNTED, not read (m9): printing one number used to read every archived
+    // body off disk.
+    const lines = pageLines(page, counterpart.self.pageStale(page), counterpart.selfPageVersionCount());
     for (const line of lines) io.out(line);
     return EXIT.ok;
   } finally {
@@ -3044,7 +3108,13 @@ async function removeCommand(
     planning.close();
   }
   if (!plan.valid) {
-    io.err(`refused: ${plan.reason} (${targetId})`);
+    // One refusal gets a sentence rather than a code, because it is the one
+    // that means "you want a different command" rather than "that id is wrong".
+    io.err(
+      plan.reason === "is-the-self-page"
+        ? `refused: ${targetId} is the self page, and removal is not how a page goes away — it would tombstone the row that every session's wake and the schema index read. Unwrite it with 'counterparts self-page --clear', which keeps what it said as a version you can restore.`
+        : `refused: ${plan.reason} (${targetId})`,
+    );
     return EXIT.refused;
   }
 

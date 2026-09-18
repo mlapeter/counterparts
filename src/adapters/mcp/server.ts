@@ -246,6 +246,10 @@ const PAGE_REFUSAL_DETAIL: Record<string, string> = {
     "That page is past the hard limit, so it was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter and send it again.",
   "gate-refused":
     "The gate battery turned it away — most often because what was sent was nothing but a credential, or too short to be a page. Nothing was written.",
+  "forged-markers":
+    "That page contains the wake's own structural markers (`<!-- counterparts:wake`). Those lines are the bundle's bookkeeping, and a page carrying them reads to the next session as the end of its memory. Write the page in ordinary prose; headings are fine.",
+  "version-moved":
+    "Somebody else wrote the page after the version you read — another session, the owner, or the nightly writer. Nothing was written, and nothing of theirs was lost. `currentVersion` and `currentBody` here are what is actually there: fold your change into that and send it back with the new `ifVersion`.",
 };
 
 const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, skill: true, place: true, fact: true };
@@ -1109,16 +1113,31 @@ export class McpServer {
     const body = args["body"];
     if (body === undefined) return this.selfPageRead();
     if (this.observer) return this.standDown("self_page");
-    if (typeof body !== "string" || body.trim().length === 0) {
+    // A NON-STRING body is a malformed call and stops here; an EMPTY one goes
+    // THROUGH the seam, because the seam is what writes the durable refusal row
+    // this tool's own description promises. The short-circuit that used to catch
+    // both left `self_page({ body: "   " })` as the one refusal on this path
+    // with no row behind it (adversarial review m4).
+    if (typeof body !== "string") {
       return this.refuse("self_page", "body-required", {
         detail:
-          "A page has to say something. Pass the whole page; omit `body` entirely to read the one that is there.",
+          "A page has to say something. Pass the whole page as text; omit `body` entirely to read the one that is there.",
       });
     }
     const reason = args["reason"];
+    const ifVersion = args["ifVersion"];
+    if (ifVersion !== undefined && (typeof ifVersion !== "number" || !Number.isInteger(ifVersion))) {
+      return this.refuse("self_page", "if-version-not-a-number", {
+        detail: "`ifVersion` is the whole number the read gave you as `version`, or leave it out.",
+      });
+    }
     const written = this.counterpart.revisePage(body, {
       reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
       by: "session",
+      // WHICH SESSION, when this server has one. `note` resolves it the same
+      // way; null is recorded rather than a guess (adversarial review M3).
+      session: this.session,
+      ...(ifVersion === undefined ? {} : { ifVersion }),
     });
     this.emit("mcp.self_page", written.id ?? undefined, {
       stored: written.written,
@@ -1130,6 +1149,11 @@ export class McpServer {
       return this.refuse("self_page", written.reason, {
         bytes: written.bytes,
         ...(written.gate === null ? {} : { gate: written.gate }),
+        // On a stale write, hand back what is actually there so the session can
+        // merge rather than guess — the whole point of the check.
+        ...(written.current === null
+          ? {}
+          : { currentVersion: written.current.version, currentBody: written.current.body }),
         detail: PAGE_REFUSAL_DETAIL[written.reason] ?? "The page was not written.",
       });
     }
@@ -1140,6 +1164,16 @@ export class McpServer {
         id: written.id,
         version: written.version,
         bytes: written.bytes,
+        // THE GATE CHANGED IT. Accepted is not the same as unaltered, and a
+        // session told only `stored: true` would go on believing it wrote what
+        // it sent (m1).
+        ...(written.redacted === null
+          ? {}
+          : {
+              redacted: true,
+              redactedBy: written.redacted.gate,
+              bytesBeforeRedaction: written.redacted.bytesBefore,
+            }),
         ...(written.warning === null ? {} : { warning: written.warning }),
         // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
         // is composed at a boundary and served unchanged until the next one, so
@@ -1174,7 +1208,10 @@ export class McpServer {
         by: page.by,
         version: page.version,
         stale: this.counterpart.self.pageStale(page),
-        versions: this.counterpart.selfPageVersions().length,
+        // COUNTED, not read: `selfPageVersions().length` read every archived
+        // body off disk to print one number, on every read a session makes
+        // (adversarial review m9).
+        versions: this.counterpart.selfPageVersionCount(),
       },
       false,
     );

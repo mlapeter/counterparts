@@ -92,6 +92,28 @@ export interface SelfTunables {
    * A page that EXISTS replaces the list under both values (spec §15 item 4).
    */
   PAGE_EMPTY_SHOWS_LIST: boolean;
+  /**
+   * DOES THE PAGE LEAVE THE MACHINE with a composition that filters?
+   *
+   * `true` (the default): the crash-fallback interpreter is woken WITH the page.
+   * That is the owner's own decision of 2026-09-17 (spec §15 item 3) — the
+   * background writer gets as much of the self as is reasonable before it reads
+   * a transcript, so what it writes is not a stranger's paraphrase — and the
+   * transcript it is being handed already goes to the same provider on the same
+   * call. What goes out is exactly the page: the owner's and the session's own
+   * standing account of the self, cut to the same cap the wake uses.
+   *
+   * `false`: a filtering composition gets NO page, and its "Who I am" falls back
+   * to the identity list the `omit` predicate left standing — which is what that
+   * composition carried before the page existed.
+   *
+   * It is a switch and not an inference because the page is born `protected`,
+   * and `sweepFallback`'s own predicate holds protected rows back. The flag is
+   * the PRUNE's vocabulary (see `page.ts`), so it does not decide this by
+   * itself — but it is close enough to the question that the answer has to be
+   * written down rather than read off a flag that means something else.
+   */
+  PAGE_ON_EGRESS: boolean;
 
   // ── budget telemetry ──────────────────────────────────────────────────────
   /** Fraction of the budget at which the render reports pressure. A budget gets
@@ -172,6 +194,7 @@ export const SELF_TUNABLES: SelfTunables = {
   PAGE_MAX_BYTES: 16_384,
   PAGE_STALE_DAYS: 14,
   PAGE_EMPTY_SHOWS_LIST: true,
+  PAGE_ON_EGRESS: true,
 
   BUDGET_PRESSURE: 0.9,
 

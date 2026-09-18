@@ -35,6 +35,7 @@ import {
   readMarker,
 } from "../../../core/sleep/index.js";
 import { FRAMING, LANE_ORDER, pageSections } from "../../../core/self/index.js";
+import type { PageVersion } from "../../../core/self/index.js";
 import type { Band, Kind } from "../../../core/types.js";
 import { NEVER, NONE, num } from "../layout.js";
 import { BANDS, CYCLE_PHASES, DURABLE_EVENTS, DURABLE_EVENT_NAMES, KINDS } from "../registries.js";
@@ -1083,7 +1084,10 @@ export interface MindView {
   } | null;
   /** The honest absence line when no page has been written. */
   readonly pageAbsent: string | null;
-  readonly pageVersions: { seq: number; reason: string; day: number; body: string | null }[];
+  /** Each body labelled with the write that PRODUCED it, and with what replaced
+   *  it named separately — `store.revise` stores the replacing reason on the row
+   *  it archives, so the two must not share a word (adversarial review M3). */
+  readonly pageVersions: PageVersion[];
   readonly chapters: ChapterRow[];
   readonly chaptersAbsent: string | null;
   readonly stories: StoryView[];
@@ -1096,6 +1100,7 @@ export function mindView(src: DashboardSource): MindView {
   const e = src.self.enumerate(day);
   const wake = src.self.wake();
   const page = src.self.page();
+  const sections = pageSections(page?.body ?? "");
   const everLived = day > 0 || store.list().length > 0;
   const seen = new Set(e.identity.map((el) => el.id));
   const unreadable = store
@@ -1152,7 +1157,12 @@ export function mindView(src: DashboardSource): MindView {
             reason: page.reason,
             version: page.version,
             stale: src.self.pageStale(page),
-            ...pageSections(page.body),
+            // The three the type declares, NAMED — a spread of `pageSections`
+            // also carried `preamble` into the JSON, which `tsc` cannot catch
+            // through a spread (adversarial review n2).
+            core: sections.core,
+            lately: sections.lately,
+            headed: sections.headed,
           },
     pageAbsent: page === null ? (everLived ? NONE : NEVER) : null,
     pageVersions: page === null ? [] : src.self.pageVersions(),

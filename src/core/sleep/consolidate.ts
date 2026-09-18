@@ -36,7 +36,7 @@ import { rowToPhysics } from "../store/operational.js";
 import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 import { PROMOTION_RECORD_PREFIX } from "./tunables.js";
 import type { Phase, PhaseCtx, PhaseOutcome, PromotionRecord } from "./types.js";
-import { countSkip, emptyOutcome, isJournal } from "./types.js";
+import { countSkip, emptyOutcome, isJournal, isSchemaRow } from "./types.js";
 
 /** This phase's own name, for the cursor it keeps. Typed, so a rename in the
  *  phase vocabulary fails `tsc` here rather than reading an empty cursor. */
@@ -48,6 +48,7 @@ export const CONSOLIDATION_SKIPS = [
   "archived",
   "removed",
   "journal",
+  "schema",
   "already-consolidated",
   "born-today",
   "below-semantic-floor",
@@ -115,6 +116,22 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     // MEMORY made from it can, and that is the path (`types.ts#isJournal`).
     if (isJournal(row)) {
       countSkip(out, "journal");
+      continue;
+    }
+    // NOR IS A SCHEMA ROW PROMOTED (2026-09-18). `dedup.ts` has skipped schema
+    // rows since it shipped, for a reason this phase shares: a belief, an
+    // entity, the identity core and the self page are standing claims with
+    // their own machinery for changing, and "this row crossed into the identity
+    // band" is a claim about a MEMORY. Adversarial review of the self page
+    // proved it reachable: give the page the physics that repeated recall
+    // credit leaves and forty cycles later it carries `promoted_identity`,
+    // `band identity` and a `band.promoted` crossing record — a promotion
+    // event on a row `scanActive` can never rank, counted by the promotion
+    // diagnostics and printed by `status` as an identity-band memory. The wake
+    // was unaffected; the telemetry was not. The identity core has had the same
+    // exposure since it shipped and is covered by the same line.
+    if (isSchemaRow(row)) {
+      countSkip(out, "schema");
       continue;
     }
     out.examined += 1;

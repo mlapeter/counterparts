@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 
 import type { Counterpart } from "../../core/counterpart.js";
 import { PAGE_TEMPLATE, pageSections } from "../../core/self/index.js";
-import type { SelfPage } from "../../core/self/index.js";
+import type { PageVersion, SelfPage } from "../../core/self/index.js";
 
 /** What a read prints when the store holds no page. Honest, and not a page. */
 export const NO_PAGE_LINES: readonly string[] = [
@@ -36,6 +36,9 @@ export const NO_PAGE_LINES: readonly string[] = [
   "A blank page to start from:",
   "",
   ...PAGE_TEMPLATE.trimEnd().split("\n").map((l) => `  ${l}`),
+  "",
+  "If a page was written here and cleared, its versions are still listed:",
+  "  counterparts self-page --versions   ·   counterparts self-page --restore <seq>",
 ];
 
 export function pageLines(page: SelfPage, stale: boolean, versions: number): string[] {
@@ -54,20 +57,37 @@ export function pageLines(page: SelfPage, stale: boolean, versions: number): str
   return [...head, ...page.body.split("\n")];
 }
 
-export function versionLines(
-  versions: readonly { seq: number; reason: string; day: number; body: string | null }[],
-): string[] {
+/**
+ * The version log, labelled by the write that PRODUCED each body.
+ *
+ * `store.revise` records the REPLACING write's reason on the row it archives, so
+ * printing `VersionRow.reason` straight through labelled the first page with the
+ * second write's words while the current page's own `Last change:` line was
+ * right — the same word meaning opposite things on two surfaces (adversarial
+ * review M3). `self/#pageVersions` reads the producing write off the durable
+ * rows; this prints it, with the replacing reason named for what it is, and in
+ * BYTES like every other page surface rather than in characters (m8).
+ */
+export function versionLines(versions: readonly PageVersion[]): string[] {
   if (versions.length === 0) return ["No earlier versions: the page has been written once, or not at all."];
   return [
     `${versions.length} earlier version${versions.length === 1 ? "" : "s"}, newest first.`,
+    "  seq · lived day · size · who wrote it and why · what replaced it",
     "",
-    ...versions.map(
-      (v) =>
+    ...versions.map((v) => {
+      const size = v.bytes === null ? "unreadable" : `${v.bytes} bytes`;
+      const wrote =
+        v.reason === null
+          ? "(unrecorded)"
+          : `${v.by === null ? "" : `${v.by}: `}${v.reason}`;
+      return (
         `  ${String(v.seq).padStart(4)}  lived day ${String(v.day).padStart(4)}  ` +
-        `${String(v.body === null ? "unreadable" : `${v.body.length} chars`).padEnd(12)} ${v.reason}`,
-    ),
+        `${size.padEnd(12)} ${wrote}   ← replaced by: ${v.replacedBy}`
+      );
+    }),
     "",
     "One of them in full: 'self-page --version <seq>'.",
+    "Put one back: 'self-page --restore <seq>' — itself a version, itself undoable.",
   ];
 }
 
@@ -106,19 +126,66 @@ export function writeLines(
   wakeCap: number,
 ): WrittenLines {
   if (!written.written) {
-    const detail =
-      written.reason === "observer"
-        ? "this console is in observer stance: an instrument reads the page and does not change it."
-        : written.reason === "too-large"
-          ? `the page is ${written.bytes} bytes, past the hard limit. Refused rather than cut — what gets cut at write time is the only copy.`
-          : written.reason === "empty"
-            ? "a page has to say something."
-            : `the gate battery turned it away${written.gate === null ? "" : ` (${written.gate.gate}: ${written.gate.reason})`}.`;
-    return { lines: [`refused: ${detail}`], ok: false };
+    switch (written.reason) {
+      case "observer":
+        return {
+          lines: ["refused: this console is in observer stance: an instrument reads the page and does not change it."],
+          ok: false,
+        };
+      case "too-large":
+        return {
+          lines: [
+            `refused: the page is ${written.bytes} bytes, past the hard limit. Refused rather than cut — what gets cut at write time is the only copy.`,
+          ],
+          ok: false,
+        };
+      case "empty":
+        return { lines: ["refused: a page has to say something."], ok: false };
+      case "forged-markers":
+        return {
+          lines: [
+            "refused: the page carries the wake's own structural markers (`<!-- counterparts:wake`). Those lines are the bundle's bookkeeping; a page that contains them reads, to the next session, as the end of its memory.",
+          ],
+          ok: false,
+        };
+      case "version-moved":
+        return {
+          lines: [
+            `refused: the page has moved on since the version you named — ${written.current === null ? "there is no page there now" : `it is at version ${written.current.version}`}.`,
+            "Nothing was written. Read it again ('counterparts self-page'), fold in what you meant to change, and write that.",
+          ],
+          ok: false,
+        };
+      default:
+        return {
+          lines: [
+            `refused: the gate battery turned it away${written.gate === null ? "" : ` (${written.gate.gate}: ${written.gate.reason})`}.`,
+          ],
+          ok: false,
+        };
+    }
+  }
+  if (written.reason === "cleared") {
+    return {
+      lines: [
+        `Cleared the page — the ${written.bytes} bytes that were there are kept as version ${written.version}.`,
+        "The wake goes back to what it showed before a page existed. Put it back with: counterparts self-page --restore " +
+          `${written.version}.`,
+      ],
+      ok: true,
+    };
   }
   return {
     lines: [
       `${written.reason === "created" ? "Wrote" : "Revised"} the page — ${written.bytes} bytes, version ${written.version}.`,
+      // THE GATE CHANGED IT, and the owner is told (adversarial review m1). He
+      // wrote a file from his editor; what is stored is not that file, and this
+      // is the one row read aloud at the start of every session.
+      ...(written.redacted === null
+        ? []
+        : [
+            `NOTE: the gate redacted the page before storing it (${written.redacted.gate}) — ${written.redacted.bytesBefore} bytes in, ${written.bytes} out. Read it back before you rely on it: counterparts self-page.`,
+          ]),
       ...(written.warning === null
         ? []
         : [

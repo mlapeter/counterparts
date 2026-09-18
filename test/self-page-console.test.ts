@@ -17,6 +17,8 @@ import { join } from "node:path";
 import { COMMAND_FLAGS, EXIT, commandHelp, run, unknownFlag, usage } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { firedReport } from "../src/adapters/fired.js";
+import { expandHandle } from "../src/adapters/mcp/deliberate.js";
+import { activate, TUNABLES as RECALL_TUNABLES } from "../src/core/recall/index.js";
 import { selfPageFindings } from "../src/adapters/claude-code/doctor.js";
 import { sourceOf } from "../src/adapters/dashboard/source.js";
 import { mindView } from "../src/adapters/dashboard/web/views.js";
@@ -182,6 +184,112 @@ describe("counterparts self-page", () => {
     after.store.close();
   });
 
+  test("--clear unwrites the page, keeps it as a version, and --restore puts it back", async () => {
+    withPage(PAGE);
+    const cleared = consoleWith();
+    expect(await run(["self-page", "--clear", "--reason=no longer true", `--dir=${dir}`], {
+      io: cleared.io,
+      env: {},
+    })).toBe(EXIT.ok);
+    expect(cleared.out.join("\n")).toContain("Cleared the page");
+
+    // The store reads as having no page — which is what puts the wake back to
+    // its empty-page behaviour — and nothing was destroyed.
+    const after = consoleWith();
+    await run(["self-page", `--dir=${dir}`], { io: after.io, env: {} });
+    expect(after.out.join("\n")).toContain("still forming");
+
+    const list = consoleWith();
+    await run(["self-page", "--versions", `--dir=${dir}`], { io: list.io, env: {} });
+    expect(list.out.join("\n")).toContain("1 earlier version");
+
+    const back = consoleWith();
+    expect(await run(["self-page", "--restore=1", `--dir=${dir}`], { io: back.io, env: {} })).toBe(EXIT.ok);
+    const c = Counterpart.open({ dir, observer: true });
+    expect(c.selfPage()?.body).toBe(PAGE);
+    c.store.close();
+  });
+
+  test("--restore refuses a seq that is not there, and --clear on no page says so", async () => {
+    withPage(null);
+    const missing = consoleWith();
+    expect(await run(["self-page", "--restore=4", `--dir=${dir}`], { io: missing.io, env: {} })).toBe(
+      EXIT.usage,
+    );
+    expect(missing.err.join("\n")).toContain("no version 4");
+
+    const nothing = consoleWith();
+    expect(await run(["self-page", "--clear", `--dir=${dir}`], { io: nothing.io, env: {} })).toBe(
+      EXIT.refused,
+    );
+    expect(nothing.err.join("\n")).toContain("a page has to say something");
+  });
+
+  test("--if-version guards a write, and two modes on one line are refused", async () => {
+    withPage(PAGE);
+    const stale = consoleWith();
+    expect(
+      await run(
+        ["self-page", "--write", `--file=${pageFile(PAGE_TWO)}`, "--if-version=7", `--dir=${dir}`],
+        { io: stale.io, env: {} },
+      ),
+    ).toBe(EXIT.refused);
+    expect(stale.err.join("\n")).toContain("moved on");
+
+    const fresh = consoleWith();
+    expect(
+      await run(
+        ["self-page", "--write", `--file=${pageFile(PAGE_TWO)}`, "--if-version=0", `--dir=${dir}`],
+        { io: fresh.io, env: {} },
+      ),
+    ).toBe(EXIT.ok);
+
+    const both = consoleWith();
+    expect(await run(["self-page", "--clear", "--versions", `--dir=${dir}`], { io: both.io, env: {} })).toBe(
+      EXIT.usage,
+    );
+    expect(both.err.join("\n")).toContain("Pass one");
+  });
+
+  test("--version prints the body on stdout and its header on stderr, so a redirect is the page", async () => {
+    withPage(PAGE);
+    const c0 = Counterpart.open({ dir });
+    c0.revisePage(PAGE_TWO, { reason: "second", by: "owner" });
+    c0.store.close();
+    const one = consoleWith();
+    await run(["self-page", "--version=1", `--dir=${dir}`], { io: one.io, env: {} });
+    expect(one.out.join("\n")).toBe(PAGE);
+    expect(one.err.join("\n")).toContain("version 1");
+  });
+
+  test("a redaction is reported to the owner, who wrote the file himself", async () => {
+    withPage(null);
+    const c = consoleWith();
+    const body = "## Core\n\nMy key is sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA and I use it.";
+    await run(["self-page", "--write", `--file=${pageFile(body)}`, `--dir=${dir}`], { io: c.io, env: {} });
+    expect(c.out.join("\n")).toContain("the gate redacted the page");
+    const after = Counterpart.open({ dir, observer: true });
+    expect(after.selfPage()?.body).not.toContain("sk-ant-api03");
+    after.store.close();
+  });
+
+  test("remove refuses the page by name and points at the door that works", async () => {
+    withPage(PAGE);
+    const c0 = Counterpart.open({ dir, observer: true });
+    const id = c0.selfPage()?.id as string;
+    c0.store.close();
+
+    const c = consoleWith();
+    expect(await run(["remove", id, "--confirm", `--dir=${dir}`], { io: c.io, env: {} })).toBe(
+      EXIT.refused,
+    );
+    expect(c.err.join("\n")).toContain("self-page --clear");
+    // And the store still opens, which is the whole point.
+    const after = Counterpart.open({ dir, observer: true });
+    expect(after.selfPage()?.body).toBe(PAGE);
+    after.store.close();
+  });
+
   test("it is on the console's usage, its help lists its own flags, and a wrong flag is refused", () => {
     expect(usage()).toContain("self-page");
     const help = commandHelp("self-page");
@@ -263,6 +371,67 @@ describe("the page is visible where mechanisms are", () => {
     expect(view.pageVersions).toHaveLength(1);
     expect(view.pageVersions[0]?.body).toBe(PAGE);
     c.store.close();
+  });
+
+  /**
+   * The page is delivered whole at every wake. Leaving it in the candidate pool
+   * meant it could be quoted back on a turn that was already carrying it, could
+   * accrue use credit and association edges for being what it always is, and —
+   * a schema row has no project scope — could surface under a project the owner
+   * never wrote it in. The review proved it came back as a footnote for a cue
+   * drawn from its own body.
+   */
+  test("the page never comes back from recall — not by search, not by id", async () => {
+    withPage(null);
+    const c = Counterpart.open({ dir });
+    c.revisePage(
+      "## Core\n\nCore: the placeholder mentions a distinctive marmalade telescope.",
+      { reason: "first", by: "owner" },
+    );
+    // Enough ordinary rows for rarity to discriminate — the token channel is
+    // what makes the positive control mean anything.
+    for (let i = 0; i < 24; i++) {
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `A placeholder filler note number ${i}, about nothing in particular at all.`,
+        salience: { novelty: 0.5, relevance: 0.5, emotional: 0.2, predictive: 0.2 },
+      });
+    }
+    // An ordinary memory with the same distinctive words, to prove the cue works.
+    const id = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "A placeholder note about a distinctive marmalade telescope.",
+      salience: { novelty: 0.8, relevance: 0.9, emotional: 0.5, predictive: 0.5 },
+    });
+    const pageId = c.selfPage()?.id as string;
+    c.store.close();
+
+    const reader = Counterpart.open({ dir });
+    // THE SEARCH DOOR, at the layer the exclusion lives in. `activate` is where
+    // a cue becomes a candidate; the ordinary memory with the same words is the
+    // positive control, so the page's absence is the exclusion and not the cue.
+    const out = activate(
+      reader.store,
+      {
+        text: "a distinctive marmalade telescope",
+        day: reader.store.livedDay(),
+        selfFelt: false,
+        maxCandidates: 50,
+        storeSize: reader.store.list({ archived: false }).length,
+      },
+      RECALL_TUNABLES,
+    );
+    const candidates = out.candidates.map((c) => c.id);
+    expect(candidates).toContain(id);
+    expect(candidates).not.toContain(pageId);
+
+    // THE BY-ID DOOR, with its own positive control: expanding the page would
+    // credit a use for a row the wake delivers whole every morning.
+    expect(expandHandle(reader, id, { owner: true, sessionId: "s1" }).reason).toBe("expanded");
+    expect(expandHandle(reader, pageId, { owner: true, sessionId: "s1" }).reason).toBe("handle-unknown");
+    reader.store.close();
   });
 
   test("the dashboard says a blank store has no page rather than showing an empty one", () => {
