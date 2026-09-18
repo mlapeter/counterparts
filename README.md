@@ -46,6 +46,12 @@ and runs them directly — there is no build step and no `dist/`. **Node is unte
 store uses Node's built-in `node:sqlite`, which needs Node 22.5+ behind a flag and 23.4+
 by default; nobody has run this package under any Node, so it claims nothing there.
 
+**You also need `npm`, for one command.** `npm pack`, below, is how you build the tarball
+while the package is unpublished. It comes with Node, and a machine that has only bun may
+not have it — without Node on the PATH, `npm pack` fails with
+`env: node: No such file or directory`, which says nothing about the cause. QUICKSTART §1
+lists the prerequisites in full.
+
 **No API keys are required.** With none, two things are off. Recall runs on its text
 channel alone rather than also matching by meaning; an embedding key buys the other half —
 and it stays off by default even when a key is present, because embedding means sending
@@ -161,7 +167,10 @@ generated from a list of stated privileges, each naming the file that enforces i
 | `session_end` | Hand back what this session taught, as memories, in the AI's own words. |
 | `chapter` | Write this stretch of the session into the AI's own first-person journal, at any length. |
 
-**Your console** — `counterparts <command>`. Read-only: `status`, `recall`, and `probe-oq4` (the footnote-header probe, recall CONTRACT §7). `verify` is
+**Your console** — `counterparts <command>`. Read-only: `status`, `recall`, `doctor` (is
+the background half alive? — the one troubleshooting command, QUICKSTART §12), `fired`
+(which mechanisms have actually fired, and which have not), and `probe-oq4` (the
+footnote-header probe, recall CONTRACT §7). `verify` is
 a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
 which is why `verify` counts as a write and refuses under `--observer` even without the
 flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
