@@ -226,8 +226,9 @@ function manifest(base: string): Record<string, string> {
         continue;
       }
       if (!st.isFile()) continue;
-      // A database's `-wal`/`-shm` are the substrate's bookkeeping, not input:
-      // under WAL any connection moves bytes in them, a read-only one included.
+      // A database's `-shm` is the substrate's bookkeeping, not input: under WAL
+      // every connection writes read-marks into it, a read-only one included. The
+      // `-wal` stays in the manifest — a commit lives there until a checkpoint.
       if (isDatabaseSidecar(name)) continue;
       out[relative(base, full).split(sep).join("/")] =
         `${st.size}:${createHash("sha256").update(readFileSync(full)).digest("hex")}`;

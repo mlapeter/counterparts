@@ -1549,10 +1549,10 @@ describe("the crash gate — only a crashed session's transcript is ever read", 
 describe("observer stance — a full lifecycle leaves canonical state byte-identical", () => {
   /** Every canonical byte under the data dir, hashed per relative path. Box 3
    *  (`cache/`) is excluded BY NAME: it is declared rebuildable, never backed up,
-   *  and observer-mode's open question 2 is about exactly its residue. The
-   *  database's `-wal`/`-shm` sidecars are excluded for a second reason: under
-   *  WAL any connection moves bytes in them, so they are the substrate's
-   *  bookkeeping and not the store's content (`isDatabaseSidecar`). */
+   *  and observer-mode's open question 2 is about exactly its residue. The `-shm`
+   *  is excluded for a second reason: under WAL every connection writes read-marks
+   *  into it, a read-only one included. The `-wal` is NOT excluded — a commit lives
+   *  there until a checkpoint, so it is where an observer's write would show. */
   function canonicalSnapshot(root: string): Record<string, string> {
     const out: Record<string, string> = {};
     const walk = (abs: string, rel: string): void => {

@@ -61,6 +61,20 @@ const open: Store[] = [];
  *  dir would be an unclassified top-level path and the next open would refuse. */
 const scratches: string[] = [];
 
+/**
+ * The canonical database AS IT STANDS: the file AND its `-wal`. Under WAL a
+ * commit lives in the sidecar until a checkpoint moves it into the file, so a
+ * compare of the file alone would pass over exactly the write these tests watch
+ * for.
+ */
+function databaseBytes(path: string): string {
+  const wal = `${path}-wal`;
+  return [
+    readFileSync(path).toString("base64"),
+    existsSync(wal) ? readFileSync(wal).toString("base64") : "",
+  ].join("|");
+}
+
 function scratch(): string {
   const at = mkdtempSync(join(tmpdir(), "counterparts-scratch-"));
   scratches.push(at);
@@ -1160,7 +1174,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     writer.advanceClock("2026-08-25");
     writer.close();
     open.length = 0;
-    const before = readFileSync(paths.operational(dir));
+    const before = databaseBytes(paths.operational(dir));
 
     const instrument = store({ observer: true });
     expect(instrument.list().length).toBe(1);
@@ -1172,7 +1186,7 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // upserts on EVERY open, which takes SQLite's write lock — so an instrument
     // could be refused, or refuse someone else, purely by opening. A live
     // `counterparts backup` threw "database is locked" that way.
-    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
   });
 
   test("a writer opening a current store does not rewrite it either", () => {
@@ -1180,10 +1194,10 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     first.put(mem("already here"));
     first.close();
     open.length = 0;
-    const before = readFileSync(paths.operational(dir));
+    const before = databaseBytes(paths.operational(dir));
     store().close();
     open.length = 0;
-    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
   });
 
   test("a store BELOW the read floor refuses under observer rather than migrating itself", () => {
@@ -1219,13 +1233,13 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     writer.setMeta("schemaVersion", String(OBSERVER_READ_FLOOR));
     writer.close();
     open.length = 0;
-    const before = readFileSync(paths.operational(dir));
+    const before = databaseBytes(paths.operational(dir));
     const observer = store({ observer: true });
     expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
     expect(observer.read(id).doc.body).toBe("readable through a v5 instrument while still v4");
     observer.close();
     open.length = 0;
-    expect(readFileSync(paths.operational(dir))).toEqual(before);
+    expect(databaseBytes(paths.operational(dir))).toEqual(before);
     // The writer that follows migrates it, as before.
     expect(store().getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
@@ -1531,10 +1545,10 @@ describe("WAL, the busy timeout, and I39", () => {
     open.length = 0;
     expect(journalModeOf(opPath())).toBe("wal");
     // Read before set: the second writer open rewrites nothing.
-    const before = readFileSync(opPath());
+    const before = databaseBytes(opPath());
     store().close();
     open.length = 0;
-    expect(readFileSync(opPath())).toEqual(before);
+    expect(databaseBytes(opPath())).toEqual(before);
 
     // The observer rule (§5): changing the journal mode is a write at open, and
     // an instrument converting the file it came to read is the same wrong as

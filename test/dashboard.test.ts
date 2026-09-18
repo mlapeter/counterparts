@@ -272,12 +272,11 @@ function snapshot(root: string, opts: { canonicalOnly?: boolean } = {}): Map<str
       const full = join(at, entry.name);
       const rel = relative(root, full);
       if (opts.canonicalOnly === true && rel.split("/")[0] === "cache") continue;
-      // And the database's own `-wal`/`-shm`, for a second measured reason: both
-      // boxes are in WAL since 2026-09-18, and under WAL every connection moves
-      // bytes in the sidecars — a read-only one included. They hold nothing the
-      // database file will not hold once it is checkpointed, so "byte-identical"
-      // means the database file, as it always did in DELETE mode where the
-      // journal existed only inside a transaction.
+      // And the database's `-shm`, for a second measured reason: both boxes are in
+      // WAL since 2026-09-18, and under WAL every connection writes read-marks into
+      // that file — a read-only one included. The `-wal` is NOT skipped: a commit
+      // lives there until a checkpoint, so it is where a write by this adapter
+      // would show, and this suite exists to see one.
       if (isDatabaseSidecar(entry.name)) continue;
       if (entry.isDirectory()) {
         walk(full);

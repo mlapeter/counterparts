@@ -898,3 +898,11 @@ and in WAL a reader no longer blocks the writer.
 
 `counterparts verify` prints the mode and the timeout, so the answer to "is it on
 yet" is one command rather than a `sqlite3` incantation.
+
+**The byte-identity suites keep their teeth.** Five of them hash a store
+directory and mean "nothing wrote": the dashboard's, the probe's (scar E7),
+`encode`'s gated chunk, the parallel run's input manifest, `verify`'s census.
+Under WAL a commit lands in the `-wal` until a checkpoint moves it into the file,
+so they hash the `-wal` WITH the database and skip only the `-shm`, which every
+connection writes read-marks into (`isDatabaseSidecar`, `paths.ts`). All five are
+green with the `-wal` in the hash — an instrument writes nothing there either.

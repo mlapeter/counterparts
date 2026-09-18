@@ -2226,7 +2226,9 @@ function verifyCensus(dir: string, io: Io): number {
   io.out(`Store: ${dir}`);
   // How the boxes are being held open, on the day WAL landed: the mode is in the
   // file header, so this says what the NEXT process will find, not what this one
-  // asked for. A store still reading `delete` had no writer open since the deploy.
+  // asked for. A store still reading `delete` means no writer on THIS build has
+  // opened it since the deploy — or that one on the build before it has, since
+  // that one set the mode unconditionally and would have set it back.
   io.out(
     `Journal mode: ${journalModeOf(paths.operational(dir))} (busy timeout ${BUSY_TIMEOUT_MS} ms)`,
   );

@@ -164,7 +164,11 @@ function fingerprint(root: string): string {
     }
     parts.push(`${rel}:${readFileSync(path).toString("base64")}`);
   };
-  for (const name of ["prose", "versions", "spans", "operational.sqlite"]) {
+  // The `-wal` is in the list on purpose: under WAL a commit lives in the
+  // sidecar until a checkpoint moves it into the file, so hashing the database
+  // file alone would pass over the write this is watching for. (The `-shm` is
+  // not: it is the index every reader writes read-marks into.)
+  for (const name of ["prose", "versions", "spans", "operational.sqlite", "operational.sqlite-wal"]) {
     walk(join(root, name), name);
   }
   return parts.join("|");
@@ -1398,9 +1402,9 @@ describe("verify", () => {
     const parts: string[] = [];
     const walk = (at: string): void => {
       for (const name of readdirSync(at).sort()) {
-        // Bar a database's `-wal`/`-shm`: under WAL every connection moves bytes
-        // in them, and they hold nothing the database file will not hold once it
-        // is checkpointed. The database FILES themselves are still compared.
+        // Bar a database's `-shm`: under WAL every connection writes read-marks
+        // into it, a read-only one included. The `-wal` is hashed with the file —
+        // a commit lives there until a checkpoint moves it in.
         if (isDatabaseSidecar(name)) continue;
         const full = join(at, name);
         if (statSync(full).isDirectory()) walk(full);

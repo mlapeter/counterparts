@@ -1366,8 +1366,8 @@ describe("gated means gated, against a REAL store", () => {
   });
 
   /** Every file under the data dir, by path and content hash — bar a database's
-   *  `-wal`/`-shm`, which every connection moves bytes in under WAL and which
-   *  hold nothing the database file will not hold once it is checkpointed. */
+   *  `-shm`, which every connection under WAL writes read-marks into. The `-wal`
+   *  is hashed: a commit lives there until a checkpoint moves it into the file. */
   function snapshot(root: string): Record<string, string> {
     const out: Record<string, string> = {};
     const walk = (p: string, rel: string) => {
