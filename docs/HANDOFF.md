@@ -9,6 +9,12 @@ association saved, #126 the wake-delivery check, #127 the "what fired" view, plu
 integration commits. Combined suite 2211 pass / 0 fail, `tsc` clean. Left unmerged ON PURPOSE so master equals what
 is live and `doctor` stays green overnight. The owner said "continue" and asked for this handoff.
 
+**DONE 2026-09-18 00:xx UTC: the owner said merge. #129 and #130 merged; shared checkout deployed at `5c7431e`;
+doctor 13 green / 2 amber (Authorship: 2 refused by the session allowance against 171 by the old day cap in the
+window; Fired: 19 of 47 firing, 5 quiet, 4 never, 1 new, 15 blind); `counterparts fired --dir ~/.counterparts/store
+--observer` prints the table (the command takes `--dir`/`--observer`, not `--config`). Worktrees cleaned. What
+follows is the record of how it stood before that word.**
+
 **To finish step 1 — everything is done except the owner's word.** Both adversarial passes are in
 (`docs/adversarial-review-step1-2026-09-17.md`, `docs/adversarial-review-step1b-2026-09-17.md`); every MAJOR is
 fixed (the hook no longer writes to the database for association; a pending file under `sessions/association/`
@@ -16,8 +22,8 @@ is claimed and applied by the worker; a claim is touched when taken and its take
 watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129** = the whole batch against master,
 2212 pass / 0 fail, `tsc` clean. Merging #129 closes #125–#128.
 1. Owner says merge → `gh pr merge 129 -R mlapeter/counterparts --merge` → `tools/deploy-checkout.sh` →
-   `counterparts doctor --config ~/.counterparts/claude-code.json` → `counterparts fired --config
-   ~/.counterparts/claude-code.json`. No restart ritual (the parallel run's clock is stopped).
+   `counterparts doctor --config ~/.counterparts/claude-code.json` → `counterparts fired --dir
+   ~/.counterparts/store --observer`. No restart ritual (the parallel run's clock is stopped).
 2. Verify over the next days: `associate.flush` rows appear and edges gain a recent `last_day`; one
    `adapter.wake.delivered` row per new session, outcome `delivered`; doctor's Authorship refusals split by reason
    with `session-ask-cap` near zero; the first NEW session's memory server reports `scope source: project`.
