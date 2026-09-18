@@ -45,6 +45,35 @@ last checkpoint (the reviewer's probe: three rows in the `-wal`, `immutable=1` s
 (`promotion-diagnosis`, `recall-surfacing-diagnosis`, `finding-12-diagnosis`, `mechanism-inventory`, storage spec §4)
 record what was run at the time, under DELETE mode, where it was right — do not copy the recipe out of them.
 
+**LATE NIGHT — the state a fresh session needs (master = `4b8b524`, LIVE = `039cd5d`, F1 not deployed):**
+
+| PR | what | head | state |
+|---|---|---|---|
+| #135 | F3 refactor | `9274085` (master merged in) | reviewed twice, SAFE; builder 2240 / 0 |
+| #139 | FIX removed schema rows (stacked on #135) | `39c39f2` | reviewed, safe to merge and deploy; 2246 / 0 (= the coordinator's trial merge) |
+| #141 | H1 hook stand-down visible + doctor "Store open" | `d12486d` + a last pass running | reviewed: healthy path PROVED byte-identical; 3 MAJORs, each a line or two (a throw AFTER the work is stderr-only; escalate after 5 busy turns; `assertSafeDataDir` before the marker write), Stop exit code restored to master's, marker written tmp+rename. The coordinator reads that diff and runs the suite; no third review. |
+| #136 | F2 snapshots | `5a5f990` | reviewed twice + last pass read by the coordinator; master + F2 = 2304 / 0. READY, merges after batch B |
+| #138 | S1 self page | `81b4e0d` | three passes. No-page wake byte-identical to master, re-proved on the second head (100 compositions). Third pass: ONE page row for life (`--clear` revises + `meta.cleared`; never archives), promotion guard narrowed to the page row alone (40-cycle master-vs-branch physics diff: only the page differs). PARKED until B and C are on master; then the builder merges master in (heaviest conflicts: six registry files with #136, `doctor.ts`/`commands.ts` with #141, `removal.ts` with #135) and the S1 reviewer does a final pass on the merged head. |
+
+**Batches, each on the owner's word:** A = F1, MERGED, the owner deploys it himself (below). B = #135 + #139 + #141. C = #136.
+D = #138. With `--ref` on master a merge no longer decides what a deploy carries, so B may merge before A is deployed; the
+deploys still go one batch at a time, in order.
+
+**H1 measured what F1 buys** (15 scripted sessions, fresh stores, prompt events that hit "database is locked"): old master
+5 of 45; master with F1/WAL 0 of 45; H1 merged with F1 0 of 90. The harness runs no real worker, so the old number was a
+floor.
+
+**A mistake of the coordinator's, caught by review, never deployed:** it told S1's builder "a schema row can never be
+promoted". On master beliefs, current-states and entities DO cross into the identity band and become decay-exempt
+(`physics/index.ts`, `promotedIdentity`), so that rule would have changed how the live store forgets. Narrowed to the page
+row; the physics diff proves every other row identical to master.
+
+**To do at the pin (from D1's builder):** a `hotfix/v5-floor` commit is not an ancestor of master, so doctor's Checkout line
+will read RED there, not the amber plan §4 expects.
+
+**Post-deploy check to add for batch B:** the `{"systemMessage": …}`-only hook output has never been watched rendering on
+this host. Break a SCRATCH store (recipe in PR #141's body), point one session's hook at its config, look at the terminal.
+
 **DONE, later the same night, on the owner's word ("ok go ahead and merge 142"): #142 (D1, `tools/deploy-checkout.sh
 --ref <commit-ish>`) MERGED; master = `4b8b524`. Tools only, nothing deployed. From here a merge to master no longer decides
 what the owner's next deploy carries: he names the commit. The builder also found that after the pin a `hotfix/v5-floor`
