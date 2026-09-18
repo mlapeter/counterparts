@@ -41,6 +41,70 @@ second merge.
 **After F1 is live, a caution for whoever runs count queries:** `sqlite3 -readonly "file:…?immutable=1"` does not read
 the `-wal`, so counts can look stale. That is not a regression.
 
+**Evening: all five builders have reported; NOTHING is merged; every merge below waits for the owner's word.**
+
+| PR | branch · head | builder's suite | adversarial review | state |
+|---|---|---|---|---|
+| #134 N2 | `newuser/n2-quickstart-dry-run` · `84dbcad` | 2223 / 0, install loop 52/52 | not needed (docs only; coordinator read it) | ready; asked the owner |
+| #135 F3 | `floor/f3-consumers-off-files` · `cbb72c4` | 2226 / 0 (reviewer re-ran: same) | **safe to merge**, 0 BLOCKER / 2 MAJOR — `docs/adversarial-review-f3-2026-09-18.md` | builder resumed for the fixes |
+| #136 F2 | `floor/f2-snapshots` · `45b37ba` | 2268 / 0 | running (first target: rotation; asked to SIGKILL a copy mid-flight and to prove a snapshot RESTORES) | waiting on review |
+| #137 F1 | `floor/f1-wal` · `aa2f50c` | 2231 / 0 | running (first targets: the read-only/observer open under WAL; old and new builds on one store at once) | waiting on review |
+| #138 S1 | `self/s1-page` · `7682a30` | 2269 / 0 | running (first targets: sleep eating the page; the no-page wake byte-identical to master; the MCP door as a persistence channel) | waiting on review |
+
+Reviews are written to the coordinating session's scratchpad as `adversarial-review-<track>-2026-09-18.md` and copied into
+`docs/` on this branch as they land.
+
+**F3's two MAJORs.** (1) The builder went past its brief and said so first: a new public `Store.readProseQuiet` that skips
+the archived-read event AND the owner-removal refusal. The reviewer proved no caller gains reach it did not have on master,
+and that the method is nonetheless a removal bypass on a class every adapter holds. Fix in progress: behind a linted seam
+(the `chaseRemoved` precedent), an id guard, and the dashboard withholding the content hash when it withholds a
+confidential body. (2) **Pre-existing on master, proved end to end through the real `ownerRemoval`: fully removing a
+belief or an entity leaves a schema row with a blank `prose_path`; the next `Schemas` open throws `PROSE_FILE_MISSING` out
+of `Counterpart.open`; `bin/hook.ts` (about line 602) catches it, writes one stderr line and exits 0. So one such removal
+means no wake, no recall and no capture in every later session, and nothing says so.** Not live today (sessions wake). The
+owner has been told not to remove a belief or entity until the fix is live. The fix is its own small PR stacked on #135,
+branch `fix/schemas-skip-removed-rows` (`Schemas.load`/`element` skip denied and chased rows); it has to land before the
+pin because the live store stays on the v5 floor until cut-over. Still to route: the hook swallowing a failed open with
+exit 0 (a durable row, or the red session-start notice).
+
+**F1, from the builder's report and the coordinator's read of `db.ts`.** `busy_timeout` first; the mode is read and set to
+WAL only by an opener that asks (`openDb(path, { wal: true })`; `openOperational` asks unless `initialize: false`;
+`openCache` always). Measured: SQLite does not run the busy handler for a journal-mode change, so a contended flip fails in
+about a millisecond, is swallowed (BUSY/LOCKED only) and is retried at the next open. **The deploy-day hazard:** master's
+build execs `PRAGMA journal_mode = DELETE` at EVERY open, so an old-build process that opens a fresh connection after the
+flip either flips the store back or throws at once. Hooks and the worker are fresh processes (new code after a deploy);
+each open Claude Code session's MCP server is old code holding one handle for life (proved fine while idle). The reviewer
+is running both builds as real subprocesses on one temp store and will give the ordered procedure. Rollback is
+re-detaching at the old commit: the old build's own open converts the file back.
+
+**F2.** Default directory resolves only when the dataDir's last segment is `store` (the owner's is, per doctor). Copy to
+`.partial-…` then rename; 18,800 files / 78 MB copied in 2.3 s against a 300 s watchdog. **Owner's choice to bring:** a bad
+value in the optional `snapshots` block (`keep: 0`) sends the whole adapter to observer by `config.ts`'s existing rule;
+the coordinator's recommendation is that bad snapshot values fall back to defaults with a doctor amber.
+
+**S1.** The page is one row, `type: "schema"`, `kind: "self"`, `meta.role = "page"`, born protected. Seam:
+`Counterpart.revisePage(body, { reason, by })`, `selfPage()`, `selfPageVersions()`. MCP tool `self_page` (no session
+binding, like `note`); CLI `counterparts self-page`. With no page and the default switch the wake is meant to be
+byte-identical to today's; a brand-new store shows the existing day-0 line, not the words "still forming" (the builder
+measured the verbatim line pushing a 400-byte host budget over and backed it out; one tunable away). **Owner's choices
+to bring:** 6,144 bytes of page on a 9,000-byte wake leaves the other lanes about half their room; whether the page is
+recallable (it is indexed today); whether the page rides in the fallback's wake; 14 days before "stale".
+
+**N2's findings to bring, two or three at a time:** keyless doctor is RED on day 1 while the README says no keys are
+required (recommend amber on a store that never had a key); `fired` opens with 28 "never" lines on a new store (recommend
+one day-1 line, after F2 merges); `status` buries its numbers under internal prose; doctor never checks that the hooks
+block and the MCP registration took. Also: `tools/install-loop/run.sh` fails about one run in five (`npm pack`'s stderr is
+merged into the pipe the tarball name is read from) — fold into N1.
+
+**Process notes.** The agents share the coordinating session's scratchpad; one builder overwrote another's PR-body file
+and it was briefly published on the wrong PR (repaired; all four bodies checked). Reviewers now write under unique names.
+The classifier refused the coordinator's count-only `immutable=1` query against the live store; it was not retried.
+`COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is NOT set in agent shells by default — every brief tells the agent to export it.
+
+**Expected merge conflicts, all mechanical:** F2 and S1 both add event names to the same exhaustive maps
+(`dashboard/registries.ts`, `web/flow.ts`, `web/narrate.ts`, `core/counterpart.ts`) and entries to `fired.ts`/`doctor.ts`;
+F1, F3 and S1 all touch `cli/commands.ts` in different places; `test/mcp.test.ts`'s tool count becomes seven with S1.
+
 **Next, in order:** adversarial review per PR as each builder reports (F1's reviewer attacks the read-only open under
 WAL first; F2's attacks rotation; S1's attacks sleep eating the page) → decisions to the owner two or three at a time
 → F4 from F3's merge → F5 builds once F3 and F4 are in, and merges only after the owner has what he wants live →
