@@ -23,6 +23,10 @@
  * And one from observer-mode G5: an unreadable configuration resolves to
  * OBSERVER, never to "encode anyway". `loadConfig` never throws.
  */
+import { isAbsolute } from "node:path";
+
+import { DEFAULT_KEEP as SNAPSHOT_DEFAULT_KEEP } from "../snapshots.js";
+
 import type { CredentialLoad } from "./credentials.js";
 
 
@@ -229,14 +233,29 @@ export interface AdapterConfig {
    * `mirror` is a second location that receives the same copy and rotates on its
    * own terms; a mirror failure is reported and never fatal.
    *
-   * `keep` goes through the same `num` reading as every other number here, so a
-   * `keep: 0` — which would mean "delete them all" — takes the whole
-   * configuration to observer rather than being read as a preference.
+   * **THIS ONE BLOCK IS READ LENIENTLY, AND IT IS THE ONLY ONE** (F2 review,
+   * MAJOR-2, coordinator's ruling 2026-09-18). Everything else in this file
+   * stands the whole configuration down to observer on a value it cannot read,
+   * and that is right for a knob whose wrong answer would make the adapter act:
+   * an egress switch, a path this package opens. It is wrong here. Measured on
+   * the branch: `"keep": 0` — or `"14"` with quotes, which is the likelier typo
+   * — returned `{ observer: true }` with `dataDir` GONE, so from the next hook on
+   * nothing was captured, nothing recalled, no row written, and the one stderr
+   * line a hook produces goes nowhere (I32). A backup preference is not worth
+   * memory. Each bad field falls back to its default, `ignored` records which and
+   * why, and doctor's Snapshot line says it out loud.
    */
   readonly snapshots?: {
     readonly dir?: string;
     readonly keep?: number;
     readonly mirror?: string;
+    /**
+     * What this file could not read inside the block, phrased for a person —
+     * "snapshots.keep was 0; using 14". Empty is absent. It is a REPORT, not a
+     * stance: nothing here changes what the adapter does beyond the default it
+     * fell back to, and doctor is what puts it in front of somebody.
+     */
+    readonly ignored?: readonly string[];
   };
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
@@ -276,7 +295,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     models?: { interpret?: ModelSeat; embed?: ModelSeat };
     embedder?: { enabled: boolean };
     parallel?: { enabled: boolean };
-    snapshots?: { dir?: string; keep?: number; mirror?: string };
+    snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -378,34 +397,12 @@ export function loadConfig(raw: unknown): LoadedConfig {
       out.parallel = { enabled: p["enabled"] };
     }
   }
+  // THE ONE LENIENT BLOCK. See the `snapshots` knob above for why: a backup
+  // preference that could not be read must cost the backup preference and
+  // nothing else. Nothing in here ever sets `unreadable`.
   const snapshots = rec["snapshots"];
   if (snapshots !== undefined) {
-    if (typeof snapshots !== "object" || snapshots === null || Array.isArray(snapshots)) {
-      unreadable = true;
-    } else {
-      const sn = snapshots as Record<string, unknown>;
-      const parsed: { dir?: string; keep?: number; mirror?: string } = {};
-      // `dir` and `mirror` are read exactly like `dataDir` and for the same
-      // reason: a path this package will WRITE INTO — and, for `dir`, ROTATE
-      // inside — is either a string the owner wrote or a configuration we did
-      // not understand, and the second one stands down rather than guessing.
-      for (const key of ["dir", "mirror"] as const) {
-        const value = sn[key];
-        if (value === undefined) continue;
-        if (typeof value !== "string") unreadable = true;
-        else parsed[key] = value;
-      }
-      const keep = sn["keep"];
-      if (keep !== undefined) {
-        // `num`'s reading, plus WHOLE — which means a `keep: 0` is a
-        // configuration nobody can act on rather than an instruction to delete
-        // every copy, and a `keep: 1.5` says so here rather than being read as
-        // the default several files away.
-        if (typeof keep !== "number" || !Number.isInteger(keep) || keep <= 0) unreadable = true;
-        else parsed.keep = keep;
-      }
-      out.snapshots = parsed;
-    }
+    out.snapshots = readSnapshots(snapshots);
   }
   const identity = rec["identity"];
   if (identity !== undefined) {
@@ -429,6 +426,72 @@ export function loadConfig(raw: unknown): LoadedConfig {
     return { config: { observer: true }, ok: false, reason: "unreadable" };
   }
   return { config: out, ok: true, reason: "loaded" };
+}
+
+/**
+ * The `snapshots` block, read leniently — the ONE place in this file that never
+ * stands the configuration down.
+ *
+ * Every rejection here names the field, what was in it, and what is being used
+ * instead, because "ignored silently" is the failure mode this block was moved
+ * out of strictness to avoid. `adapters/snapshots.ts#keepOf` owns the numeric
+ * fallback and is not restated; the two paths fall back to "no configured path",
+ * which means the default location beside the store.
+ */
+function readSnapshots(raw: unknown): {
+  dir?: string;
+  keep?: number;
+  mirror?: string;
+  ignored?: string[];
+} {
+  const ignored: string[] = [];
+  const out: { dir?: string; keep?: number; mirror?: string; ignored?: string[] } = {};
+  const done = (): typeof out => (ignored.length === 0 ? out : { ...out, ignored });
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    ignored.push('"snapshots" was not an object; the whole block was ignored');
+    return done();
+  }
+  const sn = raw as Record<string, unknown>;
+  const known = new Set(["dir", "keep", "mirror"]);
+  for (const key of Object.keys(sn)) {
+    // An unknown sub-key is REPORTED rather than dropped in silence: a typo'd
+    // `"mirrors"` that quietly did nothing is how somebody believes they have a
+    // second copy and does not.
+    if (!known.has(key)) ignored.push(`"snapshots.${key}" is not a setting this reads`);
+  }
+  for (const key of ["dir", "mirror"] as const) {
+    const value = sn[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string") {
+      ignored.push(`"snapshots.${key}" was not a path; using the default location`);
+      continue;
+    }
+    if (value.trim().length === 0) {
+      // Blank meaning "the default" was measured as a surprise: somebody who
+      // blanks the value to switch snapshots OFF gets the default location.
+      ignored.push(`"snapshots.${key}" was blank; using the default location`);
+      continue;
+    }
+    if (!isAbsolute(value)) {
+      // A relative path resolves against the WORKER's current directory, which
+      // is whatever directory the host session happened to be in — copies would
+      // scatter one per project and rotation would run inside each.
+      ignored.push(`"snapshots.${key}" must be an absolute path; using the default location`);
+      continue;
+    }
+    out[key] = value;
+  }
+  const keep = sn["keep"];
+  if (keep !== undefined) {
+    if (typeof keep !== "number" || !Number.isInteger(keep) || keep <= 0) {
+      ignored.push(
+        `"snapshots.keep" was ${JSON.stringify(keep)}; using ${String(SNAPSHOT_DEFAULT_KEEP)}`,
+      );
+    } else {
+      out.keep = keep;
+    }
+  }
+  return done();
 }
 
 /**

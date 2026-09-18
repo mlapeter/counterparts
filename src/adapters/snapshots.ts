@@ -62,13 +62,24 @@ import {
 } from "../core/counterpart.js";
 import {
   DEFAULT_STORE_SUBDIR,
+  LAYOUT,
   assertSafeDataDir,
   dateOf,
   isWithin,
 } from "../core/store/index.js";
+import { paths } from "../core/store/index.js";
 import type { Store } from "../core/store/index.js";
+import { openDb } from "../core/store/db.js";
 
 import { assertSafeTarget, snapshot, snapshotName } from "./cli/snapshot.js";
+
+/**
+ * The canonical database's FILE NAME, taken from the store's own path helper
+ * rather than typed here — F5 renames it to `counterparts.sqlite`, and a second
+ * spelling of it in this file would be a verification that quietly stopped
+ * verifying on the day the floor changed.
+ */
+const DATABASE_NAME = basename(paths.operational("."));
 
 /** The directory the copies live in, beside the store rather than inside it. */
 export const SNAPSHOTS_DIR_NAME = "snapshots";
@@ -82,6 +93,14 @@ export const DEFAULT_KEEP = 14;
  * `snapshotName`, whose output starts with a digit.
  */
 export const PARTIAL_PREFIX = ".partial-";
+
+/**
+ * And the whole shape of one, not just its prefix — `<prefix><instant>-<pid>`.
+ * The sweep deletes what matches this and nothing else, so a person's own
+ * `.partial-my-own-thing` in a directory they pointed `snapshots.dir` at is left
+ * alone (F2 review, MINOR-7).
+ */
+export const PARTIAL_NAME_RE = /^\.partial-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-\d+$/;
 
 /**
  * How old an abandoned `.partial-…` directory must be before a later run removes
@@ -122,6 +141,7 @@ export interface SnapshotsConfig {
 
 export type SnapshotReason =
   | "taken"
+  | "observer"
   | "already-today"
   | "no-default-dir"
   | "attempts-exhausted"
@@ -138,6 +158,9 @@ export interface RotationReport {
   readonly oldest: string | null;
   /** Abandoned `.partial-…` directories this pass removed. */
   readonly cleaned: number;
+  /** Copies whose name is more than a day ahead of the clock — a clock-skewed
+   *  boundary's, kept but counted, because they hold a `keep` slot forever. */
+  readonly future: number;
   readonly errors: readonly string[];
 }
 
@@ -161,6 +184,7 @@ const EMPTY_ROTATION: RotationReport = {
   kept: 0,
   oldest: null,
   cleaned: 0,
+  future: 0,
   errors: [],
 };
 
@@ -210,11 +234,35 @@ export function resolveSnapshotsDir(
  * directory. A symlink to an external volume is a legitimate arrangement and
  * still works; it is the TARGET that is judged.
  *
+ * **THE LIVE-STORE REFUSAL RUNS ON THE REALPATH, AND IT USED TO RUN ON THE NAME**
+ * (found by the F2 adversarial review, 2026-09-18). `assertSafeDataDir` is pure
+ * string math — it resolves and compares against `~/.bansai` and
+ * `~/.claude-engram` and follows no links — so applying it before the realpath
+ * meant a `snapshots.dir` that was a SYMLINK into v1's live memory cleared the
+ * one guard this repository's first safety rule is about, and the directory was
+ * handed back as rotatable. The copy was refused further down, but `cleanPartials`
+ * runs before that and would have swept inside the forbidden tree. It is checked
+ * on BOTH spellings now: the path as written, and the path it actually reaches.
+ *
+ * `refuse` is that check, injectable for ONE reason — `os.homedir()` cannot be
+ * moved under bun, so the forbidden roots cannot be relocated into a temp tree,
+ * and the only honest way to prove the ORDER hermetically is to hand the guard a
+ * stand-in and assert which spelling it was called with. Production never passes
+ * it.
+ *
  * Throws. Every caller in this file is inside a try.
  */
-export function assertRotatableDir(storeDir: string, dir: string): string {
-  // `assertSafeDataDir` first: it is the guard that refuses v1's live stores.
-  const real = realpathDeep(assertSafeDataDir(dir));
+export function assertRotatableDir(
+  storeDir: string,
+  dir: string,
+  refuse: (path: string) => string = assertSafeDataDir,
+): string {
+  // As WRITTEN first — a path literally under a forbidden root is refused by the
+  // name it was given, so the message names what the owner typed...
+  refuse(dir);
+  // ...and then as it RESOLVES, which is the spelling that decides where a
+  // delete would actually land.
+  const real = refuse(realpathDeep(dir));
   const store = realpathDeep(storeDir);
   // The two absolutes first, so each gets the refusal that names it. A
   // filesystem root also CONTAINS the store, and the containment message would
@@ -298,6 +346,15 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
   const counterpart = input.counterpart;
   const store: Store = counterpart.store;
 
+  if (counterpart.observer) {
+    // An instrument that leaves a directory behind is the thing §15 G3 is about.
+    // The runner already refuses under observer before it opens a store, so
+    // nothing reaches this today — but `noteAdapterEvent` standing the ROW down
+    // while the copy still wrote tens of megabytes to disk was a stand-down in
+    // name only (F2 review, MINOR-6).
+    return done("observer", null, null, 0, null, null, errors, started);
+  }
+
   const resolved = resolveSnapshotsDir(input.dataDir, input.config?.dir);
   if (resolved.dir === null) {
     // No row: a store outside this package's layout is a configuration fact, and
@@ -326,18 +383,40 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
   if (todaysSnapshot(dir, date) !== null) {
     return done("already-today", dir, null, 0, withCleaned(cleaned), null, errors, started);
   }
-  if (failedAttemptsToday(store, date) >= MAX_ATTEMPTS_PER_DAY) {
+  const attempts = failedAttemptsToday(store, date);
+  if (attempts.saturated) {
+    // The read could not see today's rows, so the cap's answer is a guess. It
+    // guesses "exhausted" — the fail-closed direction — and SAYS SO durably,
+    // because `attempts-exhausted` writes no row of its own and a permanent
+    // silent stop is the failure this project keeps writing scars about.
+    note(
+      counterpart,
+      SNAPSHOT_FAILED_EVENT,
+      { date, step: "attempts", reason: "attempt-window-unreadable" },
+      `${SNAPSHOT_FAILED_EVENT}:attempts:${date}`,
+    );
+    errors.push("the failure window was too full to read; treating the day's attempts as spent");
+    return done("attempts-exhausted", dir, null, 0, withCleaned(cleaned), null, errors, started);
+  }
+  if (attempts.count >= MAX_ATTEMPTS_PER_DAY) {
     return done("attempts-exhausted", dir, null, 0, withCleaned(cleaned), null, errors, started);
   }
   if (input.signal?.aborted === true) {
     // The watchdog already fired. Starting a copy of the whole store here is
-    // exactly the copy most likely to be killed halfway.
-    note(counterpart, SNAPSHOT_FAILED_EVENT, { date, step: "copy", reason: "aborted" }, undefined);
+    // exactly the copy most likely to be killed halfway. `step: "aborted"`, not
+    // `"copy"`: no copy was attempted, so this must not spend the day's budget
+    // (F2 review, MINOR-1 — three watchdog overruns cost the whole day's backup).
+    note(counterpart, SNAPSHOT_FAILED_EVENT, { date, step: "aborted", reason: "aborted" }, undefined);
     errors.push("aborted before the copy started");
     return done("aborted", dir, null, 0, withCleaned(cleaned), null, errors, started);
   }
 
-  const name = snapshotName(now);
+  // THE NAME'S DAY IS THE ROW'S DAY, always. `snapshotName` spells an instant,
+  // and a run that starts at 23:59:59 and copies at 00:00:01 would otherwise
+  // file the copy under tomorrow while the row said today — so "today's exists"
+  // would never find it and yesterday would end with no copy at all (F2 review,
+  // N-2). The time of day is the real instant; only the date is pinned.
+  const name = `${date}T${snapshotName(now).slice(11)}`;
   const copy = copyInto(store, dir, name, errors);
   if (!copy.ok) {
     note(counterpart, SNAPSHOT_FAILED_EVENT, { date, step: copy.step, reason: copy.why }, undefined);
@@ -346,7 +425,7 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
     return done("failed", dir, null, 0, withCleaned(cleaned), null, errors, started);
   }
 
-  const rotation = rotate(dir, input.config?.keep, name, cleaned, errors);
+  const rotation = rotate(dir, input.config?.keep, name, cleaned, errors, now);
   const mirror = mirrorTo(store, dir, name, input.config?.mirror, input.config?.keep, now, errors);
 
   note(
@@ -379,6 +458,9 @@ export function runSnapshot(input: SnapshotRunInput): SnapshotRunReport {
         keep: keepOf(input.config?.keep),
         deleted: rotation.deleted.length,
         names: [...rotation.deleted],
+        // A clock-skewed name holds a `keep` slot forever, so it is on the row
+        // that discards rather than left to be noticed as a missing day.
+        future: rotation.future,
         kept: rotation.kept,
         oldest: rotation.oldest,
       },
@@ -435,6 +517,21 @@ function copyInto(
     return { ok: false, step: "copy", why };
   }
   const files = report.copied.reduce((n, entry) => n + entry.files, 0);
+  // THE COPY IS LOOKED AT BEFORE THE RENAME MAKES IT A SNAPSHOT (F2 review,
+  // MINOR-9). `report.ok` means only that no entry reported an error — and
+  // `copyTree` returns 0 files and `ok: true` for a source that is not there, so
+  // a structurally empty directory would have taken the name, counted toward
+  // `keep`, satisfied "today's exists" and pushed a real copy out on day 15.
+  const bad = verifyCopy(partial, files);
+  if (bad !== null) {
+    errors.push(bad);
+    try {
+      rmSync(partial, { recursive: true, force: true });
+    } catch {
+      /* the sweep will get it */
+    }
+    return { ok: false, step: "verify", why: bad };
+  }
   try {
     renameSync(partial, join(dir, name));
   } catch (err) {
@@ -448,6 +545,39 @@ function copyInto(
     return { ok: false, step: "rename", why };
   }
   return { ok: true, files };
+}
+
+/**
+ * Is what was just written actually a copy? The cheapest honest questions, asked
+ * once, on a directory nothing else can see yet: it holds files at all, the
+ * database is there and not empty, and SQLite itself says the database is sound.
+ *
+ * `PRAGMA quick_check` rather than `integrity_check`: it is the one SQLite
+ * recommends for exactly this — it skips the expensive index cross-checks and
+ * still reads every page, which on a freshly vacuumed few-megabyte file is
+ * milliseconds. Returns the reason on failure, null when the copy is good.
+ */
+export function verifyCopy(partial: string, files: number): string | null {
+  if (files === 0) return "the copy landed no files at all";
+  const db = join(partial, DATABASE_NAME);
+  let size: number;
+  try {
+    size = statSync(db).size;
+  } catch {
+    return `the copy holds no ${DATABASE_NAME}`;
+  }
+  if (size === 0) return `the copy's ${DATABASE_NAME} is empty`;
+  let handle;
+  try {
+    handle = openDb(db);
+    const row = handle.get<Record<string, string>>("PRAGMA quick_check");
+    const verdict = row === undefined ? null : Object.values(row)[0];
+    return verdict === "ok" ? null : `the copy's database did not verify: ${verdict ?? "no answer"}`;
+  } catch (err) {
+    return `the copy's database would not open: ${messageOf(err)}`;
+  } finally {
+    handle?.close();
+  }
 }
 
 /**
@@ -525,6 +655,7 @@ export function rotate(
   justTaken: string | null,
   cleaned: number,
   errors: string[],
+  now: number = Date.now(),
 ): RotationReport {
   const limit = keepOf(keep);
   const names = snapshotNamesIn(dir);
@@ -549,6 +680,7 @@ export function rotate(
     kept: remaining.length,
     oldest: remaining[0] ?? null,
     cleaned,
+    future: futureNamesIn(remaining, now).length,
     errors: rotationErrors,
   };
 }
@@ -564,20 +696,68 @@ export function rotate(
  * of this directory.
  */
 export function snapshotNamesIn(dir: string): string[] {
+  return readSnapshotsDir(dir).names;
+}
+
+/**
+ * The same reading, with "the directory is not there or would not open" kept
+ * apart from "the directory is empty". Doctor needs those two apart — one is a
+ * store that has not taken a copy yet, the other is copies that have gone
+ * missing — and this module's own callers do not care.
+ */
+export function readSnapshotsDir(dir: string): { names: string[]; readable: boolean } {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // A directory that does not exist yet holds no snapshots. Not an error.
-    return [];
+    return { names: [], readable: false };
   }
   const names: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (!SNAPSHOT_NAME_RE.test(entry.name)) continue;
+    // AND IT HAS TO LOOK LIKE ONE WE WROTE (F2 review, MINOR-7). Inside the
+    // default directory this is belt and braces — the package made every entry
+    // there. It earns its keep the moment somebody points `snapshots.dir` or
+    // `mirror` at a directory of their own, shared with another tool: the delete
+    // rule becomes "a directory this package wrote" rather than "a directory
+    // whose name looks like one". Classified top-level names only, read from the
+    // store's own LAYOUT so the check cannot go stale when the floor changes.
+    if (!looksCopied(join(dir, entry.name))) continue;
     names.push(entry.name);
   }
-  return names.sort();
+  return { names: names.sort(), readable: true };
+}
+
+/** Does this directory hold at least one top-level entry the store's layout
+ *  classifies? A person's own folder wearing the name does not. */
+function looksCopied(path: string): boolean {
+  try {
+    for (const entry of readdirSync(path)) {
+      if (LAYOUT.some((e) => (e.match === "prefix" ? entry.startsWith(e.name) : entry === e.name))) {
+        return true;
+      }
+    }
+  } catch {
+    /* unreadable is not "ours" */
+  }
+  return false;
+}
+
+/**
+ * Snapshots whose name is more than a day in the FUTURE (F2 review, MINOR-5).
+ *
+ * One clock-skewed boundary — a laptop waking with a bad RTC — plants a name
+ * that sorts newest forever, occupies a `keep` slot permanently, and quietly
+ * leaves the owner with thirteen days of history instead of fourteen. They are
+ * NOT deleted here: a copy is a copy, and guessing that a name is wrong is not a
+ * reason to destroy the bytes behind it. They are COUNTED and reported, so the
+ * "silently" is gone.
+ */
+export function futureNamesIn(names: readonly string[], now: number): string[] {
+  const cutoff = new Date(now + 86_400_000).toISOString().replace(/[:.]/g, "-");
+  return names.filter((n) => n > cutoff);
 }
 
 /** Today's snapshot, by name, or null. The names are UTC ISO instants, so the
@@ -605,7 +785,7 @@ export function cleanPartials(dir: string, now: number, errors: string[]): numbe
   let cleaned = 0;
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    if (!entry.name.startsWith(PARTIAL_PREFIX)) continue;
+    if (!PARTIAL_NAME_RE.test(entry.name)) continue;
     const path = join(dir, entry.name);
     try {
       if (now - statSync(path).mtimeMs < PARTIAL_STALE_MS) continue;
@@ -634,7 +814,10 @@ export function cleanPartials(dir: string, now: number, errors: string[]): numbe
  */
 const FAILED_READ_LIMIT = 1000;
 
-function failedAttemptsToday(store: Store, date: string): number {
+function failedAttemptsToday(
+  store: Store,
+  date: string,
+): { count: number; saturated: boolean } {
   try {
     const livedDay = store.livedDay();
     // A lived day is never longer than a calendar day, so two lived days back
@@ -644,7 +827,7 @@ function failedAttemptsToday(store: Store, date: string): number {
       sinceDay: Math.max(0, livedDay - 2),
       limit: FAILED_READ_LIMIT,
     });
-    if (rows.length >= FAILED_READ_LIMIT) return MAX_ATTEMPTS_PER_DAY;
+    if (rows.length >= FAILED_READ_LIMIT) return { count: MAX_ATTEMPTS_PER_DAY, saturated: true };
     let n = 0;
     for (const row of rows) {
       if (row.payload === null) continue;
@@ -652,17 +835,23 @@ function failedAttemptsToday(store: Store, date: string): number {
         const p: unknown = JSON.parse(row.payload);
         if (p === null || typeof p !== "object") continue;
         const rec = p as Record<string, unknown>;
-        // Only a failed COPY counts against the cap. A refused directory costs
-        // nothing to re-check, and capping on it would hide a fixed one.
-        if (rec["date"] === date && (rec["step"] === "copy" || rec["step"] === "rename")) n += 1;
+        // Only a failed COPY counts against the cap: a refused directory, an
+        // aborted watchdog and an unreadable window all cost nothing to re-check,
+        // and capping on them would hide a fixed one (F2 review, MINOR-1).
+        if (
+          rec["date"] === date &&
+          (rec["step"] === "copy" || rec["step"] === "rename" || rec["step"] === "verify")
+        ) {
+          n += 1;
+        }
       } catch {
         /* an unparseable row is not an attempt */
       }
     }
-    return n;
+    return { count: n, saturated: false };
   } catch {
     // A store that cannot be read is not a store that has used up its attempts.
-    return 0;
+    return { count: 0, saturated: false };
   }
 }
 

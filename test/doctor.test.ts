@@ -98,6 +98,18 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/**
+ * A snapshot directory beside the store — the default location, which is
+ * `<root>/snapshots` because `dir` is `<root>/store`. It holds a file the
+ * store's layout classifies, because that is what makes a directory one this
+ * package wrote rather than one that merely wears the name.
+ */
+function fakeSnapshot(name: string): void {
+  const path = join(root, "snapshots", name);
+  mkdirSync(path, { recursive: true });
+  writeFileSync(join(path, "operational.sqlite"), "a copy");
+}
+
 /** A real store at `dir`, minted the way every other surface mints one. */
 function mintStore(): void {
   const c = Counterpart.open({ dir });
@@ -435,7 +447,32 @@ describe("doctor — the reading", () => {
    * come back". Amber, never red: a missing backup is not a broken memory, and
    * one colour for both teaches the reader to read past the one that matters.
    */
-  test("the snapshot line reads the newest row: last taken, how many kept, the oldest", () => {
+  test("the snapshot line counts what is ON DISK: last taken, how many kept, the oldest", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    for (const d of ["2026-09-01", "2026-09-13", "2026-09-14"]) fakeSnapshot(`${d}T03-00-00-000Z`);
+    s.appendEvent({
+      name: SNAPSHOT_TAKEN_EVENT,
+      day: s.livedDay(),
+      payload: { date: "2026-09-14", name: "2026-09-14T03-00-00-000Z", files: 16_400, kept: 3 },
+    });
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("green");
+    expect(snap.detail).toContain("last snapshot 2026-09-14");
+    expect(snap.detail).toContain("3 kept");
+    expect(snap.detail).toContain("oldest 2026-09-01");
+  });
+
+  /**
+   * MAJOR-3 OF THE F2 REVIEW, proved and then fixed: the line used to be computed
+   * entirely from the newest `snapshot.taken` row, so deleting every copy from
+   * disk left it reading green, "1 kept", for a full day — and after two days it
+   * went amber for the wrong reason, still claiming a copy existed. A row says
+   * what a run once wrote. The directory says what you have.
+   */
+  test("a row that claims a copy the directory does not hold is amber, and says there is nothing to restore from", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
@@ -443,19 +480,16 @@ describe("doctor — the reading", () => {
     s.appendEvent({
       name: SNAPSHOT_TAKEN_EVENT,
       day: s.livedDay(),
-      payload: {
-        date: "2026-09-14",
-        name: "2026-09-14T03-00-00-000Z",
-        files: 16_400,
-        kept: 14,
-        oldest: "2026-09-01T03-00-00-000Z",
-      },
+      payload: { date: "2026-09-14", name: "2026-09-14T03-00-00-000Z", kept: 14, oldest: "2026-09-01T03-00-00-000Z" },
     });
+    // No directory at all — the copies were tidied away, or never survived.
     const snap = by(doctorFindings(input({ store: s })), "snapshot");
-    expect(snap.severity).toBe("green");
-    expect(snap.detail).toContain("last snapshot 2026-09-14");
-    expect(snap.detail).toContain("14 kept");
-    expect(snap.detail).toContain("oldest 2026-09-01");
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain("nothing to restore from");
+    expect(snap.detail).not.toContain("14 kept");
+    // And the remedy is the restore procedure, because this is the line somebody
+    // reads on the day they need it.
+    expect(snap.fix).toContain("--rebuild");
   });
 
   test("a snapshot older than two days is amber", () => {
@@ -465,28 +499,16 @@ describe("doctor — the reading", () => {
     const s = store();
     // `today` in the fixture is 2026-09-14, so this copy is three days behind —
     // a daily mechanism that has missed one.
-    s.appendEvent({
-      name: SNAPSHOT_TAKEN_EVENT,
-      day: s.livedDay(),
-      payload: { date: "2026-09-11", name: "2026-09-11T03-00-00-000Z", kept: 9, oldest: null },
-    });
+    fakeSnapshot("2026-09-11T03-00-00-000Z");
     const snap = by(doctorFindings(input({ store: s })), "snapshot");
     expect(snap.severity).toBe("amber");
     expect(snap.detail).toContain("2 days ago or more");
     // THE BOUNDARY DAY, pinned rather than left to a reader's guess: two
     // calendar days back is a daily mechanism that has already missed one.
-    s.appendEvent({
-      name: SNAPSHOT_TAKEN_EVENT,
-      day: s.livedDay(),
-      payload: { date: "2026-09-12", name: "2026-09-12T03-00-00-000Z", kept: 10, oldest: null },
-    });
+    fakeSnapshot("2026-09-12T03-00-00-000Z");
     expect(by(doctorFindings(input({ store: s })), "snapshot").severity).toBe("amber");
     // And one taken yesterday is not.
-    s.appendEvent({
-      name: SNAPSHOT_TAKEN_EVENT,
-      day: s.livedDay(),
-      payload: { date: "2026-09-13", name: "2026-09-13T03-00-00-000Z", kept: 10, oldest: null },
-    });
+    fakeSnapshot("2026-09-13T03-00-00-000Z");
     expect(by(doctorFindings(input({ store: s })), "snapshot").severity).toBe("green");
   });
 
@@ -501,6 +523,43 @@ describe("doctor — the reading", () => {
     const snap = by(doctorFindings(input({ store: s })), "snapshot");
     expect(snap.severity).toBe("amber");
     expect(snap.detail).toContain("no snapshot has ever been taken");
+  });
+
+  test("a configuration value the snapshots block could not read is named on the line", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    fakeSnapshot("2026-09-14T03-00-00-000Z");
+    const findings = doctorFindings(
+      input({
+        store: s,
+        config: {
+          dataDir: dir,
+          credentialsFile: credsPath,
+          snapshots: { ignored: ['"snapshots.keep" was 0; using 14'] },
+        },
+      }),
+    );
+    const snap = by(findings, "snapshot");
+    // A backup preference that could not be read costs the preference and says
+    // so — it no longer costs the whole configuration (F2 review, MAJOR-2).
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain('"snapshots.keep" was 0; using 14');
+  });
+
+  test("a copy dated in the future is counted and named, never deleted", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    fakeSnapshot("2026-09-14T03-00-00-000Z");
+    // One clock-skewed boundary plants a name that holds a `keep` slot forever.
+    fakeSnapshot("2099-01-01T00-00-00-000Z");
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("amber");
+    expect(snap.detail).toContain("dated in the future");
+    expect(existsSync(join(root, "snapshots", "2099-01-01T00-00-00-000Z"))).toBe(true);
   });
 
   test("a store outside the package's layout says WHY no copy is being taken", () => {

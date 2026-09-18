@@ -614,7 +614,7 @@ export const NARRATORS = {
   },
   "snapshot.failed": (t) =>
     amber(
-      `No copy of me could be made today (${s(t, "step") ?? "unknown step"}: ${s(t, "reason") ?? "no reason recorded"}). Nothing was lost, and nothing old was deleted either.`,
+      `No copy of me could be made today (${s(t, "step") ?? "unknown step"}: ${s(t, "reason") ?? "no reason recorded"}). Nothing was lost, and nothing old was deleted either — the copies already kept are untouched. Run counterparts doctor; its Snapshot line says what is actually on disk and how to restore from it.`,
     ),
   "snapshot.rotated": (t) => {
     const deleted = n(t, "deleted") ?? 0;

@@ -24,6 +24,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -46,6 +47,7 @@ import {
 import { openDb } from "../src/core/store/db.js";
 import type { EventRow } from "../src/core/store/index.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
+import { RESTORE_STEPS } from "../src/adapters/claude-code/doctor.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import {
   DEFAULT_KEEP,
@@ -53,12 +55,15 @@ import {
   PARTIAL_STALE_MS,
   SNAPSHOT_NAME_RE,
   assertRotatableDir,
+  futureNamesIn,
   keepOf,
+  readSnapshotsDir,
   resolveSnapshotsDir,
   rotate,
   runSnapshot,
   snapshotNamesIn,
   todaysSnapshot,
+  verifyCopy,
 } from "../src/adapters/snapshots.js";
 
 /** Midday UTC on that date — well clear of both day boundaries. */
@@ -200,6 +205,10 @@ describe("the directory rotation deletes inside — every refusal", () => {
   });
 
   test("refuses the home directory itself", () => {
+    // READ-ONLY on the real home directory: `realpathSync` and a string compare,
+    // nothing more. It is here rather than in a temp tree because `os.homedir()`
+    // cannot be moved under bun (measured: mutating `process.env.HOME` at runtime
+    // does not move it), so there is no hermetic stand-in for this one.
     expect(() => assertRotatableDir(dir, homedir())).toThrow(/home directory/);
   });
 
@@ -222,6 +231,60 @@ describe("the directory rotation deletes inside — every refusal", () => {
     const trap = join(root, "trap");
     symlinkSync(join(dir, "prose"), trap);
     expect(() => assertRotatableDir(dir, trap)).toThrow(/inside the store/);
+  });
+
+  /**
+   * MAJOR-1 OF THE F2 REVIEW. `assertSafeDataDir` — the guard that refuses v1's
+   * live memory — is pure string math and follows no links, so applying it
+   * BEFORE the realpath meant a `snapshots.dir` that was a symlink into
+   * `~/.bansai` cleared it and the forbidden directory came back as rotatable.
+   * The copy was refused further down, but `cleanPartials` runs first.
+   *
+   * It cannot be proved against the real forbidden roots: `os.homedir()` cannot
+   * be moved under bun, so relocating them into a temp tree is impossible and
+   * the only alternative would be pointing a test at the owner's actual
+   * `~/.bansai`. So the refusal is INJECTED, and what is asserted is the thing
+   * that was wrong — which SPELLING of the path the guard is asked about.
+   */
+  test("the live-store refusal is asked about the path the link RESOLVES to, not the link's name", () => {
+    const pretendLive = join(root, "pretend-live-store");
+    mkdirSync(pretendLive, { recursive: true });
+    const link = join(root, "innocent-looking");
+    symlinkSync(pretendLive, link);
+
+    const asked: string[] = [];
+    // PURE STRING MATH, exactly like `assertSafeDataDir`: it follows no links.
+    // That is the property that made the ordering matter.
+    const refuse = (path: string): string => {
+      asked.push(path);
+      if (path === pretendLive || path.startsWith(`${pretendLive}/`)) {
+        throw new Error("DATA_DIR_FORBIDDEN");
+      }
+      return path;
+    };
+    // The link's own name is harmless to string math; its target is not.
+    expect(() => assertRotatableDir(dir, link, refuse)).toThrow(/FORBIDDEN/);
+    // BOTH spellings are asked about — the one the owner typed, so a literal
+    // path under a forbidden root is refused by the name they wrote, and the one
+    // it resolves to, which is where a delete would actually land. Before the
+    // fix only the first was asked, and the function RETURNED the forbidden
+    // directory as rotatable.
+    expect(asked[0]).toBe(link);
+    expect(asked).toContain(pretendLive);
+  });
+
+  test("a symlink the refusal does NOT object to still works, and resolves to its target", () => {
+    const volume = join(root, "ordinary-volume");
+    mkdirSync(volume, { recursive: true });
+    const link = join(root, "ordinary-link");
+    symlinkSync(volume, link);
+    const asked: string[] = [];
+    const refuse = (path: string): string => {
+      asked.push(path);
+      return path;
+    };
+    expect(assertRotatableDir(dir, link, refuse)).toBe(realpathSync(volume));
+    expect(asked.length).toBe(2);
   });
 
   test("a directory that does not exist yet is allowed — a fresh install has none", () => {
@@ -319,6 +382,59 @@ describe("rotation deletes only what it can prove is a snapshot", () => {
     const report = rotate(snapsDir, 1, null, 0, []);
     expect(report.deleted).toEqual(["2026-09-11T12-00-00-000Z"]);
     expect(existsSync(join(precious, "irreplaceable.txt"))).toBe(true);
+  });
+
+  /**
+   * MINOR-7 OF THE F2 REVIEW. Inside the default directory this is belt and
+   * braces — the package made every entry there. It earns its keep the moment
+   * somebody points `snapshots.dir` or `mirror` at a directory of their own,
+   * shared with another tool: a folder of theirs that happens to wear the name
+   * used to be `rm -rf`ed, and a `.partial-my-own-thing` used to be swept.
+   */
+  test("a directory wearing the name but holding nothing of ours is neither counted nor deleted", () => {
+    mkdirSync(snapsDir, { recursive: true });
+    const theirs = join(snapsDir, "2026-01-01T00-00-00-000Z");
+    mkdirSync(theirs, { recursive: true });
+    writeFileSync(join(theirs, "my-notes.md"), "not a snapshot");
+    // And their own partial-looking folder, which is not the shape we write.
+    const theirPartial = join(snapsDir, ".partial-my-own-thing");
+    mkdirSync(theirPartial, { recursive: true });
+    const old = (NOW - PARTIAL_STALE_MS - 60_000) / 1000;
+    utimesSync(theirPartial, old, old);
+    fakeSnapshot("2026-09-11T12-00-00-000Z");
+
+    expect(snapshotNamesIn(snapsDir)).toEqual(["2026-09-11T12-00-00-000Z"]);
+    const c = seeded();
+    const report = runSnapshot({ counterpart: c, dataDir: dir, config: { keep: 1 }, now: NOW, date: TODAY });
+    expect(report.reason).toBe("taken");
+    expect(report.rotation?.cleaned).toBe(0);
+    expect(existsSync(join(theirs, "my-notes.md"))).toBe(true);
+    expect(existsSync(theirPartial)).toBe(true);
+  });
+
+  /**
+   * MINOR-5. A laptop waking with a bad RTC plants a name that sorts newest
+   * forever and holds a `keep` slot. It is NOT deleted — guessing that a name is
+   * wrong is not a reason to destroy the bytes behind it — but the "silently" is
+   * gone: it is counted on the rotation row and on the doctor line.
+   */
+  test("a future-dated copy is counted and reported, never deleted", () => {
+    mkdirSync(snapsDir, { recursive: true });
+    fakeSnapshot("2099-01-01T00-00-00-000Z");
+    fakeSnapshot("2026-09-01T12-00-00-000Z");
+    fakeSnapshot("2026-09-02T12-00-00-000Z");
+    expect(futureNamesIn(snapshotNamesIn(snapsDir), NOW)).toEqual(["2099-01-01T00-00-00-000Z"]);
+    const report = rotate(snapsDir, 2, null, 0, [], NOW);
+    expect(report.future).toBe(1);
+    expect(existsSync(join(snapsDir, "2099-01-01T00-00-00-000Z"))).toBe(true);
+  });
+
+  test("a missing directory and an empty one are different answers", () => {
+    // Doctor needs those apart: one is a store that has not taken a copy yet,
+    // the other is copies that have gone missing.
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false });
+    mkdirSync(snapsDir, { recursive: true });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true });
   });
 
   test("the name pattern is exactly what `snapshotName` writes", () => {
@@ -529,22 +645,112 @@ describe("one run", () => {
     // Fail-closed, and the cheap direction: what is refused is a RETRY, never a
     // backup — the copy beside the store is untouched either way.
     expect(report.reason).toBe("attempts-exhausted");
+    // AND IT SAYS SO (F2 review, MINOR-2). `attempts-exhausted` writes no row of
+    // its own, so at this limit the mechanism would otherwise stop for good with
+    // nothing anywhere saying why.
+    // `eventLog` is ascending, so the new row is at the END of a read this
+    // large — the very trap the fix is about.
+    const named = c.store
+      .eventLog({ name: SNAPSHOT_FAILED_EVENT, limit: 5000 })
+      .filter((r) => payload(r)["reason"] === "attempt-window-unreadable");
+    expect(named.length).toBe(1);
   });
 
-  test("an aborted watchdog stops the copy before it starts", () => {
+  /**
+   * N-2 OF THE F2 REVIEW. `snapshotName` spells an instant, and the row carries
+   * the run's date — so a boundary that starts at 23:59:59 and copies at
+   * 00:00:01 filed the copy under tomorrow while the row said today. "Today's
+   * exists" would never find it, and yesterday ended with no copy at all.
+   */
+  test("the copy's name always carries the run's date, even across UTC midnight", () => {
     const c = seeded();
-    const controller = new AbortController();
-    controller.abort();
+    // The run is about the 18th; the clock has already turned over to the 19th.
     const report = runSnapshot({
       counterpart: c,
       dataDir: dir,
-      now: NOW,
+      now: at("2026-09-19", "T00-00-01Z".replace(/-/g, ":")),
       date: TODAY,
-      signal: controller.signal,
     });
-    expect(report.reason).toBe("aborted");
+    expect(report.reason).toBe("taken");
+    expect(report.name?.startsWith(`${TODAY}T`)).toBe(true);
+    // Which is what makes the next boundary the same day a no-op rather than a
+    // second copy.
+    expect(todaysSnapshot(snapsDir, TODAY)).toBe(report.name);
+    expect(
+      runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY }).reason,
+    ).toBe("already-today");
+  });
+
+  test("an aborted watchdog stops the copy before it starts, and does NOT spend the day's budget", () => {
+    const c = seeded();
+    const controller = new AbortController();
+    controller.abort();
+    const aborted = (): string =>
+      runSnapshot({
+        counterpart: c,
+        dataDir: dir,
+        now: NOW,
+        date: TODAY,
+        signal: controller.signal,
+      }).reason;
+    expect(aborted()).toBe("aborted");
     expect(snapshotNamesIn(snapsDir).length).toBe(0);
-    expect(payload(rowsOf(c, SNAPSHOT_FAILED_EVENT)[0])["reason"]).toBe("aborted");
+    const p = payload(rowsOf(c, SNAPSHOT_FAILED_EVENT)[0]);
+    expect(p["reason"]).toBe("aborted");
+    // `step: "aborted"`, not `"copy"` — nothing was copied (F2 review, MINOR-1).
+    expect(p["step"]).toBe("aborted");
+
+    // Three overrunning boundaries used to spend the whole day's allowance, so a
+    // day whose sleep cycle ran long got no backup at all though nothing had
+    // ever tried to copy.
+    aborted();
+    aborted();
+    const healthy = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    expect(healthy.reason).toBe("taken");
+  });
+
+  test("an observer takes no copy and leaves no directory", () => {
+    // The runner refuses under observer before it opens a store, so nothing
+    // reaches this today — but `noteAdapterEvent` standing the ROW down while the
+    // copy still wrote tens of megabytes was a stand-down in name only (F2
+    // review, MINOR-6). An instrument that leaves a directory behind is the thing
+    // §15 G3 is about.
+    seeded().close();
+    open.length = 0;
+    const c = Counterpart.open({ dir, observer: true });
+    open.push(c);
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    expect(report.reason).toBe("observer");
+    expect(existsSync(snapsDir)).toBe(false);
+  });
+
+  /**
+   * MINOR-9 OF THE F2 REVIEW. `report.ok` only ever meant "no leg reported an
+   * error" — and `copyTree` returns 0 files and `ok: true` for a source that is
+   * not there. A structurally empty directory would have taken the name, counted
+   * toward `keep`, satisfied "today's exists" and pushed a real copy out on day
+   * 15. It is looked at before the rename now.
+   */
+  test("a copy is looked at before the rename makes it a snapshot", () => {
+    const candidate = join(root, "candidate");
+    mkdirSync(candidate, { recursive: true });
+
+    // Nothing landed at all.
+    expect(verifyCopy(candidate, 0)).toContain("no files");
+    // Files, but no database.
+    writeFileSync(join(candidate, "something.md"), "prose");
+    expect(verifyCopy(candidate, 1)).toContain("no operational.sqlite");
+    // A database that is there and empty.
+    writeFileSync(join(candidate, "operational.sqlite"), "");
+    expect(verifyCopy(candidate, 2)).toContain("is empty");
+    // A database that is not one.
+    writeFileSync(join(candidate, "operational.sqlite"), "this is not a database");
+    expect(verifyCopy(candidate, 2)).toMatch(/would not open|did not verify/);
+
+    // And a real snapshot passes, which is the arm that must not be broken.
+    const c = seeded();
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    expect(verifyCopy(join(snapsDir, report.name as string), report.files)).toBe(null);
   });
 
   test("it never throws, whatever it is handed", () => {
@@ -601,6 +807,54 @@ describe("a half-copy is never a snapshot", () => {
     // A sweep that deleted this would be the module destroying another run's
     // copy while it was being written.
     expect(existsSync(live)).toBe(true);
+  });
+});
+
+// ── restoring from one ──────────────────────────────────────────────────────
+
+/**
+ * THE QUESTION THE WHOLE TRACK IS FOR: if the database were wiped this
+ * afternoon, what comes back? The F2 review proved both halves of the answer —
+ * the memories come back, and they cannot be FOUND until the cache is rebuilt,
+ * because `cache/` is classified out of the backup set on purpose. A person
+ * restoring on the worst day of the year, not told about the second half, opens
+ * the copy, asks it something, gets nothing, and concludes the backup is empty.
+ */
+describe("a snapshot can actually be restored", () => {
+  test("the memories come back with the copy; the search index comes back with a rebuild", () => {
+    const c = seeded();
+    const id = c.store.list({ archived: false })[0] as string;
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    expect(report.reason).toBe("taken");
+    const original = c.store.search("rebuilt");
+    expect(original.length).toBeGreaterThan(0);
+    c.close();
+    open.length = 0;
+
+    // Step 2 of the restore procedure: copy the snapshot into a store's place.
+    const restoredDir = join(root, "restored", "store");
+    mkdirSync(join(root, "restored"), { recursive: true });
+    cpSync(join(snapsDir, report.name as string), restoredDir, { recursive: true });
+
+    const restored = Counterpart.open({ dir: restoredDir, owner: true });
+    open.push(restored);
+    // The canonical halves are all there.
+    expect(restored.store.list({ archived: false })).toContain(id);
+    expect(restored.store.readProse(id).body.length).toBeGreaterThan(0);
+    // And NOTHING is findable, which is the half nobody was being told about.
+    expect(restored.store.search("rebuilt")).toEqual([]);
+
+    // Step 3: the rebuild. This is what `counterparts verify --rebuild` runs.
+    restored.store.rebuildCache();
+    expect(restored.store.search("rebuilt").length).toBeGreaterThan(0);
+  });
+
+  test("the restore steps doctor prints name the rebuild and the cost of skipping the key", () => {
+    // The steps are a string rather than prose in a file precisely so this can
+    // be asserted: a procedure nobody can find is not a procedure.
+    expect(RESTORE_STEPS).toContain("--rebuild");
+    expect(RESTORE_STEPS).toContain("embed key");
+    expect(RESTORE_STEPS).toContain("stop every session");
   });
 });
 
@@ -665,34 +919,65 @@ describe("the `snapshots` configuration key", () => {
     expect(loadConfig({ dataDir: "/x/store" }).config.snapshots).toBeUndefined();
   });
 
-  test("an unknown sub-key is ignored, the way `identity`'s are", () => {
-    const loaded = loadConfig({ snapshots: { keep: 3, compress: true } });
+  test("an unknown sub-key is REPORTED, not dropped in silence", () => {
+    const loaded = loadConfig({ snapshots: { keep: 3, mirrors: "/m" } });
     expect(loaded.reason).toBe("loaded");
-    expect(loaded.config.snapshots).toEqual({ keep: 3 });
+    expect(loaded.config.snapshots?.keep).toBe(3);
+    // A typo'd `"mirrors"` that quietly did nothing is how somebody believes
+    // they have a second copy and does not.
+    expect(loaded.config.snapshots?.ignored?.join(" ")).toContain("snapshots.mirrors");
   });
 
-  test("a sub-key of the wrong type stands the whole configuration down", () => {
-    // The `dataDir` rule, for the same reason: a path this package will WRITE
-    // INTO and ROTATE INSIDE is either a string the owner wrote or a
-    // configuration we did not understand.
+  /**
+   * MAJOR-2 OF THE F2 REVIEW, and the reason this one block is lenient.
+   *
+   * Measured on the first draft: `"keep": 0` — or `"14"` with quotes, the
+   * likelier typo — returned `{ observer: true }` with `dataDir` GONE. From the
+   * next hook on, nothing was captured, nothing recalled, no row written, and the
+   * one stderr line a hook produces goes nowhere (I32). A backup preference is
+   * not worth memory.
+   */
+  test("a bad value inside the block NEVER degrades the adapter — it falls back and says so", () => {
     for (const bad of [
       { snapshots: "yes" },
       { snapshots: [] },
       { snapshots: { dir: 7 } },
       { snapshots: { mirror: true } },
       { snapshots: { keep: "14" } },
-      // A `keep` of zero would mean "delete every copy". It is a configuration
-      // nobody can act on, not an instruction.
       { snapshots: { keep: 0 } },
       { snapshots: { keep: -1 } },
-      // Whole, too — so a fractional `keep` says so here rather than being
-      // silently read as the default several files away.
       { snapshots: { keep: 1.5 } },
+      { snapshots: { keep: null } },
+      // A relative path would resolve against whatever directory the host
+      // session happened to be in, scattering one copy per project.
+      { snapshots: { dir: "snaps" } },
+      // Blank meaning "the default" surprises somebody who blanked it to switch
+      // snapshots off.
+      { snapshots: { mirror: "  " } },
     ]) {
-      const loaded = loadConfig(bad);
-      expect(loaded.reason, JSON.stringify(bad)).toBe("unreadable");
-      expect(loaded.config.observer).toBe(true);
+      const loaded = loadConfig({ dataDir: "/x/store", ...bad });
+      const what = JSON.stringify(bad);
+      expect(loaded.reason, what).toBe("loaded");
+      expect(loaded.config.observer, what).toBeUndefined();
+      // The rest of the configuration survives intact — this is the whole point.
+      expect(loaded.config.dataDir, what).toBe("/x/store");
+      // And the field that could not be read is named, with what is used instead.
+      expect((loaded.config.snapshots?.ignored ?? []).length, what).toBeGreaterThan(0);
+      expect(loaded.config.snapshots?.dir, what).toBeUndefined();
+      expect(loaded.config.snapshots?.keep, what).toBeUndefined();
+      // `keepOf` is what the fallback actually is, and it is not restated.
+      expect(keepOf(loaded.config.snapshots?.keep), what).toBe(DEFAULT_KEEP);
     }
+  });
+
+  test("everything OUTSIDE the block keeps the file's strict rule", () => {
+    // The leniency is scoped to one block on purpose: a knob whose wrong answer
+    // makes the adapter ACT still stands the configuration down.
+    expect(loadConfig({ dataDir: 7 }).reason).toBe("unreadable");
+    expect(loadConfig({ embedder: { enabled: "yes" } }).reason).toBe("unreadable");
+    expect(loadConfig({ observer: "maybe" }).reason).toBe("unreadable");
+    // Even alongside a perfectly good snapshots block.
+    expect(loadConfig({ dataDir: 7, snapshots: { keep: 14 } }).reason).toBe("unreadable");
   });
 });
 
@@ -732,6 +1017,10 @@ describe("the worker's fourth step", () => {
     expect(report.ran).toBe(true);
     expect(report.snapshot?.reason).toBe("taken");
     expect(snapshotNamesIn(snapsDir).length).toBe(1);
+    // The worker runs on the real clock and the run's DATE is injected, so this
+    // is the assertion that cannot misfile across UTC midnight: the copy's name
+    // carries the run's date, whatever the wall clock says (F2 review, N-2).
+    expect(snapshotNamesIn(snapsDir)[0]?.startsWith(`${TODAY}T`)).toBe(true);
 
     const after = counterpart();
     expect(rowsOf(after, SNAPSHOT_TAKEN_EVENT).length).toBe(1);

@@ -408,6 +408,28 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     somebody pointed elsewhere takes no copy until `snapshots.dir` names one, and
     doctor's Snapshot line says so in words rather than leaving a row per boundary.
 
+    **HOW TO RESTORE ONE, because a backup nobody knows how to open is not a
+    backup.** A snapshot is a whole store directory, so restoring is a copy:
+
+    1. Stop every session using the memory (the MCP server and any hooks).
+    2. Move the damaged store aside — never delete it — and copy the snapshot
+       directory into its place: `cp -R ~/.counterparts/snapshots/<iso>
+       ~/.counterparts/store`.
+    3. `counterparts verify --dir ~/.counterparts/store --rebuild`, with the
+       embed key exported if the embedder is on.
+
+    What comes back with the copy: every memory, its prose, the journal, the
+    spans, the event log — the canonical halves. What does NOT, and why step 3
+    exists: `cache/` is classified out of the backup set on purpose (it is
+    rebuildable and unbounded), and it holds the lexical search index and every
+    vector. **Until the rebuild, `search()` returns nothing** — the memories are
+    all there and none of them can be found, which is exactly the shape that makes
+    somebody conclude the backup is empty. A rebuild without an embedder drops
+    every vector rather than keeping them, so semantic recall is thin until the
+    worker's backfill refills it over the following days; the lexical channel is
+    back immediately. Doctor prints these steps as the remedy on any Snapshot
+    finding that is not green.
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

@@ -748,8 +748,15 @@ and the rest put back on.
 
 **The partial name is the real protection against the watchdog.**
 `cli/snapshot.ts#snapshot` is fully synchronous — `copyFileSync` per file — so the
-`AbortController` this process arms cannot interrupt it; only the parent's kill
-ends an overrun. So the copy goes to `.partial-<instant>-<pid>` and is RENAMED
+`AbortController` this process arms cannot interrupt it — and, corrected by the F2
+review (N-1), **nothing kills the worker either**: `spawn.ts` spawns it
+`detached: true` and never calls `.kill()`, and the worker's own watchdog only
+`abort()`s a signal on an unref'd timer. An overrunning copy runs to completion.
+The partial name is still the right protection, but for the reasons that actually
+apply — machine sleep, a shutdown, a `kill -9` by hand (the reviewer proved that
+last one on a 12,000-file store: signal 9 mid-copy left exactly one entry,
+`.partial-…`, which a later run swept while taking a real copy in the same pass).
+So the copy goes to `.partial-<instant>-<pid>` and is RENAMED
 into place: a process killed at any instant leaves either a complete snapshot or
 something that is not a snapshot by name, and there is no state in between. A
 partial is swept by a later run only once it is older than `PARTIAL_STALE_MS`,
@@ -779,3 +786,60 @@ of that is the safe direction (an extra copy, a duplicated record), and a lock
 file would be a new thing that can go stale and refuse a backup on the day it
 matters. If the duplicates ever become noise, the gate is the place to tighten,
 not the copy.
+
+**What the adversarial review changed (2026-09-18).** Four things, and the first
+is the one worth remembering.
+
+*The live-store refusal ran on the name, not on the path.* `assertRotatableDir`
+called `assertSafeDataDir` and *then* realpathed — and `assertSafeDataDir` is pure
+string math that follows no links. So a `snapshots.dir` that was a symlink into
+`~/.bansai` cleared the one guard this repository's first safety rule is about,
+and the directory came back as rotatable. The copy was refused further down, but
+`cleanPartials` runs before that. It is checked on both spellings now, and the
+check is injectable for one reason: `os.homedir()` cannot be moved under bun, so
+the forbidden roots cannot be relocated into a temp tree, and a stand-in is the
+only honest way to prove the ORDER without pointing a test at the owner's real
+v1 memory.
+
+*A typo in an optional backup setting stopped memory.* `"keep": 0` — or `"14"`
+with quotes — made `loadConfig` return the observer config with `dataDir` gone, so
+from the next hook on nothing was captured and nothing recalled, with one stderr
+line that goes nowhere. This one block is read leniently now: each bad field falls
+back to its default, the parse records which and why, and doctor says it. It is
+the only lenient block in the file, and it should stay that way — the strict rule
+is right for a knob whose wrong answer makes the adapter ACT (an egress switch, a
+path this package opens). A backup preference is not worth memory.
+
+*Doctor counted the row, not the directory.* Deleting every copy from disk left
+the line reading green, "1 kept", for a full day. It counts the directory now and
+says so when a row claims a copy that is not there.
+
+*Nobody was told how to restore.* A snapshot opens and reads perfectly and
+`search()` returns nothing until `verify --rebuild`, because `cache/` is
+classified out of the backup set on purpose. The steps are in CONTRACT §5 G24 and
+are printed as doctor's remedy on every Snapshot finding that is not green.
+
+Smaller, same pass: a watchdog abort no longer spends one of the day's three copy
+attempts (`step: "aborted"`, not `"copy"`); a failure window too full to read now
+leaves one row rather than stopping backups in silence; the finished copy is
+opened and `PRAGMA quick_check`ed before the rename makes it a snapshot; a
+rotation candidate must hold something the store's LAYOUT classifies, so the
+delete rule is "a directory this package wrote" rather than "a directory whose
+name looks like one"; the sweep matches the whole partial shape rather than the
+prefix; `snapshots.dir` and `mirror` must be absolute and non-blank; and the
+snapshot's name now takes its DATE from the run's date, so a boundary straddling
+UTC midnight cannot file today's copy under tomorrow.
+
+**One thing deliberately not fixed:** a future-dated directory (a laptop waking
+with a bad RTC) sorts newest and holds a `keep` slot forever, so the owner keeps
+thirteen days of history instead of fourteen. Deleting it would mean destroying
+bytes on the strength of a guess that a name is wrong. It is counted instead — on
+the `snapshot.rotated` row and on the doctor line — so the "silently" is gone.
+
+**Land F1 (WAL + busy timeout) before or with this.** `vacuumInto` opens a second
+connection on the canonical database at every boundary, which under today's
+`journal_mode=DELETE` is a new `SQLITE_BUSY` surface at exactly the moment I38
+("database is locked after a Stop") is about — and three busy boundaries would
+spend the day's whole copy budget. The existing `cli.test.ts` case holds an open
+write transaction across the copy and passes, so the common case is fine; this is
+an ordering preference, not a defect. Re-measure after F1 lands.
