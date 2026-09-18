@@ -1366,8 +1366,9 @@ const PRIVATE_HELPERS = new Set([
   // `replaceCurrentState` cannot quietly grow a second, thinner version of it.
   "supersedeElement",
   "liveElementIds",
-  // The one predicate that keeps a removed row out of the index — `load`,
-  // `entity` and `element` all ask it, so it cannot drift into three readings.
+  // The chased-row predicate `load` and `entity` share, so "the owner removed
+  // this" cannot drift into two readings. `element` gates on the same blanked
+  // pointer inline and borrows the deny-list refusal from `physicsOf`.
   "removed",
 ]);
 

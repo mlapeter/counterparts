@@ -181,19 +181,42 @@ The second face of the same root cause: in the dark-only state (marked, chase no
 yet run) `slices()` threw `REMOVED`, through `element` → `physicsOf` →
 `requireRow`. `slices()` is a model path.
 
-**The fix is to skip, in one predicate three callers share.** Chased is free to
-detect (`prose_path === ""`, and the row is already in hand); dark needs the
-deny-list, which `load` fetches ONCE for the whole walk and `entity`/`element`
-ask per call, because an in-process `Schemas` can be older than a removal the
-owner has since run. Skipping — rather than rendering a placeholder — is the
-honest answer: `Store.read` still refuses the id BY NAME, so "removed" and "never
-existed" stay distinguishable to anyone who asks for it directly.
+**The fix is to skip, and the CHASED half is one predicate — `removed()` — that
+`load` and `entity` share.** It is free: `prose_path === ""`, and the row is
+already in hand. The DARK half needs the deny-list, and who asks it differs by
+what each caller is already paying for. `load` fetches `deniedIds()` ONCE for the
+whole walk, because it runs at every open over every schema row and a removal
+must cost the index one query, not one per row. `entity` asks per call — it has
+no other store read to borrow from, which costs `entities()` about 2 ms at 120
+entities, measured and accepted rather than paid for with a private view-builder.
+`element` borrows the refusal from the `physicsOf` call it has to make anyway,
+which is why `slices()` did not get slower (66.7 ms → 64.5 ms over 120 entities ×
+6 beliefs; an earlier draft that asked `deniedIds()` per element measured 76.5 ms
+and was rewritten). Either way the question is asked LIVE, not trusted from
+`load`: an in-process `Schemas` can be older than a removal the owner has since
+run in another process.
+
+Skipping — rather than rendering a placeholder — is the honest answer:
+`Store.read` still refuses the id BY NAME, so "removed" and "never existed" stay
+distinguishable to anyone who asks for it directly.
 
 It also turns a piece of luck into a check. `element` refused a denied id before
 this only because `physicsOf` happened to be evaluated *after* `statement` in the
 same object literal: reordering two lines would have lost the gate, and the
-removed prose was read off disk into memory before the throw discarded it. The
-check now runs before the read.
+removed prose was read off disk into memory before the throw discarded it. It is
+now a statement above the read, with its `catch` narrowed to `REMOVED` /
+`ID_UNKNOWN` (`isAbsence`) so a broken database cannot present as a quietly empty
+index.
+
+**What this does NOT reach, because `Schemas` builds its index at open and no
+process tells another one anything.** In a long-lived process — the MCP server —
+a removal run from the CLI is invisible to `this.meta` and `this.index` until the
+next start. So in that window `liveElementIds`'s `attached` count still counts a
+dark-marked belief (a number, off by one; it renders nothing), and a dark-marked
+ENTITY is still in the alias index, so `aliasIndex().lookup("ada")` returns it.
+Neither is new and neither is removal's fault: it is the same staleness the
+server already has for every write another process makes. Worth closing when
+something needs cross-process invalidation, not before.
 
 **Removal does not cascade, and this does not make it.** Beliefs hanging off a
 removed entity keep their rows. They are invisible in every rendering — every

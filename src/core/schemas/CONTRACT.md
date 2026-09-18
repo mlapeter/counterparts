@@ -127,8 +127,8 @@ name/alias resolution; birth and death telemetry.
    archived, keeping its id resolvable. No model can kill an entity.
    **7b. [M] The OWNER can, and this index survives it.** `counterparts remove` accepts a
    schema target, and after the chase the row is still listed with its pointer blanked. A
-   removed entity or element is SKIPPED — by `load`, `entity` and `element`, all through
-   one predicate — so it is absent from every rendering: no slice, no alias, no match.
+   removed entity or element is SKIPPED — by `load`, by `entity` and by `element` — so it
+   is absent from every rendering: no slice, no alias, no match.
    Until 2026-09-18 it was not skipped: reading it threw out of `Schemas.open`, out of
    `Counterpart.open`, and the hook caught that and exited 0, so the owner's next session
    simply had no memory and said nothing about it. Removal does NOT cascade — elements
