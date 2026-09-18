@@ -6,6 +6,9 @@ Read-only. Code read at `/Users/mlapeter/counterparts/.claude/worktrees/storage-
 No memory body text was read or quoted; counts, kinds, sources, days, scopes, session
 ids and event names only.
 
+> **2026-09-18 — do not reuse this recipe once the store is in WAL mode (F1, PR #137).** `?immutable=1` makes SQLite ignore the `-wal`, so every query reads the database as of the last checkpoint — silently short, no error (proved in `docs/adversarial-review-f1-2026-09-18.md`). Use plain `sqlite3 -readonly <path>`. What is written here is what was run at the time, under DELETE mode, where it was right.
+
+
 **Reconciliation of the spec's numbers.** The spec's cut is exactly
 `birth_day >= 184 AND archived = 0 AND type = 'memory' AND learned_on <= '2026-09-16'`:
 
