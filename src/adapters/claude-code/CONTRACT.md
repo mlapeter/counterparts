@@ -391,7 +391,8 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     (`standdown.ts`): a directory scoped `off`, an observer with no store to read
     (`STORE_UNINITIALIZED`), and the explicit-dir guard's two refusals are
     DELIBERATE and unchanged; anything else is a FAULT and prints one
-    `systemMessage` — the channel I32 measured (G22) — on **SessionStart and
+    `systemMessage` — the channel I32's close measured and `bin/hook.ts#hostDelivery`
+    already uses for the red notice — on **SessionStart and
     UserPromptSubmit**, the two events this host displays one on. Exit 0 as
     always, nothing else in the object, no wake and no `additionalContext`, and
     the stderr line is kept. SessionStart says it; UserPromptSubmit says it only

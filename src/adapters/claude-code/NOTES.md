@@ -732,8 +732,8 @@ recall and no capture in EVERY session, for as long as it lasts, with every
 visible surface green — which is I32's shape again, and the constitution's own
 sentence about silence not masquerading as health.
 
-**What is new is a classification, not a channel.** The channel is the one I32
-already measured and G22 already documents: a top-level `systemMessage`, which
+**What is new is a classification, not a channel.** The channel is the one I32's
+close already measured and the red notice already rides: a top-level `systemMessage`, which
 this host DISPLAYS, non-blocking, on SessionStart and UserPromptSubmit. What
 `bin/hook.ts` could not do before was tell its two kinds of stand-down apart, so
 `standdown.ts` is where that judgement lives and where its vocabulary is kept:

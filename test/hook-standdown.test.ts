@@ -405,9 +405,11 @@ describe("a named configuration that cannot be honoured", () => {
     const run = runHook("SessionStart", "s-bad", { args: ["--config", bad] });
     expect(run.code).toBe(0);
     expect(systemMessage(run)).toContain("(CONFIG_UNREADABLE)");
-    // NO MARKER, and no file at all under the default store: this stand-down
-    // exists to keep its hands off host state it did not name.
-    expect(existsSync(join(store, "sessions", "s-bad.standdown.json"))).toBe(false);
+    // NO MARKER — and the place to look for one is the DEFAULT store under this
+    // run's HOME, because by this point `hostConfig` has resolved `dataDir` to
+    // it. Keeping its hands off that store's host state is the whole reason this
+    // stand-down exists, so the assertion is that nothing was minted there.
+    expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
 });
 
