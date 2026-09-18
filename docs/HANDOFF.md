@@ -45,6 +45,12 @@ last checkpoint (the reviewer's probe: three rows in the `-wal`, `immutable=1` s
 (`promotion-diagnosis`, `recall-surfacing-diagnosis`, `finding-12-diagnosis`, `mechanism-inventory`, storage spec §4)
 record what was run at the time, under DELETE mode, where it was right — do not copy the recipe out of them.
 
+**DONE, later the same night, on the owner's word ("ok go ahead and merge 142"): #142 (D1, `tools/deploy-checkout.sh
+--ref <commit-ish>`) MERGED; master = `4b8b524`. Tools only, nothing deployed. From here a merge to master no longer decides
+what the owner's next deploy carries: he names the commit. The builder also found that after the pin a `hotfix/v5-floor`
+commit is not an ancestor of master, so doctor's Checkout line will read RED there, not the amber plan §4 expects — decide
+at the pin whether doctor learns about the pin or this file says red is expected.**
+
 **DONE on the owner's word ("yes to 1, go ahead and merge. i'll do 2 later"): #137 (F1), #134 (N2) and this docs PR #140
 are MERGED; master = `33be244` plus this PR's merge. F1 is NOT deployed: the live checkout stays detached at `039cd5d`
 until the owner runs "Deploy day for F1" below himself. Until then `counterparts doctor` reads the Checkout line as
@@ -88,7 +94,12 @@ clean way is to have nothing old alive. No committed data is lost in any orderin
    revert lever, and it also runs the prose census: confirm it reports nothing missing.
 2. Close EVERY Claude Code session (this one and the plan-writing one included) and the dashboard.
    `pgrep -fl counterparts` prints nothing.
-3. `~/counterparts/tools/deploy-checkout.sh`
+3. Deploy EXACTLY `4b8b524` (F1/WAL + the N2 docs + this record + the deploy script's `--ref`; one suspect: F1).
+   - If `git -C ~/counterparts rev-parse origin/master` after a fetch is still `4b8b524`: `~/counterparts/tools/deploy-checkout.sh`
+   - If master has moved past it (batch B or later merged): the live checkout's own copy of the script has no `--ref`
+     until this deploy lands, so run the newer copy from a worktree, dry run first:
+     `~/counterparts/.claude/worktrees/coord-wave1/tools/deploy-checkout.sh --repo ~/counterparts --ref 4b8b524 --dry-run`
+     then the same line without `--dry-run`. It prints from, to, the direction and how far the target is behind master.
 4. Open ONE Claude Code session. A writer has to open the store for the flip; `verify`, `status` and `doctor` are
    observers and will not convert it.
 5. `counterparts verify --config ~/.counterparts/claude-code.json` prints `Journal mode: wal (busy timeout 5000 ms)`.
