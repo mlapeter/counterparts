@@ -8,6 +8,7 @@
  * Booleans and `undefined` are normalized here: node:sqlite rejects both, bun:sqlite
  * accepts them. Normalizing at the seam keeps the two runtimes behaviorally identical.
  */
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { StoreError } from "./errors.js";
 
@@ -130,12 +131,20 @@ export interface OpenDbOptions {
  * THE READ COMES FIRST because the set is a write: on a store already in WAL —
  * every open after the first — this statement pair touches nothing.
  *
- * A CONTENDED conversion is not an error. The change needs the exclusive lock and
- * SQLite does not run the busy handler for it: with another connection inside a
- * write transaction it fails in about a millisecond (measured, bun:sqlite 1.3),
- * not after the five-second wait. The open then continues in whatever mode the
- * file is in and the next open tries again — a hook must not die because the
- * worker happened to be committing.
+ * A CONTENDED conversion is not an error, and what contention COSTS depends on
+ * who is holding the lock (measured, bun:sqlite 1.3):
+ *
+ *   - against a WRITER (another connection inside a write transaction) the busy
+ *     handler does not run: it fails in about a millisecond, and the open
+ *     continues in whatever mode the file is in. The next open tries again.
+ *   - against a READER (a shared lock) the busy handler DOES run, so the open
+ *     WAITS for the reader and then converts. A short read costs that read; a
+ *     reader that outlasts `BUSY_TIMEOUT_MS` costs the whole five seconds and
+ *     leaves the file as it was.
+ *
+ * So the one-time converting open can wait, once, up to the busy timeout. Every
+ * open after it reads `wal` and returns without a statement. A hook must not die
+ * because the worker happened to be committing, and it does not.
  *
  * ONLY the locked case is swallowed. This statement is also the first one that
  * reads the file's header, so "not a database" arrives here — and a caller that
@@ -155,7 +164,7 @@ function convertToWal(db: Db): void {
 
 /** SQLITE_BUSY / SQLITE_LOCKED, under either driver's spelling of it. */
 function isLocked(err: unknown): boolean {
-  const code = (err as { code?: unknown }).code;
+  const code = (err as { code?: unknown } | null | undefined)?.code;
   if (typeof code === "string" && (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED"))) {
     return true;
   }
@@ -165,9 +174,16 @@ function isLocked(err: unknown): boolean {
 
 /**
  * The journal mode a database file is in, on its own connection — opened, read,
- * closed, converting nothing. What `counterparts verify` prints.
+ * closed, converting nothing. What `counterparts verify` and `doctor` print.
+ *
+ * An absent file answers `absent` rather than being CREATED by the question
+ * (`openDb` opens with `create: true`). The handle is read-WRITE, like every
+ * other handle this codebase takes: a read-only one would refuse a WAL store
+ * whose sidecars are missing, and turning a census into a failure to answer a
+ * one-word question is the wrong trade.
  */
 export function journalModeOf(path: string): string {
+  if (!existsSync(path)) return "absent";
   const db = openDb(path);
   try {
     return db.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode ?? "unknown";

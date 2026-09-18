@@ -9,7 +9,15 @@
  * "it threw".
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -1504,7 +1512,19 @@ describe("WAL, the busy timeout, and I39", () => {
     } finally {
       src.close();
     }
-    expect(journalModeOf(paths.operational(at))).toBe("delete");
+    // Box 3 as well: an old-build store has both in DELETE, and which of the two
+    // an instrument may convert is a real distinction (see the box-3 test).
+    mkdirSync(paths.cacheDir(at), { recursive: true });
+    const box3 = openDb(paths.cache(dir));
+    try {
+      box3.exec(`VACUUM INTO '${paths.cache(at)}'`);
+    } finally {
+      box3.close();
+    }
+    expect({
+      box2: journalModeOf(paths.operational(at)),
+      box3: journalModeOf(paths.cache(at)),
+    }).toEqual({ box2: "delete", box3: "delete" });
     return at;
   }
 
@@ -1695,6 +1715,76 @@ describe("WAL, the busy timeout, and I39", () => {
     // Nothing is stuck: the next open converts it.
     openDb(path, { wal: true }).close();
     expect(journalModeOf(path)).toBe("wal");
+  });
+
+  test("the first instrument open converts BOX 3 — and leaves box 2 exactly as it stands", () => {
+    // The one write an observer open DOES make on a store built by the previous
+    // build, named here rather than discovered on the live one. Box 3 is
+    // declared rebuildable and the constructor already materializes its
+    // directory under an instrument; box 2 is canonical, so nothing touches it
+    // until a writer comes.
+    const at = deleteModeStore();
+    const instrument = Store.open({ dir: at, observer: true });
+    expect(instrument.list()).toEqual([]);
+    instrument.close();
+    expect({
+      box2: journalModeOf(paths.operational(at)),
+      box3: journalModeOf(paths.cache(at)),
+    }).toEqual({ box2: "delete", box3: "wal" });
+
+    // And it happens ONCE: the mode is read before it is set, so the next
+    // instrument open moves no byte of box 3 either.
+    const before = databaseBytes(paths.cache(at));
+    Store.open({ dir: at, observer: true }).close();
+    expect(databaseBytes(paths.cache(at))).toEqual(before);
+  });
+
+  test("a READER makes the converting open WAIT, and it converts when the read ends", async () => {
+    // The other arm of the test above, and the correction to what that one used
+    // to claim for both: SQLite skips the busy handler for a journal-mode change
+    // only against a WRITER. Against a shared lock the handler DOES run, so the
+    // one converting open waits out the reader — up to `BUSY_TIMEOUT_MS` — and
+    // then converts. A reader that outlasts the timeout leaves the file as it
+    // was, which is the same wait the first WRITE would have paid under DELETE.
+    const at = deleteModeStore();
+    const path = paths.operational(at);
+    const scriptAt = scratch();
+    const script = join(scriptAt, "reader.ts");
+    const marker = join(scriptAt, "reading");
+    writeFileSync(
+      script,
+      [
+        `import { Database } from "bun:sqlite";`,
+        `import { writeFileSync } from "node:fs";`,
+        `const [path, marker, holdMs] = process.argv.slice(2) as [string, string, string];`,
+        `const db = new Database(path);`,
+        `db.exec("PRAGMA busy_timeout = 0");`,
+        `db.exec("BEGIN");`,
+        `db.prepare("SELECT COUNT(*) AS n FROM meta").get();`,
+        `writeFileSync(marker, "reading");`,
+        `await Bun.sleep(Number(holdMs));`,
+        `db.exec("ROLLBACK");`,
+        `db.close();`,
+      ].join("\n"),
+      "utf8",
+    );
+    const child = Bun.spawn([process.execPath, "run", script, path, marker, "600"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    try {
+      const deadline = Date.now() + 5000;
+      while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(10);
+      expect(existsSync(marker)).toBe(true);
+
+      const started = Date.now();
+      openDb(path, { wal: true }).close();
+      const waited = Date.now() - started;
+      expect({ waited: waited > 100, mode: journalModeOf(path) }).toEqual({ waited: true, mode: "wal" });
+    } finally {
+      child.kill();
+      await child.exited;
+    }
   });
 
   test("a corrupt file still refuses loudly — only the LOCKED case is swallowed", () => {

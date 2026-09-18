@@ -489,12 +489,22 @@ describe("backup", () => {
     // A writer holds an OPEN, uncommitted transaction across the copy. This is
     // the shape that tore v1's file copies: live state in a sidecar and a main
     // file that is not, on its own, the database. Under WAL (2026-09-18) the
-    // sidecar is the `-wal` rather than a `-journal`, and the committed row the
-    // copy must contain is IN it — which makes the same point harder.
+    // sidecar is the `-wal`, and BOTH halves of the shape are asserted here
+    // rather than assumed, because the `-wal` exists from the moment the store
+    // opens and an uncommitted write never reaches it — so its mere presence
+    // would prove nothing where the `-journal`'s did.
     const writer = openDb(paths.operational(dir));
     writer.exec("BEGIN IMMEDIATE");
     writer.run("INSERT INTO meta (key, value) VALUES (?, ?)", "uncommitted", "never-visible");
-    expect(existsSync(`${paths.operational(dir)}-wal`)).toBe(true);
+    // (a) the committed row really is in the `-wal`, so a copy of the database
+    // file alone would be short — which is why the copy below is not one.
+    expect(statSync(`${paths.operational(dir)}-wal`).size).toBeGreaterThan(0);
+    // (b) the write transaction really is open across the copy: a connection
+    // that will not wait cannot take the lock.
+    const impatient = openDb(paths.operational(dir));
+    impatient.exec("PRAGMA busy_timeout = 0");
+    expect(() => impatient.exec("BEGIN IMMEDIATE")).toThrow();
+    impatient.close();
 
     const target = join(outside, "snap");
     const report = snapshot(s, target);
@@ -1627,6 +1637,24 @@ describe("verify", () => {
     expect(readFileSync(paths.cache(dir)).toString()).toBe("not a database");
   });
 
+  test("the same garbling WITH the sidecars in place is not unreadable at all — SQLite recovers it", async () => {
+    // The shape the fixture above had to remove, decided rather than deleted:
+    // on a live store a garbled main file normally has a real `-wal` beside it,
+    // and under WAL that `-wal` is the database. So this is not the guard's
+    // branch — the file opens, the rows are there, and `--rebuild` does its
+    // ordinary work. The guard's branch is the sidecar-free one above.
+    const s = store();
+    s.put({ type: "memory", kind: "fact", body: "A memory whose index survives its main file." });
+    s.close();
+    open.length = 0;
+    writeFileSync(paths.cache(dir), "not a database");
+    expect(existsSync(`${paths.cache(dir)}-wal`)).toBe(true);
+
+    const c = consoleWith(["yes"]);
+    expect(await run(["verify", "--rebuild", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Re-indexed: 1");
+  });
+
   test("the census says so when box 3 is missing, rather than rebuilding it", async () => {
     const s = store();
     s.put({ type: "memory", kind: "fact", body: "A memory whose index was deleted underneath it." });
@@ -1879,6 +1907,39 @@ describe("migrate-cache — the conversion that is not a rebuild", () => {
     expect(text(c.out)).toContain("Cache file:");
     expect(statSync(paths.cache(dir)).size).toBeLessThan(stranded);
     expect(shapes()).toEqual({ blob: 400, text: 0 });
+  });
+
+  test("a fat `-wal` is not reclaimable space — the size is the PAGES, not the file set", async () => {
+    // The other direction of the test above, and the bug between them: measuring
+    // the database as `file + -wal` reported the whole `-wal` as space a VACUUM
+    // would give back, because the `-wal` holds COPIES of pages the file already
+    // counts. On a cache with nothing to reclaim that was 4.1 MB of phantom
+    // debt — over `worthCompacting`'s floor, so `--apply` would have taken box
+    // 3's exclusive lock for a full VACUUM of an already-compact file and then
+    // reported a reclaim that did not happen. `page_count * page_size` is true
+    // wherever the pages are sitting.
+    seedJsonStore(400, 256);
+    const converted = consoleWith();
+    expect(
+      await run(["migrate-cache", "--apply", "--yes", "--dir", dir], {
+        io: converted.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+
+    // A fat `-wal` beside it, with not one byte of garbage in the database: one
+    // pass that rewrites every page and commits, below SQLite's autocheckpoint.
+    const db = openCache(paths.cache(dir));
+    db.exec("UPDATE embeddings SET dim = dim");
+    db.close();
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(1024 * 1024);
+
+    const look = consoleWith();
+    expect(await run(["migrate-cache", "--dir", dir], { io: look.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    expect(text(look.out)).toContain("Converted and compacted. Nothing to do.");
+    expect(text(look.out)).not.toContain("reclaimable");
   });
 
   test("a second --apply REFUSES once there is nothing left to convert OR reclaim", async () => {

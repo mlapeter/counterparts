@@ -873,11 +873,22 @@ and in WAL a reader no longer blocks the writer.
 **What was measured getting here** (bun:sqlite 1.3, macOS; all of it is pinned in
 `test/store.test.ts`'s "WAL, the busy timeout, and I39"):
 
-- A journal-mode change does **not** run the busy handler. Contended, it fails in
-  about a millisecond rather than after the five-second wait — so the conversion
-  is wrapped, the open continues in the old mode, and the next open tries again.
+- **What a contended conversion costs depends on who holds the lock.** Against a
+  WRITER, SQLite does not run the busy handler: the statement fails in about a
+  millisecond (measured: 3 ms), the open continues in the old mode, and the next
+  open tries again. Against a READER the handler DOES run, so the open waits for
+  the reader and then converts — a 600 ms read costs 600 ms, and a reader holding
+  for longer than `BUSY_TIMEOUT_MS` costs the full five seconds and leaves the
+  file as it was (measured: 5,297 ms). So the ONE converting open can wait, once,
+  up to five seconds; every open after it reads `wal` and returns without a
+  statement, and in DELETE mode that opener's first WRITE would have waited on
+  the same shared lock anyway. *(The first cut of this note said "about a
+  millisecond" for both, which was measured against a writer and generalized.)*
   Only SQLITE_BUSY/LOCKED is swallowed: "file is not a database" arrives on the
-  same statement, and `verify --rebuild`'s guard has to fail closed on it.
+  same statement, and `verify --rebuild`'s guard has to fail closed on it. One
+  consequence not to be surprised by: `SQLITE_READONLY` now propagates out of a
+  WRITER open on read-only media, where the old code opened and failed at the
+  first write.
 - A handle opened while the file was in DELETE mode keeps reading **and writing**
   correctly after another connection flips it to WAL. That is deploy day for the
   MCP server: no restart needed.
@@ -891,13 +902,56 @@ and in WAL a reader no longer blocks the writer.
   holds the lock a WAL → DELETE conversion needs. It is why the tests build a
   DELETE-mode store with `VACUUM INTO` rather than a pragma, and why the sidecars
   outlive a close here where SQLite would normally remove them.
-- A database's size on disk is now the file **plus its `-wal`**, which holds
-  committed pages until a checkpoint. `cli`'s `databaseBytes` counts both: stat
-  the file alone and a cache mid-conversion reads 1.8 MiB with 3.7 MB in the
-  sidecar, which was enough to print "nothing to do" over a real compaction debt.
+- **A database's size is `page_count * page_size`, not a file size.** The file
+  alone under-reports (a cache mid-conversion read 1.8 MiB with 3.7 MB in the
+  `-wal`, enough to print "nothing to do" over a real compaction debt). The file
+  PLUS the `-wal` over-reports, and that was the first cut of `cli`'s
+  `databaseBytes`: the `-wal` holds COPIES of pages the file already counts, so a
+  fat one read as space a `VACUUM` would give back — 4,144,752 bytes of
+  reclaimable on a cache with nothing to reclaim, over the floor that sends
+  `migrate-cache --apply` into a pointless full VACUUM. What returns those bytes
+  is a checkpoint, and a checkpoint happens on its own. The two pragmas are true
+  wherever the pages are sitting and take no lock.
 
-`counterparts verify` prints the mode and the timeout, so the answer to "is it on
-yet" is one command rather than a `sqlite3` incantation.
+`counterparts verify` prints the mode and the timeout, and `counterparts doctor`
+grades it — green in `wal`, amber otherwise with the reason and the way out — so
+"is it on yet", and "did a conversion quietly not take", are both one command
+rather than a `sqlite3` incantation. Amber is the only trace a swallowed refusal
+leaves, deliberately: the alternative was an event row written from inside
+`openDb`, which would mean a write at open on the path that exists to avoid one.
+
+**Three things a WAL store cannot do that a DELETE store could.** None is a
+reason to go back; all three are worth knowing before they are met.
+
+1. **Read-only media.** With the sidecars absent and the directory not writable,
+   an instrument open of a WAL store fails `SQLITE_READONLY_DIRECTORY` and a
+   read-only one fails `SQLITE_CANTOPEN`; a DELETE store reads its rows in both.
+   The copies the owner actually takes are safe: `counterparts backup` and
+   `export` go through `VACUUM INTO`, whose output is always a plain DELETE-mode
+   database, so a snapshot is readable anywhere, on any medium, by any build. It
+   is the LIVE directory, copied as it stands onto read-only media, that refuses.
+2. **`operational.sqlite` on its own is no longer the database.** A copy of the
+   file alone opens read-write and is *silently short* by everything committed
+   since the last checkpoint (it refuses `SQLITE_CANTOPEN` read-only, which is
+   the honest half). The supported copies are `counterparts backup`, `export`,
+   and a copy of the whole directory INCLUDING the sidecars. Deleting a `-wal`
+   deletes the memories inside it — a store went from 20 rows to "no such table"
+   that way in review.
+3. **`sqlite3 "file:…?immutable=1"` now reads a short database.** `immutable=1`
+   promises SQLite the file cannot change, and SQLite keeps its side by ignoring
+   the `-wal` entirely — so the read returns the store as of the last checkpoint,
+   with no error. Plain `sqlite3 -readonly "<path>"` reads the `-wal` and is
+   correct. A fabricated number is what scar §2.4 is about, and this one arrives
+   through a diagnostic recipe.
+
+**Filesystems.** WAL needs real shared-memory `mmap` between processes, so a
+network mount (NFS, SMB) is out: either the conversion is silently refused and
+the store runs in DELETE forever, or the header takes and every later open fails
+`SQLITE_IOERR_SHMOPEN`. A synced folder (iCloud, Dropbox) is an ordinary local
+filesystem and works, but the sync client now has three files it must capture at
+one instant and will not — a store in one is a worse idea after this than before
+it. `counterparts doctor` reports the mode, which is where a silent refusal shows.
+
 
 **The byte-identity suites keep their teeth.** Five of them hash a store
 directory and mean "nothing wrote": the dashboard's, the probe's (scar E7),

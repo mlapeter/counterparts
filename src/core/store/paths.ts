@@ -271,20 +271,24 @@ export const LAYOUT: readonly LayoutEntry[] = [
 ];
 
 /**
- * A database sidecar that holds NO committed content: the `-shm` (WAL's shared
- * index, which every connection writes read-marks into, a read-only one
- * included) and a `-journal` (which exists only inside a transaction).
+ * The ONE database sidecar that holds no content of its own: the `-shm`, WAL's
+ * shared index, which every connection writes read-marks into — a read-only one
+ * included. The suites that hash a store directory and mean "nothing wrote"
+ * skip this and nothing else (2026-09-18, when box 2 and box 3 went to WAL).
  *
- * **The `-wal` is deliberately NOT here.** Committed pages live in it until a
+ * **The `-wal` is deliberately not here.** Committed pages live in it until a
  * checkpoint moves them into the file, so a write that landed since the last
- * checkpoint is IN the `-wal` and nowhere else — a byte-identity suite that
- * skipped it would pass over exactly the write it exists to catch. The suites
- * that hash a store directory skip this and hash the `-wal` with the database
- * (2026-09-18, when box 2 and box 3 went to WAL). `classifyTopLevel` covers all
- * three by prefix; that is a separate question, about the layout.
+ * checkpoint is IN the `-wal` and nowhere else; a hash that skipped it would
+ * pass over exactly the write it exists to catch. **Nor is the `-journal`**:
+ * one beside the database means a rollback-mode writer is mid-transaction, and
+ * during the changeover that writer is a process on the build before this one —
+ * which is a thing those suites should see, not skip.
+ *
+ * `classifyTopLevel` covers all three by prefix. That is a different question,
+ * about what the layout allows.
  */
 export function isDatabaseSidecar(name: string): boolean {
-  return name.endsWith("-journal") || name.endsWith("-shm");
+  return name.endsWith("-shm");
 }
 
 export function classifyTopLevel(name: string): LayoutEntry | undefined {

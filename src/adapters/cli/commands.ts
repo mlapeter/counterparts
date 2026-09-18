@@ -2424,16 +2424,24 @@ function humanBytes(n: number): string {
 }
 
 /**
- * What a database occupies on disk: the file PLUS its `-wal`, which since WAL
- * landed (2026-09-18) holds committed pages until a checkpoint moves them into
- * the file. Stat the file alone and a cache mid-conversion reads 1.8 MiB while
- * 3.7 MB of it sits in the sidecar — measured, and enough to put the reclaimable
- * number under `worthCompacting`'s floor and print "nothing to do" over a real
- * debt. The `-shm` is not counted: it is an index into the `-wal`, not content.
+ * How big the database IS: `page_count * page_size`, off the open handle, which
+ * is true wherever the pages happen to be sitting.
+ *
+ * Since WAL landed (2026-09-18) the file on disk is not the database — committed
+ * pages live in the `-wal` until a checkpoint moves them in — so `statSync` alone
+ * under-reports a busy cache (measured: 1.8 MiB of file with 3.7 MB in the
+ * sidecar). Adding the `-wal` to the file is not the fix either, and was the
+ * first cut of this: the `-wal` holds COPIES of pages the main file already
+ * counts, so a fat one read as space a `VACUUM` would give back — 4,144,752
+ * bytes of "reclaimable" on a cache with nothing to reclaim (review MAJOR-1).
+ * What gives those bytes back is a CHECKPOINT, and a checkpoint happens on its
+ * own. Two pragmas cost nothing, take no lock, and say what a VACUUM is being
+ * compared against.
  */
-function databaseBytes(path: string): number {
-  const wal = `${path}-wal`;
-  return statSync(path).size + (existsSync(wal) ? statSync(wal).size : 0);
+function databaseBytes(db: Db): number {
+  const pages = db.get<{ page_count: number }>("PRAGMA page_count")?.page_count ?? 0;
+  const pageSize = db.get<{ page_size: number }>("PRAGMA page_size")?.page_size ?? 0;
+  return pages * pageSize;
 }
 
 /**
@@ -2453,12 +2461,12 @@ function databaseBytes(path: string): number {
  * (§5 G11). Returns null when the probe cannot run, which is not an error: it
  * means this run has no number, and it says so rather than guessing one.
  */
-function reclaimableBytes(db: Db, path: string): number | null {
+function reclaimableBytes(db: Db): number | null {
   const probeDir = mkdtempSync(join(tmpdir(), "counterparts-vacuum-probe-"));
   const probe = join(probeDir, "compacted.sqlite");
   try {
     db.run("VACUUM INTO ?", probe);
-    return Math.max(0, databaseBytes(path) - statSync(probe).size);
+    return Math.max(0, databaseBytes(db) - statSync(probe).size);
   } catch {
     return null;
   } finally {
@@ -2561,11 +2569,11 @@ async function migrateCacheCommand(
     return Number.isFinite(n) && n > 0 ? n : 500;
   })();
 
-  const sizeBefore = databaseBytes(path);
   // READ-ONLY for the report: `openDb` opens what is there and stamps nothing.
   // `openCache` — which brings an out-of-date box 3 up to the current schema —
   // is reserved for `--apply`, below, where a write is the point.
   const db = openDb(path);
+  const sizeBefore = databaseBytes(db);
   let census: VectorFormatCensus;
   let stamped: string | null;
   try {
@@ -2592,7 +2600,7 @@ async function migrateCacheCommand(
       // Converted. The remaining question is whether the file was ever
       // compacted — the step most likely to have failed, and the one the
       // "already converted" refusal used to hide.
-      const reclaimable = reclaimableBytes(db, path);
+      const reclaimable = reclaimableBytes(db);
       const worth = worthCompacting(reclaimable, sizeBefore);
       io.out("");
       if (reclaimable === null) {
@@ -2616,13 +2624,15 @@ async function migrateCacheCommand(
       }
       const ok = await confirmMigrate(io, flags, dir, `compact box 3 (${humanBytes(reclaimable ?? 0)} reclaimable)`);
       if (!ok) return EXIT.refused;
-      const writable = openCache(path);
-      try {
-        writable.exec("VACUUM");
-      } finally {
-        writable.close();
-      }
-      const sizeAfter = databaseBytes(path);
+      const sizeAfter = (() => {
+        const writable = openCache(path);
+        try {
+          writable.exec("VACUUM");
+          return databaseBytes(writable);
+        } finally {
+          writable.close();
+        }
+      })();
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
@@ -2685,8 +2695,10 @@ async function migrateCacheCommand(
     io.out(
       `First, copy box 3 aside — 'counterparts backup' skips the cache on purpose (it is rebuildable), so it does not cover this:`,
     );
-    io.out(`  cp ${path} ${path}.bak-<date>`);
-    io.out(`  (with every session closed — a copy of a database being written is not a copy of it)`);
+    io.out(`  cp ${path} ${path}.bak-<date> && cp ${path}-wal ${path}-wal.bak-<date>`);
+    io.out(`  (with every session closed — a copy of a database being written is not a copy of it;`);
+    io.out(`   and since WAL the file ALONE is not the database: its '-wal' holds every page`);
+    io.out(`   committed since the last checkpoint, so a copy without it is silently short)`);
     io.out(`Then re-run with --apply to convert (batches of ${batch}).`);
     return EXIT.ok;
   }
@@ -2733,7 +2745,7 @@ async function migrateCacheCommand(
           `Re-run 'counterparts migrate-cache --dir ${dir} --apply' with no session open to compact it.`,
       );
     }
-    const sizeAfter = databaseBytes(path);
+    const sizeAfter = databaseBytes(writable);
     if (vacuumed) {
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
