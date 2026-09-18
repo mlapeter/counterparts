@@ -55,11 +55,19 @@ export {
   doctorFindings,
   noticeMessage,
   readCheckout,
+  readCounterpartOpen,
   reportJson,
   reportLines,
   worstFirst,
 } from "./doctor.js";
-export type { CheckoutReading, DoctorInput, Finding, GitRunner, Severity } from "./doctor.js";
+export type {
+  CheckoutReading,
+  DoctorInput,
+  Finding,
+  GitRunner,
+  OpenReading,
+  Severity,
+} from "./doctor.js";
 
 export {
   stopAsk,

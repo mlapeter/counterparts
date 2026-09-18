@@ -162,8 +162,15 @@ function convertToWal(db: Db): void {
   }
 }
 
-/** SQLITE_BUSY / SQLITE_LOCKED, under either driver's spelling of it. */
-function isLocked(err: unknown): boolean {
+/**
+ * SQLITE_BUSY / SQLITE_LOCKED, under either driver's spelling of it.
+ *
+ * Exported since H1: the hook's stand-down path asks the same question at the
+ * other end of the same failure — a contended database is a TRANSIENT fault, and
+ * it is told apart from a store that will not open at all by exactly this test.
+ * One copy, so the two cannot come to disagree about what "busy" looks like.
+ */
+export function isLocked(err: unknown): boolean {
   const code = (err as { code?: unknown } | null | undefined)?.code;
   if (typeof code === "string" && (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED"))) {
     return true;

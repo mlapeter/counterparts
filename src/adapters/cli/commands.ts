@@ -126,7 +126,14 @@ import { CREDENTIAL_NAMES, loadCredentials } from "../claude-code/credentials.js
 import { SPAWN_REFUSAL_PREFIX } from "../claude-code/hooks.js";
 import { loadConfig } from "../claude-code/config.js";
 import type { AdapterConfig } from "../claude-code/config.js";
-import { anyRed, doctorFindings, readCheckout, reportJson, reportLines } from "../claude-code/doctor.js";
+import {
+  anyRed,
+  doctorFindings,
+  readCheckout,
+  readCounterpartOpen,
+  reportJson,
+  reportLines,
+} from "../claude-code/doctor.js";
 import type { CheckoutReading } from "../claude-code/doctor.js";
 import { exportStore } from "./export.js";
 import {
@@ -4061,6 +4068,14 @@ function doctorCommand(
   const today = new Date().toISOString().slice(0, 10);
   let store: Store | null = null;
   try {
+    // WOULD A SESSION OPEN THIS STORE — asked FIRST, and closed again inside the
+    // call, so this reading and the console's own handle never hold the same
+    // database at once. It is the check the `Store` finding cannot make: that
+    // finding reads the directory, and a store can pass it while
+    // `Counterpart.open` throws at every session start (H1). Inside this `try`
+    // rather than above it, because `doctor` is the command people run BECAUSE
+    // something is wrong, and its own reading must not be the thing that throws.
+    const open = storeExists(dir) ? readCounterpartOpen(dir) : undefined;
     if (storeExists(dir)) store = Store.open({ dir, observer: true });
     const findings = doctorFindings({
       configPath,
@@ -4078,6 +4093,7 @@ function doctorCommand(
       // hook grades the tree the host invokes by absolute path, which is the
       // one that is live on the owner's memory.
       checkout: checkout ?? readCheckout(),
+      ...(open === undefined ? {} : { open }),
     });
     if (parsed.flags["json"] === true) {
       io.out(JSON.stringify(reportJson(findings, today), null, 2));

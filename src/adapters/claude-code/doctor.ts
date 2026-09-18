@@ -49,7 +49,8 @@ import {
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../../core/counterpart.js";
-import { Store, dateOf, paths } from "../../core/store/index.js";
+import { Counterpart } from "../../core/counterpart.js";
+import { Store, dateOf, isStoreError, paths } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
@@ -64,6 +65,9 @@ import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
+// The same vocabulary the hook's stand-down uses, so the terminal and the
+// console cannot end up with two answers to "why did it not open".
+import { describeFault, faultPath } from "./standdown.js";
 
 /** Worst first. The order of this array IS the report's order. */
 export const SEVERITIES = ["red", "amber", "green"] as const;
@@ -167,6 +171,12 @@ export interface DoctorInput {
    * finding is produced at all.
    */
   readonly checkout?: CheckoutReading;
+  /**
+   * WHETHER THE STORE OPENS THE WAY A SESSION OPENS IT (see `readCounterpartOpen`).
+   * Absent: not read, and no finding is produced at all — which is the hook's
+   * case, whose counterpart is already open by the time it asks for a notice.
+   */
+  readonly open?: OpenReading;
   /** Bound the whole reading. Absent: no bound (the console's case). */
   readonly budgetMs?: number;
   readonly now?: () => number;
@@ -426,6 +436,95 @@ export function readCheckout(
  *  states of the checkout and leave nothing behind. */
 export function checkoutIsGraded(reading: CheckoutReading): boolean {
   return reading.reason !== "not-a-repo" && reading.reason !== "unreadable";
+}
+
+// ── will it open the way a session opens it ─────────────────────────────────
+
+/**
+ * WHETHER `Counterpart.open` SUCCEEDS — which is a different question from the
+ * one the `Store` finding above answers, and the difference is the whole of H1.
+ *
+ * The `Store` finding reads the DIRECTORY: is there a store here, and is it the
+ * one the config names. A store can pass that and still throw at every session
+ * start, because opening a counterpart does more than open a database —
+ * `Schemas.open` scans every `type: "schema"` row and reads each one's prose
+ * file. One missing file, or one row a removal left behind, and every hook in
+ * every session stands down: no wake, no recall, no capture, and until now
+ * nothing said so while `doctor` printed GREEN Store on the line above.
+ *
+ * READ BY THE CALLER, like `readCheckout` — and for the same reason it is not
+ * taken inside `doctorFindings`, which is pure over its input and never opens
+ * anything. The session-start reading does not take it at all: a hook that got
+ * as far as composing a notice has ALREADY opened its counterpart, so paying for
+ * a second open there would buy a fact it has in hand.
+ */
+export interface OpenReading {
+  readonly dir: string;
+  readonly ok: boolean;
+  /** The `StoreErrorCode` (or `HOOK_FAILED`) that came back. Null when it opened. */
+  readonly code: string | null;
+  /** Plain words for `code` (`standdown.ts`). Empty when it opened. */
+  readonly reason: string;
+  /**
+   * TRUE for the one refusal that is not a fault: `STORE_UNINITIALIZED`, which
+   * an OBSERVER gets on a store that does not exist yet or is a schema behind.
+   * The hooks run as OWNER and initialize or migrate it, so grading this red
+   * would make the console lie for the window between a deploy and the first
+   * hook that follows it.
+   */
+  readonly migratable: boolean;
+  /**
+   * TRUE for the other refusal that is not a fault of the store: it was BUSY.
+   * Another process held it for the moment this reading wanted it, which says
+   * nothing about whether a session could open it a second later. Amber, and the
+   * fix is to ask again — the same judgement the hook's transient stand-down
+   * makes with the same predicate (`db.ts#isLocked`).
+   */
+  readonly busy: boolean;
+  /** The path the error named, when it named one. Never memory text (§5 G10). */
+  readonly path: string | null;
+}
+
+/**
+ * "Writes nothing" here means NO STORE CONTENT. It is an observer open, so no
+ * row, no prose file and no meta key changes — but any reader of a WAL database
+ * touches the `-shm`, and one that finds no `-shm` or `-wal` beside the file
+ * CREATES them, exactly as every other reader does (`store/paths.ts#isDatabaseSidecar`
+ * is the same exception master's own suites take when they hash a store and mean
+ * "nothing wrote"). Anyone comparing store directories should expect that.
+ */
+export function readCounterpartOpen(
+  dir: string,
+  /** Injectable so the failure branches are provable without a broken fixture;
+   *  the fixture test is still the one that proves the real path. */
+  open: (d: string) => { close: () => void } = (d) => Counterpart.open({ dir: d, observer: true }),
+): OpenReading {
+  let opened: { close: () => void } | null = null;
+  try {
+    // OBSERVER, because `doctor` is an instrument: it reads and never writes,
+    // and an owner open of a store that is not there would MINT one.
+    opened = open(dir);
+    return { dir, ok: true, code: null, reason: "", migratable: false, busy: false, path: null };
+  } catch (err) {
+    const fault = describeFault(err);
+    return {
+      dir,
+      ok: false,
+      code: fault.code,
+      reason: fault.reason,
+      migratable: isStoreError(err, "STORE_UNINITIALIZED"),
+      busy: fault.kind === "transient",
+      path: faultPath(err),
+    };
+  } finally {
+    // Closed immediately, so this reading and the store the console opens next
+    // never hold the same database at once.
+    try {
+      opened?.close();
+    } catch {
+      /* a close that failed is not a state of the store */
+    }
+  }
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────
@@ -1278,6 +1377,68 @@ function checkoutFindings(reading: CheckoutReading): Finding[] {
   ];
 }
 
+/**
+ * THE OPEN ITSELF — red when a session's own read path would throw here.
+ *
+ * The wording is the hook's: one code and one clause of plain words, so the red
+ * line in the terminal and this line say the same thing about the same morning.
+ */
+function openFindings(reading: OpenReading): Finding[] {
+  const data: Record<string, string | number | boolean | null> = {
+    dir: reading.dir,
+    ok: reading.ok,
+    code: reading.code,
+    busy: reading.busy,
+    path: reading.path,
+  };
+  if (reading.ok) {
+    return [
+      finding("store-open", "green", "Store open", `${reading.dir} opens as a session opens it`, "", data),
+    ];
+  }
+  const said = `${reading.dir}: will not open — ${reading.code ?? "?"}: ${reading.reason}`;
+  if (reading.busy) {
+    // NOT A STATE OF THE STORE. Another process held it for the moment this
+    // reading wanted it; a second later it may open perfectly. Grading that red
+    // would put an alarm on a race, which is how a diagnostic teaches its reader
+    // to skip a line.
+    return [
+      finding(
+        "store-open",
+        "amber",
+        "Store open",
+        `${reading.dir}: the database was busy right now, so the open was not graded`,
+        "Run: counterparts doctor again. If it stays busy, something is holding the store — read the Journal line.",
+        data,
+      ),
+    ];
+  }
+  if (reading.migratable) {
+    return [
+      finding(
+        "store-open",
+        "amber",
+        "Store open",
+        `${said} — read as an instrument, which may not write at open`,
+        "The next hook to run as owner initializes or migrates it; run: counterparts install if none does.",
+        data,
+      ),
+    ];
+  }
+  return [
+    finding(
+      "store-open",
+      "red",
+      "Store open",
+      said,
+      reading.path === null
+        ? "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met."
+        : `Every session's hooks stand down here. Restore ${reading.path} — a row in this store points at it, and the read path chases it at every open.`,
+      data,
+    ),
+  ];
+}
+
 /** Coverage of the semantic channel — `verify`'s two census numbers, reused. */
 /**
  * Which journal mode box 2 is actually in — the one surface on which a
@@ -1353,6 +1514,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
+    // Read by the caller for the same reason, and answered beside the `Store`
+    // line it qualifies: "there is a store here" and "it opens" are two facts.
+    ...(input.open === undefined ? [] : openFindings(input.open)),
   ];
   const store = input.store;
   if (store === null) return worstFirst(out);
