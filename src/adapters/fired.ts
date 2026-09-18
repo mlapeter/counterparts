@@ -1,0 +1,1090 @@
+/**
+ * `fired` — which mechanisms have actually fired, and which have gone quiet.
+ *
+ * **Why it exists.** Constitution 11: every mechanism is verified in real use
+ * after it lands, done means seen firing rather than merged, a silent one is
+ * diagnosed before anyone considers removing it — and "the system itself shows
+ * what fired and what did not". In September 2026 several mechanisms were
+ * merged, tested and then never fired once on the live store, and no surface
+ * said so. The read-only inventory of 2026-09-17
+ * (`docs/mechanism-inventory-2026-09-17.md`) counted forty mechanisms:
+ * twenty-four seen firing, ten never, six that cannot be told either way. This
+ * module is the first version of the view its §5 proposed, built ONLY from rows
+ * the store already holds.
+ *
+ * **It reads and never writes.** Every call below is a read; the caller hands in
+ * a store it already opened, and every caller in this tree opens it in observer
+ * stance. Nothing here appends an event, mints a directory or touches box 3.
+ *
+ * **Where it sits.** Beside `sessions.ts` and `scopes.ts`, for the reason those
+ * two are there: three adapters need it — the console's `fired` command,
+ * `claude-code/doctor.ts`'s finding and the dashboard's health panel — and
+ * `mcp/INTERFACE-GAPS.md` §7 keeps adapters as leaves that never import each
+ * other. It DOES import `dashboard/registries.ts`, which is a registry rather
+ * than a view: that file exists precisely so the list of durable event names
+ * cannot be copied without going stale, and a second copy here would be the
+ * staleness it exists to prevent.
+ *
+ * **Three things shape the reading.**
+ *
+ *   1. **One pass over the log, not one query per mechanism.** `Store` offers no
+ *      GROUP BY, so the events are read once — ascending, as `eventLog` returns
+ *      them — and grouped here. A read that hits its ceiling says so and reports
+ *      its totals as a floor rather than as a number.
+ *   2. **Windows are CALENDAR days, UTC.** The lived clock is advanced by the
+ *      worker and has run seven lived days across fifteen calendar ones on the
+ *      owner's own store, so a lived-day window would silently drop rows. The
+ *      `sinceDay` bound is used only to keep the SQL cheap; a lived day is never
+ *      longer than a calendar day, so it cannot cut a row inside the window.
+ *   3. **Absence is a fact, never a formatting hint.** A mechanism with no
+ *      durable evidence is `blind` and says which row would fix it; a stood-down
+ *      one is `disabled` and names the decision; one retired with a phase of the
+ *      run is `retired`. None of the three is silence, and none is a fault.
+ */
+import { TUNABLES as ENCODE } from "../core/encode/tunables.js";
+import { dateOf } from "../core/store/index.js";
+import type { EventRow, Store } from "../core/store/index.js";
+import type { DurableEventName } from "./dashboard/registries.js";
+
+/** The window every count on this page is measured over. Seven CALENDAR days,
+ *  inclusive of today — today and the six before it. */
+export const FIRED_DAYS = 7;
+
+/**
+ * The ceiling on the one event read. The owner's store held roughly twenty
+ * thousand rows on day 191 of the parallel run, so this is an order of magnitude
+ * of headroom; a read that reaches it is reported as a floor rather than as a
+ * number, because a confident wrong count is the one thing a diagnostic may
+ * never produce.
+ */
+export const EVENT_CEILING = 200_000;
+
+/**
+ * The ceiling on the table probes' id scan. The probes cost a few queries per
+ * memory — `Store` has no aggregate over `edges`, `prospective` or `versions` —
+ * so the scan is bounded, and one that reaches this says so.
+ */
+export const PROBE_CEILING = 50_000;
+
+// ── the vocabulary ──────────────────────────────────────────────────────────
+
+/**
+ * What one mechanism's row says about it.
+ *
+ *   - `firing` — a row landed inside the last seven days.
+ *   - `quiet` — it has fired before, and not in the last seven days. The state
+ *     worth reading first, because it is the one that says something changed.
+ *   - `never` — durable evidence exists and has never carried a single row.
+ *   - `new` — never fired, but its evidence is younger than the window, so there
+ *     has not yet been time for it to be a worry.
+ *   - `blind` — no durable evidence exists at all. The row says which row would
+ *     fix it. NOT a synonym for silent: a blind mechanism may be running fine.
+ *   - `disabled` — stood down by a named decision (Amendment 15), not a fault.
+ *   - `retired` — a phase of the run ended and took the mechanism with it.
+ */
+export const FIRED_STATES = [
+  "quiet",
+  "never",
+  "blind",
+  "firing",
+  "new",
+  "disabled",
+  "retired",
+] as const;
+export type FiredState = (typeof FIRED_STATES)[number];
+
+/** The order the report and every renderer print the groups in: SILENT FIRST.
+ *  A view whose first screen is everything that worked is one nobody scrolls. */
+export const STATE_ORDER: readonly FiredState[] = [
+  "quiet",
+  "never",
+  "blind",
+  "firing",
+  "new",
+  "disabled",
+  "retired",
+];
+
+/** The one-line gloss each state carries wherever it is printed. */
+export const STATE_MEANING: Record<FiredState, string> = {
+  firing: "a row landed in the last 7 days",
+  quiet: "it has fired before, but not in the last 7 days",
+  never: "the evidence exists and has never carried a row",
+  new: "never fired, and its evidence is younger than the window — not yet a worry",
+  blind: "nothing durable records it, so firing and silence read alike",
+  disabled: "stood down by a named decision, not a fault",
+  retired: "a phase of the run ended and took it with it",
+};
+
+/**
+ * The table reads that stand in for a mechanism with no event of its own — the
+ * five the inventory's §5(b) named, split where one table answers two questions.
+ * `versions:<reason>` is a template because the reason is the axis.
+ */
+export type ProbeId =
+  | "edges"
+  | "prospective.armed"
+  | "prospective.fired"
+  | "protected"
+  | "removals"
+  | `versions:${string}`;
+
+export type Evidence =
+  | { readonly kind: "event"; readonly names: readonly DurableEventName[] }
+  /** `undated`: the one line to print when the probe yields a count and no date
+   *  at all — a column with no history is blind however many rows it holds. */
+  | { readonly kind: "probe"; readonly probe: ProbeId; readonly undated?: string }
+  | { readonly kind: "none"; readonly reason: string };
+
+export interface Mechanism {
+  /** Stable machine name — the `--json` key, and what a test pins. */
+  readonly id: string;
+  /**
+   * WHAT IT DOES, in words a non-engineer reads once: "the session is asked to
+   * write its own memories", never "adapter.ask". The dotted name is evidence,
+   * printed beside it; it is not the label.
+   */
+  readonly label: string;
+  /** Where the code lives, for the reader who wants to go and look. */
+  readonly module: string;
+  readonly evidence: Evidence;
+  /**
+   * The calendar date the EVIDENCE was added, when it is recent. A mechanism
+   * that has never fired but whose row is three days old is `new`, not `never`:
+   * there has not been time yet, and grading it as a fault is how a view teaches
+   * its reader to ignore it.
+   */
+  readonly since?: string;
+  /** A named stand-down, with its reason. Amendment 15 working, not a fault. */
+  readonly disabled?: string;
+  /** Retired with a phase of the run, with the phase named. */
+  readonly retired?: string;
+  /**
+   * Durable event names this row ACCOUNTS FOR in the coverage test, when they
+   * are not simply its own evidence. A blind mechanism can still be the row that
+   * speaks for a name — the spawn seam's three prove a failure and cannot prove
+   * a start — and a name nobody accounts for is the gap the test catches.
+   */
+  readonly covers?: readonly DurableEventName[];
+}
+
+// ── the registry ────────────────────────────────────────────────────────────
+
+/**
+ * THE MECHANISMS, from the inventory's §2 table. Each row is something the
+ * design claims happens, and its evidence is whatever the store durably holds
+ * about it TODAY. Nothing here is aspirational: a mechanism whose evidence does
+ * not exist yet says so and names the row that would fix it, which is the blind
+ * list of §4 rendered rather than filed.
+ *
+ * Two rows of that table are deliberately absent: novelty (#9) and footnotes
+ * (#16) are sub-readings of the gate and of the surfacing decision, counted
+ * inside the same rows, and listing them again would double-count the log.
+ */
+export const MECHANISMS: readonly Mechanism[] = [
+  // ── what comes in ────────────────────────────────────────────────────────
+  {
+    id: "capture",
+    label: "the conversation is captured when a session pauses or ends",
+    module: "remember/spans",
+    evidence: { kind: "event", names: ["adapter.boundary"] },
+  },
+  {
+    id: "ask",
+    label: "the session is asked to write its own memories before it stops",
+    module: "claude-code/hooks.ts",
+    evidence: { kind: "event", names: ["adapter.ask"] },
+  },
+  {
+    id: "ask-two-part",
+    label: "the older two-part version of that ask — one for the chapter, one for the memories",
+    module: "claude-code/hooks.ts",
+    evidence: { kind: "event", names: ["adapter.authorship.ask", "adapter.episode.ask"] },
+    retired:
+      "replaced by a single ask on 2026-09-04; the days recorded under these names stay readable",
+  },
+  {
+    id: "deposit",
+    label: "a memory the session wrote for itself passed the gates and landed",
+    module: "mcp/ → encode/battery.ts",
+    evidence: { kind: "event", names: ["gate.deposit"] },
+  },
+  {
+    id: "journal-chapter",
+    label: "the session wrote a chapter of its own journal",
+    module: "mcp/chapter → self/",
+    evidence: { kind: "probe", probe: "versions:episode-chapter" },
+  },
+  {
+    id: "sweep-gate",
+    label: "the crash fallback checked whether a session died with something unsaid",
+    module: "remember/fallback.ts",
+    evidence: { kind: "event", names: ["sweep.gate"] },
+  },
+  {
+    id: "sweep-wake",
+    label: "that fallback was woken as me before it read a transcript",
+    module: "core/counterpart.ts",
+    evidence: { kind: "event", names: ["sweep.wake"] },
+    since: "2026-09-17",
+  },
+  {
+    id: "chunk-gate",
+    label: "a swept fragment met the gate battery and was scored at the door",
+    module: "encode/battery.ts",
+    evidence: { kind: "event", names: ["gate.chunk"] },
+  },
+  {
+    id: "gate-refusal",
+    label: "the gate battery turned a proposal away",
+    module: "encode/battery.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "refusals are counted inside the gate rows, and that count has been empty in every row ever written — so a gate that has never had to say no and a gate nothing reaches read exactly alike. Only a deliberate probe deposit separates them.",
+    },
+  },
+  {
+    id: "emotion",
+    label: "how something felt is read at the door and used to weight what comes back",
+    module: "encode/, recall/",
+    evidence: {
+      kind: "none",
+      reason:
+        "the gate records the channel as off in every row; nothing measures a classifier that does not run.",
+    },
+    // READ, not retyped: the stand-down is a tunable, and a view that hard-coded
+    // it would go on saying `disabled` the day the owner turns the classifier on.
+    ...(ENCODE.EMOTION_CLASSIFIER_ENABLED
+      ? {}
+      : {
+          disabled: `the classifier ships off until it clears its precision bar of ${String(
+            ENCODE.EMOTION_CLASSIFIER_PRECISION_BAR,
+          )} (encode/tunables.ts) — a named decision, not a fault`,
+        }),
+  },
+  {
+    id: "salience",
+    label: "every memory is scored for novelty, relevance, feeling and usefulness as it is written",
+    module: "encode/",
+    evidence: {
+      kind: "none",
+      reason:
+        "the scores are columns on each memory, not rows in the log, so the store can say what every memory scored and never when one was scored.",
+    },
+  },
+  {
+    id: "entity-birth",
+    label: "a name mentioned in passing becomes someone the system knows about",
+    module: "schemas/",
+    evidence: {
+      kind: "none",
+      reason:
+        "a birth shows only as another entity in the store, and a refusal shows nowhere at all — the reasons live in an in-process ring that dies with the hook.",
+    },
+  },
+  {
+    id: "accommodation",
+    label: "something the owner declared outright replaced what had been inferred",
+    module: "schemas/",
+    evidence: { kind: "probe", probe: "versions:replaced-by-declaration" },
+  },
+
+  // ── what comes back ──────────────────────────────────────────────────────
+  {
+    id: "recall-decision",
+    label: "each turn decides what comes to mind and what stays quiet",
+    module: "recall/",
+    evidence: { kind: "event", names: ["recall.decision"] },
+  },
+  {
+    id: "recall-injected",
+    label: "what came to mind was handed to the host for the model to read",
+    module: "claude-code/hooks.ts",
+    evidence: { kind: "event", names: ["adapter.recall"] },
+  },
+  {
+    id: "credit",
+    label: "memories the reply actually used are credited, so using one strengthens it",
+    module: "recall/, physics/",
+    evidence: { kind: "event", names: ["recall.credit"] },
+  },
+  {
+    id: "gate-session",
+    label: "what a session has already been shown, so it is not shown the same thing twice",
+    module: "recall/session.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "the table is written every turn and read by no surface at all — not this view, not the dashboard, not the daily. Nothing new is needed; the rows that exist simply have to be rendered.",
+    },
+  },
+  {
+    id: "deliberate-recall",
+    label: "the session went looking for a memory on purpose and opened it in full",
+    module: "mcp/deliberate.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "the whole tool surface writes no durable row; one `mcp.recall` event per call — tool, results, expanded, refused — would fix it.",
+    },
+  },
+  {
+    id: "association",
+    label: "two memories that came to mind together got wired to each other",
+    module: "associate/",
+    evidence: {
+      kind: "probe",
+      probe: "edges",
+      undated: "the links carry no date at all, so nothing says when one was last made.",
+    },
+  },
+  {
+    // The links table above says links EXIST; it could not say one was made this
+    // week, which is how this mechanism wrote nothing for two weeks unseen. Since
+    // 2026-09-17 the boundary's worker leaves a row each time it saves what the
+    // session's hooks noticed and left on disk for it.
+    id: "association-saved",
+    label: "the links noticed during a session were written down by the boundary's worker",
+    module: "associate/",
+    evidence: { kind: "event", names: ["associate.flush"] },
+    since: "2026-09-17",
+  },
+  {
+    id: "spreading",
+    label: "remembering one thing pulls its neighbours with it",
+    module: "associate/spread.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "the turn's record counts what surfaced but never which channel found it; a `channelCounts` field on the decision row that already exists would fix it without a new name.",
+    },
+  },
+  {
+    id: "temporal-channel",
+    label: "what happened around the same time is treated as a cue",
+    module: "core/retrieval.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "the same gap as spreading activation: folded into the turn's totals with no breakdown.",
+    },
+  },
+  {
+    id: "confidentiality",
+    label: "something confidential is held back rather than surfaced",
+    module: "recall/gate.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "the gate reports itself clear inside the deposit and turn records and is never broken out, so a withholding that happened and one that never had to are the same absence.",
+    },
+  },
+
+  // ── what the night does ──────────────────────────────────────────────────
+  {
+    id: "sleep-cycle",
+    label: "the consolidation cycle ran, with every phase by name",
+    module: "sleep/, bin/runner.ts",
+    evidence: { kind: "event", names: ["sleep.cycle"] },
+  },
+  {
+    id: "decay",
+    label: "memories weaken with time and drop to a lower band",
+    module: "physics/, sleep/decay.ts",
+    evidence: { kind: "event", names: ["band.transition"] },
+  },
+  {
+    id: "promotion",
+    label: "a memory reinforced over several days is promoted into identity",
+    module: "sleep/consolidate.ts",
+    evidence: { kind: "event", names: ["band.promoted"] },
+  },
+  {
+    id: "dedup",
+    label: "a duplicate is merged into the memory it duplicates",
+    module: "sleep/dedup.ts",
+    evidence: { kind: "event", names: ["memory.merged"] },
+  },
+  {
+    id: "prune",
+    label: "a memory that has sat at the floor long enough is let go",
+    module: "sleep/prune.ts",
+    evidence: { kind: "event", names: ["memory.pruned"] },
+  },
+  {
+    id: "revision",
+    label: "a belief took a credited challenge and was revised under the pressure",
+    module: "schemas/index.ts",
+    evidence: { kind: "event", names: ["revision.pressure"] },
+  },
+  {
+    id: "night-refusals",
+    label: "why a memory was NOT promoted, pruned, merged or revised",
+    module: "sleep/, physics/, schemas/",
+    evidence: {
+      kind: "none",
+      reason:
+        "each of those four writes a durable row when it succeeds and only an in-process note when it refuses, so 'why did this not promote' is unanswerable once the worker exits. A `blockedBy` roll-up on the cycle row that already exists would fix all four at once.",
+    },
+  },
+  {
+    id: "gist",
+    label: "the gist of many episodes is distilled into one lasting memory",
+    module: "—",
+    evidence: { kind: "none", reason: "not built yet; the storage spec marks it thin." },
+  },
+
+  // ── the self ─────────────────────────────────────────────────────────────
+  {
+    id: "briefing",
+    label: "the waking briefing was composed — who I am, what is live, what is owed",
+    module: "self/briefing.ts",
+    evidence: { kind: "event", names: ["self.briefing"] },
+  },
+  {
+    id: "wake-injected",
+    label: "that briefing was handed to the host at the start of a session",
+    module: "claude-code/hooks.ts",
+    evidence: { kind: "event", names: ["adapter.wake.injected"] },
+  },
+  {
+    id: "wake-delivered",
+    label: "whether the briefing actually arrived was checked on the next turn",
+    module: "claude-code/hooks.ts",
+    evidence: { kind: "event", names: ["adapter.wake.delivered"] },
+  },
+  {
+    id: "primacy",
+    label: "the A/B hand-off that let the older system speak first during the parallel run",
+    module: "claude-code/hooks.ts",
+    evidence: { kind: "event", names: ["adapter.primacy.deliver", "adapter.primacy.standdown"] },
+    retired: "the parallel run left its primacy phase on 2026-09-04",
+  },
+  {
+    id: "protection",
+    label: "the owner marked a memory permanent, so nothing may revise or forget it",
+    module: "physics/, store/",
+    evidence: {
+      kind: "probe",
+      probe: "protected",
+      undated:
+        "protection is a flag on the row with no history behind it — the store can say which memories carry it and never when one was given it. A `versions` row with reason `protected` would fix it.",
+    },
+  },
+  {
+    id: "removal",
+    label: "the owner erased a memory, and the erasure left a record",
+    module: "store/owner-op-seam.ts",
+    evidence: { kind: "probe", probe: "removals" },
+  },
+  {
+    id: "unmerge",
+    label: "the owner put back a memory a merge had archived",
+    module: "store/owner-op-seam.ts",
+    evidence: { kind: "event", names: ["memory.unmerged"] },
+  },
+  {
+    id: "prospective-armed",
+    label: "something to remember at a future date was set",
+    module: "prospective/",
+    evidence: {
+      kind: "probe",
+      probe: "prospective.armed",
+      undated:
+        "the row records the date it is FOR and never the day it was set, so nothing says when one was armed.",
+    },
+  },
+  {
+    id: "prospective-fired",
+    label: "that future date arrived and the reminder came back",
+    module: "prospective/",
+    evidence: { kind: "probe", probe: "prospective.fired" },
+  },
+
+  // ── the machinery underneath ─────────────────────────────────────────────
+  {
+    id: "embed",
+    label: "memories without a vector were given one by the background worker",
+    module: "bin/runner.ts, store/cache.ts",
+    evidence: { kind: "event", names: ["adapter.embed.backfill"] },
+  },
+  {
+    id: "semantic-lag",
+    label: "the worker left the next turn's semantic cue ready",
+    module: "store/cache.ts",
+    evidence: { kind: "event", names: ["adapter.semantic.lag"] },
+  },
+  {
+    id: "worker-start",
+    label: "the background worker started when a session reached a boundary",
+    module: "claude-code/hooks.ts, bin/runner.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "only a REFUSAL or a failure leaves a row; a healthy start leaves nothing, so a worker that has been dead all week and a week with nothing to do read exactly alike. One `adapter.spawn.started` row per boundary would fix it.",
+    },
+    covers: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
+  },
+  {
+    id: "worker-trouble",
+    label: "the worker was refused, could not be started, or failed after starting",
+    module: "claude-code/hooks.ts, bin/runner.ts",
+    evidence: {
+      kind: "event",
+      names: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
+    },
+  },
+  {
+    id: "checkout",
+    label: "which copy of the code the hooks were actually running",
+    module: "claude-code/doctor.ts",
+    evidence: { kind: "event", names: ["adapter.checkout"] },
+  },
+  {
+    id: "scope-verdict",
+    label: "a directory's own setting decided whether to remember there at all",
+    module: "adapters/scopes.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "off and paused are decided BEFORE the store is opened, so no store row is possible at that instant. A counter file beside the scope registry, read by doctor, is the only shape that fits.",
+    },
+  },
+  {
+    id: "backup",
+    label: "the store was backed up",
+    module: "cli/commands.ts",
+    evidence: {
+      kind: "none",
+      reason:
+        "there is no channel at all — no row, no ring, no directory — so a backup that ran and one that never has are the same silence. One `store.backup` event would fix it.",
+    },
+  },
+];
+
+// ── the report ──────────────────────────────────────────────────────────────
+
+export interface FiredRow {
+  readonly id: string;
+  readonly label: string;
+  readonly module: string;
+  readonly state: FiredState;
+  /** The calendar date of the newest row, or `lived day N` for a table that
+   *  counts in lived days, or null when nothing has ever been recorded. */
+  readonly lastFired: string | null;
+  /** True when `lastFired` is a `YYYY-MM-DD` calendar date rather than a lived day. */
+  readonly lastFiredIsDate: boolean;
+  readonly firedInWindow: number;
+  readonly firedInPreviousWindow: number;
+  /** Everything the store still holds. A floor when the report is `truncated`. */
+  readonly total: number;
+  readonly refusedInWindow: number;
+  readonly topRefusal: string | null;
+  /** The dotted names or the table this row was read from, for the reader who greps. */
+  readonly evidence: string;
+  /** Present on `blind`, `disabled`, `retired` and `new` — the line that says why. */
+  readonly note: string | null;
+}
+
+export interface FiredReport {
+  readonly today: string;
+  /** The first day of the window — today and the six before it. */
+  readonly from: string;
+  /** The seven days before that — the window a `quiet` verdict is measured against. */
+  readonly previousFrom: string;
+  readonly previousTo: string;
+  readonly rows: readonly FiredRow[];
+  /** Mechanism ids whose evidence is a table this pass did not read. */
+  readonly notRead: readonly string[];
+  /** The event read reached its ceiling, so every `total` is a floor. */
+  readonly truncated: boolean;
+  readonly probesRead: boolean;
+  /** The id scan reached its ceiling, so every probe count is a floor. */
+  readonly probesTruncated: boolean;
+  readonly counts: Record<FiredState, number>;
+  /**
+   * Mechanisms that fired in the PREVIOUS seven days and not once in this one,
+   * by label. The one list on this page that says something CHANGED.
+   */
+  readonly wentQuiet: readonly string[];
+}
+
+export interface FiredOptions {
+  /**
+   * Read the tables that stand in for a mechanism with no event — edges,
+   * prospective, protected, removals, versions. ON by default. The probes cost a
+   * few queries per memory, because `Store` offers no aggregate over tables
+   * keyed by memory id, so the one caller on a hook's hot path turns them off
+   * and the report NAMES what it did not read rather than guessing at it.
+   */
+  readonly probes?: boolean;
+}
+
+/** `YYYY-MM-DD`, `back` days before `today`. UTC, like every date in this store. */
+export function daysBefore(today: string, back: number): string {
+  const at = Date.parse(`${today}T00:00:00Z`);
+  if (Number.isNaN(at)) return today;
+  return new Date(at - back * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * THE READING. One pass over the log, one optional pass over the ids, and a row
+ * per mechanism. Pure over the store, and never a write.
+ */
+export function firedReport(store: Store, today: string, opts: FiredOptions = {}): FiredReport {
+  const window: Window = {
+    from: daysBefore(today, FIRED_DAYS - 1),
+    to: today,
+    previousFrom: daysBefore(today, FIRED_DAYS * 2 - 1),
+    previousTo: daysBefore(today, FIRED_DAYS),
+  };
+  const log = readLog(store, window);
+  const probed = opts.probes === false ? null : readProbes(store, window);
+
+  const rows: FiredRow[] = [];
+  const notRead: string[] = [];
+  for (const m of MECHANISMS) {
+    if (m.evidence.kind === "probe" && probed === null) {
+      notRead.push(m.id);
+      continue;
+    }
+    rows.push(rowFor(m, log, probed, window));
+  }
+
+  const counts = Object.fromEntries(FIRED_STATES.map((s) => [s, 0])) as Record<FiredState, number>;
+  for (const row of rows) counts[row.state] += 1;
+
+  return {
+    today,
+    from: window.from,
+    previousFrom: window.previousFrom,
+    previousTo: window.previousTo,
+    rows: sortRows(rows),
+    notRead,
+    truncated: log.truncated,
+    probesRead: probed !== null,
+    probesTruncated: probed?.truncated ?? false,
+    counts,
+    wentQuiet: rows
+      .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0)
+      // A row whose table keeps only LIVED days was compared on the lived clock,
+      // which has run seven days across fifteen calendar ones — so the sentence
+      // says which clock answered rather than claiming a calendar week it did
+      // not measure.
+      .map((r) => (r.lastFiredIsDate ? r.label : `${r.label} (measured in lived days)`)),
+  };
+}
+
+/** Silent first, then by state, then most-recently-fired first inside a state —
+ *  with the rows a lived clock answered after the dated ones, because the two
+ *  spellings do not compare and an order that pretended they did would shuffle. */
+export function sortRows(rows: readonly FiredRow[]): FiredRow[] {
+  return [...rows].sort((a, b) => {
+    const byState = STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state);
+    if (byState !== 0) return byState;
+    if (a.lastFiredIsDate !== b.lastFiredIsDate) return a.lastFiredIsDate ? -1 : 1;
+    if (a.lastFired !== b.lastFired) {
+      if (a.lastFired === null) return 1;
+      if (b.lastFired === null) return -1;
+      return a.lastFired < b.lastFired ? 1 : -1;
+    }
+    return a.id < b.id ? -1 : 1;
+  });
+}
+
+// ── one row per mechanism ───────────────────────────────────────────────────
+
+interface Window {
+  readonly from: string;
+  readonly to: string;
+  readonly previousFrom: string;
+  readonly previousTo: string;
+}
+
+/** A reading of one piece of evidence, before the state is decided. */
+interface Reading {
+  readonly total: number;
+  readonly lastFired: string | null;
+  readonly lastFiredIsDate: boolean;
+  readonly inWindow: number;
+  readonly inPreviousWindow: number;
+  readonly refused: number;
+  readonly topRefusal: string | null;
+  readonly evidence: string;
+  /** Set when this evidence cannot answer the question at all. */
+  readonly blind: string | null;
+}
+
+const EMPTY_READING: Reading = {
+  total: 0,
+  lastFired: null,
+  lastFiredIsDate: false,
+  inWindow: 0,
+  inPreviousWindow: 0,
+  refused: 0,
+  topRefusal: null,
+  evidence: "",
+  blind: null,
+};
+
+function rowFor(m: Mechanism, log: LogRead, probed: Probed | null, w: Window): FiredRow {
+  const read = readEvidence(m, log, probed);
+  const state = stateOf(m, read, w);
+  return {
+    id: m.id,
+    label: m.label,
+    module: m.module,
+    state,
+    lastFired: read.lastFired,
+    lastFiredIsDate: read.lastFiredIsDate,
+    firedInWindow: read.inWindow,
+    firedInPreviousWindow: read.inPreviousWindow,
+    total: read.total,
+    refusedInWindow: read.refused,
+    topRefusal: read.topRefusal,
+    evidence: read.evidence,
+    note: noteFor(m, read, state),
+  };
+}
+
+/**
+ * THE STATE MACHINE, in the order the answers override each other: a named
+ * stand-down and a retired phase are facts about the DESIGN and outrank every
+ * count; blindness is a fact about the EVIDENCE and outranks the rest; only then
+ * do the counts speak.
+ */
+function stateOf(m: Mechanism, read: Reading, w: Window): FiredState {
+  if (m.disabled !== undefined) return "disabled";
+  if (m.retired !== undefined) return "retired";
+  if (read.blind !== null) return "blind";
+  if (read.inWindow > 0) return "firing";
+  if (read.total > 0) return "quiet";
+  // Never fired. A mechanism whose EVIDENCE is younger than the window has not
+  // had time to be a worry yet, and grading it as one is how a view teaches its
+  // reader to ignore it.
+  if (m.since !== undefined && m.since >= w.from) return "new";
+  return "never";
+}
+
+function noteFor(m: Mechanism, read: Reading, state: FiredState): string | null {
+  if (state === "disabled") return m.disabled ?? null;
+  if (state === "retired") return m.retired ?? null;
+  if (state === "blind") return read.blind;
+  if (state === "new" && m.since !== undefined) return `its evidence was added ${m.since}`;
+  return null;
+}
+
+function readEvidence(m: Mechanism, log: LogRead, probed: Probed | null): Reading {
+  if (m.evidence.kind === "none") {
+    return { ...EMPTY_READING, evidence: "no durable row", blind: m.evidence.reason };
+  }
+  if (m.evidence.kind === "probe") {
+    return probeReading(m.evidence.probe, m.evidence.undated ?? null, probed);
+  }
+  return eventReading(m.evidence.names, log);
+}
+
+function eventReading(names: readonly DurableEventName[], log: LogRead): Reading {
+  let total = 0;
+  let inWindow = 0;
+  let inPreviousWindow = 0;
+  let refused = 0;
+  let lastFired: string | null = null;
+  const refusals = new Map<string, number>();
+  for (const name of names) {
+    const t = log.byName.get(name);
+    if (t === undefined) continue;
+    total += t.total;
+    inWindow += t.inWindow;
+    inPreviousWindow += t.inPreviousWindow;
+    refused += t.refused;
+    if (t.lastDate !== null && (lastFired === null || t.lastDate > lastFired)) {
+      lastFired = t.lastDate;
+    }
+    for (const [reason, n] of t.refusals) refusals.set(reason, (refusals.get(reason) ?? 0) + n);
+  }
+  return {
+    total,
+    lastFired,
+    lastFiredIsDate: lastFired !== null,
+    inWindow,
+    inPreviousWindow,
+    refused,
+    topRefusal: topOf(refusals),
+    evidence: names.join(", "),
+    blind: null,
+  };
+}
+
+/** The reason with the most against it; ties broken by name, so a line a test
+ *  pins does not depend on map order. */
+function topOf(refusals: ReadonlyMap<string, number>): string | null {
+  let top: [string, number] | null = null;
+  for (const [reason, n] of refusals) {
+    if (top === null || n > top[1] || (n === top[1] && reason < top[0])) top = [reason, n];
+  }
+  return top === null ? null : `${top[0]} ×${String(top[1])}`;
+}
+
+// ── the one pass over the log ───────────────────────────────────────────────
+
+interface NameTally {
+  total: number;
+  lastDate: string | null;
+  inWindow: number;
+  inPreviousWindow: number;
+  refused: number;
+  refusals: Map<string, number>;
+}
+
+interface LogRead {
+  readonly byName: ReadonlyMap<string, NameTally>;
+  readonly truncated: boolean;
+}
+
+function emptyTally(): NameTally {
+  return {
+    total: 0,
+    lastDate: null,
+    inWindow: 0,
+    inPreviousWindow: 0,
+    refused: 0,
+    refusals: new Map(),
+  };
+}
+
+/**
+ * The events, read once and grouped here — `Store` offers no GROUP BY, and a
+ * query per mechanism per day would make this the slowest thing doctor does.
+ *
+ * `eventLog` orders ASCENDING and takes a LIMIT, so a read that comes back FULL
+ * is the OLDEST rows and the newest days are exactly the ones missing — which is
+ * the window this report is about. In that case a SECOND, day-bounded read
+ * covers both windows, the two are joined on `seq` so nothing is counted twice,
+ * and every total is declared a floor.
+ */
+function readLog(store: Store, w: Window): LogRead {
+  const byName = new Map<string, NameTally>();
+  const first = store.eventLog({ limit: EVENT_CEILING });
+  for (const row of first) tallyRow(byName, row, w);
+  if (first.length < EVENT_CEILING) return { byName, truncated: false };
+  const lastSeq = first[first.length - 1]?.seq ?? 0;
+  // A lived day is never longer than a calendar day, so `livedDay - 14` cannot
+  // cut a row inside the fourteen calendar days the two windows cover.
+  const recent = store.eventLog({
+    sinceDay: Math.max(0, store.livedDay() - FIRED_DAYS * 2),
+    limit: EVENT_CEILING,
+  });
+  for (const row of recent) {
+    if (row.seq <= lastSeq) continue;
+    tallyRow(byName, row, w);
+  }
+  return { byName, truncated: true };
+}
+
+function tallyRow(byName: Map<string, NameTally>, row: EventRow, w: Window): void {
+  let t = byName.get(row.name);
+  if (t === undefined) {
+    t = emptyTally();
+    byName.set(row.name, t);
+  }
+  t.total += 1;
+  const payload = payloadOf(row);
+  const date = rowDate(row, payload);
+  if (t.lastDate === null || date > t.lastDate) t.lastDate = date;
+  const inWindow = date >= w.from && date <= w.to;
+  if (inWindow) t.inWindow += 1;
+  else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
+  if (!inWindow) return;
+  const reader = REFUSAL_READERS[row.name];
+  if (reader === undefined) return;
+  for (const [reason, n] of reader(payload)) {
+    if (n <= 0) continue;
+    t.refused += n;
+    t.refusals.set(reason, (t.refusals.get(reason) ?? 0) + n);
+  }
+}
+
+/** The CALENDAR date a row is about: its own field, else the wall clock it was
+ *  written at. `day` is the lived-day column and answers a different question. */
+function rowDate(row: EventRow, payload: Record<string, unknown>): string {
+  const date = payload["date"];
+  if (typeof date === "string" && date.length === 10) return date;
+  return dateOf(row.at);
+}
+
+function payloadOf(row: EventRow): Record<string, unknown> {
+  if (row.payload === null) return {};
+  try {
+    const parsed: unknown = JSON.parse(row.payload);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+// ── refusals, read only from fields that exist today ────────────────────────
+
+/**
+ * WHAT WAS TURNED AWAY, per event name — and ONLY from a payload field the
+ * writer already fills. The inventory's §5(c) named five; this is that list as
+ * code. Nothing here invents a refusal channel, and a name absent from this
+ * table simply has no refusal column on the page, which is the honest answer.
+ */
+const REFUSAL_READERS: Record<string, (p: Record<string, unknown>) => [string, number][]> = {
+  // `outcome` says what happened; `reason` says why, and is the one worth
+  // reading — the old shared day cap and the per-session allowance are two
+  // different verdicts that both spell themselves `capped`.
+  "adapter.ask": (p) => {
+    const outcome = str(p, "outcome");
+    if (outcome === null || outcome === "asked") return [];
+    return [[str(p, "reason") ?? outcome, 1]];
+  },
+  // TOTAL by reason since 2026-09-14, `SWEPT` included — and `SWEPT` is the one
+  // entry that is not a refusal at all, so it is excluded rather than counted.
+  "sweep.gate": (p) => countsIn(p, "refusals").filter(([reason]) => reason !== "SWEPT"),
+  "gate.chunk": (p) => countsIn(p, "refusalsByReason"),
+  "gate.deposit": (p) => countsIn(p, "refusalsByReason"),
+  "recall.credit": (p) => countsIn(p, "refused"),
+  // `rendered` is the turn that surfaced something; every other reason is a turn
+  // that decided to stay quiet, which is what a refusal is here.
+  "recall.decision": (p) => {
+    const reason = str(p, "reason");
+    return reason === null || reason === "rendered" ? [] : [[reason, 1]];
+  },
+};
+
+function countsIn(p: Record<string, unknown>, key: string): [string, number][] {
+  const raw = p[key];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const out: [string, number][] = [];
+  for (const [reason, n] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof n === "number" && n > 0) out.push([reason, n]);
+  }
+  return out;
+}
+
+function str(p: Record<string, unknown>, key: string): string | null {
+  const v = p[key];
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+// ── the table probes ────────────────────────────────────────────────────────
+
+interface ProbeTally {
+  total: number;
+  /** The newest LIVED day this table records, or null when it records none. */
+  lastLivedDay: number | null;
+  /** The newest wall-clock instant, where the table keeps one. */
+  lastAt: number | null;
+  /** Counted PER ROW, like the log's: a table whose newest row is inside the
+   *  window has not put every row it holds inside the window. */
+  inWindow: number;
+  inPreviousWindow: number;
+}
+
+interface Probed {
+  readonly byId: ReadonlyMap<string, ProbeTally>;
+  readonly livedDay: number;
+  readonly truncated: boolean;
+}
+
+/**
+ * The five tables the inventory's §5(b) named, read in ONE pass over the ids.
+ *
+ * `Store` offers no aggregate over `edges`, `prospective` or `versions` and no
+ * `protected` field on `MemoryFilter` — every one of those is keyed by a memory
+ * id — so this costs a few queries per memory and is bounded by `PROBE_CEILING`.
+ * It is the read the console and the dashboard pay and the session-start reading
+ * does not.
+ */
+function readProbes(store: Store, w: Window): Probed {
+  const byId = new Map<string, ProbeTally>();
+  const livedDay = store.livedDay();
+  const bump = (id: string, at: { livedDay?: number | null; at?: number | null } = {}): void => {
+    let t = byId.get(id);
+    if (t === undefined) {
+      t = { total: 0, lastLivedDay: null, lastAt: null, inWindow: 0, inPreviousWindow: 0 };
+      byId.set(id, t);
+    }
+    t.total += 1;
+    const day = at.livedDay ?? null;
+    if (day !== null && (t.lastLivedDay === null || day > t.lastLivedDay)) t.lastLivedDay = day;
+    const when = at.at ?? null;
+    if (when !== null && (t.lastAt === null || when > t.lastAt)) t.lastAt = when;
+    // A wall clock answers in calendar days, which is the window this page uses.
+    // A lived day is all some of these tables keep, and a lived day spans one
+    // calendar day or more, so that window is a superset of the calendar one —
+    // the row prints `lived day N` rather than a date so the reader can see
+    // which clock answered.
+    if (when !== null) {
+      const date = dateOf(when);
+      if (date >= w.from && date <= w.to) t.inWindow += 1;
+      else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
+      return;
+    }
+    if (day === null) return;
+    const ago = livedDay - day;
+    if (ago < FIRED_DAYS) t.inWindow += 1;
+    else if (ago < FIRED_DAYS * 2) t.inPreviousWindow += 1;
+  };
+
+  for (const record of store.removalRecord()) bump("removals", { at: record.at });
+
+  const ids = store.list();
+  const scanned = ids.length > PROBE_CEILING ? ids.slice(0, PROBE_CEILING) : ids;
+  for (const id of scanned) {
+    const row = store.row(id);
+    if (row !== undefined && row.archived === 0 && row.protected === 1) bump("protected");
+    for (const edge of store.edgesFrom(id)) bump("edges", { livedDay: edge.last_day });
+    for (const p of store.prospectiveFor(id)) {
+      bump("prospective.armed");
+      if (p.last_fired_day !== null) bump("prospective.fired", { livedDay: p.last_fired_day });
+    }
+    for (const v of store.versions(id)) {
+      bump(`versions:${v.reason}`, { livedDay: v.version_day, at: v.archived_at });
+    }
+  }
+  return { byId, livedDay, truncated: scanned.length < ids.length };
+}
+
+function probeReading(probe: ProbeId, undated: string | null, probed: Probed | null): Reading {
+  const base: Reading = { ...EMPTY_READING, evidence: probeLabel(probe) };
+  if (probed === null) return { ...base, blind: "the tables were not read on this pass" };
+  const t = probed.byId.get(probe);
+  if (t === undefined || t.total === 0) return base;
+  const counted = {
+    ...base,
+    total: t.total,
+    inWindow: t.inWindow,
+    inPreviousWindow: t.inPreviousWindow,
+  };
+  if (t.lastAt !== null) {
+    return { ...counted, lastFired: dateOf(t.lastAt), lastFiredIsDate: true };
+  }
+  if (t.lastLivedDay !== null) {
+    return {
+      ...counted,
+      lastFired: `lived day ${String(t.lastLivedDay)}`,
+      lastFiredIsDate: false,
+    };
+  }
+  // Rows, and no date of any kind behind them: a count that cannot answer the
+  // question this page asks. `undated` is the line that says so.
+  return {
+    ...base,
+    total: t.total,
+    blind: undated ?? "this table records no date, so nothing says when it last happened",
+  };
+}
+
+function probeLabel(probe: ProbeId): string {
+  if (probe.startsWith("versions:")) return `versions (${probe.slice("versions:".length)})`;
+  if (probe === "protected") return "memories marked permanent";
+  if (probe === "removals") return "the removal record";
+  if (probe === "edges") return "the links table";
+  return `the ${probe.replace(".", " ")} table`;
+}

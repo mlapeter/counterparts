@@ -42,6 +42,7 @@ import type { AssociateTunables } from "./tunables.js";
 
 export * from "./buffer.js";
 export * from "./edges.js";
+export * from "./pending.js";
 export * from "./spread.js";
 export * from "./tunables.js";
 
@@ -127,6 +128,22 @@ export interface FlushReport {
    *  arm, where it is the chosen direction, counted rather than hidden. */
   readonly dropped: number;
   readonly error?: string;
+  /** The failure's stable CODE — the store's own where it has one, the error's
+   *  name otherwise. `error` above is the message, which is for a human reading
+   *  a report; a durable row takes this instead (store §5 G10). */
+  readonly code?: string;
+}
+
+/** A code for telemetry, never the message: the store's `code` where there is
+ *  one, the error's name otherwise (store §5 G10 — messages can quote prose). */
+function codeOf(err: unknown): string {
+  if (err !== null && typeof err === "object") {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    const name = (err as { name?: unknown }).name;
+    if (typeof name === "string") return name;
+  }
+  return "UNKNOWN";
 }
 
 const EVENT_RING = 200;
@@ -218,10 +235,40 @@ export class Associate {
    * Take the buffer. **Public precisely so the crash point is reachable**: a
    * caller that drains and does not publish has DROPPED those deltas, which is
    * the chosen failure direction stated out loud rather than discovered in
-   * production. `flush()` is drain + publish; nothing else may call this.
+   * production. `flush()` is drain + publish.
+   *
+   * One other caller drains: the credit pass, which writes what it took to the
+   * pending file (`pending.ts`) because the process that can publish it is a
+   * different one. Draining and PERSISTING is not dropping — but a drain whose
+   * append then fails has dropped them, which is why that caller counts the
+   * append's answer (`counterpart.ts#publishCoactivation`).
    */
   drain(): PairDelta[] {
     return this.buffer.drain();
+  }
+
+  /**
+   * Take deltas another process buffered — the worker's half of the pending
+   * file. They go into this process's buffer, so `flush()` publishes them
+   * through exactly the same plan, eligibility re-check and eviction path as
+   * deltas this process earned itself.
+   *
+   * An observer absorbs nothing, checked first, like `coactivate` (G7).
+   */
+  absorb(deltas: readonly PairDelta[]): number {
+    if (this.observer) {
+      this.emit("associate.observer.skip", undefined, { site: "absorb", deltas: deltas.length });
+      return 0;
+    }
+    let added = 0;
+    for (const d of deltas) {
+      // The buffer ignores these two, so counting them as absorbed would report
+      // work that no flush can ever do.
+      if (d.delta <= 0 || d.a === d.b) continue;
+      this.buffer.add(d.a, d.b, d.delta);
+      added += 1;
+    }
+    return added;
   }
 
   /** What is buffered right now — copies, for telemetry and tests. */
@@ -305,7 +352,7 @@ export class Associate {
           pairs: deltas.length,
           rows: rows.length,
           dropped: live.length,
-          error: err instanceof Error ? err.name : "UNKNOWN",
+          error: codeOf(err),
         });
         return {
           reason: "failed",
@@ -318,6 +365,7 @@ export class Associate {
           blocked,
           dropped: live.length,
           error: err instanceof Error ? err.message : String(err),
+          code: codeOf(err),
         };
       }
     }

@@ -283,6 +283,37 @@ export const NARRATORS = {
     }
     return calm("A session ended; its replies used nothing I had brought to mind, so nothing got stronger.");
   },
+  "associate.flush": (t) => {
+    const rows = n(t, "rows") ?? 0;
+    const pairs = n(t, "pairs") ?? 0;
+    const evicted = n(t, "evicted") ?? 0;
+    const waited = n(t, "oldestMs") ?? 0;
+    const reason = s(t, "reason");
+    if (reason === "failed" || reason === "threw") {
+      const lost = n(t, "dropped") ?? 0;
+      return amber(
+        `I could not write down what the sessions wired together (${s(t, "error") ?? "no code"}); ${lost} ${lost === 1 ? "link is" : "links are"} still waiting on disk for the next boundary, and the memories themselves are untouched.`,
+      );
+    }
+    if (reason === "observer") return calm("I watched a boundary wire nothing: an instrument leaves the graph as it found it.");
+    if (rows > 0) {
+      const tail = evicted > 0 ? `, and ${evicted} weaker ${evicted === 1 ? "link" : "links"} made way for them` : "";
+      // Over a minute means the work waited for a later boundary than the one
+      // that earned it — worth saying, because it is what a busy database or a
+      // worker that never ran looks like from here.
+      const late = waited > 60_000 ? ` The oldest of it had been waiting ${Math.round(waited / 60_000)} minutes.` : "";
+      return notable(
+        `${pairs} ${pairs === 1 ? "pair" : "pairs"} of memories that were used together got more connected${tail}.${late}`,
+      );
+    }
+    const dropped = n(t, "pendingDropped") ?? 0;
+    if (dropped > 0) {
+      return amber(
+        `${dropped} ${dropped === 1 ? "link was" : "links were"} noticed while nothing was writing them down, and the file holding them was full.`,
+      );
+    }
+    return calm("A boundary carried in what the sessions had wired and nothing new came of it.");
+  },
   "sweep.gate": (t) => {
     const scopes = n(t, "scopes") ?? 0;
     const ran = n(t, "ran") ?? 0;
@@ -500,9 +531,25 @@ export const NARRATORS = {
     notable(`I handed the host who I have been — ${n(t, "bytes") ?? 0} bytes of briefing, at the start of a session.`),
   "adapter.wake.delivered": (t) => {
     const seen = t.p["seen"] === true || t.p["sentinelSeen"] === true || t.p["ok"] === true;
-    return seen
-      ? calm(`I checked the next turn and my briefing had arrived intact.`)
-      : amber(`I checked the next turn and could not confirm my briefing arrived. A wake nobody read is a day I started as a stranger.`);
+    if (seen) return calm(`I checked the next turn and my briefing had arrived intact.`);
+    // The check says WHY since 2026-09-17, and one of its answers is not a problem:
+    // a session that was owed no briefing (nothing was printed at its start).
+    const outcome = s(t, "outcome");
+    if (outcome === "no-wake-expected") {
+      return calm(`This session was owed no briefing, so there was nothing to check for.`);
+    }
+    if (outcome === "printed-unverified") {
+      return calm(
+        `My briefing was printed intact; this host does not record what it delivered, so I could not check further.`,
+      );
+    }
+    if (outcome === "truncated") {
+      return amber(`My briefing arrived cut short — the closing marker was missing from what the session was given.`);
+    }
+    if (outcome === "mismatch") {
+      return amber(`A briefing arrived, but not the one I composed for this session — most likely a resumed session showing an earlier run's.`);
+    }
+    return amber(`I checked the next turn and could not confirm my briefing arrived. A wake nobody read is a day I started as a stranger.`);
   },
 
   // ── the host's session ─────────────────────────────────────────────────────
@@ -636,6 +683,9 @@ export const REF_KIND = {
   "sleep.cycle": "none",
   "self.briefing": "none",
   "recall.credit": "none",
+  // A flush describes a SET of pairs, not one memory. The ids stay in the edge
+  // rows, where they are the record; the row carries counts.
+  "associate.flush": "none",
 } as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
 
 function subjectOf(store: Store, row: EventRow): string | null {

@@ -297,3 +297,33 @@ path bounded at 150 ms.
 **The ask**: `eventLog` takes an `order: "asc" | "desc"` (or a `newest: n`), and
 `newestRows` collapses to one call per name. Box 2's own business, it changes no
 behaviour, and it is the only reason that ladder exists.
+
+---
+
+## 11. `Store` has no GROUP BY, so the what-fired view counts rows in JavaScript
+
+`adapters/fired.ts` (2026-09-17) asks two questions of every mechanism: how many
+rows of this name landed in each of two seven-day windows, and when did the
+newest one land. Both are one `GROUP BY` in SQL and neither is a call the store
+offers, so the view reads the whole log through `eventLog({ limit })` — one
+query, not one per name per day — and tallies it here. A read that comes back
+FULL is handled rather than trusted (the same trap §10 names): it is the oldest
+rows, so a second day-bounded read covers the windows, the two are joined on
+`seq`, and every total is reported as a floor.
+
+Four TABLE reads have the same shape and no aggregate at all. `edges`,
+`prospective` and `versions` are keyed by memory id and reachable only as
+`edgesFrom(id)` / `prospectiveFor(id)` / `versions(id)`, and `MemoryFilter` has
+no `protected` field, so the five probes the view needs — newest `edges.last_day`,
+the prospective count and newest fired day, the protected count, the removal
+record, `versions` by reason — cost a few queries per memory. Only
+`removalRecord()` is one query. `web/views.ts:1360` already pays the same price
+for its edge count. The view bounds the scan, reports a truncated one as a floor,
+and the one caller on a hook's hot path turns the probes off and NAMES the
+mechanisms it therefore did not read.
+
+**The ask**, in the order it would pay: (a) `eventCounts({ sinceDay })` returning
+`name → { rows, newestAt }`, which collapses the whole first half; (b)
+`MemoryFilter.protected`; (c) `edgeCensus()` / `prospectiveCensus()` /
+`versionCensus()` returning a count and a newest day per key. All of it is box
+2's own business and none of it changes behaviour.

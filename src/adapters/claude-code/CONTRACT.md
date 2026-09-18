@@ -36,7 +36,17 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   speaking as the old one).
 - **Delivery telemetry, distinct from render telemetry.** [v1] scar §2.3 — the adapter is
   the only thing that can report *arrival*, and v1 shipped eleven days of truncated wakes
-  because only the render was instrumented.
+  because only the render was instrumented. SessionStart writes the sentinel it printed
+  into the session registry record, and the session's FIRST PROMPT reads the head of the
+  host's transcript for this package's SessionStart attachment — what the hook printed
+  beside what the host recorded as injected — and leaves one `adapter.wake.delivered` row
+  saying `delivered`, `truncated`, `mismatch`, `printed-unverified` (this host build
+  records no injected copy to check against), `not-found` or `no-wake-expected`, in counts
+  and flags. No text from the bundle rides on that row: the sentinel is compared where it
+  is found and only the answer comes back. The expectation is persisted rather than held in memory because every
+  hook is its own process: it was a `Map` on an adapter instance until 2026-09-17, tested
+  against a field no caller set, and wrote 0 rows in two weeks of live running (mechanism
+  inventory §3 S2).
 - **Injected context is excluded from pacing but kept in capture.** [v1] §2 G11 —
   host-injected material that is user-role but is not the user speaking must not pace a
   ritual.
@@ -178,8 +188,11 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     conversation — the failure this guarantee is named after.
 13. **[M] The live session is recorded where this host's TOOLS can find it, and that
     record is also WHERE THE SESSION IS FILED.** SessionStart writes
-    `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary), Stop refreshes the
-    clock — creating the record when it is missing — and SessionEnd closes it. The writes
+    `<dataDir>/sessions/<id>.json` (id, scope, started, last boundary, and the marks a
+    later hook process needs: which configuration was read, whether the first-launch
+    question went out, the wake's sentinel and whether its arrival has been checked), Stop
+    refreshes the clock — creating the record when it is missing — and SessionEnd closes
+    it. The writes
     are atomic (temp + rename), tiny, and silent on failure, because a hook may not fail
     the host (G2) and SessionEnd's hooks share 1.5 s between them. It exists because this
     host launches its MCP servers from a static configuration and cannot tell them which

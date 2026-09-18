@@ -333,14 +333,21 @@ export function toHookInput(
   } = {},
 ): HookInput {
   const scope = opts.scope ?? sessionScope(opts.dataDir, payload, opts.env ?? process.env);
-  const transcript = readTranscript(
-    typeof payload["transcript_path"] === "string" ? payload["transcript_path"] : undefined,
-  );
+  const transcriptPath =
+    typeof payload["transcript_path"] === "string" && payload["transcript_path"].length > 0
+      ? payload["transcript_path"]
+      : undefined;
+  const transcript = readTranscript(transcriptPath);
   return {
     sessionId: typeof payload["session_id"] === "string" ? payload["session_id"] : "",
     scope,
     turns: transcript.turns,
     expansions: transcript.expansions,
+    // THE PATH ITSELF, beside the parse of it. The delivery check reads the head
+    // of the same file for the attachment `parseTranscript` deliberately skips
+    // (`hooks.ts#checkWakeArrival`), and a parsed turn list cannot answer for
+    // what the host injected.
+    ...(transcriptPath === undefined ? {} : { transcriptPath }),
     // The host's re-fire of a blocked Stop, carried INTO the adapter and not
     // only handled at delivery: the pass that says nothing must also advance
     // nothing (`hooks.ts#askAtStop`).

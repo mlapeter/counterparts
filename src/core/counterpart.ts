@@ -37,8 +37,8 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { Associate } from "./associate/index.js";
-import type { Credited, FlushReport } from "./associate/index.js";
+import { Associate, appendPendingDeltas, claimPending, releasePending } from "./associate/index.js";
+import type { CoactivateResult, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
 import { selfRenderer } from "./briefing.js";
 import { batteryGate, episodeGate, gateSweepChunk } from "./bridge.js";
 import type { VectorSource } from "./bridge.js";
@@ -433,6 +433,26 @@ export const SEMANTIC_LAG_EVENT = "adapter.semantic.lag";
  * is readable from the store, not inferred. Ids only, never body text.
  */
 export const RECALL_CREDIT_EVENT = "recall.credit";
+/**
+ * ONE ROW PER APPLY OF CARRIED CO-ACTIVATION, written by the process that
+ * applies it — the boundary's detached worker.
+ *
+ * Learned association was invisible in exactly the way scar §2.4 names. An edge
+ * is its own record, so nothing in the log ever said a flush had happened — and
+ * a flush that never happened looked identical to a credit pass that had nothing
+ * to wire. The owner's store carried 430 edges, every one stamped with the
+ * import's lived day, through 214 credit passes (mechanism inventory 2026-09-17
+ * §3 S3), and no surface could tell that from a quiet graph.
+ *
+ * Counts and reasons, never text: how many claim files the run carried, how many
+ * lines and pairs were in them, how many edge rows landed, how many were blocked
+ * at the boundary or dropped by a failed publish, how many evictions it cost,
+ * how old the oldest carried work was, and the lived day the rows were stamped
+ * with. A run that carried nothing writes no row at all — the mechanism's
+ * roll-call reads this name, and a daily row saying "nothing pending" would make
+ * an idle graph read as a working one.
+ */
+export const ASSOCIATE_FLUSH_EVENT = "associate.flush";
 export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
@@ -476,6 +496,32 @@ export interface CreditSummary {
   /** Every id the assistant EXPANDED this boundary, credited or refused — the
    *  OQ4 probe's input (`recall/probe.ts`): footnotes delivered ∩ later expanded. */
   readonly expandedIds: string[];
+}
+
+/**
+ * What one worker run did with the co-activation its hooks left on disk. Counts
+ * only — the ids are in the edge rows, where they are the record.
+ */
+export interface PendingApplyReport {
+  readonly reason: "flushed" | "failed" | "observer" | "nothing-pending" | "nothing-buffered";
+  /** Claim files carried: this boundary's, plus any a dead run left behind. */
+  readonly claims: number;
+  /** Lines in them — one credit pass, or a fragment of a large one. */
+  readonly passes: number;
+  readonly pairs: number;
+  readonly rows: number;
+  readonly blocked: number;
+  readonly evicted: number;
+  /** Deltas drained and not landed — the failed arm's chosen direction. */
+  readonly dropped: number;
+  /** Pairs the pending file's cap refused while the hooks were writing it. */
+  readonly pendingDropped: number;
+  /** Lines in a claim that were not JSON. Counted, never swallowed. */
+  readonly corrupt: number;
+  /** Applied claims this run could not remove — the one doubling window. */
+  readonly stuck: number;
+  /** How old the oldest carried work was when it was applied. */
+  readonly oldestMs: number;
 }
 
 export type AdapterDurableEventName =
@@ -659,6 +705,8 @@ export interface ChapterResult {
 export interface SessionEndReport {
   readonly sweeps: readonly SweepReport[];
   readonly edges: FlushReport;
+  /** The co-activation the hooks left on disk, applied here. Null if it threw. */
+  readonly carried: PendingApplyReport | null;
   readonly cycle: CycleReport;
   readonly budgetBytes: number | null;
   /** The episode reconciler's pass: what the boundary ingested (§5 G12). */
@@ -1520,7 +1568,7 @@ export class Counterpart {
         refuse(errCode(err));
       }
     }
-    if (coactivated.length > 0) this.associate.coactivate(coactivated);
+    if (coactivated.length > 0) this.publishCoactivation(coactivated, day);
     const reason: CreditSummary["reason"] = refs.budgetExceeded || budgetExceeded
       ? "budget-exceeded"
       : credited > 0
@@ -1551,6 +1599,228 @@ export class Counterpart {
       credited,
     });
     return summary;
+  }
+
+  /**
+   * THE HEBBIAN HALF OF THE CREDIT PASS — buffered here, written down elsewhere.
+   *
+   * `coactivate()` accumulates pair deltas in an in-process `DeltaBuffer` (the
+   * declared durability exemption, `associate/CONTRACT.md` §5 G11) and `flush()`
+   * turns them into edge rows. On a host whose every hook is a fresh process
+   * those two halves are in different processes: this pass runs inside a Stop
+   * hook, and `sessionEnd` runs in the worker that Stop spawns. For the whole
+   * of the parallel run the buffer therefore died at hook exit — the owner's
+   * store carried 430 edges, every one stamped with the import's lived day,
+   * through 214 credit passes (mechanism inventory 2026-09-17 §3 S3).
+   *
+   * So the pass DRAINS its buffer to a file and the worker applies it
+   * (`associate/pending.ts`). It does not flush, and it does not append a
+   * durable row. Both were writes, and this path meets the detached worker's
+   * own write lock: an adversarial probe measured 5.3 s of blocking apiece
+   * under a held lock — I38's exact scenario, `database is locked` in 3 of 8
+   * runs — with the drained deltas then recorded nowhere. **No database lock is
+   * taken for association on the hook path at all**; the reads `coactivate`
+   * makes (the deny-list, the member rows) are reads.
+   *
+   * CONTAINED, because a hook may not fail its host (adapter CONTRACT §5 G2).
+   * `coactivate` reads the graph, and the append is a filesystem write; both are
+   * wrapped, so neither can climb into the adapter's outer catch and mark a
+   * boundary `failed` whose physics credit had already landed. An append that
+   * fails costs the pass's deltas and leaves an in-process event as the only
+   * record of it — the one loss this redesign does not close, and it is a disk
+   * that refused a kilobyte rather than a lock somebody else was holding.
+   *
+   * An observer buffers nothing (`associate/` G7) and writes no file: the
+   * stand-down returns before the directory is so much as created. It is
+   * evented in process, so it stays distinguishable from a hook that broke
+   * (observer-mode.md G6, scar §2.4).
+   */
+  private publishCoactivation(members: readonly Credited[], day: number): void {
+    const started = this.store.now();
+    let co: CoactivateResult | null = null;
+    let deltas: PairDelta[] = [];
+    let thrown: string | null = null;
+    try {
+      co = this.associate.coactivate(members);
+      deltas = this.associate.drain();
+    } catch (err) {
+      thrown = errCode(err);
+    }
+    if (this.observer) {
+      this.emit("counterpart.associate.standdown", undefined, { site: "pending" });
+      return;
+    }
+    const eligible = co?.members.filter((m) => m.reason === "eligible").length ?? 0;
+    const append =
+      deltas.length === 0
+        ? { ok: thrown === null, lines: 0, pairs: 0, droppedPairs: 0, code: thrown }
+        : appendPendingDeltas(this.store.dir, deltas, { day, at: started });
+    this.emit("counterpart.associate.pending", undefined, {
+      day,
+      members: co?.members.length ?? members.length,
+      eligible,
+      // What was drained, and what reached the file. They differ only when the
+      // append failed, and then the difference IS the loss.
+      pairs: deltas.length,
+      written: append.pairs,
+      dropped: append.droppedPairs + (append.ok ? 0 : deltas.length - append.pairs),
+      code: append.code,
+      elapsedMs: this.store.now() - started,
+    });
+  }
+
+  /**
+   * THE WORKER'S HALF — take what the hooks left on disk and write the edges.
+   *
+   * Called from `sessionEnd`, which runs in the detached worker: the process
+   * that already holds the operational database's write lock, and the one place
+   * where waiting on it costs nobody a turn. Each claim file is its own unit of
+   * work (`pending.ts#claimPending` renames it aside), and the file is removed
+   * only after its deltas have landed — an apply that meets a busy database
+   * leaves the claim exactly where it is and the next boundary's worker retries
+   * it, so nothing is lost and the eventual row says how old the carried work
+   * was.
+   *
+   * ONE FLUSH PER CLAIM, stamped with the newest lived day the claim carries.
+   * Splitting a claim by day would mean a claim whose first group landed and
+   * whose second failed, and a retry of that claim would then apply the first
+   * group twice — the one direction `associate/CONTRACT.md` §5 G4 rules out.
+   * The cost is that a claim spanning two days stamps the older day's pairs with
+   * the newer day, which happens only when no worker ran for a day.
+   *
+   * A run that carried nothing writes no row (see `ASSOCIATE_FLUSH_EVENT`). An
+   * observer claims nothing: the stand-down is checked before the rename.
+   */
+  applyPendingAssociations(opts: { now?: number; staleMs?: number } = {}): PendingApplyReport {
+    const idle: PendingApplyReport = {
+      reason: "nothing-pending",
+      claims: 0,
+      passes: 0,
+      pairs: 0,
+      rows: 0,
+      blocked: 0,
+      evicted: 0,
+      dropped: 0,
+      pendingDropped: 0,
+      corrupt: 0,
+      stuck: 0,
+      oldestMs: 0,
+    };
+    if (this.observer) {
+      this.emit("counterpart.associate.standdown", undefined, { site: "apply" });
+      return { ...idle, reason: "observer" };
+    }
+    const now = opts.now ?? this.store.now();
+    let claims: PendingClaim[] = [];
+    try {
+      claims = claimPending(this.store.dir, {
+        now,
+        ...(opts.staleMs === undefined ? {} : { staleMs: opts.staleMs }),
+      });
+    } catch (err) {
+      this.emit("counterpart.associate.claim.failed", undefined, { code: errCode(err) });
+      return { ...idle, reason: "failed" };
+    }
+    if (claims.length === 0) return idle;
+
+    const out = {
+      ...idle,
+      reason: "flushed" as PendingApplyReport["reason"],
+      claims: claims.length,
+      oldestMs: Math.max(
+        0,
+        ...claims.map((c) => (c.oldestAt === null ? 0 : now - c.oldestAt)),
+      ),
+    };
+    let failure: string | null = null;
+    for (const claim of claims) {
+      out.passes += claim.passes;
+      out.pairs += claim.deltas.length;
+      out.pendingDropped += claim.droppedPairs;
+      out.corrupt += claim.corrupt;
+      let report: FlushReport | null = null;
+      let threw: string | null = null;
+      try {
+        this.associate.absorb(claim.deltas);
+        report = this.associate.flush(claim.day ?? this.store.livedDay());
+      } catch (err) {
+        threw = errCode(err);
+      }
+      if (report !== null) {
+        out.rows += report.rows;
+        out.blocked += report.blocked;
+        out.evicted += report.evictions.length;
+        out.dropped += report.dropped;
+      }
+      // `busy` is not applied either, and it is the subtle one: `flush()`
+      // returns it WITHOUT draining, so the claim's deltas were never
+      // published. Removing the file there would drop them on the floor.
+      const applied =
+        threw === null && report !== null && report.reason !== "failed" && report.reason !== "busy";
+      if (!applied) {
+        // THE CLAIM STAYS. Its deltas are gone from this process's buffer (the
+        // drain precedes the publish, by design) but they are still on disk,
+        // which is the whole point of the file.
+        failure = threw ?? report?.code ?? "UNKNOWN";
+        out.dropped += threw === null ? 0 : claim.deltas.length;
+        continue;
+      }
+      const released = releasePending(claim);
+      if (released.stuck) {
+        // A claim that cannot be removed will be applied again by a later run:
+        // doubling, which G4 rules out. Counted here rather than hidden, and
+        // recorded in `associate/INTERFACE-GAPS.md` §3.
+        out.stuck += 1;
+        this.emit("counterpart.associate.claim.stuck", undefined, { code: released.code });
+      }
+    }
+    if (failure !== null) out.reason = "failed";
+    else if (out.pairs === 0) out.reason = "nothing-buffered";
+
+    // The lived day is a database read; a busy database must not lose the row
+    // over it (second review, 2026-09-17), so the newest day a claim carried
+    // stands in, and the row says which it used.
+    let rowDay: number | null = null;
+    try {
+      rowDay = this.store.livedDay();
+    } catch {
+      rowDay = null;
+    }
+    const data: Record<string, unknown> = {
+      reason: out.reason,
+      day: rowDay ?? Math.max(0, ...claims.map((c) => c.day ?? 0)),
+      dayFrom: rowDay === null ? "claim" : "clock",
+      claims: out.claims,
+      passes: out.passes,
+      pairs: out.pairs,
+      rows: out.rows,
+      blocked: out.blocked,
+      evicted: out.evicted,
+      dropped: out.dropped,
+      pendingDropped: out.pendingDropped,
+      corrupt: out.corrupt,
+      stuck: out.stuck,
+      oldestMs: out.oldestMs,
+    };
+    if (failure !== null) data["error"] = failure;
+    this.emit("counterpart.associate.applied", undefined, {
+      reason: out.reason,
+      claims: out.claims,
+      pairs: out.pairs,
+      rows: out.rows,
+      dropped: out.dropped,
+      oldestMs: out.oldestMs,
+    });
+    try {
+      this.store.appendEvent({
+        name: ASSOCIATE_FLUSH_EVENT,
+        day: Number(data["day"]),
+        payload: data,
+      });
+    } catch (err) {
+      this.emit("counterpart.associate.flush.unrecorded", undefined, { code: errCode(err) });
+    }
+    return out;
   }
 
   resolveUses(
@@ -1727,8 +1997,14 @@ export class Counterpart {
    *
    * Order is behaviour. The crash fallback runs FIRST, so anything it recovers is
    * inside the boundary that decays it, consolidates it and re-renders the
-   * briefing around it. Then the Hebbian buffer flushes — the DB-is-a-cache
-   * exemption, batched here rather than per turn. Then the cycle, whose LAST
+   * briefing around it. Then the Hebbian buffer flushes — which on a host that
+   * runs this detached finds an empty buffer, because the credit pass ran in a
+   * different process; that call is the flush for a caller living in ONE
+   * process, such as the demo seeder or the replay driver, and the sweep's own
+   * credit if it ever gains one. THEN the carried co-activation the hooks left
+   * on disk (`applyPendingAssociations`), which is where the host's own learned
+   * association is actually written: the hook appends, this process applies, and
+   * a claim it cannot apply waits for the next boundary. Then the cycle, whose LAST
    * content write is `self.boundary()` through `briefing.selfRenderer` (SEAMS G),
    * carrying the ceiling the HOST reported and refusing to invent one — minus
    * the room the wake's delivery preface will take at injection. That
@@ -1758,6 +2034,17 @@ export class Counterpart {
           });
     if (skipped !== null) this.recordSweepGate([], input.date ?? null, skipped);
     const edges = this.associate.flush();
+    // The hooks' own co-activation, applied in the process that can afford to
+    // wait on the write lock. After the in-process flush, so a single-process
+    // caller's own deltas are not sitting in the buffer when a claim is
+    // absorbed into it; fail-open, because a claim that cannot be applied is
+    // still on disk and a boundary is worth more than a retry.
+    let carried: PendingApplyReport | null = null;
+    try {
+      carried = this.applyPendingAssociations();
+    } catch (err) {
+      this.emit("counterpart.associate.apply.failed", undefined, { code: errCode(err) });
+    }
     // THE EPISODE DOOR, before the cycle: an episode ingested here is inside the
     // boundary that decays it, consolidates it and renders the briefing around
     // it — the same ordering the sweep gets, and for the same reason. Until
@@ -1818,11 +2105,13 @@ export class Counterpart {
       day: cycle.day,
       sweeps: sweeps.length,
       edges: edges.reason,
+      carried: carried?.reason ?? "threw",
+      carriedRows: carried?.rows ?? 0,
       budgetBytes,
       observer: cycle.observer,
       episodesIngested: episodes.ingested + episodes.regrown,
     });
-    return { sweeps, edges, cycle, budgetBytes, episodes };
+    return { sweeps, edges, carried, cycle, budgetBytes, episodes };
   }
 
   /**

@@ -9,6 +9,12 @@
  * `associate/CONTRACT.md` §5 G11 are the ONLY places it may be declared — a second
  * module that buffers non-reconstructible state fails review.
  *
+ * On a host whose credit pass and boundary are different processes the pass
+ * drains this buffer to a file instead of publishing from it (`pending.ts`), so
+ * what dies with that process is the pass in flight rather than the session's
+ * reinforcement. The exemption is unchanged: the file holds the same
+ * re-earnable increments, and the buffer is still where they accumulate.
+ *
  * The drain is where at-most-once is decided, so it is a method with one job:
  *
  *   **`drain()` SWAPS the map, it does not clear it in place.** The returned batch

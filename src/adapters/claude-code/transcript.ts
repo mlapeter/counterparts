@@ -58,8 +58,22 @@
  *
  * Nothing here throws. A transcript we cannot read yields no turns, which costs
  * a boundary's capture; a transcript that throws would cost the session.
+ *
+ * The file also holds the WAKE-ARRIVAL READER (bottom of this file), which reads
+ * the same transcript for a different question and keeps its own, bounded, pass:
+ * capture wants conversation and skips attachments, delivery wants exactly the
+ * attachment and skips conversation.
  */
-import { existsSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  constants as FS,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+} from "node:fs";
 
 import type { Turn, TurnSource } from "../../core/remember/index.js";
 
@@ -334,4 +348,305 @@ function blocksOf(content: unknown, role: "user" | "assistant"): Piece[] {
     }
   }
   return out;
+}
+
+// ── the wake's arrival ──────────────────────────────────────────────────────
+//
+// A SECOND, DELIBERATELY SEPARATE PASS over the same file, for the one question
+// `parseTranscript` refuses to answer: did the wake this system printed at
+// SessionStart actually reach the session's context?
+//
+// `parseTranscript` skips attachment entries because injected context is not
+// conversation, and that stays exactly as it is. The check below wants the
+// opposite half of the file: the host records a SessionStart hook's output as an
+// entry of its own (`type: "attachment"`, `attachment.type: "hook_success"`),
+// carrying what the hook PRINTED (`stdout`) beside what the host says it
+// INJECTED (`content`). Measured 2026-09-17 on Claude Code 2.1.274: that entry
+// is line 3 of a fresh session's file, before the first user message, and both
+// wake sentinels stand inside it.
+//
+// Several hooks run on the same event and each leaves its own attachment, so the
+// match is on the command line, not on the event name alone.
+
+/**
+ * **CAL.** How much of the file's head this reader will look at, and why the
+ * numbers are 256 KiB and 40 lines.
+ *
+ * The attachment arrives before the first user message — line 3 in the measured
+ * case — so the answer is always in the first handful of entries, while the file
+ * itself grows to megabytes over a long session. Both bounds are belt and
+ * braces: the byte bound caps what is read off disk and parsed no matter how
+ * long one line is, the line bound caps the work when the lines are short. A
+ * wake is ~9 KB and appears twice in the attachment (printed and injected), so
+ * 256 KiB leaves room for that entry plus every other hook's on the same event.
+ *
+ * A file bigger than the bound is READ SHORT, never wholly; the last line of a
+ * short read is dropped, because it is cut mid-JSON by construction.
+ */
+export const WAKE_HEAD_MAX_BYTES = 256 * 1024;
+export const WAKE_HEAD_MAX_LINES = 40;
+
+/**
+ * THIS PACKAGE'S HOOK, as it appears in the host's record of the command it ran.
+ * Other hooks on the same event leave their own attachments; without this every
+ * SessionStart hook on the machine would answer for the wake.
+ *
+ * Two spellings, because there are two ways this package is wired: the source
+ * path (what the owner's host runs, and what the 2026-09-17 measurement read off
+ * a live transcript) and the `counterparts-hook` bin `package.json` installs. A
+ * THIRD is possible and unmeasured — a compiled binary under some other name —
+ * and the cost of missing it is a session that reads `not-found`, which is
+ * INTERFACE-GAPS §11's residual.
+ */
+export const COUNTERPARTS_HOOK_COMMAND = /claude-code[/\\]bin[/\\]hook\.ts|counterparts-hook/;
+
+/**
+ * The wake's two sentinels, recognised INSIDE a larger string rather than as a
+ * whole line: what the host recorded may be the injected block (the wake plus
+ * the first-launch question) or, on a day that carried a notice, the JSON
+ * envelope the hook printed. The sentinel survives JSON escaping unchanged — it
+ * holds no quote, backslash or newline — so one substring search answers both
+ * forms. `[^>]*` cannot run past the comment's own close.
+ *
+ * They are a SECOND spelling of `self/briefing.ts`'s `OPEN_RE`/`SENTINEL_RE`,
+ * which are not exported and live in the core this adapter may not reach into. A
+ * core that exported them is the ask INTERFACE-GAPS §11 records; until then the anchors
+ * are written so that a match is the sentinel string byte for byte.
+ */
+const WAKE_HEAD_PREFIX = "<!-- counterparts:wake ";
+const WAKE_TAIL_PREFIX = "<!-- counterparts:wake/end ";
+const WAKE_HEAD_SENTINEL = /^<!-- counterparts:wake [^>\n]*elements=(\d+) bytes=(\d+) -->/;
+const WAKE_TAIL_SENTINEL = /^<!-- counterparts:wake\/end [^>\n]*elements=(\d+) bytes=(\d+) -->/;
+
+/**
+ * **CAL.** The longest a sentinel may be. It is one line of `day=`, one `lane=`
+ * per lane, `elements=` and `bytes=` — about 120 bytes on this store's widest
+ * day, and the cap is what keeps the search LINEAR: the anchored regex above
+ * only ever runs against a slice this long, so no amount of poisoned memory text
+ * can make it backtrack across the transcript.
+ */
+const SENTINEL_MAX_BYTES = 400;
+
+/** What one sentinel said, or that it was not there. Numbers and flags only. */
+export interface SentinelSighting {
+  readonly present: boolean;
+  readonly elements: number | null;
+  readonly bytes: number | null;
+  /**
+   * True when the sentinel is the one the session was told to expect, byte for
+   * byte. The comparison happens HERE so the matched text never leaves this
+   * function: a sentinel is found inside a bundle of memories, and the text
+   * around it is the owner's.
+   */
+  readonly matchesExpected: boolean;
+}
+
+const ABSENT: SentinelSighting = {
+  present: false,
+  elements: null,
+  bytes: null,
+  matchesExpected: false,
+};
+
+/**
+ * Find one sentinel and report what it said. Linear in the length of `text`.
+ *
+ * **The search is `indexOf`, not the regex.** The regexes above used to be run
+ * against the whole attachment with a leading `[^>]*`, which backtracks
+ * quadratically: an adversarial body holding thousands of "<!-- counterparts:wake"
+ * prefixes with no `>` between them measured 680 ms at 200 KB, four times per
+ * attachment, inside `UserPromptSubmit`. So the literal prefix is located with
+ * `indexOf`, a single line of at most `SENTINEL_MAX_BYTES` is cut from there,
+ * and the anchored regex runs on that slice alone. Every prefix is tried, in
+ * order — capping the attempts would let a poisoned body hide the real sentinel
+ * behind a few hundred fakes.
+ *
+ * **A match that IS the expectation wins over an earlier one that is not**, for
+ * the same reason: a memory whose body opens a sentinel it never closes would
+ * otherwise stand in front of the real one and turn a delivered wake into a
+ * `mismatch`. The first match is the answer only when nothing matches exactly.
+ */
+function sight(prefix: string, re: RegExp, text: string, expected: string | null): SentinelSighting {
+  let first: SentinelSighting | null = null;
+  let from = text.indexOf(prefix);
+  while (from !== -1) {
+    const newline = text.indexOf("\n", from);
+    const end = Math.min(newline === -1 ? text.length : newline, from + SENTINEL_MAX_BYTES);
+    const m = re.exec(text.slice(from, end));
+    if (m !== null) {
+      const matchesExpected = expected !== null && m[0] === expected;
+      const seen: SentinelSighting = {
+        present: true,
+        elements: Number(m[1]),
+        bytes: Number(m[2]),
+        matchesExpected,
+      };
+      if (matchesExpected) return seen;
+      if (first === null) first = seen;
+    }
+    from = text.indexOf(prefix, from + 1);
+  }
+  return first ?? ABSENT;
+}
+
+/**
+ * What the head of one transcript says about the wake's arrival. Counts, flags
+ * and the sentinel lines — never a byte of the bundle itself.
+ */
+export interface WakeArrival {
+  /** `not-read` when nobody asked for a read (no expectation to test). */
+  readonly reason: "read" | "absent" | "unreadable" | "not-read";
+  /** True when THIS package's SessionStart attachment was found in the head. */
+  readonly found: boolean;
+  /** The sentinels as they stand in what the host says it INJECTED. */
+  readonly head: SentinelSighting;
+  readonly tail: SentinelSighting;
+  /** The same two in what the hook PRINTED — the truncation test needs both. */
+  readonly headPrinted: SentinelSighting;
+  readonly tailPrinted: SentinelSighting;
+  /**
+   * TRUE when the attachment carried a `content` string at all.
+   *
+   * `content` is a field of the host's private transcript format, measured once
+   * on Claude Code 2.1.274; it is not a contract. A build that renames it, drops
+   * it or sets it null leaves nothing to judge delivery from, and reading that
+   * absence as an empty injection would make every session report the one word
+   * that means v1's eleven-day silent-loss bug is back. An empty string that is
+   * PRESENT is a different fact, and this flag keeps them apart.
+   */
+  readonly contentRecorded: boolean;
+  /** Measured lengths of the two strings, in bytes, for the declared numbers. */
+  readonly contentBytes: number;
+  readonly stdoutBytes: number;
+  readonly linesRead: number;
+  readonly bytesRead: number;
+  /** Lines in the head that were not JSON. Counted, never silently swallowed. */
+  readonly corrupt: number;
+}
+
+export const NO_ARRIVAL: WakeArrival = {
+  reason: "not-read",
+  found: false,
+  head: ABSENT,
+  tail: ABSENT,
+  headPrinted: ABSENT,
+  tailPrinted: ABSENT,
+  contentRecorded: false,
+  contentBytes: 0,
+  stdoutBytes: 0,
+  linesRead: 0,
+  bytesRead: 0,
+  corrupt: 0,
+};
+
+/**
+ * Read at most `WAKE_HEAD_MAX_BYTES` from the front of a file. One open, one
+ * read, one close, and null on any failure at all — this runs on the prompt
+ * path, where a throw would cost the turn its recall.
+ *
+ * **Regular files only, checked three ways.** The path arrives in the host's
+ * payload, and `openSync` on a FIFO BLOCKS until somebody opens the other end —
+ * which would hang `UserPromptSubmit` until the host's own hook timeout. So the
+ * path is `stat`ed first (following symlinks, so a link to a FIFO is caught),
+ * opened with `O_NONBLOCK` so even a FIFO that appeared in between returns
+ * immediately, and `fstat`ed on the descriptor actually opened, which is the one
+ * check no rename can race.
+ */
+function readHead(path: string, maxBytes: number): { text: string; bytes: number } | null {
+  let fd: number | undefined;
+  try {
+    if (!statSync(path).isFile()) return null;
+    fd = openSync(path, FS.O_RDONLY | FS.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return null;
+    const buf = Buffer.allocUnsafe(maxBytes);
+    const read = readSync(fd, buf, 0, maxBytes, 0);
+    // `bytes` is what came off the disk; `text.length` is characters, and the
+    // two differ on any file with a multi-byte character in its head.
+    return { text: buf.toString("utf8", 0, read), bytes: read };
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* a descriptor we cannot close is not a reason to fail a hook */
+      }
+    }
+  }
+}
+
+/**
+ * Find this package's SessionStart attachment in the head of a transcript and
+ * report what its two sentinels say.
+ *
+ * Nothing here throws, for the same reason nothing else in this file does: the
+ * caller is a hook, and a hook may not fail the host (CONTRACT §5 G2).
+ */
+export function readWakeArrival(
+  path: string | undefined,
+  opts: {
+    readonly maxBytes?: number;
+    readonly maxLines?: number;
+    /** Overridable so a test can name a different hook's command. */
+    readonly command?: RegExp;
+    /**
+     * The tail sentinel this session was told to expect. It is compared inside
+     * `sight()` and the comparison's ANSWER comes back; the matched text does
+     * not, so no byte of the bundle can reach a caller (review MINOR 2).
+     */
+    readonly expect?: string | null;
+  } = {},
+): WakeArrival {
+  if (path === undefined || path.trim().length === 0) return { ...NO_ARRIVAL, reason: "absent" };
+  if (!existsSync(path)) return { ...NO_ARRIVAL, reason: "absent" };
+  const maxBytes = opts.maxBytes ?? WAKE_HEAD_MAX_BYTES;
+  const maxLines = opts.maxLines ?? WAKE_HEAD_MAX_LINES;
+  const command = opts.command ?? COUNTERPARTS_HOOK_COMMAND;
+  const head = readHead(path, maxBytes);
+  if (head === null) return { ...NO_ARRIVAL, reason: "unreadable" };
+  // A read that filled the buffer was almost certainly cut mid-line, and half a
+  // line is not JSON. Dropping the last one costs nothing: the answer sits in
+  // the first few entries or it is not in the head at all.
+  const lines = head.text.split("\n");
+  if (head.bytes >= maxBytes && lines.length > 1) lines.pop();
+  let corrupt = 0;
+  let linesRead = 0;
+  for (const line of lines) {
+    if (linesRead >= maxLines) break;
+    if (line.trim().length === 0) continue;
+    linesRead += 1;
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      corrupt += 1;
+      continue;
+    }
+    if (entry["type"] !== "attachment") continue;
+    const att = entry["attachment"];
+    if (att === null || typeof att !== "object" || Array.isArray(att)) continue;
+    const a = att as Record<string, unknown>;
+    if (a["type"] !== "hook_success" || a["hookEvent"] !== "SessionStart") continue;
+    if (typeof a["command"] !== "string" || !command.test(a["command"])) continue;
+    const contentRecorded = typeof a["content"] === "string";
+    const content = contentRecorded ? (a["content"] as string) : "";
+    const stdout = typeof a["stdout"] === "string" ? a["stdout"] : "";
+    const expect = opts.expect ?? null;
+    return {
+      reason: "read",
+      found: true,
+      head: sight(WAKE_HEAD_PREFIX, WAKE_HEAD_SENTINEL, content, null),
+      tail: sight(WAKE_TAIL_PREFIX, WAKE_TAIL_SENTINEL, content, expect),
+      headPrinted: sight(WAKE_HEAD_PREFIX, WAKE_HEAD_SENTINEL, stdout, null),
+      tailPrinted: sight(WAKE_TAIL_PREFIX, WAKE_TAIL_SENTINEL, stdout, expect),
+      contentRecorded,
+      contentBytes: Buffer.byteLength(content, "utf8"),
+      stdoutBytes: Buffer.byteLength(stdout, "utf8"),
+      linesRead,
+      bytesRead: head.bytes,
+      corrupt,
+    };
+  }
+  return { ...NO_ARRIVAL, reason: "read", linesRead, bytesRead: head.bytes, corrupt };
 }

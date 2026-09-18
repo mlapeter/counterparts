@@ -11,8 +11,18 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +34,15 @@ import {
   SWEEP_GATE_EVENT,
   surfaceSetFields,
 } from "../src/core/counterpart.js";
+import {
+  PENDING_MAX_BYTES,
+  TUNABLES as ASSOCIATE,
+  associationDir,
+  PENDING_STALE_CLAIM_MS,
+  claimsDir,
+  pendingPath,
+} from "../src/core/associate/index.js";
+import { TUNABLES as CLAUDE_CODE_TUNABLES } from "../src/adapters/claude-code/config.js";
 import { SWEEP_REASONS, TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
@@ -533,6 +552,463 @@ describe("the root binds the seams a caller would otherwise have to remember", (
     await c.sessionEnd({ date: "2026-08-27", budgetBytes: BUDGET_BYTES });
     expect(c.associate.pendingDeltas()).toEqual([]);
     expect(c.associate.linked(a, b)).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Co-activation crosses the process line ON DISK — the split that made learned
+// association a no-op for the whole parallel run, and the lock it must not take
+// ═══════════════════════════════════════════════════════════════════════════
+describe("co-activation crosses the process line on disk", () => {
+  /** N memories a credit pass can address by id. Bodies are unique across the
+   *  whole suite — an identical body is an identical content hash, and two
+   *  fixtures that quietly become one id make a pair that cannot be linked. */
+  let minted = 0;
+  function memories(c: Counterpart, n: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i += 1) {
+      minted += 1;
+      ids.push(
+        c.store.put({
+          type: "memory",
+          kind: "fact",
+          body: `Association fixture number ${minted}: a fact with enough body to be an ordinary memory and nothing more.`,
+          salience: { novelty: null, relevance: 0.7, emotional: 0.4, predictive: 0.6 },
+          physics: { birthDay: 0, lastUsedDay: 0 },
+        }),
+      );
+    }
+    return ids;
+  }
+
+  /** The one row an apply leaves, or `undefined` if it left none. */
+  function flushRow(c: Counterpart): Record<string, unknown> | undefined {
+    const rows = c.store.eventLog({ name: "associate.flush" });
+    const last = rows[rows.length - 1];
+    return last === undefined ? undefined : (JSON.parse(last.payload ?? "{}") as Record<string, unknown>);
+  }
+
+  /** The pending file's lines, parsed. The hook's whole durable output. */
+  function pending(): Record<string, unknown>[] {
+    if (!existsSync(pendingPath(dir))) return [];
+    return readFileSync(pendingPath(dir), "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+  }
+
+  function claimFiles(): string[] {
+    return existsSync(claimsDir(dir)) ? readdirSync(claimsDir(dir)) : [];
+  }
+
+  /** The credit pass's association half, called as `creditReferences` calls it.
+   *  Reached directly where a test has to TIME it, or hold a lock across it. */
+  function creditPass(c: Counterpart, ids: readonly string[], day: number): void {
+    (
+      c as unknown as {
+        publishCoactivation: (m: readonly { id: string; tier: string }[], day: number) => void;
+      }
+    ).publishCoactivation(
+      ids.map((id) => ({ id, tier: "referenced" })),
+      day,
+    );
+  }
+
+  /** A second connection holding the write lock, as the detached worker does. */
+  function holdWriteLock(): { release: () => void } {
+    const other = new Database(join(dir, "operational.sqlite"));
+    other.exec("PRAGMA busy_timeout = 0");
+    other.exec("BEGIN IMMEDIATE");
+    other.exec("CREATE TABLE IF NOT EXISTS lock_probe (x INTEGER)");
+    other.exec("INSERT INTO lock_probe VALUES (1)");
+    return {
+      release: () => {
+        other.exec("ROLLBACK");
+        other.close();
+      },
+    };
+  }
+
+  test("THE SHAPE OF THE BUG: a pass credits, its process dies, the WORKER writes the edges", async () => {
+    const first = brain();
+    const [a, b] = memories(first, 2) as [string, string];
+    first.store.advanceClock("2026-08-26");
+    const today = first.store.livedDay();
+
+    const summary = first.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    expect(summary.credited).toBe(2);
+    // Nothing is in the graph yet, and nothing is in the log: the hook wrote a
+    // FILE, and took no database lock to do it.
+    expect(first.store.edgesFrom(a)).toEqual([]);
+    expect(first.store.eventLog({ name: "associate.flush" })).toEqual([]);
+    expect(pending().length).toBe(1);
+    // The hook exits. Everything in the delta buffer dies with it; the file does not.
+    first.close();
+
+    const worker = brain();
+    const report = await worker.sessionEnd({ date: "2026-08-26", budgetBytes: BUDGET_BYTES });
+
+    expect(report.carried?.reason).toBe("flushed");
+    expect(worker.associate.linked(a, b)).toBe(true);
+    expect(worker.store.edgesFrom(a).find((e) => e.dst === b)?.last_day).toBe(today);
+    expect(worker.store.edgesFrom(b).find((e) => e.dst === a)?.last_day).toBe(today);
+    // The claim is gone, and so is the pending file it was made from.
+    expect(claimFiles()).toEqual([]);
+    expect(pending()).toEqual([]);
+  });
+
+  test("the apply leaves ONE row: counts, reasons, and never an id", () => {
+    const c = brain();
+    const [a, b, d] = memories(c, 3) as [string, string, string];
+    c.store.advanceClock("2026-08-26");
+
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b, d] });
+    const applied = c.applyPendingAssociations();
+
+    expect(applied.reason).toBe("flushed");
+    const row = flushRow(c);
+    expect(row?.["reason"]).toBe("flushed");
+    expect(row?.["claims"]).toBe(1);
+    expect(row?.["passes"]).toBe(1);
+    expect(row?.["pairs"]).toBe(3); // three memories, three pairs
+    expect(row?.["rows"]).toBe(6); // symmetry is written, not read backwards
+    expect(row?.["dropped"]).toBe(0);
+    expect(row?.["pendingDropped"]).toBe(0);
+    expect(row?.["corrupt"]).toBe(0);
+    expect(row?.["stuck"]).toBe(0);
+    expect(row?.["day"]).toBe(c.store.livedDay());
+    expect(Number(row?.["oldestMs"])).toBeGreaterThanOrEqual(0);
+    // Content-by-reference: the row carries counts, and the ids live in the
+    // edge rows where they ARE the record.
+    const text = JSON.stringify(row);
+    for (const id of [a, b, d]) expect(text).not.toContain(id);
+  });
+
+  test("a single-memory pass buffers nothing, writes no file, and leaves no row", () => {
+    const c = brain();
+    const [a] = memories(c, 1) as [string];
+    c.store.advanceClock("2026-08-26");
+
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: [a] });
+
+    expect(summary.credited).toBe(1);
+    expect(c.store.edgesFrom(a)).toEqual([]);
+    expect(pending()).toEqual([]);
+    // `too-few-members` is said in process — the pass has nothing to carry, so
+    // there is nothing for the worker to write a row about. The in-process
+    // event still distinguishes "one memory" from "several, all frozen".
+    const said = c.events("counterpart.associate.pending").slice(-1)[0];
+    expect(said?.data?.["members"]).toBe(1);
+    expect(said?.data?.["eligible"]).toBe(1);
+    expect(said?.data?.["pairs"]).toBe(0);
+    expect(c.applyPendingAssociations().reason).toBe("nothing-pending");
+    expect(c.store.eventLog({ name: "associate.flush" })).toEqual([]);
+  });
+
+  test("THE HOOK TAKES NO LOCK: the association step under a HELD write lock", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    const day = c.store.livedDay();
+
+    // The detached worker of the previous boundary, holding the write lock —
+    // I38's exact scenario. Under #125 this step paid the database's 5 s busy
+    // timeout twice (the flush, then the row) and lost the deltas at the end
+    // of it.
+    const lock = holdWriteLock();
+    const started = performance.now();
+    creditPass(c, [a, b], day);
+    const elapsed = performance.now() - started;
+    lock.release();
+
+    // Generous by two orders of magnitude against the 10.6 s the review
+    // measured: what is being asserted is that no lock is waited on at all.
+    expect(elapsed).toBeLessThan(50);
+    // And the deltas are DURABLE, which is the half #125 could not promise: the
+    // pass that lost the lock recorded its loss nowhere.
+    const lines = pending();
+    expect(lines.length).toBe(1);
+    expect((lines[0]?.["p"] as unknown[]).length).toBe(1);
+    expect(JSON.stringify(lines[0])).toContain(a);
+  });
+
+  test("an apply that meets a held lock KEEPS THE CLAIM, and the next run applies it and says how old it was", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    expect(pending().length).toBe(1);
+
+    const lock = holdWriteLock();
+    const failed = c.applyPendingAssociations();
+    lock.release();
+
+    expect(failed.reason).toBe("failed");
+    expect(c.store.edgesFrom(a)).toEqual([]);
+    // NOTHING IS LOST. The claim is still on disk, with the pass in it.
+    expect(claimFiles().length).toBe(1);
+
+    // The next worker run, past the staleness window: it takes the orphan over,
+    // applies it, and the row says how long the work waited.
+    const later = c.applyPendingAssociations({ now: c.store.now() + 11 * 60_000 });
+    expect(later.reason).toBe("flushed");
+    expect(later.claims).toBe(1);
+    expect(c.associate.linked(a, b)).toBe(true);
+    expect(claimFiles()).toEqual([]);
+    expect(Number(flushRow(c)?.["oldestMs"])).toBeGreaterThan(10 * 60_000);
+  }, 60_000);
+
+  test("a claim held by a LIVE run cannot be stolen inside the window, however old its deltas are", () => {
+    // Second adversarial review, 2026-09-17: `renameSync` keeps the pending
+    // file's mtime, so a claim taken during a quiet stretch looked hours old
+    // the moment it was made, and a second worker took it from a live one and
+    // applied the same deltas twice. The claim is now touched when taken.
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    // The deltas were appended an hour ago (a quiet stretch before the boundary).
+    const old = new Date(c.store.now() - 60 * 60_000);
+    utimesSync(pendingPath(dir), old, old);
+
+    // Run 1 claims but cannot apply (the lock is held) — it is still "live".
+    const lock = holdWriteLock();
+    expect(c.applyPendingAssociations().reason).toBe("failed");
+    lock.release();
+    expect(claimFiles().length).toBe(1);
+
+    // Run 2, one minute later: the claim is one minute old, not an hour, so it
+    // is NOT taken over.
+    const soon = c.applyPendingAssociations({ now: c.store.now() + 60_000 });
+    expect(soon.claims).toBe(0);
+    expect(c.associate.linked(a, b)).toBe(false);
+    expect(claimFiles().length).toBe(1);
+
+    // Past the window it is carried in exactly once.
+    const later = c.applyPendingAssociations({ now: c.store.now() + 11 * 60_000 });
+    expect(later.claims).toBe(1);
+    expect(c.associate.linked(a, b)).toBe(true);
+    expect(claimFiles()).toEqual([]);
+    // The window outlives the worker's watchdog, so a live worker's claim is
+    // never stealable and a killed worker's claim is picked up afterwards.
+    expect(PENDING_STALE_CLAIM_MS).toBeGreaterThan(CLAUDE_CODE_TUNABLES.WATCHDOG_MS);
+  }, 60_000);
+
+  test("two hook PROCESSES appending at once lose nothing", async () => {
+    // Two instances in one process would prove nothing: the property is about
+    // `O_APPEND` and two kernels-eye writers, so these are real children.
+    const child = join(dir, "append-child.ts");
+    const module = fileURLToPath(new URL("../src/core/associate/pending.ts", import.meta.url));
+    writeFileSync(
+      child,
+      [
+        `import { appendPendingDeltas } from ${JSON.stringify(module)};`,
+        `const [store, tag] = process.argv.slice(2) as [string, string];`,
+        `for (let i = 0; i < 150; i += 1) {`,
+        `  appendPendingDeltas(store, [{ a: tag + "-" + String(i), b: "partner", delta: 0.01 }], { day: 7, at: Date.now() });`,
+        `}`,
+      ].join("\n"),
+      "utf8",
+    );
+    const tags = ["alpha", "beta", "gamma", "delta"];
+    const kids = tags.map((tag) =>
+      // The runtime running this test, by path — not whatever `bun` a PATH
+      // resolves to on somebody else's machine.
+      Bun.spawn([process.execPath, child, dir, tag], { stdout: "pipe", stderr: "pipe" }),
+    );
+    const codes = await Promise.all(kids.map((k) => k.exited));
+    expect(codes).toEqual([0, 0, 0, 0]);
+
+    const lines = pending();
+    expect(lines.length).toBe(tags.length * 150);
+    // Every line is whole — an interleaved write would show up as a line that
+    // will not parse, and `pending()` parses all of them.
+    for (const tag of tags) {
+      expect(lines.filter((l) => JSON.stringify(l).includes(`"${tag}-`)).length).toBe(150);
+    }
+  }, 60_000);
+
+  test("a claim a dead run left behind is carried in once it goes stale", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    // A run that claimed and died: the file sits in `claims/` with nobody
+    // coming back for it.
+    mkdirSync(claimsDir(dir), { recursive: true });
+    const orphan = join(claimsDir(dir), "apc_deadrun.jsonl");
+    const at = c.store.now() - 60 * 60_000;
+    writeFileSync(
+      orphan,
+      `${JSON.stringify({ at, day: c.store.livedDay(), p: [[a, b, 0.05]] })}\n`,
+      "utf8",
+    );
+    const stale = new Date(at);
+    utimesSync(orphan, stale, stale);
+
+    const applied = c.applyPendingAssociations();
+
+    expect(applied.reason).toBe("flushed");
+    expect(applied.claims).toBe(1);
+    expect(c.associate.linked(a, b)).toBe(true);
+    expect(claimFiles()).toEqual([]);
+    expect(Number(flushRow(c)?.["oldestMs"])).toBeGreaterThan(30 * 60_000);
+  });
+
+  test("an observer writes no file, claims nothing, and leaves no row", () => {
+    const writer = brain();
+    const [a, b] = memories(writer, 2) as [string, string];
+    writer.store.advanceClock("2026-08-26");
+    const day = writer.store.livedDay();
+    writer.close();
+
+    const watcher = brain({ observer: true });
+    const summary = watcher.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    // The stand-down is upstream of the graph: `resolveUse` credits nothing
+    // under an observer, so there is no credited set to carry in the first
+    // place. Reached directly too, because the file is the new thing to refuse.
+    expect(summary.credited).toBe(0);
+    creditPass(watcher, [a, b], day);
+    expect(watcher.applyPendingAssociations().reason).toBe("observer");
+
+    expect(existsSync(associationDir(dir))).toBe(false);
+    expect(watcher.associate.pendingDeltas()).toEqual([]);
+    expect(watcher.store.edgesFrom(a)).toEqual([]);
+    expect(watcher.store.eventLog({ name: "associate.flush" })).toEqual([]);
+  });
+
+  test("the pending file is CAPPED, and what the cap dropped is counted in the next row", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    // A worker that never ran: the file is already at its ceiling. The lines
+    // are well-formed and carry no pairs, so what is being measured is the cap
+    // and not the parse.
+    mkdirSync(associationDir(dir), { recursive: true });
+    const filler = `${JSON.stringify({ at: 1, day: 1, p: [] })}\n`;
+    writeFileSync(
+      pendingPath(dir),
+      filler.repeat(Math.ceil(PENDING_MAX_BYTES / filler.length)),
+      "utf8",
+    );
+
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+
+    // The newest pass is dropped rather than the oldest rewritten — a rewrite
+    // races every hook appending to the file — and the drop is a LINE, so it
+    // outlives the process that made it.
+    const said = c.events("counterpart.associate.pending").slice(-1)[0];
+    expect(said?.data?.["written"]).toBe(0);
+    expect(said?.data?.["dropped"]).toBe(1);
+    expect(c.store.edgesFrom(a)).toEqual([]);
+
+    const applied = c.applyPendingAssociations();
+    expect(applied.pendingDropped).toBe(1);
+    expect(flushRow(c)?.["pendingDropped"]).toBe(1);
+    expect(flushRow(c)?.["reason"]).toBe("nothing-buffered");
+  });
+
+  test("the store OPENS with a pending file and a claim present (§5 G11)", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+    mkdirSync(claimsDir(dir), { recursive: true });
+    writeFileSync(join(claimsDir(dir), "apc_leftover.jsonl"), "", "utf8");
+    c.close();
+
+    // The layout is classified through `sessions/`, which is why the file lives
+    // inside it: `assertLayout()` runs in the store's CONSTRUCTOR, so a
+    // top-level name would stop every store opened by code that predates it —
+    // and after a deploy, the MCP servers of running sessions are that code.
+    const next = brain();
+    expect(() => next.store.assertLayout()).not.toThrow();
+    expect(next.store.backupSet()).not.toContain("association");
+    expect(existsSync(pendingPath(dir))).toBe(true);
+  });
+
+  test("a single-process caller still buffers and flushes directly", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    const day = c.store.livedDay();
+
+    // The demo seeder and the replay driver: `coactivate` then `flush`, in one
+    // process, with no file in between.
+    c.associate.coactivate([
+      { id: a, tier: "referenced" },
+      { id: b, tier: "referenced" },
+    ]);
+    const report = c.associate.flush(day);
+
+    expect(report.reason).toBe("flushed");
+    expect(report.rows).toBe(2);
+    expect(c.associate.linked(a, b)).toBe(true);
+    expect(existsSync(pendingPath(dir))).toBe(false);
+  });
+
+  test("an apply whose publish fails costs the links, not the credit — and keeps them on disk", () => {
+    const c = brain();
+    const [a, b] = memories(c, 2) as [string, string];
+    c.store.advanceClock("2026-08-26");
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: [a, b] });
+
+    // The hook's half already landed: the credit is physics', and the deltas
+    // are on disk.
+    expect(summary.reason).toBe("credited");
+    expect(c.store.physicsOf(a).uses).toBe(1);
+
+    const store = c.store as unknown as { linkMany: (rows: readonly unknown[]) => void };
+    store.linkMany = () => {
+      throw new Error("box 2 is unavailable");
+    };
+    const applied = c.applyPendingAssociations();
+
+    expect(applied.reason).toBe("failed");
+    expect(flushRow(c)?.["error"]).toBe("Error");
+    expect(Number(flushRow(c)?.["dropped"])).toBeGreaterThan(0);
+    // Not restored to the in-process buffer — bounded loss is the chosen
+    // direction there (contract G4) — but the CLAIM is still on disk, which is
+    // what makes the loss a retry rather than a loss.
+    expect(c.associate.pendingDeltas()).toEqual([]);
+    expect(claimFiles().length).toBe(1);
+  });
+
+  test("what the pass costs a Stop, and the eviction path the worker pays for", () => {
+    const c = brain();
+    const ids = memories(c, 10);
+    c.store.advanceClock("2026-08-26");
+
+    const started = performance.now();
+    const summary = c.creditReferences("s1", { assistantTurns: [], expansions: ids });
+    const elapsed = performance.now() - started;
+
+    expect(summary.credited).toBe(10);
+    // 10 choose 2, written as lines and nothing else.
+    expect(pending().reduce((n, l) => n + (l["p"] as unknown[]).length, 0)).toBe(45);
+    // A budget, not a benchmark: this runs inside a Stop hook, which shares
+    // 1.5 s with every other hook on that event. Loose enough not to flake on
+    // a loaded machine, tight enough to catch an order-of-magnitude change.
+    expect(elapsed).toBeLessThan(750);
+    expect(c.applyPendingAssociations().rows).toBe(90);
+
+    // THE EVICTION PATH, on the same store: a node already past its live-edge
+    // cap takes one more partner, so the plan has to evict as well as write.
+    // A NEW DAY, because physics credits a memory once per lived day and a hub
+    // that cannot be credited again cannot be co-activated again either.
+    c.store.advanceClock("2026-08-27");
+    const hub = ids[0] as string;
+    const spokes = memories(c, ASSOCIATE.MAX_EDGES_PER_NODE);
+    c.store.linkMany(
+      spokes.map((dst) => ({ src: hub, dst, weight: 0.5, day: c.store.livedDay() })),
+    );
+    const newcomer = (memories(c, 1) as [string])[0];
+    const evictStarted = performance.now();
+    c.creditReferences("s2", { assistantTurns: [], expansions: [hub, newcomer] });
+    const evictElapsed = performance.now() - evictStarted;
+    c.applyPendingAssociations();
+
+    expect((flushRow(c)?.["evicted"] as number) > 0).toBe(true);
+    expect(evictElapsed).toBeLessThan(750);
   });
 });
 
