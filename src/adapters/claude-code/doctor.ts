@@ -49,7 +49,8 @@ import {
   SPAWN_REFUSED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../../core/counterpart.js";
-import { Store, dateOf } from "../../core/store/index.js";
+import { Store, dateOf, paths } from "../../core/store/index.js";
+import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
@@ -1278,6 +1279,36 @@ function checkoutFindings(reading: CheckoutReading): Finding[] {
 }
 
 /** Coverage of the semantic channel — `verify`'s two census numbers, reused. */
+/**
+ * Which journal mode box 2 is actually in — the one surface on which a
+ * conversion that did not take becomes visible.
+ *
+ * `openDb` asks for WAL on a writer open and swallows a refusal, because a hook
+ * must not die because the worker happened to be committing (`store/db.ts`).
+ * That is right, and it is silent, so the MODE is the report. Reading it takes
+ * no lock and converts nothing: this is an observer's question, and the console
+ * that asks it is standing down.
+ */
+function journalFindings(store: Store): Finding[] {
+  const mode = journalModeOf(paths.operational(store.dir));
+  const data = { mode };
+  if (mode === "wal") {
+    return [
+      finding("journal", "green", "Journal mode", `wal (busy timeout ${BUSY_TIMEOUT_MS} ms)`, "", data),
+    ];
+  }
+  return [
+    finding(
+      "journal",
+      "amber",
+      "Journal mode",
+      `${mode}, not wal — several processes hold this store open at once, and only in wal does a reader never wait for the writer`,
+      "Open one session, or run any command that writes: the next writer open converts it. If it keeps reading this, something on an older build is opening the store and setting it back.",
+      data,
+    ),
+  ];
+}
+
 function vectorFindings(store: Store): Finding[] {
   const unembedded = store.unembeddedCount();
   const skipped = store.skippedVectorIds().length;
@@ -1331,6 +1362,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["clock", () => clockFindings(input, store)],
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store)],
+    ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's

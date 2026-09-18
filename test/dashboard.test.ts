@@ -51,7 +51,7 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
-import { WRITE_METHODS } from "../src/core/store/index.js";
+import { WRITE_METHODS, isDatabaseSidecar } from "../src/core/store/index.js";
 import {
   ABSENCE,
   BANDS,
@@ -272,6 +272,12 @@ function snapshot(root: string, opts: { canonicalOnly?: boolean } = {}): Map<str
       const full = join(at, entry.name);
       const rel = relative(root, full);
       if (opts.canonicalOnly === true && rel.split("/")[0] === "cache") continue;
+      // And the database's `-shm`, for a second measured reason: both boxes are in
+      // WAL since 2026-09-18, and under WAL every connection writes read-marks into
+      // that file — a read-only one included. The `-wal` is NOT skipped: a commit
+      // lives there until a checkpoint, so it is where a write by this adapter
+      // would show, and this suite exists to see one.
+      if (isDatabaseSidecar(entry.name)) continue;
       if (entry.isDirectory()) {
         walk(full);
         continue;
