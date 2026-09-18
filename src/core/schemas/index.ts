@@ -51,7 +51,7 @@ import { occursAsWholeWord } from "../encode/words.js";
 import { Store, hashText } from "../store/index.js";
 // The WALKING read — not a `Store` method on purpose (`store/walk-seam.ts`): it
 // skips the archived-read telemetry AND the deny-list, and this module is one of
-// the four files `test/cli.test.ts` allows to import it.
+// the two files `test/cli.test.ts` allows to import it.
 import { readProseWalking } from "../store/walk-seam.js";
 import type { MemoryRow, PutInput } from "../store/index.js";
 import type { Band, Kind, Salience } from "../types.js";

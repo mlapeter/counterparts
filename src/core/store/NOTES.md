@@ -864,7 +864,7 @@ place. Both exemptions had to be kept exactly:
   deny-list nothing, exactly as the direct file reads did; the refusal belongs
   where the OWNER is answered — `read`, `resolve`, `readVersion` and the render
   seams. It is a hole either way, but it is now one hole with a name on it
-  instead of three hand-rolled ones.
+  instead of five hand-rolled ones spread over two modules.
 
 **And it is not on `Store`.** The first draft put it on `Store.prototype` beside
 `read`. The adversarial review's objection was structural, not behavioural: no
