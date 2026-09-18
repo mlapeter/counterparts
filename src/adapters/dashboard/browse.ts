@@ -3,10 +3,12 @@
  *
  * Two things this view is required to do, both from CONTRACT §3:
  *
- *   1. **Show the prose PATH.** "The dashboard links every memory to its markdown
- *      file — the owner reads the store itself, not only renderings of it"
- *      (constitution line 6). The path is printed as a path, so it can be opened
- *      in an editor without asking this program for permission.
+ *   1. **Name the RECORD.** "The owner reads the store itself, not only renderings
+ *      of it" (constitution line 6), so an opened memory says which record it is
+ *      — id, revision and content hash — and the owner can address it, quote it
+ *      and check it against a second reading. For now that is what is printed
+ *      here; it used to be the markdown file's path, which named a filesystem
+ *      layout rather than the memory.
  *   2. **Resolve ids to text at render time.** Everything an opened memory points
  *      at — what superseded it, what it was grounded in, which schema it hangs
  *      on, what it fires with — is an ID in the store and a RESOLUTION here. None
@@ -180,9 +182,15 @@ function renderOne(src: DashboardSource, id: string, opts: BrowseOptions): strin
   const physics = store.physicsOf(headId);
 
   const facts: string[][] = [
-    // The path, as a path: the owner opens the store itself, not a rendering of
-    // it (constitution line 6, CONTRACT §3 "prose views the owner can open").
-    ["prose", row === undefined || row.prose_path === "" ? "—" : store.absolutePath(row.prose_path)],
+    // Which record this is: the id to address it by, the revision it is on, and
+    // the hash of the text shown below (constitution line 6 — the owner reads
+    // the store itself, and this is what they read it by).
+    [
+      "record",
+      row === undefined
+        ? "—"
+        : `${headId} · rev ${row.revision} · ${row.content_hash === "" ? "—" : row.content_hash}`,
+    ],
     ["kind", physics.kind],
     // Live band first (arithmetic, what the engine acts on); the recorded
     // column is the birth/promotion record and says so (review F6).

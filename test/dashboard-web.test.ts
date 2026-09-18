@@ -58,7 +58,6 @@ import {
   healthView,
   mindView,
   overviewView,
-  relativeToStore,
   wakeLanes,
 } from "../src/adapters/dashboard/web/views.js";
 import {
@@ -283,7 +282,7 @@ describe("the router answers every endpoint over a store with a life in it", () 
       expect(first).toBeDefined();
       const detail = get(d.src, `/api/memory?id=${first?.id ?? ""}`).json;
       expect(detail["found"]).toBe(true);
-      expect(String(detail["prosePath"]).length).toBeGreaterThan(3);
+      expect(String(detail["contentHash"]).length).toBeGreaterThan(3);
       expect(Number(detail["strength"])).toBeGreaterThan(0);
       // Nothing on the page is a bare id where words were promised.
       for (const edge of detail["edges"] as { text: string }[]) {
@@ -778,7 +777,17 @@ describe("what the page withholds", () => {
       // sentence is not hiding the memory.
       expect(typeof row?.strength).toBe("number");
       expect(["episodic", "semantic", "identity"]).toContain(String(row?.band));
-      expect(get(d.src, `/api/memory?id=${id}`).json["text"]).toBe(WITHHELD);
+      const detail = get(d.src, `/api/memory?id=${id}`).json;
+      expect(detail["text"]).toBe(WITHHELD);
+      // NOR A DERIVATIVE OF THE WORDS. The modal's subtitle carries the content
+      // hash, which is `hashText` over the serialized document — a confirmation
+      // oracle for an exactly-guessed secret rather than a way to recover one,
+      // but this is the surface whose whole job is withholding. It is blank
+      // here, and the page renders a blank as `—`.
+      expect(detail["contentHash"]).toBe("");
+      expect(String(detail["contentHash"])).not.toBe(d.src.store.row(id)?.content_hash);
+      // The revision stays: it says how often this was rewritten, not what it says.
+      expect(Number(detail["revision"])).toBe(d.src.store.row(id)?.revision as number);
       // And nothing leaks through the search surface either.
       const hits = get(d.src, "/api/search?q=whiteboard").json["hits"] as { id: string; text: string }[];
       for (const hit of hits) if (hit.id === id) expect(hit.text).toBe(WITHHELD);
@@ -809,17 +818,6 @@ describe("the shapes the page draws with", () => {
     const [x, y] = divergentPair("the same sentence", "the same sentence", 40);
     expect(x).toBe(y);
     expect(x).toBe("the same sentence");
-  });
-
-  test("a prose path is said relative to the store it lives in", () => {
-    expect(relativeToStore("/tmp/store", "/tmp/store/prose/memories/mem_a.md")).toBe(
-      "prose/memories/mem_a.md",
-    );
-    // A trailing slash on the dir is the store's business, not the caller's.
-    expect(relativeToStore("/tmp/store/", "/tmp/store/prose/x.md")).toBe("prose/x.md");
-    // A path that is NOT inside the store is left alone rather than mangled.
-    expect(relativeToStore("/tmp/store", "/elsewhere/x.md")).toBe("/elsewhere/x.md");
-    expect(relativeToStore("/tmp/store", "")).toBe("—");
   });
 
   test("`/api/meta` carries a row count, so a poll can see a deposit that wrote no event", () => {
@@ -962,17 +960,26 @@ describe("the shapes the page draws with", () => {
     }
   });
 
-  test("the modal is handed BOTH forms: the short one to show, the full one to copy", () => {
+  test("the modal subtitle says which RECORD this is, and no filesystem path", () => {
     const d = open(richDir);
     try {
       const first = (get(d.src, "/api/memories").json["points"] as { id: string }[])[0];
-      const detail = get(d.src, `/api/memory?id=${first?.id ?? ""}`).json;
-      const short = String(detail["prosePathShort"]);
+      const id = first?.id ?? "";
+      const detail = get(d.src, `/api/memory?id=${id}`).json;
+      const row = d.src.store.row(String(detail["headId"]));
+      expect(Number(detail["revision"])).toBe(row?.revision as number);
+      expect(String(detail["contentHash"])).toBe(row?.content_hash as string);
       // The subtitle of the best surface in the product used to be 150
-      // characters of somebody's tmpdir, in every screenshot of it.
-      expect(short.startsWith("/")).toBe(false);
-      expect(short).toContain("prose/");
-      expect(String(detail["prosePath"]).endsWith(short)).toBe(true);
+      // characters of somebody's tmpdir, in every screenshot of it. Nothing on
+      // this payload is a path any more. Scanned by KEY, not over every string:
+      // `text` is the memory's own body and a body may legitimately begin with
+      // a slash.
+      for (const [key, value] of Object.entries(detail)) {
+        if (!/path|dir|file/i.test(key)) continue;
+        expect(`${key}=${String(value)}`).toBe(`${key}=`);
+      }
+      expect(Object.keys(detail)).not.toContain("prosePath");
+      expect(Object.keys(detail)).not.toContain("prosePathShort");
     } finally {
       d.close();
     }

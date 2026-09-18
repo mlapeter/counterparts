@@ -628,6 +628,31 @@ describe("install", () => {
 
 describe("the hook, as a real process", () => {
   /** A hook run with a curated environment: a temp home, no API keys at all. */
+  /**
+   * A stand-down the OWNER can see: since H1 a configuration somebody NAMED and
+   * that could not be honoured is a fault, not a deliberate stand-down, so the
+   * hook prints one `systemMessage` — which the host displays and does not add
+   * to the model's context — and nothing else. The assertion these three tests
+   * used to make ("stdout is empty") is the silence that made a `--config` typo
+   * invisible; what it was protecting is that NOTHING IS INJECTED, and that is
+   * what this checks.
+   */
+  function saysMemoryIsOff(stdout: string): boolean {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      return false;
+    }
+    if (parsed === null || typeof parsed !== "object") return false;
+    const obj = parsed as Record<string, unknown>;
+    return (
+      Object.keys(obj).length === 1 &&
+      typeof obj["systemMessage"] === "string" &&
+      obj["systemMessage"].startsWith("Counterparts memory is OFF for this session: ")
+    );
+  }
+
   function runHook(
     args: readonly string[],
     env: Record<string, string>,
@@ -869,7 +894,10 @@ describe("the hook, as a real process", () => {
         "missing",
       );
       expect(r.code).toBe(0);
-      expect(r.stdout).toBe("");
+      // NOTHING IS INJECTED — and since H1 the owner is told, on the one channel
+      // the host displays rather than swallows: stdout is the `systemMessage`
+      // object alone, no wake and no `additionalContext`.
+      expect(saysMemoryIsOff(r.stdout)).toBe(true);
       expect(r.stderr).toContain("stood down");
       expect(r.stderr).toContain("could not be read");
       // Nothing was minted anywhere: not at the named path's store, not at the
@@ -895,7 +923,7 @@ describe("the hook, as a real process", () => {
         "badtypes",
       );
       expect(r.code).toBe(0);
-      expect(r.stdout).toBe("");
+      expect(saysMemoryIsOff(r.stdout)).toBe(true);
       expect(r.stderr).toContain("could not be understood");
       expect(existsSync(dataDir)).toBe(false);
       expect(existsSync(join(home, ".counterparts"))).toBe(false);
@@ -972,7 +1000,7 @@ describe("the hook, as a real process", () => {
       // A hook NEVER fails the host (§5 G2) — and it never quietly uses the
       // default store instead of the one it was told to use.
       expect(r.code).toBe(0);
-      expect(r.stdout).toBe("");
+      expect(saysMemoryIsOff(r.stdout)).toBe(true);
       expect(r.stderr).toContain("stood down");
       expect(treeHash(join(home, ".counterparts"))).toBe(before);
       expect(existsSync(decoyStore)).toBe(false);

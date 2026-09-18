@@ -262,6 +262,9 @@ running — and it stops reading in-memory counters for `spawn`.
 
 All run as `sqlite3 -readonly "file:$HOME/.counterparts/store/operational.sqlite?immutable=1" "<sql>"`.
 
+> **2026-09-18 — do not reuse this recipe once the store is in WAL mode (F1, PR #137).** `?immutable=1` makes SQLite ignore the `-wal`, so every query reads the database as of the last checkpoint — silently short, no error (proved in `docs/adversarial-review-f1-2026-09-18.md`). Use plain `sqlite3 -readonly <path>`. What is written here is what was run at the time, under DELETE mode, where it was right.
+
+
 - **Q0** the snapshot script behind every §2 number; saved at `scratchpad/snapshot.txt`, each statement tagged `#EVENTS`, `#ASK`, `#DEPOSIT`, `#SLEEP`, …
 - **Q1** `SELECT name,COUNT(*),MIN(date(at/1000,'unixepoch','localtime')),MAX(...),SUM(CASE WHEN at>=strftime('%s','now','-7 days')*1000 THEN 1 ELSE 0 END) FROM events GROUP BY name;`
 - **Q2** `SELECT json_extract(payload,'$.outcome'),COUNT(*) FROM events WHERE name='adapter.ask' GROUP BY 1;` → capped 236 / paced 49 / asked 30

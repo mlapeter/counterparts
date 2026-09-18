@@ -42,6 +42,7 @@ import {
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
+import { journalModeOf, openDb } from "../src/core/store/db.js";
 import {
   API_KEY_ENV,
   CHECKOUT_BUDGET_MS,
@@ -859,6 +860,45 @@ describe("doctor — the reading", () => {
     const findings = doctorFindings(input({ store: s }));
     expect(by(findings, "vectors").data["unembedded"]).toBe(s.unembeddedCount());
     expect(by(findings, "vectors").data["skipped"]).toBe(s.skippedVectorIds().length);
+  });
+
+  test("the journal mode is read and reported — green in wal, amber when a conversion did not take", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    // A writer minted this store, so it is in WAL. Nothing to say.
+    const green = by(doctorFindings(input()), "journal");
+    expect({ severity: green.severity, mode: green.data["mode"], fix: green.fix }).toEqual({
+      severity: "green",
+      mode: "wal",
+      fix: "",
+    });
+
+    // A store standing in DELETE — what a store built by the previous build
+    // looks like, and what one looks like after an older build opened it and set
+    // the mode back. `VACUUM INTO` writes a fresh database in the default mode.
+    const at = mkdtempSync(join(tmpdir(), "counterparts-doctor-delete-"));
+    try {
+      const src = openDb(join(dir, "operational.sqlite"));
+      try {
+        src.exec(`VACUUM INTO '${join(at, "operational.sqlite")}'`);
+      } finally {
+        src.close();
+      }
+      const behind = Store.open({ dir: at, observer: true });
+      stores.push(behind);
+      const amber = by(doctorFindings(input({ store: behind })), "journal");
+      expect({ severity: amber.severity, mode: amber.data["mode"] }).toEqual({
+        severity: "amber",
+        mode: "delete",
+      });
+      expect(amber.fix).toContain("converts it");
+      // AND THE READING CONVERTED NOTHING. A console that fixed the thing it was
+      // asked to report would be writing while standing down.
+      expect(journalModeOf(join(at, "operational.sqlite"))).toBe("delete");
+    } finally {
+      rmSync(at, { recursive: true, force: true });
+    }
   });
 
   /** The hot path's own guarantee: what the budget cut off is a FINDING, never a

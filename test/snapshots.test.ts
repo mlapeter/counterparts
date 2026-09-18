@@ -45,7 +45,8 @@ import {
   SNAPSHOT_ROTATED_EVENT,
   SNAPSHOT_TAKEN_EVENT,
 } from "../src/core/counterpart.js";
-import { openDb } from "../src/core/store/db.js";
+import { journalModeOf, openDb } from "../src/core/store/db.js";
+import { paths } from "../src/core/store/index.js";
 import type { EventRow } from "../src/core/store/index.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
 import { RESTORE_STEPS } from "../src/adapters/claude-code/doctor.js";
@@ -967,6 +968,13 @@ describe("a snapshot can actually be restored", () => {
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
     const copy = join(snapsDir, report.name as string);
     const db = join(copy, "operational.sqlite");
+    // WHICH FLOOR THIS RAN ON, recorded rather than assumed. Since F1 the source
+    // is WAL and this is the interesting case — a copy that inherited the
+    // source's mode would be a copy that cannot be opened on read-only media.
+    // Before F1 it was rollback and the assertions below held trivially; naming
+    // the source's mode is what keeps the test from passing vacuously either way.
+    const sourceMode = journalModeOf(paths.operational(dir));
+    expect(["wal", "delete", "truncate", "persist", "memory", "off"]).toContain(sourceMode);
 
     // Header bytes 18 and 19 are the file-format read/write versions: 1 is
     // rollback (journal), 2 is WAL. Read as bytes so this needs no connection
@@ -975,10 +983,10 @@ describe("a snapshot can actually be restored", () => {
       const bytes = readFileSync(db);
       return [bytes[18] as number, bytes[19] as number];
     };
-    expect(header()).toEqual([1, 1]);
+    expect(header(), `source was ${sourceMode}`).toEqual([1, 1]);
     // Three verifications later it is still rollback-mode...
     for (let i = 0; i < 3; i += 1) expect(verifyCopy(copy, report.files)).toBe(null);
-    expect(header()).toEqual([1, 1]);
+    expect(header(), `source was ${sourceMode}`).toEqual([1, 1]);
     // ...and no sidecar has appeared beside it. A `-wal` in an archive is a
     // database that will not open on read-only media.
     for (const suffix of ["-wal", "-shm", "-journal"]) {

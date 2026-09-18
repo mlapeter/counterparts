@@ -42,7 +42,6 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -51,7 +50,12 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
-import { WRITE_METHODS } from "../src/core/store/index.js";
+import {
+  WRITE_METHODS,
+  hashText,
+  isDatabaseSidecar,
+  serializeProse,
+} from "../src/core/store/index.js";
 import {
   ABSENCE,
   BANDS,
@@ -272,6 +276,12 @@ function snapshot(root: string, opts: { canonicalOnly?: boolean } = {}): Map<str
       const full = join(at, entry.name);
       const rel = relative(root, full);
       if (opts.canonicalOnly === true && rel.split("/")[0] === "cache") continue;
+      // And the database's `-shm`, for a second measured reason: both boxes are in
+      // WAL since 2026-09-18, and under WAL every connection writes read-marks into
+      // that file — a read-only one included. The `-wal` is NOT skipped: a commit
+      // lives there until a checkpoint, so it is where a write by this adapter
+      // would show, and this suite exists to see one.
+      if (isDatabaseSidecar(entry.name)) continue;
       if (entry.isDirectory()) {
         walk(full);
         continue;
@@ -895,18 +905,27 @@ describe("browse — the memory list, and one memory opened", () => {
     expect(text).toContain("kind place");
   });
 
-  test("opening a memory shows its PROSE PATH, and the file is really there", async () => {
+  test("opening a memory names the RECORD it is — id, revision, content hash", async () => {
     const s = await seed();
-    const text = stripAnsi(dash().browse({ id: s.authoredId }));
-    expect(text).toContain("prose");
-    const line = text.split("\n").find((l) => l.trim().startsWith("prose"));
-    const path = (line ?? "").trim().replace(/^prose\s+/, "");
-    expect(path.endsWith(".md")).toBe(true);
-    expect(existsSync(path)).toBe(true);
-    expect(statSync(path).isFile()).toBe(true);
-    // Constitution line 6: the owner reads the store itself. The body shown here
-    // and the file on disk are the same prose.
-    expect(readFileSync(path, "utf8")).toContain("storage split");
+    const d = dash();
+    const row = d.store.row(s.authoredId);
+    const text = stripAnsi(d.browse({ id: s.authoredId }));
+    const line = text.split("\n").find((l) => l.trim().startsWith("record"));
+    expect(line).toBeDefined();
+    const said = (line ?? "").trim().replace(/^record\s+/, "");
+    expect(said).toBe(`${s.authoredId} · rev ${row?.revision} · ${row?.content_hash}`);
+    expect(row?.content_hash).not.toBe("");
+
+    // Constitution line 6: the owner reads the store itself, so the hash printed
+    // here has to ADDRESS the text shown below it — not merely equal a column.
+    // The old version of this test opened the printed path and compared the file;
+    // this is the same assertion without a filesystem in it, which is where the
+    // shared store fixture is headed. `content_hash` is `hashText` over the
+    // serialized document, so recomputing it from the document proves the pair.
+    const doc = d.store.readProse(s.authoredId);
+    expect(doc.body).toContain("storage split");
+    expect(hashText(serializeProse(doc))).toBe(row?.content_hash as string);
+    expect(stripAnsi(text)).toContain("storage split");
   });
 
   test("an opened memory resolves everything it points at, right now", async () => {

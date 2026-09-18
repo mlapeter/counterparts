@@ -769,19 +769,19 @@ export interface MemoryDetail {
   readonly title: string;
   readonly text: string;
   readonly confidential: boolean;
-  /** The absolute path — what an editor needs, and what the copy button hands
-   *  over (constitution line 6: the owner reads the store itself). */
-  readonly prosePath: string;
   /**
-   * The same file, said RELATIVE to the store — `prose/memories/mem_….md`.
+   * Which record this is — the revision it is on, and the hash of the text
+   * above.
    *
-   * The absolute form is 150 characters of somebody's tmpdir and it was the
-   * whole subtitle of the memory modal, which means it was in every screenshot
-   * of the best surface in the product. What identifies a memory's file is its
-   * place inside the store, and the machine it happens to be sitting on is not
-   * part of that.
+   * This pair replaced the memory file's path in the modal's subtitle. The path
+   * named a filesystem layout, and a store is not its layout: what identifies a
+   * memory is its id, and what identifies THIS reading of it is the revision and
+   * the hash. The id the copy button hands over is `id`.
+   *
+   * `contentHash` is blank when the body is withheld — see below.
    */
-  readonly prosePathShort: string;
+  readonly revision: number;
+  readonly contentHash: string;
   readonly kind: Kind;
   readonly band: Band;
   readonly recordedBand: string;
@@ -821,8 +821,8 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     title: "",
     text: "",
     confidential: false,
-    prosePath: "",
-    prosePathShort: "",
+    revision: 0,
+    contentHash: "",
     kind: "fact" as Kind,
     band: "episodic" as Band,
     recordedBand: "—",
@@ -887,13 +887,12 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     // it is withheld here exactly as it is withheld in recall.
     text: g.confidential ? WITHHELD : doc.body.trim(),
     confidential: g.confidential,
-    // The row holds the store-relative spelling (§5 G15); the editor wants the
-    // absolute one, so it is resolved against THIS store here.
-    prosePath: row === undefined || row.prose_path === "" ? "—" : store.absolutePath(row.prose_path),
-    prosePathShort: relativeToStore(
-      store.dir,
-      row === undefined || row.prose_path === "" ? "" : store.absolutePath(row.prose_path),
-    ),
+    revision: row?.revision ?? 0,
+    // A hash of a withheld body is a derivative of withheld text, on the one
+    // surface whose job is withholding it. It is a confirmation oracle for an
+    // exactly-guessed secret rather than a way to recover one, but this is the
+    // wrong place to be interesting. The modal renders `""` as `—`.
+    contentHash: g.confidential ? "" : (row?.content_hash ?? ""),
     kind: physics.kind,
     band: band(physics, day),
     recordedBand: `${row?.band ?? "—"} (set day ${row?.band_day ?? "—"})`,
@@ -939,13 +938,6 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     })),
     absence: null,
   };
-}
-
-/** Strip the store's own directory off the front of a path inside it. */
-export function relativeToStore(dir: string, path: string): string {
-  if (path.length === 0) return "—";
-  const root = dir.replace(/\/+$/, "");
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 
 function barFor(src: DashboardSource, id: string): number | null {
