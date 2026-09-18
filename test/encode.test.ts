@@ -56,7 +56,7 @@ import type {
   SecretsGateRecord,
 } from "../src/core/encode/index.js";
 import { sal } from "../src/core/physics/index.js";
-import { DATA_DIR_ENV, Store } from "../src/core/store/index.js";
+import { DATA_DIR_ENV, Store, isDatabaseSidecar } from "../src/core/store/index.js";
 
 const ENCODE_SRC = fileURLToPath(new URL("../src/core/encode/", import.meta.url));
 const SRC_FILES = readdirSync(ENCODE_SRC).filter((f) => f.endsWith(".ts"));
@@ -1365,11 +1365,14 @@ describe("gated means gated, against a REAL store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  /** Every file under the data dir, by path and content hash. */
+  /** Every file under the data dir, by path and content hash — bar a database's
+   *  `-wal`/`-shm`, which every connection moves bytes in under WAL and which
+   *  hold nothing the database file will not hold once it is checkpointed. */
   function snapshot(root: string): Record<string, string> {
     const out: Record<string, string> = {};
     const walk = (p: string, rel: string) => {
       for (const name of readdirSync(p).sort()) {
+        if (isDatabaseSidecar(name)) continue;
         const full = join(p, name);
         const key = rel === "" ? name : `${rel}/${name}`;
         if (statSync(full).isDirectory()) walk(full, key);

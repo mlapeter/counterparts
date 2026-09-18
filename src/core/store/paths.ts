@@ -270,6 +270,18 @@ export const LAYOUT: readonly LayoutEntry[] = [
   },
 ];
 
+/**
+ * A database's own sidecars — `-journal` under a rollback journal, `-wal`/`-shm`
+ * under WAL. Named because they are not CONTENT: every connection moves bytes in
+ * them, a read-only one included, and they hold nothing the database file will
+ * not hold once it is checkpointed. `classifyTopLevel` already covers them by
+ * prefix; this is for the suites that hash a store directory and mean its
+ * canonical bytes (2026-09-18, when box 2 and box 3 went to WAL).
+ */
+export function isDatabaseSidecar(name: string): boolean {
+  return name.endsWith("-journal") || name.endsWith("-wal") || name.endsWith("-shm");
+}
+
 export function classifyTopLevel(name: string): LayoutEntry | undefined {
   return LAYOUT.find((e) =>
     e.match === "exact" ? e.name === name : name.startsWith(e.name),

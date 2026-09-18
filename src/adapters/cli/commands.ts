@@ -46,7 +46,7 @@ import { TUNABLES as SLEEP_TUNABLES, isJournal } from "../../core/sleep/index.js
 // The deep import into box 3's own driver — the same one `snapshot.ts` and
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
-import { openDb } from "../../core/store/db.js";
+import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../../core/store/db.js";
 import type { Db, SqlValue } from "../../core/store/db.js";
 // Box 3's own door for the vector migration: `openCache` stamps the schema
 // version, `vectorFormats` counts the two shapes, `convertVectorBatch` is the
@@ -2224,6 +2224,12 @@ function verifyCensus(dir: string, io: Io): number {
 
   const cache = censusCache(dir);
   io.out(`Store: ${dir}`);
+  // How the boxes are being held open, on the day WAL landed: the mode is in the
+  // file header, so this says what the NEXT process will find, not what this one
+  // asked for. A store still reading `delete` had no writer open since the deploy.
+  io.out(
+    `Journal mode: ${journalModeOf(paths.operational(dir))} (busy timeout ${BUSY_TIMEOUT_MS} ms)`,
+  );
   io.out(
     `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
       `removed (deny-list): ${denied.length}`,
@@ -2416,6 +2422,19 @@ function humanBytes(n: number): string {
 }
 
 /**
+ * What a database occupies on disk: the file PLUS its `-wal`, which since WAL
+ * landed (2026-09-18) holds committed pages until a checkpoint moves them into
+ * the file. Stat the file alone and a cache mid-conversion reads 1.8 MiB while
+ * 3.7 MB of it sits in the sidecar — measured, and enough to put the reclaimable
+ * number under `worthCompacting`'s floor and print "nothing to do" over a real
+ * debt. The `-shm` is not counted: it is an index into the `-wal`, not content.
+ */
+function databaseBytes(path: string): number {
+  const wal = `${path}-wal`;
+  return statSync(path).size + (existsSync(wal) ? statSync(wal).size : 0);
+}
+
+/**
  * How many bytes a `VACUUM` would give back, MEASURED — `VACUUM INTO` a
  * throwaway copy outside the data dir, stat it, delete it.
  *
@@ -2437,7 +2456,7 @@ function reclaimableBytes(db: Db, path: string): number | null {
   const probe = join(probeDir, "compacted.sqlite");
   try {
     db.run("VACUUM INTO ?", probe);
-    return Math.max(0, statSync(path).size - statSync(probe).size);
+    return Math.max(0, databaseBytes(path) - statSync(probe).size);
   } catch {
     return null;
   } finally {
@@ -2540,7 +2559,7 @@ async function migrateCacheCommand(
     return Number.isFinite(n) && n > 0 ? n : 500;
   })();
 
-  const sizeBefore = statSync(path).size;
+  const sizeBefore = databaseBytes(path);
   // READ-ONLY for the report: `openDb` opens what is there and stamps nothing.
   // `openCache` — which brings an out-of-date box 3 up to the current schema —
   // is reserved for `--apply`, below, where a write is the point.
@@ -2601,7 +2620,7 @@ async function migrateCacheCommand(
       } finally {
         writable.close();
       }
-      const sizeAfter = statSync(path).size;
+      const sizeAfter = databaseBytes(path);
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +
           `(reclaimed ${humanBytes(Math.max(0, sizeBefore - sizeAfter))}).`,
@@ -2712,7 +2731,7 @@ async function migrateCacheCommand(
           `Re-run 'counterparts migrate-cache --dir ${dir} --apply' with no session open to compact it.`,
       );
     }
-    const sizeAfter = statSync(path).size;
+    const sizeAfter = databaseBytes(path);
     if (vacuumed) {
       io.out(
         `Cache file: ${humanBytes(sizeBefore)} → ${humanBytes(sizeAfter)} ` +

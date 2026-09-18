@@ -103,7 +103,80 @@ function norm(params: SqlParam[]): SqlValue[] {
  */
 export const BUSY_TIMEOUT_MS = 5000;
 
-export function openDb(path: string): Db {
+export interface OpenDbOptions {
+  /**
+   * Convert the file to WAL when it is not already in it. A WRITER asks; nobody
+   * else does.
+   *
+   * Reading the journal mode is free; CHANGING it is a write that takes the
+   * database's exclusive lock. An opener that converted a file it had only come
+   * to read would be writing at open — the observer's stand-down (contract §5),
+   * and the shape of the lock incident I38. So the default is false, and it is
+   * the default that matters: `vacuumInto` opens the SOURCE of a backup with
+   * this, and `adapters/cli` opens box 3 read-only for a census.
+   */
+  readonly wal?: boolean;
+}
+
+/**
+ * Put the file in WAL, and only if it is not there already.
+ *
+ * WAL because several processes hold this one small database open at once — the
+ * session hooks, a long-running MCP server, the nightly worker, the dashboard —
+ * and in WAL a reader no longer blocks the writer. Its permanent `-wal`/`-shm`
+ * sidecars are classified: `LAYOUT`'s database entry matches by PREFIX (§5 G11),
+ * which is why the reason NOTES §9 gave for DELETE no longer holds.
+ *
+ * THE READ COMES FIRST because the set is a write: on a store already in WAL —
+ * every open after the first — this statement pair touches nothing.
+ *
+ * A CONTENDED conversion is not an error. The change needs the exclusive lock and
+ * SQLite does not run the busy handler for it: with another connection inside a
+ * write transaction it fails in about a millisecond (measured, bun:sqlite 1.3),
+ * not after the five-second wait. The open then continues in whatever mode the
+ * file is in and the next open tries again — a hook must not die because the
+ * worker happened to be committing.
+ *
+ * ONLY the locked case is swallowed. This statement is also the first one that
+ * reads the file's header, so "not a database" arrives here — and a caller that
+ * opens a corrupt box 3 to count its vectors has to fail closed rather than be
+ * handed a handle (`cli` verify --rebuild's guard).
+ */
+function convertToWal(db: Db): void {
+  const current = db.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode;
+  if (current !== undefined && current.toLowerCase() === "wal") return;
+  try {
+    db.get("PRAGMA journal_mode = WAL");
+  } catch (err) {
+    if (!isLocked(err)) throw err;
+    // Contended. The file keeps the mode it has, and this connection works in it.
+  }
+}
+
+/** SQLITE_BUSY / SQLITE_LOCKED, under either driver's spelling of it. */
+function isLocked(err: unknown): boolean {
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === "string" && (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED"))) {
+    return true;
+  }
+  const message = String((err as Error)?.message ?? err);
+  return message.includes("database is locked") || message.includes("database table is locked");
+}
+
+/**
+ * The journal mode a database file is in, on its own connection — opened, read,
+ * closed, converting nothing. What `counterparts verify` prints.
+ */
+export function journalModeOf(path: string): string {
+  const db = openDb(path);
+  try {
+    return db.get<{ journal_mode: string }>("PRAGMA journal_mode")?.journal_mode ?? "unknown";
+  } finally {
+    db.close();
+  }
+}
+
+export function openDb(path: string, opts: OpenDbOptions = {}): Db {
   const { raw, driver } = openRaw(path);
   let depth = 0;
   let savepointSeq = 0;
@@ -160,17 +233,20 @@ export function openDb(path: string): Db {
     },
   };
 
+  // FIRST, before any other statement on this connection (finding I39): every
+  // pragma below can contend for a lock, and without the timeout SQLite fails
+  // them INSTANTLY. The journal-mode statement used to run here with zero wait,
+  // inside another writer's commit window — which is where "database is locked"
+  // came from. Set on every connection, including the short-lived one
+  // `VACUUM INTO` opens for a backup (§5 G8, live-verify 2026-08-25).
+  exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   // Foreign keys are OFF by default in SQLite; referential integrity is enforced by
   // the store (contract §5 G4), so turn them on before anything is written.
   exec("PRAGMA foreign_keys = ON");
-  // Deliberately NOT WAL: WAL leaves -wal/-shm sidecars in the data dir, and every
-  // top-level path must be classified (§5 G11). The prefix classifier covers the
-  // transient -journal; WAL's permanent pair would be two more boxes to explain.
-  exec("PRAGMA journal_mode = DELETE");
+  if (opts.wal === true) convertToWal(db);
+  // FULL, not WAL's usual NORMAL: that is a durability ruling for the owner to
+  // make, not a cleanup to make on the way past. TUNABLE — the one knob here
+  // that trades fsyncs for commit speed.
   exec("PRAGMA synchronous = FULL");
-  // Wait for a contended lock instead of failing instantly (§5 G8, live-verify
-  // 2026-08-25). Set on every connection, including the short-lived one
-  // `VACUUM INTO` opens for a backup.
-  exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   return db;
 }

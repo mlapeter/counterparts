@@ -47,7 +47,7 @@ import { SWEEP_REASONS, TUNABLES as REMEMBER_TUNABLES } from "../src/core/rememb
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
 import { CycleKilled, PHASES } from "../src/core/sleep/index.js";
-import { Store } from "../src/core/store/index.js";
+import { Store, isDatabaseSidecar } from "../src/core/store/index.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -1549,12 +1549,16 @@ describe("the crash gate — only a crashed session's transcript is ever read", 
 describe("observer stance — a full lifecycle leaves canonical state byte-identical", () => {
   /** Every canonical byte under the data dir, hashed per relative path. Box 3
    *  (`cache/`) is excluded BY NAME: it is declared rebuildable, never backed up,
-   *  and observer-mode's open question 2 is about exactly its residue. */
+   *  and observer-mode's open question 2 is about exactly its residue. The
+   *  database's `-wal`/`-shm` sidecars are excluded for a second reason: under
+   *  WAL any connection moves bytes in them, so they are the substrate's
+   *  bookkeeping and not the store's content (`isDatabaseSidecar`). */
   function canonicalSnapshot(root: string): Record<string, string> {
     const out: Record<string, string> = {};
     const walk = (abs: string, rel: string): void => {
       for (const entry of readdirSync(abs, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
         if (rel === "" && (entry.name === "cache" || entry.name === "tmp")) continue;
+        if (isDatabaseSidecar(entry.name)) continue;
         const nextAbs = join(abs, entry.name);
         const nextRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
         if (entry.isDirectory()) walk(nextAbs, nextRel);

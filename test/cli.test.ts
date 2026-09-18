@@ -47,7 +47,7 @@ import {
 } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import { CONFIG_FLAG } from "../src/adapters/config-path.js";
-import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, paths } from "../src/core/store/index.js";
+import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, isDatabaseSidecar, paths } from "../src/core/store/index.js";
 import {
   BLOB_NAME,
   CONFIG_FILE,
@@ -483,12 +483,14 @@ describe("backup", () => {
     });
 
     // A writer holds an OPEN, uncommitted transaction across the copy. This is
-    // the shape that tore v1's file copies: a hot journal on disk and a main
-    // file that is not, on its own, the database.
+    // the shape that tore v1's file copies: live state in a sidecar and a main
+    // file that is not, on its own, the database. Under WAL (2026-09-18) the
+    // sidecar is the `-wal` rather than a `-journal`, and the committed row the
+    // copy must contain is IN it — which makes the same point harder.
     const writer = openDb(paths.operational(dir));
     writer.exec("BEGIN IMMEDIATE");
     writer.run("INSERT INTO meta (key, value) VALUES (?, ?)", "uncommitted", "never-visible");
-    expect(existsSync(`${paths.operational(dir)}-journal`)).toBe(true);
+    expect(existsSync(`${paths.operational(dir)}-wal`)).toBe(true);
 
     const target = join(outside, "snap");
     const report = snapshot(s, target);
@@ -1396,6 +1398,10 @@ describe("verify", () => {
     const parts: string[] = [];
     const walk = (at: string): void => {
       for (const name of readdirSync(at).sort()) {
+        // Bar a database's `-wal`/`-shm`: under WAL every connection moves bytes
+        // in them, and they hold nothing the database file will not hold once it
+        // is checkpointed. The database FILES themselves are still compared.
+        if (isDatabaseSidecar(name)) continue;
         const full = join(at, name);
         if (statSync(full).isDirectory()) walk(full);
         else parts.push(`${full}:${readFileSync(full).toString("base64")}`);
@@ -1598,6 +1604,10 @@ describe("verify", () => {
     s.put({ type: "memory", kind: "fact", body: "A memory whose index went unreadable." });
     s.close();
     writeFileSync(paths.cache(dir), "not a database");
+    // The sidecars go with it. Box 3 is in WAL since 2026-09-18, and a `-wal`
+    // left beside a garbled main file is a database SQLite recovers from — the
+    // fixture would stop reproducing the branch it is here to reproduce.
+    for (const side of ["-wal", "-shm"]) rmSync(`${paths.cache(dir)}${side}`, { force: true });
 
     const c = consoleWith();
     expect(await run(["verify", "--rebuild", "--dir", dir], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);

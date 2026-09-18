@@ -366,7 +366,10 @@ function readSchemaVersion(db: Db): string | null {
  * read-only caller could be refused (or refuse someone else) purely by opening.
  */
 export function openOperational(path: string, opts: OpenOperationalOptions = {}): Db {
-  const db = openDb(path);
+  // A WRITER converts the file to WAL; an instrument reads the mode and leaves
+  // it, for the same reason it does not run the DDL — changing the journal mode
+  // takes the write lock (`db.ts#convertToWal`).
+  const db = openDb(path, { wal: opts.initialize !== false });
   const found = readSchemaVersion(db);
   if (found === String(SCHEMA_VERSION)) return db;
   // A store from a NEWER build must never be stamped backwards: v4 is the
