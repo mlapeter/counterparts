@@ -499,3 +499,29 @@ is 0 and the `self.rendered.<id>` rotation stops advancing — both honest, and
 both readable in the row. And `FRAMING.context`'s "each line opens with the date
 it was learned" is a claim about the element lines; the day-0 line has carried no
 date since it shipped, and the page carries its own date on its own line.
+
+### 12a. What the default switch does NOT do, measured (2026-09-18)
+
+S1's brief describes value (b) of `PAGE_EMPTY_SHOWS_LIST` two ways in one
+paragraph: *"'still forming' followed by today's identity list as a fallback"*
+and *"deploying this changes nothing in the owner's wake until a page exists"*.
+Those are different renders, and only the second can be true of a store that has
+identity. What is built is the second, plus this: the forming line prints on
+value (a) alone, never above a list, and never on a lane that merely happens to
+be empty.
+
+The third reading — print it whenever the lane is empty, so a brand-new store
+says the words verbatim — was built and then backed out, because it was measured
+rather than argued: the line is FURNITURE, so it is untrimmable, and it adds ~127
+bytes to the floor of every wake whose identity lane is empty. `test/claude-code`'s
+host-budget case (a host reporting 400 bytes) then composed 539 and published
+`overBudget`, which is scar §2.18's guarantee paying for a sentence. Two other
+existing wake tests turned over with it, both asserting the older rule that a
+lane with nothing in it renders no heading at all.
+
+What a brand-new store says instead is the day-0 line, which has said the same
+thing in this module's own words since it shipped: *"No identity has formed here
+yet — identity is earned at the boundary that ends a session, from what recurs
+across distinct days."* If the owner wants the page's own sentence verbatim on a
+fresh store, the switch is one value away — which is what a switch with two
+values and an unmade choice is for.

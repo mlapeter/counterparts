@@ -516,6 +516,17 @@ describe("rendering and reading a page", () => {
     expect(parts.core).toBe("Still forming.");
     expect(parts.lately).toBe("Still forming.");
   });
+
+  test("the template the console OFFERS is a page the seam ACCEPTS", () => {
+    // The console prints `PAGE_TEMPLATE` as "a blank page to start from". A
+    // console that hands the owner a page its own gate refuses would be an
+    // invitation with no door behind it — the exact failure `self/` §3 names.
+    const s = store();
+    const out = self(s).revisePage(PAGE_TEMPLATE, { reason: "starting from the template", by: "owner" });
+    expect(out.written).toBe(true);
+    expect(out.warning).toBeNull();
+    expect(readSelfPage(s)?.body).toBe(PAGE_TEMPLATE.trim());
+  });
 });
 
 /** The sentinel's stated bytes, for the fixed-point assertions above. */

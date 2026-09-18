@@ -663,7 +663,7 @@ const SELF_PAGE: ToolSpec = {
     },
     {
       claim:
-        "What you write appears in the wake at the NEXT boundary, not this instant: the bundle every session reads is composed once, when a session ends, and served unchanged until the next one.",
+        "What you write reaches the wake at the next boundary that re-renders it — once per lived day — and not this instant: the bundle every session reads is composed when a session ends and served unchanged until the next render.",
       mechanizedBy: "src/core/self/index.ts#boundary (compose and publish) -> #wake (read and verify, no write)",
     },
     {

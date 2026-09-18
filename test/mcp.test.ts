@@ -528,7 +528,7 @@ describe("the tool-description audit", () => {
     const written = payload(await s.call("self_page", { body, reason: "a placeholder first page" }));
     expect(written["stored"]).toBe(true);
     expect(written["version"]).toBe(0);
-    expect(written["appearsAtWake"]).toBe("the next boundary");
+    expect(written["appearsAtWake"]).toContain("once per lived day");
 
     // ONE row more, and it is the page: no memory was minted, and no row that
     // was there before changed band or gained a use.

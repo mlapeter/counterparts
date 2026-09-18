@@ -637,6 +637,13 @@ export class Self {
       hints: briefing.counts.hints,
       horizon: briefing.counts.horizon,
       trimmed: briefing.trimmed.length,
+      // WHETHER THE PAGE RENDERED, AND WHETHER IT WAS CUT. Zero and false mean
+      // "no page in this render", which is what a store with none looks like;
+      // without these a wake led by a 6 KB page and a wake led by nothing are
+      // the same row, and the cut is the thing nobody would otherwise see.
+      page: briefing.page?.bytes ?? 0,
+      pageWhole: briefing.page?.wholeBytes ?? 0,
+      pageTruncated: briefing.page?.truncated ?? false,
       hash,
     });
     // A budget gets an event when APPROACHED and an event when crossed; a number

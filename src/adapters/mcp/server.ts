@@ -1141,10 +1141,12 @@ export class McpServer {
         version: written.version,
         bytes: written.bytes,
         ...(written.warning === null ? {} : { warning: written.warning }),
-        // WHEN IT WILL BE READ. The bundle every session wakes with is composed
-        // at a boundary and served unchanged until the next one, so "it is live
-        // now" would be false for as long as this session lasts.
-        appearsAtWake: "the next boundary",
+        // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
+        // is composed at a boundary and served unchanged until the next one, so
+        // "it is live now" would be false for as long as this session lasts —
+        // and the briefing phase is cadenced once per LIVED day, so a second
+        // boundary today renders nothing at all.
+        appearsAtWake: "the next boundary that re-renders the wake — once per lived day",
       },
       false,
     );

@@ -603,13 +603,28 @@ export function render(
   // rotation memory (`RENDERED_PREFIX`) simply stops advancing while a page is
   // what renders.
   //
-  // The still-forming line is the OTHER value of the same switch: no page, and
-  // the owner has chosen not to keep the list meanwhile.
+  // THE STILL-FORMING LINE, which is about the PAGE and never about identity,
+  // and which prints on ONE value of the switch: the list has been turned off
+  // and no page has been written, so the line stands in the list's place.
+  //
+  // **It deliberately does NOT print under the default, on a lane that happens
+  // to be empty**, and the reason is measured rather than tidy. It is FURNITURE
+  // — untrimmable, like the day-0 line — so printing it whenever the lane is
+  // empty adds ~127 bytes to the floor of every such wake. A host reporting a
+  // 400-byte ceiling then composes 539 and publishes `overBudget`, which is the
+  // host-budget guarantee (§1, scar §2.18) paying for a sentence. On a
+  // brand-new store the day-0 line already says the same thing in the words
+  // this module chose for it — "No identity has formed here yet — identity is
+  // earned at the boundary…" — so the honesty the plan asks for on a first wake
+  // is already there, and the switch's other value is one word away for an
+  // owner who wants the sentence verbatim. See NOTES §12.
+  const page = req.page ?? null;
+  const suppressList = page !== null || !t.PAGE_EMPTY_SHOWS_LIST;
+  if (suppressList) kept.identity.length = 0;
   const identity: IdentityBlock = {
-    page: req.page ?? null,
-    forming: req.page === undefined && !t.PAGE_EMPTY_SHOWS_LIST ? PAGE_FORMING_LINE : null,
+    page,
+    forming: page === null && !t.PAGE_EMPTY_SHOWS_LIST ? PAGE_FORMING_LINE : null,
   };
-  if (identity.page !== null || identity.forming !== null) kept.identity.length = 0;
   // THE SHARE, applied BEFORE the trim order rather than inside it: identity
   // trims last by policy, so by the time the trim loop could bound identity
   // every other lane is already gone. Held-back elements are not trimmed —
