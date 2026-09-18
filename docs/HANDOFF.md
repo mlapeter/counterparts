@@ -45,7 +45,67 @@ last checkpoint (the reviewer's probe: three rows in the `-wal`, `immutable=1` s
 (`promotion-diagnosis`, `recall-surfacing-diagnosis`, `finding-12-diagnosis`, `mechanism-inventory`, storage spec §4)
 record what was run at the time, under DELETE mode, where it was right — do not copy the recipe out of them.
 
-**Evening: all five builders have reported; NOTHING is merged; every merge below waits for the owner's word.**
+**Night: where every PR stands, the batches proposed to the owner, and DEPLOY DAY FOR F1 on paper (the coordinating
+session is closed while it runs). NOTHING is merged; every merge and every deploy below waits for the owner's word.**
+
+| PR | what | head | state |
+|---|---|---|---|
+| #134 | N2 docs + `docs/new-user-findings.md` | `84dbcad` | ready |
+| #137 | F1 WAL | `44bab3e` | reviewed (merge after one fix; fix made); coordinator ran 2236 / 0, tsc clean; the reviewer's short confirmation pass is running (`adversarial-review-f1b-…`) |
+| #135 | F3 refactor | `607e516` | reviewed twice: SAFE TO MERGE AS IS |
+| #139 | FIX removed schema rows | `11225d9` | reviewed: safe to merge and to deploy; small pass done (docs made true, `entities()` flat in the deny-list, `loadSkips()`) |
+| #136 | F2 snapshots | `5633cec` + a last pass running | reviewed twice; four MAJORs closed; one new (rejected look-alike directories are invisible; count and name them) |
+| #138 | S1 self page | `7682a30` + fix pass running | reviewed: 2 BLOCKER / 4 MAJOR, all being fixed; the no-page wake PROVED byte-identical to master over 100 compositions |
+| (new) | H1 — a hook that stands down on a failed open says so in the terminal; doctor RED when the store will not open | building, branch `fix/h1-hook-standdown-visible` | launched because three reviews hit the same silent exit-0 |
+
+All reviews are in `docs/adversarial-review-*-2026-09-18.md` on this branch.
+
+**Trial merge by the coordinator (worktree `.claude/worktrees/coord-trial`): master + #137 + #135 + #139 = 2246 pass / 0
+fail, tsc clean.** Two mechanical conflicts between F1 and F3: the import line of `test/dashboard.test.ts` (take both
+names: `hashText, isDatabaseSidecar, serializeProse`) and two sections appended at the same place in
+`src/core/store/NOTES.md` (keep both). After F1 merges, F3's builder merges master into its branch (no force-push).
+
+**Batches proposed to the owner (each its own word; one suspect per deploy):** A = F1 alone (with #134, docs only).
+B = #135 + #139 + H1 ("memory cannot silently switch off"). C = F2. D = S1. The coordinator first recommended #139 ride
+with F1 and withdrew it: #139 is stacked on F3, which would give the WAL deploy three suspects.
+
+### Deploy day for F1 (batch A) — the owner runs this from a plain terminal; from `docs/adversarial-review-f1-2026-09-18.md`
+
+Why the care: master's build execs `PRAGMA journal_mode = DELETE` at EVERY open. After the flip, an old-build process that
+opens a FRESH connection fails at once with "database is locked" if anything else has the store open, and converts the
+store back to DELETE if nothing does. Running MCP servers and the dashboard hold one handle for life and are safe, but the
+clean way is to have nothing old alive. No committed data is lost in any ordering the reviewer ran.
+
+0. Before the day: the merge of #137 (and #134) on the owner's word. A merge deploys nothing.
+1. `counterparts backup --out <a directory outside ~/.counterparts>` while the store is still in DELETE mode. This is the
+   revert lever, and it also runs the prose census: confirm it reports nothing missing.
+2. Close EVERY Claude Code session (this one and the plan-writing one included) and the dashboard.
+   `pgrep -fl counterparts` prints nothing.
+3. `~/counterparts/tools/deploy-checkout.sh`
+4. Open ONE Claude Code session. A writer has to open the store for the flip; `verify`, `status` and `doctor` are
+   observers and will not convert it.
+5. `counterparts verify --config ~/.counterparts/claude-code.json` prints `Journal mode: wal (busy timeout 5000 ms)`.
+   If it says `delete`, send one prompt in that session (or open another) and look again.
+6. `ls -la ~/.counterparts/store/` shows `operational.sqlite-wal` and `-shm`.
+7. `counterparts doctor --config ~/.counterparts/claude-code.json` — nothing red; the new Journal line is green.
+   `counterparts fired --dir ~/.counterparts/store --observer`.
+8. One more `counterparts backup --out <dir>` (proves `VACUUM INTO` under WAL; the copy is a plain DELETE-mode file).
+9. Reopen the rest. `claude --resume` brings the coordinating session back.
+
+From then on: never run a `counterparts` command from a stale worktree against the live store; never copy
+`operational.sqlite` alone (the `-wal` holds everything since the last checkpoint); never delete the `-wal`; read-only
+queries are plain `sqlite3 -readonly <path>`, not `?immutable=1`. **Rollback:** `git -C ~/counterparts checkout --detach
+039cd5d` with everything closed; the old build converts the file back at its first open.
+
+**Owner's choices collected so far (none blocks batch A):** keyless doctor amber instead of red; a day-1 line for `fired`;
+whether removing a person also removes what was believed about them (the reviewer proved `counterparts dashboard identity`
+still prints a removed person's promoted belief; the coordinator now recommends they go too, or are hidden everywhere);
+S1: 6 KB of page on a 9,000-byte wake, the page riding the fallback's wake to the API (built as a switch, default on), 14
+days before "stale"; F2: a future-dated copy is kept and reported, 14 copies of today's store is about 940 MB. Defaults the
+coordinator took, revisable: a bad value in the optional `snapshots` block falls back and goes amber instead of standing
+the adapter down; the page is excluded from recall.
+
+**Earlier the same evening: all five builders reported.**
 
 | PR | branch · head | builder's suite | adversarial review | state |
 |---|---|---|---|---|
