@@ -1,6 +1,191 @@
 # Handoff — resume here
 
-## 2026-09-18, midday — read this first: the rest of the rebuild runs in parallel from one plan
+## 2026-09-18, afternoon — read this first: Wave 1 is launched (five builders), nothing merged yet
+
+**The brief is still `docs/plan-parallel-rebuild-2026-09-18.md`.** A coordinating session started from its §8 prompt.
+
+**State at launch.** LIVE = master = `039cd5d` (the plan says `dc66c81`; the difference is docs PR #133 only, deployed
+since). Doctor 0 red / 2 amber / 13 green; the ambers are the same week-window baselines (Authorship's old day-cap
+refusals, Fired's quiet mechanisms). No open PRs before the wave.
+
+**Wave 1, five Opus builders, each in its own worktree under `.claude/worktrees/agent-*`, each told: build, full
+suite + `bun run typecheck`, push its branch, ONE PR, no merge, no deploy:**
+- **F1** `floor/f1-wal` — busy timeout first, journal mode read before it is set, WAL (also the cache). Extra proofs
+  asked for beyond the floor plan: an idle DELETE-mode handle survives another handle's flip to WAL (the long-running
+  MCP server on deploy day); a refused flip never throws at open; a read-only open of a WAL store works (the
+  dashboard; floor plan risk 1); every raw database copy is still consistent under WAL.
+- **F2** `floor/f2-snapshots` — ruling 3. Asked for: rotation deletes only what it can prove is a snapshot; copy to a
+  temp name and rename, so a watchdog kill mid-copy never counts as a snapshot; the watchdog value measured against a
+  copy of a store the live one's size; the `snapshot.*` rows, the fired entry, the doctor line.
+- **F3** `floor/f3-consumers-off-files` — refactor only; the `confidential` flag's truth table pinned by a test before
+  the swap, because it is a privacy gate; a list of the call sites left for F5.
+- **S1** `self/s1-page` — one row through the existing Store API (nothing under `src/core/store/` changes); two headed
+  sections; one core seam S2 will call; an MCP tool and a CLI command; the page first in "Who I am" under a tunable
+  size limit; proof that a full sleep cycle and the prune leave the page alone. **What the wake shows while the page
+  is empty is built as a two-value switch, defaulting to "still forming" plus today's identity list, so a deploy changes
+  nothing in the owner's wake until a page is written. Which value ships is the owner's choice and is not made yet.**
+- **N2** `newuser/n2-quickstart-dry-run` — the stranger's walk in a temp HOME, never launching `claude`; creates
+  `docs/new-user-findings.md` (that is N3); only small obviously-right doc fixes go in.
+
+**What the owner said at the start of this session, which is narrower than plan §2 ruling 7 reads at first:** merges
+to master are pre-authorized only AFTER the live checkout is pinned at `floor/v5-last`. Every Wave 1 merge is before
+the pin, so each one needs his word, as does every deploy. `tools/deploy-checkout.sh` deploys whatever `origin/master`
+is, so "one batch, one suspect" means: merge F1 → deploy F1 alone → doctor, fired, `counterparts verify` prints the
+WAL line, the dashboard opens → only then merge F2 / F3 / S1.
+
+**Expected file collisions, all additive:** `src/adapters/cli/commands.ts` (F1 one line, F3 three call sites, S1 one
+registration); `src/adapters/fired.ts` and `doctor.ts` (F2 owns; S1 adds one entry each and rebases after F2);
+`src/core/counterpart.ts` and `dashboard/web/views.ts` (F3 and S1). Trial-merge and run the combined suite before any
+second merge.
+
+**Before F1 deploys, the count-query recipe changes (F1 review, BLOCKER-1, proved):** `sqlite3 -readonly
+"file:…?immutable=1"` makes SQLite ignore the `-wal`, so on a WAL store it is silently short by everything since the
+last checkpoint (the reviewer's probe: three rows in the `-wal`, `immutable=1` said "no such table"). Use plain
+`sqlite3 -readonly <path>`. The plan's §6 and the older "Process" line below are corrected; the dated diagnoses
+(`promotion-diagnosis`, `recall-surfacing-diagnosis`, `finding-12-diagnosis`, `mechanism-inventory`, storage spec §4)
+record what was run at the time, under DELETE mode, where it was right — do not copy the recipe out of them.
+
+**DONE on the owner's word ("yes to 1, go ahead and merge. i'll do 2 later"): #137 (F1), #134 (N2) and this docs PR #140
+are MERGED; master = `33be244` plus this PR's merge. F1 is NOT deployed: the live checkout stays detached at `039cd5d`
+until the owner runs "Deploy day for F1" below himself. Until then `counterparts doctor` reads the Checkout line as
+behind `origin/master` — that is expected, and nobody fixes it by running `tools/deploy-checkout.sh` without his word.
+F2's last pass also landed (head `5a5f990`, 2291 / 0 by the builder); the coordinator reads that diff and runs the suite
+itself rather than sending it round a third time.**
+
+**Night: where every PR stands, the batches proposed to the owner, and DEPLOY DAY FOR F1 on paper (the coordinating
+session is closed while it runs). NOTHING is merged; every merge and every deploy below waits for the owner's word.**
+
+| PR | what | head | state |
+|---|---|---|---|
+| #134 | N2 docs + `docs/new-user-findings.md` | `84dbcad` | ready |
+| #137 | F1 WAL | `44bab3e` | reviewed (merge after one fix; fix made); coordinator ran 2236 / 0, tsc clean; the reviewer's short confirmation pass is running (`adversarial-review-f1b-…`) |
+| #135 | F3 refactor | `607e516` | reviewed twice: SAFE TO MERGE AS IS |
+| #139 | FIX removed schema rows | `11225d9` | reviewed: safe to merge and to deploy; small pass done (docs made true, `entities()` flat in the deny-list, `loadSkips()`) |
+| #136 | F2 snapshots | `5633cec` + a last pass running | reviewed twice; four MAJORs closed; one new (rejected look-alike directories are invisible; count and name them) |
+| #138 | S1 self page | `7682a30` + fix pass running | reviewed: 2 BLOCKER / 4 MAJOR, all being fixed; the no-page wake PROVED byte-identical to master over 100 compositions |
+| (new) | H1 — a hook that stands down on a failed open says so in the terminal; doctor RED when the store will not open | building, branch `fix/h1-hook-standdown-visible` | launched because three reviews hit the same silent exit-0 |
+
+All reviews are in `docs/adversarial-review-*-2026-09-18.md` on this branch.
+
+**Trial merge by the coordinator (worktree `.claude/worktrees/coord-trial`): master + #137 + #135 + #139 = 2246 pass / 0
+fail, tsc clean.** Two mechanical conflicts between F1 and F3: the import line of `test/dashboard.test.ts` (take both
+names: `hashText, isDatabaseSidecar, serializeProse`) and two sections appended at the same place in
+`src/core/store/NOTES.md` (keep both). After F1 merges, F3's builder merges master into its branch (no force-push).
+
+**Batches proposed to the owner (each its own word; one suspect per deploy):** A = F1 alone (with #134, docs only).
+B = #135 + #139 + H1 ("memory cannot silently switch off"). C = F2. D = S1. The coordinator first recommended #139 ride
+with F1 and withdrew it: #139 is stacked on F3, which would give the WAL deploy three suspects.
+
+### Deploy day for F1 (batch A) — the owner runs this from a plain terminal; from `docs/adversarial-review-f1-2026-09-18.md`
+
+Why the care: master's build execs `PRAGMA journal_mode = DELETE` at EVERY open. After the flip, an old-build process that
+opens a FRESH connection fails at once with "database is locked" if anything else has the store open, and converts the
+store back to DELETE if nothing does. Running MCP servers and the dashboard hold one handle for life and are safe, but the
+clean way is to have nothing old alive. No committed data is lost in any ordering the reviewer ran.
+
+0. Before the day: the merge of #137 (and #134) on the owner's word. A merge deploys nothing.
+1. `counterparts backup --out <a directory outside ~/.counterparts>` while the store is still in DELETE mode. This is the
+   revert lever, and it also runs the prose census: confirm it reports nothing missing.
+2. Close EVERY Claude Code session (this one and the plan-writing one included) and the dashboard.
+   `pgrep -fl counterparts` prints nothing.
+3. `~/counterparts/tools/deploy-checkout.sh`
+4. Open ONE Claude Code session. A writer has to open the store for the flip; `verify`, `status` and `doctor` are
+   observers and will not convert it.
+5. `counterparts verify --config ~/.counterparts/claude-code.json` prints `Journal mode: wal (busy timeout 5000 ms)`.
+   If it says `delete`, send one prompt in that session (or open another) and look again.
+6. `ls -la ~/.counterparts/store/` shows `operational.sqlite-wal` and `-shm`.
+7. `counterparts doctor --config ~/.counterparts/claude-code.json` — nothing red; the new Journal line is green.
+   `counterparts fired --dir ~/.counterparts/store --observer`.
+8. One more `counterparts backup --out <dir>` (proves `VACUUM INTO` under WAL; the copy is a plain DELETE-mode file).
+9. Reopen the rest. `claude --resume` brings the coordinating session back.
+
+From then on: never run a `counterparts` command from a stale worktree against the live store; never copy
+`operational.sqlite` alone (the `-wal` holds everything since the last checkpoint); never delete the `-wal`; read-only
+queries are plain `sqlite3 -readonly <path>`, not `?immutable=1`. **Rollback:** `git -C ~/counterparts checkout --detach
+039cd5d` with everything closed; the old build converts the file back at its first open.
+
+**Owner's choices collected so far (none blocks batch A):** keyless doctor amber instead of red; a day-1 line for `fired`;
+whether removing a person also removes what was believed about them (the reviewer proved `counterparts dashboard identity`
+still prints a removed person's promoted belief; the coordinator now recommends they go too, or are hidden everywhere);
+S1: 6 KB of page on a 9,000-byte wake, the page riding the fallback's wake to the API (built as a switch, default on), 14
+days before "stale"; F2: a future-dated copy is kept and reported, 14 copies of today's store is about 940 MB. Defaults the
+coordinator took, revisable: a bad value in the optional `snapshots` block falls back and goes amber instead of standing
+the adapter down; the page is excluded from recall.
+
+**Earlier the same evening: all five builders reported.**
+
+| PR | branch · head | builder's suite | adversarial review | state |
+|---|---|---|---|---|
+| #134 N2 | `newuser/n2-quickstart-dry-run` · `84dbcad` | 2223 / 0, install loop 52/52 | not needed (docs only; coordinator read it) | ready; asked the owner |
+| #135 F3 | `floor/f3-consumers-off-files` · `cbb72c4` | 2226 / 0 (reviewer re-ran: same) | **safe to merge**, 0 BLOCKER / 2 MAJOR — `docs/adversarial-review-f3-2026-09-18.md` | builder resumed for the fixes |
+| #136 F2 | `floor/f2-snapshots` · `45b37ba` | 2268 / 0 | running (first target: rotation; asked to SIGKILL a copy mid-flight and to prove a snapshot RESTORES) | waiting on review |
+| #137 F1 | `floor/f1-wal` · `aa2f50c` | 2231 / 0 | running (first targets: the read-only/observer open under WAL; old and new builds on one store at once) | waiting on review |
+| #138 S1 | `self/s1-page` · `7682a30` | 2269 / 0 | running (first targets: sleep eating the page; the no-page wake byte-identical to master; the MCP door as a persistence channel) | waiting on review |
+
+Reviews are written to the coordinating session's scratchpad as `adversarial-review-<track>-2026-09-18.md` and copied into
+`docs/` on this branch as they land.
+
+**F3's two MAJORs.** (1) The builder went past its brief and said so first: a new public `Store.readProseQuiet` that skips
+the archived-read event AND the owner-removal refusal. The reviewer proved no caller gains reach it did not have on master,
+and that the method is nonetheless a removal bypass on a class every adapter holds. Fix in progress: behind a linted seam
+(the `chaseRemoved` precedent), an id guard, and the dashboard withholding the content hash when it withholds a
+confidential body. (2) **Pre-existing on master, proved end to end through the real `ownerRemoval`: fully removing a
+belief or an entity leaves a schema row with a blank `prose_path`; the next `Schemas` open throws `PROSE_FILE_MISSING` out
+of `Counterpart.open`; `bin/hook.ts` (about line 602) catches it, writes one stderr line and exits 0. So one such removal
+means no wake, no recall and no capture in every later session, and nothing says so.** Not live today (sessions wake). The
+owner has been told not to remove a belief or entity until the fix is live. The fix is its own small PR stacked on #135,
+branch `fix/schemas-skip-removed-rows` (`Schemas.load`/`element` skip denied and chased rows); it has to land before the
+pin because the live store stays on the v5 floor until cut-over. Still to route: the hook swallowing a failed open with
+exit 0 (a durable row, or the red session-start notice).
+
+**F1, from the builder's report and the coordinator's read of `db.ts`.** `busy_timeout` first; the mode is read and set to
+WAL only by an opener that asks (`openDb(path, { wal: true })`; `openOperational` asks unless `initialize: false`;
+`openCache` always). Measured: SQLite does not run the busy handler for a journal-mode change, so a contended flip fails in
+about a millisecond, is swallowed (BUSY/LOCKED only) and is retried at the next open. **The deploy-day hazard:** master's
+build execs `PRAGMA journal_mode = DELETE` at EVERY open, so an old-build process that opens a fresh connection after the
+flip either flips the store back or throws at once. Hooks and the worker are fresh processes (new code after a deploy);
+each open Claude Code session's MCP server is old code holding one handle for life (proved fine while idle). The reviewer
+is running both builds as real subprocesses on one temp store and will give the ordered procedure. Rollback is
+re-detaching at the old commit: the old build's own open converts the file back.
+
+**F2.** Default directory resolves only when the dataDir's last segment is `store` (the owner's is, per doctor). Copy to
+`.partial-…` then rename; 18,800 files / 78 MB copied in 2.3 s against a 300 s watchdog. **Owner's choice to bring:** a bad
+value in the optional `snapshots` block (`keep: 0`) sends the whole adapter to observer by `config.ts`'s existing rule;
+the coordinator's recommendation is that bad snapshot values fall back to defaults with a doctor amber.
+
+**S1.** The page is one row, `type: "schema"`, `kind: "self"`, `meta.role = "page"`, born protected. Seam:
+`Counterpart.revisePage(body, { reason, by })`, `selfPage()`, `selfPageVersions()`. MCP tool `self_page` (no session
+binding, like `note`); CLI `counterparts self-page`. With no page and the default switch the wake is meant to be
+byte-identical to today's; a brand-new store shows the existing day-0 line, not the words "still forming" (the builder
+measured the verbatim line pushing a 400-byte host budget over and backed it out; one tunable away). **Owner's choices
+to bring:** 6,144 bytes of page on a 9,000-byte wake leaves the other lanes about half their room; whether the page is
+recallable (it is indexed today); whether the page rides in the fallback's wake; 14 days before "stale".
+
+**N2's findings to bring, two or three at a time:** keyless doctor is RED on day 1 while the README says no keys are
+required (recommend amber on a store that never had a key); `fired` opens with 28 "never" lines on a new store (recommend
+one day-1 line, after F2 merges); `status` buries its numbers under internal prose; doctor never checks that the hooks
+block and the MCP registration took. Also: `tools/install-loop/run.sh` fails about one run in five (`npm pack`'s stderr is
+merged into the pipe the tarball name is read from) — fold into N1.
+
+**Process notes.** The agents share the coordinating session's scratchpad; one builder overwrote another's PR-body file
+and it was briefly published on the wrong PR (repaired; all four bodies checked). Reviewers now write under unique names.
+The classifier refused the coordinator's count-only `immutable=1` query against the live store; it was not retried.
+`COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is NOT set in agent shells by default — every brief tells the agent to export it.
+
+**Expected merge conflicts, all mechanical:** F2 and S1 both add event names to the same exhaustive maps
+(`dashboard/registries.ts`, `web/flow.ts`, `web/narrate.ts`, `core/counterpart.ts`) and entries to `fired.ts`/`doctor.ts`;
+F1, F3 and S1 all touch `cli/commands.ts` in different places; `test/mcp.test.ts`'s tool count becomes seven with S1.
+
+**Next, in order:** adversarial review per PR as each builder reports (F1's reviewer attacks the read-only open under
+WAL first; F2's attacks rotation; S1's attacks sleep eating the page) → decisions to the owner two or three at a time
+→ F4 from F3's merge → F5 builds once F3 and F4 are in, and merges only after the owner has what he wants live →
+teach `tools/deploy-checkout.sh` a `--ref <tag>` in its own small PR before the pin.
+
+**Housekeeping:** the stale `agent-a11dfb43cfd08a945` registration is pruned (its directory was already gone). The
+untracked `review/` in the live checkout is still left for the owner. This section is being written in worktree
+`.claude/worktrees/coord-wave1` (branch `docs/2026-09-18-wave1`).
+
+## 2026-09-18, midday — read second: the rest of the rebuild runs in parallel from one plan
 
 **The brief for what comes next is `docs/plan-parallel-rebuild-2026-09-18.md`** — the owner's rulings of the day
 (§2), the tracks (§3), the order and the pin (§4), how the work is run (§5), and the prompt a fresh coordinating
@@ -76,7 +261,8 @@ watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129*
 - Still open from earlier: the interim identity hook (his decision on 09-18); the seven physics contract rulings.
 
 **Process, unchanged:** work in a worktree, never the live checkout; absolute paths / `git -C` / subshells; agents on
-Opus; read-only store queries via `sqlite3 -readonly "file:...?immutable=1"`, counts only; keep decisions light
+Opus; read-only store queries via `sqlite3 -readonly <path>`, counts only (NOT `?immutable=1` once the store is in
+WAL mode; corrected 2026-09-18, see the top section); keep decisions light
 ("for now", not "never"); a core batch = adversarial review before deploy; the parallel run's clock is stopped.
 
 ## 2026-09-17, evening — read third: the walk happened, step 2 is LIVE, the rebuild order is set

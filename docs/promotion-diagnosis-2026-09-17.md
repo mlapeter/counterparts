@@ -4,6 +4,9 @@ Read-only. Code read at `/Users/mlapeter/counterparts/.claude/worktrees/step1-tr
 `sqlite3 -readonly "file:~/.counterparts/store/operational.sqlite?immutable=1"`. Computation:
 `scratchpad/promotion/eval.ts` (imports the pure physics functions; opens no store). Lived day today = 191.
 
+> **2026-09-18 — do not reuse this recipe once the store is in WAL mode (F1, PR #137).** `?immutable=1` makes SQLite ignore the `-wal`, so every query reads the database as of the last checkpoint — silently short, no error (proved in `docs/adversarial-review-f1-2026-09-18.md`). Use plain `sqlite3 -readonly <path>`. What is written here is what was run at the time, under DELETE mode, where it was right.
+
+
 ## 1. The answer, plainly
 
 Three doors have to open on the same night, and one of them has never opened for two thirds of the store.
