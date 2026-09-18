@@ -50,7 +50,7 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
-import { WRITE_METHODS } from "../src/core/store/index.js";
+import { WRITE_METHODS, hashText, serializeProse } from "../src/core/store/index.js";
 import {
   ABSENCE,
   BANDS,
@@ -903,10 +903,18 @@ describe("browse — the memory list, and one memory opened", () => {
     expect(line).toBeDefined();
     const said = (line ?? "").trim().replace(/^record\s+/, "");
     expect(said).toBe(`${s.authoredId} · rev ${row?.revision} · ${row?.content_hash}`);
-    // Constitution line 6: the owner reads the store itself. The hash printed
-    // here addresses the same text the view shows below it.
-    expect(d.store.readProse(s.authoredId).body).toContain("storage split");
     expect(row?.content_hash).not.toBe("");
+
+    // Constitution line 6: the owner reads the store itself, so the hash printed
+    // here has to ADDRESS the text shown below it — not merely equal a column.
+    // The old version of this test opened the printed path and compared the file;
+    // this is the same assertion without a filesystem in it, which is where the
+    // shared store fixture is headed. `content_hash` is `hashText` over the
+    // serialized document, so recomputing it from the document proves the pair.
+    const doc = d.store.readProse(s.authoredId);
+    expect(doc.body).toContain("storage split");
+    expect(hashText(serializeProse(doc))).toBe(row?.content_hash as string);
+    expect(stripAnsi(text)).toContain("storage split");
   });
 
   test("an opened memory resolves everything it points at, right now", async () => {

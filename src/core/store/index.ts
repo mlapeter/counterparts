@@ -1738,39 +1738,6 @@ export class Store {
     return this.read(id).doc;
   }
 
-  /**
-   * The prose of a row an index is WALKING, not of a memory anyone asked for.
-   *
-   * Two exemptions from `read`, both of them what the callers already had by
-   * reading the file themselves — which was the last reason anything outside
-   * this module knew where the file was. Stated here so they are one door
-   * instead of three hand-rolled ones:
-   *
-   *   1. **No archived-read telemetry.** `store.archived.read` answers "did
-   *      anyone look at archived CONTENT", and an index build, a repair plan or
-   *      a listing is a look at the address.
-   *   2. **No deny-list refusal.** A `dark`-stage removal marks the id and
-   *      leaves the row and the file until the chase, and `schemas/index.ts#load`
-   *      runs over every schema row at every open — refusing here would take the
-   *      next session down instead of hiding one memory. The deny-list does its
-   *      work where the owner is answered: `read`, `resolve`, `readVersion` and
-   *      the render seams above them, which is where the dashboard's "its words
-   *      are gone at once" is enforced.
-   *
-   * So: this is a walk, and nothing here may answer a question the owner asked.
-   *
-   * `row` is the caller's own `row(id)` when it already has one — every one of
-   * these walks reads the row's columns too, and looking it up twice per id is
-   * 54% of the walk over 16,000 rows today and most of it once the body is in
-   * the row. A row for a DIFFERENT id is caught: the payload's own id is
-   * checked against `id` below (`PROSE_PAYLOAD_MISMATCH`).
-   */
-  readProseQuiet(id: string, row?: MemoryRow): ProseDoc {
-    const r = row ?? this.row(id);
-    if (r === undefined) throw new StoreError("ID_UNKNOWN", { id });
-    return readProseFile(this.absolutePath(r.prose_path), id);
-  }
-
   physicsOf(id: string): MemoryPhysics {
     return rowToPhysics(this.requireRow(id));
   }

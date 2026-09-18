@@ -777,6 +777,8 @@ export interface MemoryDetail {
    * named a filesystem layout, and a store is not its layout: what identifies a
    * memory is its id, and what identifies THIS reading of it is the revision and
    * the hash. The id the copy button hands over is `id`.
+   *
+   * `contentHash` is blank when the body is withheld — see below.
    */
   readonly revision: number;
   readonly contentHash: string;
@@ -886,7 +888,11 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     text: g.confidential ? WITHHELD : doc.body.trim(),
     confidential: g.confidential,
     revision: row?.revision ?? 0,
-    contentHash: row?.content_hash ?? "",
+    // A hash of a withheld body is a derivative of withheld text, on the one
+    // surface whose job is withholding it. It is a confirmation oracle for an
+    // exactly-guessed secret rather than a way to recover one, but this is the
+    // wrong place to be interesting. The modal renders `""` as `—`.
+    contentHash: g.confidential ? "" : (row?.content_hash ?? ""),
     kind: physics.kind,
     band: band(physics, day),
     recordedBand: `${row?.band ?? "—"} (set day ${row?.band_day ?? "—"})`,

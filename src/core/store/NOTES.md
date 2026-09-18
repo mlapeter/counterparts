@@ -839,7 +839,7 @@ was reconciled that day.
 whose column disagrees with box 3 (`cli/commands.ts#bandOfRecordCensus`), and it
 is 0 after a decay pass that its budget did not cut short.
 
-## `readProseQuiet` and `StoredMemory.confidential` (2026-09-18)
+## The walking read and `StoredMemory.confidential` (2026-09-18)
 
 Consumers outside this module read prose by PATH —
 `readProseFile(store.absolutePath(row.prose_path), id)` in `schemas/index.ts`,
@@ -847,7 +847,7 @@ Consumers outside this module read prose by PATH —
 knows there is a filesystem under it, and the bodies-in-rows work cannot start
 while it is true. Two additions took them off it, and both are about a gate.
 
-**The quiet read is an exemption, not a convenience.** `Store.read` fires
+**The walking read is an exemption, not a convenience.** `Store.read` fires
 `store.archived.read` (contract §5 G13) and refuses a denied id. The walking
 callers wanted neither, which is why they went round the store in the first
 place. Both exemptions had to be kept exactly:
@@ -866,10 +866,26 @@ place. Both exemptions had to be kept exactly:
   seams. It is a hole either way, but it is now one hole with a name on it
   instead of three hand-rolled ones.
 
+**And it is not on `Store`.** The first draft put it on `Store.prototype` beside
+`read`. The adversarial review's objection was structural, not behavioural: no
+live path was worse off, but `Counterpart.store` is public, so the method handed
+every adapter and every future contributor a removal bypass they did not ask for,
+and §4's "owner-initiated removal is unreachable from any model path" stopped
+being true of the store's own surface. So it moved to `walk-seam.ts` — the
+`chaseRemoved` pattern, a deliberate import from a pinned list of two files —
+and the name carries the dangerous half rather than only the quiet one
+(`readProseQuiet` → `readProseWalking`). The same review found the mitigating
+fact that `Schemas.element` still refused a denied id only by *evaluation order*
+(`physicsOf` happens to run after `statement` in the object literal), which is
+luck; the follow-up that makes `schemas/` skip removed rows turns it into a
+check.
+
 It takes the caller's own `row` when the caller has one: every walk reads the
 row's columns too, and a second lookup per id measured 54% of a 16,000-row walk
 (650 ms → 990 ms on this machine). That is 3% with the row passed, and it matters
-more once the body IS the row and the file read stops dominating.
+more once the body IS the row and the file read stops dominating. A row for the
+wrong id is refused by name in the seam itself rather than relying on
+`readProseFile`'s `expectId` check, which the bodies-in-rows work deletes.
 
 **`StoredMemory.confidential` is the opposite move.** The confidentiality class
 was a predicate over `doc.meta` that every caller re-derived

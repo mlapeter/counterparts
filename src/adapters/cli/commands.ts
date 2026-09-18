@@ -78,6 +78,10 @@ import type { EventLogCensus, PathCensus, VectorFormatCensus } from "../../core/
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
 import { MERGED_ARCHIVE_REASON, unarchiveMerged } from "../../core/store/owner-op-seam.js";
+// The WALKING read, imported for the same reason and pinned by the same test:
+// it skips the archived-read telemetry AND the deny-list, so it is not a `Store`
+// method (`store/walk-seam.ts`). The repair plan is a look at the address.
+import { readProseWalking } from "../../core/store/walk-seam.js";
 import type { Band, Kind } from "../../core/types.js";
 // The MCP adapter's deliberate-recall dispatcher, imported rather than
 // re-implemented: a console with its own question path would be a second set of
@@ -3352,12 +3356,12 @@ function mergedBeliefs(store: Store): MergedBelief[] {
   for (const id of [...ids].sort()) {
     const row = store.row(id);
     if (row === undefined) continue;
-    // Prose read QUIETLY, the way `schemas/index.ts#load` reads it: the
-    // store's archived-read telemetry answers "did anyone look at archived
-    // CONTENT", and a repair plan is a look at the address, not at the memory.
+    // A WALKING read, the way `schemas/index.ts#load` reads it: the store's
+    // archived-read telemetry answers "did anyone look at archived CONTENT",
+    // and a repair plan is a look at the address, not at the memory.
     let doc: { body: string; meta: Record<string, unknown> } | null = null;
     try {
-      doc = store.readProseQuiet(id, row);
+      doc = readProseWalking(store, id, row);
     } catch {
       doc = null;
     }
@@ -3396,19 +3400,19 @@ function mergeRecordOf(store: Store, id: string): { originalId: string | null; d
 
 function entityNameOf(store: Store, entityId: string): string | null {
   try {
-    const name = store.readProseQuiet(entityId).meta["name"];
+    const name = readProseWalking(store, entityId).meta["name"];
     return typeof name === "string" && name.length > 0 ? name : null;
   } catch {
     // An id with no row, and prose that will not read, are the same answer here
-    // — the name is unavailable. `readProseQuiet` refuses the first by name, so
-    // the row lookup this used to do first has nothing left to add.
+    // — the name is unavailable. `readProseWalking` refuses the first by name,
+    // so the row lookup this used to do first has nothing left to add.
     return null;
   }
 }
 
 function previewOf(store: Store, id: string, max: number): string | null {
   try {
-    return oneLine(store.readProseQuiet(id).body, max);
+    return oneLine(readProseWalking(store, id).body, max);
   } catch {
     return null;
   }

@@ -777,7 +777,17 @@ describe("what the page withholds", () => {
       // sentence is not hiding the memory.
       expect(typeof row?.strength).toBe("number");
       expect(["episodic", "semantic", "identity"]).toContain(String(row?.band));
-      expect(get(d.src, `/api/memory?id=${id}`).json["text"]).toBe(WITHHELD);
+      const detail = get(d.src, `/api/memory?id=${id}`).json;
+      expect(detail["text"]).toBe(WITHHELD);
+      // NOR A DERIVATIVE OF THE WORDS. The modal's subtitle carries the content
+      // hash, which is `hashText` over the serialized document — a confirmation
+      // oracle for an exactly-guessed secret rather than a way to recover one,
+      // but this is the surface whose whole job is withholding. It is blank
+      // here, and the page renders a blank as `—`.
+      expect(detail["contentHash"]).toBe("");
+      expect(String(detail["contentHash"])).not.toBe(d.src.store.row(id)?.content_hash);
+      // The revision stays: it says how often this was rewritten, not what it says.
+      expect(Number(detail["revision"])).toBe(d.src.store.row(id)?.revision as number);
       // And nothing leaks through the search surface either.
       const hits = get(d.src, "/api/search?q=whiteboard").json["hits"] as { id: string; text: string }[];
       for (const hit of hits) if (hit.id === id) expect(hit.text).toBe(WITHHELD);
@@ -961,9 +971,12 @@ describe("the shapes the page draws with", () => {
       expect(String(detail["contentHash"])).toBe(row?.content_hash as string);
       // The subtitle of the best surface in the product used to be 150
       // characters of somebody's tmpdir, in every screenshot of it. Nothing on
-      // this payload is a path any more.
-      for (const value of Object.values(detail)) {
-        if (typeof value === "string") expect(value.startsWith("/")).toBe(false);
+      // this payload is a path any more. Scanned by KEY, not over every string:
+      // `text` is the memory's own body and a body may legitimately begin with
+      // a slash.
+      for (const [key, value] of Object.entries(detail)) {
+        if (!/path|dir|file/i.test(key)) continue;
+        expect(`${key}=${String(value)}`).toBe(`${key}=`);
       }
       expect(Object.keys(detail)).not.toContain("prosePath");
       expect(Object.keys(detail)).not.toContain("prosePathShort");
