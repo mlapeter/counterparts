@@ -38,8 +38,12 @@ registration); `src/adapters/fired.ts` and `doctor.ts` (F2 owns; S1 adds one ent
 `src/core/counterpart.ts` and `dashboard/web/views.ts` (F3 and S1). Trial-merge and run the combined suite before any
 second merge.
 
-**After F1 is live, a caution for whoever runs count queries:** `sqlite3 -readonly "file:…?immutable=1"` does not read
-the `-wal`, so counts can look stale. That is not a regression.
+**Before F1 deploys, the count-query recipe changes (F1 review, BLOCKER-1, proved):** `sqlite3 -readonly
+"file:…?immutable=1"` makes SQLite ignore the `-wal`, so on a WAL store it is silently short by everything since the
+last checkpoint (the reviewer's probe: three rows in the `-wal`, `immutable=1` said "no such table"). Use plain
+`sqlite3 -readonly <path>`. The plan's §6 and the older "Process" line below are corrected; the dated diagnoses
+(`promotion-diagnosis`, `recall-surfacing-diagnosis`, `finding-12-diagnosis`, `mechanism-inventory`, storage spec §4)
+record what was run at the time, under DELETE mode, where it was right — do not copy the recipe out of them.
 
 **Evening: all five builders have reported; NOTHING is merged; every merge below waits for the owner's word.**
 
@@ -190,7 +194,8 @@ watchdog; the wake check's host-compatibility, regex and FIFO fixes). **PR #129*
 - Still open from earlier: the interim identity hook (his decision on 09-18); the seven physics contract rulings.
 
 **Process, unchanged:** work in a worktree, never the live checkout; absolute paths / `git -C` / subshells; agents on
-Opus; read-only store queries via `sqlite3 -readonly "file:...?immutable=1"`, counts only; keep decisions light
+Opus; read-only store queries via `sqlite3 -readonly <path>`, counts only (NOT `?immutable=1` once the store is in
+WAL mode; corrected 2026-09-18, see the top section); keep decisions light
 ("for now", not "never"); a core batch = adversarial review before deploy; the parallel run's clock is stopped.
 
 ## 2026-09-17, evening — read third: the walk happened, step 2 is LIVE, the rebuild order is set
