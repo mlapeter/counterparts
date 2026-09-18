@@ -306,6 +306,19 @@ describe("tools/deploy-checkout.sh --ref", () => {
     expect(r.err).toContain("is ambiguous");
     expect(r.err).toContain(`tag rel -> ${one}`);
     expect(r.err).toContain("remote branch origin/rel ->");
+
+    // The refusal names the fully-qualified forms, so they have to work.
+    expect(deploy("--ref", "refs/tags/rel").code).toBe(0);
+    expect(head()).toBe(one);
+    expect(deploy("--ref", "refs/remotes/origin/rel").code).toBe(0);
+    expect(head()).not.toBe(one);
+
+    // ...but refs/heads/<name> is a LOCAL branch, which is never what deploys —
+    // and the refusal says so without telling him to push a pushed commit.
+    const local = deploy("--ref", "refs/heads/master");
+    expect(local.code).toBe(1);
+    expect(local.err).toContain("is a name only this clone has");
+    expect(local.err).not.toContain("Push it first");
   });
 
   test("the same name in two namespaces at the SAME commit is not ambiguous", () => {

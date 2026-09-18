@@ -46,9 +46,12 @@
 # REMOTE, so a bare name is looked up as `origin/<name>` and never as a local
 # branch of the same name, and the target must be a commit some remote-tracking
 # ref contains. Accepted: a tag, a full or abbreviated sha, `origin/<branch>`,
-# or a bare branch name that exists on origin. Refused, exit 1: a ref that does
+# or a bare branch name that exists on origin — and, when a tag and a branch
+# answer to the same name, the fully-qualified `refs/tags/<name>` or
+# `refs/remotes/origin/<name>` says which. Refused, exit 1: a ref that does
 # not resolve; one that resolves only in this clone (an unpushed commit, a local
-# branch — the I36 class); one that names two different commits.
+# branch, `refs/heads/<name>` — the I36 class); one that names two different
+# commits.
 #
 # Refusals, each with its own sentence and exit 1:
 #   - not a git repository, or a LINKED worktree (the shared checkout is the main
@@ -170,6 +173,10 @@ else
   add_cand "refs/tags/$ref" "tag $ref"
   case "$ref" in */*) add_cand "refs/remotes/$ref" "remote branch $ref" ;; esac
   add_cand "refs/remotes/origin/$ref" "remote branch origin/$ref"
+  # The fully-qualified forms, so a name that a tag and a branch both answer to
+  # can still be said unambiguously. `refs/tags/*` and `refs/remotes/*` only:
+  # `refs/heads/*` is a local branch, which is never what deploys.
+  case "$ref" in refs/tags/*|refs/remotes/*) add_cand "$ref" "ref $ref" ;; esac
   case "$ref" in
     *[!0-9a-fA-F]*) ;;
     *) if [ "${#ref}" -ge 4 ] && [ "${#ref}" -le 40 ]; then add_cand "$ref" "commit $ref"; fi ;;
@@ -188,14 +195,19 @@ else
     case "$ref" in
       *[!0-9a-fA-F]*) ;;
       *) if [ "${#ref}" -ge 4 ]; then
-           dis="$(git -C "$repo" rev-parse --disambiguate="$ref" 2>/dev/null | awk 'NF {c++} END {print c+0}')"
+           dis="$(git -C "$repo" rev-parse --disambiguate="$ref" 2>/dev/null | awk 'NF {c++} END {print c+0}' || true)"
            if [ "$dis" -gt 1 ]; then
              refuse "--ref '$ref' is ambiguous: $dis objects start with it — give more of the sha"
            fi
          fi ;;
     esac
+    # It resolved through some local ref after all. Two different mistakes wear
+    # that shape, and they want different advice.
     local_sha="$(git -C "$repo" rev-parse -q --verify "${ref}^{commit}" 2>/dev/null || true)"
     if [ -n "$local_sha" ]; then
+      if remote_has "$local_sha"; then
+        refuse "--ref '$ref' is a name only this clone has, although its commit $local_sha IS on origin; name it as a tag, as 'origin/<branch>', or by sha — a deploy is of what origin has, never of a local branch"
+      fi
       refuse "--ref '$ref' names nothing on origin; it resolves only in this clone ($local_sha) — a local branch or an unpushed commit, which is the I36 class. Push it first."
     fi
     refuse "--ref '$ref' does not resolve to a commit; give a tag, a sha, 'origin/<branch>', or a branch name that exists on origin"
