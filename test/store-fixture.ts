@@ -44,9 +44,11 @@ export interface MadeStore {
 /**
  * A fresh temp data dir with a store open on it.
  *
- * `opts` is `Store.open`'s options minus `dir` — `observer: true`, `now`, and the
- * rest pass straight through — plus a `prefix` so a failure says which fixture
- * left the directory behind.
+ * `opts` is `Store.open`'s options minus `dir` — `now` and the rest pass straight
+ * through — plus a `prefix`, so a directory left behind says which fixture left
+ * it. `observer: true` passes through too but will refuse here (measured:
+ * `STORE_UNINITIALIZED`), because an instrument declines to CREATE a store; a
+ * test that wants an observer opens one on a dir a writer made first.
  */
 export function makeStore(
   opts: Omit<NonNullable<Parameters<typeof Store.open>[0]>, "dir"> & { prefix?: string } = {},
