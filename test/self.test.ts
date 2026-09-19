@@ -23,6 +23,7 @@ import type { PutInput } from "../src/core/store/index.js";
 // chased. Pinned to `adapters/cli/` inside `src/` by the caller-universality
 // test; a test file is where the destruction path gets exercised, not reached.
 import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { makeBodyUnreadable } from "./store-fixture.js";
 import { strength } from "../src/core/physics/index.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import {
@@ -1094,7 +1095,7 @@ describe("identity ordering and enumeration", () => {
   test("an UNREADABLE element is named as unreadable — a different fact from removed", () => {
     const s = store();
     const id = identity(s, "An element whose prose will not read.", { guarded: true });
-    rmSync(s.absolutePath(s.row(id)?.prose_path as string), { force: true });
+    makeBodyUnreadable(s, id);
 
     const list = new Self({ store: s }).enumerate(0);
     expect(list.identity.map((e) => e.absent)).toEqual(["unreadable"]);

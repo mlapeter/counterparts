@@ -23,6 +23,7 @@ import { DEFAULT_RETENTION_DAYS, Store } from "../src/core/store/index.js";
 import type { PutInput, StoreEvent } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS, band, promotionEligibility, strength } from "../src/core/physics/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
+import { bodyOf } from "./store-fixture.js";
 import { Schemas, TUNABLES as SCHEMA_TUNABLES } from "../src/core/schemas/index.js";
 import { applyRevision } from "../src/core/revision.js";
 import {
@@ -759,7 +760,7 @@ describe("the floor prune — archival, never deletion", () => {
   test("a pruned memory is ARCHIVED with reason 'pruned': the file stays, the id resolves", () => {
     const s = store();
     const id = prunable(s);
-    const prosePath = s.absolutePath(s.row(id)?.prose_path as string);
+    const bodyBefore = bodyOf(s, id);
 
     const report = runCycle({ store: s, date: "2026-01-02" });
 
@@ -768,7 +769,7 @@ describe("the floor prune — archival, never deletion", () => {
     expect(stored.archived).toBe(true);
     expect(stored.archivedReason).toBe(PRUNE_ARCHIVE_REASON);
     // Fading is not deletion: the prose is where it was and the id still resolves.
-    expect(existsSync(prosePath)).toBe(true);
+    expect(bodyOf(s, id)).toBe(bodyBefore);
     expect(s.resolve(id)).toBe(id);
     expect(stored.doc.body.length).toBeGreaterThan(0);
   });
