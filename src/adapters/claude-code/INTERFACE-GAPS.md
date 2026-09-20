@@ -619,10 +619,12 @@ and cannot be without a real machine and a real login:
    mode is that they do — it is what makes the child a session of the self rather than a
    stranger with a prompt. The docs say so; no probe here has watched it happen.
 3. **That `--allowedTools` with one MCP tool name and `--permission-mode default` really
-   leaves the child with one tool.** The spelling `mcp__counterparts__self_page` is the
-   host's convention, taken from the docs. A spelling the host does not recognise fails
-   CLOSED (the tool prompts, nobody answers, the run ends with the page untouched and a
-   `nothing-to-say` row), which is the right direction but would be indistinguishable from a
+   leaves the child with one tool.** The SPELLING is confirmed — this host lists its
+   counterparts tools as `mcp__counterparts__chapter`, `mcp__counterparts__session_end` and
+   so on, so `mcp__counterparts__self_page` follows the convention. What is unproved is the
+   flag pair's effect on a windowless run. A spelling or a flag the host does not honour
+   fails CLOSED (the tool prompts, nobody answers, the run ends with the page untouched and
+   a `nothing-to-say` row), which is the right direction but is indistinguishable from a
    night that genuinely had nothing to say.
 
 Filed here rather than guessed at: the exact steps the owner has to run by hand are in the
