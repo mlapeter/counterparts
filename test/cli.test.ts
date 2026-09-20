@@ -22,7 +22,7 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -34,6 +34,7 @@ import {
   PREFACE_RESERVE_BYTES,
   Self,
   byteLength,
+  journalFileEpisodeId,
   journalFiles,
   readSentinel,
 } from "../src/core/self/index.js";
@@ -586,6 +587,82 @@ describe("backup", () => {
     expect(report.errors.length).toBe(1);
   });
 
+  test("MAJOR-4 — a destination reached THROUGH A SYMLINK into the store is refused too", () => {
+    // `resolve()` normalises `..` but never reads the filesystem, so a target
+    // that passes through a link into the store was judged "outside" and
+    // written anyway. The review put a whole export tree inside `<store>/journal/`
+    // that way. The guard is shared with `backup`, so both are asserted here.
+    const s = store();
+    mkdirSync(join(dir, "journal"), { recursive: true });
+    const link = join(outside, "lnk");
+    symlinkSync(join(dir, "journal"), link);
+    expect(() => assertSafeTarget(dir, join(link, "sub"))).toThrow(/inside the store/);
+    const report = snapshot(s, join(link, "snap"));
+    expect(report.ok).toBe(false);
+    expect(String(report.errors[0])).toContain("inside the store");
+    expect(readdirSync(join(dir, "journal"))).toEqual([]);
+  });
+
+  test("MAJOR-4 — a DANGLING symlink target is refused by name, not by an mkdir errno", () => {
+    // A guard that holds because `mkdirSync` throws EEXIST on a dangling link
+    // is not a guard, and the console printed the raw errno at the owner.
+    const dangling = join(outside, "nowhere-link");
+    symlinkSync(join(outside, "does-not-exist"), dangling);
+    expect(() => assertSafeTarget(dir, dangling)).toThrow(/dangling symlink/);
+  });
+
+  test("MAJOR-4 — a target symlinked into ~/.bansai or ~/.claude-engram refuses under a FAKE HOME", () => {
+    // The case the reviewer named as most needing a run and did not run: the
+    // forbidden-root guard reads `homedir()` and resolves both sides, but a
+    // symlink whose DESTINATION is inside a live v1 store is the shape that
+    // slipped past `resolve()`. Both sides are realpath'd now, the roots
+    // included — which on macOS matters twice over, because `$TMPDIR` is itself
+    // a symlink (`/var` → `/private/var`).
+    // IN A CHILD PROCESS, because `os.homedir()` under bun reads the passwd
+    // entry and ignores a `HOME` set in this process (measured) — an in-process
+    // fake home would have made this test pass while proving nothing.
+    const fakeHome = mkdtempSync(join(tmpdir(), "counterparts-cli-home-"));
+    const script = join(outside, "roots-probe.ts");
+    writeFileSync(
+      script,
+      [
+        `import { mkdirSync, symlinkSync } from "node:fs";`,
+        `import { join } from "node:path";`,
+        `import { assertSafeTarget } from ${JSON.stringify(resolve(import.meta.dir, "../src/adapters/cli/snapshot.ts"))};`,
+        `const home = ${JSON.stringify(fakeHome)};`,
+        `const store = ${JSON.stringify(dir)};`,
+        `const out: string[] = [];`,
+        `for (const root of [".bansai", ".claude-engram"]) {`,
+        `  mkdirSync(join(home, root, "store"), { recursive: true });`,
+        `  const link = join(home, "link-" + root);`,
+        `  symlinkSync(join(home, root), link);`,
+        `  for (const [label, path] of [["through-the-link", join(link, "store", "export")], ["plain", join(home, root, "x")]] as const) {`,
+        `    try { assertSafeTarget(store, path); out.push(root + " " + label + ": ALLOWED"); }`,
+        `    catch { out.push(root + " " + label + ": refused"); }`,
+        `  }`,
+        `}`,
+        `console.log(out.join("\\n"));`,
+      ].join("\n"),
+      "utf8",
+    );
+    const probe = Bun.spawnSync([process.execPath, "run", script], {
+      env: {
+        ...process.env,
+        HOME: fakeHome,
+        // A spawned bun with a fake HOME must not write a transpiler cache into it.
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      },
+    });
+    const said = probe.stdout.toString().trim().split("\n").sort();
+    expect(said).toEqual([
+      ".bansai plain: refused",
+      ".bansai through-the-link: refused",
+      ".claude-engram plain: refused",
+      ".claude-engram through-the-link: refused",
+    ]);
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
+
   test("`backup` survives a store another process is WRITING — the live repro (§5 G8)", async () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", title: "Held", body: "Committed before the lock." });
@@ -1093,6 +1170,23 @@ describe("export", () => {
       await run(["export", "--out", v1, "--markdown", "--plaintext"], { io: c2.io, env: { [ENV]: dir } }),
     ).toBe(EXIT.refused);
     expect(existsSync(v1)).toBe(false);
+
+    // MAJOR-4 end to end: the review put a whole export tree inside
+    // `<store>/journal/` by pointing a link at it. Through the console, now.
+    mkdirSync(join(dir, "journal"), { recursive: true });
+    const link = join(outside, "export-lnk");
+    symlinkSync(join(dir, "journal"), link);
+    const c3 = consoleWith();
+    expect(
+      await run(["export", "--out", join(link, "sub"), "--markdown", "--plaintext"], {
+        io: c3.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c3.err)).toContain("inside the store");
+    // `journal/` still holds exactly its own copies and no smuggled export.
+    expect(existsSync(join(dir, "journal", "sub"))).toBe(false);
+    expect(journalFiles(dir).every((f) => journalFileEpisodeId(f) !== null)).toBe(true);
   });
 
   test("a store this build cannot open is refused in the SAME sentence, and the target is never made", async () => {
