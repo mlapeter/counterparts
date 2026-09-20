@@ -794,6 +794,30 @@ export const MECHANISMS: readonly Mechanism[] = [
         "the `backup` command leaves no row at all, so one that ran and one that never has are the same silence. The AUTOMATIC daily copy has had its own rows since 2026-09-18 (the `snapshot` row above); the console command is the other half. One `store.backup` event would fix it.",
     },
   },
+  {
+    // F6, 2026-09-20. The plan called this row `journal-file`; the id here is
+    // what the owner's brief calls it — "the journal copy" — and both names are
+    // in the PR so neither gets lost. `covers` the failure row rather than
+    // splitting it the way `snapshot`/`snapshot-trouble` are: a copy that could
+    // not be written is a file missing beside a chapter that is safe, which is a
+    // doctor line (amber, and only while it stands), not a second mechanism.
+    id: "journal-copy",
+    label: "the journal was written out as markdown files you can open in any editor",
+    module: "core/self/journal-file.ts",
+    evidence: { kind: "event", names: ["journal.copy.written"] },
+    covers: ["journal.copy.failed"],
+    since: "2026-09-20",
+  },
+  {
+    // F7, 2026-09-20, and deliberately NOT the `backup` row above: that one is
+    // still blind and still says what would fix it. This is the other door —
+    // the one that answers "did anything leave this machine, and when".
+    id: "export",
+    label: "the owner took a readable copy of the memories off this machine, by hand",
+    module: "cli/export.ts",
+    evidence: { kind: "event", names: ["store.export"] },
+    since: "2026-09-20",
+  },
 ];
 
 // ── the report ──────────────────────────────────────────────────────────────

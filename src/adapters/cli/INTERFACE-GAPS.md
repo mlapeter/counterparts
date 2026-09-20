@@ -327,3 +327,23 @@ mechanisms it therefore did not read.
 `MemoryFilter.protected`; (c) `edgeCensus()` / `prospectiveCensus()` /
 `versionCensus()` returning a count and a newest day per key. All of it is box
 2's own business and none of it changes behaviour.
+
+## 12. `export --markdown` holds the whole tree in memory — OPEN 2026-09-20 (F7)
+
+`collectMarkdown` builds a `Map<path, Buffer>` of every live row's rendered
+markdown before one byte is written. That is what makes `--markdown
+--passphrase` safe — nothing plaintext ever reaches the disk on that path — and
+it is also a peak whose size is the store's bodies plus their frontmatter, and
+twice that briefly during `encryptBundle`'s base64 manifest. On the measured
+store shapes (a few thousand rows, ~10 MB of bodies) this is nothing. On a store
+an order of magnitude larger it is the first thing that would hurt.
+
+**The ask**, if it ever hurts: a streaming bundle — `store.forEachDoc(fn)` and a
+sink the plaintext arm writes straight through, with the encrypted arm keeping
+the buffered path because sealing needs the whole thing anyway. **Not built**:
+constitution line 15 says wait for the named problem, and `--markdown` is a
+deliberate owner action nobody runs in a loop.
+`[F8: the store CONTRACT's read seam is where `forEachDoc` would be declared.]`
+
+**What is already bounded:** the DATABASE export streams through `VACUUM INTO`
+and holds one file, so the ordinary export is unaffected by any of this.

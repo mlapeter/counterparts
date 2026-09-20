@@ -261,3 +261,23 @@ CHOSEN rather than iteration luck (§1 G3), and a deterministic id order has tha
 lost is only that "the end of the day" — often the part a person would most want written
 about — has no better chance than the middle of it. Worth revisiting the first time the
 page reads as if it were written about the wrong half of a day.
+## 11. `store/` has no "give me this row's directory" seam — OPEN 2026-09-20 (F6)
+
+`journal-file.ts` reaches `Store.dir` and joins paths under it. That is the owner's
+decision 2 and it is stated at the top of the module rather than hidden, but it
+does mean `self/` now holds a second piece of layout knowledge beside
+`remember/spans.ts`'s: which directory it owns, and that the store classifies it
+(`store/paths.ts#LAYOUT`). Nothing enforces the pairing from this side — a module
+that wrote to a directory the layout does not know would break the store's own
+`assertLayout()` at the next open, loudly, which is the safe direction but is a
+runtime answer to a compile-time question.
+
+**What would close it:** a store-owned seam that hands a module its own
+classified subdirectory (`store.ownedDir("journal")`), refusing at the seam what
+`assertLayout` today refuses at the next open. It is the same ask
+`INTERFACE-GAPS #4` makes for the briefing's render file, and the two should be
+answered together rather than twice.
+`[F8: the store CONTRACT's rewrite is where that seam would be declared.]`
+
+**What does not need it:** correctness. `journal` was classified before anything
+wrote it (scar §2.11) and a test asserts a snapshot carries the copies.

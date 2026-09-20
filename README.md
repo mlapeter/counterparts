@@ -176,8 +176,11 @@ the background half alive? — the one troubleshooting command, QUICKSTART §12)
 footnote-header probe, recall CONTRACT §7). `verify` is
 a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
 which is why `verify` counts as a write and refuses under `--observer` even without the
-flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
-explicitly `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run
+flag. `export` is a read too: it copies the store — as one SQLite file, or, with `--markdown`,
+as a readable tree of one file per memory plus the journal and the self page — encrypted
+under a passphrase or explicitly `--plaintext`, because it refuses to choose for you.
+`--markdown` omits confidential memories unless you pass `--include-confidential`, and says
+how many it left out. The rest write: `install`, `init`, `note`, `backup`, `remove` (a dry run
 unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`,
 `repair-merged-beliefs` (a dry run unless you pass `--apply`), and `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
 read-only, and the commands that would write refuse instead.

@@ -550,6 +550,24 @@ export const CHECKOUT_EVENT = "adapter.checkout";
 export const SNAPSHOT_TAKEN_EVENT = "snapshot.taken";
 export const SNAPSHOT_FAILED_EVENT = "snapshot.failed";
 export const SNAPSHOT_ROTATED_EVENT = "snapshot.rotated";
+/**
+ * THE HAND EXPORT (2026-09-20, F7).
+ *
+ * `counterparts export` is the one door memory leaves by, and until this name
+ * existed an export that ran and an export that never did were the same silence
+ * — the same §2.4 gap the snapshot row above closed for the automatic copy.
+ * (The console `backup` command still has it; `fired.ts`'s `backup` row says so
+ * in its own words, and this is not that name.)
+ *
+ * The payload is counts and flags: which kind of export, how many rows went,
+ * how many confidential ones were left out, whether it was encrypted. **Not the
+ * target path** — where the owner sent his memories is more than the row needs
+ * to prove the door works (§5 G10).
+ *
+ * Here for the same narrow reason as the three above: `dashboard/registries.ts`
+ * derives `DurableEventName` from these literals.
+ */
+export const STORE_EXPORT_EVENT = "store.export";
 export interface CreditReferencesInput {
   readonly assistantTurns: readonly string[];
   readonly expansions: readonly string[];
