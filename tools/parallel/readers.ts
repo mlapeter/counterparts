@@ -63,7 +63,8 @@ import {
 import { NOISY_NOW_SWEEP_REASONS } from "../../src/core/remember/index.js";
 import { PRESSURE_EVENT } from "../../src/core/revision.js";
 import { TUNABLES as SCHEMA_TUNABLES } from "../../src/core/schemas/tunables.js";
-import { isWithin, resolveStoredPath } from "../../src/core/store/paths.js";
+import { isWithin } from "../../src/core/store/paths.js";
+import { resolveStoredPath } from "./legacy-paths.js";
 import { MEMORY_SOURCES } from "../../src/core/types.js";
 
 import type {
@@ -708,6 +709,26 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
  * The NEW name wins when both are present, and is what an empty directory is
  * reported as missing, so a message names the spelling a store would have today.
  */
+/**
+ * Which FLOOR this v2 store is on: are the memories rows, or files?
+ *
+ * Asked of the schema rather than of the version stamp, because that is the
+ * question the two readers below actually have — `memories.body` exists or it
+ * does not. The owner's live store is the pre-rows floor for the whole parallel
+ * run and the rows floor from cut-over day, and this tool has to report both
+ * without being re-pointed: a reader that assumed one would meet the other as a
+ * failed SELECT, which rides out as a read error and marks every day after the
+ * flip UNMEASURED.
+ *
+ * An unreadable schema answers "files", the older shape — the conservative
+ * direction, since that branch checks the disk before it believes anything.
+ */
+function memoriesHaveBodies(ctx: { db: RawDb; errors: string[] }): boolean {
+  return rowsOf<{ name: string }>(ctx, "PRAGMA table_info(memories)").some(
+    (c) => c.name === "body",
+  );
+}
+
 export function v2StorePath(dataDir: string): string {
   const current = join(dataDir, "counterparts.sqlite");
   if (existsSync(current)) return current;
@@ -1270,6 +1291,12 @@ export interface ProseRow {
   readonly realpath: string;
   readonly source: string | null;
   readonly learnedOn: string;
+  /**
+   * The memory's words when the store keeps them in the ROW (schema v6), and
+   * null when they are in the file at `path` (v5 and before). Null is "look on
+   * disk", never "this memory has no words".
+   */
+  readonly body: string | null;
 }
 
 /**
@@ -1287,6 +1314,24 @@ export function proseRows(dataDir: string): { rows: ProseRow[]; readErrors: stri
   const { db } = openStore(path);
   const ctx = { db, errors: [] as string[] };
   try {
+    if (memoriesHaveBodies(ctx)) {
+      // THE ROWS FLOOR. There is no `prose/` tree and no path to realpath, so
+      // both address fields are blank and the words ride on the row. The
+      // spelling scar this function was built around (macOS walking `/var` as
+      // `/private/var`, which silently un-matched every migrated row) cannot
+      // fire on this floor: nothing is being matched against a directory walk.
+      const rows = rowsOf<{ body: string; source: string | null; learned_on: string }>(
+        ctx,
+        "SELECT body, source, learned_on FROM memories WHERE archived = 0",
+      ).map((r) => ({
+        path: "",
+        realpath: "",
+        source: r.source,
+        learnedOn: r.learned_on,
+        body: r.body,
+      }));
+      return { rows, readErrors: [...ctx.errors] };
+    }
     const rows = rowsOf<{
       prose_path: string;
       source: string | null;
@@ -1302,6 +1347,7 @@ export function proseRows(dataDir: string): { rows: ProseRow[]; readErrors: stri
         realpath: realpathOr(path),
         source: r.source,
         learnedOn: r.learned_on,
+        body: null,
       };
     });
     return { rows, readErrors: [...ctx.errors] };
@@ -1411,6 +1457,9 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
   const { db } = openStore(path);
   const ctx = { db, errors: [] as string[] };
   try {
+    // One SELECT per floor, differing only in where the words come from:
+    // `body` on the rows floor, `prose_path` -> a file before it.
+    const bodies = memoriesHaveBodies(ctx);
     const rows = rowsOf<{
       id: string;
       type: string;
@@ -1418,10 +1467,11 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
       kind: string;
       source: string | null;
       protected: number;
-      prose_path: string;
+      prose_path?: string;
+      body?: string;
     }>(
       ctx,
-      `SELECT id, type, band, kind, source, protected, prose_path FROM memories
+      `SELECT id, type, band, kind, source, protected, ${bodies ? "body" : "prose_path"} FROM memories
         WHERE archived = 0 AND (band = 'identity' OR kind = 'self')`,
     );
     let bytes = 0;
@@ -1445,8 +1495,13 @@ export function readSchemaBytes(dataDir: string): SchemaBytesReading {
         quarantined += 1;
         continue;
       }
-      const body = proseBody(resolveStoredPath(dataDir, row.prose_path));
-      if (body === null) continue;
+      const body = bodies
+        ? (row.body ?? null)
+        : proseBody(resolveStoredPath(dataDir, row.prose_path ?? ""));
+      // An empty body weighs nothing AND counts as nothing, exactly as
+      // `enumerateOne` returns null for a row it cannot read: on the rows floor
+      // a blank body is a removed row's tombstone, not an element of the self.
+      if (body === null || body.length === 0) continue;
       bytes += Buffer.byteLength(body, "utf8");
       elements += 1;
     }

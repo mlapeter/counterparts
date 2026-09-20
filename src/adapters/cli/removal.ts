@@ -40,7 +40,7 @@
  * low-entropy content is brute-forceable, which would make the record of a
  * removal a leak of the thing removed.
  */
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 // The span buffer's OWN scope-directory function, imported rather than
@@ -54,7 +54,7 @@ import { SpanBuffer, keyFor } from "../../core/remember/index.js";
 // `rmSync` from here would race a claim renaming the file aside, which is the
 // one state spec §2 G6 forbids (cli/INTERFACE-GAPS §9, closed 2026-09-05).
 import { strikeSpans } from "../../core/remember/owner-strike-seam.js";
-import { paths } from "../../core/store/index.js";
+import { rowTombstoned } from "../../core/store/index.js";
 import type {
   OwnerRemovalOutcome,
   OwnerRemovalRequest,
@@ -663,16 +663,6 @@ export function ownerRemoval(
   // 3. REQUESTED — if this throws, nothing has moved and nothing will (§16 G10).
   append("requested");
 
-  const row = store.row(request.targetId);
-  // RESOLVED AGAINST THIS STORE, never taken as a filesystem path (§5 G15): the
-  // row holds `prose/<family>/<id>.md`, and before it did, a removal run in a
-  // copied store deleted the SOURCE's file through the copy's absolute pointer
-  // (finding I22). A blanked pointer resolves to `""`, so an already-chased row
-  // can never resolve to the store root.
-  const prosePath =
-    row === undefined || row.prose_path === "" ? null : store.absolutePath(row.prose_path);
-  const versions = store.versions(request.targetId);
-
   // Read the body BEFORE `dark`, and keep it local: it is the strike's fallback
   // predicate for a memory whose mint recorded no span hash, and after the chase
   // there is nothing left to match on. It never enters the plan, the report or
@@ -748,35 +738,15 @@ export function ownerRemoval(
     }
   }
 
-  //    Box 1 next: the prose and every archived version of it.
-  if (prosePath !== null && existsSync(prosePath)) {
-    try {
-      rmSync(prosePath, { force: true });
-      chased.push("prose");
-    } catch {
-      unchased.push("prose");
-    }
-  } else {
-    chased.push("prose");
-  }
-  let versionsGone = 0;
-  for (const version of versions) {
-    try {
-      const versionPath = version.path === "" ? "" : store.absolutePath(version.path);
-      if (versionPath !== "" && existsSync(versionPath)) rmSync(versionPath, { force: true });
-      versionsGone += 1;
-    } catch {
-      /* counted below */
-    }
-  }
-  if (versionsGone === versions.length) chased.push("versions");
-  else unchased.push("versions");
-  try {
-    rmSync(paths.versionsFor(store.dir, request.targetId), { recursive: true, force: true });
-  } catch {
-    /* an empty directory left behind is not a leak */
-  }
-
+  //    THE WORDS ARE NOT A SEPARATE STEP ANY MORE. Until the floor this is
+  //    where box 1 was chased: unlink the memory's prose file, unlink each
+  //    archived version's file, remove the `versions/<id>/` directory — four
+  //    filesystem operations with three crash points between them and the box-2
+  //    transaction below, each one leaving a different half-erased state. Since
+  //    schema v6 the words are columns on the rows, so `chaseRemoved` blanks
+  //    them inside the same transaction that removes the edges and appends the
+  //    record. One commit; no window (§16 G11).
+  //
   // Box 2, and the `chased` stage with it: the seam appends the record INSIDE
   // its own transaction, so the rows and the record land together or not at all.
   // What survives is named in the report, never implied (§16 G15).
@@ -820,7 +790,9 @@ export function ownerRemoval(
  */
 export function verifyRemoval(store: Store, targetId: string): {
   denied: boolean;
-  proseGone: boolean;
+  /** True when the row carries no words: the body is blank. Named `proseGone`
+   *  while the words were a file; it asks the same question of the column. */
+  bodyGone: boolean;
   /** True while a row exists at all — after the chase it is a stripped skeleton. */
   rowSurvives: boolean;
   /** True when that row has been stripped of every content pointer. */
@@ -829,14 +801,12 @@ export function verifyRemoval(store: Store, targetId: string): {
   darkState: number;
 } {
   const row = store.row(targetId);
-  const prosePath =
-    row === undefined || row.prose_path === "" ? null : store.absolutePath(row.prose_path);
   const tombstone = store.tombstones().find((e) => e.id === targetId);
   return {
     denied: store.deniedIds().includes(targetId),
-    proseGone: prosePath === null || !existsSync(prosePath),
+    bodyGone: row === undefined || row.body === "",
     rowSurvives: row !== undefined,
-    rowTombstoned: tombstone !== undefined && row?.content_hash === "" && row?.prose_path === "",
+    rowTombstoned: tombstone !== undefined && row !== undefined && rowTombstoned(row),
     darkState:
       store.edgesFrom(targetId).length + store.prospectiveFor(targetId).length,
   };

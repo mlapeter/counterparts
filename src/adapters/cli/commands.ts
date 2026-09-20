@@ -73,7 +73,7 @@ import {
   paths,
   storeExists,
 } from "../../core/store/index.js";
-import type { EventLogCensus, PathCensus, VectorFormatCensus } from "../../core/store/index.js";
+import type { EventLogCensus, VectorFormatCensus } from "../../core/store/index.js";
 // The owner-op seam's REPAIR half — the one door that un-archives, and only for
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
@@ -2001,23 +2001,6 @@ function censusCache(dir: string): CacheCensus {
  * One line naming the shape box 3's vectors are in, and — when it is mixed —
  * what to run. An empty table is neither format and says so.
  */
-/**
- * "N relative, M absolute (unmigrated|unplaceable), K missing files" — the
- * shape the owner reads the v5 path migration by. Escaping rows (a hand-edited
- * database) and blank pointers (removed rows) are named only when there are
- * any, because "0 removed" on every store is noise.
- */
-function pathCensusLine(c: PathCensus, schemaBehind: boolean): string {
-  const parts = [
-    `${c.relative} relative`,
-    `${c.absolute} absolute (${schemaBehind ? "unmigrated" : "unplaceable"})`,
-    `${c.missing} missing file${c.missing === 1 ? "" : "s"}`,
-  ];
-  if (c.escaped > 0) parts.push(`${c.escaped} ESCAPE the store (never resolved; hand-edited rows)`);
-  if (c.blank > 0) parts.push(`${c.blank} blank (removed)`);
-  return parts.join(", ");
-}
-
 function vectorFormatLine(v: VectorFormatCensus): string {
   if (v.total === 0) return "none held";
   const parts: string[] = [];
@@ -2208,7 +2191,6 @@ function verifyCensus(dir: string, io: Io): number {
   let denied: string[];
   let unembedded: number;
   let skippedVectors: string[];
-  let pathsCensus: ReturnType<Store["pathCensus"]>;
   let schemaVersion: string | null;
   let log: EventLogCensus;
   let bands: BandOfRecordCensus;
@@ -2224,7 +2206,6 @@ function verifyCensus(dir: string, io: Io): number {
     // above on purpose — it reports what is still actionable — so leaving them
     // unprinted here would be the coverage watch quietly losing rows.
     skippedVectors = store.skippedVectorIds();
-    pathsCensus = store.pathCensus();
     schemaVersion = store.getMeta("schemaVersion") ?? null;
     log = store.eventLogCensus();
     bands = bandOfRecordCensus(store);
@@ -2246,23 +2227,19 @@ function verifyCensus(dir: string, io: Io): number {
     `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
       `removed (deny-list): ${denied.length}`,
   );
-  // THE PATH COLUMNS, SPELLED OUT (store CONTRACT §5 G15; finding I22). Since
-  // store schema v5 a row names its file RELATIVE to the store, so a copied or
-  // restored store reads its own prose. A v4 store opened here as an observer
-  // still shows its absolute rows — that is the read-only view of what the
-  // first writer open will convert — and "missing" is a separate fact from
-  // either spelling: the pointer resolved to a file that is not there. The
-  // word beside the absolute count is chosen by the schema: on a v4 store the
-  // rows are UNMIGRATED (the first writer open converts them); on a v5 store a
-  // leftover absolute row was migrated and could not be placed — UNPLACEABLE.
-  const schemaBehind = schemaVersion !== null && Number.parseInt(schemaVersion, 10) < SCHEMA_VERSION;
-  io.out(`Prose paths: ${pathCensusLine(pathsCensus.prose, schemaBehind)}`);
-  io.out(`Version paths: ${pathCensusLine(pathsCensus.versions, schemaBehind)}`);
-  if (schemaBehind) {
-    io.out(
-      `  store schema v${schemaVersion}: absolute paths are converted to relative at the next WRITER open (v${SCHEMA_VERSION}); this census is read-only and changed nothing.`,
-    );
-  }
+  // WHERE THE WORDS ARE. This was two census lines counting how the two path
+  // columns were spelled and how many of their files were on disk (§5 G15,
+  // finding I22) — a report ON the file layout, which the floor deleted along
+  // with the columns. What replaces it is a one-line statement of the floor
+  // this store is on, because "prose files: none" is the fact an owner looking
+  // for his markdown needs, and a store that still had any would be a store
+  // this build refused to open (`STORE_PRE_ROWS`).
+  io.out(
+    `Floor: schema v${schemaVersion ?? "?"} · bodies in rows · prose files: none` +
+      (schemaVersion === String(SCHEMA_VERSION)
+        ? ""
+        : ` (this build writes v${SCHEMA_VERSION})`),
+  );
   for (const line of eventLogLines(log)) io.out(line);
 
   // The unreadable half of this is narrow by construction: `Store.open` builds

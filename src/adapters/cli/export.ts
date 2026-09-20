@@ -59,23 +59,26 @@ export interface ExportReport {
   readonly reason: string;
 }
 
-/** path (relative, portable) -> file bytes. Prose stays prose. */
+/** path (relative, portable) -> file bytes. */
 type Bundle = Map<string, Buffer>;
 
+/**
+ * THE BUNDLE IS THE DATABASE.
+ *
+ * It used to be the database plus a walk of `prose/**.md`, because that is where
+ * the memories were. Since the floor (schema v6) the bodies, their archived
+ * versions and their metadata are rows, so the one file IS the export and the
+ * walk had nothing left to find. That makes the §2.11 rule the whole of this
+ * function rather than a footnote on it: the copy goes through `VACUUM INTO`,
+ * which is SQLite's own consistent-snapshot path, and never a file copy of a
+ * live database — doubly so now that a torn copy would lose the words and not
+ * just the bookkeeping.
+ *
+ * `--markdown`, `journal/` and `spans/` are F7's; this phase owns the deletion
+ * of the prose walk and the move of the scratch file, nothing more.
+ */
 function collect(store: Store, tmpDb: string): Bundle {
   const bundle: Bundle = new Map();
-  const proseRoot = paths.prose(store.dir);
-  const walk = (path: string): void => {
-    if (!existsSync(path)) return;
-    if (statSync(path).isDirectory()) {
-      for (const name of readdirSync(path).sort()) walk(join(path, name));
-      return;
-    }
-    bundle.set(join("prose", relative(proseRoot, path)), readFileSync(path));
-  };
-  walk(proseRoot);
-  // THE DATABASE GOES THROUGH VACUUM INTO, even here. §2.11 does not care
-  // whether the file copy is labelled "backup" or "export".
   const copied = vacuumInto(paths.operational(store.dir), tmpDb);
   if (copied.ok) bundle.set(DATABASE_FILE, readFileSync(tmpDb));
   return bundle;
@@ -110,8 +113,16 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     };
   }
 
-  const tmpDb = join(paths.tmp(store.dir), `export-${Date.now()}.sqlite`);
-  mkdirSync(paths.tmp(store.dir), { recursive: true });
+  // THE SCRATCH LANDS IN THE TARGET, not in the store.
+  //
+  // It used to go in `<store>/tmp/`, which the floor deleted along with the
+  // staging it existed for — and a scratch file in the store directory would
+  // now fail the next `assertLayout()` as an unclassified top-level path (§5
+  // G11). The target is the one directory already PROVEN to be outside the
+  // store: `assertSafeTarget` above refuses a destination inside it, and
+  // refuses one that contains it. The dot prefix and the `finally` keep it out
+  // of the plaintext bundle the branch below writes into the same directory.
+  const tmpDb = join(target, `.export-scratch-${Date.now()}.sqlite`);
   let bundle: Bundle;
   try {
     bundle = collect(store, tmpDb);
@@ -215,12 +226,12 @@ function plaintextReadme(files: number, bytes: number): string {
     "",
     `${files} files, ${bytes} bytes, written at the owner's explicit request with --plaintext.`,
     "",
-    "- `prose/` — the memories themselves, Markdown, readable in any editor.",
-    `- \`${DATABASE_FILE}\` — canonical operational state, copied through SQLite's`,
-    "  own VACUUM INTO, never as a file copy of a live database.",
+    `- \`${DATABASE_FILE}\` — the whole store: the memories themselves, their`,
+    "  archived versions, and every structured field. Copied through SQLite's own",
+    "  VACUUM INTO, never as a file copy of a live database.",
     "",
     "The rebuildable cache is deliberately not included: it is reconstructed from",
-    "the two things above.",
+    "the database above.",
     "",
     "This copy is not encrypted. Treat it the way you would treat the store itself.",
     "",

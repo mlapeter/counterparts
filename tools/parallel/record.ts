@@ -122,6 +122,26 @@ const EMPTY_CORPUS = (): Corpus => ({
   undated: 0,
 });
 
+/**
+ * Every qualifying line of every TEXT, addressed.
+ *
+ * Split out from `addressFiles` when the floor moved: a v2 memory's words are a
+ * column on the rows floor and a file before it, so the corpus builder takes
+ * the text and the READER decides where it came from.
+ */
+function addressTexts(texts: readonly string[], minChars: number): Corpus {
+  const out = EMPTY_CORPUS();
+  for (const text of texts) {
+    const { addresses, rejectedShort } = addressLines(text, minChars);
+    out.rejectedShort += rejectedShort;
+    for (const address of addresses) {
+      out.addresses.set(address, (out.addresses.get(address) ?? 0) + 1);
+      out.scanned += 1;
+    }
+  }
+  return out;
+}
+
 /** Every qualifying line of every file, addressed. Read-only, never throws. */
 function addressFiles(
   files: readonly string[],
@@ -374,12 +394,8 @@ export function crossEncoding(input: CrossEncodingInput): CrossEncodingMeter {
   const spanCorpus = addressFiles(spanFiles, spanTextsFor(input.date), min);
 
   const prose = nonMigratedProse(input.v2DataDir, input.date);
-  const { paths: prosePaths, excludedMigrated } = prose;
-  const proseCorpus = addressFiles(
-    prosePaths,
-    (raw) => ({ texts: [proseBodyOf(raw)], undated: 0 }),
-    min,
-  );
+  const { texts: proseTexts, excludedMigrated } = prose;
+  const proseCorpus = addressTexts(proseTexts, min);
   const v2Corpus: Corpus = {
     addresses: [...spanCorpus.addresses, ...proseCorpus.addresses].reduce(
       (acc, [address, n]) => acc.set(address, (acc.get(address) ?? 0) + n),
@@ -487,28 +503,43 @@ function hasOtherDate(relPath: string, date: string): boolean {
 function nonMigratedProse(
   dataDir: string,
   date: string,
-): { paths: string[]; excludedMigrated: number; readErrors: readonly string[]; missingOnDisk: number } {
+): { texts: string[]; excludedMigrated: number; readErrors: readonly string[]; missingOnDisk: number } {
   // THE DAY'S ROWS, not the whole store. `memories.learned_on` is the created
-  // date, so the corpus is the prose v2 minted ON this day — otherwise one
+  // date, so the corpus is what v2 minted ON this day — otherwise one
   // legitimate hit re-fires every day for the rest of the run.
   //
-  // REALPATH ON BOTH SIDES. The store records one spelling of a path and a
-  // directory walk produces another (on macOS anything under `/var`), so the
-  // migrated-row exclusion is done on realpaths (scar §2.13).
+  // TWO FLOORS. On the rows floor (store schema v6) a row carries its own
+  // words, and "present" means the column has them. Before it the words were a
+  // file and "present" meant the file was on disk — REALPATH ON BOTH SIDES,
+  // because the store records one spelling of a path and a directory walk
+  // produces another (on macOS anything under `/var`), which silently
+  // un-matched every migrated row until it was fixed (scar §2.13).
   const read = proseRows(dataDir);
   const rows = read.rows.filter((r) => r.learnedOn === date);
   const onDisk = new Set(
     filesUnder(join(dataDir, "prose"), (n) => n.endsWith(".md")).map((p) => realpathOr(p)),
   );
-  const present = rows.filter((r) => onDisk.has(r.realpath));
+  const present = rows.filter((r) => (r.body === null ? onDisk.has(r.realpath) : r.body.length > 0));
   const kept = present.filter((r) => r.source !== "migrated");
+  const texts: string[] = [];
+  for (const row of kept) {
+    if (row.body !== null) {
+      texts.push(row.body);
+      continue;
+    }
+    try {
+      texts.push(proseBodyOf(readFileSync(row.path, "utf8")));
+    } catch {
+      /* it was on disk a moment ago; the count below is the honest report */
+    }
+  }
   return {
-    paths: kept.map((r) => r.realpath),
+    texts,
     excludedMigrated: present.length - kept.length,
     // A locked or drifted store must not read as an empty corpus (delta N3):
     // the errors ride out and the direction reads UNMEASURED, never a clean 0.
     readErrors: read.readErrors ?? [],
-    // Rows whose prose file is not on disk: counted, not silently dropped (N10).
+    // Rows whose words could not be found: counted, not silently dropped (N10).
     missingOnDisk: rows.length - present.length,
   };
 }

@@ -118,17 +118,16 @@ export function isDeliberate(err: unknown): boolean {
  * from a hook would be a glossary that goes stale where nobody reads it.
  */
 const PLAIN_WORDS: Partial<Record<StoreErrorCode, string>> = {
-  PROSE_FILE_MISSING: "a memory's prose file is missing from the store",
-  PROSE_FRONTMATTER_MISSING: "a memory's prose file has no frontmatter",
-  PROSE_PAYLOAD_MISSING: "a memory's prose file carries no payload",
-  PROSE_PAYLOAD_MALFORMED: "a memory's prose file has a payload this build cannot read",
-  PROSE_PAYLOAD_MISMATCH: "a memory's prose file and its row disagree about which memory it is",
-  PROSE_BODY_INVALID: "a memory's prose file has a body this build cannot read",
+  MEMORY_BODY_MISSING: "a memory's row is in the store and its words are not",
+  MEMORY_META_MALFORMED: "a memory's metadata is not something this build can read",
+  PROSE_PAYLOAD_MISMATCH: "a row and the memory it was read for disagree about which memory it is",
+  PROSE_BODY_INVALID: "a memory has a body this build cannot write",
   ID_DANGLING: "a row points at a memory that is not in the store",
   ID_CYCLE: "a revision chain in the store points back at itself",
   ID_CHAIN_TOO_DEEP: "a revision chain in the store is longer than this build follows",
-  STORED_PATH_ESCAPES: "a stored path points outside the store",
   SCHEMA_AHEAD: "this store was written by a newer build than the one running",
+  STORE_PRE_ROWS:
+    "this store keeps its memories in files, which this build does not read — it was written before the floor changed",
   SQLITE_UNAVAILABLE: "this runtime has no SQLite binding",
   DATA_DIR_FORBIDDEN: "the configured data dir is one this build refuses to open",
   STORE_UNINITIALIZED: "there is no store here yet, or it is a schema behind",
