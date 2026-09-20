@@ -275,19 +275,25 @@ export function expired(h: Handoff, day: number, lifeDays = HANDOFF_LIFE_DAYS): 
 
 // ── what the wake prints ────────────────────────────────────────────────────
 
+/** The marker a cut excerpt ends with. Three bytes, and the cut reserves them. */
+export const ELLIPSIS = "\u2026";
+
 /** The first line of a handoff, flattened and cut to fit, with an ellipsis when
  *  it was cut. Cuts at a word where one is near the end, never mid-word when a
  *  space is within the last fifth of the room. */
 export function excerpt(body: string, capBytes = HANDOFF_EXCERPT_BYTES): string {
   const first = flatten(body.split("\n").find((l) => l.trim().length > 0) ?? body);
   if (byteLengthOf(first) <= capBytes) return first;
-  const room = Math.max(0, capBytes - 1); // the ellipsis is one byte's worth
+  // The ellipsis is THREE bytes, not one: `…` is U+2026. Reserving a character
+  // rather than its bytes is how a cap that says 160 renders 161 — measured,
+  // not reasoned about.
+  const room = Math.max(0, capBytes - byteLengthOf(ELLIPSIS));
   const bytes = new TextEncoder().encode(first);
   const prefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, room));
   const clean = prefix.replace(/�+$/u, "");
   const space = clean.lastIndexOf(" ");
   const kept = space > clean.length * 0.8 ? clean.slice(0, space) : clean;
-  return `${kept.trimEnd()}…`;
+  return `${kept.trimEnd()}${ELLIPSIS}`;
 }
 
 /** The pointer's first line: the date and the first line of what was written. */
