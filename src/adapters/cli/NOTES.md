@@ -550,3 +550,55 @@ through with `--dir`, and the dry runs unguarded. The reviewer's exact case
 stopped AT the door rather than one step in at box 3's "nothing to convert"
 refusal, since both are exit 2. `test/repair-dates.test.ts`'s "console door"
 stays as it was.
+
+## 2026-09-20 — `export --markdown`, and the five choices inside it (F7)
+
+Ruling 4 said "`export --markdown` omits confidential rows unless
+`--include-confidential`, and says how many it omitted". Five things that ruling
+does not decide, decided here, each true for now.
+
+1. **The tree is rendered from ROWS, not from a walk of `<store>/journal/`.**
+   The copy on disk is derived; a stale one — an episode removed while its copy
+   could not be written — would be exported as though it were live. Rendering
+   from rows cannot do that, and it uses the copy's OWN path function and the
+   same `renderMarkdown`, so the bytes are identical either way. "Included as
+   is" is kept by using its code, not by copying its files.
+2. **Grouped by kind** (`memories/fact/`, `memories/person/`, …), not by month.
+   Kind is the axis `status` and the dashboard already show, it is a closed set
+   of six, and it does not move when a memory is revised — by month splits one
+   belief's life across directories.
+3. **Filenames are ids.** A title can be as sensitive as a body, and a directory
+   listing is the part of an export that gets read over somebody's shoulder.
+4. **`--markdown --passphrase` is supported rather than refused**, and it is the
+   safest path of the three: the tree is built in memory, sealed, and written as
+   one blob, so it never makes a scratch file at all. (The database export keeps
+   F5's 0700 `mkdtemp` and its bounded sweep, which is what review B's MAJOR-4
+   and review C's NEW-MINOR-6 bought.) A test counts `counterparts-export-*`
+   directories in `$TMPDIR` across a markdown export and asserts the number does
+   not move.
+5. **`--with-versions`, not `--versions`.** `self-page` already takes both
+   `--versions` and `--version`, and the help-page totality test reads flags as
+   substrings — an `export --versions` puts the string `--version` on export's
+   help page, naming a flag export does not take. A real constraint from a real
+   test, not a preference.
+
+**Two refusals that are new, and one removal.** A non-empty target is refused
+unless `--into-non-empty`: an export is a whole copy, and one written over
+another is a mixture nothing can tell apart. `--include-confidential` and
+`--with-versions` without `--markdown` are refused BY NAME rather than ignored —
+they decide what goes into the tree, and a database export carries every row
+there is, so honouring either there would be a lie in one direction and silence
+in the other. And `export` came off `OWNER_OPS`, the only removal that list has
+had: an export READS the store and writes outside it, so standing the command
+down under `--observer` refused a read. The one write it now makes to the store
+is the durable row, and that is what stands down instead — the copy is still
+made and the report says the row was not written. `backup` is the same shape and
+deliberately stays on the list: it could follow, but nobody has ruled on it.
+
+**What the durable row carries, and what it does not.** `store.export`: the
+kind, whether it was encrypted, files, bytes, rows, how many confidential rows
+were omitted, whether versions went, how many rows would not render. **Not the
+target path.** Where the owner sent his memories is more than the row needs to
+prove the door works (§5 G10), and the terminal has already told him. F2's blind
+`backup` row and its "one `store.backup` event would fix it" are untouched:
+that is a different door and still an open gap.

@@ -928,7 +928,9 @@ describe("export", () => {
     );
     // Versions are behind their own flag.
     expect(existsSync(join(target, "versions"))).toBe(false);
-    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Pass `--versions`");
+    // …and the manifest names the flag that would have written them, spelled
+    // the way the console takes it.
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Pass `--with-versions`");
   });
 
   test("--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree", async () => {

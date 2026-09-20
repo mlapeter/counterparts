@@ -138,6 +138,23 @@ snapshots and exports; the removal record; telemetry by reference.
 7. **[M] `export` is the only egress**, and it is explicit, encrypted, and owner-keyed. A
    test asserts no other module opens a network socket to a non-model, non-embedding
    endpoint.
+   *Extended 2026-09-20 (F7, owner ruling 4 of 2026-09-18).* It takes two shapes and the
+   report names which ran: the whole store as one SQLite file through `VACUUM INTO`, or
+   `--markdown`, a readable tree — one file per memory grouped by kind, the journal as is,
+   the self page as its own file, `--with-versions` for every earlier wording. **Filenames
+   are ids, never titles.** The markdown tree **omits confidential rows unless
+   `--include-confidential`, and says how many it omitted** — in the terminal and in a
+   manifest inside the tree, at zero as well, because a directory that does not say what
+   is missing from it reads as complete. Removed rows are never exported; a row that will
+   not render is named by its id rather than silently absent. **`--markdown --passphrase`
+   is supported properly** — the tree is rendered into memory, sealed, and only then
+   written, so that path has no scratch anywhere. It refuses a non-empty target unless
+   told, refuses a target inside the store or a live v1 store, and refuses a store this
+   build cannot open in the floor's own sentence, touching nothing on either side. One
+   durable `store.export` row carries counts and flags and **not the target path**.
+   *`export` is NOT on `OWNER_OPS` (2026-09-20): an export reads the store and writes
+   outside it, so under `--observer` the copy is made, the durable row is not, and the
+   report says which.*
 8. **[M] Backups never leave the machine and never throw** — a backup problem must not
    block a consolidation cycle.
 9. **[M] Reads are pure.** Inspecting the protected list or the census writes nothing and

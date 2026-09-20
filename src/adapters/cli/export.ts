@@ -615,8 +615,9 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
   return [
     "# Counterparts export (markdown)",
     "",
-    `${census.rows} memories, readable in any editor. Rendered from the database's rows —`,
-    "this is a COPY, and the store itself is still where the memories live.",
+    `${census.rows} rows, readable in any editor — memories, the journal, and the self page.`,
+    "Rendered from the database; this is a COPY, and the store itself is still where the",
+    "memories live.",
     "",
     "## What is here",
     "",
@@ -627,8 +628,8 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
     `- \`journal/<year>/<date>-<id>.md\` — the first-person episode journal, as is: ` +
       `${String(census.journal)} episode${census.journal === 1 ? "" : "s"}.`,
     census.versions > 0
-      ? `- \`versions/<id>/<seq>.md\` — ${String(census.versions)} earlier wording${census.versions === 1 ? "" : "s"}, oldest first (\`--versions\`).`
-      : "- `versions/` — not included. Pass `--versions` to export every earlier wording too.",
+      ? `- \`versions/<id>/<seq>.md\` — ${String(census.versions)} earlier wording${census.versions === 1 ? "" : "s"}, oldest first (\`--with-versions\`).`
+      : "- `versions/` — not included. Pass `--with-versions` to export every earlier wording too.",
     "",
     "## What is NOT here",
     "",

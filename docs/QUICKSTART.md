@@ -163,9 +163,17 @@ This command writes three things that are **yours**:
 structured field are rows in `counterparts.sqlite`, so a backup is a file copy
 and a memory can never disagree with its own bookkeeping. You read your memories
 through the dashboard, `counterparts recall`, or by asking — and
-`counterparts export` writes them out as Markdown whenever you want them as
-files. (SQLite keeps two sidecars beside it, `-wal` and `-shm`; they belong to
-the database and are copied with it.)
+**`counterparts export --out <dir> --markdown --plaintext` writes everything out
+as one readable tree of Markdown files** (confidential memories are left out,
+and the export says how many; `--include-confidential` takes them too). (SQLite
+keeps two sidecars beside it, `-wal` and `-shm`; they belong to the database and
+are copied with it.)
+
+**Your journal is already readable, without exporting anything.** Every chapter
+the counterpart writes is copied to `store/journal/<year>/<date>-<id>.md` as it
+lands — open one in any editor. It is a copy: the database is the original, and
+deleting `journal/` loses nothing (the next chapter, or the next session's end,
+writes it again).
 
 Three more directories appear under `store/` the first time they are needed and
 not before: `spans/` (lived experience awaiting encoding, written by the hooks
