@@ -602,3 +602,29 @@ That is a different mechanism, not a wider parameter, and it is not built.
    the notice (unknown must not warn) and wrong for a reader counting greens. A
    fourth severity is the honest shape, and it touches the report, the JSON, the
    dashboard and every caller that partitions on three.
+
+## 12. Nobody has run a windowless host session, and this adapter cannot prove one from inside the suite (2026-09-20, S2)
+
+Host mode is the owner's pick for the nightly page writer, and every part of it that is
+this package's — the plan, the argument and environment shape, the watchdog, the claim, how
+the outcome is read back — is under test against a stub executable. Three things are not,
+and cannot be without a real machine and a real login:
+
+1. **Keychain access from a background process.** The child authenticates with the
+   subscription login, and the detached worker that starts it is not a terminal. The
+   documented route for unattended runs is `claude setup-token` (spec §16). Until somebody
+   runs it, `NO_CREDENTIAL`-shaped failures will surface as `failed(exit …)` on the run's
+   row, which is honest but not diagnostic.
+2. **That SessionStart hooks actually fire inside `claude -p`.** The whole reason for host
+   mode is that they do — it is what makes the child a session of the self rather than a
+   stranger with a prompt. The docs say so; no probe here has watched it happen.
+3. **That `--allowedTools` with one MCP tool name and `--permission-mode default` really
+   leaves the child with one tool.** The spelling `mcp__counterparts__self_page` is the
+   host's convention, taken from the docs. A spelling the host does not recognise fails
+   CLOSED (the tool prompts, nobody answers, the run ends with the page untouched and a
+   `nothing-to-say` row), which is the right direction but would be indistinguishable from a
+   night that genuinely had nothing to say.
+
+Filed here rather than guessed at: the exact steps the owner has to run by hand are in the
+PR that landed this, and until one of those runs happens, `session` mode is the one that is
+known to work.

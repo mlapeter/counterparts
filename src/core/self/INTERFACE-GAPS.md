@@ -215,3 +215,26 @@ different day counter and report a cap for a day that had asks left — the shap
 of finding one bug twice. With the cap on the session, both sides read the
 session's own `asks` and there is no second counter to disagree with. The
 guarantee is unchanged and now free: the tail verdict is the ask's verdict.
+
+## 9. The nightly writer's claim wants a compare-and-swap the store does not have (2026-09-20, S2)
+
+`writer.ts` claims a night by appending one durable row and then refusing to start a second
+run while it stands. Between the read that finds no claim and the append that writes one
+there is a window — small, but real — in which two hooks on two terminals, or two machines
+against one synced store, can both claim the same night.
+
+What would close it is a conditional write: `appendEvent` with a uniqueness constraint on
+`(name, about)`, or a `setMeta` that fails when the key already holds a value. `store/` has
+neither today; `setMeta` is insert-or-replace and `appendEvent` has no unique key but
+`dedup_key`, which silently collapses rather than reporting that it collapsed — "the write
+landed" and "somebody else was here first" are the same return.
+
+**Not raised as an ask yet, because the cost of losing the race is small and bounded.** A
+duplicated ask is one extra block beside one wake, inside an allowance that already permits
+two; a duplicated `claude -p` is one extra model call and a second revision that the page's
+own `ifVersion` refuses with a row saying so. The gap is filed rather than fixed so that if
+`store/` ever grows a conditional write — F5's row work is the likely moment — this is one
+of the callers waiting for it.
+
+A `dedupKey` that REPORTED the collapse (`appendEvent` returning 0 for "already there"
+rather than a seq) would be enough on its own, and is the smaller of the two asks.

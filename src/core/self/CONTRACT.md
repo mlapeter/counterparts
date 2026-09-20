@@ -316,6 +316,36 @@ proposals and their archive; render and delivery telemetry.
     pruned). It is the OWNER's door: no MCP tool reaches it, because a session that could
     unwrite the page could erase the self between two turns. The owner's `remove` refuses
     the page row by name and points at it.
+19. **[M]** **THE NIGHTLY PAGE WRITER RUNS ON THE CALENDAR, AT MOST ONCE, AND IS NOT A
+    SECOND PACER** (`writer.ts`, S2, 2026-09-20 — true for now). A run is ABOUT one
+    calendar date, always yesterday, and never chases a backlog. It is keyed to the
+    calendar and not the lived day for I32's reason: the lived clock advances inside the
+    cycle the detached worker runs, and a nightly mechanism keyed to a clock the night
+    itself advances can miss every night and look on time. **The first durable row for a
+    date is the CLAIM**, so two boundaries — or two machines' worth of hooks against one
+    store — do not both set a night going; at most `PAGE_WRITER_ASKS_PER_DAY` sessions are
+    offered one day. That is a COUNT and not a pacer: guarantee 3's scar is about the
+    BLOCKED MOMENT at Stop, where one ask on one conjunction is the rule, and this ask
+    rides beside the wake at SessionStart the way the first-launch scope question does,
+    consulting no substance and spending none of `MAX_ASKS_PER_SESSION`.
+    **A store with no yesterday writes nothing and leaves no row**, so a line about it
+    cannot nag from the day a fresh install is made. **No revision is a first-class
+    outcome**: host mode reports it (a windowless session handed one tool that did not use
+    it has answered), session mode cannot tell it from "never got to it" and so does not
+    claim to — it stores the claim, and the READING of a claim whose day has ended is
+    `nothing-to-say`, marked `derived` wherever it is shown. `by: "writer"` is the DOOR's
+    and is not claimable from a tool call: the evidence is a date the SessionStart hook
+    wrote on the session's registry record, or one the launcher pinned onto a windowless
+    child's environment, honoured only while that night's claim is open.
+20. **[M]** **THE WRITER CAN WRITE THE PAGE AND ONE ROW, AND NOTHING ELSE.** The page goes
+    through `revisePage` — the one seam, with its caps, its gate battery and its version
+    chain — and `writer.ts` never touches it; what this module writes is the run's own
+    durable row. No memory is created, none promoted, no strength moves. **No model call
+    happens in core**: this module composes what the writer is handed and the ADAPTER makes
+    the call, exactly as `counterpart.ts#sweepWake` composes and `interpret-client.ts`
+    calls. A writer failure costs the writer: it never fails a wake, a boundary or a
+    session, and with the writer off or never run the wake is byte-identical to a build
+    without it (asserted).
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.
@@ -335,6 +365,9 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
 | `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
 | `PAGE_ON_EGRESS` | true | Whether a composition that FILTERS (`omit` — the crash fallback woken as the self) carries the page. The owner's decision of 2026-09-17; `false` gives that composition no page and the identity list the filter left standing. |
+| `PAGE_WRITER_MEMORY_BYTES` | 8,192 | Bytes of the day just gone the nightly writer is handed. It reads one day, not a life, and what did not fit is counted on the run's row. |
+| `PAGE_WRITER_MEMORY_MAX` | 40 | ...and a ceiling on the count, so a day of very short memories cannot become a hundred bullets. |
+| `PAGE_WRITER_ASKS_PER_DAY` | 2 | How many SESSIONS may be offered one day's writing in session mode. A count, not a pacer (G19): the first session of a morning may be deep in something else, and two makes that survivable without asking all day. |
 | `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
 | `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |

@@ -694,3 +694,66 @@ has, and it is not this change's to take.
 
 The identity core is deliberately NOT exempted: it could cross on master, and
 exempting it would be the same quiet retention change one row smaller.
+
+## 15. The nightly page writer: how the day is chosen, why the claim is a row, and the one thing it refuses to claim to know (2026-09-20, S2)
+
+S1 put a written page at the head of every wake and left nothing to fill it. On the
+owner's live store that was survivable — a session that happens to think of it can write
+one — but on a store a stranger installed this morning it means the page never forms at
+all. So S2 is the mechanism, and these are the four choices it turned on.
+
+**The day is a CALENDAR date, and it is always yesterday.** The lived day was the obvious
+candidate and is wrong here for the reason `episodes.ts` already gives about the ask cap
+(I32): `livedDay` advances inside `advanceClock`, which runs inside the sleep cycle, which
+runs inside the detached worker. A worker that cannot start freezes that clock — it did,
+for seven days — while the calendar keeps going. A nightly mechanism keyed to a clock the
+night itself advances can miss every night and still look on time. The row carries both:
+`about`, the calendar date it read, and `day`, the lived day it ran on, which is what every
+other durable row in this store is stamped with.
+
+It does not chase a backlog, and that is a decision rather than an omission. A machine that
+was off for a week comes back and writes about the day just gone. Six model calls and six
+revisions of one page in one morning is how a page starts drifting, and the memories of
+those days are still in the store and still reach the page through the ordinary lanes.
+
+**The claim is a durable row, not a lock file.** The obvious shape was `spawn.ts`'s: a file
+opened `wx`, a pid, a staleness window. The row is better here for two reasons the file
+cannot match. It is *the same object the fired view and doctor already read*, so "did last
+night happen" is answered by the mechanism's own record rather than by a second artefact
+nobody looks at; and it works across machines, because two laptops sharing a store over a
+sync folder share the row and would not share a pid. What the row gives up is atomicity in
+the last few milliseconds: two hooks that both read "no claim" in the same tick can both
+write one. That is why the allowance is a count rather than a boolean — a duplicate ask is
+already inside the budget, and the second writer's `ifVersion` refuses cleanly with a row
+saying so.
+
+**Two asks per day, and it is not a second pacer.** The scar this module carries about
+pacers (CONTRACT §3) is precise: it is about the BLOCKED MOMENT at Stop, where two asks on
+two substance pacers drew about a dozen asks from a 13-turn evening. Nothing here goes near
+it — the writer's ask fires at SessionStart, consults no substance, spends none of
+`MAX_ASKS_PER_SESSION`, and rides in the same field the first-launch scope question uses.
+Its cadence is the day boundary. The count exists because one ask per day is brittle in
+practice: the first session of a morning is often deep in something else, and a night lost
+to that is a day missing from the page forever. Two was chosen over three because the
+whole design of the doctor line is that a mechanism must not nag, and the same is true of
+the ask itself.
+
+**The one thing it refuses to claim.** "Nothing to say" had to be a first-class outcome —
+a day that changed nothing about who the self is should end with no revision, and that must
+be recorded rather than inferred from silence. Host mode can report it honestly: a
+windowless session handed one instruction and one tool, which exits clean without calling
+the tool, has answered. Session mode cannot. A session that was asked and wrote nothing may
+have decided there was nothing to say, or may have been three hours into a refactor and
+never read the block. Storing `nothing-to-say` there would be the engine putting words in
+the writer's mouth, which is §2.4 from the other direction. So session mode stores the
+claim, and `pageWriterStatus` READS a claim whose day has ended as `nothing-to-say` with
+`derived: true` — and every surface that prints it prints that it was derived. The claim
+carries the date it was MADE (`on`) as well as the date it is about, because "is this still
+in flight" is a question about the first and not the second.
+
+**What is still unproved, and it is host mode's half.** Nothing in this build has started a
+real `claude -p`. The launcher, its argument and environment shape, its watchdog and its
+claim are all exercised against a stub executable; what a real machine has to answer is
+whether a background process can reach the keychain for the subscription login
+(`claude setup-token` is the documented route — spec §16). Until somebody runs it, `session`
+is the mode that is actually known to work, which is why it is the default.
