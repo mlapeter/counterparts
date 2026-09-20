@@ -67,6 +67,8 @@ import {
   dateOf,
   decodeVector,
   describeGuardRefusal,
+  describePreRowsRefusal,
+  preRowsMarkersIn,
   encodeVector,
   explicitDirSetting,
   isWithin,
@@ -1004,7 +1006,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
-      io.err(`install failed: ${String((err as Error).message ?? err)}`);
+      io.err(`install failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1024,7 +1026,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return await credentialsCommand(parsed, io, env, named, opts.stdin);
     } catch (err) {
-      io.err(`credentials failed: ${String((err as Error).message ?? err)}`);
+      io.err(`credentials failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1046,7 +1048,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return scopeCommand(parsed, io, observer, named, now);
     } catch (err) {
-      io.err(`scope failed: ${String((err as Error).message ?? err)}`);
+      io.err(`scope failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1075,7 +1077,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return doctorCommand(parsed, io, env, named, opts.checkout);
     } catch (err) {
-      io.err(`doctor failed: ${String((err as Error).message ?? err)}`);
+      io.err(`doctor failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1141,7 +1143,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         );
     }
   } catch (err) {
-    io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
+    io.err(`${command} failed: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
 }
@@ -1160,15 +1162,22 @@ function resolveDir(env: Record<string, string | undefined>): string {
 
 /**
  * The store refusals the console renders as a SENTENCE rather than printing the
- * error's own line: the explicit-dir guard is one an operator armed on purpose,
- * and the reader is owed what it refused and how to proceed (constitution 16),
- * not a JSON detail. The sentence is the store's (`describeGuardRefusal`); the
- * remedy is this console's, because it is the surface that has `--dir`. Every
- * other store error keeps its `${code} ${detail}` line, asserted by code.
+ * error's own line, because the reader is owed what it refused and how to
+ * proceed (constitution 16), not a JSON detail. The sentences are the store's
+ * (`describeGuardRefusal`, `describePreRowsRefusal`); the remedy is this
+ * console's, because it is the surface that has `--dir`. Every other store
+ * error keeps its `${code} ${detail}` line, asserted by code.
+ *
+ * Two of them now. The explicit-dir guard is one an operator armed on purpose.
+ * `STORE_PRE_ROWS` joined it after review A measured what every console door
+ * actually printed at a pre-rows store — the bare code and a JSON blob, with
+ * the one instruction the owner is given ("Run: counterparts doctor") printing
+ * the same blob. A dead end at the exact moment of the cut-over.
  */
 function describeDirRefusal(err: unknown): string {
   return (
     describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
+    describePreRowsRefusal(err, `Name a store with --dir <path>.`) ??
     String((err as Error).message ?? err)
   );
 }
@@ -1195,7 +1204,7 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
   try {
@@ -1241,7 +1250,7 @@ function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number)
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
   try {
@@ -1352,7 +1361,7 @@ async function selfPageCommand(
   try {
     counterpart = openCounterpart(dir, observer);
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
   try {
@@ -1511,7 +1520,7 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
   try {
@@ -1706,7 +1715,7 @@ function installCommand(
   try {
     store = Store.open({ dir: layout.store });
   } catch (err) {
-    io.err(`refused: ${String((err as Error).message ?? err)}`);
+    io.err(`refused: ${describeDirRefusal(err)}`);
     return EXIT.refused;
   }
   const resolved = store.dir;
@@ -1854,7 +1863,7 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   try {
     store = Store.open({ dir });
   } catch (err) {
-    io.err(`refused: ${String((err as Error).message ?? err)}`);
+    io.err(`refused: ${describeDirRefusal(err)}`);
     return EXIT.refused;
   }
   const resolved = store.dir;
@@ -2280,6 +2289,33 @@ function vectorFormatLine(v: VectorFormatCensus): string {
  * they were and now name it, because the safe option being available is not a
  * reason to make the destructive one quieter.
  */
+/**
+ * Refuse a PRE-ROWS store before this command opens anything of its own.
+ *
+ * `Store.open` refuses it by name, and ~20 doors get that for free because they
+ * open a `Store` first. Two do not: `migrate-cache` opens box 3 directly and
+ * never sees a `Store` at all, and `verify --rebuild` opens box 3 for its
+ * census before it opens box 2. Review A measured both writing into a parked
+ * pre-rows store's `cache/` — a `-shm` in the fixture, and on the owner's real
+ * parked store a `--apply` would rewrite and VACUUM ~17,000 documents' index in
+ * a store this build has declared it cannot read.
+ *
+ * Box 3 is rebuildable and out of the backup set, so this is not memory loss.
+ * It is a door writing where the build said it would not, and a rebuild of that
+ * cache after a rollback is a paid re-embed.
+ */
+function refusePreRows(dir: string, io: Io): number | null {
+  const found = preRowsMarkersIn(dir);
+  if (found.length === 0) return null;
+  io.err(
+    describePreRowsRefusal(
+      new StoreError("STORE_PRE_ROWS", { dir, found: found.join(", "), expected: SCHEMA_VERSION }),
+      "Name a store with --dir <path>.",
+    ) ?? `refused: ${dir} was written before this build's floor.`,
+  );
+  return EXIT.failed;
+}
+
 function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
   // THE WRITING HALF NAMES ITS STORE (2026-09-05 ruling). The census is
   // read-only and stays open to `COUNTERPARTS_DATA_DIR`; these three are not.
@@ -2313,6 +2349,11 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
+  // BEFORE box 3 is opened, on every branch: `--rebuild`'s census opens the
+  // cache before it opens box 2, so the refusal arrived after a `-shm` had
+  // already moved (review A, MINOR-2).
+  const preRowsRefusal = refusePreRows(dir, io);
+  if (preRowsRefusal !== null) return preRowsRefusal;
   if (flags["rebuild"] !== true) {
     if (flags["prune-index"] === true) return verifyPruneIndex(dir, io);
     if (flags["retry-skipped"] === true) return verifyRetrySkipped(dir, io);
@@ -2784,6 +2825,10 @@ async function migrateCacheCommand(
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
+  // This command never opens a `Store`, so it never met the refusal every other
+  // door gets for free (review A, MINOR-1).
+  const preRowsRefusal = refusePreRows(dir, io);
+  if (preRowsRefusal !== null) return preRowsRefusal;
   const path = paths.cache(dir);
   if (!existsSync(path)) {
     io.err(
@@ -3043,7 +3088,7 @@ function backupCommand(
     store = Store.open({ dir, observer: true });
   } catch (err) {
     io.out(`Snapshot: none — nothing was copied.`);
-    io.err(`  could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`  could not open the store: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
   try {
@@ -3216,7 +3261,7 @@ async function removeCommand(
     io.out(`  removal record: ${outcome.notes.length} stages appended`);
     return EXIT.ok;
   } catch (err) {
-    io.err(`removal failed: ${String((err as Error).message ?? err)}`);
+    io.err(`removal failed: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   } finally {
     store.close();
@@ -3328,7 +3373,7 @@ function backfillClaimsCommand(
         });
         written += 1;
       } catch (err) {
-        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+        failures.push(`${target.id}: ${describeDirRefusal(err)}`);
       }
     }
   } finally {
@@ -3578,7 +3623,7 @@ function repairMergedBeliefsCommand(
         const report = unarchiveMerged(store, target.id);
         if (!report.noop) restored += 1;
       } catch (err) {
-        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+        failures.push(`${target.id}: ${describeDirRefusal(err)}`);
       }
     }
   } finally {

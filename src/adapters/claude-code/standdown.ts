@@ -126,8 +126,12 @@ const PLAIN_WORDS: Partial<Record<StoreErrorCode, string>> = {
   ID_CYCLE: "a revision chain in the store points back at itself",
   ID_CHAIN_TOO_DEEP: "a revision chain in the store is longer than this build follows",
   SCHEMA_AHEAD: "this store was written by a newer build than the one running",
+  // The one entry that carries an INSTRUCTION, because it is the one fault a
+  // reader can act on without another command: the tag is the way back in, and
+  // a bare `floor/v5-last` in a JSON payload told nobody it was a thing to check
+  // out (review A, NIT-2). It fits the 200-character reason cap with room.
   STORE_PRE_ROWS:
-    "this store keeps its memories in files, which this build does not read — it was written before the floor changed",
+    "this store keeps its memories in files, which this build does not read — it was written before the floor changed; the build that reads it is the tag floor/v5-last",
   SQLITE_UNAVAILABLE: "this runtime has no SQLite binding",
   DATA_DIR_FORBIDDEN: "the configured data dir is one this build refuses to open",
   STORE_UNINITIALIZED: "there is no store here yet, or it is a schema behind",

@@ -137,6 +137,8 @@ afterEach(() => {
 });
 
 const BODY = "The copy must read its OWN words, never the source's.";
+/** The one actionable token every pre-rows sentence has to carry. */
+const HOW_TO_READ_IT = "git checkout floor/v5-last";
 
 /** A store with one memory and one revision, so `versions` holds a row too. */
 function seed(dir: string): { id: string } {
@@ -425,7 +427,10 @@ describe("a store written before the floor is refused by name, and never touched
     const code = await run(["status", "--dir", source], { io: c.io });
     expect(code).not.toBe(EXIT.ok);
     const printed = [...c.out, ...c.err].join("\n");
-    expect(printed).toContain("STORE_PRE_ROWS");
+    // A SENTENCE, not the bare code and a JSON blob the first draft printed.
+    expect(printed).toContain("written before this build's floor");
+    expect(printed).toContain(HOW_TO_READ_IT);
+    expect(printed).not.toContain("STORE_PRE_ROWS {");
     // And NOT the sentence that invites somebody to build a store on top of his
     // old one, which is what `storeExists` answering "no" would have produced.
     expect(printed).not.toContain("counterparts init");
@@ -623,6 +628,45 @@ describe("a store written before the floor is refused by name, and never touched
     // "no store here" would send all of them down the "run init" path — the one
     // sentence that invites somebody to build a store on top of his old one.
     expect(storeExists(source)).toBe(true);
+  });
+
+  test("A-MINOR-1/-2: every console door refuses in a SENTENCE and touches nothing — box 3 included", async () => {
+    buildV5Store(source);
+    // A cache, so the two doors that open box 3 directly have one to reach for.
+    mkdirSync(join(source, "cache"), { recursive: true });
+    const cache = new Database(paths.cache(source), { create: true });
+    cache.exec("CREATE TABLE doc_tokens (memory_id TEXT, token TEXT)");
+    cache.close();
+    const before = fingerprint(source);
+
+    for (const argv of [
+      ["status"],
+      ["verify"],
+      // `--rebuild` opened box 3 for its census BEFORE box 2, so the refusal
+      // arrived after a `-shm` had moved (A-MINOR-2).
+      ["verify", "--rebuild", "--drop-vectors"],
+      // `migrate-cache` never opens a `Store` at all (A-MINOR-1).
+      ["migrate-cache"],
+      ["migrate-cache", "--apply", "--yes"],
+      ["fired"],
+    ]) {
+      const c = consoleAnswering("");
+      const code = await run([...argv, "--dir", source], { io: c.io });
+      const printed = [...c.out, ...c.err].join("\n");
+      // A SENTENCE, not a bare code and a JSON blob (A-MINOR-3).
+      expect({ argv, ok: code !== EXIT.ok }).toEqual({ argv, ok: true });
+      expect({ argv, said: printed.includes("written before this build's floor") }).toEqual({
+        argv,
+        said: true,
+      });
+      expect({ argv, untouched: printed.includes("NOTHING WAS TOUCHED") }).toEqual({
+        argv,
+        untouched: true,
+      });
+      expect({ argv, how: printed.includes(HOW_TO_READ_IT) }).toEqual({ argv, how: true });
+      // …and it is true: not one byte, `cache/`'s `-shm` included.
+      expect({ argv, after: fingerprint(source) }).toEqual({ argv, after: before });
+    }
   });
 
   test("a v6 store is not refused, and the refusal costs a fresh store nothing", () => {

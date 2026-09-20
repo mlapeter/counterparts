@@ -241,8 +241,11 @@ describe("a store written before the floor", () => {
     const message = systemMessage(run) ?? "";
     expect(message).toStartWith(`${SAID}: `);
     expect(message).toContain("(STORE_PRE_ROWS)");
-    // It says which build still opens the store, so the sentence ends in
-    // something to do rather than in a dead end.
+    // It says which build still opens the store IN THE MESSAGE the owner sees,
+    // so the sentence ends in something to do rather than in a dead end — and
+    // `Run: counterparts doctor` now prints the same sentence rather than the
+    // JSON blob that sent him in a circle (review A, MINOR-3 / NIT-2).
+    expect(message).toContain("the tag floor/v5-last");
     expect(run.stderr).toContain("floor/v5-last");
     expect(run.stderr).toContain("[counterparts] hook stood down:");
 
