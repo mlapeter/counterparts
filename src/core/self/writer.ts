@@ -196,13 +196,38 @@ export function hasDayBefore(store: Store, today: string): boolean {
   }
 }
 
-/** Every recorded attempt, newest first. Never throws. */
-export function pageWriterRuns(store: Store, opts: { about?: string; limit?: number } = {}): PageWriterRun[] {
+/**
+ * HOW FAR BACK A READING LOOKS, in LIVED days.
+ *
+ * It exists because `store.eventLog` orders by `seq` ASC and cuts at a limit,
+ * so an unbounded read of a name with years of rows returns the OLDEST of them —
+ * which for a "did last night happen" question is the exact opposite of the
+ * answer. The window is the log's own default retention (`pruneEvents`, 90 lived
+ * days): past it the rows are not there to be read anyway, so this drops
+ * nothing that exists and turns the limit into a ceiling nothing reaches
+ * (roughly three rows a day, so a few hundred in a full window).
+ */
+export const PAGE_WRITER_LOOKBACK_DAYS = 90;
+/** A ceiling well above the window's own count, so the cut never decides. */
+export const PAGE_WRITER_ROW_CEILING = 5_000;
+
+/** Every recorded attempt in the window, newest first. Never throws. */
+export function pageWriterRuns(
+  store: Store,
+  opts: { about?: string; limit?: number; sinceDay?: number } = {},
+): PageWriterRun[] {
   let rows;
   try {
+    // BOUNDED BY DAY, NOT BY COUNT. `eventLog` cuts oldest-first, so a bare
+    // limit on a long-lived store hands back the first rows ever written and
+    // every reading here — "is this night claimed", "when did it last run" —
+    // silently answers about a month that is over.
+    const floor =
+      opts.sinceDay ?? Math.max(0, store.livedDay() - PAGE_WRITER_LOOKBACK_DAYS);
     rows = store.eventLog({
       name: SELF_PAGE_WRITER_EVENT,
-      ...(opts.limit === undefined ? {} : { limit: opts.limit }),
+      sinceDay: floor,
+      limit: opts.limit ?? PAGE_WRITER_ROW_CEILING,
     });
   } catch {
     return [];
@@ -289,9 +314,11 @@ export function pageWriterClaimOpen(store: Store, about: string, today: string):
   return status.run !== null && !status.derived && (status.outcome === "asked" || status.outcome === "started");
 }
 
-/** The newest attempt on this store, whatever date it was about. Null if none. */
+/** The newest attempt inside the window, whatever date it was about. Null if
+ *  none — which on a store that has not run for longer than the log keeps its
+ *  rows is the truth the log can still support. */
 export function lastPageWriterRun(store: Store): PageWriterRun | null {
-  return pageWriterRuns(store, { limit: 200 })[0] ?? null;
+  return pageWriterRuns(store)[0] ?? null;
 }
 
 /**

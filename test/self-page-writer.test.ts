@@ -245,6 +245,28 @@ describe("how a night reads afterwards", () => {
     expect(pageWriterClaimOpen(c.store, about, tomorrow)).toBe(false);
   });
 
+  test("a long-lived store reads the NEWEST rows, not the oldest — `eventLog` cuts the wrong end", () => {
+    const c = counterpart();
+    seedYesterday(c, ["A placeholder thing noticed yesterday."]);
+    const about = pageWriterAbout(c.store.today());
+    // Six hundred rows of history, then today's claim. `store.eventLog` orders
+    // by seq ASC and cuts at a limit, so an unbounded read of this name on a
+    // store that has run for two years hands back the first rows ever written —
+    // and every reading here would answer about a month that is over.
+    for (let i = 0; i < 600; i += 1) {
+      c.recordPageWriterRun({
+        about: dayBefore(about, 600 - i),
+        mode: "session",
+        outcome: "nothing-to-say",
+        day: 0,
+      });
+    }
+    c.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
+    expect(lastPageWriterRun(c.store)?.about).toBe(about);
+    expect(pageWriterRuns(c.store, { about })).toHaveLength(1);
+    expect(c.pageWriterDue({ mode: "session" }).due).toBe(true);
+  });
+
   test("a terminal row wins over the claim it answers, and is never 'derived'", () => {
     const c = counterpart();
     const about = pageWriterAbout(c.store.today());
