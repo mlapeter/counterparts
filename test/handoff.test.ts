@@ -101,6 +101,13 @@ function eventNames(s: Store): string[] {
   return s.eventLog({ limit: 1000 }).map((r) => r.name);
 }
 
+/** Every id box 3 holds a vector for. Box 3 has no public reader for this and
+ *  the question — "did anything embed a row it must not" — has no other answer. */
+function vectorIds(s: Store): string[] {
+  const cache = (s as unknown as { cache: { all: (sql: string) => { memory_id: string }[] } }).cache;
+  return cache.all("SELECT memory_id FROM embeddings").map((r) => r.memory_id);
+}
+
 /** A console the CLI can write to, and answer prompts from. */
 function consoleLines(answers: readonly string[] = []): {
   io: CliIo;
@@ -1051,7 +1058,7 @@ describe("the review's findings, each with the thing that was wrong", () => {
     expect(handoffRows(s)).toHaveLength(1);
   });
 
-  test("MINOR-9: a handoff is never queued for embedding — and the self page still is", () => {
+  test("MINOR-9: neither the handoff NOR the self page is queued for embedding", () => {
     const c = counterpart();
     const hid = c.writeHandoff(BODY, { scope: HERE }).id as string;
     const mid = c.store.put({ type: "memory", kind: "fact", body: "An ordinary memory." });
@@ -1061,13 +1068,71 @@ describe("the review's findings, each with the thing that was wrong", () => {
     }).id as string;
     const missing = c.store.missingVectors();
     expect(missing).not.toContain(hid);
+    // The self page joined the handoff on the owner's word, 2026-09-20. It is
+    // the same case by the same test: delivered at the wake, skipped by
+    // `activate`, so a vector buys retrieval nothing and costs the store its
+    // most identity-bearing prose on a wire.
+    expect(missing).not.toContain(pid);
     expect(missing).toContain(mid);
-    // NOT fixed here, on purpose, and asserted so the day somebody fixes it in
-    // `self/` this line is what tells them E1 was watching: the self page is in
-    // exactly the same position and is S1's question, not this seam's.
-    expect(missing).toContain(pid);
-    // The backlog doctor watches gets no floor from handoffs.
+    // The backlog doctor watches gets no floor from either.
     expect(c.store.unembeddedCount()).toBe(missing.length);
+  });
+
+  test("with an embedder wired, no call ever carries the page's or the handoff's body", () => {
+    // THE FILTER HAS TO BE AT THE WRITE SEAM, and a filter only on the backfill
+    // is not one. The live adapter wires a SYNC embedder
+    // (`claude-code/index.ts`), so `indexOne` embeds at every `put` and
+    // `revise` — measured with this stub before it was fixed: three calls, and
+    // two of them carried prose that can never reach a turn.
+    const seen: string[] = [];
+    const c = counterpart({
+      embed: (text: string) => {
+        seen.push(text);
+        return [1, 2, 3];
+      },
+    });
+    const hid = c.writeHandoff("HANDOFF-MARKER: half done here.", { scope: HERE }).id as string;
+    const pid = c.revisePage("## Core\n\nPAGE-MARKER placeholder.", {
+      reason: "probe",
+      by: "owner",
+    }).id as string;
+    c.store.put({ type: "memory", kind: "fact", body: "MEMORY-MARKER ordinary." });
+
+    expect(seen.some((t) => t.includes("HANDOFF-MARKER"))).toBe(false);
+    expect(seen.some((t) => t.includes("PAGE-MARKER"))).toBe(false);
+    expect(seen.some((t) => t.includes("MEMORY-MARKER"))).toBe(true);
+    expect(vectorIds(c.store)).not.toContain(hid);
+    expect(vectorIds(c.store)).not.toContain(pid);
+
+    // …and the third door, which takes an id from a caller rather than from the
+    // queue, answers honestly rather than embedding behind the rule's back.
+    expect(c.store.embedOne(pid)).toEqual({ found: true, vector: false });
+    expect(c.store.embedOne(hid)).toEqual({ found: true, vector: false });
+    expect(vectorIds(c.store)).not.toContain(pid);
+
+    // The LEXICAL index still holds them: the owner must be able to find a row
+    // by searching for it, and none of those surfaces is a recall path.
+    expect(c.store.search("HANDOFF-MARKER", 10).map((r) => r.id)).toContain(hid);
+    expect(c.store.search("PAGE-MARKER", 10).map((r) => r.id)).toContain(pid);
+  });
+
+  test("the JOURNAL keeps its vector — it is a real recall candidate, and was checked", () => {
+    // Checked by the same test and deliberately left alone: `activate` does not
+    // skip an episode, `expandHandle` returns one with `journal: true`, and the
+    // backfill puts episodes in the FIRST group on purpose. A vector buys it
+    // something, so it keeps one. Beliefs likewise.
+    const c = counterpart();
+    const eid = c.appendEpisode("s1", "Placeholder: a first-person chapter about the day.")
+      .episodeId as string;
+    const bid = c.store.put({
+      type: "schema",
+      kind: "person",
+      body: "Placeholder believes the parser is the bottleneck.",
+      meta: { role: "belief" },
+    });
+    const missing = c.store.missingVectors();
+    expect(missing).toContain(eid);
+    expect(missing).toContain(bid);
   });
 
   test("NIT 1 and 2: the life is fourteen lived days, and the last one never says zero", () => {

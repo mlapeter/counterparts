@@ -103,10 +103,14 @@ block for a given directory and day; four durable event names (`written`, `shown
    that would still exceed the ceiling is delivered WITHOUT the pointer rather than over the
    limit, and that drop leaves a durable `handoff.refused{reason: "no-room"}` row, deduped
    per row per lived day.
-7b. **[M] It is never queued for embedding** (`store/#notForEmbedding`). A vector for it
-   could not reach a turn — `activate` skips it — but it would give the prose this module
-   calls the likeliest to carry a token a second representation, and put a floor under the
-   embed backlog `doctor` watches that has nothing to do with memories.
+7b. **[M] It never gets a vector** (`store/#noVector`, asked at all three doors:
+   `indexOne` at write time, `unembeddedIds` for the backfill, `embedOne` for a caller
+   naming an id). One could not reach a turn — `activate` skips the row — but it would give
+   the prose this module calls the likeliest to carry a token a second representation
+   outside its row, and put a floor under the embed backlog `doctor` watches. The SELF PAGE
+   is excluded by the same rule on the owner's word (2026-09-20); the journal is NOT, and
+   why is in `INTERFACE-GAPS.md` §7. The LEXICAL index still holds both, so the owner can
+   still find a row by searching for it.
 8. **[M] The sentinel stays true.** The splice re-solves the byte fixed point so the opening
    comment and the tail sentinel both state the delivered total, and the lane counts and
    `elements=` are untouched.

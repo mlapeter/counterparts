@@ -150,6 +150,34 @@ a fresh row rather than reviving a retired one.
 A session that finished work in a directory that never had a handoff said something true,
 and the honest answer is a named fact rather than a silent success.
 
+## 5c. No refusal channel on either fired row, and why
+
+`Mechanism.refusals` (E2) exists because reading a namespace wholesale made a healthy store
+report `BLOCKED prune … dwell-too-short ×240` for ever. `RefusalSource.only` is the
+allow-list that fixes it, and the test it sets is whether a NAMED RULE turned away a
+candidate that otherwise QUALIFIED — the owner saying no — rather than arithmetic saying
+not yet.
+
+By that test this module has almost nothing to declare. `no-scope` is "there is no
+directory to file one against"; `not-text` and `too-large` are a malformed or oversized
+input; `nothing-to-clear` is "there was no pointer here"; `empty` is nothing written.
+None of them is a rule refusing something that qualified — they are all *not applicable*
+or *not yet*. `gate-refused` and `store-refused` ARE real gates, and they are also the
+rarest rows in the set: a handoff carrying a credential or a body the floor rejects is an
+event worth a line, and the line it gets is the refusal row itself in the fired view's
+evidence, not a permanent `blocked` state on the mechanism.
+
+The one that argues for itself is `no-room` — a host's ceiling turning away a pointer that
+qualified. It is left out for the reason S2 left its own `no-room` out (`self/NOTES` §19):
+one fact, two surfaces, and the permanent one is the wrong one. A store whose ceiling is
+below the share rule would read `blocked` for ever, which is the shape E2's own review was
+about; what that store wants said is "your ceiling is small", and that belongs beside the
+ceiling, not beside the mechanism.
+
+So: **no `refusals` declared on either row.** The refusals are still durable, still read by
+`fired` as evidence, and still in the dashboard's log — they simply do not grade the
+mechanism as blocked.
+
 ## 6. Why the field is processed BEFORE `session_end` checks `memories`
 
 `session_end` requires a non-empty `memories` array. A session that learned nothing worth

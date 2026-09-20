@@ -952,3 +952,31 @@ that qualified. It is left out anyway, because it already has a louder and bette
 surface: doctor's Page writer line goes amber after two owed days and names
 `injectionBudgetBytes` in the fix. Two surfaces for one fact, one of them permanent on any
 store with a tight ceiling, is the shape the review was about.
+
+## 20. The page is not embedded (2026-09-20, ruled by the owner, landed with E1)
+
+E1's adversarial review asked whether the self page was in the same position as the
+per-directory handoff, which E1 had just excluded from embedding. It was: `missingVectors()`
+held it, and with a sync embedder wired — which the live adapter does — `indexOne` embedded
+it at every `revise`. E1 flagged it rather than fixing it, correctly: a one-line predicate in
+`store/` is not the place to set this module's policy. The owner ruled on it the same day,
+and the exclusion landed with E1's PR.
+
+The three reasons, recorded here because they are about the PAGE and not about the seam:
+
+1. **A vector buys the page nothing.** `recall/activate.ts#isSelfPage` skips it — the page
+   is delivered whole at every wake and never surfaces in a turn — so nothing the semantic
+   channel ranks could ever deliver it.
+2. **It is the most identity-bearing prose in the store**, up to `PAGE_MAX_BYTES` of it, and
+   embedding sends it to an API for that nothing. Constitution 6: data leaves the machine by
+   the owner's explicit choice, and an indexer that indexes everything is not one.
+3. **It floors the embed backlog.** `unembeddedCount()` is the number `doctor` and the
+   parallel run watch, and its job is to say what is actionable; on a keyless store a page
+   in it never falls out.
+
+The rule is `store/#noVector`, which names `role: "page"` and `role: "handoff"`. The page's
+row keeps its LEXICAL index, so the dashboard's search and the console's `remove` flow still
+find it — neither is a recall path. Nothing retracts a vector a page already has; the one
+door is `counterparts verify --rebuild`, and the measurement is in
+`core/handoff/INTERFACE-GAPS.md` §7. The owner's live store has never had a page written, so
+nothing has been embedded there.

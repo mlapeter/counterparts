@@ -99,22 +99,58 @@ which makes it this module's business to say the guarantee is narrower than it s
 because a fix belongs in `encode/secrets.ts` where every entrance gets it at once, not in a
 special case for one row class.
 
-## 7. The SELF PAGE is queued for embedding, and this module is not
+## 7. CLOSED — the self page is excluded too, and a vector already made is never retracted
 
-**Owner:** `self/` (S1), with `store/#notForEmbedding` as the seam.
-**Needed:** nothing from this module — it is already excluded.
-**Have:** `store/#unembeddedIds` skips a `type: "schema"` row whose `meta.role` is
-`handoff`, so a handoff never gets a vector and never puts a floor under the embed backlog
-`doctor` watches. **The self page is in exactly the same position and is NOT skipped**:
-measured, `missingVectors()` contains it. It is also a schema row, also delivered whole at
-every wake, and also skipped by `activate`, so a vector for it can no more reach a turn
-than a handoff's could — and it is also, by S1's own argument, up to 16 KB of the most
-identity-bearing prose in the store.
+**Owner:** was `self/` (S1); settled by the owner on 2026-09-20.
+**What it was:** E1 excluded the handoff from embedding and left the self page in
+`missingVectors()`, flagged loudly here rather than fixed, because setting another
+module's policy in a one-line predicate is not a seam's business.
 
-Not fixed here, and said loudly rather than quietly: whether the page should carry a vector
-is S1's question, and answering it from this seam would be one module deciding another's
-policy in a one-line predicate. `test/handoff.test.ts` asserts the page is still in that
-list, so the day somebody changes it, the assertion is what tells them E1 was watching.
+**The ruling, and the reasons for the record.** The owner asked for the page to be
+excluded too. It is the same case by the same test: it is never recalled (`activate` skips
+it; it is delivered at the wake only), so a vector buys retrieval nothing; it is up to
+16 KB of the most identity-bearing prose in the store, which would leave the machine for an
+embedding API for no use (constitution 6 — data leaves by the owner's choice, and "the
+indexer indexes everything" is not a choice); and it would sit in `doctor`'s embed backlog
+for ever on a keyless store. `store/#noVector` now names both roles, with the argument in
+place.
+
+**And the fix is at the WRITE seam, which is the part that nearly went wrong.** The first
+version filtered only `unembeddedIds`, the backfill. The live adapter wires a SYNC embedder
+(`claude-code/index.ts`), so `indexOne` embeds at every `put` and `revise` — measured with a
+stub: three calls, two of them carrying prose that can never reach a turn. `noVector` is
+asked at all three doors now (`indexOne`, `unembeddedIds`, `embedOne`), and the test that
+caught it is the one the owner asked for.
+
+**Checked by the same test and deliberately left alone.** The JOURNAL (`type: "episode"`)
+is a real recall candidate — `activate` does not skip it, `expandHandle` returns it with
+`journal: true`, and the backfill puts episodes in the FIRST group on purpose — so a vector
+buys it something and it keeps one. Beliefs and entities likewise. S2's nightly writer
+mints no row of its own: it revises the PAGE row and writes events, so excluding the page
+covers it whole.
+
+**THE OPEN HALF: nothing retracts a vector that already exists.** Measured, on this floor:
+
+```
+embedOne(page) -> {"found":true,"vector":true}   vector present: true
+after revise(page)                               vector present: true   (now STALE)
+after archive(page)                              vector present: true
+after pruneDeadIndex()                           vector present: true   (removed=0)
+```
+
+`deindexDoc` deletes `doc_tokens` and `doc_lens` and leaves `embeddings` alone — named in
+its own docblock as an open problem, with `nearestTo` scanning the table with no liveness
+filter (`recall/NOTES.md` §13). `pruneDeadIndex` walks the token table, not the vector one.
+The only path that clears a vector is `rebuildCache()`, which drops the whole table and
+rebuilds from live rows — and after this change a rebuild will not re-embed either role.
+
+**What that means in practice, stated plainly rather than fixed here.** A store that ran an
+earlier build with an embedder wired holds vectors for its page and its handoffs; nothing
+removes them, and a stale one can still displace a live neighbour on the semantic slate.
+`counterparts verify --rebuild` is the owner's door if it ever matters. **The owner's live
+store has never had a page written, so nothing has been embedded there.** No retraction
+path is built now: it would be machinery bought against a state no store this project owns
+is in, and `rebuildCache` already reaches it.
 
 ## 8. No host but Claude Code passes a scope at wake
 

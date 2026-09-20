@@ -1667,7 +1667,13 @@ export class Store {
     } catch {
       return { found: false, vector: false };
     }
-    const vec = this.embed ? this.embed(indexText(doc)) : null;
+    // THE THIRD DOOR, guarded like the other two. `unembeddedIds` will never
+    // offer one of these, but this method takes an id from a caller and a
+    // backfill that named one directly would embed it — the whole point of
+    // `noVector` is that a caller cannot reach the wire for these rows by any
+    // route. `found: true, vector: false` is the honest answer: the row is
+    // there, and it has no vector on purpose.
+    const vec = this.embed && !noVector(doc.type, doc.meta["role"]) ? this.embed(indexText(doc)) : null;
     if (vec === null) return { found: true, vector: false };
     setEmbedding(this.cache, id, vec);
     return { found: true, vector: true };
@@ -2239,10 +2245,25 @@ export class Store {
     return doc;
   }
 
-  /** Box 3 is best-effort by design: it is rebuildable, so it never fails a write. */
+  /**
+   * Box 3 is best-effort by design: it is rebuildable, so it never fails a
+   * write.
+   *
+   * **This is where `noVector` has to be asked, and the backfill is the second
+   * place and not the first.** The live adapter wires a SYNC embedder
+   * (`claude-code/index.ts`), so every `put` and `revise` embeds here, at write
+   * time, long before `unembeddedIds` is consulted — a filter only on the
+   * backfill leaves the write path handing the whole body to an embedder. That
+   * was measured, with a stub, before it was fixed.
+   *
+   * The TOKENS are still written either way. A row nobody should embed is still
+   * a row the OWNER should be able to find: the dashboard's search, the console
+   * `remove` flow and `expandHandle`'s exact-title match all read the lexical
+   * index, and none of them is a recall candidate path.
+   */
   private indexOne(doc: ProseDoc): void {
     const text = indexText(doc);
-    const vec = this.embed ? this.embed(text) : null;
+    const vec = this.embed && !noVector(doc.type, doc.meta["role"]) ? this.embed(text) : null;
     if (vec !== null) indexDoc(this.cache, doc.id, text, vec);
     else indexDoc(this.cache, doc.id, text);
   }
@@ -2327,36 +2348,54 @@ function preRowsRemedy(
 }
 
 /**
- * A ROW THE BACKFILL MUST NOT TAKE — the one exclusion `unembeddedIds` makes
- * beyond "already embedded" and "removed".
+ * THE TWO ROWS THAT NEVER GET A VECTOR, and why the rule is one function.
  *
- * Today it is one row class: the per-directory HANDOFF (`core/handoff/`, E1,
- * 2026-09-20). A handoff is working context for a place, not a memory; it is
- * already out of the recall scan (`recall/activate.ts`), so a vector for it
- * could never reach a turn. What it WOULD do is two things the adversarial
- * review measured and nobody had stated: give the prose the feature itself
- * calls "the most likely to carry a token" a second representation outside its
- * row, and put a floor under `unembeddedCount()` that has nothing to do with
- * memories — the number doctor and the parallel run watch, whose whole job is
- * to say what is actionable.
+ * Both are `type: "schema"` rows that are DELIVERED AT THE WAKE and are skipped
+ * by `recall/activate.ts`, so neither can reach a turn through the semantic
+ * channel however good its vector is. Embedding either buys retrieval nothing
+ * and costs three things that were measured rather than argued:
  *
- * Read STRUCTURALLY, off two columns the query already selects, for the reason
- * `recall/` reads the role structurally: `store/` depends on no module above
- * it, and a parse that fails reads as "embed it", which is the direction that
- * only ever costs a vector nobody asks for. The role string's owner is
+ *   1. **The most sensitive prose in the store goes out to an embedding API for
+ *      no use.** The self page is up to 16 KB of first-person identity; the
+ *      handoff is the prose E1's own CONTRACT calls the likeliest to carry a
+ *      token. Data leaves the machine only by the owner's choice (constitution
+ *      6), and "because the indexer indexes everything" is not a choice.
+ *   2. **They put a permanent floor under `unembeddedCount()`** — the number
+ *      `doctor` and the parallel run watch, whose whole job is to say what is
+ *      ACTIONABLE. On a keyless store that floor never falls.
+ *   3. **A vector for a superseded body can displace a live neighbour** on the
+ *      semantic slate (`cache.ts#deindexDoc`'s note: `nearestTo` scans
+ *      `embeddings` with no liveness filter). Fewer rows in that table that
+ *      nothing can deliver is strictly better.
+ *
+ *   - **`role: "page"`** — the self page (S1). Raised by E1's adversarial
+ *     review as "worth checking whether the page is in the same position"; it
+ *     was, and the owner ruled on 2026-09-20 that it should be excluded too.
+ *   - **`role: "handoff"`** — the per-directory handoff (E1).
+ *
+ * Read STRUCTURALLY, for the reason `recall/` reads these roles structurally:
+ * `store/` depends on no module above it, and a parse that fails reads as
+ * "embed it", which is the direction that only ever costs a vector nobody asks
+ * for. The strings' owners are `core/self/page.ts#SELF_PAGE_ROLE` and
  * `core/handoff/index.ts#HANDOFF_ROLE`.
  *
- * **The self page is in the same position and is NOT excluded here.** It is
- * also a `type: "schema"` row, also delivered whole at every wake, and also
- * skipped by `activate` — measured, it is in `missingVectors()` today. Whether
- * it should carry a vector is S1's question, not this seam's to settle
- * unilaterally; it is filed in `core/handoff/INTERFACE-GAPS.md` §7 so it is
- * asked rather than assumed.
+ * **What is NOT excluded, checked by the same test and left alone:**
+ * the JOURNAL (`type: "episode"`) is a real recall candidate — `activate` does
+ * not skip it, `expandHandle` returns it with `journal: true`, and the backfill
+ * puts episodes in the FIRST group on purpose — so a vector buys it something
+ * and it keeps one. Beliefs and entities (`role: "belief"`, `"entity"`) are
+ * candidates too. S2's nightly writer mints no row of its own: it revises the
+ * PAGE row and writes events, so excluding the page covers it whole.
  */
+export function noVector(type: string, role: unknown): boolean {
+  return type === "schema" && (role === "handoff" || role === "page");
+}
+
+/** The same rule for a caller holding box 2's columns rather than a document. */
 function notForEmbedding(row: { type: string; meta: string }): boolean {
   if (row.type !== "schema") return false;
   try {
-    return (JSON.parse(row.meta) as Record<string, unknown>)["role"] === "handoff";
+    return noVector(row.type, (JSON.parse(row.meta) as Record<string, unknown>)["role"]);
   } catch {
     return false;
   }
