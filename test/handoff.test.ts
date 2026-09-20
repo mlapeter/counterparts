@@ -42,6 +42,7 @@ import { Store } from "../src/core/store/index.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
+import { TOOL_NAMES, openServer, toolSpec } from "../src/adapters/mcp/index.js";
 
 const HERE = "/tmp/placeholder-project-a";
 const THERE = "/tmp/placeholder-project-b";
@@ -597,5 +598,132 @@ describe("the owner can see it fire", () => {
     expect(shown?.total).toBeGreaterThan(0);
     expect(written?.state).not.toBe("blind");
     expect(shown?.state).not.toBe("blind");
+  });
+});
+
+// ── the field on the ask ────────────────────────────────────────────────────
+
+describe("the field on the session_end ask", () => {
+  const SESSION = "sess_handoff_1";
+
+  function mcp(opts: Parameters<typeof openServer>[0] = {}): ReturnType<typeof openServer> {
+    const s = openServer({ dir, session: SESSION, scope: HERE, owner: true, ...opts });
+    open.push(s.counterpart);
+    return s;
+  }
+
+  function payload(result: { structuredContent?: unknown }): Record<string, unknown> {
+    return (result.structuredContent ?? {}) as Record<string, unknown>;
+  }
+
+  test("the tool ADVERTISES it, as a field and never as a tool of its own", () => {
+    const schema = toolSpec("session_end")?.inputSchema as Record<string, unknown>;
+    const props = schema["properties"] as Record<string, Record<string, unknown>>;
+    expect(props["handoff"]?.["type"]).toBe("string");
+    // Not required, and not inside an entry: it is about the DIRECTORY, not
+    // about any one thing that was learned.
+    expect(schema["required"]).toEqual(["memories"]);
+    const item = (props["memories"]?.["items"] as Record<string, unknown>)["properties"] as Record<
+      string,
+      unknown
+    >;
+    expect(item["handoff"]).toBeUndefined();
+    // And it stays the same list of tools: a field is not a door.
+    expect(TOOL_NAMES).not.toContain("handoff");
+  });
+
+  test("a dump carrying the field lands both halves, and the result says so", async () => {
+    const s = mcp();
+    const out = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "The parser rewrite needs the empty-input case before it can land." }],
+        handoff: BODY,
+      }),
+    );
+    expect(out["deposited"]).toBe(1);
+    const handoff = out["handoff"] as Record<string, unknown>;
+    expect(handoff["written"]).toBe(true);
+    expect(handoff["reason"]).toBe("created");
+    expect(handoff["showsForDays"]).toBe(HANDOFF_LIFE_DAYS);
+    expect(s.counterpart.readHandoff(HERE)?.body).toBe(BODY);
+  });
+
+  test("no field, no handoff — a session that finished what it started leaves nothing", async () => {
+    const s = mcp();
+    const out = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "The empty-input case is handled and the rewrite is done." }],
+      }),
+    );
+    expect(out["handoff"]).toBeUndefined();
+    expect(s.counterpart.readHandoff(HERE)).toBeNull();
+  });
+
+  test("a malformed memories array still leaves the handoff — the two halves are not one fate", async () => {
+    const s = mcp();
+    const out = payload(
+      await s.call("session_end", { session: SESSION, memories: [], handoff: BODY }),
+    );
+    expect(out["reason"]).toBe("memories-required");
+    expect((out["handoff"] as Record<string, unknown>)["written"]).toBe(true);
+    expect(s.counterpart.readHandoff(HERE)?.body).toBe(BODY);
+  });
+
+  test("a server the host named no directory for writes none — a pointer for everywhere is for nowhere", async () => {
+    // There is no "general" or anonymous scope in this tree. The nearest thing
+    // is `resolveScope`'s last resort — the STORE's own directory — and a
+    // handoff filed there would be handed to every session in every project.
+    // Reached here by passing it as the scope, which is the route that reads as
+    // deliberate and is the one worth guarding.
+    const s = mcp({ scope: dir });
+    const out = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "Something learned with no directory to belong to." }],
+        handoff: BODY,
+      }),
+    );
+    expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe("no-scope");
+    expect(s.counterpart.store.list({ type: "schema", kind: HANDOFF_KIND })).toHaveLength(0);
+  });
+
+  test("an observer stands down over the wire, handoff and all", async () => {
+    const owner = mcp();
+    await owner.call("session_end", {
+      session: SESSION,
+      memories: [{ content: "A first memory so the store exists and holds something." }],
+    });
+    const instrument = mcp({ observer: true });
+    const out = payload(
+      await instrument.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "An instrument's dump, which lands nowhere." }],
+        handoff: BODY,
+      }),
+    );
+    expect(out["stoodDown"]).toBe(true);
+    expect(owner.counterpart.readHandoff(HERE)).toBeNull();
+  });
+
+  test("the handoff written through the ask is expandable by its id, and credits nothing", async () => {
+    const s = mcp();
+    await s.call("session_end", {
+      session: SESSION,
+      memories: [{ content: "The parser rewrite needs the empty-input case before it can land." }],
+      handoff: BODY,
+    });
+    const id = s.counterpart.readHandoff(HERE)?.id as string;
+    const out = payload(await s.call("recall", { handle: id }));
+    expect(out["reason"]).toBe("expanded");
+    expect(JSON.stringify(out["memories"])).toContain(BODY);
+    // Expanded, and still not a memory: the read is allowed, the CREDIT is not.
+    const summary = s.counterpart.creditReferences(SESSION, {
+      assistantTurns: [`Picked up from ${id}.`],
+      expansions: [id],
+    });
+    expect(summary.credited).toBe(0);
+    expect(s.counterpart.store.row(id)?.uses).toBe(0);
   });
 });

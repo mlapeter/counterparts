@@ -1062,13 +1062,20 @@ export class McpServer {
    * result carries back. Null when the caller passed none — which is the
    * ordinary case, and says nothing about this directory either way.
    *
-   * A directory the host never named gets no handoff: `scopeSource === "store"`
-   * means nobody told this server where it is, and the fallback is the store's
-   * own directory, which every session everywhere would then be handed.
+   * A directory the host never named gets no handoff. There is no "general" or
+   * anonymous scope in this tree to file one under — the nearest thing is
+   * `resolveScope`'s last resort, the STORE'S OWN directory, which `server.ts`
+   * itself calls "a bad answer… kept only because a server with no scope at all
+   * cannot deposit". A handoff filed there is a handoff about nowhere, and every
+   * session in every project would be handed it.
+   *
+   * Both the SOURCE and the VALUE are checked, because the value is the hazard:
+   * a host that passes the store's directory as `--scope` reaches the same place
+   * by a route that reads as deliberate.
    */
   private writeHandoffField(raw: unknown): Record<string, unknown> | null {
     if (typeof raw !== "string" || raw.trim().length === 0) return null;
-    if (this.scopeSource === "store") {
+    if (this.scopeSource === "store" || sameScope(this.scope, this.counterpart.store.dir)) {
       this.emit("mcp.handoff.refused", undefined, { reason: "no-scope" });
       return { written: false, reason: "no-scope" };
     }
