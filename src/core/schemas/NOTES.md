@@ -20,8 +20,10 @@ is reconstructible (`slices()`, `beliefs()`, `currentState()`); the reverse is
 not. It also means `no silent destruction` and archive-on-overwrite apply to a
 belief for free, because they already apply to every row.
 
-Cost, recorded: an entity's prose file is no longer the whole schema. An owner
-reading `prose/schema/sch_*.md` sees the stub and its names, not the beliefs.
+Cost, recorded: an entity's own document is no longer the whole schema. An
+owner reading one entity row sees the stub and its names, not the beliefs.
+*[F8: rewrite] Written on the file floor, where that row was
+`prose/schema/sch_*.md`; since schema v6 it is a row, and the point stands.*
 The dashboard's schema view has to join. If that trade turns out wrong, the fix
 is a render pass, not a storage change.
 

@@ -482,7 +482,7 @@ function schemaBytesRow(opts: PreflightOptions): CheckRow {
     return row(
       "store.schemaBytes",
       "not-exercised",
-      `no operational.sqlite under ${opts.v2DataDir} — the OQ2 ruling is a MIGRATED starting store, so this is a setup gap, not a clean reading`,
+      `no canonical database under ${opts.v2DataDir} — the OQ2 ruling is a MIGRATED starting store, so this is a setup gap, not a clean reading`,
     );
   }
   if (reading.readErrors.length > 0) {

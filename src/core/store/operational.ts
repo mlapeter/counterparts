@@ -8,61 +8,85 @@
  *
  * Every multi-row mutation is wrapped in a transaction by the seam in `index.ts`.
  */
-import { dirname } from "node:path";
-
 import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
-import { isCanonicalRelativePath, relativizeStoredPath } from "./paths.js";
+import { PRE_ROWS_READABLE_BY } from "./paths.js";
 import type { ProseType } from "./prose.js";
 
 /**
- * Bumped to 5 (2026-09-05, finding I22): `memories.prose_path` and
- * `versions.path` hold STORE-RELATIVE paths (`prose/<family>/<id>.md`,
- * `versions/<id>/<seq>-<hash>.md`) where v4 and before held absolute ones. No
- * DDL moves; the migration is a DATA rewrite of two columns, done once, inside
- * the same transaction as everything else at open (`relativizeStoredPaths`).
- * It is the first migrate-at-open the live store will ever run.
+ * Bumped to 6 (2026-09-20, the floor): **the memory IS the row.** `title`,
+ * `body`, `meta` and `confidential` are columns on `memories`; a version row
+ * carries its own `title`/`body`/`meta` plus the two provenance dates; and
+ * `memories.prose_path` and `versions.path` are GONE, because there are no
+ * files for them to name. Markdown became an export (`render.ts`).
  *
- * Version 4 (2026-08-29, the mint-source doctrine) added `source` + three
- * `origin_*` columns on `memories`. Version 3 was the box-2 chase
- * (`removal_tombstone`); version 2 was SEAMS items B + K (`gate_session` and
- * `events`).
+ * **There is no migration from v5, and there must not be one.** A v5 store's
+ * bodies are ~16,000 markdown files this build cannot see; adding `body` through
+ * `ADDED_COLUMNS` would "migrate" the owner's live memory into a store with
+ * every body NULL, every prose file orphaned, stamped v6 — and unreadable by the
+ * old build too. So a pre-rows store is refused BY NAME, before any transaction
+ * and before any directory is created, in `Store`'s constructor
+ * (`STORE_PRE_ROWS`). The cut-over carries nothing: the owner starts blank
+ * (ruling 6, 2026-09-18), and the old store stays on disk, byte-identical.
  *
- * Migration is ADDITIVE and idempotent: the DDL below is `CREATE TABLE IF NOT
- * EXISTS`, and columns added after a table first shipped live in
- * `ADDED_COLUMNS`, applied by `ensureAddedColumns` — a `pragma table_info`
- * check, then `ALTER TABLE ADD COLUMN` for whatever is missing, inside the
- * same one-transaction migrate-at-open. A fresh open and a migrated open MUST
- * converge on the identical schema; a test asserts table_info equality.
+ * Version 5 (2026-09-05, finding I22) made the two path columns store-relative;
+ * both columns are gone with this bump and the conversion with them. Version 4
+ * (2026-08-29, the mint-source doctrine) added `source` + three `origin_*`
+ * columns on `memories`. Version 3 was the box-2 chase (`removal_tombstone`);
+ * version 2 was SEAMS items B + K (`gate_session` and `events`).
  *
- * The v4 columns are all NULLABLE, deliberately: a pre-v4 row's provenance was
- * never recorded, and a DEFAULT would fabricate it (the one existing v3 store
- * is the replay evidence store, whose rows are almost all SWEPT — defaulting
- * them 'authored' would be a false claim in the very column that exists for
- * honest attribution). NULL renders as "unrecorded", by name.
+ * Migration is still ADDITIVE and idempotent for whatever comes after v6: the
+ * DDL below is `CREATE TABLE IF NOT EXISTS`, and columns added after a table
+ * first shipped live in `ADDED_COLUMNS`, applied by `ensureAddedColumns` — a
+ * `pragma table_info` check, then `ALTER TABLE ADD COLUMN` for whatever is
+ * missing, inside the same one-transaction migrate-at-open. A fresh open and a
+ * migrated open MUST converge on the identical schema; a test asserts
+ * table_info equality.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 /**
  * The oldest schema an OBSERVER may open without a migration having run.
  *
- * An instrument writes nothing at open, so a store a schema behind normally
- * refuses under observer by name (`STORE_UNINITIALIZED`) rather than migrating
- * itself out from under the process that owns it. v5 is the exception that
- * earns a floor: its only change is the SPELLING of two path columns, and every
- * v5 reader resolves both spellings (`resolveStoredPath`). So a v4 store reads
- * correctly through a v5 observer, and refusing would have taken `status`,
- * `verify`, `backup` and the dashboard away from the owner between the merge
- * and the first writer open — the exact window in which `verify` is supposed
- * to show the unmigrated count. A store below the floor still refuses: v3 lacks
- * columns the readers select.
+ * v5 earned a floor below itself because its only change was the SPELLING of
+ * two path columns, which every v5 reader resolved both ways. v6 has no such
+ * exemption and cannot have one: a v5 store keeps its words in files this build
+ * has no code to read, so an instrument opening one would report an empty store
+ * rather than an unreadable one. The floor is therefore the version itself, and
+ * the refusal a reader actually meets is `STORE_PRE_ROWS`, which names the last
+ * build that CAN read it (`floor/v5-last`) instead of asking for a migration
+ * that does not exist.
  */
-export const OBSERVER_READ_FLOOR = 4;
-/** The durable record the v5 path migration leaves in `events`. Counts only. */
-export const PATHS_MIGRATED_EVENT = "store.migrate.paths";
-/** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2). */
+export const OBSERVER_READ_FLOOR = 6;
+/** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2).
+ *
+ *  Owner ruling 1, 2026-09-18: the prune STAYS, at 90. It now deletes the words
+ *  themselves rather than a note about a file — his steer was simple, elegant
+ *  working-memory mechanics over keeping everything, and losing some history
+ *  after a month or two is an acceptable price. Our own store sets it high for
+ *  debugging. `store/NOTES.md` carries what changed underneath the number. */
 export const DEFAULT_RETENTION_DAYS = 90;
+
+/**
+ * THE TOMBSTONE SHAPE — what a chased row looks like once the owner-op seam has
+ * blanked it (`owner-op-seam.ts#chaseRemoved`).
+ *
+ * It was "the pointers are blank" while the words were in a file; now the words
+ * are the columns, so it is the columns that are blanked, and the pair is the
+ * predicate: an empty body AND an empty content hash. Both halves matter. A row
+ * whose body is empty while the hash still names words that were there is NOT a
+ * tombstone — it is a row whose words went missing underneath the store, which
+ * is the `MEMORY_BODY_MISSING` fault, and reading the two as one condition would
+ * turn a disk event into a silent "the owner removed this".
+ *
+ * Spelled once, here, because three modules ask it: the store's own reads, the
+ * console's removal read-back, and `schemas/index.ts`, whose skip is what keeps
+ * a session starting after a removal (#139).
+ */
+export function rowTombstoned(row: Pick<MemoryRow, "body" | "content_hash">): boolean {
+  return row.body === "" && row.content_hash === "";
+}
 
 const DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -94,13 +118,24 @@ const DDL: readonly string[] = [
      superseded_by     TEXT REFERENCES memories(id),
      revision          INTEGER NOT NULL DEFAULT 0,
      content_hash      TEXT NOT NULL,
-     prose_path        TEXT NOT NULL,
      learned_on        TEXT NOT NULL,
      happened_on       TEXT,
      source            TEXT,
      origin_session    TEXT,
      origin_scope      TEXT,
-     origin_ref        TEXT
+     origin_ref        TEXT,
+     -- v6: the memory itself. prose_path is gone; there is no file.
+     title             TEXT,
+     body              TEXT NOT NULL,
+     -- The payload's meta, VERBATIM JSON. One column, not columns: 28 distinct
+     -- keys are in use across src/ and tools/, the set is open, and contract §3's
+     -- "unrecognized fields survive parse -> serialize untouched" (G6, v1's named
+     -- incident) is satisfied for free by storing the text as given.
+     meta              TEXT NOT NULL DEFAULT '{}',
+     -- The one key promoted OUT of that JSON, because it is a GATE: a gate that
+     -- must parse JSON on every read is a gate that will one day fail open
+     -- (confidentialByMeta, the one truth table, computes it at every write).
+     confidential      INTEGER NOT NULL DEFAULT 0
    )`,
   `CREATE INDEX IF NOT EXISTS memories_band ON memories (band, archived)`,
   `CREATE INDEX IF NOT EXISTS memories_kind ON memories (kind, archived)`,
@@ -110,9 +145,19 @@ const DDL: readonly string[] = [
      reason       TEXT NOT NULL,
      version_day  INTEGER NOT NULL,
      archived_at  INTEGER NOT NULL,
-     path         TEXT NOT NULL,
      content_hash TEXT NOT NULL,
      successor_id TEXT REFERENCES memories(id),
+     -- v6: the archived words themselves, where path used to name a file.
+     title        TEXT,
+     body         TEXT NOT NULL,
+     meta         TEXT NOT NULL DEFAULT '{}',
+     -- The two PROVENANCE dates as they stood in this version. Not in the floor
+     -- plan; added because the code disagreed with it. revise({learnedOn}) is
+     -- a change to canonical content and keeps its prior version like any other
+     -- (see index.ts#revise), and with the dates taken from the LIVE row instead a
+     -- corrected date would have silently rewritten every version behind it.
+     learned_on   TEXT NOT NULL DEFAULT '',
+     happened_on  TEXT,
      PRIMARY KEY (memory_id, seq)
    )`,
   `CREATE TABLE IF NOT EXISTS edges (
@@ -248,7 +293,6 @@ export interface MemoryRow extends Row {
   superseded_by: string | null;
   revision: number;
   content_hash: string;
-  prose_path: string;
   learned_on: string;
   happened_on: string | null;
   /** Who minted this memory (engine-set at the seam; mint.ts `ClaimChannel`,
@@ -259,6 +303,14 @@ export interface MemoryRow extends Row {
   origin_scope: string | null;
   /** The proposal / trace id this memory was minted from. Ids only, never text. */
   origin_ref: string | null;
+  /** v6: the memory itself, and the two fields that travel with it. */
+  title: string | null;
+  body: string;
+  /** `ProseDoc.meta` as verbatim JSON (G6). Parsed once, at the read seam. */
+  meta: string;
+  /** `confidentialByMeta(meta)` at the last write. A column, never re-derived
+   *  per call site: the confidentiality class is a gate (CONTRACT §5 G13). */
+  confidential: number;
 }
 
 export interface VersionRow extends Row {
@@ -267,9 +319,13 @@ export interface VersionRow extends Row {
   reason: string;
   version_day: number;
   archived_at: number;
-  path: string;
   content_hash: string;
   successor_id: string | null;
+  title: string | null;
+  body: string;
+  meta: string;
+  learned_on: string;
+  happened_on: string | null;
 }
 
 export interface EdgeRow extends Row {
@@ -345,8 +401,58 @@ export interface OpenOperationalOptions {
   readonly initialize?: boolean;
   /** Written once, at creation only. Ignored for an already-initialized store. */
   readonly retentionDays?: number;
-  /** The provenance clock, for the migration's event row. Defaults to `Date.now`. */
-  readonly now?: () => number;
+}
+
+/**
+ * Does `memories` carry the column that holds a memory's words?
+ *
+ * The one question that tells a pre-rows database from a v6 one, whatever its
+ * stamp says. A `PRAGMA` on an open handle; no rows read, nothing written.
+ * A file with no `memories` table at all (a fresh one) answers false, which is
+ * why the caller asks it only about a database that already has a version.
+ */
+function hasBodyColumn(db: Db): boolean {
+  try {
+    return db.all<{ name: string }>("PRAGMA table_info(memories)").some((c) => c.name === "body");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Is the database at `path` a PRE-ROWS one wearing the current filename?
+ *
+ * The second lock's question, asked without a `Store` — for the two console
+ * doors that open box 3 directly and so never meet `openOperational` at all
+ * (`migrate-cache`, and `verify --rebuild`'s census). Review f5c measured both
+ * running to completion on a v5 database renamed to `counterparts.sqlite`, and
+ * `migrate-cache --apply` would rewrite and VACUUM ~17,000 documents' index in
+ * a store this build has declared it cannot read.
+ *
+ * Opening it is safe HERE in a way it is not at the filename door: this file is
+ * already named `counterparts.sqlite`, so it is not the owner's parked v5 store
+ * with a `-wal` full of his words — that one is caught by name, before anything
+ * opens. `wal: false`, one PRAGMA and one SELECT, closed immediately.
+ *
+ * False for a file that is not there, is not a database, or is a healthy v6 one.
+ */
+export function isPreRowsDatabase(path: string): boolean {
+  let db;
+  try {
+    db = openDb(path, { wal: false });
+    const found = readSchemaVersion(db);
+    if (found === null) return false;
+    const n = Number.parseInt(found, 10);
+    return Number.isFinite(n) && n < SCHEMA_VERSION && !hasBodyColumn(db);
+  } catch {
+    return false;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* nothing to say about a handle that will not close */
+    }
+  }
 }
 
 /** The schema version recorded in the file, or null if there is not one yet. */
@@ -390,6 +496,41 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
       found: found ?? "none",
     });
   }
+  // ── THE SECOND LOCK, and it is a real one ──────────────────────────────────
+  //
+  // The filename door in `Store`'s constructor is the FIRST lock, and it is the
+  // only one that ever fires on a store that still has its directory. This one
+  // catches the store that walked past it: a v5 database wearing the v6 NAME.
+  // `mv operational.sqlite counterparts.sqlite` is the first thing a person
+  // tries, and with `prose/` and `versions/` moved aside too the constructor
+  // sees nothing to refuse.
+  //
+  // Past here the old code did what it does for anything below SCHEMA_VERSION:
+  // ran the DDL (`CREATE TABLE IF NOT EXISTS`, so the v5 `memories` table keeps
+  // its shape and gains NO `body` column), ran `ensureAddedColumns` (a no-op,
+  // the list is empty) — and then STAMPED the file v6. After that this build
+  // reads no body and the old build refuses it `SCHEMA_AHEAD` for ever;
+  // recovering it means hand-editing `meta` with sqlite3. Reviewer A measured
+  // exactly that (`adversarial-review-f5a`, MAJOR-2), and it is the one outcome
+  // this whole phase exists to prevent.
+  //
+  // **Keyed on the SHAPE, not on the version.** A bare `found < SCHEMA_VERSION`
+  // would be wrong: a genuinely v6-shaped database whose stamp was lowered by
+  // hand must still migrate forward, and three tests say so. What distinguishes
+  // a pre-rows database is that `memories` has no `body` column — ask that.
+  //
+  // The WAL argument that put the FIRST lock on filenames does not apply here:
+  // this build opened the file itself several statements ago.
+  if (found !== null && Number.parseInt(found, 10) < SCHEMA_VERSION && !hasBodyColumn(db)) {
+    db.close();
+    throw new StoreError("STORE_PRE_ROWS", {
+      path,
+      found,
+      expected: SCHEMA_VERSION,
+      reason: "no-body-column",
+      readableBy: PRE_ROWS_READABLE_BY,
+    });
+  }
   db.transaction(() => {
     for (const sql of DDL) db.exec(sql);
     ensureAddedColumns(db);
@@ -397,96 +538,11 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
     put.run("livedDay", "0");
     put.run("lastActiveDate", "");
     put.run("retentionDays", String(opts.retentionDays ?? DEFAULT_RETENTION_DAYS));
-    // v5: the path columns. Runs on every migrating open, and is a no-op by its
-    // own predicate on a store that already holds relative paths — so two
-    // writers racing into this branch on the same v4 file cannot double-convert.
-    const converted = relativizeStoredPaths(db, dirname(path));
-    if (converted.prose.converted + converted.versions.converted > 0) {
-      const day = Number.parseInt(
-        db.get<{ value: string }>("SELECT value FROM meta WHERE key = 'livedDay'")?.value ?? "0",
-        10,
-      );
-      db.run(
-        `INSERT INTO events (at, day, name, ref, dedup_key, payload) VALUES (?, ?, ?, NULL, NULL, ?)`,
-        (opts.now ?? Date.now)(),
-        Number.isFinite(day) ? day : 0,
-        PATHS_MIGRATED_EVENT,
-        JSON.stringify({ from: found ?? "none", to: SCHEMA_VERSION, ...converted }),
-      );
-    }
     // Last, and REPLACE not IGNORE: the version row is the latch the next open
     // reads, so it must be written only after the DDL it describes has run.
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', ?)", String(SCHEMA_VERSION));
   });
   return db;
-}
-
-export interface PathsConverted {
-  /** Rows whose path was absolute and is now store-relative. */
-  readonly converted: number;
-  /** Rows left as they were: no `prose/` or `versions/` segment to key on, or a
-   *  value that would land outside those two roots once joined onto the store. */
-  readonly unplaceable: number;
-}
-
-/**
- * The v5 data migration: every absolute `memories.prose_path` and
- * `versions.path` becomes store-relative (`paths.ts#relativizeStoredPath`).
- *
- * Only rows whose value is absolute are selected, so the rewrite is idempotent
- * by predicate and cheap in the steady state (a v5 store never enters this
- * branch at all — the version latch short-circuits `openOperational`). A row
- * that cannot be placed is LEFT, not blanked and not guessed: `verify` counts
- * it as "absolute (unmigrated)", and `resolveStoredPath` keeps reading it where
- * it always read it. Blank pointers (a chased row's) are untouched.
- *
- * Whether the file EXISTS at the new address is deliberately not consulted.
- * The absolute address is wrong for a copied store whatever is at it; the
- * relative one is the only address that can be right. Missing files are a
- * separate fact, and `Store.pathCensus()` reports them separately.
- */
-export function relativizeStoredPaths(
-  db: Db,
-  dir: string,
-): { prose: PathsConverted; versions: PathsConverted } {
-  const prose = convertColumn(db, dir, "memories", "prose_path", "id");
-  const versions = convertColumn(db, dir, "versions", "path", "rowid");
-  return { prose, versions };
-}
-
-function convertColumn(
-  db: Db,
-  dir: string,
-  table: string,
-  column: string,
-  key: string,
-): PathsConverted {
-  // `GLOB '/*'` is a POSIX absolute path; a Windows drive letter is covered by
-  // the JS-side `isAbsolute` in `relativizeStoredPath`, so the SQL predicate is
-  // widened to "not already relative": anything that does not start with
-  // `prose/` or `versions/` and is not blank.
-  const rows = db.all<{ k: string | number; p: string }>(
-    `SELECT ${key} AS k, ${column} AS p FROM ${table}
-      WHERE ${column} <> '' AND ${column} NOT GLOB 'prose/*' AND ${column} NOT GLOB 'versions/*'`,
-  );
-  const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`);
-  let converted = 0;
-  let unplaceable = 0;
-  for (const row of rows) {
-    const rel = relativizeStoredPath(dir, row.p);
-    // No segment to key on, OR a value that would land outside `prose/` /
-    // `versions/` once joined (a hand-edited `../ESCAPE/…`): both are left as
-    // they are and counted. `resolveStoredPath` refuses the second by name.
-    if (rel === null || !isCanonicalRelativePath(dir, rel)) {
-      unplaceable += 1;
-      continue;
-    }
-    if (rel !== row.p) {
-      update.run(rel, row.k);
-      converted += 1;
-    }
-  }
-  return { converted, unplaceable };
 }
 
 /**
@@ -497,12 +553,16 @@ function convertColumn(
  * fresh CREATE must list the same columns so both paths converge (a test
  * asserts table_info equality between a fresh open and a migrated one).
  */
-const ADDED_COLUMNS: readonly { table: string; column: string; ddl: string }[] = [
-  // v4 — the mint-source doctrine. Nullable on purpose (see SCHEMA_VERSION).
-  { table: "memories", column: "source", ddl: "ALTER TABLE memories ADD COLUMN source TEXT" },
-  { table: "memories", column: "origin_session", ddl: "ALTER TABLE memories ADD COLUMN origin_session TEXT" },
-  { table: "memories", column: "origin_scope", ddl: "ALTER TABLE memories ADD COLUMN origin_scope TEXT" },
-  { table: "memories", column: "origin_ref", ddl: "ALTER TABLE memories ADD COLUMN origin_ref TEXT" },
+export const ADDED_COLUMNS: readonly { table: string; column: string; ddl: string }[] = [
+  // EMPTY at v6, and that is the floor's safety rule rather than an accident.
+  //
+  // A pre-v6 store is refused by name before anything opens it, so nothing here
+  // can reach one — and the v6 columns must NOT be listed: `body` added through
+  // this path to a v5 store would be NULL on every row while the words sat in
+  // files this build cannot see, and the store would be stamped v6 and
+  // unreadable by the build that can (`SCHEMA_VERSION` above, `STORE_PRE_ROWS`).
+  //
+  // The mechanism stays for whatever v7 adds additively to a v6 store.
 ];
 
 function ensureAddedColumns(db: Db): void {

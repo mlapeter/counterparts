@@ -1,21 +1,27 @@
 /**
- * Box 1 — canonical prose. Markdown with YAML frontmatter, editable in any editor.
+ * The document shape a memory is READ as, and the two guards that keep it
+ * honest on the way into a row.
  *
- * Serialization shape (contract §3, behavioral-spec §4.2 G6–G8):
- *   - human-legible `key: value` frontmatter lines, DERIVED from the payload;
- *   - one authoritative machine payload line (`payload: {...}`) which is the ONLY
- *     thing the parser reads — so a lossy YAML reading can never become the truth;
- *   - the body below the fence, verbatim, and NOT duplicated into the payload:
- *     one source of truth for content, so an owner's body edit is unambiguous.
+ * Until the floor (schema v6) this file was box 1: a markdown parser, a stager,
+ * an archiver, and ~16,000 files under `prose/`. The memory is now the ROW —
+ * `memories.title`, `.body`, `.meta` — so the parser has nothing to parse and
+ * the stager nothing to stage. `ProseDoc` survives unchanged as the read shape,
+ * which is the seam that let the whole brain layer above `store/` not notice
+ * the floor move; `render.ts` keeps the markdown, one direction only, as the
+ * EXPORT format. Nothing reads it back.
  *
- * Unrecognized metadata rides in `meta` and survives parse → serialize untouched
- * (G6). A field never used emits no line at all (G8: omitted-when-absent).
+ * What is left here is what the row still needs:
+ *
+ *   - `ProseDoc` / `ProseType` / `ID_PREFIX` — the shape and the id families;
+ *   - `hashText` — the one content-address function (contract §3);
+ *   - `assertJsonSafe` — the G6 guard, now over the `meta` COLUMN. A function,
+ *     an `undefined`, a symbol or a `NaN` in meta is silent data loss whether
+ *     it is dropped on the way into a file or on the way into a TEXT column,
+ *     and v1's named incident (a parser silently dropping tier, frequency,
+ *     provenance and aliases on rewrite) is the reason it is checked at all.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { StoreError } from "./errors.js";
-import { paths, stored } from "./paths.js";
 
 export type ProseType = "memory" | "episode" | "schema";
 export const PROSE_TYPES: readonly ProseType[] = ["memory", "episode", "schema"];
@@ -37,88 +43,70 @@ export interface ProseDoc {
   learnedOn: string;
   /** Which lived day it was born on — the decay clock's integer (scar E8). */
   bornDay: number;
-  /** Unrecognized / module-specific fields. Survives round-trip untouched (G6). */
+  /** Unrecognized / module-specific fields. Survives the row round-trip
+   *  untouched (G6): the column holds the JSON verbatim. */
   meta: Record<string, unknown>;
   /** The interpretation. This *is* the memory. */
   body: string;
 }
 
-/** The one content-address function (contract §3): span, run record, prose all join here. */
+/** The one content-address function (contract §3): span, run record, body all join here. */
 export function hashText(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 16);
 }
 
-const FENCE = "---";
-const PAYLOAD_KEY = "payload";
-
-interface Payload {
-  id: string;
-  type: ProseType;
-  title?: string;
-  happenedOn?: string;
-  learnedOn: string;
-  bornDay: number;
-  meta: Record<string, unknown>;
-}
-
-function toPayload(doc: ProseDoc): Payload {
-  const p: Payload = {
-    id: doc.id,
-    type: doc.type,
-    learnedOn: doc.learnedOn,
-    bornDay: doc.bornDay,
-    meta: doc.meta,
-  };
-  if (doc.title !== undefined) p.title = doc.title;
-  if (doc.happenedOn !== undefined) p.happenedOn = doc.happenedOn;
-  return p;
-}
-
-/** One human line per present field. Newlines are impossible here: values are scalars. */
-function humanLines(p: Payload): string[] {
-  const lines = [`id: ${p.id}`, `type: ${p.type}`];
-  if (p.title !== undefined) lines.push(`title: ${oneLine(p.title)}`);
-  if (p.happenedOn !== undefined) lines.push(`happened: ${p.happenedOn}`);
-  lines.push(`learned: ${p.learnedOn}`, `bornDay: ${p.bornDay}`);
-  return lines;
-}
-
-function oneLine(s: string): string {
-  return s.replace(/\r?\n/g, " ");
-}
-
-export function serializeProse(doc: ProseDoc): string {
-  if (typeof doc.body !== "string") {
-    throw new StoreError("PROSE_BODY_INVALID", { id: doc.id, reason: "body-not-string" });
+/**
+ * An id that can be a row's primary key and a filename in an export.
+ *
+ * The slash and whitespace refusal predates the floor — it kept an id from
+ * inventing a directory under `prose/` — and it is kept because
+ * `render.ts` writes `<id>.md` on the way out and because an id with a newline
+ * in it makes every log line ambiguous.
+ */
+export function assertIdWellFormed(id: unknown): asserts id is string {
+  if (typeof id !== "string" || id.length === 0 || /\s|\//.test(id)) {
+    throw new StoreError("ID_MALFORMED", { id: String(id) });
   }
-  if (typeof doc.id !== "string" || doc.id.length === 0 || /\s|\//.test(doc.id)) {
-    throw new StoreError("ID_MALFORMED", { id: String(doc.id) });
-  }
-  const payload = toPayload(doc);
-  let json: string;
+}
+
+/**
+ * `meta` as the column holds it: JSON, verbatim, refused rather than truncated
+ * when it cannot survive the round trip (G6, G7 — "content that could break the
+ * parser is rejected loudly, never truncated").
+ */
+export function serializeMeta(meta: Record<string, unknown>, id: string): string {
+  // A value JSON silently DROPS (a function, undefined, a symbol) or silently
+  // transforms (bigint throws, NaN becomes null) is metadata loss on rewrite —
+  // v1's named incident. Refuse it here, before it reaches the column.
+  assertJsonSafe(meta, id, "meta");
   try {
-    json = JSON.stringify(payload);
+    return JSON.stringify(meta) ?? "{}";
   } catch (cause) {
     throw new StoreError("PROSE_META_UNSERIALIZABLE", {
-      id: doc.id,
+      id,
       reason: String((cause as Error).message ?? cause),
     });
   }
-  if (json === undefined || /[\r\n]/.test(json)) {
-    // JSON.stringify escapes newlines; a raw one here would mean the payload could
-    // not be read back as a single line. Reject loudly, never truncate (G7).
-    throw new StoreError("PROSE_META_UNSERIALIZABLE", { id: doc.id, reason: "payload-not-one-line" });
+}
+
+/** The column read back. A column that will not parse is a hand-edited database. */
+export function parseMeta(raw: string, id: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new StoreError("MEMORY_META_MALFORMED", {
+      id,
+      reason: String((cause as Error).message ?? cause),
+    });
   }
-  // A value JSON silently DROPS (a function, undefined, a symbol) or silently
-  // transforms (bigint throws, NaN becomes null) is metadata loss on rewrite —
-  // v1's named incident (G6). Refuse it here, before it reaches the disk.
-  assertJsonSafe(payload.meta, doc.id, "meta");
-  const lines = [...humanLines(payload), `${PAYLOAD_KEY}: ${json}`];
-  return `${FENCE}\n${lines.join("\n")}\n${FENCE}\n${doc.body}`;
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
 }
 
 /** Depth-first: every value must survive JSON.stringify → JSON.parse unchanged. */
-function assertJsonSafe(value: unknown, id: string, path: string): void {
+export function assertJsonSafe(value: unknown, id: string, path: string): void {
   const t = typeof value;
   if (value === null || t === "string" || t === "boolean") return;
   if (t === "number") {
@@ -140,130 +128,38 @@ function assertJsonSafe(value: unknown, id: string, path: string): void {
   throw new StoreError("PROSE_META_UNSERIALIZABLE", { id, path, reason: `type-${t}` });
 }
 
-export function parseProse(text: string): ProseDoc {
-  if (!text.startsWith(`${FENCE}\n`)) {
-    throw new StoreError("PROSE_FRONTMATTER_MISSING", { reason: "no-open-fence" });
-  }
-  const close = text.indexOf(`\n${FENCE}\n`, FENCE.length);
-  if (close === -1) {
-    throw new StoreError("PROSE_FRONTMATTER_MISSING", { reason: "no-close-fence" });
-  }
-  const front = text.slice(FENCE.length + 1, close);
-  const body = text.slice(close + FENCE.length + 2);
-  const payloadLine = front
-    .split("\n")
-    .find((l) => l.startsWith(`${PAYLOAD_KEY}: `));
-  if (payloadLine === undefined) {
-    throw new StoreError("PROSE_PAYLOAD_MISSING", {});
-  }
-  let payload: Payload;
-  try {
-    payload = JSON.parse(payloadLine.slice(PAYLOAD_KEY.length + 2)) as Payload;
-  } catch (cause) {
-    throw new StoreError("PROSE_PAYLOAD_MALFORMED", {
-      reason: String((cause as Error).message ?? cause),
-    });
-  }
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    typeof payload.id !== "string" ||
-    payload.id.length === 0 ||
-    !PROSE_TYPES.includes(payload.type) ||
-    typeof payload.learnedOn !== "string" ||
-    typeof payload.bornDay !== "number"
-  ) {
-    throw new StoreError("PROSE_PAYLOAD_MALFORMED", { reason: "payload-shape" });
-  }
-  const doc: ProseDoc = {
-    id: payload.id,
-    type: payload.type,
-    learnedOn: payload.learnedOn,
-    bornDay: payload.bornDay,
-    meta: payload.meta && typeof payload.meta === "object" ? payload.meta : {},
-    body,
-  };
-  if (payload.title !== undefined) doc.title = payload.title;
-  if (payload.happenedOn !== undefined) doc.happenedOn = payload.happenedOn;
-  return doc;
-}
-
-export function readProseFile(path: string, expectId?: string): ProseDoc {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    throw new StoreError("PROSE_FILE_MISSING", { path });
-  }
-  const doc = parseProse(text);
-  if (expectId !== undefined && doc.id !== expectId) {
-    // The filename and the payload disagree: an ambiguity, not a repair job.
-    throw new StoreError("PROSE_PAYLOAD_MISMATCH", { expected: expectId, found: doc.id });
-  }
-  return doc;
-}
-
 /**
- * Stage a prose file into `tmp/` without publishing it.
+ * The body as it will be STORED, and the rule for whether it may be stored at
+ * all. One function, both write doors (`put` and `revise`), so the two cannot
+ * come to disagree about what an empty memory is.
  *
- * The temp name carries pid + time + randomness and a `.tmp` suffix, so a
- * crash-leaked stage can never be loaded as a duplicate of the memory it was
- * replacing (§16 G4): the loader only ever reads `*.md` under `prose/`.
+ * **It NORMALISES rather than refusing** (review B, MINOR-4). A lone surrogate —
+ * `"lead \uD800 alone"` — round-trips through SQLite as U+FFFD, so the
+ * `content_hash` computed in memory from the original string stopped addressing
+ * the row's own body: the one input that broke the invariant the whole floor
+ * leans on, and the one the kill test asserts. Refusing was the other option and
+ * is the wrong one here: the crash-fallback sweep TRUNCATES transcript text to a
+ * budget and can cut a surrogate pair in half, so a refusal would silently drop
+ * that memory rather than store it slightly changed. Normalising keeps the
+ * memory and keeps `hashText(stored) === row.content_hash` total.
+ *
+ * **Whitespace-only is empty** (review B, MINOR-5). `put("")` was refused and
+ * `put(" ")` was not, so a memory whose body is one space could land and render
+ * as an empty memory everywhere — the exact thing closing `revise("")` was for.
+ * The MCP `note` door already refused whitespace-only at its own door; this
+ * makes the rule the same at every door. A NUL-only body goes the same way.
  */
-export interface Staged {
-  readonly tempPath: string;
-  /** Where `publishStaged` renames to — absolute, for the filesystem call. */
-  readonly finalPath: string;
-  /** The same file as the ROW records it: store-relative, `prose/<family>/<id>.md`. */
-  readonly storedPath: string;
-  readonly text: string;
-  readonly hash: string;
-}
-
-let stageSeq = 0;
-
-export function stageProse(dir: string, doc: ProseDoc): Staged {
-  const text = serializeProse(doc);
-  const storedPath = stored.proseFile(doc.type, doc.id);
-  const finalPath = paths.proseFile(dir, doc.type, doc.id);
-  const tempPath = `${paths.tmp(dir)}/${doc.id}.${process.pid}.${Date.now()}.${stageSeq++}.${Math.random()
-    .toString(36)
-    .slice(2, 8)}.tmp`;
-  mkdirSync(paths.tmp(dir), { recursive: true });
-  writeFileSync(tempPath, text, "utf8");
-  return { tempPath, finalPath, storedPath, text, hash: hashText(text) };
-}
-
-/** Publish a staged file. rename(2) is atomic and leaves no residue. */
-export function publishStaged(staged: Staged): void {
-  mkdirSync(dirname(staged.finalPath), { recursive: true });
-  renameSync(staged.tempPath, staged.finalPath);
-}
-
-/**
- * Archive-on-overwrite (§16 G4): copy the CURRENT prose to `versions/<id>/` before
- * anything overwrites it, with `wx` so two archivals in the same millisecond cannot
- * silently overwrite each other — v1 found a hard delete inside its own
- * never-destroy mechanism exactly there. Collision bumps the sequence.
- */
-export function archivePriorVersion(
-  dir: string,
-  id: string,
-  currentText: string,
-  startSeq: number,
-): { seq: number; path: string; storedPath: string; hash: string } {
-  const hash = hashText(currentText);
-  mkdirSync(paths.versionsFor(dir, id), { recursive: true });
-  for (let seq = startSeq; seq < startSeq + 1000; seq++) {
-    const path = paths.versionFile(dir, id, seq, hash);
-    try {
-      writeFileSync(path, currentText, { encoding: "utf8", flag: "wx" });
-      // `path` is for the write above; `storedPath` is what the version ROW
-      // records — relative, so the row survives the store being copied.
-      return { seq, path, storedPath: stored.versionFile(id, seq, hash), hash };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-    }
+export function bodyForStorage(body: unknown, id: string): string {
+  if (typeof body !== "string") {
+    throw new StoreError("PROSE_BODY_INVALID", { id, reason: "not-a-string" });
   }
-  throw new StoreError("ARCHIVE_COLLISION", { id, startSeq });
+  // The round trip SQLite will perform, performed here first, so the hash is
+  // taken over the bytes that actually land.
+  const stored = Buffer.from(body, "utf8").toString("utf8");
+  // `\0` is whitespace to nobody, so it is named rather than trimmed: a body
+  // that is only NUL bytes reads as empty everywhere it is shown.
+  if (stored.replace(/\0/g, "").trim().length === 0) {
+    throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
+  }
+  return stored;
 }

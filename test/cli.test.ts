@@ -22,10 +22,10 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { TUNABLES } from "../src/core/physics/index.js";
 import {
@@ -51,6 +51,7 @@ import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, isDatabaseSidecar
 import { makeBodyUnreadable } from "./store-fixture.js";
 import {
   BLOB_NAME,
+  EXPORT_SCRATCH_STALE_MS,
   CONFIG_FILE,
   COMMANDS,
   COMMAND_BLURB,
@@ -169,7 +170,7 @@ function fingerprint(root: string): string {
   // sidecar until a checkpoint moves it into the file, so hashing the database
   // file alone would pass over the write this is watching for. (The `-shm` is
   // not: it is the index every reader writes read-marks into.)
-  for (const name of ["prose", "versions", "spans", "operational.sqlite", "operational.sqlite-wal"]) {
+  for (const name of ["prose", "versions", "spans", "counterparts.sqlite", "counterparts.sqlite-wal"]) {
     walk(join(root, name), name);
   }
   return parts.join("|");
@@ -539,12 +540,12 @@ describe("backup", () => {
     writer.exec("COMMIT");
     writer.close();
 
-    const db = report.copied.find((e) => e.name === "operational.sqlite");
+    const db = report.copied.find((e) => e.name === "counterparts.sqlite");
     expect(db?.method).toBe("vacuum-into");
     expect(db?.ok).toBe(true);
 
     // Open the copy and read a row written inside the pre-copy write window.
-    const copy = openDb(join(target, "operational.sqlite"));
+    const copy = openDb(join(target, "counterparts.sqlite"));
     const row = copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id);
     expect(row?.id).toBe(id);
     // And the uncommitted write is NOT in the copy: a consistent snapshot, not
@@ -597,7 +598,7 @@ describe("backup", () => {
     open.length = 0;
 
     // Exactly the live shape (live-verify 2026-08-25): a second process holds an
-    // open write transaction on operational.sqlite while the owner runs a
+    // open write transaction on counterparts.sqlite while the owner runs a
     // backup. Before the fix the CONSTRUCTOR wrote at open, hit the lock, and
     // threw "database is locked" out of `run()` — no report, no exit code, a
     // stack trace on the owner's terminal.
@@ -620,7 +621,7 @@ describe("backup", () => {
     expect(code).toBe(EXIT.ok);
     expect(text(c.out)).toContain("ok  ");
     const snapDir = join(outside, readdirSync(outside)[0] as string);
-    const copy = openDb(join(snapDir, "operational.sqlite"));
+    const copy = openDb(join(snapDir, "counterparts.sqlite"));
     expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
     copy.close();
   });
@@ -660,7 +661,7 @@ describe("export", () => {
     expect(existsSync(join(outside, "e", BLOB_NAME))).toBe(false);
   });
 
-  test("--plaintext is portable: prose readable in any editor, DB openable", async () => {
+  test("--plaintext is portable: one file, and the words are in it", async () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", title: "Portable", body: "Readable in any editor." });
     s.close();
@@ -670,12 +671,162 @@ describe("export", () => {
       EXIT.ok,
     );
 
-    const proseFile = join(target, "prose", "memories", `${id}.md`);
-    expect(readFileSync(proseFile, "utf8")).toContain("Readable in any editor.");
-    const copy = openDb(join(target, "operational.sqlite"));
-    expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
+    // THE BUNDLE IS THE DATABASE. `prose/**.md` was half of it until the floor;
+    // the words are columns now, so the one file has to carry them — which is
+    // what is asserted, rather than that the file merely exists.
+    const copy = openDb(join(target, "counterparts.sqlite"));
+    expect(copy.get<{ body: string }>("SELECT body FROM memories WHERE id = ?", id)?.body).toContain(
+      "Readable in any editor.",
+    );
     copy.close();
     expect(readFileSync(join(target, "README.md"), "utf8")).toContain("UNENCRYPTED");
+    // And the `VACUUM INTO` scratch did not land in the bundle — or, since
+    // `tmp/` went with the floor, in the STORE, where it would fail the next
+    // `assertLayout()` as an unclassified top-level path.
+    expect(readdirSync(target).sort()).toEqual(["README.md", "counterparts.sqlite"]);
+    Store.open({ dir, observer: true }).assertLayout();
+  });
+
+  test("an INTERRUPTED --passphrase export leaves no plaintext in the target (review B, MAJOR-4)", async () => {
+    // THE SCRATCH IS A PLAINTEXT COPY OF THE WHOLE STORE. It lived in the
+    // TARGET until this fix, and the target of a `--passphrase` export is by
+    // definition the place the copy is going — an external disk, a synced
+    // folder, the directory the owner is about to hand somebody. A kill during
+    // the vacuum left a timestamped file there that nothing would ever
+    // overwrite or sweep.
+    const s = store();
+    const secret = "ZQEXPORTSCRATCHPROBE the migraine clinic appointment";
+    // BIG ENOUGH THAT THE WINDOW IS NOT A RACE. At 4,000 short bodies the
+    // vacuum finished before the poll could catch it about one run in three;
+    // ~60 MB of bodies makes `VACUUM INTO` take long enough that the kill lands
+    // inside it every time, and the assertion below is what would catch a
+    // regression back to a race.
+    const bulk = "padding that makes this memory large enough to matter. ".repeat(260);
+    for (let i = 0; i < 4000; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `${secret} ${i} ${bulk}` });
+    }
+    s.close();
+    const target = join(outside, "killed");
+    mkdirSync(target, { recursive: true });
+
+    const script = join(outside, "exporter.ts");
+    writeFileSync(
+      script,
+      [
+        `import { run } from ${JSON.stringify(resolve(import.meta.dir, "../src/adapters/cli/index.ts"))};`,
+        `await run(["export", "--out", ${JSON.stringify(target)}, "--passphrase", "correct horse battery", "--dir", ${JSON.stringify(dir)}],`,
+        `  { io: { out: () => {}, err: () => {}, prompt: async () => "" } });`,
+      ].join("\n"),
+      "utf8",
+    );
+    // POLL FOR THE SCRATCH, do not sleep at it. The first version slept 220 ms
+    // and the reviewer's own probe suggested the child had usually finished the
+    // vacuum and run its `finally` before the kill landed — so the test was
+    // asserting a clean target for a case it never reached (review f5c, NIT-4).
+    // Now the kill is landed WHILE the plaintext copy exists, which is the
+    // window the finding is about.
+    const child = Bun.spawn([process.execPath, "run", script], { stdout: "ignore", stderr: "ignore" });
+    const scratchOf = (): string | null => {
+      for (const name of readdirSync(tmpdir())) {
+        if (!name.startsWith("counterparts-export-")) continue;
+        const inner = join(tmpdir(), name, "scratch.sqlite");
+        if (existsSync(inner) && statSync(inner).size > 0) return inner;
+      }
+      return null;
+    };
+    const deadline = Date.now() + 30_000;
+    let caught: string | null = null;
+    while (caught === null && Date.now() < deadline && child.exitCode === null) {
+      caught = scratchOf();
+      if (caught === null) await Bun.sleep(1);
+    }
+    child.kill("SIGKILL");
+    await child.exited;
+    // Non-vacuous: we really did catch it mid-vacuum with the plaintext on disk.
+    expect(caught).not.toBeNull();
+    // AND THIS TEST CLEANS UP AFTER ITSELF. The killed child's `finally` never
+    // ran — that is the whole point — so its scratch directory is exactly the
+    // leak the production sweep exists for, on a one-hour bound no suite run
+    // will reach. A test removes what it creates (CLAUDE.md).
+    rmSync(join(caught as string, ".."), { recursive: true, force: true });
+
+    // NOT ONE PLAINTEXT BYTE IN THE TARGET, whatever stage it died at. Read as
+    // bytes: a SQLite file is binary and a utf8 read could pull the needle
+    // apart, passing for the wrong reason.
+    const left = readdirSync(target);
+    for (const name of left) {
+      const holds = readFileSync(join(target, name)).toString("latin1").includes(secret);
+      expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
+    }
+    expect(left.filter((n) => n.startsWith(".export-scratch-"))).toEqual([]);
+  }, 120_000);
+
+  test("NEW-MINOR-6: an abandoned scratch in the TEMP dir is swept, and the sweep is bounded", async () => {
+    // Moving the scratch out of the target was the big win; this is the rest of
+    // it. An interrupted `--passphrase` export leaves a PLAINTEXT copy of the
+    // whole store in `$TMPDIR/counterparts-export-*` and nothing swept it.
+    const s = store();
+    const secret = "ZQTEMPSWEEPPROBE";
+    s.put({ type: "memory", kind: "fact", body: `a memory holding ${secret}` });
+    s.close();
+
+    // One abandoned scratch, aged past the bound; one FRESH one, which stands
+    // for a concurrent export and must survive.
+    const old = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    writeFileSync(join(old, "scratch.sqlite"), `a plaintext copy holding ${secret}`, "utf8");
+    const aged = Date.now() - EXPORT_SCRATCH_STALE_MS - 60_000;
+    utimesSync(old, aged / 1000, aged / 1000);
+    const fresh = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    writeFileSync(join(fresh, "scratch.sqlite"), "a live export's work", "utf8");
+
+    try {
+      const target = join(outside, "sweep");
+      const c = consoleWith();
+      expect(
+        await run(["export", "--out", target, "--passphrase", "correct horse battery"], {
+          io: c.io,
+          env: { [ENV]: dir },
+        }),
+      ).toBe(EXIT.ok);
+      // The abandoned one is gone and the report SAYS so — it is the owner's
+      // plaintext, not housekeeping to do in silence.
+      expect(existsSync(old)).toBe(false);
+      expect(text(c.out)).toContain("abandoned scratch");
+      expect(text(c.out)).toContain("unencrypted copy of the store");
+      // THE BOUND: a concurrent export's directory is untouched. Without it
+      // this sweep would introduce the collision the target sweep cannot have.
+      expect(existsSync(join(fresh, "scratch.sqlite"))).toBe(true);
+    } finally {
+      rmSync(old, { recursive: true, force: true });
+      rmSync(fresh, { recursive: true, force: true });
+    }
+  });
+
+  test("a stale scratch from an older build is swept at the start of the next export", async () => {
+    // Nothing writes that name any more; this is how the ones already on disk
+    // go. The window was real: a build between the floor landing and the fix
+    // wrote its scratch into the target.
+    const s = store();
+    const secret = "ZQSTALESCRATCHPROBE";
+    s.put({ type: "memory", kind: "fact", body: `a memory holding ${secret}` });
+    s.close();
+    const target = join(outside, "stale");
+    mkdirSync(target, { recursive: true });
+    const stale = join(target, ".export-scratch-1789921802515.sqlite");
+    writeFileSync(stale, `a plaintext copy holding ${secret}`, "utf8");
+
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--passphrase", "correct horse battery"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(stale)).toBe(false);
+    for (const name of readdirSync(target)) {
+      const holds = readFileSync(join(target, name)).toString("latin1").includes(secret);
+      expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
+    }
   });
 
   test("--passphrase round-trips, and a wrong passphrase does not open it", async () => {
@@ -696,9 +847,9 @@ describe("export", () => {
     // The ciphertext does not carry the plaintext, checked rather than assumed.
     expect(blob.toString("utf8")).not.toContain(secret);
     const opened = decryptBundle(blob, "correct horse battery");
-    const prose = opened.get(`prose/memories/${id}.md`);
-    expect(prose?.toString("utf8")).toContain(secret);
-    expect(opened.has("operational.sqlite")).toBe(true);
+    expect([...opened.keys()]).toEqual(["counterparts.sqlite"]);
+    // The words are inside the sealed database, and come back out of it.
+    expect((opened.get("counterparts.sqlite") as Buffer).toString("latin1")).toContain(secret);
     expect(() => decryptBundle(blob, "wrong passphrase")).toThrow();
   });
 });
@@ -783,8 +934,8 @@ describe("remove — the loud removal", () => {
     expect(after.deniedIds()).toContain(id);
     const verdict = verifyRemoval(after, id);
     expect(verdict.denied).toBe(true);
-    expect(verdict.proseGone).toBe(true);
-    expect(proseHolds(dir, secret)).toBe(false);
+    expect(verdict.bodyGone).toBe(true);
+    expect(storeHolds(dir, secret)).toBe(false);
     // The survivor is untouched: removal chases one memory, not a neighbourhood.
     expect(after.list().filter((other) => other !== id).length).toBe(1);
   });
@@ -821,13 +972,16 @@ describe("remove — the loud removal", () => {
     expect(after.gateRecords("s1").map((r) => r.ref)).toEqual([neighbour]);
 
     const verdict = verifyRemoval(after, id);
-    expect(verdict).toMatchObject({ denied: true, proseGone: true, rowTombstoned: true, darkState: 0 });
+    expect(verdict).toMatchObject({ denied: true, bodyGone: true, rowTombstoned: true, darkState: 0 });
     // The skeleton that stays is stripped of every content pointer, and of the
     // physics that would let it go on ranking, conducting or resisting.
     const skeleton = after.row(id);
     expect(skeleton).toMatchObject({
       content_hash: "",
-      prose_path: "",
+      title: null,
+      body: "",
+      meta: "{}",
+      confidential: 0,
       protected: 0,
       promoted_identity: 0,
       uses: 0,
@@ -851,7 +1005,7 @@ describe("remove — the loud removal", () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "Alive and not going anywhere." });
     expect(() => chaseRemoved(s, id)).toThrow(/REMOVAL_NOT_DARK/);
-    expect(s.row(id)?.prose_path).not.toBe("");
+    expect(s.row(id)?.body).not.toBe("");
     expect(s.removalRecord().length).toBe(0);
   });
 
@@ -864,8 +1018,8 @@ describe("remove — the loud removal", () => {
     const observer = store({ observer: true });
     expect(() => chaseRemoved(observer, id)).toThrow(/OBSERVER_REFUSED/);
     expect(observer.events("store.observer.standdown").at(-1)?.data?.site).toBe("chaseRemoved");
-    // Nothing moved: the row is intact, edges and all.
-    expect(observer.row(id)?.prose_path).not.toBe("");
+    // Nothing moved: the row is intact, words and all.
+    expect(observer.row(id)?.body).not.toBe("");
     expect(observer.tombstones()).toEqual([]);
   });
 
@@ -920,7 +1074,14 @@ describe("remove — the loud removal", () => {
 describe("remove — the span buffer is CHASED, and what it cannot reach it names", () => {
   const MARKER = "ZQRESIDUEPROBE the culvert gate key is kept under the third fence post.";
 
-  /** Store-relative paths of every file holding `needle`. Ids and paths, no text. */
+  /**
+   * Store-relative paths of every file holding `needle`. Ids and paths, no text.
+   *
+   * Read as BYTES, not as UTF-8 text: since the floor the memory's words live
+   * inside `counterparts.sqlite` and its `-wal`, and a `readFileSync(_, "utf8")`
+   * over a binary file replaces invalid sequences and can pull a needle apart.
+   * `latin1` is byte-for-byte, so a needle that is in the file is found.
+   */
   function grepStore(root: string, needle: string): string[] {
     const hits: string[] = [];
     const walk = (at: string, rel: string): void => {
@@ -928,11 +1089,17 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
         const full = join(at, name);
         const next = rel === "" ? name : `${rel}/${name}`;
         if (statSync(full).isDirectory()) walk(full, next);
-        else if (readFileSync(full, "utf8").includes(needle)) hits.push(next);
+        else if (readFileSync(full).toString("latin1").includes(needle)) hits.push(next);
       }
     };
     walk(root, "");
     return hits;
+  }
+
+  /** True while the memory's own words are anywhere under the store — the
+   *  database, its sidecars, or the span buffer. `prose/` is gone. */
+  function canonicalHolds(root: string, needle: string): boolean {
+    return grepStore(root, needle).some((p) => !p.startsWith("spans/"));
   }
 
   function idFrom(lines: readonly string[]): string {
@@ -959,7 +1126,8 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // The residue itself, before anything is removed: the prose AND the buffer.
     const seeded = grepStore(dir, "ZQRESIDUEPROBE");
     expect(seeded.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
-    expect(seeded.some((p) => p.startsWith("prose/"))).toBe(true);
+    // The canonical copy is IN THE DATABASE now, not a file under `prose/`.
+    expect(canonicalHolds(dir, "ZQRESIDUEPROBE")).toBe(true);
 
     // The DRY RUN counts it as a surface to chase, and says so above the closing
     // line — a disclosure under "Nothing has changed" is one the reader has
@@ -1041,12 +1209,194 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
       await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
     ).toBe(EXIT.ok);
 
+    // NOT ONE BYTE ANYWHERE UNDER THE STORE, database and `-wal` included.
+    //
+    // This is the assertion the floor could most easily have weakened without
+    // anyone noticing. An `UPDATE ... SET body = ''` in WAL mode leaves the page
+    // holding the old text in `counterparts.sqlite-wal` until a checkpoint moves
+    // it — measured on this branch, and why the removal now chases the
+    // write-ahead log as a surface of its own (`cli/removal.ts`).
     expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
-    // The other note's capture is untouched: in the buffer AND in its prose.
+    // The other note's capture is untouched: in the buffer AND in the database.
     const kept = grepStore(dir, "ZQKEEPER");
     expect(kept.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
-    expect(kept.some((p) => p.startsWith("prose/"))).toBe(true);
+    expect(canonicalHolds(dir, "ZQKEEPER")).toBe(true);
   });
+
+  test("review B, MAJOR-1: BOTH databases' logs are folded in, and the whole directory is clean", async () => {
+    // Box 3 is in WAL too, and the `rebuildCache()` one step inside the
+    // ceremony rewrites its `doc_tokens` rows — so the OLD pages sit in
+    // `cache/cache.sqlite*` until something folds them over. The chase visited
+    // box 2 only, and the console printed `unchased: nothing`: the owner told
+    // the directory was clean when reviewer B had found the removed word still
+    // in `cache/cache.sqlite` in 3 of 5 runs.
+    //
+    // **I could not reproduce that residue here** — 0 hits across 12 shapes
+    // (200/600/1500 fillers x two body sizes x with and without a forced
+    // pre-removal checkpoint), and 5 rounds of the real ceremony with the fix
+    // disabled. So this pins the MECHANISM, which is deterministic, rather than
+    // a byte pattern I cannot summon: box 3's log is TRUNCATED by the removal,
+    // which is the thing that folds those pages over, and the whole directory
+    // is grepped anyway so the residue is caught if the shape ever arises.
+    const WORD = "ZQCACHERESIDUEPROBE";
+    const s = store();
+    for (let i = 0; i < 300; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(40)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: `a doomed memory holding ${WORD}` });
+    s.revise(id, { body: `revised, still holding ${WORD}` });
+    s.close();
+    // Box 3's log carries real frames going in, so truncating it is a change.
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(0);
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    // Reported as its OWN surface, so "cache" keeps meaning the index and this
+    // keeps meaning the file. Both logs named, neither implied.
+    expect(printed).toContain("write-ahead log");
+    expect(printed).toContain("cache write-ahead log");
+    // THE MECHANISM: box 3's log is folded back and truncated to nothing, which
+    // is what moves those pages. Box 2's is NOT zero afterwards and must not be
+    // asserted so — the `complete` stage of the removal record is appended
+    // after the checkpoint, on purpose: the checkpoint runs while it is still
+    // guaranteed to run, and a removal record carries no body (§16 G9).
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBe(0);
+    // …and the whole directory, read as bytes — both databases, both logs, the
+    // `-shm`s, `sessions/`, `spans/`, the journal and the version rows.
+    expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
+  test("NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it", async () => {
+    // THE FINDING THE PREVIOUS VERSION OF THIS TEST MISSED, and it missed it for
+    // a reason worth writing down: its marker sat at the START of the body, and
+    // the page holding the start of an overflow chain gets reused. The middle
+    // and the end do not. So the assertion passed as a property of where the
+    // word sat, not of the store.
+    //
+    // Blanking a long body frees whole OVERFLOW pages, and `secure_delete` is 2
+    // (FAST) by default — it zeroes the slack of a page being rewritten, never a
+    // whole freed page. A second checkpoint does not help: the checkpoint is
+    // what MATERIALISES those stale pages into the main file. Only VACUUM (then
+    // a checkpoint, since in WAL mode the VACUUM itself writes to the log)
+    // rebuilds the file from live pages alone. Measured deterministic 5/5.
+    const MARKS = ["ZQOVERFLOWSTART", "ZQOVERFLOWMIDDLE", "ZQOVERFLOWEND"];
+    const pad = "the quick brown fox jumps over the lazy dog. ".repeat(450);
+    const bodyOf = (tag: string): string =>
+      `${MARKS[0] as string} ${tag} ${pad} ${MARKS[1] as string} ${pad} ${MARKS[2] as string}`;
+
+    const s = store();
+    for (let i = 0; i < 200; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: bodyOf("one") });
+    // The revision matters: it frees the first body's pages, so this covers
+    // residue left by an EARLIER write as well as by the removal itself.
+    s.revise(id, { body: bodyOf("two") });
+    s.close();
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // The surface is named for what it now does, on both databases.
+    const printed = text(c.out);
+    expect(printed).toContain("write-ahead log and freed pages");
+    expect(printed).toContain("cache write-ahead log and freed pages");
+
+    // NOT ONE MARK, ANYWHERE UNDER THE STORE — every file read as bytes, both
+    // databases and both logs. Each mark asserted by name so a failure says
+    // WHICH part of the body survived.
+    for (const mark of MARKS) {
+      expect({ mark, residue: grepStore(dir, mark) }).toEqual({ mark, residue: [] });
+    }
+    // Freed pages really were reclaimed, not merely absent from this shape.
+    const db = openDb(paths.operational(dir));
+    try {
+      expect(db.get<{ freelist_count: number }>("PRAGMA freelist_count")?.freelist_count).toBe(0);
+    } finally {
+      db.close();
+    }
+  }, 60_000);
+
+  test("NEW-MAJOR-1: `verify --rebuild` really does reclaim, since the removal names it", async () => {
+    // When the reclaim is contended the removal says the words may remain and
+    // names this command. Measured before this fix: `verify --rebuild` left the
+    // residue exactly where it was, because rebuilding box 3 says nothing about
+    // box 2's free list. A remedy that does not remedy is worse than none.
+    const MARK = "ZQREMEDYPROBE";
+    const pad = "the quick brown fox jumps over the lazy dog. ".repeat(450);
+    const s = store();
+    for (let i = 0; i < 200; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: `head ${pad} ${MARK}` });
+    s.revise(id, { body: `head two ${pad} ${MARK}` });
+    // Manufacture the residue state: take the rows dark and chase them WITHOUT
+    // the reclaim, which is what a contended removal leaves behind.
+    s.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner" });
+    chaseRemoved(s, id);
+    s.rebuildCache();
+    s.close();
+    const ck = openDb(paths.operational(dir));
+    ck.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    ck.close();
+    expect(grepStore(dir, MARK)).not.toEqual([]);
+
+    const c = consoleWith();
+    expect(
+      await run(["verify", "--dir", dir, "--rebuild", "--drop-vectors"], { io: c.io }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Reclaimed free pages in the database");
+    expect(grepStore(dir, MARK)).toEqual([]);
+  }, 60_000);
+
+  test("review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed", async () => {
+    // The same rule box 2 already had: a reader holding an older snapshot means
+    // the log cannot be truncated, and the honest answer is to say so rather
+    // than to throw or to claim it. The removal's rows have already gone by
+    // then; a checkpoint problem is a line in the report.
+    //
+    // It takes about five seconds on purpose — the rebuild inside the ceremony
+    // waits out `BUSY_TIMEOUT_MS` against the held read transaction before it
+    // proceeds. That is F1's busy timeout doing its job, not this fix.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "ZQCONTENDEDPROBE doomed" });
+    s.close();
+
+    const holder = openDb(paths.cache(dir));
+    holder.exec("BEGIN");
+    holder.get("SELECT count(*) AS n FROM doc_tokens");
+    try {
+      const c = consoleWith([id]);
+      expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+      const printed = text(c.out);
+      // Named as unchased, with the reason and what clears it — not silence,
+      // and not a claim that it was done.
+      expect(printed).toContain("cache write-ahead log and freed pages (");
+      // It says WHY, what is still true, and the command that finishes it —
+      // never silence and never a claim that it was done.
+      expect(printed).toContain("the memory's rows are gone, but its words may remain");
+      expect(printed).toContain("counterparts verify --dir <store> --rebuild");
+      expect(printed).not.toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+      // AND THE DURABLE RECORD SAYS SO TOO. The console's sentence is
+      // ephemeral; the record is what a reader has months later, and
+      // `complete` on its own would read as "everything was reached".
+      const after = Store.open({ dir, observer: true });
+      try {
+        const done = after.removalRecord(id).filter((r) => r.stage === "complete");
+        expect(done.length).toBe(1);
+        expect(done[0]?.reason).toContain("surface unchased");
+      } finally {
+        after.close();
+      }
+    } finally {
+      try {
+        holder.exec("ROLLBACK");
+      } catch {
+        /* the removal may have taken it already */
+      }
+      holder.close();
+    }
+  }, 30_000);
 
   test("with the prose GONE, the coverage mark alone still chases it — which is why old rows need no migration", async () => {
     // The retroactive half, isolated. Deleting the prose file takes away BOTH
@@ -1142,7 +1492,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const left = grepStore(dir, "ZQRESIDUEPROBE");
     expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
     expect(left.some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
-    expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
+    expect(canonicalHolds(dir, "ZQRESIDUEPROBE")).toBe(false);
   });
 
   test("the CONTENT fallback may only ever take a jot — a conversation turn is never struck by shape", async () => {
@@ -1190,7 +1540,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(text(c.out)).toContain('"unchased":1');
     // THE POINT: the conversation is untouched.
     expect(grepStore(dir, "ZQFALLBACK").some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
-    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.startsWith("prose/"))).toBe(false);
+    expect(canonicalHolds(dir, "ZQFALLBACK")).toBe(false);
   });
 
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
@@ -1485,6 +1835,15 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Canonical rows: 2");
+    // WHERE THE WORDS ARE. Two census lines counting how the path columns were
+    // spelled and how many of their files were on disk used to stand here — a
+    // report ON the file layout, which went with the columns. What replaces it
+    // is the one fact an owner looking for his markdown needs, and a store that
+    // still had any prose files would be one this build refused to open.
+    expect(printed).toContain("Floor: schema v6 · bodies in rows · prose files: none");
+    expect(printed).not.toContain("Prose paths:");
+    // F1's line is still there, beside it.
+    expect(printed).toContain("Journal mode: wal (busy timeout");
     // The log, read-only: what is held, how old, and what the next sweep takes.
     expect(printed).toContain("Events: 5 held (1 latched records)   oldest: lived day 0 (");
     expect(printed).toContain("window: 90 lived days (cutoff day 1)");
@@ -3916,14 +4275,19 @@ describe("a bulk write names its store with --dir, and nothing else names it", (
   });
 });
 
-/** True when any canonical prose file still holds `needle`. */
-function proseHolds(root: string, needle: string): boolean {
-  const walk = (path: string): boolean => {
-    if (!existsSync(path)) return false;
-    if (statSync(path).isDirectory()) {
-      return readdirSync(path).some((name) => walk(join(path, name)));
-    }
-    return readFileSync(path, "utf8").includes(needle);
-  };
-  return walk(paths.prose(root));
+/**
+ * True when any CANONICAL byte under the store still holds `needle` — the
+ * database and its sidecars, which is where a memory's words live since the
+ * floor. The span buffer is `remember/`'s own surface and is excluded here; the
+ * tests that care about it name it directly.
+ *
+ * Bytes, not UTF-8: a `readFileSync(_, "utf8")` over a SQLite file replaces
+ * invalid sequences and can pull the needle apart, which would make this pass
+ * for the wrong reason.
+ */
+function storeHolds(root: string, needle: string): boolean {
+  const db = paths.operational(root);
+  return [db, `${db}-wal`, `${db}-shm`].some(
+    (p) => existsSync(p) && readFileSync(p).toString("latin1").includes(needle),
+  );
 }

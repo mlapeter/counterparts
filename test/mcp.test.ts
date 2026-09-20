@@ -113,7 +113,7 @@ function seed(c: Counterpart): void {
 
 /**
  * A fingerprint of every CANONICAL byte: box 1 (prose + versions), box 2
- * (operational.sqlite) and the span buffer. Box 3 (`cache/`) is excluded by
+ * (counterparts.sqlite) and the span buffer. Box 3 (`cache/`) is excluded by
  * design — it is the declared rebuildable cache — and so is `tmp/`.
  *
  * `parts` narrows it. A caller that means "no memory changed" says so by naming
@@ -133,7 +133,7 @@ function fingerprint(root: string, parts?: readonly string[]): string {
     hash.update(rel);
     hash.update(readFileSync(path));
   };
-  for (const name of parts ?? ["prose", "versions", "spans", "operational.sqlite"]) {
+  for (const name of parts ?? ["prose", "versions", "spans", "counterparts.sqlite"]) {
     walk(join(root, name), name);
   }
   return hash.digest("hex");
@@ -1203,24 +1203,34 @@ describe("recall — deliberate retrieval", () => {
     expect(ownerView["reason"]).toBe("expanded");
   });
 
-  test("recall and status deposit nothing and train nothing — memory state is byte-identical", async () => {
-    // NARROWED, HONESTLY, 2026-09-20 (E2). This used to fingerprint box 2 as
-    // well and claim recall wrote NOTHING. It now writes exactly one telemetry
-    // row per call (`mcp.recall`) — the whole tool surface was durably silent,
-    // so "the session went looking and nothing came" and "the session never
-    // went looking" were the same absence.
+  test("recall and status deposit nothing and train nothing — G4, asserted directly", async () => {
+    // NARROWED TWICE, AND THE SECOND TIME BY F5 (E2, 2026-09-20).
     //
-    // The old assertion would not have caught it either way: box 2 is in WAL
-    // mode since F1, so a write sits in `operational.sqlite-wal` and the file
-    // this walked was unchanged. So the guarantee is restated as what it
-    // actually is — G4's "ranking is not recording" — and asserted directly:
-    // not one memory, not one version, not one use.
+    // It used to fingerprint `operational.sqlite` and claim recall wrote
+    // NOTHING. That proved nothing either way: box 2 has been in WAL mode since
+    // F1, so a write sits in the `-wal` and the file this walked was unchanged
+    // — which is how the one telemetry row per call that E2 adds slipped past
+    // it silently. On the v6 floor the point is sharper still: bodies, versions
+    // and the journal are ROWS in `counterparts.sqlite`, so `prose/` and
+    // `versions/` are v5 markers a v6 store does not have at all, and a file
+    // fingerprint over box 1 would now hash an empty set.
+    //
+    // So there is no fingerprint here. The guarantee is §9.1 G4 — "ranking is
+    // not recording; this path trains nothing and deposits nothing" — asserted
+    // as itself, on content the store reads back: the same ids, the same
+    // bodies, the same versions, the same `uses`, no `recall.decision` row, and
+    // exactly the two telemetry rows.
     const s = server();
     seed(s.counterpart);
     await s.call("note", { text: "The sourdough starter needs feeding every day or it dies off." });
-    const before = fingerprint(dir, ["prose", "versions", "spans"]);
+    const readAll = (): string[] =>
+      s.counterpart.store
+        .list({ archived: false })
+        .map((id) => `${id}:${s.counterpart.store.read(id).doc.body}`);
+    const before = readAll();
     const beforeIds = s.counterpart.store.list({ archived: false });
     const beforeUses = beforeIds.map((id) => s.counterpart.store.physicsOf(id).uses);
+    const beforeVersions = beforeIds.map((id) => s.counterpart.store.versions(id).length);
     const rowsOf = (name: string): number =>
       s.counterpart.store.eventLog({ name, limit: 100 }).length;
     const beforeRecallRows = rowsOf("recall.decision");
@@ -1229,9 +1239,10 @@ describe("recall — deliberate retrieval", () => {
     await s.call("recall", { handle: "Sourdough" });
     await s.call("status", {});
 
-    // BOX 1 AND THE SPAN BUFFER: byte-identical. No memory, no version, no
-    // prose file, and nothing was strengthened by having been ranked.
-    expect(fingerprint(dir, ["prose", "versions", "spans"])).toBe(before);
+    // EVERY BODY, READ BACK: identical. WAL-proof, and it is the thing the old
+    // fingerprint was reaching for.
+    expect(readAll()).toEqual(before);
+    expect(beforeIds.map((id) => s.counterpart.store.versions(id).length)).toEqual(beforeVersions);
     expect(s.counterpart.store.list({ archived: false })).toEqual(beforeIds);
     expect(beforeIds.map((id) => s.counterpart.store.physicsOf(id).uses)).toEqual(beforeUses);
     // The ambient path's own record is NOT written by the deliberate one:

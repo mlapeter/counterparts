@@ -199,7 +199,9 @@ the loop that bills the owner, and the sweep is what is bounded.
 
 **Why there is a destruction path in this module at all.** LAUNCH-STATUS §I2:
 a note is CAPTURED before it is minted, so its verbatim words sit in
-`<key>/jots.jsonl` while the memory minted from them lives in `prose/`. The
+`<key>/jots.jsonl` while the memory minted from them lives in the store.
+*[F8: rewrite] Said as `prose/` when this was written; since the floor (schema
+v6) the memory is a row, and the buffer is still the other copy.* The
 owner's `remove` chased six surfaces, none of them this one, reported
 `unchased: nothing`, and a `backup` taken afterwards copied the removed words.
 Constitution 6/7 — the owner's data, removable loudly — was not true of a note.
