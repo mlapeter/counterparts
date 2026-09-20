@@ -43,6 +43,7 @@ import {
   FRAMING,
   FROZEN_KINDS,
   JOURNAL_BACKFILL_PER_PASS,
+  JOURNAL_COPY_WRITTEN_EVENT,
   JOURNAL_COPY_FAILED_EVENT,
   JOURNAL_TEMP_STALE_MS,
   LANE_ORDER,
@@ -2396,10 +2397,85 @@ describe("the journal's markdown copy", () => {
     const rows = s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT });
     expect(rows.length).toBe(1);
     const payload = JSON.parse((rows[0] as EventRow).payload as string) as Record<string, unknown>;
-    expect(payload["reason"]).toBe("write-failed");
+    // The DIRECTORY is what is wrong, and the row says that rather than blaming
+    // the episode it happened to be asked about (MAJOR-2).
+    expect(payload["reason"]).toBe("journal-dir-unwritable");
+    expect(payload["scope"]).toBe("directory");
     // Content-by-reference: the reason is a CODE and the chapter is not in it.
     expect(JSON.stringify(payload)).not.toContain("ZQFAILPROBE");
     rmSync(join(dir, "journal"), { force: true });
+  });
+
+  test("MAJOR-2 — an unwritable journal/ is ONE row a day, not one per chapter and 25 per pass", () => {
+    // Measured by the review: 5 chapters → 5 rows, then 25 more per worker
+    // cycle, for ever, in the log that `fired`, the dashboard and `doctor` all
+    // read — and the doctor line is correctly silent-until-standing, which made
+    // the flood invisible while it happened.
+    const s = store();
+    writeFileSync(join(dir, "journal"), "a file where the directory must go", "utf8");
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter("s1", SUBSTANCE);
+    for (let i = 0; i < 5; i += 1) {
+      self.appendChapter("s1", `chapter text ${i}`);
+    }
+    for (let i = 0; i < 30; i += 1) {
+      s.put({
+        type: "episode",
+        kind: "self",
+        body: `## chapter 1 — lived day 0\n\nepisode ${i}\n`,
+        meta: { sessionId: `s${i}`, chapters: 1 },
+      });
+    }
+    for (let i = 0; i < 3; i += 1) self.boundary({ budgetBytes: 4_000, day: 0 });
+
+    const rows = s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT });
+    // ONE fact about the store, said once for the day: the directory will not
+    // take a file. Not one row per episode that cannot be written into it.
+    expect(rows.length).toBe(1);
+    const payload = JSON.parse((rows[0] as EventRow).payload as string) as Record<string, unknown>;
+    expect(payload["reason"]).toBe("journal-dir-unwritable");
+    // …and it is a DIRECTORY-level row, so it names no episode.
+    expect((rows[0] as EventRow).ref).toBeNull();
+    rmSync(join(dir, "journal"), { force: true });
+  });
+
+  test("MAJOR-2 — a failing episode does not eat the next pass's budget (the starvation, measured)", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    const ids: string[] = [];
+    for (let i = 0; i < JOURNAL_BACKFILL_PER_PASS + 3; i += 1) {
+      ids.push(
+        s.put({
+          type: "episode",
+          kind: "self",
+          body: `## chapter 1 — lived day 0\n\nepisode ${i}\n`,
+          meta: { sessionId: `s${i}`, chapters: 1 },
+        }),
+      );
+    }
+    // The first 25 in the order the backfill selects them (`ORDER BY id`) are
+    // made to fail PER EPISODE and not at the directory: a DIRECTORY at the
+    // exact path the file wants, so the temp write succeeds and the rename does
+    // not. The three behind them are ordinary.
+    const doomed = [...ids].sort().slice(0, JOURNAL_BACKFILL_PER_PASS);
+    const healthy = [...ids].sort().slice(JOURNAL_BACKFILL_PER_PASS);
+    for (const id of doomed) {
+      mkdirSync(join(dir, journalRelativePath(s.readProse(id))), { recursive: true });
+    }
+
+    // Pass one spends its whole budget on the doomed ones — that is the
+    // ordinary bound doing its job, and nothing behind them is reached.
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    for (const id of healthy) expect(journalFilesFor(dir, id)).toEqual([]);
+    // Pass two must NOT spend it on them again. Before this fix the same 25 ids
+    // were selected every pass, for ever, and the three behind them were never
+    // written at all.
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    for (const id of healthy) expect(journalFilesFor(dir, id).length).toBe(1);
+    // And the failures were recorded once each, not once per pass.
+    expect(s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT }).length).toBe(
+      JOURNAL_BACKFILL_PER_PASS,
+    );
   });
 
   test("an observer writes no file and no row", () => {

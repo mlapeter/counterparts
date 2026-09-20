@@ -224,6 +224,27 @@ export function isJournalTempName(name: string): boolean {
   return /\.md\.tmp-[A-Za-z0-9]+$/.test(name);
 }
 
+/**
+ * FAILURES THAT ARE ABOUT THE DIRECTORY, not about an episode.
+ *
+ * The distinction earns its keep twice (review f6f7 MAJOR-2). A `journal/` that
+ * will not take a file is ONE fact about the store: saying it once a day is the
+ * whole truth, and saying it once per chapter and then 25 times per worker cycle
+ * — 80 rows in the review's probe, thousands a week on the owner's cadence —
+ * buries every other row in the log that `fired`, the dashboard and `doctor`
+ * read. And a directory-level failure must not spend the backfill's budget at
+ * all: there is nothing to retry until the directory changes.
+ */
+export const JOURNAL_DIRECTORY_REASONS: readonly string[] = [
+  "journal-symlink",
+  "journal-dir-unwritable",
+  "journal-unreadable",
+];
+
+export function isJournalDirectoryFailure(reason: string | null): boolean {
+  return reason !== null && JOURNAL_DIRECTORY_REASONS.includes(reason);
+}
+
 export interface JournalScan {
   /** Every REAL file under `journal/`, store-relative, sorted. */
   readonly files: string[];
@@ -362,6 +383,14 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
     return result("failed", { reason: "journal-unreadable" });
   }
   if (scan.linked) return result("failed", { reason: "journal-symlink" });
+  // THE DIRECTORY, asked once and named as itself. Without this the chapter door
+  // reported `write-failed` per episode for a store whose `journal/` is a file,
+  // which is five rows for one fact (MAJOR-2).
+  try {
+    mkdirSync(journalDir(store.dir), { recursive: true });
+  } catch {
+    return result("failed", { reason: "journal-dir-unwritable" });
+  }
   const existing = scan.files.filter((rel) => journalFileEpisodeId(rel) === episodeId);
 
   // IS THERE A LIVE EPISODE HERE? A removed row survives as a tombstone (blank
@@ -476,11 +505,48 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
   return result("written", { file: rel, bytes });
 }
 
+/** How far back the standing-failure read looks. Two lived days, because a
+ *  failure recorded yesterday is still standing this morning and the lived
+ *  clock only moves inside the worker's own cycle. */
+export const JOURNAL_FAILURE_WINDOW_DAYS = 2;
+
+/**
+ * Episodes whose copy FAILED and has not been written since — the ids the next
+ * pass must not spend its budget on.
+ *
+ * The starvation the review reasoned and this measures: the failing ids sit at
+ * the head of `store.list({type:"episode"})` and take the whole 25-slot budget
+ * on every pass, so nothing behind them is ever backfilled. Not "never retry" —
+ * never retry *ahead of work that has not been tried at all*. A later success
+ * clears the id, exactly as it clears the doctor's line, and the window means a
+ * store that was broken last week starts trying again.
+ *
+ * One bounded read of the event log, not a query per id. Ids only.
+ */
+export function standingJournalFailures(store: Store): Set<string> {
+  const sinceDay = Math.max(0, store.livedDay() - JOURNAL_FAILURE_WINDOW_DAYS);
+  const newest = (name: string): Map<string, number> => {
+    const out = new Map<string, number>();
+    for (const row of store.eventLog({ name, sinceDay, limit: 5_000 })) {
+      if (row.ref !== null) out.set(row.ref, row.seq);
+    }
+    return out;
+  };
+  const failed = newest(JOURNAL_COPY_FAILED_EVENT);
+  const written = newest(JOURNAL_COPY_WRITTEN_EVENT);
+  const standing = new Set<string>();
+  for (const [id, seq] of failed) {
+    if ((written.get(id) ?? -1) < seq) standing.add(id);
+  }
+  return standing;
+}
+
 /**
  * Episodes with no file — the backfill's work list, bounded by the caller.
  *
- * Ids and names only: one `SELECT id`, one directory walk, no row read and no
- * body. That is what makes it cheap enough to ask at every cycle.
+ * Ids and names only: one `SELECT id`, one directory walk, one bounded read of
+ * the log, no row read and no body. That is what makes it cheap enough to ask
+ * at every cycle.
  *
  * It fills what is MISSING and does not re-derive what is present. Drift within
  * a file is the chapter door's business (it rewrites on every append) and the
@@ -499,10 +565,16 @@ export function journalBackfillTargets(store: Store, limit: number): string[] {
     return [];
   }
   const denied = new Set(store.deniedIds());
+  let standing: Set<string>;
+  try {
+    standing = standingJournalFailures(store);
+  } catch {
+    standing = new Set();
+  }
   const out: string[] = [];
   for (const id of store.list({ type: "episode" })) {
     if (out.length >= limit) break;
-    if (have.has(id) || denied.has(id)) continue;
+    if (have.has(id) || denied.has(id) || standing.has(id)) continue;
     out.push(id);
   }
   return out;
@@ -550,7 +622,25 @@ export function backfillJournalCopies(
       more = true;
       break;
     }
-    results.push(syncJournalCopy(store, id));
+    const result = syncJournalCopy(store, id);
+    // A DIRECTORY-LEVEL FAILURE ENDS THE PASS. It is one fact about the store,
+    // it is the same answer for every remaining episode, and spending 25 slots
+    // and 25 rows re-discovering it is what made the log unreadable (MAJOR-2).
+    // The result is carried as ITSELF, with no episode attached, so the row the
+    // caller writes says what is actually wrong.
+    if (isJournalDirectoryFailure(result.reason)) {
+      results.push({ ...result, episodeId: "", file: null, bytes: 0 });
+      return {
+        written: 0,
+        failed: 1,
+        results,
+        // There is work left, and no amount of retrying reaches it until the
+        // directory changes.
+        more: true,
+        sweptTemps,
+      };
+    }
+    results.push(result);
   }
   if (!more && targets.length >= limit) more = true;
   return {
@@ -572,6 +662,29 @@ export function backfillJournalCopies(
  *
  * It never throws either: an observer's store refuses every write by name, and
  * a copy that could not be recorded is still a copy.
+ *
+ * **A FAILURE IS DEDUPED, per (episode, reason, day); a directory-level failure
+ * is deduped per (reason, day) and names no episode** (review f6f7 MAJOR-2,
+ * measured at 80 rows for one broken directory across five chapters and three
+ * worker cycles). The latch is the store's own `dedupKey`, so the second row of
+ * the same fact is refused inside the same transaction that would have written
+ * it rather than by a read this function would have to get right.
+ *
+ * THE DAY IN THE KEY IS THE CALENDAR DATE, not the lived day, and that is a
+ * deliberate divergence from the ask's wording: it is the same `date` the
+ * payload carries and `doctor` prints, so the key and the row cannot disagree
+ * about what a day is. The lived clock advances only inside the worker's own
+ * cycle (`episodes.ts#asksSpentOn`, scar I32), so keying on it would make a
+ * store whose worker has not run for a week dedup a week of failures into one.
+ *
+ * The cost, said out loud: dedup-keyed rows are never swept by `pruneEvents` —
+ * they are the replay latch. One row per episode per reason per day is a bounded
+ * price for a log that can be read; a permanently broken directory leaves one
+ * row a day, for ever, and that is the point rather than an oversight.
+ *
+ * SUCCESSES ARE NOT DEDUPED. "The copy was written" is what the fired view
+ * counts, and a mechanism that recorded one firing a day would under-report the
+ * thing the owner is watching for.
  */
 export function noteJournalCopy(
   store: Store,
@@ -579,19 +692,30 @@ export function noteJournalCopy(
   opts: { day: number; chapters?: number; site: string },
 ): void {
   if (result.outcome === "unchanged" || result.outcome === "absent") return;
+  const failed = result.outcome === "failed";
+  const directory = isJournalDirectoryFailure(result.reason);
+  // A directory-level row names no episode: `ref` is the subject, and the
+  // subject here is the store's own directory.
+  const ref = failed && directory ? null : result.episodeId === "" ? null : result.episodeId;
+  const date = store.today();
+  const dedupKey = failed
+    ? `${JOURNAL_COPY_FAILED_EVENT}:${directory ? "dir" : String(ref)}:${String(result.reason)}:${date}`
+    : undefined;
   try {
     store.appendEvent({
-      name: result.outcome === "failed" ? JOURNAL_COPY_FAILED_EVENT : JOURNAL_COPY_WRITTEN_EVENT,
+      name: failed ? JOURNAL_COPY_FAILED_EVENT : JOURNAL_COPY_WRITTEN_EVENT,
       day: opts.day,
-      ref: result.episodeId,
+      ref,
+      ...(dedupKey === undefined ? {} : { dedupKey }),
       payload: {
-        date: store.today(),
+        date,
         site: opts.site,
         outcome: result.outcome,
         file: result.file,
         bytes: result.bytes,
         ...(opts.chapters === undefined ? {} : { chapters: opts.chapters }),
         ...(result.reason === null ? {} : { reason: result.reason }),
+        ...(directory ? { scope: "directory" } : {}),
       },
     });
   } catch {
