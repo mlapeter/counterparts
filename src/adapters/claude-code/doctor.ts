@@ -58,6 +58,8 @@ import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
 // a diagnostic's prose is a number that goes stale silently.
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
+// The page's own reader, so this line cannot drift from what the wake prints.
+import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
 import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
@@ -1494,6 +1496,106 @@ function vectorFindings(store: Store): Finding[] {
 }
 
 /**
+ * THE SELF PAGE (2026-09-18, S1) — one line: is there one, how big, how old.
+ *
+ * GREEN when absent, amber when stale, and never red. A store with no page has
+ * not written one yet, which is the correct state of a fresh install and on the
+ * first day after this ships — absence is a fact, not a fault, and a line that
+ * nags from the moment it lands is a line people learn to read past (the same
+ * rule `fired.ts` states for its `blind` rows). Staleness is the reading worth
+ * an amber: a page that exists and has stopped being revised means something
+ * that was running has stopped.
+ *
+ * The reading is two row reads and a date comparison, so it sits with the cheap
+ * groups rather than with `fired`.
+ */
+export function selfPageFindings(store: Store): Finding[] {
+  const page = readSelfPage(store);
+  if (page === null) {
+    // CLEARED is not NEVER WRITTEN. The wake says the same thing either way — it
+    // has no page — but a line telling the owner nothing was ever written, about
+    // a page he cleared last week, is the diagnostic getting it wrong in the one
+    // place he would look to check (adversarial review MINOR-F).
+    const cleared = clearedPage(store);
+    if (cleared !== null) {
+      return [
+        finding(
+          "self-page",
+          "green",
+          "Self page",
+          `cleared ${cleared.on === "" ? "(date unrecorded)" : `on ${cleared.on}`}` +
+            `${cleared.reason === "" ? "" : ` — ${cleared.reason}`}; ${cleared.versions} version${cleared.versions === 1 ? "" : "s"} kept`,
+          cleared.versions > 0
+            ? `Put one back with: counterparts self-page --restore ${cleared.newest}.`
+            : "",
+          { present: false, cleared: true, on: cleared.on, versions: cleared.versions },
+        ),
+      ];
+    }
+    return [
+      finding(
+        "self-page",
+        "green",
+        "Self page",
+        "no page written yet — the wake says it is still forming",
+        "",
+        { present: false, cleared: false },
+      ),
+    ];
+  }
+  const stale = pageStaleOn(page.revisedOn, dateOf(store.now()), SELF_TUNABLES.PAGE_STALE_DAYS);
+  const detail =
+    `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
+    `${page.by === null ? "" : ` by ${page.by}`}`;
+  const data = { present: true, bytes: page.bytes, version: page.version, revisedOn: page.revisedOn, stale };
+  return [
+    stale
+      ? finding(
+          "self-page",
+          "amber",
+          "Self page",
+          `${detail} — stale (over ${SELF_TUNABLES.PAGE_STALE_DAYS} days)`,
+          "Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.",
+          data,
+        )
+      : finding("self-page", "green", "Self page", detail, "", data),
+  ];
+}
+
+/** A page that was written and then cleared: when, why, and what is restorable.
+ *  Null when no page row exists at all. */
+function clearedPage(
+  store: Store,
+): { on: string; reason: string; versions: number; newest: number } | null {
+  const id = findPageRow(store);
+  if (id === null) return null;
+  let marker: { on: string; reason: string } | null = null;
+  try {
+    marker = clearedMarker(store.readProse(id).meta);
+  } catch {
+    return null;
+  }
+  if (marker === null) return null;
+  const versions = store.versions(id);
+  const newest = versions.reduce((n, v) => Math.max(n, v.seq), 0);
+  return { ...marker, versions: versions.length, newest };
+}
+
+/**
+ * Calendar days, like every other window here. A date that is absent or does
+ * not READ reads as stale — the same direction `self/#pageStale` takes, and the
+ * two are asserted to agree.
+ */
+function pageStaleOn(revisedOn: string, today: string, limit: number): boolean {
+  const on = revisedOn.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on) || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return true;
+  const a = Date.parse(`${on}T00:00:00Z`);
+  const b = Date.parse(`${today}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return true;
+  return Math.round((b - a) / 86_400_000) > limit;
+}
+
+/**
  * How to get a memory back. Short enough to survive being read in a panic, and
  * printed as the remedy on every Snapshot finding that is not green, because the
  * moment somebody needs it is the moment they will not go looking for it.
@@ -1709,6 +1811,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(store)],
     ["snapshot", () => snapshotFindings(input, store)],
+    ["self-page", () => selfPageFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

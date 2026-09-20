@@ -122,6 +122,10 @@ import type {
   ChapterAsk,
   IdentityCoreSpec,
   IngestResult,
+  PageRevision,
+  PageVersion,
+  PageWriteOptions,
+  SelfPage,
   WakeDelivery,
   WakeResult,
 } from "./self/index.js";
@@ -1934,6 +1938,54 @@ export class Counterpart {
     return this.self.ingestEpisode(input);
   }
 
+  // ── the self page ──────────────────────────────────────────────────────────
+
+  /** The written page, or null while none has been written. A pure read. */
+  selfPage(): SelfPage | null {
+    return this.self.page();
+  }
+
+  /** Every earlier state of the page, newest first. A pure read. `bodies: false`
+   *  skips the per-version file read, for a caller that wants the shape only. */
+  selfPageVersions(opts: { bodies?: boolean } = {}): PageVersion[] {
+    return this.self.pageVersions(opts);
+  }
+
+  /** How many earlier states, without reading one of them off disk. */
+  selfPageVersionCount(): number {
+    return this.self.pageVersionCount();
+  }
+
+  /** Put an earlier version back — an ordinary revision, so itself versioned. */
+  restorePage(seq: number, opts: { reason?: string; day?: number } = {}): PageRevision {
+    return this.self.restorePage(seq, opts);
+  }
+
+  /**
+   * Unwrite the page — the OWNER's door, and deliberately not reachable from any
+   * MCP tool. A session that could unwrite the page could erase the self between
+   * two turns.
+   */
+  clearPage(opts: { reason: string; day?: number }): PageRevision {
+    return this.self.clearPage(opts);
+  }
+
+  /**
+   * THE ONE DOOR TO THE PAGE — the MCP tool, the owner's console and the nightly
+   * writer (S2) all arrive here, and they arrive THROUGH THE BATTERY.
+   *
+   * The gate is the journal's, and the reason is the journal's (SEAMS H, found
+   * by the caller-universality test): the page is canonical prose that is
+   * injected into every session from here on, so a credential written into it
+   * would be the most durable place on the machine to leave one. It is applied
+   * inside `self/`, on the gate this root injected, so there is ONE refusal path
+   * and one durable row — and `self/`'s refusing default (`NO_GATE`) stays the
+   * behaviour of a page door nobody wired a battery into.
+   */
+  revisePage(body: string, opts: PageWriteOptions): PageRevision {
+    return this.self.revisePage(body, opts);
+  }
+
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */
   noteOrphanTail(
     sessionId: string,
@@ -2675,10 +2727,27 @@ export class Counterpart {
    *
    * **NOT THE LIVE SESSION'S WAKE, BYTE FOR BYTE** (2026-09-17 review). Same
    * composer, different bundle, and the differences are all deliberate: no
-   * `horizon`, so the prospective lane a live wake carries is simply absent;
-   * nothing protected or confidential; and the compose budget is the reported
-   * one whole, where a live wake first subtracts `PREFACE_RESERVE_BYTES` for a
+   * `horizon`, so the prospective lane a live wake carries is simply absent; no
+   * protected or confidential MEMORY; and the compose budget is the reported one
+   * whole, where a live wake first subtracts `PREFACE_RESERVE_BYTES` for a
    * preface this composition has no use for.
+   *
+   * **THE SELF PAGE IS THE ONE THING THAT GOES OUT DESPITE BEING PROTECTED**
+   * (2026-09-18, S1; corrected here after the adversarial review found this
+   * comment claiming otherwise). The page is born `protected`, and the predicate
+   * below filters on exactly that — but the flag is the floor prune's vocabulary
+   * (`self/page.ts`) rather than a confidentiality class, and this composition is
+   * the owner's own decision of 2026-09-17 (spec §15 item 3): the background
+   * writer is woken AS the self, with as much of the self as is reasonable,
+   * before it reads a transcript, so what it writes is not a stranger's
+   * paraphrase. The transcript it is handed on the same call already goes to the
+   * same provider. What leaves is the page and nothing else — the owner's and the
+   * session's own standing account of the self, cut to the same cap the wake
+   * uses. `self/`'s `PAGE_ON_EGRESS` is the switch, default true; turned off,
+   * this composition gets no page and its "Who I am" falls back to the identity
+   * list the predicate left standing, which is what it carried before S1.
+   * Nothing marks a page confidential today: it is one page, and the switch is
+   * the decision.
    *
    * **THE CAP IS A COMPOSE BUDGET, not a slice.** It is handed to the composer,
    * so `self/`'s declared trim order does the cutting and the bundle's own

@@ -417,3 +417,280 @@ that has been replaced. The reason keeps the two apart: the boundary's row is th
 day's record, the rebrief's is the owner pulling the lever mid-day, and a reader
 counting wake renders per day has to be able to tell them apart. A rebrief that
 REFUSES for want of a ceiling renders nothing and writes nothing.
+
+## 12. The self page: one row, two doors, and what it cost to stay out of sleep's way (2026-09-18)
+
+The wake's "Who I am" printed a rotating list of about twenty identity elements,
+re-ranked at every boundary, while the entity the store calls the self was a
+`type: "schema"` row whose body was its own name. Owner rulings 8 and 9 of
+2026-09-18 (`docs/plan-parallel-rebuild-2026-09-18.md` §2) replace the list with
+a written page — prose, first person, the same every morning, kept with versions,
+amendable by a woken session and by the owner.
+
+**Where it lives, and why there.** One row: `type: "schema"`, `kind: "self"`,
+`meta.role = "page"` — the identity core's shelf, one role along. The
+alternatives were an `episode` (which is the journal's type, and would put the
+page into `reconcileEpisodes`, the journal export and the chapter surfaces) or a
+`memory` (which would put it into a briefing lane, to be ranked and trimmed as an
+element, which is the thing it replaces). A schema row is neither, and it buys
+three exemptions that already existed rather than three new ones:
+
+- `dedup` skips every schema row by name (`sleep/types.ts#isSchemaRow`), so
+  nothing that resembles the page is ever merged into it;
+- `prune` blocks on `protected` (`physics#pruneVerdict`), and the row is born
+  with it — the page is standing ink, which is what that flag has always meant;
+- `scanActive` lists `{ type: "memory" }`, so the page can never enter a lane.
+
+`decay` and `consolidate` do walk it, and that is fine: both write physics
+columns and neither touches prose. `schemas/#toMetaRecord` returns null for any
+role but entity, belief and current-state, so the page is skipped by that index
+build rather than mis-filed in it. Proved by a test that runs seven cycles and a
+prune over a store holding a page with two versions.
+
+**What is NOT special-cased, on purpose.** Old page versions take the ordinary
+90-day retention (owner ruling 1): `pruneSupersededVersions` deletes by
+`version_day` alone and there is no exemption to make one for. The page's bytes
+ARE weighed by the standing self-schema counter, like the identity core's — it is
+`kind: self` prose that accumulates on the self, which is precisely what that
+valve watches, and `PAGE_MAX_BYTES` bounds it at a fraction of the trip point.
+
+**The switch, and why the default is the boring one.** What "Who I am" shows
+while no page exists is the owner's choice and he has not made it. So
+`PAGE_EMPTY_SHOWS_LIST` has two values and defaults to keeping the list: with no
+page the wake renders byte for byte what it rendered before, day-0 line included.
+Deploying the page therefore changes nothing in the owner's wake until somebody
+writes one, and on a brand-new store the list is empty anyway. With the switch
+off, the list goes and `PAGE_FORMING_LINE` stands in its place.
+
+**The still-forming line is about the PAGE; the day-0 line is about IDENTITY.**
+They are two sentences with two subjects and they must not be printed as one. A
+store with twenty identity elements and no page has not failed to form an
+identity; it has failed to write one down. Under the default switch that store
+sees exactly what it always saw. PR #71's rule — a store that HAS identity never
+says it does not — is untouched.
+
+**Over the limit, twice.** `PAGE_WAKE_BYTES` (6,144, about 6 KB of the owner's
+9,000-byte ceiling, clamped to the caller's budget so a page can never outgrow
+the whole wake) cuts the RENDER at a paragraph or section boundary and adds a
+marker naming the bytes shown, the bytes there are, and the command that reads it
+whole. `PAGE_MAX_BYTES` (16,384) refuses the WRITE, and refuses rather than cuts,
+because what gets cut at write time is the only copy. Between the two a write is
+accepted and warned. When the page plus the furniture will not fit the caller's
+ceiling at all, the floor publishes with `overBudget: true` — the tripwire that
+has always existed for an under-floor ceiling, not a new one.
+
+**Staleness is calendar days, not lived ones.** The lived clock has run seven
+days across fifteen calendar ones on the owner's own store, so a lived window
+would report a fortnight of silence as three days — the same reasoning
+`adapters/fired.ts` states for its own window. The dateline prints the DATE and,
+when stale, the number of days the tunable allows; it deliberately does not print
+"N days ago", because the bundle is composed at one boundary and served unchanged
+until the next.
+
+**It renders on an `omit` composition too.** The fallback woken as the self (spec
+§15 item 3) is the composition that most needs to know who it is writing as, and
+`omit` stands aside protected and confidential MEMORIES — the page's `protected`
+flag is the prune's vocabulary, not a confidentiality class. The day-0 line stays
+suppressed there, for the reason the 2026-09-17 review gave.
+
+**Two things the reader should know are true and slightly odd.** With a page
+present the identity lane renders empty, so `self.briefing`'s `counts.identity`
+is 0 and the `self.rendered.<id>` rotation stops advancing — both honest, and
+both readable in the row. And `FRAMING.context`'s "each line opens with the date
+it was learned" is a claim about the element lines; the day-0 line has carried no
+date since it shipped, and the page carries its own date on its own line.
+
+### 12a. What the default switch does NOT do, measured (2026-09-18)
+
+S1's brief describes value (b) of `PAGE_EMPTY_SHOWS_LIST` two ways in one
+paragraph: *"'still forming' followed by today's identity list as a fallback"*
+and *"deploying this changes nothing in the owner's wake until a page exists"*.
+Those are different renders, and only the second can be true of a store that has
+identity. What is built is the second, plus this: the forming line prints on
+value (a) alone, never above a list, and never on a lane that merely happens to
+be empty.
+
+The third reading — print it whenever the lane is empty, so a brand-new store
+says the words verbatim — was built and then backed out, because it was measured
+rather than argued: the line is FURNITURE, so it is untrimmable, and it adds ~127
+bytes to the floor of every wake whose identity lane is empty. `test/claude-code`'s
+host-budget case (a host reporting 400 bytes) then composed 539 and published
+`overBudget`, which is scar §2.18's guarantee paying for a sentence. Two other
+existing wake tests turned over with it, both asserting the older rule that a
+lane with nothing in it renders no heading at all.
+
+What a brand-new store says instead is the day-0 line, which has said the same
+thing in this module's own words since it shipped: *"No identity has formed here
+yet — identity is earned at the boundary that ends a session, from what recurs
+across distinct days."* If the owner wants the page's own sentence verbatim on a
+fresh store, the switch is one value away — which is what a switch with two
+values and an unmade choice is for.
+
+## 13. What the adversarial review of the page found, and what each fix cost (2026-09-18)
+
+Two blockers, four majors. The two blockers were both in `self/`, both small,
+and both the same mistake in different clothes: a number that looked like it
+bounded something and did not.
+
+**The cut threw away the room it had.** `cutAtBoundary` took the last blank line
+in the window wherever it was. A page that opens `## Core\n\n` and then runs
+without another blank line — a markdown bullet list, or one long paragraph, which
+between them are most of what a model writes for "who I am" — has its only `\n\n`
+at byte 7, so a 9,698-byte page rendered 110 bytes: a heading and a marker. The
+write had been ACCEPTED, with a warning that said the wake would show a cut of it.
+And because a page suppresses the identity list, the wake then carried no identity
+at all — the silence failure scar §2.3 is about, reached through a door that said
+everything was fine. The fix is a threshold: take a boundary only if it keeps more
+than `BOUNDARY_KEEP_SHARE` (a quarter) of the room, else fall to the next finer
+one, else cut bytes. A quarter and not a half on purpose — a page whose only break
+sits at 2.5 KB of a 6 KB room should take that clean cut rather than fall through
+to a mid-sentence one.
+
+**The cap was measured against the wrong number.** The page was clamped to the
+whole budget, so a long page filled the budget exactly and the header, the framing
+line, the heading, the dateline and the sentinel pushed the composition past it —
+with nothing to trim, because the identity lane is empty by then and the page is
+furniture the trim loop cannot pop. An 8,657-byte page published `overBudget` at
+400, 900, 2,000 and 6,000. This is the same measurement that kept the
+still-forming line out of the default switch (§12a), and the review's sharpest
+observation is that the argument had been accepted against a 127-byte sentence
+and not applied to a 6 KB block. `PAGE_FLOOR_RESERVE_BYTES` (512, against a
+measured widest of 444) is subtracted first, and two floors sit under it: below
+`PAGE_MIN_RENDER_BYTES` the wake says the page exists and does not fit in one
+line, and below the furniture itself it says nothing at all, because a ceiling
+that small has no room for prose about prose and the over-budget tripwire should
+be left for a host that really is misconfigured.
+
+**`protected` meant two things and the comment said one.** The page is born
+`protected` so the floor prune cannot take it; `sweepFallback` filters on exactly
+that flag to decide what leaves the machine, and its own comment said "nothing
+protected or confidential" — which this page made false. The flag is the prune's
+vocabulary and does not settle egress by itself, but it is close enough that the
+answer has to be written down: `PAGE_ON_EGRESS`, default true (the owner's
+decision of 2026-09-17), with the comment and the contract corrected to say what
+goes out and why. **Nothing marks a page confidential.** There is one page; the
+switch is the decision.
+
+**Removal was the only way out, and it was a loaded gun.** `revisePage("")`
+refuses, the dashboard is read-only, and the page is the most conspicuous schema
+row an owner has — `enumerate()` lists it and `status` prints its id. So the one
+affordance for "stop leading my wake with this" was `counterparts remove <id>`,
+which tombstones the row and leaves `Schemas.load` reading a blank `prose_path`:
+a store that will not open, with the wake hook swallowing the error so the symptom
+is silence. (Pre-existing — the identity core has had it since it shipped — and
+the `schemas/` skip is its own PR.) The door this needed is `--clear`, and the
+shape of it is the interesting part: the body becomes a VERSION and the row is
+ARCHIVED, so "no page" is a state every reader already understands
+(`findSelfPage` lists live rows) and nothing is destroyed. Blanking the body was
+the alternative and it is worse — a live page whose text is a placeholder is the
+"empty is a valid state" failure the bootstrap line exists to avoid.
+
+**The version log named the wrong write.** `store.revise` records the REPLACING
+write's reason on the row it archives, so version 1 — the first page — was
+labelled with the second write's words, while the current page's own
+`Last change:` line read the row's meta and was right. One word meaning opposite
+things on two surfaces. The durable rows carry what is wanted, and the arithmetic
+is exact: the write that produced version `seq` is the one whose row says
+`version: seq - 1`, because a revision archives the body that was standing and
+numbers it with the revision it is making. The store is untouched; only the
+presentation changed, with `replacedBy` keeping the store's value under its true
+name.
+
+**Two writers, last one wins, both told it worked.** Not data loss — every lost
+body is a version — but silent reversion of the page every session reads, which
+is the same felt outcome and harder to notice. `ifVersion` is optional on purpose:
+passed, a write that crossed with another is refused and handed the current page
+to merge; omitted, nothing changes. That is a courtesy between writers rather than
+a lock, which is what keeps it inside the owner's "no safeguards up front".
+
+**And the page could be promoted.** `consolidate.ts` had no `isSchemaRow` guard
+where `dedup.ts` has had one since it shipped, so forty cycles over a page
+carrying the physics repeated recall credit leaves produced `promoted_identity`,
+`band identity` and a `band.promoted` crossing record — on a row no lane can ever
+rank. The wake was unaffected; the telemetry was not, and the promotion
+diagnostics counted it. One line, mirroring dedup's, and it covers the identity
+core too. Excluding the page from recall — which the coordinator decided, and
+which is right on its own terms, since the page is already delivered whole every
+morning — closes the credit path that made it reachable. Both are one line to
+reverse.
+
+### 13a. Three things the second pass narrowed or fixed (2026-09-18)
+
+**The promotion guard is the promotion ARM, not the phase.** The first cut
+skipped schema rows from `consolidate` whole, mirroring `dedup`. That also stops
+a belief being CONSOLIDATED — `+CONS_BONUS` on `base` — which changes the
+strength trajectory of every belief on the owner's live store from the first
+cycle after deploy, for a fix about a telemetry row. Only the crossing is
+withheld now: a belief consolidates exactly as it always has and simply never
+crosses, which is the whole of what "this row entered the identity band" should
+never say about a standing claim.
+
+**A cleared page is found by its own durable row, not by id order.** Clear →
+restore → clear leaves TWO archived page-role rows and no live one, and
+`store.list` is `ORDER BY id` over hashed ids — so the version log would have
+read whichever sorted first, and the `--restore <seq>` pointer the clear had just
+printed would have been resolved against the wrong row. `pageRowId` reads the
+newest `self.page.revised` row carrying `cleared: true` and takes its `ref`.
+
+**What clear/restore does NOT carry, said out loud.** The history of a cleared
+page is reachable for as long as it is the last thing cleared. Write a NEW page
+and the live row wins: the older cleared page's versions sit on an archived row
+no console door reaches. That is an acceptable limit for now — nothing is
+destroyed, and the row is still in the store for anyone who goes looking — and
+the two messages that offer `--restore` say "until a new page is written" rather
+than promising more than they can keep.
+
+## 14. One row for the life of the page, and a guard that fits the finding (2026-09-18, second review)
+
+**The undo closed behind the owner.** `--clear` archived the row; `revisePage`
+looks for a LIVE page; so the `--restore <seq>` the clear message itself
+recommends minted a fresh row, and four versions with full attribution sat on a
+row no surface could reach. Proved through the real console: `--versions` listing
+four, then `--restore 4`, then `--versions` answering "No earlier versions". The
+mechanism built to answer "the owner can see and undo a bad write" destroyed
+access to exactly what it was protecting, on its main path.
+
+**The shape that fixes it is one row for the life of the page.** A clear is an
+ordinary REVISION — so the body it replaces becomes an ordinary version,
+attributed like any other — to a fixed cleared-body line, with `meta.cleared`
+set. The row stays live and keeps its whole chain. `readSelfPage` returns null
+for a cleared row, so every reader sees a store with no page and the wake goes
+back to its empty-page behaviour; the next write or restore revises the SAME row
+and drops the flag. Two properties fall out and both are asserted: there is never
+a second page row, live or archived, however often it is cleared; and nothing
+needs the event log to find the page or its history. The named limit from the
+first attempt — an older cleared page's versions unreachable once a new page is
+written — does not exist any more, because there is no older row. So does
+MINOR-E: the cleared-page lookup no longer depends on rows sleep prunes at 90
+days, and there is no arbitrary id-ordered fallback to pick the wrong page with.
+
+The reviewer's own preferred fix was a `Store.unarchive`. This gets the same
+result without a new store verb, which matters while the floor (F5) is being
+rebuilt underneath.
+
+**And a guard that fits the finding.** The promotion guard was schema rows
+generally. `physics#decay` returns 1 for a promoted row, so withholding the
+crossing from beliefs, current-states and entities stops them becoming
+decay-exempt — a retention change for three row classes across the owner's whole
+store, inside a PR about one page. Measured, master against the branch, identical
+fixtures, 40 cycles:
+
+```
+             master                          first attempt
+memory       band identity, promoted 1       identical
+belief       band identity, promoted 1       band semantic, promoted 0
+current-state band identity, promoted 1      band semantic, promoted 0
+entity       band identity, promoted 1       band semantic, promoted 0
+page         band identity, promoted 1       band semantic, promoted 0
+band.promoted events: 5                      1
+```
+
+The guard is now the PAGE, by role, and the same measurement over the fix leaves
+one line different: the page, and `band.promoted` 5 → 4. Whether a belief should
+cross into the identity band at all is a real question — it is odd, and
+`enumerate()` has no type filter, so beliefs that crossed appear in `status`'s
+identity list — but it has a one-query answer against the live store that nobody
+has, and it is not this change's to take.
+
+The identity core is deliberately NOT exempted: it could cross on master, and
+exempting it would be the same quiet retention change one row smaller.

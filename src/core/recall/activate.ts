@@ -127,6 +127,40 @@ export interface ActivationResult {
 }
 
 /**
+ * THE SELF PAGE IS NOT A RECALL CANDIDATE (2026-09-18, S1).
+ *
+ * The page is `self/`'s one row of standing prose about the self, and it is
+ * already delivered — whole, first, at every wake. Leaving it in the candidate
+ * pool means it can be quoted back to the model on a turn it is ALSO carrying in
+ * its own wake, can accrue use credit and association edges for being what it
+ * always is, and — since a schema row has no project scope — can surface under a
+ * project the owner never wrote it in. It is up to 16 KB against a bounded
+ * result, and it is the one row whose surfacing tells the reader nothing they
+ * were not already told.
+ *
+ * The role string is read STRUCTURALLY rather than imported: `recall/` does not
+ * depend on `self/`, and a shape check that fails reads as "not the page", which
+ * is the direction that only ever costs a candidate slot. The owner of the
+ * constant is `self/page.ts#SELF_PAGE_ROLE`.
+ *
+ * One line to reverse, if the page should come back to mind.
+ */
+export function isSelfPage(doc: ProseDoc): boolean {
+  return doc.type === "schema" && doc.meta["role"] === "page";
+}
+
+/** `isSelfPage` by id, for the scan, which holds rows rather than documents. A
+ *  page whose prose will not read is not the page for this purpose: the safe
+ *  direction is to let it compete, not to drop a row nobody could identify. */
+function isPageRow(store: Store, id: string): boolean {
+  try {
+    return isSelfPage(store.readProse(id));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A memory's confidentiality class, as the surfacing gate asks it.
  *
  * The truth table itself is `store/index.ts#confidentialByMeta`, which is also
@@ -372,6 +406,14 @@ export function activate(
     // surfaces (§4.2 G3). A superseded head forwards; the successor is reached
     // on its own merits, never by dragging the old id along.
     if (row === undefined || row.archived === 1 || row.superseded_by !== null) {
+      skipped += 1;
+      continue;
+    }
+    // The self page, which is delivered at wake and never here (`isSelfPage`).
+    // The prose read is gated on the row's own columns, so only a SCHEMA row of
+    // the self kind pays for it — the page, the identity core, and the handful
+    // of beliefs held about the self.
+    if (row.type === "schema" && row.kind === "self" && isPageRow(store, id)) {
       skipped += 1;
       continue;
     }

@@ -72,6 +72,10 @@ import {
   WAKE_SYSTEM,
   applyPreface,
   flatten,
+  PAGE_FLOOR_RESERVE_BYTES,
+  PAGE_MIN_RENDER_BYTES,
+  pageDateline,
+  pageTooLargeLine,
   prefaceLine,
   readSentinel,
   render,
@@ -79,10 +83,28 @@ import {
 import type {
   BriefingRequest,
   BriefingResult,
+  PageBlock,
   Resolve,
   Resolved,
   SentinelReading,
 } from "./briefing.js";
+import {
+  PAGE_META_BY,
+  PAGE_META_REASON,
+  PAGE_META_REVISED_DAY,
+  PAGE_META_REVISED_ON,
+  PAGE_CLEARED_BODY,
+  PAGE_META_CLEARED,
+  PAGE_TITLE,
+  SELF_PAGE_REFUSED_EVENT,
+  SELF_PAGE_REVISED_EVENT,
+  SELF_PAGE_ROLE,
+  findPageRow,
+  findSelfPage,
+  readSelfPage,
+  renderPage,
+} from "./page.js";
+import type { SelfPage, SelfPageAuthor } from "./page.js";
 import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
 import {
@@ -112,6 +134,7 @@ import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 
 export * from "./briefing.js";
+export * from "./page.js";
 export * from "./episodes.js";
 export * from "./freeze.js";
 export * from "./identity.js";
@@ -278,6 +301,112 @@ export interface ChapterAppend {
   readonly reason: "appended" | "observer" | "anonymous-session" | "gate-refused";
 }
 
+/**
+ * Why a page write did not land. Every one of them is named to the caller.
+ *
+ * `version-moved` is the optimistic check (adversarial review M4): a caller that
+ * passes the version it READ is told when somebody else has written since, and
+ * is handed the current page so it can merge rather than revert. A caller that
+ * passes nothing behaves exactly as before — it is a courtesy between writers,
+ * not a lock, which is what keeps it inside the owner's "no safeguards up front".
+ */
+export type PageRefusal =
+  | "empty"
+  | "too-large"
+  | "gate-refused"
+  | "version-moved"
+  | "no-page"
+  | "page-appeared"
+  | "forged-markers"
+  | "no-such-version";
+
+/**
+ * The `ifVersion` a caller passes to mean "I read NO PAGE". A version is a
+ * non-negative integer, so -1 cannot collide with one, and the two ends of the
+ * check then speak the same vocabulary: `present: false` on a read carries this
+ * number, and passing it back is the claim "nothing was there when I looked".
+ */
+export const NO_PAGE_VERSION = -1;
+
+/** `pageBlock`'s third answer: there IS a page and this ceiling has no room for
+ *  a word about it. Distinct from `null`, which means there is none. */
+export const NO_ROOM = Symbol("self-page-no-room");
+
+export interface PageRevision {
+  readonly written: boolean;
+  /** `created` / `revised` / `cleared` when it landed; the refusal's own name
+   *  when it did not, with `observer` for a stood-down instrument. */
+  readonly reason: "created" | "revised" | "cleared" | PageRefusal | "observer";
+  readonly id: string | null;
+  /** The version this write produced — 0 for a page written for the first time. */
+  readonly version: number | null;
+  readonly bytes: number;
+  /** Which gate refused, when one did. Null on every other outcome. */
+  readonly gate: { readonly gate: string; readonly reason: string } | null;
+  /** Accepted, and larger than the wake will show: the page is kept whole and
+   *  the wake renders a cut of it. Not a refusal — a warning the caller prints. */
+  readonly warning: "over-wake-cap" | null;
+  /**
+   * ACCEPTED, AND CHANGED ON THE WAY IN. The gate battery redacts before
+   * anything is stored, and until the adversarial review nothing told the
+   * writer: a page carrying an API key was accepted, stored redacted, and the
+   * console printed "Wrote the page — 93 bytes". The owner who wrote a file from
+   * his editor was not told the file had been altered, on the one row that is
+   * then read aloud at the start of every session. Null when the stored text is
+   * the text that was sent.
+   */
+  readonly redacted: { readonly gate: string; readonly bytesBefore: number } | null;
+  /** On `version-moved` only: what is actually there now, so the caller can
+   *  re-read and merge instead of guessing. */
+  readonly current: { readonly version: number; readonly body: string } | null;
+}
+
+/** The structural markers a page body may not carry (adversarial review m3). */
+export const WAKE_MARKER = "<!-- counterparts:wake";
+
+export interface PageWriteOptions {
+  /** One line saying what changed, kept with the version this write produces. */
+  readonly reason: string;
+  /** Which DOOR this came through. Not claimable from outside the adapter. */
+  readonly by: SelfPageAuthor;
+  /** WHICH SESSION, when the door knows one. Null/absent is recorded as null —
+   *  the log says "unknown", never a guess. */
+  readonly session?: string | null;
+  /**
+   * The version the caller believes it is amending. When it does not match, the
+   * write is refused as `version-moved` and the answer carries what is actually
+   * there. Omit it and the write behaves exactly as it always has.
+   */
+  readonly ifVersion?: number;
+  readonly day?: number;
+}
+
+export interface PageVersion {
+  readonly seq: number;
+  readonly day: number;
+  readonly body: string | null;
+  readonly bytes: number | null;
+  /** The reason the write that PRODUCED this body gave. Null when no durable
+   *  row survives for it. */
+  readonly reason: string | null;
+  /** Which door produced it, same provenance. Null when unrecorded. */
+  readonly by: string | null;
+  /** What `store.revise` recorded: the reason the write that REPLACED it gave. */
+  readonly replacedBy: string;
+}
+
+/** Whole days between two `YYYY-MM-DD` dates, or null when either is unreadable. */
+function daysBetween(from: string, to: string): number | null {
+  // The SHAPE is checked, not only the parse: `Date.parse` accepts a great deal
+  // that is not a date this store ever wrote, and a page dated by hand is
+  // exactly the case this runs on.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
 const EVENT_RING = 500;
 
 export class Self {
@@ -345,16 +474,523 @@ export class Self {
     // filters.
     const coreName =
       req.omit === undefined && lanes.identity.length === 0 ? identityCoreName(this.store) : null;
+    // THE PAGE, cut here rather than in the renderer: the cap is a byte decision
+    // that needs the caller's budget AND the page's own prose, and `briefing.ts`
+    // composes rather than reads.
+    //
+    // **DOES IT GO OUT?** A composition that passes `omit` is by definition one
+    // that will leave the machine, and the page is born `protected` — the very
+    // predicate `sweepFallback` filters on. That flag is the PRUNE's vocabulary
+    // and does not decide egress by itself, but the question is too close to it
+    // to be answered by an accident, so it is answered by a switch:
+    // `PAGE_ON_EGRESS`, default true, the owner's decision of 2026-09-17 (spec
+    // §15 item 3). Turn it off and a filtering composition gets no page and
+    // falls back to the identity list `omit` left standing, which is what that
+    // composition carried before the page existed.
+    const block =
+      req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
+        ? null
+        : this.pageBlock(req.budgetBytes);
+    // A page that will not FIT is not a page that does not EXIST: the renderer
+    // is told `pageExists` so the still-forming line stays off a store that has
+    // one, whatever the ceiling did (MINOR-D).
+    const page = block === NO_ROOM ? null : block;
+    const pageExists = block !== null;
     return render(
       lanes,
       {
         budgetBytes: req.budgetBytes,
+        pageExists,
         day: req.day,
         ...(coreName === null ? {} : { coreName }),
+        ...(page === null ? {} : { page }),
       },
       resolve,
       this.tunables,
     );
+  }
+
+  // ── the self page ────────────────────────────────────────────────────────
+
+  /**
+   * THE PAGE, READ. Null when none has been written — never a fabricated one:
+   * a store with nothing to say says so (contract §3, and the day-0 lane's own
+   * reasoning). Pure: no write, no event.
+   */
+  page(): SelfPage | null {
+    return readSelfPage(this.store);
+  }
+
+  /**
+   * Has the page gone unrevised longer than the tunable allows? CALENDAR days,
+   * against the store's own clock — the lived clock has run seven days across
+   * fifteen calendar ones on the owner's store, so a lived window would report a
+   * fortnight of silence as three days.
+   */
+  pageStale(page: SelfPage | null = this.page()): boolean {
+    if (page === null) return false;
+    // NO READABLE DATE READS AS STALE. A page whose `revisedOn` is blank or
+    // unparseable — only reachable on a hand-minted or hand-edited row — used to
+    // read as FRESH, which is the direction that says nothing is wrong about a
+    // row nobody can date (adversarial review m6). `pageDateline` says the same
+    // thing in words rather than printing nothing.
+    const days = daysBetween(page.revisedOn.trim(), this.store.today());
+    return days === null ? true : days > this.tunables.PAGE_STALE_DAYS;
+  }
+
+  /**
+   * How many earlier states the page has — WITHOUT reading a single one of them
+   * off disk.
+   *
+   * Three surfaces wanted only this number and were getting it from
+   * `pageVersions().length`, which reads every archived body: on a page revised
+   * nightly for a quarter that is ninety file reads of up to 16 KB to print one
+   * digit, on every `self_page` read a session makes (adversarial review m9).
+   */
+  pageVersionCount(): number {
+    const id = this.pageRowId();
+    return id === null ? 0 : this.store.versions(id).length;
+  }
+
+  /**
+   * Every earlier state of the page, newest first.
+   *
+   * **Each body carries the reason and the author of the write that PRODUCED
+   * it**, not of the write that replaced it. `store.revise` stores the
+   * REPLACING write's reason on the row it archives, so reading `VersionRow.reason`
+   * straight through labelled version 1 — the first page — with the second
+   * write's words, while the CURRENT page's own `Last change:` line reads the
+   * row's meta and is right. Two surfaces using the same word for opposite
+   * things is worse than one surface with no word (adversarial review M3). The
+   * durable `self.page.revised` rows carry what is wanted: the write that
+   * produced version `seq` is the one whose row says `version: seq - 1`, because
+   * a revision archives the body that was standing and numbers it with the
+   * revision it is making. `replacedBy` keeps the store's own value, named for
+   * what it actually is.
+   *
+   * `bodies: false` skips the per-version file read.
+   */
+  pageVersions(opts: { bodies?: boolean } = {}): PageVersion[] {
+    const id = this.pageRowId();
+    if (id === null) return [];
+    const wrote = new Map<number, { reason: string | null; by: string | null }>();
+    try {
+      for (const row of this.store.eventLog({ name: SELF_PAGE_REVISED_EVENT, ref: id })) {
+        const payload = JSON.parse(row.payload ?? "{}") as Record<string, unknown>;
+        const v = payload["version"];
+        if (typeof v !== "number") continue;
+        wrote.set(v, {
+          reason: typeof payload["reason"] === "string" ? payload["reason"] : null,
+          by: typeof payload["by"] === "string" ? payload["by"] : null,
+        });
+      }
+    } catch {
+      /* a log that will not read leaves every version unattributed, not wrong */
+    }
+    return this.store
+      .versions(id)
+      .slice()
+      .sort((a, b) => b.seq - a.seq)
+      .map((v) => {
+        let body: string | null = null;
+        if (opts.bodies !== false) {
+          try {
+            body = this.store.readVersion(id, v.seq).body;
+          } catch {
+            body = null;
+          }
+        }
+        const wroteIt = wrote.get(v.seq - 1) ?? { reason: null, by: null };
+        return {
+          seq: v.seq,
+          day: v.version_day,
+          body,
+          bytes: body === null ? null : byteLength(body),
+          reason: wroteIt.reason,
+          by: wroteIt.by,
+          replacedBy: v.reason,
+        };
+      });
+  }
+
+  /**
+   * PUT A VERSION BACK, in one command. It is an ordinary revision whose body is
+   * that version's, so the restore is itself versioned and itself undoable — the
+   * owner never has to hand-edit a file out of `--version <seq>`'s output, which
+   * is what he had to do before (the output opens with a header line, so the
+   * obvious redirect wrote the header into the page).
+   */
+  restorePage(seq: number, opts: { reason?: string; day?: number } = {}): PageRevision {
+    const id = this.pageRowId();
+    const none = {
+      id: null,
+      version: null,
+      bytes: 0,
+      warning: null,
+      gate: null,
+      redacted: null,
+      current: null,
+    } as const;
+    // Two different absences, named apart: no page has ever been written here,
+    // and there is no version by that number. A caller reaching this seam
+    // directly (S2) gets the one that is true.
+    if (id === null) return { ...none, written: false, reason: "empty" };
+    let body: string;
+    try {
+      body = this.store.readVersion(id, seq).body;
+    } catch {
+      return { ...none, written: false, reason: "no-such-version" };
+    }
+    return this.revisePage(body, {
+      reason: opts.reason ?? `restored version ${seq}`,
+      by: "owner",
+      ...(opts.day === undefined ? {} : { day: opts.day }),
+    });
+  }
+
+  /**
+   * The page's row id INCLUDING a cleared one, for the surfaces that read its
+   * history. `findSelfPage` lists live rows only — which is what makes a cleared
+   * page read as no page — so the version log needs its own lookup.
+   */
+  private pageRowId(): string | null {
+    // ONE ROW, cleared or not — so the history is found by the same lookup that
+    // finds the page, and nothing here depends on the event log. The first
+    // design archived a cleared page and found it again through its
+    // `self.page.revised` row; the second review proved that sleep prunes those
+    // at 90 lived days and that the fallback scan then picked the WRONG cleared
+    // page, whose body `--restore` would have written as the live one. That
+    // whole class of question is gone with the row.
+    return findPageRow(this.store);
+  }
+
+  /**
+   * THE ONE SEAM that writes the page — the MCP tool, the owner's console and
+   * (later) the nightly writer all arrive here, so there is one place the row
+   * shape, the caps and the durable row are decided.
+   *
+   * Refusals are NAMED and DURABLE (owner ruling 2's corollary, 2026-09-18: a
+   * cap reports what it refused where the owner will see it). There is no silent
+   * no-op on this path: every call returns a reason and, unless the store itself
+   * is refusing writes, leaves a row saying which it was.
+   *
+   * `by` is the caller's and is not claimable from the outside by anything but
+   * the adapter that opened this seam — the MCP tool writes `session`, the
+   * console writes `owner`, and `writer` is S2's.
+   */
+  revisePage(body: string, opts: PageWriteOptions): PageRevision {
+    const day = opts.day ?? this.store.livedDay();
+    const draft = body.replace(/\r\n/g, "\n").trim();
+    let bytes = byteLength(draft);
+    const session = opts.session ?? null;
+    const none = {
+      id: null,
+      version: null,
+      warning: null,
+      gate: null,
+      redacted: null,
+      current: null,
+    } as const;
+    const refuse = (
+      reason: PageRefusal,
+      detail: Record<string, string | number | boolean>,
+      extra: Partial<PageRevision> = {},
+    ): PageRevision => {
+      this.emit("self.page.refused", undefined, { reason, by: opts.by, ...detail });
+      try {
+        this.store.appendEvent({
+          name: SELF_PAGE_REFUSED_EVENT,
+          day,
+          // WHICH SESSION, when the door knows one. Null is written rather than
+          // a guess: "a session" is what the log said before, and with five or
+          // more running at once that answers nothing.
+          payload: { reason, by: opts.by, session, ...detail },
+        });
+      } catch {
+        /* a refusal that cannot be recorded is still a refusal (§5 G7) */
+      }
+      return { ...none, written: false, reason, bytes, ...extra };
+    };
+
+    if (this.observer) {
+      // The stand-down comes FIRST and writes nothing at all, the durable row
+      // included: an instrument that logged its own refusal would be changing
+      // the store it is reading (observer-mode G3).
+      this.emit("self.observer.standdown", undefined, { site: "revisePage" });
+      return { ...none, written: false, reason: "observer", bytes };
+    }
+    if (draft.length === 0) return refuse("empty", { bytes: 0 });
+    if (bytes > this.tunables.PAGE_MAX_BYTES) {
+      // Refused, never cut: what gets cut at write time is the only copy.
+      return refuse("too-large", { bytes, limit: this.tunables.PAGE_MAX_BYTES });
+    }
+    // NO FORGED WAKE STRUCTURE. The page is injected verbatim and FIRST inside
+    // the bundle, so a body carrying the wake's own comment markers puts an
+    // end-of-memory marker in front of four real lanes for the model reading it,
+    // and gives the dashboard's lane splitter a lane the store has no rows for.
+    // Nothing downstream breaks — `readSentinel` reads the last line only and
+    // the delivery check is already hardened — but the READING is the thing the
+    // markers exist for (adversarial review m3). Only the structural markers:
+    // the page is meant to carry the session's own prose, headings and all.
+    if (draft.includes(WAKE_MARKER)) return refuse("forged-markers", { bytes });
+    // THE OPTIMISTIC CHECK, and only when the caller asked for one (M4). Two
+    // sessions that both read at 09:00 and both write at 17:00 otherwise leave
+    // the second one's page standing and tell the first `stored: true`: not data
+    // loss, since every lost body is a version, but silent reversion of a page
+    // every session reads, which is the same felt outcome and harder to notice.
+    const before = readSelfPage(this.store);
+    if (opts.ifVersion !== undefined) {
+      // "I READ NO PAGE" HAS A VALUE, and it is `NO_PAGE_VERSION` (-1). With no
+      // page, `version` is not a number at all, so every integer mismatched and
+      // the first write a careful session made — one that read `present: false`
+      // and passed the natural 0 back, as the description tells it to — was
+      // refused with a sentence saying somebody else had written the page. That
+      // was untrue, and there was nothing handed back to merge against
+      // (adversarial review MINOR-C). `no-page` and `page-appeared` name the two
+      // directions apart from a genuine race.
+      const at = before?.version ?? NO_PAGE_VERSION;
+      if (at !== opts.ifVersion) {
+        const reason: PageRefusal =
+          before === null ? "no-page" : opts.ifVersion === NO_PAGE_VERSION ? "page-appeared" : "version-moved";
+        return refuse(
+          reason,
+          { bytes, expected: opts.ifVersion, at },
+          {
+            current:
+              before === null ? null : { version: before.version, body: before.body },
+          },
+        );
+      }
+    }
+    // THE BATTERY, on the page as on the journal (SEAMS H). The page is prose
+    // that will be injected into every session from here on, so a credential
+    // written into it would be the most durable place on the machine to leave
+    // one. `NO_GATE`'s refusal is the behaviour of a door nobody wired a battery
+    // into, and it is loud rather than open.
+    const verdict = this.gate({ text: draft, handles: [], sessionId: `page:${opts.by}` });
+    if (!verdict.ok) {
+      return refuse(
+        "gate-refused",
+        { bytes, gate: verdict.gate, gateReason: verdict.reason },
+        { gate: { gate: verdict.gate, reason: verdict.reason } },
+      );
+    }
+    // The GATE's text, never the draft: the battery may have redacted it.
+    const text = verdict.text !== undefined && verdict.text.length > 0 ? verdict.text : draft;
+    // ...and the writer is TOLD when that happened (m1).
+    // An ACCEPTING verdict carries no gate name — the battery redacts in the
+    // secrets gate and says so only when it refuses — so the class is named
+    // here, which is the one the redaction can have come from.
+    const redacted = text === draft ? null : { gate: "secrets", bytesBefore: bytes };
+    bytes = byteLength(text);
+
+    // THE PAGE'S ROW, cleared or not: a write after a clear revives the SAME row
+    // and its whole version chain rather than minting a fresh one beside it.
+    // `store.revise` merges meta, so the cleared flag is dropped explicitly.
+    const existing = findPageRow(this.store);
+    const meta: Record<string, unknown> = {
+      role: SELF_PAGE_ROLE,
+      [PAGE_META_BY]: opts.by,
+      [PAGE_META_REASON]: opts.reason,
+      [PAGE_META_REVISED_ON]: this.store.today(),
+      [PAGE_META_REVISED_DAY]: day,
+      [PAGE_META_CLEARED]: null,
+    };
+    let id: string;
+    let version: number;
+    if (existing === null) {
+      id = this.store.put({
+        type: "schema",
+        kind: "self",
+        title: PAGE_TITLE,
+        body: text,
+        meta,
+        learnedOn: this.store.today(),
+        // PROTECTED AT BIRTH — the one flag that keeps the floor prune off it
+        // (`physics#pruneVerdict` blocks on it by name). It is not a
+        // confidentiality class and it buys no exemption anywhere else.
+        physics: { protected: true },
+      });
+      version = 0;
+    } else {
+      id = existing;
+      version = this.store.revise(id, { body: text, title: PAGE_TITLE, meta, reason: opts.reason });
+      // A page written before this flag existed — or one whose row was minted by
+      // hand — is put beyond the prune here rather than at some later repair.
+      if (this.store.row(id)?.protected !== 1) this.store.updatePhysics(id, { protected: true });
+    }
+    const warning = bytes > this.tunables.PAGE_WAKE_BYTES ? ("over-wake-cap" as const) : null;
+    this.store.appendEvent({
+      name: SELF_PAGE_REVISED_EVENT,
+      day,
+      ref: id,
+      payload: {
+        by: opts.by,
+        // WHICH SESSION WROTE IT, when the door knows one — `by` says which DOOR
+        // and cannot be forged, but with five or more sessions running at once
+        // "a session" answers nothing. Null when the door has no id; never a
+        // guess (adversarial review M3).
+        session,
+        reason: opts.reason,
+        bytes,
+        // What the gate took out on the way in, so the log carries the fact the
+        // caller was told (m1).
+        ...(redacted === null ? {} : { redacted: true, redactedBy: redacted.gate }),
+        version,
+        created: existing === null,
+        wakeCap: this.tunables.PAGE_WAKE_BYTES,
+        ...(warning === null ? {} : { warning }),
+      },
+    });
+    this.emit("self.page.revised", id, {
+      by: opts.by,
+      bytes,
+      version,
+      created: existing === null,
+      ...(warning === null ? {} : { warning }),
+    });
+    return {
+      written: true,
+      reason: existing === null ? "created" : "revised",
+      id,
+      version,
+      bytes,
+      warning,
+      gate: null,
+      redacted,
+      current: null,
+    };
+  }
+
+  /**
+   * UNWRITE THE PAGE — the owner's door, and only the owner's.
+   *
+   * The adversarial review found the dead end: `revisePage("")` refuses as
+   * `empty`, the dashboard is read-only, and the only affordance an owner had
+   * for "stop leading my wake with this page" was `counterparts remove <id>` —
+   * which tombstones the row and, until the `schemas/` skip lands, leaves a
+   * store that will not open at all. This is the door that removal was standing
+   * in for.
+   *
+   * **How "no page" is represented, and why.** ONE ROW FOR THE LIFE OF THE PAGE:
+   * the clear is an ordinary REVISION — so the body it replaces becomes an
+   * ordinary version, attributed like every other — to a fixed cleared-body line,
+   * with `meta.cleared` set. The row stays live and keeps its whole version
+   * chain. `readSelfPage` returns null for a cleared row, so every reader — the
+   * wake, the doctor, the dashboard, the MCP read, the console — sees a store
+   * with no page and the wake goes back to its empty-page behaviour exactly as
+   * if none had ever been written. The next write or restore revises the SAME
+   * row and drops the flag.
+   *
+   * The first design archived the row instead, and the second review proved what
+   * that cost: `revisePage` finds live rows, so the next write — including the
+   * `--restore <seq>` the clear message itself recommends — minted a fresh row
+   * and orphaned four versions with full attribution on a row no surface could
+   * reach. The undo mechanism closed behind the owner as he walked through it.
+   * Deleting was never available (not a verb `store/` has, on purpose), and
+   * blanking the body would leave a live page whose text is a placeholder, which
+   * is the "empty is a valid state" failure the bootstrap line exists to avoid
+   * (§1 G5): a page that says nothing and a store with no page must not render
+   * the same. The flag is what tells those two apart.
+   *
+   * It is the owner's door alone: no MCP tool reaches it. A session that could
+   * unwrite the page could erase the self between two turns, and nothing about
+   * a session's judgement in the moment earns that.
+   */
+  clearPage(opts: { reason: string; day?: number }): PageRevision {
+    const day = opts.day ?? this.store.livedDay();
+    const none = {
+      id: null,
+      version: null,
+      bytes: 0,
+      warning: null,
+      gate: null,
+      redacted: null,
+      current: null,
+    } as const;
+    if (this.observer) {
+      this.emit("self.observer.standdown", undefined, { site: "clearPage" });
+      return { ...none, written: false, reason: "observer" };
+    }
+    const page = readSelfPage(this.store);
+    if (page === null) return { ...none, written: false, reason: "empty" };
+    // `revise` archives what was there FIRST, so the page that was cleared is a
+    // version on this same row and `--restore <seq>` reaches it.
+    const version = this.store.revise(page.id, {
+      body: PAGE_CLEARED_BODY,
+      meta: {
+        [PAGE_META_REASON]: opts.reason,
+        [PAGE_META_CLEARED]: { on: this.store.today(), reason: opts.reason },
+      },
+      reason: opts.reason,
+    });
+    this.store.appendEvent({
+      name: SELF_PAGE_REVISED_EVENT,
+      day,
+      ref: page.id,
+      payload: {
+        by: "owner",
+        session: null,
+        reason: opts.reason,
+        cleared: true,
+        bytes: page.bytes,
+        version,
+        created: false,
+        wakeCap: this.tunables.PAGE_WAKE_BYTES,
+      },
+    });
+    this.emit("self.page.revised", page.id, { by: "owner", cleared: true, version });
+    return { ...none, written: true, reason: "cleared", id: page.id, version, bytes: page.bytes };
+  }
+
+  /**
+   * The page as the wake will print it, or null. Pure.
+   *
+   * The cap is the caller's ceiling LESS the furniture that wake will wrap the
+   * page in (`PAGE_FLOOR_RESERVE_BYTES`), and not the whole ceiling: the page is
+   * furniture the trim loop cannot pop, so a page sized against the whole budget
+   * puts the composition over it with nothing left to trim (adversarial review
+   * B2). When what is left is too small to be a page at all, the wake says the
+   * page exists and does not fit, in one line — the one thing that is both true
+   * and short enough to say.
+   */
+  private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
+    const page = this.page();
+    if (page === null) return null;
+    const dateline = pageDateline(
+      page.revisedOn,
+      this.pageStale(page),
+      this.tunables.PAGE_STALE_DAYS,
+    );
+    const room = budgetBytes - PAGE_FLOOR_RESERVE_BYTES;
+    // A ceiling with no room for the wake's OWN furniture has none for a line
+    // about the page either, so "Who I am" carries nothing at all rather than a
+    // sentence that puts the bundle over. At this size every lane is empty too,
+    // and the floor's own over-budget tripwire is left for a host that really is
+    // misconfigured rather than spent on prose about prose.
+    //
+    // `NO_ROOM` and not `null`: a page that does not FIT and a page that does not
+    // EXIST must not reach the renderer as the same thing. With
+    // `PAGE_EMPTY_SHOWS_LIST` off, `null` here made a store that HAS a page print
+    // "no page has been written here yet" — the class of lie PR #71's rule
+    // forbids, moved from identity to the page (adversarial review MINOR-D).
+    if (room <= 0) return NO_ROOM;
+    const cap = Math.min(this.tunables.PAGE_WAKE_BYTES, room);
+    if (cap < PAGE_MIN_RENDER_BYTES && page.bytes > cap) {
+      return {
+        text: pageTooLargeLine(page.bytes),
+        dateline: null,
+        truncated: true,
+        wholeBytes: page.bytes,
+      };
+    }
+    const rendered = renderPage(page.body, cap);
+    return {
+      text: rendered.text,
+      dateline,
+      truncated: rendered.truncated,
+      wholeBytes: rendered.wholeBytes,
+    };
   }
 
   /**
@@ -388,6 +1024,13 @@ export class Self {
       hints: briefing.counts.hints,
       horizon: briefing.counts.horizon,
       trimmed: briefing.trimmed.length,
+      // WHETHER THE PAGE RENDERED, AND WHETHER IT WAS CUT. Zero and false mean
+      // "no page in this render", which is what a store with none looks like;
+      // without these a wake led by a 6 KB page and a wake led by nothing are
+      // the same row, and the cut is the thing nobody would otherwise see.
+      page: briefing.page?.bytes ?? 0,
+      pageWhole: briefing.page?.wholeBytes ?? 0,
+      pageTruncated: briefing.page?.truncated ?? false,
       hash,
     });
     // A budget gets an event when APPROACHED and an event when crossed; a number

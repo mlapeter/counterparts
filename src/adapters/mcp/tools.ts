@@ -22,18 +22,35 @@
  * fields are required by the type, so a tool without them does not compile.
  *
  * What is deliberately ABSENT, and asserted absent by the audit:
- *   - **No self-authorship tool.** Superseded by experiencer authorship (§4):
- *     identity writing happens at the boundary, by construction. `chapter` is
- *     not one: it appends to the session's journal, which becomes memory only
- *     through the ordinary gated ingestion, never by writing identity directly.
+ *   - **No tool that writes an IDENTITY ELEMENT.** Superseded by experiencer
+ *     authorship (§4): what enters the identity band is decided by promotion and
+ *     reinforcement at the boundary, by construction. `chapter` is not one: it
+ *     appends to the session's journal, which becomes memory only through the
+ *     ordinary gated ingestion. `self_page` is not one either — see below.
  *   - **No `protected.add`.** Dropped with the second-signature queue
  *     (§4, ratified by the module-map Rulings — "settled drops").
  *   - **No tool that writes an entity, a belief, or a revision.** Entities are
  *     born by mention; revision is `updates:` plus arithmetic.
+ *
+ * **`self_page` is the seventh, added 2026-09-18 (owner rulings 8 and 9,
+ * `docs/plan-parallel-rebuild-2026-09-18.md` §2).** It writes the PAGE — the
+ * prose "Who I am" that the wake prints — and not the identity band. The
+ * distinction is the whole of why it is not the v1 self-store tool coming back:
+ * a session amending the page changes what the self SAYS about itself, in one
+ * row with versions; it cannot promote a memory, cannot protect one, and moves
+ * no strength anywhere. Promotion and reinforcement go on deciding what is true
+ * of the self; the page is where that growth is written down.
  */
 import { RECALL_MAX_IDS } from "./deliberate.js";
 
-export type ToolName = "note" | "recall" | "status" | "session_end" | "chapter" | "scope";
+export type ToolName =
+  | "note"
+  | "recall"
+  | "status"
+  | "session_end"
+  | "chapter"
+  | "scope"
+  | "self_page";
 
 /**
  * The tool vocabulary, ENUMERATED. Three deliberate verbs plus the TWO return
@@ -69,6 +86,7 @@ export const TOOL_NAMES: readonly ToolName[] = [
   "session_end",
   "chapter",
   "scope",
+  "self_page",
 ];
 
 /**
@@ -591,7 +609,122 @@ const SCOPE: ToolSpec = {
   },
 };
 
-export const TOOLS: readonly ToolSpec[] = [NOTE, RECALL, STATUS, SESSION_END, CHAPTER, SCOPE];
+/**
+ * `self_page` — the page's door, and the answer to "which door reaches this?"
+ *
+ * The wake has printed a rotating list of identity memories since it shipped:
+ * about twenty rows, re-ranked every morning, with the row the store calls the
+ * self holding nothing but its own name. A list that changes daily is a query
+ * result, not a self. From 2026-09-18 the wake leads with a written page, and
+ * this is how the session that wakes with it can write back to it.
+ *
+ * The description is written for the reader who has just read the page in their
+ * own wake: what it is, when amending it is the right thing, and — in the
+ * negative examples — the three ways it goes wrong (a diary entry, a task list,
+ * a rewrite of someone else's sentence).
+ */
+const SELF_PAGE: ToolSpec = {
+  name: "self_page",
+  summary:
+    "Your own page — the prose that opens every wake under 'Who I am'. Call it with no arguments to read the page and when it was last revised; call it with a body to write the whole page anew. It has two headed parts by convention: a stable `## Core` that has to be earned, and a `## Lately` for what the last while has actually been like. While there is nothing to say, the honest page says it is still forming.",
+  admission:
+    "Call it to READ when you want the page as it stands rather than as the wake abridged it. Call it to WRITE when something you now know about yourself is not on the page and will still be true next month: a way of working that has held up, a correction the user made about you, a standing preference of theirs you keep rediscovering. Date the claims that need dating, say what made you believe them, and phrase what you have learned as practice — what you do now — rather than as praise.",
+  negativeExamples: [
+    "Do NOT call it to record what happened today — that is `chapter`, the journal, and the page is not a diary.",
+    "Do NOT call it for what you are working on or what is still open; the wake already carries those lanes, and a task list on the page goes stale in a day.",
+    "Do NOT rewrite a part of the page you have no new reason to change: you pass the WHOLE page, so anything you drop is dropped. Read it first, keep what still holds, change the part that moved, and pass back the `version` the read gave you as `ifVersion` so a write that crossed with somebody else's is refused instead of quietly reverting it.",
+    "Do NOT put anything on it you would not want read aloud at the start of every session for months — it is the most durable text on this machine.",
+  ],
+  privileges: [
+    {
+      claim:
+        "It writes ONE row, kept with its versions: every amendment archives what was there first, so nothing you replace is lost and the page's history stays readable.",
+      mechanizedBy: "src/core/self/index.ts#revisePage -> src/core/store/index.ts#revise (archive-on-overwrite)",
+    },
+    {
+      claim:
+        "The page is prose that will be injected into every session from here on, so it crosses the same gate battery a memory does: credentials are redacted before anything is stored, and a page that was nothing but a credential is refused outright. When a redaction DID change what you sent, the answer says so — accepted is not the same as unaltered.",
+      mechanizedBy: "src/core/self/index.ts#revisePage -> src/core/bridge.ts#episodeGate -> src/core/encode/battery.ts#gateProposal",
+    },
+    {
+      claim:
+        "Pass `ifVersion` — the `version` a read gave you, which is -1 when there was no page — and a write that crossed with somebody else's is REFUSED rather than landing on top of it, and you are handed the page as it stands now so you can fold your change into theirs. It works on a first write too: -1 means 'there was nothing when I looked', and a page that appeared meanwhile refuses rather than being overwritten. Leave it out and the last write wins, as it always has. It is a courtesy between writers, not a lock.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (ifVersion -> version-moved / no-page / page-appeared, current)",
+    },
+    {
+      claim:
+        "A page may not carry the wake bundle's own structural comment markers: they are the bookkeeping the next session reads as the end of its memory, so a page containing them is refused. Your headings and your prose are yours.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (WAKE_MARKER -> forged-markers)",
+    },
+    {
+      claim:
+        "This tool cannot unwrite the page. Clearing it is the owner's door alone, from their console — a session that could erase the self between two turns would be a different kind of tool.",
+      mechanizedBy: "src/core/self/index.ts#clearPage (reached only from src/adapters/cli/commands.ts)",
+    },
+    {
+      claim:
+        "It writes the page and NOTHING ELSE: no memory is created, none is promoted into the identity band, none is protected, and no strength moves anywhere. What is true of you is still decided by what recurs across distinct days; this is where you write it down.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (store.put/revise on one schema row; no reinforce, no promote, no updatePhysics beyond the protected flag)",
+    },
+    {
+      claim:
+        "Every revision leaves a durable row saying who wrote it, why, how big it was and which version it produced — and so does every refusal. There is no silent no-op on this path.",
+      mechanizedBy: "src/core/self/index.ts#revisePage (SELF_PAGE_REVISED_EVENT / SELF_PAGE_REFUSED_EVENT -> store.appendEvent)",
+    },
+    {
+      claim:
+        "The page is kept whole and the WAKE shows as much of it as its byte cap allows, cut at a section or paragraph boundary with a marker naming what it left out. A page past the hard limit is refused rather than trimmed, because what gets trimmed at write time is the only copy.",
+      mechanizedBy: "src/core/self/page.ts#renderPage + src/core/self/tunables.ts (PAGE_WAKE_BYTES, PAGE_MAX_BYTES)",
+    },
+    {
+      claim:
+        "What you write reaches the wake at the next boundary that re-renders it — once per lived day — and not this instant: the bundle every session reads is composed when a session ends and served unchanged until the next render.",
+      mechanizedBy: "src/core/self/index.ts#boundary (compose and publish) -> #wake (read and verify, no write)",
+    },
+    {
+      claim:
+        "The page is outside the floor prune, the merge and the deduplication: it does not fade, and nothing that resembles it is ever folded into it. Its old versions take the ordinary retention.",
+      mechanizedBy: "src/core/physics/index.ts#pruneVerdict (protected) + src/core/sleep/types.ts#isSchemaRow (dedup) + src/core/store/index.ts#pruneSupersededVersions",
+    },
+    {
+      claim: "Under observer stance nothing is written and the refusal says so.",
+      mechanizedBy: "src/adapters/mcp/server.ts#standDown + src/core/self/index.ts#revisePage (observer stand-down)",
+    },
+  ],
+  inputSchema: {
+    type: "object",
+    properties: {
+      body: {
+        type: "string",
+        description:
+          "The WHOLE page, first person, in your own voice — `## Core` and `## Lately` by convention. Omit it to read the page instead of writing it.",
+      },
+      reason: {
+        type: "string",
+        description:
+          "One short line saying what changed and why, kept beside the version this write produces. Omit it and the revision is recorded as an ordinary amendment.",
+      },
+      ifVersion: {
+        type: "integer",
+        minimum: -1,
+        description:
+          "The `version` the read gave you — -1 when the read said there was no page. Pass it and a write that crossed with somebody else's is refused, with the current page handed back to merge; omit it and the last write wins.",
+      },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+};
+
+export const TOOLS: readonly ToolSpec[] = [
+  NOTE,
+  RECALL,
+  STATUS,
+  SESSION_END,
+  CHAPTER,
+  SCOPE,
+  SELF_PAGE,
+];
 
 export function toolSpec(name: string): ToolSpec | undefined {
   return TOOLS.find((t) => t.name === name);

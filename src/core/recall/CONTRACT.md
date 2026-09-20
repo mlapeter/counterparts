@@ -167,6 +167,12 @@ reply actually used reconsolidates, where in humans every retrieval does.
 **Inputs** — the user's turn; the memory graph with typed, valenced edges; strengths from
 `physics/`; persisted per-session gate state; the prospective horizon; the observer
 predicate; the lived day.
+*One row is excluded from the candidate pool by name (2026-09-18): the SELF PAGE
+(`activate.ts#isSelfPage`). It is delivered whole at every wake, so surfacing it tells the
+reader nothing they were not already told — and it would otherwise accrue use credit and
+association edges for being what it always is, and, having no project scope, surface under
+a project it was never written in. The role string is read structurally rather than
+imported; `recall/` depends on nothing in `self/`. One line to reverse.*
 **Outputs** — a rendered injection (empty string, affect flag, footnotes, or a surfaced
 gist); a decision record (tier counts, ids, salience — content-by-reference); reference
 credit at the boundary; reinforcement deltas handed to `physics/`.
