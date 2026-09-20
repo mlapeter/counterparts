@@ -203,8 +203,12 @@ export function isSelfPageRow(store: Store, id: string): boolean {
   }
 }
 
-/** The page as a value, or null. A page whose prose will not read is not a
- *  reason to fail a wake (§5 G7) — it reads as absent. */
+/** The page as a value, or null. To every reader in `self/` a page whose prose
+ *  will not read is absent, never a throw (§5 G7). That is this module's half
+ *  only: a page whose prose FILE is gone never gets this far today, because
+ *  `Schemas.load` reads every schema row at open and `Counterpart.open` throws
+ *  `PROSE_FILE_MISSING` first — the session stands down and doctor reads RED
+ *  (measured, `docs/adversarial-review-s1c-2026-09-20.md` MAJOR-1). */
 export function readSelfPage(store: Store): SelfPage | null {
   const id = findPageRow(store);
   if (id === null) return null;

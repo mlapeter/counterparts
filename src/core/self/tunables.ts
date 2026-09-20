@@ -53,7 +53,7 @@ export interface SelfTunables {
   // ── the self page (plan 2026-09-18, S1) ───────────────────────────────────
   /**
    * Bytes of the WAKE the page may take. A page longer than this renders cut, at
-   * a section or paragraph boundary, with a marker naming both numbers
+   * a paragraph or line boundary, with a marker naming both numbers
    * (`page.ts#renderPage`).
    *
    * Starting value: about 6 KB of the owner's 9,000-byte ceiling, which is the

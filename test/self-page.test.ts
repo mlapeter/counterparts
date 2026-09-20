@@ -762,21 +762,16 @@ describe("clearing and restoring", () => {
     // A SECOND store, written to and then cleared. The wake text must match the
     // one above byte for byte — "cleared" is a state of the row, never of the
     // bundle (adversarial review's requested proof).
-    const other = mkdtempSync(join(tmpdir(), "counterparts-page-b-"));
-    try {
-      const s2 = Store.open({ dir: other });
-      open.push(s2);
-      identity(s2, "A placeholder identity element.");
-      const me = self(s2);
-      me.revisePage(PAGE, { reason: "first", by: "owner" });
-      me.clearPage({ reason: "cleared" });
-      const b = me.build({ budgetBytes: 9000, day: 5 });
-      expect(b.text).toBe(a.text);
-      expect(b.bytes).toBe(a.bytes);
-      expect(b.page).toBeNull();
-    } finally {
-      rmSync(other, { recursive: true, force: true });
-    }
+    const s2 = Store.open({ dir: otherDir("counterparts-page-b-") });
+    open.push(s2);
+    identity(s2, "A placeholder identity element.");
+    const me = self(s2);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.clearPage({ reason: "cleared" });
+    const b = me.build({ budgetBytes: 9000, day: 5 });
+    expect(b.text).toBe(a.text);
+    expect(b.bytes).toBe(a.bytes);
+    expect(b.page).toBeNull();
   });
 
   test("restoring a version that is not there is named apart from having no page", () => {

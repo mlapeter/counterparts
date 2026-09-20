@@ -284,8 +284,9 @@ proposals and their archive; render and delivery telemetry.
     `PAGE_WAKE_BYTES` clamped to the caller's budget **less `PAGE_FLOOR_RESERVE_BYTES`, the
     furniture the wake wraps it in** — the page is furniture the trim loop cannot pop, so a
     page sized against the whole ceiling puts the composition over it with nothing left to
-    trim. Over the cap it renders cut, at a section then paragraph then line boundary and
-    only where that boundary KEEPS most of the room, with a marker naming the bytes shown,
+    trim. Over the cap it renders cut, at a paragraph then a line boundary and
+    only where that boundary KEEPS most of the room — a page that offers neither is cut at
+    a whole code point — with a marker naming the bytes shown,
     the bytes there are, and the command that reads it whole. Where the room is too small
     to be a page the wake says the page exists and does not fit, in one line; where there
     is no room for that either it says nothing. It replaces the rotating identity list by
@@ -329,20 +330,20 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
 | `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
-| `PAGE_WAKE_BYTES` | 6,144 | Bytes of the wake the self page may take, clamped to the caller's budget. Over it the page RENDERS cut, at a section or paragraph boundary, with a marker naming both numbers. |
+| `PAGE_WAKE_BYTES` | 6,144 | Bytes of the wake the self page may take, clamped to the caller's budget. Over it the page RENDERS cut, at a paragraph or line boundary, with a marker naming both numbers. |
 | `PAGE_MAX_BYTES` | 16,384 | The hard WRITE limit. Past it a revision is refused rather than cut — what gets cut at write time is the only copy. |
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
 | `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
 | `PAGE_ON_EGRESS` | true | Whether a composition that FILTERS (`omit` — the crash fallback woken as the self) carries the page. The owner's decision of 2026-09-17; `false` gives that composition no page and the identity list the filter left standing. |
+| `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
+| `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
+| `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |
+| `MAX_ASKS_PER_SESSION` | 6 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence — the re-ask pair puts six asks at roughly 46 real turns. Per day, shared, it refused 196 of 264 Stops (2026-09-17); over a session's whole life it starved a session that spanned days (2026-09-18). |
 
 `PAGE_FLOOR_RESERVE_BYTES` (512) and `PAGE_MIN_RENDER_BYTES` (240) are **not** tunable, for
 the reason `PREFACE_RESERVE_BYTES` is not: the first is the room the wake's own furniture
 takes around the page — measured at its widest (444) by a test, not guessed — and the
 second is the smallest room worth rendering a page into rather than a fragment.
-| `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
-| `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
-| `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |
-| `MAX_ASKS_PER_SESSION` | 6 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence — the re-ask pair puts six asks at roughly 46 real turns. Per day, shared, it refused 196 of 264 Stops (2026-09-17); over a session's whole life it starved a session that spanned days (2026-09-18). |
 
 `PREFACE_RESERVE_BYTES` (128) is **not** tunable: it is the room the renderer subtracts from
 the host's ceiling because delivery will add exactly that line, and one test bounds the

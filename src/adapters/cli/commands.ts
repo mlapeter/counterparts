@@ -1379,8 +1379,8 @@ async function selfPageCommand(
     }
     if (clear) {
       // The door removal was standing in for. Nothing is destroyed: the body
-      // becomes a version, the row is archived, and the store reads as having
-      // no page from the next call on.
+      // becomes a version, the row stays live with a cleared marker, and the
+      // store reads as having no page from the next call on.
       return say(writeLines(counterpart.clearPage({ reason: why("owner cleared the page") }), cap));
     }
     if (typeof restore === "string") {
