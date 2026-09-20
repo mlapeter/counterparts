@@ -953,16 +953,24 @@ surface: doctor's Page writer line goes amber after two owed days and names
 `injectionBudgetBytes` in the fix. Two surfaces for one fact, one of them permanent on any
 store with a tight ceiling, is the shape the review was about.
 
-## 20. The page is not embedded (2026-09-20, ruled by the owner, landed with E1)
+## 20. The page is not embedded — a working default, not a ruling (2026-09-20, landed with E1)
 
 E1's adversarial review asked whether the self page was in the same position as the
 per-directory handoff, which E1 had just excluded from embedding. It was: `missingVectors()`
 held it, and with a sync embedder wired — which the live adapter does — `indexOne` embedded
 it at every `revise`. E1 flagged it rather than fixing it, correctly: a one-line predicate in
-`store/` is not the place to set this module's policy. The owner ruled on it the same day,
-and the exclusion landed with E1's PR.
+`store/` is not the place to set this module's policy.
 
-The three reasons, recorded here because they are about the PAGE and not about the seam:
+**Who decided, said exactly.** The COORDINATING SESSION asked for the exclusion the same
+day, and it landed with E1's PR. **The owner has not ruled on it.** A coordinator's ask is
+never his word, and nothing here is recorded as a ruling that was not one — this is a
+working default in the ordinary sense (CLAUDE.md: decisions are defaults, revisable without
+ceremony), and one line in `store/#noVector` reverses it. It is worth putting to him if the
+page is ever wanted searchable by meaning, because all three reasons below stop being true
+at once in that case.
+
+The three reasons it was asked for, recorded here because they are about the PAGE and not
+about the seam:
 
 1. **A vector buys the page nothing.** `recall/activate.ts#isSelfPage` skips it — the page
    is delivered whole at every wake and never surfaces in a turn — so nothing the semantic

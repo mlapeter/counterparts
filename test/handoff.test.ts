@@ -1068,10 +1068,11 @@ describe("the review's findings, each with the thing that was wrong", () => {
     }).id as string;
     const missing = c.store.missingVectors();
     expect(missing).not.toContain(hid);
-    // The self page joined the handoff on the owner's word, 2026-09-20. It is
-    // the same case by the same test: delivered at the wake, skipped by
-    // `activate`, so a vector buys retrieval nothing and costs the store its
-    // most identity-bearing prose on a wire.
+    // The self page joined the handoff on 2026-09-20 as a WORKING DEFAULT — the
+    // coordinating session's ask, not an owner ruling, and revisable. It is the
+    // same case by the same test: delivered at the wake, skipped by `activate`,
+    // so a vector buys retrieval nothing and costs the store its most
+    // identity-bearing prose on a wire.
     expect(missing).not.toContain(pid);
     expect(missing).toContain(mid);
     // The backlog doctor watches gets no floor from either.

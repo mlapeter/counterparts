@@ -108,7 +108,8 @@ block for a given directory and day; four durable event names (`written`, `shown
    naming an id). One could not reach a turn — `activate` skips the row — but it would give
    the prose this module calls the likeliest to carry a token a second representation
    outside its row, and put a floor under the embed backlog `doctor` watches. The SELF PAGE
-   is excluded by the same rule on the owner's word (2026-09-20); the journal is NOT, and
+   is excluded by the same rule as a working default (2026-09-20, the coordinating session's
+   ask — not an owner ruling, and revisable); the journal is NOT, and
    why is in `INTERFACE-GAPS.md` §7. The LEXICAL index still holds both, so the owner can
    still find a row by searching for it.
 8. **[M] The sentinel stays true.** The splice re-solves the byte fixed point so the opening

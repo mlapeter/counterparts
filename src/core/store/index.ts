@@ -2368,9 +2368,13 @@ function preRowsRemedy(
  *      `embeddings` with no liveness filter). Fewer rows in that table that
  *      nothing can deliver is strictly better.
  *
- *   - **`role: "page"`** — the self page (S1). Raised by E1's adversarial
- *     review as "worth checking whether the page is in the same position"; it
- *     was, and the owner ruled on 2026-09-20 that it should be excluded too.
+ *   - **`role: "page"`** — the self page (S1). Raised by E1's adversarial review
+ *     as "worth checking whether the page is in the same position"; it was, and
+ *     the coordinating session asked for the exclusion on 2026-09-20. **A
+ *     WORKING DEFAULT, not a ruling — the owner has not been asked, and this is
+ *     revisable without ceremony** (CLAUDE.md). The three reasons above are the
+ *     whole of the argument for it; if any of them stops being true, so does
+ *     this line.
  *   - **`role: "handoff"`** — the per-directory handoff (E1).
  *
  * Read STRUCTURALLY, for the reason `recall/` reads these roles structurally:
