@@ -582,6 +582,34 @@ does not decide, decided here, each true for now.
    help page, naming a flag export does not take. A real constraint from a real
    test, not a preference.
 
+**TWO FACTS ABOUT `export` THAT ARE THE OWNER'S TO RULE ON, AND ARE UNRULED.**
+Both landed with F7 and neither has been decided by anybody but the builder; the
+f6f7 review measured what they actually do (MINOR-5) and they are written here
+so the ruling can be made from facts rather than from a diff.
+
+1. **The ordinary `export` now opens the canonical database FOR WRITING.** It
+   opened `observer: true` before. The reason is the `store.export` row and
+   nothing else; the review fingerprinted every file under the store and found
+   the effect confined to exactly that — the owner's export moves
+   `counterparts.sqlite-wal` and the two `-shm` files, and nothing else; no
+   file, no `journal/` write, no scratch. An export against a store another
+   process was holding with `BEGIN IMMEDIATE` still returned 0, so there is no
+   lock regression of the I38 shape. The row's `catch {}` means a row lost to
+   contention is silent, which is one more way "did anything leave" can answer
+   "no" when the answer was "yes".
+2. **An instrument can now perform a full egress.** `export` came off
+   `OWNER_OPS`, so `--observer export` — which refused outright before — makes a
+   complete readable or sealed copy of every memory, confidential ones included
+   with one flag, and writes no trace in the store (the durable row is what
+   stands down, and the report says so). That is the egress question stated
+   plainly: the stance that means "read, do not change" now permits the one
+   operation by which memory leaves the machine.
+
+**The line to revert, if the owner wants it back:** `"export"` in `OWNER_OPS`
+(`commands.ts`), and `Store.open({ dir, observer })` back to `observer: true` in
+`exportCommand`. The durable row goes with it, and `fired.ts`'s `export` row
+becomes blind the way `backup` is. Nothing else depends on either.
+
 **Two refusals that are new, and one removal.** A non-empty target is refused
 unless `--into-non-empty`: an export is a whole copy, and one written over
 another is a mixture nothing can tell apart. `--include-confidential` and
@@ -594,6 +622,41 @@ down under `--observer` refused a read. The one write it now makes to the store
 is the durable row, and that is what stands down instead — the copy is still
 made and the report says the row was not written. `backup` is the same shape and
 deliberately stays on the list: it could follow, but nobody has ruled on it.
+
+## 2026-09-20 — the f6f7 review's five, and what each one cost
+
+Read the review for the measurements; this is what changed and why, in one place.
+
+- **The journal module never follows a symlink** (MAJOR-1). `journalFiles` walked
+  with `statSync`, so a link anywhere under `journal/` made a core module a
+  writer and a deleter outside the store — the reviewer put a chapter's whole
+  body in an external directory and watched a removal ceremony delete a file out
+  there and report it as chased. One rule now: a link anywhere at or under
+  `journal/` and the module stands down by name (`journal-symlink`), removal arm
+  included, because an absence it cannot vouch for must not read as "nothing
+  beside the row".
+- **A broken `journal/` is one row a day** (MAJOR-2), through the store's own
+  `dedupKey` latch, and a directory-level failure ends the backfill pass instead
+  of re-discovering itself 25 times. Measured before: 80 rows across five
+  chapters and three worker cycles. The starvation half was only reasoned in the
+  review and is measured here.
+- **The journal-echo disclosure is exact** (MAJOR-3). It rode on a ranked top-20
+  search and went silent on exactly the store that needs it: a real chapter plus
+  twenty-five near-identical memories, and the episode fell off the list while
+  the report said `journal(0, nothing beside the row)` and `unchased: nothing`.
+  Now `meta.episodeId` first and a bounded containment scan second, with the
+  bound REPORTED.
+- **`assertSafeTarget` resolves symlinks** (MAJOR-4), on both sides and on the
+  v1 roots, and refuses a dangling link by name instead of by `mkdirSync`'s
+  `EEXIST`. It fixes `backup` at the same time. The macOS trap is why both
+  sides: `$TMPDIR` is itself reached through `/var` → `/private/var`, so
+  resolving one side would have stopped every inside-the-store case from being
+  detected.
+- **`journal/` leaves the backup set** (MAJOR-5), because copying a derived
+  directory put removed episodes' words into every rotating snapshot as plain
+  markdown, and the rows are in the snapshot anyway. Paired with a cold-start
+  bound so a restore is readable after one pass rather than forty, and with a
+  sentence in the removal report about the copies already on disk.
 
 **What the durable row carries, and what it does not.** `store.export`: the
 kind, whether it was encrypted, files, bytes, rows, how many confidential rows
