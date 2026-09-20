@@ -34,6 +34,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
+import { EXIT, run } from "../src/adapters/cli/index.js";
+import type { Io } from "../src/adapters/cli/index.js";
 import { join, resolve } from "node:path";
 
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
@@ -214,6 +216,17 @@ function fingerprint(dir: string): Record<string, string> {
  * `cache/`, so the directory listing afterwards proves the refusal ran before
  * the constructor's first `mkdirSync`.
  */
+/** A console that captures both streams and answers no prompt. */
+function consoleWith(): { io: Io; out: string[]; err: string[] } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: { out: (l) => out.push(l), err: (l) => err.push(l), prompt: async (): Promise<string> => "" },
+    out,
+    err,
+  };
+}
+
 function buildPreRowsStore(dir: string): void {
   mkdirSync(join(dir, "prose", "memories"), { recursive: true });
   writeFileSync(join(dir, "prose", "memories", "mem_000000000001.md"), "words in a file", "utf8");
@@ -1030,13 +1043,64 @@ describe("doctor reads the open, not just the directory", () => {
     const found = findings.find((f) => f.key === "store-open");
     expect(found?.severity).toBe("red");
     expect(found?.detail).toContain("will not open — MEMORY_BODY_MISSING:");
-    expect(found?.fix).toContain("The code names what the read path met.");
+    // NOT the generic sentence any more: the remedy names the row (see the
+    // MAJOR-3 test below for the whole loop).
+    expect(found?.fix).toContain(gone);
     // And it reaches the console's own report, worst first.
     const printed = reportLines(findings, "2026-09-18").join("\n");
     expect(printed).toContain("will not open — MEMORY_BODY_MISSING");
     expect(worstFirst(findings).filter((f) => f.severity === "red").map((f) => f.key)).toContain(
       "store-open",
     );
+  });
+
+  test("review B, MAJOR-3: the faulted ROW is named, everywhere the owner looks", async () => {
+    // A faulted row stands EVERY session down, and before this nothing named
+    // which row: doctor's red line gave the class, `status` printed a normal
+    // summary and exited 0, and `verify` printed a green census and exited 0.
+    // The owner had a dead store and two surfaces telling him it was fine.
+    //
+    // On the file floor the same fault printed "Restore <path>" — one file he
+    // could fetch from a snapshot. The words are the row now, so the id is the
+    // only handle there is.
+    const gone = breakTheStore(store, "a belief the store holds");
+    expect(gone).toMatch(/^sch_/);
+
+    // 1. DOCTOR names the row and both ways out.
+    const reading = readCounterpartOpen(store);
+    expect(reading.code).toBe("MEMORY_BODY_MISSING");
+    expect(reading.id).toBe(gone);
+    const found = doctorFindings(doctorInput({ open: reading })).find((f) => f.key === "store-open");
+    expect(found?.severity).toBe("red");
+    expect(found?.fix).toContain(gone);
+    // There is no repair COMMAND for this today, so the two real exits are
+    // named rather than one invented.
+    expect(found?.fix).toContain("restore a snapshot");
+    expect(found?.fix).toContain(`counterparts remove ${gone}`);
+
+    // 2. STATUS does not print a green census over a store no session opens.
+    const st = consoleWith();
+    expect(await run(["status", "--dir", store], { io: st.io })).not.toBe(EXIT.ok);
+    expect(st.err.join("\n")).toContain(gone);
+    expect(st.err.join("\n")).toContain("Every session stands down");
+
+    // 3. VERIFY counts them, names them, and exits non-zero.
+    const vf = consoleWith();
+    expect(await run(["verify", "--dir", store], { io: vf.io })).not.toBe(EXIT.ok);
+    expect(vf.err.join("\n")).toContain("Rows whose words are missing: 1");
+    expect(vf.err.join("\n")).toContain(gone);
+    // The census itself still prints — it is true, and hiding it would be a
+    // second kind of lying.
+    expect(vf.out.join("\n")).toContain("Floor: schema v6");
+
+    // And a HEALTHY store still says nothing of the sort, on either door.
+    const clean = join(work, "clean");
+    Store.open({ dir: clean }).close();
+    const okStatus = consoleWith();
+    expect(await run(["status", "--dir", clean], { io: okStatus.io })).toBe(EXIT.ok);
+    expect(okStatus.err.join("\n")).not.toContain("words are missing");
+    const okVerify = consoleWith();
+    expect(await run(["verify", "--dir", clean], { io: okVerify.io })).toBe(EXIT.ok);
   });
 
   test("the reading writes NOTHING: the store is byte-identical after it", () => {

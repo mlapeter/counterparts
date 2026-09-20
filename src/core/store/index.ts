@@ -1902,6 +1902,29 @@ export class Store {
     return this.versionDoc(id, row);
   }
 
+  /**
+   * Rows whose WORDS WENT MISSING — `body = ''` with a content hash that still
+   * names them. Ids only; never a body (§5 G10).
+   *
+   * The fault `MEMORY_BODY_MISSING` is raised for, counted. It is not a
+   * tombstone (both halves blank, the owner's removal) and no write path in
+   * this build produces it: `put` and `revise` both refuse an empty body, and
+   * the chase blanks the pair together. So a non-empty answer means something
+   * happened to the store underneath itself.
+   *
+   * It exists because the fault stands EVERY session down while `status` and
+   * `verify` both read green, and doctor's red line named the class and not the
+   * row — so the owner could not find which of thousands of rows to act on
+   * (review B, MAJOR-3). A read; nothing here crosses the write seam.
+   */
+  faultedIds(): string[] {
+    return this.ops
+      .all<{ id: string }>(
+        "SELECT id FROM memories WHERE body = '' AND content_hash <> '' ORDER BY id",
+      )
+      .map((r) => r.id);
+  }
+
   edgesFrom(src: string): EdgeRow[] {
     return this.ops.all<EdgeRow>("SELECT * FROM edges WHERE src = ? ORDER BY dst", src);
   }

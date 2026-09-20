@@ -1635,6 +1635,24 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
       const present = existsSync(join(store.dir, entry.name)) ? " " : "-";
       io.out(`  ${present} ${entry.backup ? "backed up" : "excluded "}  ${entry.name}  — ${entry.why}`);
     }
+    // A STORE THAT NO SESSION CAN OPEN DOES NOT GET A GREEN CENSUS.
+    //
+    // `status` opens a `Store`, not a `Counterpart`, so it never runs
+    // `Schemas.load` — which is what meets a faulted row and stands the session
+    // down. Reviewer B hand-made the fault and watched `status` print a
+    // completely normal summary and exit 0 while every session was dead
+    // (MAJOR-3). The census above is still printed, because it is true; what
+    // changes is that the fault is said and the exit is not success.
+    const faulted = store.faultedIds();
+    if (faulted.length > 0) {
+      io.out("");
+      io.err(
+        `Rows whose words are missing: ${String(faulted.length)} — ${faulted.slice(0, 5).join(", ")}` +
+          (faulted.length > 5 ? ` and ${String(faulted.length - 5)} more` : "") +
+          ". Every session stands down on a store that holds one. Run: counterparts doctor.",
+      );
+      return EXIT.failed;
+    }
     return EXIT.ok;
   } finally {
     store.close();
@@ -2474,6 +2492,7 @@ function verifyCensus(dir: string, io: Io): number {
   let denied: string[];
   let unembedded: number;
   let skippedVectors: string[];
+  let faulted: string[];
   let schemaVersion: string | null;
   let log: EventLogCensus;
   let bands: BandOfRecordCensus;
@@ -2489,6 +2508,7 @@ function verifyCensus(dir: string, io: Io): number {
     // above on purpose — it reports what is still actionable — so leaving them
     // unprinted here would be the coverage watch quietly losing rows.
     skippedVectors = store.skippedVectorIds();
+    faulted = store.faultedIds();
     schemaVersion = store.getMeta("schemaVersion") ?? null;
     log = store.eventLogCensus();
     bands = bandOfRecordCensus(store);
@@ -2523,6 +2543,22 @@ function verifyCensus(dir: string, io: Io): number {
         ? ""
         : ` (this build writes v${SCHEMA_VERSION})`),
   );
+  // ROWS WHOSE WORDS WENT MISSING, counted beside the floor line.
+  //
+  // One of these stands EVERY session down (`MEMORY_BODY_MISSING` out of
+  // `Schemas.load`), and before this `verify` printed a green census over it
+  // and exited 0 — the owner had a dead store and two surfaces telling him it
+  // was fine (review B, MAJOR-3). Named, not just counted: the id is the only
+  // handle there is on this floor.
+  if (faulted.length > 0) {
+    io.err(
+      `Rows whose words are missing: ${String(faulted.length)} — ${faulted.slice(0, 5).join(", ")}` +
+        (faulted.length > 5 ? ` and ${String(faulted.length - 5)} more` : "") +
+        ". Each has an empty body and a content hash that still names it, which no write path " +
+        "in this build produces. A session that reads one stands down. Restore a snapshot over " +
+        "the store, or remove that row by id to tombstone it and let sessions start again.",
+    );
+  }
   for (const line of eventLogLines(log)) io.out(line);
 
   // The unreadable half of this is narrow by construction: `Store.open` builds
@@ -2584,7 +2620,10 @@ function verifyCensus(dir: string, io: Io): number {
   io.out(`  vector format: ${vectorFormatLine(cache.counts.vectors)}`);
   if (missing.length === 0 && orphans.length === 0 && stale.length === 0) {
     io.out("The cache covers every live row and holds nothing else.");
-    return EXIT.ok;
+    // A faulted row outranks a clean cache: the store does not OPEN for a
+    // session, so a zero exit here would be the second surface telling the
+    // owner everything is fine while every session stands down.
+    return faulted.length === 0 ? EXIT.ok : EXIT.failed;
   }
   if (missing.length === 0 && orphans.length === 0) {
     io.err(

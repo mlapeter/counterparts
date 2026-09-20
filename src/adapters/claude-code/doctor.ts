@@ -78,7 +78,7 @@ import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
 // The same vocabulary the hook's stand-down uses, so the terminal and the
 // console cannot end up with two answers to "why did it not open".
-import { describeFault, faultPath } from "./standdown.js";
+import { describeFault, faultId, faultPath } from "./standdown.js";
 
 /** Worst first. The order of this array IS the report's order. */
 export const SEVERITIES = ["red", "amber", "green"] as const;
@@ -494,6 +494,10 @@ export interface OpenReading {
   readonly busy: boolean;
   /** The path the error named, when it named one. Never memory text (§5 G10). */
   readonly path: string | null;
+  /** The ROW the error named, when it named one — an id, never memory text.
+   *  `MEMORY_BODY_MISSING` carries one and no path, because on this floor the
+   *  words are the row and there is no file to restore (review B, MAJOR-3). */
+  readonly id: string | null;
 }
 
 /**
@@ -515,7 +519,16 @@ export function readCounterpartOpen(
     // OBSERVER, because `doctor` is an instrument: it reads and never writes,
     // and an owner open of a store that is not there would MINT one.
     opened = open(dir);
-    return { dir, ok: true, code: null, reason: "", migratable: false, busy: false, path: null };
+    return {
+      dir,
+      ok: true,
+      code: null,
+      reason: "",
+      migratable: false,
+      busy: false,
+      path: null,
+      id: null,
+    };
   } catch (err) {
     const fault = describeFault(err);
     return {
@@ -526,6 +539,7 @@ export function readCounterpartOpen(
       migratable: isStoreError(err, "STORE_UNINITIALIZED"),
       busy: fault.kind === "transient",
       path: faultPath(err),
+      id: faultId(err),
     };
   } finally {
     // Closed immediately, so this reading and the store the console opens next
@@ -1442,9 +1456,21 @@ function openFindings(reading: OpenReading): Finding[] {
       "red",
       "Store open",
       said,
-      reading.path === null
-        ? "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met."
-        : `Every session's hooks stand down here. Restore ${reading.path} — a row in this store points at it, and the read path chases it at every open.`,
+      reading.path !== null
+        ? `Every session's hooks stand down here. Restore ${reading.path} — a row in this store points at it, and the read path chases it at every open.`
+        : reading.id !== null
+          ? // THE ROW, NAMED. On the file floor this said "restore <path>" and the
+            // owner could fetch that one file from a snapshot; the words are the
+            // row now, so the id is the only handle there is — and without it he
+            // cannot tell which of thousands of rows to act on (review B,
+            // MAJOR-3). There is no repair COMMAND for this today, so the two
+            // real exits are named rather than a command invented.
+            `Every session's hooks stand down here: no wake, no recall, no capture. The row is ${reading.id} — ` +
+            `its words are gone and its content hash still names them, which no write path in this build produces. ` +
+            `Two ways out, both the owner's call: restore a snapshot over the store (see the Snapshot line), or ` +
+            `remove that one row — counterparts remove ${reading.id} --confirm --dir <store> — which tombstones it ` +
+            `and lets sessions start again, permanently and without its words.`
+          : "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met.",
       data,
     ),
   ];

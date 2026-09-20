@@ -194,6 +194,21 @@ export function faultPath(err: unknown): string | null {
   return typeof path === "string" && path.length > 0 ? path : null;
 }
 
+/**
+ * The ROW a store fault is about, when the fault is about one.
+ *
+ * `faultPath`'s counterpart on this floor. `MEMORY_BODY_MISSING` carries
+ * `{ id }` and no path, because there is no file to restore — and doctor's
+ * red line named the CLASS and not the row, so every session was down and the
+ * owner could not find which of ~17,000 rows to act on (review B, MAJOR-3).
+ * An id is the one thing that makes the fault addressable.
+ */
+export function faultId(err: unknown): string | null {
+  if (!isStoreError(err)) return null;
+  const id = err.detail["id"];
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 /** Whitespace collapsed: an error message is not this file's to format. */
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
