@@ -48,6 +48,7 @@ import {
 import { openDb } from "../src/core/store/db.js";
 import { CONFIG_FLAG } from "../src/adapters/config-path.js";
 import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, isDatabaseSidecar, paths } from "../src/core/store/index.js";
+import { makeBodyUnreadable } from "./store-fixture.js";
 import {
   BLOB_NAME,
   CONFIG_FILE,
@@ -1031,12 +1032,10 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const id = await noteThroughTheJotDoor(MARKER);
 
     const s = store();
-    const prosePath = s.absolutePath(s.row(id)?.prose_path ?? "");
     const ref = s.row(id)?.origin_ref ?? "";
+    makeBodyUnreadable(s, id);
     s.close();
     expect(ref).toMatch(/^prp_/);
-    expect(existsSync(prosePath)).toBe(true);
-    rmSync(prosePath, { force: true });
 
     // The mark this chase runs on, on disk since long before the feature.
     const scopes = readdirSync(join(dir, "spans")).filter((n) => /^[0-9a-f]{12}$/.test(n));
@@ -1361,10 +1360,8 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // address the buffer with, and the console says exactly that.
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "A pre-provenance memory." });
-    const prose = s.absolutePath(s.row(id)?.prose_path ?? "");
+    makeBodyUnreadable(s, id);
     s.close();
-    expect(existsSync(prose)).toBe(true);
-    rmSync(prose, { force: true });
 
     const plan = consoleWith();
     expect(await run(["remove", id, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);

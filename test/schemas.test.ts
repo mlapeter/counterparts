@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput, StoreEvent } from "../src/core/store/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { makeStore } from "./store-fixture.js";
 // The real removal command, not the raw seam: the crash this file pins was
 // reachable only through the whole ceremony (dark → files → chase → complete),
 // and a test that appends the stages by hand would not have caught it.
@@ -1647,13 +1648,11 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
     expect(after.loadSkips()).toEqual({ removed: 1, unaccounted: [] });
     expect(store.deniedIds()).toContain(ids.first);
     // Non-vacuous: an untouched store skips nothing at all.
-    const clean = mkdtempSync(join(tmpdir(), "counterparts-schemas-clean-"));
+    const clean = makeStore({ prefix: "counterparts-schemas-clean-" });
     try {
-      const other = Store.open({ dir: clean });
-      open.push(other);
-      expect(Schemas.open({ store: other }).loadSkips()).toEqual({ removed: 0, unaccounted: [] });
+      expect(Schemas.open({ store: clean.store }).loadSkips()).toEqual({ removed: 0, unaccounted: [] });
     } finally {
-      rmSync(clean, { recursive: true, force: true });
+      clean.cleanup();
     }
   });
 

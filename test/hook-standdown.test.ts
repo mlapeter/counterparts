@@ -59,6 +59,7 @@ import {
 import type { StandDownMark } from "../src/adapters/claude-code/standdown.js";
 import { canonicalScopePath, scopesPath } from "../src/adapters/scopes.js";
 import { Store, StoreError, isDatabaseSidecar } from "../src/core/store/index.js";
+import { makeBodyUnreadable } from "./store-fixture.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const BUDGET_BYTES = 9000;
@@ -157,12 +158,8 @@ function breakTheStore(dir: string, body: string): string {
       meta: { role: "entity", name: "a belief", aliases: [] },
       physics: { birthDay: 0, lastUsedDay: 0 },
     });
-    const row = s.row(id);
-    expect(row).toBeDefined();
-    const path = s.absolutePath(row?.prose_path ?? "");
-    expect(existsSync(path)).toBe(true);
-    rmSync(path);
-    return path;
+    expect(s.row(id)).toBeDefined();
+    return makeBodyUnreadable(s, id);
   } finally {
     s.close();
   }
