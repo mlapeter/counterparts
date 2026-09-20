@@ -550,3 +550,52 @@ through with `--dir`, and the dry runs unguarded. The reviewer's exact case
 stopped AT the door rather than one step in at box 3's "nothing to convert"
 refusal, since both are exit 2. `test/repair-dates.test.ts`'s "console door"
 stays as it was.
+
+## 2026-09-20 — the day-1 surfaces (new-user findings 2, 3, 4, 6)
+
+The owner's next act is to follow the QUICKSTART on a blank store as a stranger, so what
+these commands SAY on day 1 is the product. N2's hermetic dry run measured it and the news
+was not good: `fired` opened with twenty-eight `never` lines, `status` buried its four
+numbers under a ten-line block naming `assertLayout()` and "Box 3", and `doctor` printed a
+red about a key both pages say is optional.
+
+**`fired` on a young store.** The report now carries `young`, `livedDay` and
+`calendarDays`, so the console, doctor and the dashboard share ONE definition instead of
+each deciding. Only the TEXT renderer narrows; the report itself is whole, `--all` prints
+it, and the bounds line still counts every state. **Both clocks have to agree** — a lived
+day is advanced by the worker, so a store whose worker has been dead a fortnight also
+reads lived day 0, and that store must get the full list, because the full list is its
+diagnosis.
+
+**`status`.** The census leads, the prose follows, `Layout:` is behind `--layout`. The
+day's facts are two new lines. `Today` is counted INSIDE the census walk and not with
+`countMemories({ learnedOnFrom })`, which counts removed and superseded rows: the first
+draft printed `2 new` beside `Memories: 1`, which is the kind of disagreement between two
+numbers on one page that makes a reader stop trusting both.
+
+**`readHost` lives in `install.ts`, not in `doctor.ts`.** It is the other half of what that
+file prints — `settingsBlock` and `mcpCommand` — and it uses that file's own names
+(`HOST_EVENTS`, `MCP_SERVER_NAME`). `doctor.ts` takes the reading and grades it, exactly
+as it already takes `checkout` and `open`, so the adapters stay leaves that do not import
+each other and the host's vocabulary lives in one place.
+
+Everything it reads belongs to the host. `~/.claude.json` is documented as a file the host
+writes for itself, so every answer names the files it looked at and the finding is amber,
+never red: when one of these paths moves, the line must read "I looked here and did not
+find it", not "you did not install it". Paths verified against the host's documentation on
+2026-09-20 — true for now, and worth re-checking rather than trusting.
+
+**`doctor --dir` under the explicit-dir guard.** `--dir` is a name, so the refusal was
+never really about the store: it was about the DEFAULT CONFIGURATION beside it, whose
+`credentialsFile` points at the owner's live keys. That file is now simply not opened, the
+store is graded on its own, and one amber says which questions therefore went unasked. On
+cut-over day this is the difference between pointing `doctor` at the parked store and a
+refusal with nothing to do.
+
+**Precisely, because the first version of this note overstated it** (adversarial review,
+2026-09-20): what is not read is OUR configuration — `claude-code.json`, the credentials
+file it names, the embedder setting, the snapshot policy, the stance. `readHost` still
+runs, so `doctor --dir <anything>` opens the four host settings files and `~/.claude.json`
+on the real home. Those are the HOST's, they are read-only, and the Host line names every
+one of them — but "reads no configuration at all" was not true of them and should not have
+been written.

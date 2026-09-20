@@ -26,6 +26,8 @@ import * as prospective from "../src/core/prospective/index.js";
 import {
   EVENT_DATE_META,
   EXCLUDED_KINDS,
+  PROSPECTIVE_FIRE_EVENT,
+  PROSPECTIVE_REFUSED_EVENT,
   Prospective,
   TEMPORAL_MAX_TIER,
   TUNABLES,
@@ -457,6 +459,67 @@ describe("window lifecycle — armed, fired, and the four once-ness brakes", () 
     expect(over.fired).toBe(false);
     expect(over.reason).toBe<FireReason>("over-fired");
     expect(over.fires).toBe(T.FIRES_PER_WINDOW);
+  });
+
+  test("a fire and every brake that held leave DURABLE rows (E2)", () => {
+    // The 2026-09-17 inventory: this module had zero `appendEvent`. `fires` is
+    // a counter and `last_fired_day` one day, so the store could say a window
+    // had ever fired and never when, how often, or which brake held — and the
+    // owner's fourteen windows carried v1 counters with `last_fired_day` null
+    // on every one.
+    const s = store();
+    const id = dated(s, "2026-09-04");
+    const p = engine(s);
+    const rows = (name: string): Record<string, unknown>[] =>
+      s.eventLog({ name, limit: 50 }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+
+    p.fire({ memoryId: id, windowKey: "d:2026-09-04", at: "2026-09-04", day: 5 });
+    expect(rows(PROSPECTIVE_FIRE_EVENT).length).toBe(1);
+    expect(rows(PROSPECTIVE_FIRE_EVENT)[0]).toMatchObject({
+      window: "d:2026-09-04",
+      fires: 1,
+      cap: T.FIRES_PER_WINDOW,
+    });
+    // The row points at the memory whose window it is.
+    expect(s.eventLog({ name: PROSPECTIVE_FIRE_EVENT, limit: 5 })[0]?.ref).toBe(id);
+    // NOT A WORD of what the memory says, and not the date it is about.
+    expect(JSON.stringify(rows(PROSPECTIVE_FIRE_EVENT))).not.toContain("Portland");
+
+    // A brake that held is its own row, under its own name, so a refusal can
+    // never be counted as a firing by anything that reads the log.
+    const same = p.fire({ memoryId: id, windowKey: "d:2026-09-04", at: "2026-09-04", day: 5 });
+    expect(same.fired).toBe(false);
+    expect(rows(PROSPECTIVE_FIRE_EVENT).length).toBe(1);
+    expect(rows(PROSPECTIVE_REFUSED_EVENT)[0]).toMatchObject({
+      window: "d:2026-09-04",
+      reason: "already-fired-today",
+    });
+
+    // LATCHED per memory, window, reason and lived day: eligibility is
+    // re-derived every turn, so an unlatched refusal would write a row a turn
+    // for the rest of the store's life.
+    for (let i = 0; i < 5; i += 1) {
+      p.fire({ memoryId: id, windowKey: "d:2026-09-04", at: "2026-09-04", day: 5 });
+    }
+    expect(rows(PROSPECTIVE_REFUSED_EVENT).length).toBe(1);
+    // A new lived day is a new row — "it was stopped again today" is a fact.
+    p.fire({ memoryId: id, windowKey: "d:2026-09-04", at: "2026-09-05", day: 6 });
+    p.fire({ memoryId: id, windowKey: "d:2026-09-04", at: "2026-09-05", day: 6 });
+    expect(rows(PROSPECTIVE_REFUSED_EVENT).length).toBe(2);
+  });
+
+  test("an observer writes neither row — an evaluation may not spend a real budget", () => {
+    const writer = store();
+    const id = dated(writer, "2026-09-04");
+    const watcher = store({ observer: true });
+    new Prospective({ store: watcher }).fire({
+      memoryId: id,
+      windowKey: "d:2026-09-04",
+      at: "2026-09-04",
+      day: 5,
+    });
+    expect(writer.eventLog({ name: PROSPECTIVE_FIRE_EVENT, limit: 5 }).length).toBe(0);
+    expect(writer.eventLog({ name: PROSPECTIVE_REFUSED_EVENT, limit: 5 }).length).toBe(0);
   });
 
   test("session dedup is brake 3, and it is per session", () => {

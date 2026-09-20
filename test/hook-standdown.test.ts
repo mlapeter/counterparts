@@ -705,26 +705,40 @@ describe("a named configuration that cannot be honoured", () => {
 
 /**
  * WHAT A HOOK ON A WORKING STORE PRINTS, captured from `origin/master`
- * (039cd5d) before a line of this track was written and diffed byte for byte
- * against the branch.
+ * (039cd5d) before a line of the stand-down track was written and diffed byte
+ * for byte against the branch.
  *
  * Two things about this string will move under somebody else's PR, and neither
  * is a fault here: the `systemMessage` is `credentialFindings`' own wording,
  * which three open doctor PRs are editing, and the wake is the cold-start
  * bootstrap plus the first-launch scope question. It is pinned because the one
- * thing this track may not do is change what a healthy session start emits.
+ * thing the stand-down track may not do is change what a healthy session start
+ * emits.
+ *
+ * **THE `systemMessage` WENT AWAY ON 2026-09-20, ON PURPOSE (finding 1).** This
+ * store has no interpreter key and has never had one, which README calls a
+ * supported way to run — so the credentials line is amber, not red, and a red
+ * is what produces a notice at all. The line quoted above was the first thing
+ * the product said to a new user, every single session, about a configuration
+ * the documentation told them they did not need. What remains here is the wake,
+ * unchanged word for word, which is what this test is really guarding.
+ *
+ * With no notice to carry, `hostDelivery` emits the wake as PLAIN TEXT rather
+ * than wrapping it in the JSON envelope — which is its behaviour on master too,
+ * and was reached on every store that had a key. The envelope exists to carry a
+ * `systemMessage`; there is none.
  */
-const HEALTHY_SESSION_START_STDOUT =
-  '{"systemMessage":"counterparts: Credentials — (no credentialsFile in the config) holds no key: ' +
-  "ANTHROPIC_API_KEY is missing, so the worker will run without an interpreter; nothing is encoded. " +
-  "Run: counterparts credentials set ANTHROPIC_API_KEY (the value on stdin; it is never echoed)." +
-  '\\nrun: counterparts doctor","hookSpecificOutput":{"hookEventName":"SessionStart",' +
-  '"additionalContext":"No briefing has been composed yet — this store has not lived a boundary.' +
-  "\\n\\n<counterparts-scope>\\nNo setting yet for this directory, so Counterparts is remembering here by default." +
-  "\\nEarly on, ask the user once which they want: on, observer (reads and recalls, records" +
-  "\\nnothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |" +
-  "\\nobserver | off), or with `counterparts scope . --on`, `--observer` or `--off`. Then" +
-  '\\ndo not ask again.\\n</counterparts-scope>"}}';
+const HEALTHY_SESSION_START_STDOUT = [
+  "No briefing has been composed yet — this store has not lived a boundary.",
+  "",
+  "<counterparts-scope>",
+  "No setting yet for this directory, so Counterparts is remembering here by default.",
+  "Early on, ask the user once which they want: on, observer (reads and recalls, records",
+  "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
+  "observer | off), or with `counterparts scope . --on`, `--observer` or `--off`. Then",
+  "do not ask again.",
+  "</counterparts-scope>",
+].join("\n");
 
 describe("a hook on a working store", () => {
   test("SessionStart emits exactly what it emitted on master", () => {
@@ -1124,6 +1138,15 @@ describe("doctor reads the open, not just the directory", () => {
     expect(await run(["status", "--dir", store], { io: st.io })).not.toBe(EXIT.ok);
     expect(st.err.join("\n")).toContain(gone);
     expect(st.err.join("\n")).toContain("Every session stands down");
+    // AND THE CENSUS STILL LEADS WITH ITS NUMBERS (E2, finding 3, merged over
+    // this on 2026-09-20). Two changes met here: F5 made `status` exit non-zero
+    // and name the row, E2 moved the numbers to the top and put `Layout:`
+    // behind a flag. The fault is reported on stderr AFTER the census, so
+    // neither swallows the other — the numbers are true and printing them is
+    // not the lie; exiting 0 was.
+    const said = st.out.join("\n").split("\n").filter((l) => l.trim().length > 0);
+    expect(said[0]?.startsWith("Store: ")).toBe(true);
+    expect(said[1]?.startsWith("Memories: ")).toBe(true);
 
     // 3. VERIFY counts them, names them, and exits non-zero.
     const vf = consoleWith();

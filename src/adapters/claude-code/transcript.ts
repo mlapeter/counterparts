@@ -465,13 +465,22 @@ const ABSENT: SentinelSighting = {
  * the same reason: a memory whose body opens a sentinel it never closes would
  * otherwise stand in front of the real one and turn a delivered wake into a
  * `mismatch`. The first match is the answer only when nothing matches exactly.
+ *
+ * **The line is not sought, only the window** (2026-09-20, finding 7). This
+ * loop used to cut its slice at `text.indexOf("\n", from)`, and `indexOf` costs
+ * the distance it travels: a body of unterminated prefixes puts the next
+ * newline at the far end for every one of them, so the search was quadratic
+ * after all — 1.4 ms at 1,000 prefixes, 109 ms at 16,000, nearly four times the
+ * cost for twice the input. The anchored regexes exclude `\n` themselves, so
+ * cutting at `SENTINEL_MAX_BYTES` alone yields the identical match and makes
+ * every iteration cost the same bounded amount. The test that claimed this
+ * property was asserting a wall clock and never measured the growth.
  */
 function sight(prefix: string, re: RegExp, text: string, expected: string | null): SentinelSighting {
   let first: SentinelSighting | null = null;
   let from = text.indexOf(prefix);
   while (from !== -1) {
-    const newline = text.indexOf("\n", from);
-    const end = Math.min(newline === -1 ? text.length : newline, from + SENTINEL_MAX_BYTES);
+    const end = Math.min(text.length, from + SENTINEL_MAX_BYTES);
     const m = re.exec(text.slice(from, end));
     if (m !== null) {
       const matchesExpected = expected !== null && m[0] === expected;

@@ -43,6 +43,7 @@
  * Telemetry is content-by-reference throughout: ids, counts, tiers, reasons.
  * No body text, no question text, no note text ever reaches an event.
  */
+import { MCP_RECALL_EVENT } from "../../core/counterpart.js";
 import type { ChapterResult, Counterpart, DepositResult } from "../../core/counterpart.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
@@ -697,6 +698,7 @@ export class McpServer {
       truncated: payload["truncated"] === true,
       droppedForBudget: (payload["droppedForBudget"] as number | undefined) ?? 0,
     });
+    this.noteRecall(result, askedIds.length, question, resolved, payload);
     const bad =
       result.reason === "no-argument" ||
       result.reason === "both-arguments" ||
@@ -704,6 +706,83 @@ export class McpServer {
       result.reason === "ids-too-many" ||
       result.reason === "handle-confidential-withheld";
     return this.result(payload, bad);
+  }
+
+  /**
+   * THE DURABLE ROW for one deliberate recall (2026-09-20, E2).
+   *
+   * `docs/recall-surfacing-diagnosis-2026-09-18.md`: this adapter wrote no
+   * durable row at all, so "the session went looking and nothing came" and "the
+   * session never went looking" were the same silence, and the fired view could
+   * only call the mechanism blind. The ring emit above is unchanged — it is the
+   * live debugging channel and it dies with the process; this is the fact that
+   * outlives it.
+   *
+   * **Never the question.** `queryChars` is its LENGTH: a deliberate question
+   * is the one string on this path that could carry somebody's private words,
+   * and a row in a store that will be read months later may not hold it (scar
+   * §2.20). No memory ids either — the counts answer this row's question, and a
+   * durable pairing of ids with the moment somebody asked for them is a link
+   * the store has no need of.
+   *
+   * `blockedBy` DOES carry `confidential-withheld`, which the wire deliberately
+   * does not (§9.1 G5). The two audiences are different: the caller may be any
+   * session, and the row is the owner's own store, where the memory itself is
+   * already sitting. Without it the confidentiality gate stays exactly as
+   * unreadable as the inventory found it — a withholding that happened and one
+   * that never had to, the same absence.
+   *
+   * Never throws: a tool answer may not fail because its telemetry did.
+   */
+  private noteRecall(
+    result: DeliberateResult,
+    askedIds: number,
+    question: unknown,
+    handleResolved: boolean,
+    payload: Record<string, unknown>,
+  ): void {
+    const byAddress = result.path === "handle";
+    const blockedBy: Record<string, number> = { ...(result.blockedBy ?? {}) };
+    // The address paths' refusals are their own `reason` — one per id on the
+    // `ids` path, so three unknown ids read as three and not as one.
+    if (byAddress) {
+      const reasons =
+        result.perId === undefined
+          ? result.reason === "expanded"
+            ? []
+            : [result.reason]
+          : result.perId.filter((p) => p.reason !== "expanded").map((p) => p.reason);
+      for (const r of reasons) blockedBy[r] = (blockedBy[r] ?? 0) + 1;
+    } else if (result.path === "none") {
+      blockedBy[result.reason] = (blockedBy[result.reason] ?? 0) + 1;
+    }
+    try {
+      this.counterpart.noteAdapterEvent(MCP_RECALL_EVENT, {
+        path: result.path,
+        reason: result.reason,
+        // WHAT WAS ASKED, as shapes and sizes. Never the words.
+        queryChars: typeof question === "string" ? question.trim().length : 0,
+        askedIds,
+        handleResolved,
+        semantic: result.semantic,
+        // What came back, split the way the reader's question splits: an
+        // expansion answered an address, a surfacing answered a question.
+        surfaced: byAddress ? 0 : result.memories.filter((m) => m.tier !== "dim").length,
+        dim: byAddress ? 0 : result.memories.filter((m) => m.tier === "dim").length,
+        expanded: byAddress ? result.memories.length : 0,
+        considered: result.considered,
+        storeSize: result.storeSize,
+        owner: this.owner,
+        chars: payload["chars"] ?? 0,
+        truncated: payload["truncated"] === true,
+        droppedForBudget: payload["droppedForBudget"] ?? 0,
+        // THE POINT OF THE ROW: what kept the rest out, by name.
+        blockedBy,
+      });
+    } catch {
+      // The ring emit above already carries this call; a telemetry write that
+      // failed must not become the answer the model receives.
+    }
   }
 
   /**

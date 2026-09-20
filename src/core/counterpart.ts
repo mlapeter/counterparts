@@ -461,6 +461,44 @@ export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
 /**
+ * THE WORKER THAT DID START (2026-09-20, E2).
+ *
+ * The three rows above prove a door that failed; none of them proves a door
+ * that opened. So a worker dead all week and a week with nothing to do read
+ * exactly alike (mechanism inventory §2 row 23), which is scar §2.4's silence
+ * with the arms the other way round.
+ *
+ * LATCHED PER CALENDAR DATE, one row a day and no more. A boundary is a hot
+ * path and a healthy machine reaches many of them; the fact worth keeping is
+ * "the worker ran today", not three hundred copies of it. The row carries the
+ * running count of starts the adapter has seen in this process, so a day's one
+ * row still says the machine was busy, and the reason the spawn planner gave.
+ */
+export const SPAWN_STARTED_EVENT = "adapter.spawn.started";
+/**
+ * ONE ROW PER DELIBERATE RECALL (2026-09-20, E2).
+ *
+ * `docs/recall-surfacing-diagnosis-2026-09-18.md`: the whole MCP tool surface
+ * wrote no durable row at all. `mcp/deliberate.ts` has run every time a session
+ * went looking for something on purpose, and the only trace was an in-process
+ * ring that died with the server — so "the session asked and nothing came back"
+ * and "the session never asked" were the same silence, and the fired view could
+ * only mark the mechanism blind.
+ *
+ * **Counts and reasons. NEVER the question, never a body, and no ids.** The
+ * question is the one field here that could carry somebody's private words
+ * (scar §2.20), so its LENGTH is recorded and its text is not; and a row
+ * pairing a set of memory ids with the moment they were asked for is a link the
+ * store does not need to hold in order to answer "did this fire, and what
+ * stopped it". `blockedBy` is the refusal column — every verdict the deeper
+ * look did not admit, by name — which is what makes "nothing came back" tell
+ * "there was nothing" from "it was all gated".
+ *
+ * NO `dedupKey`: a tool call is a deliberate act by a session, not a boundary
+ * that repeats on a timer, and it is bounded by the host's own tool budget.
+ */
+export const MCP_RECALL_EVENT = "mcp.recall";
+/**
  * WHICH CHECKOUT WAS LIVE AT THIS SESSION START (2026-09-14).
  *
  * The host invokes the hooks by absolute path, so whatever the install tree has
@@ -559,7 +597,9 @@ export type AdapterDurableEventName =
   | typeof SEMANTIC_LAG_EVENT
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
+  | typeof SPAWN_STARTED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof MCP_RECALL_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -811,6 +851,27 @@ function numberField(event: CounterpartEvent | null, key: string): number | null
 function stringField(event: CounterpartEvent, key: string): string | null {
   const v = event.data?.[key];
   return typeof v === "string" ? v : null;
+}
+
+/**
+ * A counter map with its zeroes dropped, or null when nothing was counted.
+ *
+ * Every sleep phase pre-seeds its whole skip vocabulary with zeroes so that a
+ * category can never go missing from the report; a durable row does not want
+ * eight zeroes per phase per boundary. Null, not `{}`, so the field is absent
+ * rather than empty — "nothing was turned away" reads better as no field than
+ * as an empty object a reader has to interpret.
+ */
+function nonzero(counts: Readonly<Record<string, number>>): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  let any = false;
+  for (const [reason, n] of Object.entries(counts)) {
+    if (typeof n === "number" && n > 0) {
+      out[reason] = n;
+      any = true;
+    }
+  }
+  return any ? out : null;
 }
 
 /**
@@ -2528,6 +2589,22 @@ export class Counterpart {
         ? { budgetExhausted: p.budgetExhausted }
         : {}),
       ...(p.skippedForBudget === 0 ? {} : { skippedForBudget: p.skippedForBudget }),
+      // WHAT THE PHASE TURNED AWAY, BY REASON (2026-09-20, E2).
+      //
+      // `PhaseReport.skipped` has carried this since the phases had budgets —
+      // consolidate mirrors physics' whole `blockedBy` vocabulary into it as
+      // `promotion:<reason>` — and this row threw it away, so "why did this not
+      // promote" stayed unanswerable once the worker exited (mechanism
+      // inventory §1: the system records what happened and almost never records
+      // what was prevented). It is the value the phase already computed; no new
+      // read, nothing new on any path.
+      //
+      // ONLY THE NONZERO ENTRIES. Every phase pre-seeds its whole vocabulary
+      // with zeroes so a category can never go missing, and writing eight zeroes
+      // per phase every boundary is how a log gets too big to read. A category
+      // absent here was not counted; the phase's `status` and `examined` are
+      // what say whether it was reached at all.
+      ...(nonzero(p.skipped) === null ? {} : { skipped: nonzero(p.skipped) }),
     }));
     const clock = source.find((p) => p.phase === CLOCK_PHASE) ?? null;
     const clockFailed = clock !== null && clock.status === "failed";
