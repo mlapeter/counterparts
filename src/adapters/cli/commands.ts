@@ -67,13 +67,18 @@ import {
   dateOf,
   decodeVector,
   describeGuardRefusal,
+  DATABASE_FILE,
+  describePreRowsRefusal,
+  isPreRowsDatabase,
+  isStoreError,
+  preRowsMarkersIn,
   encodeVector,
   explicitDirSetting,
   isWithin,
   paths,
   storeExists,
 } from "../../core/store/index.js";
-import type { EventLogCensus, PathCensus, VectorFormatCensus } from "../../core/store/index.js";
+import type { EventLogCensus, VectorFormatCensus } from "../../core/store/index.js";
 // The owner-op seam's REPAIR half — the one door that un-archives, and only for
 // the merge's reason. Imported HERE for the same reason `chaseRemoved` is:
 // this is the directory the caller-universality test allows to reach that file.
@@ -1004,7 +1009,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return installCommand(parsed, io, env, opts.home, named);
     } catch (err) {
-      io.err(`install failed: ${String((err as Error).message ?? err)}`);
+      io.err(`install failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1024,7 +1029,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return await credentialsCommand(parsed, io, env, named, opts.stdin);
     } catch (err) {
-      io.err(`credentials failed: ${String((err as Error).message ?? err)}`);
+      io.err(`credentials failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1046,7 +1051,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return scopeCommand(parsed, io, observer, named, now);
     } catch (err) {
-      io.err(`scope failed: ${String((err as Error).message ?? err)}`);
+      io.err(`scope failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1075,7 +1080,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
     try {
       return doctorCommand(parsed, io, env, named, opts.checkout);
     } catch (err) {
-      io.err(`doctor failed: ${String((err as Error).message ?? err)}`);
+      io.err(`doctor failed: ${describeDirRefusal(err)}`);
       return EXIT.failed;
     }
   }
@@ -1141,7 +1146,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
         );
     }
   } catch (err) {
-    io.err(`${command} failed: ${String((err as Error).message ?? err)}`);
+    io.err(`${command} failed: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   }
 }
@@ -1160,16 +1165,63 @@ function resolveDir(env: Record<string, string | undefined>): string {
 
 /**
  * The store refusals the console renders as a SENTENCE rather than printing the
- * error's own line: the explicit-dir guard is one an operator armed on purpose,
- * and the reader is owed what it refused and how to proceed (constitution 16),
- * not a JSON detail. The sentence is the store's (`describeGuardRefusal`); the
- * remedy is this console's, because it is the surface that has `--dir`. Every
- * other store error keeps its `${code} ${detail}` line, asserted by code.
+ * error's own line, because the reader is owed what it refused and how to
+ * proceed (constitution 16), not a JSON detail. The sentences are the store's
+ * (`describeGuardRefusal`, `describePreRowsRefusal`); the remedy is this
+ * console's, because it is the surface that has `--dir`. Every other store
+ * error keeps its `${code} ${detail}` line, asserted by code.
+ *
+ * Two of them now. The explicit-dir guard is one an operator armed on purpose.
+ * `STORE_PRE_ROWS` joined it after review A measured what every console door
+ * actually printed at a pre-rows store — the bare code and a JSON blob, with
+ * the one instruction the owner is given ("Run: counterparts doctor") printing
+ * the same blob. A dead end at the exact moment of the cut-over.
  */
-function describeDirRefusal(err: unknown): string {
+/**
+ * `refused: …` exactly once. The store's own sentences already open with the
+ * word, and `init`/`install` added their own prefix in front of it (review f5c,
+ * NIT-2).
+ */
+function prefixedRefusal(said: string): string {
+  return said.startsWith("refused:") ? said : `refused: ${said}`;
+}
+
+function describeDirRefusal(err: unknown, dir?: string): string {
   return (
     describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
+    describePreRowsRefusal(err, `Name a store with --dir <path>.`) ??
+    preRowsInDisguise(err, dir) ??
     String((err as Error).message ?? err)
+  );
+}
+
+/**
+ * The shape-lock shape, wearing `STORE_UNINITIALIZED`'s clothes.
+ *
+ * A door that opens as an OBSERVER never reaches the second lock: `initialize:
+ * false` short-circuits on `OBSERVER_READ_FLOOR` and throws
+ * `STORE_UNINITIALIZED` first. So `status` and `verify` printed a bare code and
+ * a JSON blob on a v5 database renamed to `counterparts.sqlite`, while
+ * `verify --rebuild`, `migrate-cache`, `init` and the hook all printed the
+ * sentence — A-MINOR-3's exact complaint surviving on the other lock's shape
+ * (review f5c, NEW-MINOR-3).
+ *
+ * Only asked when the store has already refused, and only about a file already
+ * named `counterparts.sqlite` — never the owner's parked v5 store, which is
+ * caught by NAME before anything opens it.
+ */
+function preRowsInDisguise(err: unknown, dir: string | undefined): string | null {
+  if (dir === undefined) return null;
+  if (!isStoreError(err, "STORE_UNINITIALIZED")) return null;
+  if (!isPreRowsDatabase(paths.operational(dir))) return null;
+  return describePreRowsRefusal(
+    new StoreError("STORE_PRE_ROWS", {
+      dir,
+      found: DATABASE_FILE,
+      expected: SCHEMA_VERSION,
+      reason: "no-body-column",
+    }),
+    `Name a store with --dir <path>.`,
   );
 }
 
@@ -1195,7 +1247,7 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1241,7 +1293,7 @@ function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number)
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1352,7 +1404,7 @@ async function selfPageCommand(
   try {
     counterpart = openCounterpart(dir, observer);
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1511,7 +1563,7 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1626,6 +1678,24 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
       const present = existsSync(join(store.dir, entry.name)) ? " " : "-";
       io.out(`  ${present} ${entry.backup ? "backed up" : "excluded "}  ${entry.name}  — ${entry.why}`);
     }
+    // A STORE THAT NO SESSION CAN OPEN DOES NOT GET A GREEN CENSUS.
+    //
+    // `status` opens a `Store`, not a `Counterpart`, so it never runs
+    // `Schemas.load` — which is what meets a faulted row and stands the session
+    // down. Reviewer B hand-made the fault and watched `status` print a
+    // completely normal summary and exit 0 while every session was dead
+    // (MAJOR-3). The census above is still printed, because it is true; what
+    // changes is that the fault is said and the exit is not success.
+    const faulted = store.faultedIds();
+    if (faulted.length > 0) {
+      io.out("");
+      io.err(
+        `Rows whose words are missing: ${String(faulted.length)} — ${faulted.slice(0, 5).join(", ")}` +
+          (faulted.length > 5 ? ` and ${String(faulted.length - 5)} more` : "") +
+          ". Every session stands down on a store that holds one. Run: counterparts doctor.",
+      );
+      return EXIT.failed;
+    }
     return EXIT.ok;
   } finally {
     store.close();
@@ -1706,7 +1776,7 @@ function installCommand(
   try {
     store = Store.open({ dir: layout.store });
   } catch (err) {
-    io.err(`refused: ${String((err as Error).message ?? err)}`);
+    io.err(prefixedRefusal(describeDirRefusal(err, layout.store)));
     return EXIT.refused;
   }
   const resolved = store.dir;
@@ -1854,7 +1924,7 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   try {
     store = Store.open({ dir });
   } catch (err) {
-    io.err(`refused: ${String((err as Error).message ?? err)}`);
+    io.err(prefixedRefusal(describeDirRefusal(err, dir)));
     return EXIT.refused;
   }
   const resolved = store.dir;
@@ -2243,23 +2313,6 @@ function censusCache(dir: string): CacheCensus {
  * One line naming the shape box 3's vectors are in, and — when it is mixed —
  * what to run. An empty table is neither format and says so.
  */
-/**
- * "N relative, M absolute (unmigrated|unplaceable), K missing files" — the
- * shape the owner reads the v5 path migration by. Escaping rows (a hand-edited
- * database) and blank pointers (removed rows) are named only when there are
- * any, because "0 removed" on every store is noise.
- */
-function pathCensusLine(c: PathCensus, schemaBehind: boolean): string {
-  const parts = [
-    `${c.relative} relative`,
-    `${c.absolute} absolute (${schemaBehind ? "unmigrated" : "unplaceable"})`,
-    `${c.missing} missing file${c.missing === 1 ? "" : "s"}`,
-  ];
-  if (c.escaped > 0) parts.push(`${c.escaped} ESCAPE the store (never resolved; hand-edited rows)`);
-  if (c.blank > 0) parts.push(`${c.blank} blank (removed)`);
-  return parts.join(", ");
-}
-
 function vectorFormatLine(v: VectorFormatCensus): string {
   if (v.total === 0) return "none held";
   const parts: string[] = [];
@@ -2297,6 +2350,42 @@ function vectorFormatLine(v: VectorFormatCensus): string {
  * they were and now name it, because the safe option being available is not a
  * reason to make the destructive one quieter.
  */
+/**
+ * Refuse a PRE-ROWS store before this command opens anything of its own.
+ *
+ * `Store.open` refuses it by name, and ~20 doors get that for free because they
+ * open a `Store` first. Two do not: `migrate-cache` opens box 3 directly and
+ * never sees a `Store` at all, and `verify --rebuild` opens box 3 for its
+ * census before it opens box 2. Review A measured both writing into a parked
+ * pre-rows store's `cache/` — a `-shm` in the fixture, and on the owner's real
+ * parked store a `--apply` would rewrite and VACUUM ~17,000 documents' index in
+ * a store this build has declared it cannot read.
+ *
+ * Box 3 is rebuildable and out of the backup set, so this is not memory loss.
+ * It is a door writing where the build said it would not, and a rebuild of that
+ * cache after a rollback is a paid re-embed.
+ */
+function refusePreRows(dir: string, io: Io): number | null {
+  // TWO SHAPES, and only the first is a filename question. The second is a v5
+  // database wearing the v6 NAME, which `preRowsMarkersIn` cannot see — review
+  // f5c measured `migrate-cache` running to completion on one, and
+  // `verify --rebuild` reaching box 3 before box 2 refused it.
+  const found = preRowsMarkersIn(dir);
+  const detail: Record<string, string | number> = { dir, expected: SCHEMA_VERSION };
+  if (found.length > 0) detail["found"] = found.join(", ");
+  else if (isPreRowsDatabase(paths.operational(dir))) {
+    detail["found"] = DATABASE_FILE;
+    detail["reason"] = "no-body-column";
+  } else return null;
+  io.err(
+    describePreRowsRefusal(
+      new StoreError("STORE_PRE_ROWS", detail),
+      "Name a store with --dir <path>.",
+    ) ?? `refused: ${dir} was written before this build's floor.`,
+  );
+  return EXIT.failed;
+}
+
 function verifyCommand(dir: string, io: Io, flags: Record<string, string | boolean | undefined>): number {
   // THE WRITING HALF NAMES ITS STORE (2026-09-05 ruling). The census is
   // read-only and stays open to `COUNTERPARTS_DATA_DIR`; these three are not.
@@ -2330,6 +2419,11 @@ function verifyCommand(dir: string, io: Io, flags: Record<string, string | boole
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
+  // BEFORE box 3 is opened, on every branch: `--rebuild`'s census opens the
+  // cache before it opens box 2, so the refusal arrived after a `-shm` had
+  // already moved (review A, MINOR-2).
+  const preRowsRefusal = refusePreRows(dir, io);
+  if (preRowsRefusal !== null) return preRowsRefusal;
   if (flags["rebuild"] !== true) {
     if (flags["prune-index"] === true) return verifyPruneIndex(dir, io);
     if (flags["retry-skipped"] === true) return verifyRetrySkipped(dir, io);
@@ -2450,7 +2544,7 @@ function verifyCensus(dir: string, io: Io): number {
   let denied: string[];
   let unembedded: number;
   let skippedVectors: string[];
-  let pathsCensus: ReturnType<Store["pathCensus"]>;
+  let faulted: string[];
   let schemaVersion: string | null;
   let log: EventLogCensus;
   let bands: BandOfRecordCensus;
@@ -2466,7 +2560,7 @@ function verifyCensus(dir: string, io: Io): number {
     // above on purpose — it reports what is still actionable — so leaving them
     // unprinted here would be the coverage watch quietly losing rows.
     skippedVectors = store.skippedVectorIds();
-    pathsCensus = store.pathCensus();
+    faulted = store.faultedIds();
     schemaVersion = store.getMeta("schemaVersion") ?? null;
     log = store.eventLogCensus();
     bands = bandOfRecordCensus(store);
@@ -2488,21 +2582,35 @@ function verifyCensus(dir: string, io: Io): number {
     `Canonical rows: ${canonical.length}   live rows: ${live.length}   ` +
       `removed (deny-list): ${denied.length}`,
   );
-  // THE PATH COLUMNS, SPELLED OUT (store CONTRACT §5 G15; finding I22). Since
-  // store schema v5 a row names its file RELATIVE to the store, so a copied or
-  // restored store reads its own prose. A v4 store opened here as an observer
-  // still shows its absolute rows — that is the read-only view of what the
-  // first writer open will convert — and "missing" is a separate fact from
-  // either spelling: the pointer resolved to a file that is not there. The
-  // word beside the absolute count is chosen by the schema: on a v4 store the
-  // rows are UNMIGRATED (the first writer open converts them); on a v5 store a
-  // leftover absolute row was migrated and could not be placed — UNPLACEABLE.
-  const schemaBehind = schemaVersion !== null && Number.parseInt(schemaVersion, 10) < SCHEMA_VERSION;
-  io.out(`Prose paths: ${pathCensusLine(pathsCensus.prose, schemaBehind)}`);
-  io.out(`Version paths: ${pathCensusLine(pathsCensus.versions, schemaBehind)}`);
-  if (schemaBehind) {
-    io.out(
-      `  store schema v${schemaVersion}: absolute paths are converted to relative at the next WRITER open (v${SCHEMA_VERSION}); this census is read-only and changed nothing.`,
+  // WHERE THE WORDS ARE. This was two census lines counting how the two path
+  // columns were spelled and how many of their files were on disk (§5 G15,
+  // finding I22) — a report ON the file layout, which the floor deleted along
+  // with the columns. What replaces it is a one-line statement of the floor
+  // this store is on, because "prose files: none" is the fact an owner looking
+  // for his markdown needs, and a store that still had any would be a store
+  // this build refused to open (`STORE_PRE_ROWS`).
+  io.out(
+    `Floor: schema v${schemaVersion ?? "?"} · bodies in rows · prose files: none` +
+      (schemaVersion === String(SCHEMA_VERSION)
+        ? ""
+        : ` (this build writes v${SCHEMA_VERSION})`),
+  );
+  // ROWS WHOSE WORDS WENT MISSING, counted beside the floor line.
+  //
+  // One of these stands EVERY session down (`MEMORY_BODY_MISSING` out of
+  // `Schemas.load`), and before this `verify` printed a green census over it
+  // and exited 0 — the owner had a dead store and two surfaces telling him it
+  // was fine (review B, MAJOR-3). Named, not just counted: the id is the only
+  // handle there is on this floor.
+  if (faulted.length > 0) {
+    io.err(
+      `Rows whose words are missing: ${String(faulted.length)} — ${faulted.slice(0, 5).join(", ")}` +
+        (faulted.length > 5 ? ` and ${String(faulted.length - 5)} more` : "") +
+        ". Each has an empty body and a content hash that still names it, which no write path " +
+        "in this build produces. A session that loads a BELIEF or reads that memory stands down: " +
+        "a faulted schema row takes every session with it, an ordinary memory only the reads that " +
+        "reach it. Restore a snapshot over the store, or remove that row by id to tombstone it " +
+        "and let sessions start again.",
     );
   }
   for (const line of eventLogLines(log)) io.out(line);
@@ -2566,7 +2674,10 @@ function verifyCensus(dir: string, io: Io): number {
   io.out(`  vector format: ${vectorFormatLine(cache.counts.vectors)}`);
   if (missing.length === 0 && orphans.length === 0 && stale.length === 0) {
     io.out("The cache covers every live row and holds nothing else.");
-    return EXIT.ok;
+    // A faulted row outranks a clean cache: the store does not OPEN for a
+    // session, so a zero exit here would be the second surface telling the
+    // owner everything is fine while every session stands down.
+    return faulted.length === 0 ? EXIT.ok : EXIT.failed;
   }
   if (missing.length === 0 && orphans.length === 0) {
     io.err(
@@ -2659,9 +2770,53 @@ function verifyRebuild(dir: string, io: Io, dropVectors: boolean, keepVectors: b
       return EXIT.failed;
     }
     io.out("Every canonical row is accounted for.");
+    reclaimFreedPages(dir, io);
     return EXIT.ok;
   } finally {
     store.close();
+  }
+}
+
+/**
+ * VACUUM both databases, then checkpoint — the named command a removal points at
+ * when it could not do this itself.
+ *
+ * `cli/removal.ts#reclaim` runs the same two statements at the end of every
+ * chase, because blanking a long body leaves whole OVERFLOW pages on the
+ * freelist still holding the words (the third review's NEW-MAJOR-1). When that
+ * is contended the removal says so and names this command — so this command has
+ * to actually do it. It did not: measured, `verify --rebuild` left the residue
+ * exactly where it was, because rebuilding box 3 says nothing about box 2's free
+ * list.
+ *
+ * Runs after the rebuild has finished with the store, and never throws: a
+ * failure here is a line, not a lost rebuild.
+ */
+function reclaimFreedPages(dir: string, io: Io): void {
+  for (const [path, name] of [
+    [paths.operational(dir), "the database"],
+    [paths.cache(dir), "the cache"],
+  ] as const) {
+    if (!existsSync(path)) continue;
+    let db;
+    try {
+      db = openDb(path);
+      db.exec("VACUUM");
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+      io.out(`Reclaimed free pages in ${name}.`);
+    } catch (err) {
+      io.err(
+        `Could not reclaim free pages in ${name} (${String((err as Error).message ?? err)}). ` +
+          "Words from a removed memory may remain in pages no row points at; run this again " +
+          "when nothing else is holding the store.",
+      );
+    } finally {
+      try {
+        db?.close();
+      } catch {
+        /* a handle that will not close has already said what it could */
+      }
+    }
   }
 }
 
@@ -2807,6 +2962,10 @@ async function migrateCacheCommand(
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
+  // This command never opens a `Store`, so it never met the refusal every other
+  // door gets for free (review A, MINOR-1).
+  const preRowsRefusal = refusePreRows(dir, io);
+  if (preRowsRefusal !== null) return preRowsRefusal;
   const path = paths.cache(dir);
   if (!existsSync(path)) {
     io.err(
@@ -3066,7 +3225,7 @@ function backupCommand(
     store = Store.open({ dir, observer: true });
   } catch (err) {
     io.out(`Snapshot: none — nothing was copied.`);
-    io.err(`  could not open the store: ${String((err as Error).message ?? err)}`);
+    io.err(`  could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -3239,7 +3398,7 @@ async function removeCommand(
     io.out(`  removal record: ${outcome.notes.length} stages appended`);
     return EXIT.ok;
   } catch (err) {
-    io.err(`removal failed: ${String((err as Error).message ?? err)}`);
+    io.err(`removal failed: ${describeDirRefusal(err)}`);
     return EXIT.failed;
   } finally {
     store.close();
@@ -3270,13 +3429,14 @@ async function removeCommand(
  * which keeps the prior version — constitution 7), and a `salience.defaulted`
  * row in the event log so the daily can count this run.
  *
- * `revise` re-hashes the whole serialized document, so every backfilled row's
- * `content_hash` moves when the flag lands. That is inert by design and not an
- * oversight: `content_hash` addresses the document (id and frontmatter
- * included), which makes it a CHANGE detector, and `sleep/dedup.ts` deliberately
- * hashes the BODY instead — its header says so in as many words. The
- * content-idempotency ledger in `remember/` hashes normalized content and never
- * reads this column at all.
+ * `claimedDefault` is META, and since the floor (2026-09-20) `content_hash` is
+ * `hashText(body)` — so a backfilled row's hash does NOT move when the flag
+ * lands, where before the floor it did (the hash addressed the whole serialized
+ * document, id and frontmatter included). Either way nothing downstream cares:
+ * `sleep/dedup.ts` deliberately hashes the body itself rather than reading this
+ * column, and `remember/`'s content-idempotency ledger hashes normalized content
+ * and never reads it at all. What DOES move, on purpose, is the revision: the
+ * flag goes on through `revise`, which keeps the prior version (constitution 7).
  */
 function backfillClaimsCommand(
   dir: string,
@@ -3350,7 +3510,7 @@ function backfillClaimsCommand(
         });
         written += 1;
       } catch (err) {
-        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+        failures.push(`${target.id}: ${describeDirRefusal(err)}`);
       }
     }
   } finally {
@@ -3600,7 +3760,7 @@ function repairMergedBeliefsCommand(
         const report = unarchiveMerged(store, target.id);
         if (!report.noop) restored += 1;
       } catch (err) {
-        failures.push(`${target.id}: ${String((err as Error).message ?? err)}`);
+        failures.push(`${target.id}: ${describeDirRefusal(err)}`);
       }
     }
   } finally {

@@ -26,20 +26,41 @@ export type StoreErrorCode =
    * `{ guard, value, accepted }`.
    */
   | "EXPLICIT_DIR_GUARD_MALFORMED"
-  | "PROSE_FRONTMATTER_MISSING"
-  | "PROSE_PAYLOAD_MISSING"
-  | "PROSE_PAYLOAD_MALFORMED"
+  /**
+   * The row handed to a read is not the row that was asked for
+   * (`walk-seam.ts`). Kept from the file floor, where a prose file and its row
+   * could disagree about which memory it was; it is now the guard on the
+   * caller-supplied `row` a walking read takes to save a second lookup.
+   */
   | "PROSE_PAYLOAD_MISMATCH"
   | "PROSE_BODY_INVALID"
   | "PROSE_META_UNSERIALIZABLE"
-  | "PROSE_FILE_MISSING"
+  /**
+   * The `meta` COLUMN does not parse as JSON. Only a hand-edited database can
+   * hold one — every writer goes through `serializeMeta`.
+   */
+  | "MEMORY_META_MALFORMED"
+  /**
+   * **The row is there and its words are not**: `body` is empty while
+   * `content_hash` still names the words that were in it.
+   *
+   * It replaces `PROSE_FILE_MISSING`, which said the same thing about a file.
+   * The two halves of the test are the point: a blank body BESIDE a blank hash
+   * is a tombstone — the owner removed this, and the deny-list answers by name
+   * (`REMOVED`) — while a blank body beside a real hash is a row whose words
+   * went missing underneath the store. No write path in this module produces
+   * it; `put` and `revise` both refuse an empty body.
+   *
+   * `detail` carries `{ id }` and no path, because on this floor there is no
+   * file to restore. Doctor's Store-open finding already has the no-path arm.
+   */
+  | "MEMORY_BODY_MISSING"
   | "ID_MALFORMED"
   | "ID_UNKNOWN"
   | "ID_CYCLE"
   | "ID_CHAIN_TOO_DEEP"
   | "ID_DANGLING"
   | "ID_TAKEN"
-  | "ARCHIVE_COLLISION"
   /**
    * The owner removed this id. The deny-list answering before the prose does —
    * a NAMED refusal, never the ENOENT of a chased file (§16 G12).
@@ -71,11 +92,24 @@ export type StoreErrorCode =
   /** A store written by a NEWER build: refused rather than stamped backwards. */
   | "SCHEMA_AHEAD"
   /**
-   * A stored path that, resolved against the opened store, would land outside
-   * its `prose/` or `versions/` root — `../ESCAPE/…`, a bare `.`, `cache/…`.
-   * Only a hand-edited database can hold one; it is never resolved (§5 G15).
+   * **A store written before the floor**: `operational.sqlite`, `prose/` or
+   * `versions/` is at its top level, so its words are in ~16,000 markdown files
+   * this build has no code to read (schema v6, 2026-09-20).
+   *
+   * Refused BY NAME, in `Store`'s constructor, before any transaction and
+   * before any directory is created — because the alternative is the one thing
+   * in this rebuild that could make a store unreadable. `openOperational`
+   * migrates anything below `SCHEMA_VERSION`; reaching it with a v5 store would
+   * have added `body` NULL to every row, orphaned every prose file, stamped the
+   * store v6, and left it unreadable by the build that CAN read it too.
+   *
+   * There is no migration, on purpose (owner ruling 6, 2026-09-18: the cut-over
+   * carries nothing and he starts as a new user). `detail` carries
+   * `{ dir, found, expected, readableBy }` — `readableBy` names the tag whose
+   * build still opens it, so the sentence ends in a thing to do rather than in
+   * a dead end. The old store is untouched and stays on disk.
    */
-  | "STORED_PATH_ESCAPES"
+  | "STORE_PRE_ROWS"
   | "SQLITE_UNAVAILABLE"
   | "LAYOUT_UNCLASSIFIED";
 

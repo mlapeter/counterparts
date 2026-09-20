@@ -34,6 +34,7 @@ import { join, resolve } from "node:path";
 
 import { openDb } from "../../core/store/db.js";
 import {
+  DATABASE_FILE,
   LAYOUT,
   assertSafeDataDir,
   isWithin,
@@ -139,7 +140,11 @@ export function snapshot(store: Store, target: string): SnapshotReport {
     const from = join(store.dir, entry.name);
     const to = join(resolvedTarget, entry.name);
     // The canonical database, and only it, takes the database's own route.
-    if (entry.name === "operational.sqlite") {
+    // Matched against the layout's own spelling of the name, never a literal:
+    // the file was `operational.sqlite` until the floor moved the bodies into
+    // it, and a second spelling here would have quietly sent the canonical
+    // database down the file-copy path on the day it was renamed (§2.11).
+    if (entry.name === DATABASE_FILE) {
       const result = vacuumInto(paths.operational(store.dir), to);
       copied.push({
         name: entry.name,

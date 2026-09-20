@@ -34,7 +34,8 @@
  * it where it actually matters (2026-09-18).
  */
 import { StoreError } from "./errors.js";
-import { readProseFile } from "./prose.js";
+import { parseMeta } from "./prose.js";
+import { rowTombstoned } from "./operational.js";
 import type { MemoryRow } from "./operational.js";
 import type { ProseDoc } from "./prose.js";
 import type { Store } from "./index.js";
@@ -42,15 +43,36 @@ import type { Store } from "./index.js";
 /**
  * `row` is the caller's own `row(id)` when it already has one — every one of
  * these walks reads the row's columns too, and looking it up twice per id
- * measured 54% of a 16,000-row walk (650 ms → 990 ms), which is most of the walk
- * once the body IS the row and there is no file read to dominate. A row for a
- * DIFFERENT id is refused by name rather than answered with the wrong memory's
- * body: `readProseFile`'s own `expectId` check catches it today, and the line
- * here outlives that check.
+ * measured 54% of a 16,000-row walk (650 ms → 990 ms). That was measured while a
+ * file read dominated; since the floor there is no file read at all, so the
+ * saved lookup is now MOST of the walk and the parameter stays.
+ *
+ * **The `id === row.id` check is load-bearing and now stands alone.** It used to
+ * be belt and braces over `readProseFile`'s own `expectId`, which compared the
+ * file's payload against the id asked for; F3 flagged that deleting the file
+ * reader would delete that guard too, and it did. Without this line a caller
+ * that passed the wrong row would be handed the wrong memory's body, silently.
  */
 export function readProseWalking(store: Store, id: string, row?: MemoryRow): ProseDoc {
   const r = row ?? store.row(id);
   if (r === undefined) throw new StoreError("ID_UNKNOWN", { id });
   if (r.id !== id) throw new StoreError("PROSE_PAYLOAD_MISMATCH", { expected: id, found: r.id });
-  return readProseFile(store.absolutePath(r.prose_path), id);
+  // The words are the row's own columns. A blank body is the one fault a walk
+  // still has to raise rather than paper over: blank BESIDE a blank hash is the
+  // owner's removal (the callers skip those by `rowTombstoned` before they get
+  // here), and blank beside a real hash is a row whose words went missing.
+  if (r.body.length === 0) {
+    throw new StoreError("MEMORY_BODY_MISSING", { id, tombstoned: rowTombstoned(r) });
+  }
+  const doc: ProseDoc = {
+    id: r.id,
+    type: r.type,
+    learnedOn: r.learned_on,
+    bornDay: r.birth_day,
+    meta: parseMeta(r.meta, r.id),
+    body: r.body,
+  };
+  if (r.title !== null) doc.title = r.title;
+  if (r.happened_on !== null) doc.happenedOn = r.happened_on;
+  return doc;
 }

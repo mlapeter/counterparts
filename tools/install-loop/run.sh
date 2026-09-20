@@ -293,7 +293,7 @@ if ! doc_check "$CMD"; then
   no "not in QUICKSTART verbatim: $CMD"
 else
   INSTALL_OUT=$(eval "$CMD" 2>&1)
-  if [ -f "$STORE/operational.sqlite" ] && [ -f "$BASE/claude-code.json" ] && [ -f "$BASE/credentials.env" ]; then
+  if [ -f "$STORE/counterparts.sqlite" ] && [ -f "$BASE/claude-code.json" ] && [ -f "$BASE/credentials.env" ]; then
     ok
   else
     no "install did not produce store + config + credentials" "$INSTALL_OUT"

@@ -400,7 +400,9 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     could not open its store wrote one line to stderr — which on this host goes
     nowhere anybody looks — so a store with one missing prose file meant no wake,
     no recall and no capture in every session, silently, while every visible
-    surface read green. So `bin/hook.ts` classifies its stand-downs
+    surface read green. *(That was the FILE floor. The same shape survives the
+    move to rows as a row whose words went missing — `MEMORY_BODY_MISSING` — and
+    since 2026-09-20 doctor, `verify` and `status` all name the row.)* So `bin/hook.ts` classifies its stand-downs
     (`standdown.ts`): a directory scoped `off`, an observer with no store to read
     (`STORE_UNINITIALIZED`), and the explicit-dir guard's two refusals are
     DELIBERATE and unchanged; anything else is a FAULT and prints one
@@ -483,8 +485,10 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     3. `counterparts verify --dir ~/.counterparts/store --rebuild`, with the
        embed key exported if the embedder is on.
 
-    What comes back with the copy: every memory, its prose, the journal, the
-    spans, the event log — the canonical halves. What does NOT, and why step 3
+    What comes back with the copy: every memory, its archived versions, the
+    journal, the spans, the event log — the canonical halves. Since the floor
+    (schema v6, 2026-09-20) the memories' words are COLUMNS, so all of that is
+    inside `counterparts.sqlite` and there is no prose to come back separately. What does NOT, and why step 3
     exists: `cache/` is classified out of the backup set on purpose (it is
     rebuildable and unbounded), and it holds the lexical search index and every
     vector. **Until the rebuild, `search()` returns nothing** — the memories are

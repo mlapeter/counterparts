@@ -79,7 +79,16 @@ export const REFUSED_ROOT_NAMES: readonly string[] = [
 ];
 
 /** Files whose presence means "there is already a store here". */
-const STORE_MARKERS = ["operational.sqlite", "prose", "cache", "versions"] as const;
+// Both spellings of the database on purpose: the floor renamed it to
+// `counterparts.sqlite`, and a seeder that stopped recognising the old name
+// would happily seed on top of a pre-rows store it can no longer open.
+const STORE_MARKERS = [
+  "counterparts.sqlite",
+  "operational.sqlite",
+  "prose",
+  "cache",
+  "versions",
+] as const;
 
 export class DemoTargetRefused extends Error {
   readonly reason: "live-store-root" | "not-absolute" | "store-already-here";
