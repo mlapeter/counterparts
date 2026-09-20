@@ -259,30 +259,52 @@ describe("every state is reachable from a fixture", () => {
           phase: "consolidate",
           status: "ran",
           reason: "ok",
-          skipped: { "promotion:below-theta": 41, "promotion:too-few-days": 7 },
+          // A CANDIDATE FILTER beside two real refusals. `journal` says "this
+          // row was never a candidate"; `promotion:*` says "it was, and a gate
+          // said no". Only the second is a refusal, and this fixture holds both
+          // so the difference is asserted rather than assumed.
+          skipped: { "promotion:below-theta": 41, "promotion:too-few-days": 7, journal: 14 },
         },
-        { phase: "prune", status: "ran-nothing-found", reason: "ok", skipped: { journal: 3 } },
-        { phase: "decay", status: "ran", reason: "ok", skipped: { protected: 2 } },
+        {
+          phase: "prune",
+          status: "ran-nothing-found",
+          reason: "ok",
+          skipped: { journal: 14, archived: 3, "blocked:above-floor": 2 },
+        },
+        { phase: "decay", status: "ran", reason: "ok", skipped: { "identity-band": 2, "at-floor": 9 } },
+        { phase: "dedup", status: "ran-nothing-found", reason: "ok", skipped: { schema: 6 } },
       ],
     });
     const r = report(s);
 
     const promotion = pick(r, "promotion");
     expect(promotion.state).toBe("blocked");
+    // 48, NOT 62: the fourteen journal rows were never candidates.
     expect(promotion.refusedInWindow).toBe(48);
     // The PREFIX IS STRIPPED: the reader wants the reason, not the routing.
-    expect(promotion.topRefusal).toBe("promotion:below-theta ×41");
+    expect(promotion.topRefusal).toBe("below-theta ×41");
     expect(promotion.evidence).toBe("band.promoted");
     expect(promotion.note).toContain("sleep.cycle");
 
-    // No phase claims another's. Prune saw three journal rows and nothing of
-    // consolidate's forty-eight.
-    expect(pick(r, "prune").refusedInWindow).toBe(3);
-    expect(pick(r, "prune").topRefusal).toBe("journal ×3");
-    expect(pick(r, "decay").refusedInWindow).toBe(2);
-    // A phase that left no skip map contributes nothing rather than a zero.
+    // No phase claims another's, and none of them claims a candidate filter.
+    const prune = pick(r, "prune");
+    expect(prune.refusedInWindow).toBe(2);
+    expect(prune.topRefusal).toBe("above-floor ×2");
+
+    /**
+     * THE FALSE ALARM THIS PREFIX EXISTS TO PREVENT.
+     *
+     * On the owner's own store, prune runs every night, finds nothing at the
+     * floor, and skips fourteen journal chapters because a chapter is a source
+     * and not a memory. Reading the whole skip map would make it report
+     * `blocked, most often journal ×14` every single week — for a phase that is
+     * working perfectly. dedup's `schema` and decay's `at-floor` are the same
+     * shape, and decay has no refusal vocabulary at all.
+     */
     expect(pick(r, "dedup").refusedInWindow).toBe(0);
     expect(pick(r, "dedup").state).toBe("never");
+    expect(pick(r, "decay").refusedInWindow).toBe(0);
+    expect(pick(r, "decay").state).toBe("never");
 
     // And the cycle itself FIRED — a night that ran and refused things is a
     // night that ran. The refusal column is on the mechanisms, not on it.

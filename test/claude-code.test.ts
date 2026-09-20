@@ -206,6 +206,19 @@ function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
   return { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true, ...over };
 }
 
+/**
+ * A counterpart that really is an observer. `ClaudeCodeAdapter` takes its
+ * stance from the COUNTERPART (`hooks.ts`: `this.observer =
+ * opts.counterpart.observer`), so `config({ observer: true })` over a writer
+ * makes an adapter that is not standing down at all — and a test that assumed
+ * otherwise would pass for a reason unrelated to the guard it names.
+ */
+function observerCounterpart(): Counterpart {
+  const c = Counterpart.open({ dir, observer: true });
+  open.push(c);
+  return c;
+}
+
 function adapter(over: Partial<AdapterConfig> = {}): {
   a: ClaudeCodeAdapter;
   calls: SpawnPlan[];
@@ -1427,12 +1440,18 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     expect(rows().length).toBe(2);
     expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("1");
 
-    // An observer writes neither the row nor the counter.
+    // AN OBSERVER WRITES NEITHER THE ROW NOR THE COUNTER — and the stance that
+    // decides it is the COUNTERPART'S, not the config's (`hooks.ts`:
+    // `this.observer = opts.counterpart.observer`). Asserted, because an
+    // adapter built over a writer counterpart with `observer: true` in its
+    // config is NOT an observer, and a test that assumed it was would pass for
+    // a reason that has nothing to do with the guard under test.
     const watcher = new ClaudeCodeAdapter({
-      counterpart: a.counterpart,
+      counterpart: observerCounterpart(),
       config: config({ observer: true }),
       spawner: fakeSpawner().spawner,
     });
+    expect(watcher.observer).toBe(true);
     watcher.stop(input({ sessionId: "watching", at: "2026-01-04" }));
     expect(rows().length).toBe(2);
     expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("1");

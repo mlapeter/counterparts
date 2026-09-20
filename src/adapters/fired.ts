@@ -429,32 +429,48 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "memories weaken with time and drop to a lower band",
     module: "physics/, sleep/decay.ts",
     evidence: { kind: "event", names: ["band.transition"] },
-    refusals: { names: ["sleep.cycle"], under: "decay/" },
+    // NO REFUSAL COLUMN, deliberately. Every entry in `DECAY_SKIPS` is a
+    // candidate filter — archived, removed, journal, identity-band,
+    // reinforced-today, at-floor, under-audit, unchanged — and not one of them
+    // is a gate saying no to a row it considered. Decay is arithmetic; there is
+    // nothing here for it to be blocked BY.
   },
   // The three phases whose SUCCESS has always been durable and whose REFUSALS
   // were an in-process ring until 2026-09-20 (E2). Each takes its own slice of
   // the cycle row's per-phase skip map, so a night that examined ten thousand
   // rows and promoted none says which gate held rather than nothing at all.
+  //
+  // **THE PREFIX IS THE PHASE'S REFUSAL NAMESPACE, NOT THE PHASE.** A phase's
+  // `skipped` map mixes two different things: CANDIDATE FILTERS — `journal`,
+  // `archived`, `removed`, `schema`, `self-pair` — which say "this row was not
+  // a candidate at all", and REFUSALS, which say "this row WAS a candidate and
+  // a gate said no". Each of the three mirrors physics' own reason vocabulary
+  // under a namespace of its own for exactly that reason (`promotion:`,
+  // `blocked:`, `left-alone:`), and only that namespace is read here. Reading
+  // the whole map would make prune report `blocked, most often journal ×14`
+  // every week on a store holding fourteen journal chapters and nothing to
+  // prune — a false alarm every single week, which is how a view teaches its
+  // reader to ignore it.
   {
     id: "promotion",
     label: "a memory reinforced over several days is promoted into identity",
     module: "sleep/consolidate.ts",
     evidence: { kind: "event", names: ["band.promoted"] },
-    refusals: { names: ["sleep.cycle"], under: "consolidate/" },
+    refusals: { names: ["sleep.cycle"], under: "consolidate/promotion:" },
   },
   {
     id: "dedup",
     label: "a duplicate is merged into the memory it duplicates",
     module: "sleep/dedup.ts",
     evidence: { kind: "event", names: ["memory.merged"] },
-    refusals: { names: ["sleep.cycle"], under: "dedup/" },
+    refusals: { names: ["sleep.cycle"], under: "dedup/left-alone:" },
   },
   {
     id: "prune",
     label: "a memory that has sat at the floor long enough is let go",
     module: "sleep/prune.ts",
     evidence: { kind: "event", names: ["memory.pruned"] },
-    refusals: { names: ["sleep.cycle"], under: "prune/" },
+    refusals: { names: ["sleep.cycle"], under: "prune/blocked:" },
   },
   {
     id: "revision",
@@ -463,11 +479,12 @@ export const MECHANISMS: readonly Mechanism[] = [
     evidence: { kind: "event", names: ["revision.pressure"] },
   },
   {
-    // NARROWED 2026-09-20 (E2). This used to name all four. The night's three —
-    // promotion, prune, dedup — now carry their refusals on the rows above,
-    // read out of the cycle row's per-phase skip map. Revision is the one left:
-    // its refusals never reach the cycle, because the pressure arm runs in
-    // `schemas/` off a credited challenge and not in a sleep phase.
+    // NARROWED 2026-09-20 (E2). This used to name all four. Promotion, prune
+    // and dedup now carry their refusals on the rows above, read out of the
+    // cycle row's per-phase skip map under each phase's own reason namespace.
+    // Revision is the one left: its refusals never reach the cycle, because the
+    // pressure arm runs in `schemas/` off a credited challenge and not in a
+    // sleep phase at all.
     id: "night-refusals",
     label: "why a belief was NOT revised under a challenge it took",
     module: "schemas/index.ts",
@@ -706,6 +723,18 @@ export interface FiredReport {
    * by label. The one list on this page that says something CHANGED.
    */
   readonly wentQuiet: readonly string[];
+  /**
+   * Mechanisms that fired in the PREVIOUS seven days, not once in this one, and
+   * were REFUSED instead — `wentQuiet`'s sibling, and the more alarming of the
+   * two.
+   *
+   * It exists because `blocked` outranks `quiet` in the state machine, so a
+   * mechanism that fired last week and was turned away every day this week
+   * leaves `wentQuiet` and would have left no list at all. Doctor's Fired line
+   * grades on both, or adding a state that says MORE would have made the
+   * finding read greener.
+   */
+  readonly wentBlocked: readonly string[];
   /** The store's own clock — the number of days it has actually LIVED. */
   readonly livedDay: number;
   /** Calendar days between the oldest row this pass read and today, or null
@@ -811,6 +840,9 @@ export function firedReport(store: Store, today: string, opts: FiredOptions = {}
     livedDay,
     calendarDays,
     young: livedDay < YOUNG_LIVED_DAYS && (calendarDays === null || calendarDays < YOUNG_LIVED_DAYS),
+    wentBlocked: rows
+      .filter((r) => r.state === "blocked" && r.firedInPreviousWindow > 0)
+      .map((r) => `${r.label} (${r.topRefusal ?? "no reason recorded"})`),
     wentQuiet: rows
       .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0)
       // A row whose table keeps only LIVED days was compared on the lived clock,

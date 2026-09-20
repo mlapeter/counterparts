@@ -961,6 +961,46 @@ describe("doctor — the reading", () => {
       expect(f.data["blocked"]).toBe(1);
     });
 
+    test("a mechanism that fired last week and was STOPPED all this week is amber, not green", () => {
+      /**
+       * THE TRAP THE `blocked` STATE SET, AND THE GUARD AGAINST IT.
+       *
+       * `blocked` outranks `quiet` in the state machine — it says more, and it
+       * should. But this finding used to grade on `wentQuiet` alone, so the
+       * worker starting every day last week and being refused every day this
+       * week would have LEFT that list and taken the amber with it. A state
+       * that says more must never make a diagnostic read safer than it did
+       * before that state existed.
+       */
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      livedAWeek(s);
+      // Last week it started; this week it has only ever been refused.
+      s.appendEvent({
+        name: "adapter.spawn.started",
+        day: s.livedDay(),
+        payload: { date: "2026-09-05", count: 3 },
+      });
+      for (const date of ["2026-09-12", "2026-09-13", "2026-09-14"]) {
+        s.appendEvent({
+          name: "adapter.spawn.refused",
+          day: s.livedDay(),
+          payload: { date, reason: "NO_CREDENTIAL", count: 9 },
+        });
+      }
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.severity).toBe("amber");
+      expect(f.detail).toContain("Fired last week and STOPPED this week");
+      expect(f.detail).toContain("NO_CREDENTIAL");
+      expect(f.fix).toContain("counterparts fired");
+      expect(f.data["wentBlocked"]).toContain("NO_CREDENTIAL");
+      // And the roll-call says how many, so the number and the list agree.
+      expect(f.data["blocked"]).toBe(1);
+      expect(f.detail).toContain("stopped by something that said so");
+    });
+
     test("AMBER, by NAME, for a mechanism that fired last week and not once this week", () => {
       mintStore();
       writeConfig();

@@ -1497,6 +1497,12 @@ export function firedLines(report: FiredReport, all = false): string[] {
       "",
     );
   }
+  // The blocked list FIRST: "it was stopped, and here is by what" is the more
+  // actionable of the two, and it is the one that would otherwise be buried
+  // inside a group the reader has to scroll to.
+  if (report.wentBlocked.length > 0) {
+    lines.push(`Fired last week and STOPPED this week: ${report.wentBlocked.join("; ")}`, "");
+  }
   if (report.wentQuiet.length > 0) {
     lines.push(`Fired last week and not once this week: ${report.wentQuiet.join("; ")}`, "");
   }

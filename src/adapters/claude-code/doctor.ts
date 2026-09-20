@@ -1384,6 +1384,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     notRead: report.notRead.join(","),
     truncated: report.truncated,
     wentQuiet: report.wentQuiet.join("; "),
+    wentBlocked: report.wentBlocked.join("; "),
     young: report.young,
     livedDay: report.livedDay,
   };
@@ -1406,7 +1407,12 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
       ),
     ];
   }
-  if (report.wentQuiet.length === 0) {
+  // GRADED ON BOTH LISTS. `blocked` outranks `quiet` in the state machine, so a
+  // mechanism that fired last week and was turned away every day this week
+  // leaves `wentQuiet` — and without `wentBlocked` this finding would have gone
+  // GREEN for it. A state that says MORE must never make a diagnostic read
+  // safer than it did before that state existed.
+  if (report.wentQuiet.length === 0 && report.wentBlocked.length === 0) {
     return [
       finding(
         "fired",
@@ -1418,13 +1424,23 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
       ),
     ];
   }
+  const changed = [
+    report.wentBlocked.length === 0
+      ? ""
+      : `Fired last week and STOPPED this week: ${report.wentBlocked.join("; ")}`,
+    report.wentQuiet.length === 0
+      ? ""
+      : `Fired last week and not once this week: ${report.wentQuiet.join("; ")}`,
+  ].filter((s) => s.length > 0);
   return [
     finding(
       "fired",
       "amber",
       "Fired",
-      `${roll}. Fired last week and not once this week: ${report.wentQuiet.join("; ")}`,
-      `Run: counterparts fired — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
+      `${roll}. ${changed.join(". ")}`,
+      report.wentBlocked.length > 0
+        ? `Run: counterparts fired — ${STATE_MEANING.blocked}, and the reason on the row names what to fix.`
+        : `Run: counterparts fired — ${STATE_MEANING.quiet}, which is a wiring fault more often than a verdict.`,
       data,
     ),
   ];

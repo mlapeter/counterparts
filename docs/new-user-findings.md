@@ -71,6 +71,21 @@ store that neither explains itself nor can be acted on), 10 (README's stale suit
 11 (§3 says unbounded is supported, §7's command refuses), 12 (the hook path looks like a
 clone path), 13 (no uninstall — N1's), 14, 15, 16.
 
+**Two things an adversarial read caught before this merged, worth recording because both
+were the same mistake — a surface that says MORE reading SAFER than it did before:**
+
+- The first draft read the whole of each sleep phase's `skipped` map as refusals. That map
+  mixes candidate FILTERS (`journal`, `archived`, `schema`) with real refusals, so on the
+  owner's own store — fourteen journal chapters, nothing at the floor — prune would have
+  reported `blocked, most often journal ×14` **every single week**, for a phase working
+  perfectly. Each phase namespaces its real refusals (`promotion:`, `blocked:`,
+  `left-alone:`), and only that namespace is read. Decay has no refusal namespace at all
+  and so has no refusal column.
+- `blocked` outranks `quiet` in the state machine, so a mechanism that fired last week and
+  was refused every day this week left `wentQuiet` — and doctor's Fired line, which graded
+  on that list alone, would have gone **green** for it where it was amber before. There is
+  a `wentBlocked` list now and the finding grades on both.
+
 **Three new ones, found while closing these:**
 
 - **A. `counterparts fired` has no `--json`.** It has `--all` now, which is what the day-1

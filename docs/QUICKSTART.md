@@ -557,6 +557,16 @@ kind` and `by band` lines below are over memories and beliefs together, and the
 band is computed from each row's physics today rather than read from the column
 it was born with — which is why it matches the dashboard's.
 
+Under them, two lines of the day's own facts: how many memories were born today,
+what lived day the store is on, when it was last active, when the last boundary
+was, whether a self page has been written, how old the newest snapshot is, and
+which journal mode the database is in. `counterparts doctor` grades all of that;
+this command only counts it.
+
+`--layout` adds a block naming the directories the store keeps and which of them
+a backup carries. It is written for whoever maintains a store rather than for
+whoever owns one, which is why it is behind a flag.
+
 ```
 counterparts-dashboard status --dir "$HOME/.counterparts/store"
 ```
@@ -981,7 +991,11 @@ rather than from a script.
 ## 12. If the terminal says something at session start
 
 Claude Code prints one line of its own when a session starts and Counterparts has
-found something RED:
+found something RED. **On a fresh install there is nothing red, so there is no
+line** — a store that has never had an API key is a supported way to run (§6),
+and as of 2026-09-20 `doctor` grades that amber rather than red. The example
+below is a store that HAD a key and lost it, which is the case the notice was
+built for:
 
 ```
 SessionStart:startup says: counterparts: Credentials — …/credentials.env holds no key:
