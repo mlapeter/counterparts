@@ -207,6 +207,29 @@ count, and "composed at the last boundary" — and three decisions in it are del
   both the reserve and the preface itself, with a test at the widest plausible day, date and
   store size — two numbers would be v1's lane-cap smell, drifting apart in the dark.
 
+**A second splice joined it on 2026-09-20 (E1), at the other end of the bundle.**
+`spliceBeforeSentinel` is `applyPreface`'s mechanism pointed at the foot: it inserts above
+the tail sentinel, re-solves the same fixed point, and returns a bundle that is not a whole
+render untouched, for the same reason. It exists because the per-directory handoff pointer
+is a delivery-time fact for exactly the reason the preface is — one bundle is published per
+store and read by sessions in every directory, so WHICH directory this session opened in
+cannot be known when the body is composed.
+
+Two things about it belong here rather than in `handoff/`:
+
+- **`self/` does not learn what a directory is.** The block arrives composed, from
+  `core/handoff/`, and is joined to the bundle at `core/counterpart.ts#addHandoffPointer`,
+  which is the one place holding the published bundle, the host's ceiling and the scope.
+  This module's half is the splice and nothing else.
+- **The comment at `briefing.ts:768` was true and is now narrower.** It said the preface is
+  "deliberately not per-session… nothing in it varies between two sessions on the same day,
+  so the delivery expectation stays a stable string". The preface still does not vary. The
+  DELIVERED SENTINEL now can, between two sessions of the same day in different
+  directories, because the pointer changes the byte count. That is safe because the
+  expectation is recorded per session (`hooks.ts#noteWakeExpectation` writes `woke.sentinel`,
+  the delivered one, into that session's own registry record), and it is worth saying out
+  loud because the older sentence reads as a promise it was never making.
+
 ## 11. The day-0 wake names the core, because a wake with no name is not a smaller wake
 
 *2026-09-04/05, overnight. The finding: `docs/LAUNCH-STATUS.md`, round 2 — "Day-0 wake is

@@ -82,8 +82,11 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 
 **Inputs** — MCP tool calls:
 `note(text[, salience, relevance, emotional, predictive, kind, title, updates])`,
-`recall(handle | question)`, `status()`, `session_end(session, memories[])` whose entries
-take the same optional dimensions, `chapter(session, text[, title])`; the session's observer
+`recall(handle | question)`, `status()`, `session_end(session, memories[], handoff?)` whose
+entries take the same optional dimensions — `handoff` (2026-09-20, E1) is a FIELD on the
+call and never one of the entries: it is this directory's working context, filed by
+`core/handoff/`, never a memory, and it is written before the `memories` check so a dump
+with a malformed array does not also lose it — `chapter(session, text[, title])`; the session's observer
 role; the launch's session, scope and data dir when the host can supply them.
 **Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
 census (status), an appended chapter with the episode's id and the chapter number the store
