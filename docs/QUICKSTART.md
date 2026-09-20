@@ -634,10 +634,10 @@ That directory name is a 12-hex key derived from the project the note was taken
 in, not the project's path; the command prints your real one.
 
 A note is captured verbatim into the span buffer before it is minted, and until
-2026-09-05 `remove` reached the prose, the database, the links and the cache but
+2026-09-05 `remove` reached the database, the links and the cache but
 not that file — so a removed note's words survived there, and a backup taken
-afterwards copied them. They do not now: the buffer is a chased surface like the
-other six. The line the doomed span rode on is rewritten out of every file that
+afterwards copied them. They do not now: the buffer is a chased surface like
+every other. The line the doomed span rode on is rewritten out of every file that
 held it (the live streams, any claim a worker is mid-arc on, the quarantine), its
 hash is kept in the buffer's own `consumed.jsonl` so nothing re-captures the same
 words, and the id goes dark on the deny-list so nothing can quietly resurrect the
@@ -663,8 +663,8 @@ answering. The memory is gone; the transcript of having said it is not, and
 nothing today will take it. (Filed as `src/core/remember/INTERFACE-GAPS.md` §10.)
 
 **The one chase this command refuses to make on its own.** A memory whose
-provenance recorded no scope — every row imported from a previous generation
-looks like this — can only be found in the buffer by matching its text, and
+provenance recorded no scope — every row the owner's one-off v1 import wrote
+looked like this — can only be found in the buffer by matching its text, and
 matching text with no scope means visiting every project on the machine. So it
 does not. It tells you what it would have matched, by file and count, and stops:
 
@@ -1096,7 +1096,7 @@ rather than from a script.
    it may speak. Do not copy it.
 6. **Removal reaches the span buffer — with two things it names rather than
    takes.** A note is captured verbatim into `spans/<12-hex key>/jots.jsonl`
-   before it is minted. Until 2026-09-05 `remove` chased the prose, the database,
+   before it is minted. Until 2026-09-05 `remove` chased the database,
    the links and the cache and not that file, so a removed note's words survived
    there and a backup taken afterwards copied them. The buffer is chased now
    (§7). **Check it in three lines** — the marker text is only there so `grep`

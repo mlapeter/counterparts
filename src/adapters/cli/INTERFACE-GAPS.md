@@ -343,7 +343,8 @@ sink the plaintext arm writes straight through, with the encrypted arm keeping
 the buffered path because sealing needs the whole thing anyway. **Not built**:
 constitution line 15 says wait for the named problem, and `--markdown` is a
 deliberate owner action nobody runs in a loop.
-`[F8: the store CONTRACT's read seam is where `forEachDoc` would be declared.]`
+Recorded against the store, where it would be declared: `store/CONTRACT.md` §7 question 6
+(that module keeps no `INTERFACE-GAPS.md` of its own, so its open asks live in its §7).
 
 **What is already bounded:** the DATABASE export streams through `VACUUM INTO`
 and holds one file, so the ordinary export is unaffected by any of this.

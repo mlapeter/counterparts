@@ -2295,7 +2295,9 @@ function indexText(doc: ProseDoc): string {
  * ambiguous, what not to tell them.
  *
  * Three cases, and the middle one is the finding this exists for (review A,
- * MAJOR-1). Master's `Store` constructor mkdirs `prose/`, `versions/`, `tmp/`
+ * MAJOR-1). The PRE-FLOOR build's `Store` constructor — the one tagged
+ * `floor/v5-last`, and what a stale worktree or an un-deployed checkout still
+ * runs — mkdirs `prose/`, `versions/`, `tmp/`
  * and mints `operational.sqlite` BEFORE it reaches `assertLayout()`, so **one**
  * old-build SessionStart hook on a v6 store leaves every marker behind. That is
  * the rollback the cut-over plan actually calls for, and after it the new build

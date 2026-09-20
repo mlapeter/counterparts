@@ -852,7 +852,7 @@ describe("the stand-down vocabulary", () => {
       sessionId: "s1",
       at: "2026-09-18T00:00:00.000Z",
       event: "session-start",
-      code: "PROSE_FILE_MISSING",
+      code: "MEMORY_BODY_MISSING",
       told: true,
       transient: { count: 0, at: "", told: false, escalated: false },
     };

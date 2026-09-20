@@ -4,26 +4,27 @@
 defaults (constitution line 13): every one of these is revisable, and the ones
 carrying a measurement debt say so.*
 
-## 1. One prose family, three roles
+## 1. One id family, three roles
 
 The contract describes an entity schema as *sectioned prose* — core, current
 state, beliefs, protected, lineage. This build stores the sections as
-**separate rows in the `schema` prose family**, discriminated by
+**separate rows in the `sch_` family**, discriminated by
 `meta.role: "entity" | "belief" | "current-state"`, rather than as sections
 inside one document.
 
 Reason: physics operates on rows. A belief needs its own strength, its own
 pressure field, its own supersede chain and its own decay — §5.6's pressure
 accumulator is a *field on the target row*, and there is no target row if the
-belief is a paragraph inside its entity's markdown. The sectioned-prose *view*
+belief is a paragraph inside its entity's body. The sectioned-prose *view*
 is reconstructible (`slices()`, `beliefs()`, `currentState()`); the reverse is
 not. It also means `no silent destruction` and archive-on-overwrite apply to a
 belief for free, because they already apply to every row.
 
 Cost, recorded: an entity's own document is no longer the whole schema. An
 owner reading one entity row sees the stub and its names, not the beliefs.
-*[F8: rewrite] Written on the file floor, where that row was
-`prose/schema/sch_*.md`; since schema v6 it is a row, and the point stands.*
+*(Written on the file floor, where that document was `prose/schema/sch_*.md` and
+the cost was a file that did not say everything; since the floor — schema v6,
+2026-09-20 — it is a row, and the cost is the same one.)*
 The dashboard's schema view has to join. If that trade turns out wrong, the fix
 is a render pass, not a storage change.
 

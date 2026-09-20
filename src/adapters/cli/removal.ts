@@ -30,11 +30,17 @@
  *      (§16 G12).
  *   5. **Chase**, then `chased`, then `complete`. Whatever could not be chased
  *      is REPORTED, never silently dropped (§16 G15: no silent partial success).
- *      Box 1 (the prose file and every archived version file) is chased here;
- *      box 2 (the row, its edges, its prospective windows, the gate rows that
- *      name it, and every content pointer it had) by `chaseRemoved` on the
- *      store's owner-op seam, which appends the `chased` stage inside its own
- *      transaction; box 3 by a rebuild that skips and logs the denied id.
+ *      The raw-capture buffer under `spans/` is chased here, because it is
+ *      `remember/`'s state machine and not this module's to unlink; box 2 (the
+ *      row, its BODY and every archived version's body, its edges, its
+ *      prospective windows, the gate rows that name it, and every content
+ *      pointer it had) by `chaseRemoved` on the store's owner-op seam, which
+ *      appends the `chased` stage inside its own transaction; box 3 by a
+ *      rebuild that skips and logs the denied id. *(Until the floor — schema
+ *      v6, 2026-09-20 — there was a box 1 to chase here as well: the memory's
+ *      prose file and every archived version file. The words are columns now,
+ *      so they go with the row, in one transaction; see `reclaim` below for
+ *      what that costs.)*
  *
  * The record carries no body and no content hash (§16 G9, scar §2.20): a hash of
  * low-entropy content is brute-forceable, which would make the record of a
@@ -883,9 +889,9 @@ export function ownerRemoval(
   const leftAlone: string[] = [...plan.leftAlone];
 
   // 5. CHASE. THE SPAN BUFFER FIRST, because it is the only surface whose key
-  //    the later steps destroy: `chaseRemoved` blanks the row's `origin_ref`
-  //    pointers' usefulness and the prose file carries the hash. Strike while
-  //    the addressing still exists.
+  //    the later steps destroy: `chaseRemoved` blanks the row — its
+  //    `origin_ref`, its body and its `content_hash` — and those are what
+  //    address a span. Strike while the addressing still exists.
   //
   //    It is `remember/`'s own seam, not an `rmSync` from here: `spans/` is that
   //    module's state machine, and a claim renaming the buffer aside underneath

@@ -15,9 +15,9 @@
  *      one archived-read per archived schema row per session and invert what the
  *      event means. An index build is a look at the address.
  *   2. **No deny-list refusal — the dangerous half, and the reason for this
- *      file.** A `dark`-stage removal marks the id and leaves the row and the
- *      file until the chase, so a refusal here is the next session failing to
- *      start rather than one memory hidden. The refusal belongs where the OWNER
+ *      file.** A `dark`-stage removal marks the id and leaves the row, its body
+ *      included, until the chase, so a refusal here is the next session failing
+ *      to start rather than one memory hidden. The refusal belongs where the OWNER
  *      is answered: `Store.read`, `resolve`, `readVersion` and the render seams.
  *
  * It lives here rather than on `Store` for the reason `chaseRemoved` does

@@ -519,9 +519,12 @@ content-by-reference; ids in state, text at render).
    hard precondition, and migrated rows must be origin-marked so paired ratings
    compare only same-window mints. Empty is cleaner but measures an amnesiac cutover
    nobody plans to perform. **RULED 2026-09-03 (owner): migrated.** Precondition 6 is
-   therefore hard; the confidentiality mapping and the import-path secrets gate exist
-   with named tests (`test/migrate.test.ts` G1, G2), and what remains is the real
-   `--apply` into a fresh v2 data dir with the source-manifest proof.
+   therefore hard; the confidentiality mapping and the import-path secrets gate existed
+   with named tests (`test/migrate.test.ts` G1, G2), and what remained was the real
+   `--apply` into a fresh v2 data dir with the source-manifest proof. *(That `--apply`
+   ran on 2026-09-03 and the tool was deleted in F8, 2026-09-20 — there is no migration
+   any more, and the run's migrated store is the one it has. The tool's code and tests
+   are in git history at the tag `floor/v5-last`.)*
 3. **At PROMOTE, is the parallel store THE production store?** PROPOSED: yes —
    anything else discards the verified weeks and performs a second, unverified
    migration. **RULED 2026-09-03 (owner): yes.**

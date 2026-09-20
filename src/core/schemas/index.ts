@@ -1124,8 +1124,8 @@ export class Schemas {
    * `Counterpart.open`, and the hook catches that and exits 0, which is a
    * session with no wake, no recall and no capture and one line on stderr.
    * Free to check: the row is already in hand. **Dark:** marked but not yet
-   * chased, so the row and the file are both still there and only the deny-list
-   * knows. `denied` is passed in where the caller has a whole WALK to do, so a
+   * chased, so the row and its words are both still there and only the
+   * deny-list knows. `denied` is passed in where the caller has a whole WALK to do, so a
    * walk costs one query and not one per row.
    *
    * `load` does not use this — it counts its two skips apart, which this cannot
@@ -1189,13 +1189,15 @@ export class Schemas {
     // `MEMORY_BODY_MISSING` that used to come out of `Counterpart.open`. Free
     // to see; the row is in hand.
     if (rowTombstoned(row)) return undefined;
-    // Dark: marked, not yet chased — row and file both still there, and only
+    // Dark: marked, not yet chased — the row and its words are both still
+    // there, and only
     // the deny-list knows. `physicsOf` asks it (`requireRow` → `refuseIfDenied`)
     // and this call has to happen anyway, so the gate costs nothing; what
     // changed on 2026-09-18 is that it is a STATEMENT, above the read, instead
     // of a field evaluated after `statement` in the literal below. That ordering
     // was luck: reordering two lines lost the gate, and the removed text was
-    // read off disk into memory before the throw discarded it. An in-process
+    // read into memory before the throw discarded it — off disk then, off the
+    // `body` column since the floor, and loaded either way. An in-process
     // `Schemas` can be older than a removal the owner has since run, which is
     // why the question is asked here and not trusted from `load`.
     let salience;
