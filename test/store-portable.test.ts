@@ -34,6 +34,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -50,6 +51,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import {
   DATABASE_FILE,
   DATA_DIR_ENV,
+  describePreRowsRefusal,
   SCHEMA_VERSION,
   Store,
   isDatabaseSidecar,
@@ -313,9 +315,11 @@ describe("a store written before the floor is refused by name, and never touched
       detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
     }
     expect(code).toBe("STORE_PRE_ROWS");
-    // It names what it found, what this build writes, and which build still
-    // reads the store — a refusal that ends in something to do.
-    expect(detail["found"]).toBe("operational.sqlite");
+    // It names EVERY marker it found — the 16,000 files under `prose/` are the
+    // part the owner would want named, and the first draft mentioned only the
+    // database (A-NIT-1) — plus what this build writes and which build still
+    // reads the store, so the refusal ends in something to do.
+    expect(detail["found"]).toBe("operational.sqlite, prose, versions");
     expect(detail["expected"]).toBe(SCHEMA_VERSION);
     expect(detail["readableBy"]).toBe("floor/v5-last");
 
@@ -427,6 +431,190 @@ describe("a store written before the floor is refused by name, and never touched
     expect(printed).not.toContain("counterparts init");
     expect(fingerprint(source)).toEqual(before);
     expect(readdirSync(source).sort()).toEqual(["operational.sqlite", "prose", "versions"]);
+  });
+
+  test("A-MAJOR-1: an old build touching a v6 store is a lockout — the remedy names the way out", () => {
+    // THE ROLLBACK THE CUT-OVER PLAN CALLS FOR. Master's `Store` constructor
+    // mkdirs `prose/`, `versions/`, `tmp/` and mints `operational.sqlite`
+    // BEFORE it reaches `assertLayout()`, so ONE old-build SessionStart hook on
+    // a v6 store leaves every marker behind — and from then on THIS build
+    // refuses its own store, telling the owner it is readable by the build that
+    // just stood down on the same directory. Both builds dead, no instructions.
+    //
+    // Simulated exactly (an old build is not importable here): the empty
+    // directories and the empty database it leaves, beside an intact v6 store.
+    const { id } = seed(source);
+    mkdirSync(join(source, "prose"), { recursive: true });
+    mkdirSync(join(source, "versions"), { recursive: true });
+    mkdirSync(join(source, "tmp"), { recursive: true });
+    writeFileSync(join(source, "operational.sqlite"), "", "utf8");
+    const before = fingerprint(source);
+
+    let detail: Record<string, unknown> = {};
+    let code = "NO_THROW";
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+      detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
+    }
+    expect(code).toBe("STORE_PRE_ROWS");
+    // It says THIS build's store is here and intact, names what to remove, and
+    // does NOT send him at `floor/v5-last`, which is the build that just failed.
+    expect(detail["alsoFound"]).toBe(DATABASE_FILE);
+    expect(detail["readableBy"]).toBeUndefined();
+    const remedy = String(detail["remedy"]);
+    expect(remedy).toContain("is THIS build's store and it is intact");
+    expect(remedy).toContain("all of them empty");
+    expect(remedy).toContain("opens again with every memory in it");
+    // Every marker is named, not just the first (A-NIT-1).
+    expect(String(detail["found"])).toContain("operational.sqlite");
+    expect(String(detail["found"])).toContain("prose");
+    expect(String(detail["found"])).toContain("versions");
+    expect(fingerprint(source)).toEqual(before);
+
+    // AND THE REMEDY WORKS. Follow it and the store comes back with every row.
+    for (const name of ["operational.sqlite", "prose", "versions", "tmp"]) {
+      rmSync(join(source, name), { recursive: true, force: true });
+    }
+    const back = store(source);
+    expect(back.read(id).doc.body).toBe(BODY);
+    expect(back.readVersion(id, 1).title).toBe("Portable");
+  });
+
+  test("A-MAJOR-1: beside a REAL pre-rows store the remedy never says delete", () => {
+    // The same two names, the opposite instruction. A v5 store somebody has
+    // hand-copied a `counterparts.sqlite` into is holding every memory he has
+    // under `prose/`, and "remove those four" would destroy them. The
+    // discrimination is `prose/` being EMPTY or not, asked by LISTING — never
+    // by opening the old database, which on a post-F1 store could checkpoint
+    // its `-wal` away.
+    buildV5Store(source);
+    writeFileSync(paths.operational(source), "a v6 database somebody copied in", "utf8");
+    const before = fingerprint(source);
+
+    let detail: Record<string, unknown> = {};
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
+    }
+    const remedy = String(detail["remedy"]);
+    expect(detail["alsoFound"]).toBe(DATABASE_FILE);
+    expect(remedy).toContain("WITH FILES IN IT");
+    expect(remedy).toContain("DELETE NEITHER");
+    // The words that would have been a catastrophe here.
+    expect(remedy).not.toContain("Remove");
+    expect(remedy).not.toContain("remove");
+    expect(fingerprint(source)).toEqual(before);
+  });
+
+  test("A-MAJOR-2: a v5 database wearing the v6 NAME is refused, never stamped v6", () => {
+    // The filename door is the FIRST lock and this is the second. `mv
+    // operational.sqlite counterparts.sqlite` is the first thing a person
+    // tries; with `prose/` and `versions/` moved aside too, the constructor
+    // sees nothing to refuse. Past it, the old code ran the DDL (which leaves
+    // a v5 `memories` alone), then STAMPED the file v6 — after which this build
+    // reads no body and the old build refuses it `SCHEMA_AHEAD` for ever.
+    buildV5Store(source);
+    rmSync(join(source, "prose"), { recursive: true, force: true });
+    rmSync(join(source, "versions"), { recursive: true, force: true });
+    renameSync(join(source, "operational.sqlite"), paths.operational(source));
+    const before = fingerprint(source);
+
+    let code = "NO_THROW";
+    let detail: Record<string, unknown> = {};
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+      detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
+    }
+    expect(code).toBe("STORE_PRE_ROWS");
+    expect(detail["reason"]).toBe("no-body-column");
+    expect(detail["found"]).toBe("5");
+    expect(detail["readableBy"]).toBe("floor/v5-last");
+
+    // THE STAMP DID NOT MOVE, which is the whole finding: a v5 stamp on a v5
+    // shape, and no `versions` table created underneath it either.
+    const db = new Database(paths.operational(source), { readonly: true });
+    expect(
+      (db.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value,
+    ).toBe("5");
+    const columns = (db.prepare("PRAGMA table_info(memories)").all() as { name: string }[]).map((c) => c.name);
+    expect(columns).toContain("prose_path");
+    expect(columns).not.toContain("body");
+    db.close();
+    // The file itself is untouched apart from the sidecars an open leaves —
+    // this lock fires with the database already open, unlike the first.
+    expect(before["operational.sqlite"]).toBeUndefined();
+  });
+
+  test("A-MAJOR-2: a v6-SHAPED database whose stamp was lowered by hand still migrates forward", () => {
+    // The reason the lock is keyed on the SHAPE and not on the version. A bare
+    // `found < SCHEMA_VERSION` would refuse this, and three tests in
+    // `store.test.ts` say it must not: the words are all there, the columns are
+    // all there, only the stamp moved.
+    const { id } = seed(source);
+    const db = new Database(paths.operational(source));
+    db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '3')");
+    db.close();
+    const migrated = store(source);
+    expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    expect(migrated.read(id).doc.body).toBe(BODY);
+  });
+
+  test("A-MINOR-4: a directory holding only the old SIDECARS is pre-rows too", () => {
+    // `PRE_ROWS_MARKERS` matched exact names while `LAYOUT` prefix-matches its
+    // own sidecars, so a pre-rows directory whose main database was moved by
+    // hand was not seen as pre-rows: the constructor mkdir'd `cache/`,
+    // `openOperational` minted `counterparts.sqlite`, and only THEN did
+    // `assertLayout` refuse — on the wrong evidence, and after the one write
+    // that landed in a pre-rows directory ahead of the refusal.
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "operational.sqlite-wal"), "frames nobody checkpointed", "utf8");
+    writeFileSync(join(source, "operational.sqlite-shm"), "shared index", "utf8");
+    const before = fingerprint(source);
+
+    let code = "NO_THROW";
+    let detail: Record<string, unknown> = {};
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+      detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
+    }
+    expect(code).toBe("STORE_PRE_ROWS");
+    expect(String(detail["found"])).toContain("operational.sqlite-wal");
+    // NOTHING MINTED — not `counterparts.sqlite`, not `cache/`.
+    expect(fingerprint(source)).toEqual(before);
+    expect(readdirSync(source).sort()).toEqual(["operational.sqlite-shm", "operational.sqlite-wal"]);
+    // A pre-F1 store's rollback journal counts the same way.
+    rmSync(join(source, "operational.sqlite-shm"));
+    rmSync(join(source, "operational.sqlite-wal"));
+    writeFileSync(join(source, "operational.sqlite-journal"), "mid-transaction", "utf8");
+    expect(() => Store.open({ dir: source })).toThrow(/STORE_PRE_ROWS/);
+  });
+
+  test("A-MINOR-3: every refusal has one sentence a person can act on", () => {
+    buildV5Store(source);
+    let refusal: unknown;
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      refusal = err;
+    }
+    const said = describePreRowsRefusal(refusal, "Name a store with --dir.") ?? "";
+    // What this directory is, that nothing was touched, which build opens it,
+    // and what to do — the four things the bare code and JSON blob did not say.
+    expect(said).toContain("written before this build's floor");
+    expect(said).toContain("NOTHING WAS TOUCHED");
+    expect(said).toContain("floor/v5-last");
+    expect(said).toContain("git checkout floor/v5-last");
+    expect(said).toContain("Name a store with --dir.");
+    // And it is null for anything else, so a caller falls through to its usual
+    // rendering rather than mislabelling an unrelated failure.
+    expect(describePreRowsRefusal(new Error("something else"), "x")).toBeNull();
   });
 
   test("`storeExists` says YES to a pre-rows store, so every console door reaches the named refusal", () => {

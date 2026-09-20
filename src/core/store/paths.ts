@@ -4,6 +4,7 @@
  * `dataDir()` reads the environment AT CALL TIME (never at module load) so a test
  * can redirect it per test — the hermetic-test rule in CLAUDE.md depends on this.
  */
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, relative, isAbsolute } from "node:path";
 import { StoreError, isStoreError } from "./errors.js";
@@ -351,3 +352,107 @@ export const paths = {
  * top of them would bury the one copy of those words.
  */
 export const PRE_ROWS_MARKERS: readonly string[] = ["operational.sqlite", "prose", "versions"];
+
+/** The tag whose build still opens a pre-rows store. A git ref, so every
+ *  sentence that carries it says what to do with it. */
+export const PRE_ROWS_READABLE_BY = "floor/v5-last";
+
+/**
+ * EVERY pre-rows name present in `dir`, sidecars included — not just the first.
+ *
+ * Two reasons it is a sweep rather than a `.find`. A refusal that says
+ * `found: "operational.sqlite"` and never mentions the 16,000 files under
+ * `prose/` has named the least interesting half (review A, NIT-1). And a
+ * directory whose main database was moved by hand, leaving only
+ * `operational.sqlite-wal` / `-shm`, was not seen as pre-rows at all: the
+ * constructor mkdir'd `cache/`, `openOperational` minted `counterparts.sqlite`,
+ * and only then did `assertLayout` refuse — on the wrong evidence, after the
+ * one write that landed in a pre-rows directory ahead of the refusal (A,
+ * MINOR-4).
+ *
+ * The exact `existsSync` pass stays exactly as it was, because it is what
+ * catches `Prose/` and `OPERATIONAL.SQLITE` on a case-insensitive filesystem
+ * (measured); the sidecar sweep is added BESIDE it. A stale
+ * `operational.sqlite-journal` from a pre-F1 store is caught too.
+ *
+ * Reads names only. Nothing is opened.
+ */
+export function preRowsMarkersIn(dir: string): string[] {
+  const found = PRE_ROWS_MARKERS.filter((name) => existsSync(join(dir, name)));
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return found;
+  }
+  for (const entry of entries) {
+    const lower = entry.toLowerCase();
+    if (!PRE_ROWS_MARKERS.some((m) => lower.startsWith(`${m}-`))) continue;
+    if (!found.includes(entry)) found.push(entry);
+  }
+  return found;
+}
+
+/**
+ * Are the pre-rows directories EMPTY — i.e. did an old build just mkdir them,
+ * or is this a store with words in it?
+ *
+ * This is the question that decides whether a remedy may say "delete these".
+ * Master's `Store` constructor mkdirs `prose/`, `versions/` and `tmp/` before
+ * it reaches `assertLayout()`, so ONE old-build hook on a v6 store leaves all
+ * three behind EMPTY — and from then on this build refuses its own store (A,
+ * MAJOR-1). Removing them is exactly right there, and a catastrophe beside a
+ * real v5 store somebody has hand-copied a `counterparts.sqlite` into.
+ *
+ * **It answers by LISTING, never by opening.** Reviewer A's measurement — that
+ * nothing here opens the old database — is the promise this whole door rests
+ * on, and a row count would break it: on a post-F1 store most of the owner's
+ * recent words are in the `-wal`, and an open-and-close can checkpoint it away.
+ * An empty `prose/` is a sufficient answer and costs no handle.
+ */
+export function preRowsLeftoversAreEmpty(dir: string): boolean {
+  const holdsAFile = (at: string): boolean => {
+    let names: string[];
+    try {
+      names = readdirSync(at);
+    } catch {
+      return false;
+    }
+    for (const name of names) {
+      const full = join(at, name);
+      try {
+        if (statSync(full).isDirectory() ? holdsAFile(full) : true) return true;
+      } catch {
+        /* vanished underneath the walk; it is not a file we can see */
+      }
+    }
+    return false;
+  };
+  return !["prose", "versions"].some((d) => holdsAFile(join(dir, d)));
+}
+
+/**
+ * The pre-rows refusal as ONE SENTENCE a person can act on, for any surface
+ * that has a reader — the console, the hook, doctor, the dashboard.
+ *
+ * It exists for the same reason `describeGuardRefusal` does, and it is the same
+ * shape: `remedy` is the surface's OWN way of naming a store. Before it, every
+ * console door printed the bare code and a JSON blob, and the one instruction
+ * the owner was given — "Run: counterparts doctor" — printed the same blob
+ * (A, MINOR-3). Null for any other error, so a caller falls through.
+ */
+export function describePreRowsRefusal(err: unknown, remedy: string): string | null {
+  if (!isStoreError(err, "STORE_PRE_ROWS")) return null;
+  const detail = err.detail;
+  const dir = typeof detail["dir"] === "string" ? detail["dir"] : String(detail["path"] ?? "");
+  const found = String(detail["found"] ?? "");
+  const own = typeof detail["remedy"] === "string" ? detail["remedy"] : null;
+  return (
+    `refused: ${dir} was written before this build's floor — it keeps its memories in files ` +
+    `(${found}), and this build keeps them in the database. NOTHING WAS TOUCHED. ` +
+    (own ??
+      `The build that reads it is tagged ${PRE_ROWS_READABLE_BY}: check it out ` +
+      `(git checkout ${PRE_ROWS_READABLE_BY}) to open this store, or name a store this build wrote.`) +
+    ` ${remedy}`
+  );
+}

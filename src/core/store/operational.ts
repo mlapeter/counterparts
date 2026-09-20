@@ -12,6 +12,7 @@ import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
 import { openDb } from "./db.js";
 import { StoreError } from "./errors.js";
+import { PRE_ROWS_READABLE_BY } from "./paths.js";
 import type { ProseType } from "./prose.js";
 
 /**
@@ -402,6 +403,22 @@ export interface OpenOperationalOptions {
   readonly retentionDays?: number;
 }
 
+/**
+ * Does `memories` carry the column that holds a memory's words?
+ *
+ * The one question that tells a pre-rows database from a v6 one, whatever its
+ * stamp says. A `PRAGMA` on an open handle; no rows read, nothing written.
+ * A file with no `memories` table at all (a fresh one) answers false, which is
+ * why the caller asks it only about a database that already has a version.
+ */
+function hasBodyColumn(db: Db): boolean {
+  try {
+    return db.all<{ name: string }>("PRAGMA table_info(memories)").some((c) => c.name === "body");
+  } catch {
+    return false;
+  }
+}
+
 /** The schema version recorded in the file, or null if there is not one yet. */
 function readSchemaVersion(db: Db): string | null {
   try {
@@ -441,6 +458,41 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
       path,
       expected: SCHEMA_VERSION,
       found: found ?? "none",
+    });
+  }
+  // ── THE SECOND LOCK, and it is a real one ──────────────────────────────────
+  //
+  // The filename door in `Store`'s constructor is the FIRST lock, and it is the
+  // only one that ever fires on a store that still has its directory. This one
+  // catches the store that walked past it: a v5 database wearing the v6 NAME.
+  // `mv operational.sqlite counterparts.sqlite` is the first thing a person
+  // tries, and with `prose/` and `versions/` moved aside too the constructor
+  // sees nothing to refuse.
+  //
+  // Past here the old code did what it does for anything below SCHEMA_VERSION:
+  // ran the DDL (`CREATE TABLE IF NOT EXISTS`, so the v5 `memories` table keeps
+  // its shape and gains NO `body` column), ran `ensureAddedColumns` (a no-op,
+  // the list is empty) — and then STAMPED the file v6. After that this build
+  // reads no body and the old build refuses it `SCHEMA_AHEAD` for ever;
+  // recovering it means hand-editing `meta` with sqlite3. Reviewer A measured
+  // exactly that (`adversarial-review-f5a`, MAJOR-2), and it is the one outcome
+  // this whole phase exists to prevent.
+  //
+  // **Keyed on the SHAPE, not on the version.** A bare `found < SCHEMA_VERSION`
+  // would be wrong: a genuinely v6-shaped database whose stamp was lowered by
+  // hand must still migrate forward, and three tests say so. What distinguishes
+  // a pre-rows database is that `memories` has no `body` column — ask that.
+  //
+  // The WAL argument that put the FIRST lock on filenames does not apply here:
+  // this build opened the file itself several statements ago.
+  if (found !== null && Number.parseInt(found, 10) < SCHEMA_VERSION && !hasBodyColumn(db)) {
+    db.close();
+    throw new StoreError("STORE_PRE_ROWS", {
+      path,
+      found,
+      expected: SCHEMA_VERSION,
+      reason: "no-body-column",
+      readableBy: PRE_ROWS_READABLE_BY,
     });
   }
   db.transaction(() => {

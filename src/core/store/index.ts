@@ -66,12 +66,15 @@ import type {
 } from "./operational.js";
 import { grantOwnerOps } from "./owner-op-seam.js";
 import {
+  DATABASE_FILE,
   LAYOUT,
-  PRE_ROWS_MARKERS,
+  PRE_ROWS_READABLE_BY,
   assertLayoutClassified,
   assertSafeDataDir,
   dataDir,
   paths,
+  preRowsLeftoversAreEmpty,
+  preRowsMarkersIn,
 } from "./paths.js";
 import { ID_PREFIX, assertIdWellFormed, hashText, parseMeta, serializeMeta } from "./prose.js";
 import type { ProseDoc, ProseType } from "./prose.js";
@@ -584,17 +587,22 @@ export class Store {
     // refusal that names the layout instead of the floor is the wrong sentence
     // for somebody looking at three weeks of memory.
     //
-    // It reads FILENAMES, never the old database (`PRE_ROWS_MARKERS`): since F1
+    // It reads FILENAMES, never the old database (`preRowsMarkersIn`): since F1
     // the live store is in WAL, so an open-and-close to read its schema version
     // could checkpoint and remove its `-wal` — moving the bytes of the store
-    // this exists to leave alone.
-    const preRows = PRE_ROWS_MARKERS.find((name) => existsSync(join(this.dir, name)));
-    if (preRows !== undefined) {
+    // this exists to leave alone. `openOperational` carries the SECOND lock,
+    // for a v5 database wearing the v6 name, where the file is already open and
+    // that argument no longer applies.
+    const preRows = preRowsMarkersIn(this.dir);
+    if (preRows.length > 0) {
       throw new StoreError("STORE_PRE_ROWS", {
         dir: this.dir,
-        found: preRows,
+        // ALL of them, not the first: a refusal that named only
+        // `operational.sqlite` never mentioned the 16,000 files under `prose/`,
+        // which is the part the owner would want named.
+        found: preRows.join(", "),
         expected: SCHEMA_VERSION,
-        readableBy: "floor/v5-last",
+        ...preRowsRemedy(this.dir, preRows),
       });
     }
 
@@ -2228,6 +2236,53 @@ function indexText(doc: ProseDoc): string {
   return indexTextOf(doc.title, doc.body);
 }
 
+/**
+ * What to TELL somebody whose directory holds pre-rows names — and, when it is
+ * ambiguous, what not to tell them.
+ *
+ * Three cases, and the middle one is the finding this exists for (review A,
+ * MAJOR-1). Master's `Store` constructor mkdirs `prose/`, `versions/`, `tmp/`
+ * and mints `operational.sqlite` BEFORE it reaches `assertLayout()`, so **one**
+ * old-build SessionStart hook on a v6 store leaves every marker behind. That is
+ * the rollback the cut-over plan actually calls for, and after it the new build
+ * refuses its own store for ever while telling the owner it is "readable by
+ * floor/v5-last" — the build that just stood down on the same directory. Both
+ * builds dead, and nothing saying which four names to remove.
+ *
+ * **The discrimination is by LISTING, never by opening** — see
+ * `preRowsLeftoversAreEmpty`. An old build's leftovers are EMPTY `prose/` and
+ * `versions/`; a real v5 store's are not, and a directory that has both names
+ * because somebody hand-copied a `counterparts.sqlite` into a v5 store is
+ * holding every memory he has under `prose/`. "Remove those four" is the right
+ * instruction for the first and a catastrophe for the second, so the sentence
+ * asks before it says it. **Nothing here deletes anything**; the owner does.
+ */
+function preRowsRemedy(
+  dir: string,
+  found: readonly string[],
+): { readableBy: string } | { alsoFound: string; remedy: string } {
+  if (!existsSync(paths.operational(dir))) return { readableBy: PRE_ROWS_READABLE_BY };
+  const leftovers = found.filter((n) => n !== DATABASE_FILE).join(", ");
+  if (preRowsLeftoversAreEmpty(dir)) {
+    return {
+      alsoFound: DATABASE_FILE,
+      remedy:
+        `${DATABASE_FILE} is THIS build's store and it is intact — an older build was pointed at it ` +
+        `and left ${leftovers} behind, all of them empty, which is why this refuses. ` +
+        `Check that prose/ and versions/ really are empty, remove ${leftovers} and tmp/, and this ` +
+        `store opens again with every memory in it. Do not point the older build at this directory ` +
+        `again: restore the parked pre-rows store instead.`,
+    };
+  }
+  return {
+    alsoFound: DATABASE_FILE,
+    remedy:
+      `this directory holds TWO stores' names — a pre-rows store (${leftovers}, WITH FILES IN IT) ` +
+      `and a ${DATABASE_FILE}. DELETE NEITHER. Move one of them out into a directory of its own and ` +
+      `point at the one you mean; the pre-rows half is read by the build tagged ${PRE_ROWS_READABLE_BY}.`,
+  };
+}
+
 export function newId(type: ProseType): string {
   return `${ID_PREFIX[type]}_${randomBytes(6).toString("hex")}`;
 }
@@ -2267,6 +2322,5 @@ export function today(): string {
  * instead, which says what happened and which build still reads it.
  */
 export function storeExists(dir: string = dataDir()): boolean {
-  if (existsSync(paths.operational(dir))) return true;
-  return PRE_ROWS_MARKERS.some((name) => existsSync(join(dir, name)));
+  return existsSync(paths.operational(dir)) || preRowsMarkersIn(dir).length > 0;
 }
