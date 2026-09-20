@@ -58,7 +58,14 @@ import {
   writeScopes,
 } from "../scopes.js";
 import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
-import { SESSION_TTL_MS, canonicalScope, isLive, readSession, sameScope } from "../sessions.js";
+import {
+  PAGE_WRITER_ENV,
+  SESSION_TTL_MS,
+  canonicalScope,
+  isLive,
+  readSession,
+  sameScope,
+} from "../sessions.js";
 import {
   JOURNAL_GLOSS,
   RECALL_BODY_CHARS,
@@ -117,6 +124,14 @@ export interface McpServerOptions {
   scope?: string;
   /** Is this the owner's own session? Withholding is the safe direction. */
   owner?: boolean;
+  /**
+   * This process's environment, injected. Read for exactly one thing today —
+   * `COUNTERPARTS_PAGE_WRITER`, the date a windowless nightly writer is writing
+   * about (`claude-code/page-writer.ts`) — and injected rather than reached for
+   * so a test can prove that path without exporting anything into the suite's
+   * own environment.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
   /**
    * The embedder, for ONE purpose: embedding a deliberate question in line.
    *
@@ -276,6 +291,7 @@ export class McpServer {
   private readonly sessionTtlMs: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
   private readonly nowFn: () => number;
+  private readonly env: Readonly<Record<string, string | undefined>>;
   private readonly ring: McpEvent[] = [];
   private initialized = false;
   /** The lazy bind's result: null until a claim is corroborated, then frozen. */
@@ -300,6 +316,7 @@ export class McpServer {
     this.embedder = this.observer ? null : opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.nowFn = opts.now ?? ((): number => Date.now());
+    this.env = opts.env ?? process.env;
     // LAST in the constructor — `emit` needs `nowFn`. A scope nobody chose is
     // the bug this run measured, so which default won is on the record from the
     // first event rather than inferable only from the memories it stamped.
@@ -1161,7 +1178,8 @@ export class McpServer {
       reason: written.reason,
       bytes: written.bytes,
       version: written.version,
-      writerFor,
+      writerFor: writerFor?.about ?? null,
+      writerMode: writerFor?.mode ?? null,
     });
     // THE NIGHT'S OWN ROW, closed here because this is where the answer arrives.
     // Both arms are recorded: a refused revision is the writer having run and
@@ -1171,8 +1189,8 @@ export class McpServer {
     if (writerFor !== null) {
       try {
         this.counterpart.recordPageWriterRun({
-          about: writerFor,
-          mode: "session",
+          about: writerFor.about,
+          mode: writerFor.mode,
           outcome: written.written ? "revised" : "refused",
           detail: written.written ? "" : written.reason,
           bytesAfter: written.written ? written.bytes : 0,
@@ -1287,16 +1305,33 @@ export class McpServer {
    * ordinary session again. Null on every other path, including an unbound
    * server, which is the direction that never over-claims.
    */
-  private pageWriterMark(): string | null {
-    const id = this.session;
-    if (id === null) return null;
+  private pageWriterMark(): { about: string; mode: "session" | "host" } | null {
     try {
-      const about = readSession(this.registryDir, id)?.pageWriterFor;
-      if (about === undefined || about.length === 0) return null;
-      return this.counterpart.pageWriterClaimOpen(about) ? about : null;
+      const claim = this.pageWriterClaim();
+      if (claim === null) return null;
+      return this.counterpart.pageWriterClaimOpen(claim.about) ? claim : null;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The two channels the mark can arrive by, and neither is the tool call.
+   *
+   * The ENVIRONMENT is host mode's: the launcher pins the date onto the
+   * windowless child (`claude-code/page-writer.ts`), whose session id the host
+   * mints after the launcher is gone, so there is no registry record to mark.
+   * The REGISTRY is session mode's, written by the SessionStart hook at the
+   * moment it hands the ask over. Both are checked against the night's claim by
+   * the caller, so a value left lying in a shell reaches nothing.
+   */
+  private pageWriterClaim(): { about: string; mode: "session" | "host" } | null {
+    const pinned = (this.env[PAGE_WRITER_ENV] ?? "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(pinned)) return { about: pinned, mode: "host" };
+    const id = this.session;
+    if (id === null) return null;
+    const about = readSession(this.registryDir, id)?.pageWriterFor;
+    return about === undefined || about.length === 0 ? null : { about, mode: "session" };
   }
 
   private requireBoundSession(claimed: unknown, tool: ToolName): ToolResult | null {

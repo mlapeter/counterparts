@@ -654,6 +654,11 @@ export class ClaudeCodeAdapter {
   ): string {
     try {
       const mode = pageWriterMode(this.config);
+      // SESSION MODE ONLY. In `host` mode the night is run by a windowless
+      // child the worker starts — and that child's own SessionStart hook runs
+      // this same code, so without this line the writer would be asked to
+      // write inside the session that was started to do the writing.
+      if (mode !== "session") return "";
       const due = this.counterpart.pageWriterDue({ mode });
       if (!due.due) {
         // `already-claimed` and `no-previous-day` are the ordinary answers on

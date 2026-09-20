@@ -139,6 +139,10 @@ export interface PageWriterRun {
   /** Confidential rows held back from an egress composition. */
   readonly omitted: number;
   readonly at: number;
+  /** The log's own order, which is the only TOTAL order these rows have: two
+   *  rows written in one millisecond share an `at`, and "newest first" has to
+   *  mean something when a claim and the answer to it land in the same tick. */
+  readonly seq: number;
 }
 
 /**
@@ -232,9 +236,10 @@ export function pageWriterRuns(store: Store, opts: { about?: string; limit?: num
       considered: numberOr(payload["considered"], 0),
       omitted: numberOr(payload["omitted"], 0),
       at: row.at,
+      seq: row.seq,
     });
   }
-  return out.sort((a, b) => b.at - a.at);
+  return out.sort((a, b) => (b.at !== a.at ? b.at - a.at : b.seq - a.seq));
 }
 
 function numberOr(v: unknown, fallback: number): number {

@@ -21,6 +21,7 @@ export {
   embedderState,
   interpretSeat,
   loadConfig,
+  pageWriterMode,
   seatStatus,
 } from "./config.js";
 export type {
@@ -54,6 +55,7 @@ export {
   checkoutIsGraded,
   doctorFindings,
   noticeMessage,
+  pageWriterFindings,
   readCheckout,
   readCounterpartOpen,
   reportJson,
@@ -113,6 +115,23 @@ export type {
   LiveEmbedder,
   LiveEmbedderOptions,
 } from "./embed-client.js";
+
+export {
+  DEFAULT_HOST_COMMAND,
+  MCP_SELF_PAGE_TOOL,
+  PAGE_WRITER_ENV,
+  PERMISSION_MODE,
+  planPageWriter,
+  runPageWriter,
+} from "./page-writer.js";
+export type {
+  ChildResult,
+  PageWriterPlan,
+  PageWriterPlanInput,
+  PageWriterRefusal,
+  PageWriterRunResult,
+  PageWriterStarter,
+} from "./page-writer.js";
 
 export { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "./spawn.js";
 export type { PlanInput, SpawnOutcome, SpawnPlan, SpawnRefusal, Spawner } from "./spawn.js";

@@ -169,6 +169,19 @@ export function isSessionId(value: unknown): value is string {
   );
 }
 
+/**
+ * THE OTHER HALF OF `pageWriterFor`, for a session that has no record to carry
+ * it: the date a WINDOWLESS nightly writer is writing about, pinned onto its
+ * environment by the launcher (`claude-code/page-writer.ts`).
+ *
+ * It lives beside the record's field rather than in the launcher, because the
+ * two are one mechanism read from two directions — the MCP server asks "is this
+ * the night's writer" and must not have to know which mode started it — and
+ * because a name read in one adapter and written in another is exactly the pair
+ * that drifts when it is spelled twice.
+ */
+export const PAGE_WRITER_ENV = "COUNTERPARTS_PAGE_WRITER";
+
 export function sessionsDir(dataDir: string): string {
   return join(dataDir, SESSIONS_DIR);
 }

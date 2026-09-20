@@ -73,6 +73,8 @@ import type { LiveEmbedder } from "../embed-client.js";
 import { interpretClient } from "../interpret-client.js";
 import type { FetchLike } from "../interpret-client.js";
 import { API_KEY_ENV, EMBED_KEY_ENV } from "../config.js";
+import { runPageWriter } from "../page-writer.js";
+import type { PageWriterStarter } from "../page-writer.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
 import { backfillVectors, laggedSemantic } from "../vectors.js";
 import type { BackfillReport, LagReport } from "../vectors.js";
@@ -133,6 +135,11 @@ export async function runOnce(input: {
   scope?: string;
   /** Injected so the whole vector path is provable without a socket. */
   embedder?: LiveEmbedder | null;
+  /** The configuration file this process read, pinned onto the nightly page
+   *  writer's child so parent and child read one file rather than resolving two. */
+  configPath?: string;
+  /** Injected so `host` mode is provable without launching a host session. */
+  startPageWriter?: PageWriterStarter;
   /** Defaults to `process.env`: read for PRESENCE of the embed key, never value. */
   env?: NodeJS.ProcessEnv;
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
@@ -312,6 +319,26 @@ export async function runOnce(input: {
     } catch (err) {
       emit("snapshot.threw", { code: err instanceof Error ? err.name : "UNKNOWN" });
     }
+    // 5. THE NIGHT'S PAGE WRITER, in `host` mode only (S2). Last, and inside
+    // the `finally` beside the snapshot, for the same two reasons: it must run
+    // on the failed path as well as the good one — a day whose sweep broke is
+    // still a day that was lived — and it must run before the store closes, so
+    // the outcome it reads is read through the same handle everything else
+    // wrote through. It never throws (`page-writer.ts`), and on every other
+    // mode it is one comparison and a return.
+    try {
+      const page = await runPageWriter({
+        counterpart,
+        config,
+        ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
+        ...(input.startPageWriter === undefined ? {} : { start: input.startPageWriter }),
+      });
+      if (page.ran || page.outcome !== "skipped") {
+        emit("runner.page-writer", { outcome: page.outcome, about: page.about, detail: page.detail });
+      }
+    } catch (err) {
+      emit("page-writer.threw", { code: err instanceof Error ? err.name : "UNKNOWN" });
+    }
     counterpart.close();
   }
   return { ...result, snapshot: snapshotReport };
@@ -466,6 +493,7 @@ async function main(): Promise<void> {
       signal: controller.signal,
       ...(pinnedSession() === null ? {} : { session: pinnedSession() as string }),
       ...(pinnedScope() === null ? {} : { scope: pinnedScope() as string }),
+      configPath: choice.path,
     });
   } finally {
     if (timer !== null) clearTimeout(timer);
