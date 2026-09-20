@@ -779,3 +779,43 @@ backup folder onto an external disk is an ordinary thing to have done, and there
 was no way through but editing the configuration. It is treated exactly as a
 configured `snapshots.dir` is: left, and said out loud. The store still moves,
 which is what the owner came for.
+
+---
+
+## The confirmation review, and the one thing it taught (2026-09-20)
+
+The forward command came through closed — every earlier finding re-run and
+fixed, a real v5 store byte-identical through a refusal, a dry run, a cut-over
+and the full printed rollback. The BLOCKER was in `--undo`, and the lesson is
+worth more than the fix.
+
+**`--undo` was new code that ran none of the old code's refusals.** Not because
+anyone decided it should not: because it was written as its own path, and the
+refusals lived inside `planStartFresh`. So a configuration whose `dataDir` is
+inside `~/.bansai` — which the forward command refuses BY NAME, in the words of
+CLAUDE.md's second safety rule — was renamed twice by the command whose whole
+job is being the safe way back. With no tampering at all.
+
+The fix is parity, and the shape of it matters: **one function, called by both**.
+`pathGuard()` is the whole battery — present, absolute, not a forbidden root by
+either spelling, not a root, not the home directory, not a directory holding the
+configuration, not a symlink — and there is now a structural test asserting that
+the forward plan and the undo plan return the *identical sentence* for the same
+bad path. Two implementations of "what may I rename" is how the two came to
+disagree; one function and a test that compares their answers is what stops it
+happening again.
+
+**And a record is data.** `store.previous.parked` is a row in the new store's
+`meta` table, so anything that can open the store can write it — the reviewer
+pointed it at `~/.bansai/store` and watched v1's memory get renamed onto
+`dataDir`, at the store's own parent to get a directory planned into its own
+child, and at a symlink to make `dataDir` become one. `parkedSiblingRefusal`
+pins the shape instead of trusting the value: same directory as the store, and a
+name this package actually writes. The fallback already only produced those; the
+recorded value now obeys the same rule.
+
+The rest was parity too — the liveness check, the re-read after the
+confirmation, the way back in the failure branch — plus two honest sentences:
+the dry run says it reads the new store's record and may rewrite its `-shm`, and
+the header comment no longer claims an undo of an undo, because there is not
+one. The two guarded lines that do it by hand are printed instead.

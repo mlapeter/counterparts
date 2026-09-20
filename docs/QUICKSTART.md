@@ -913,19 +913,28 @@ counterparts start-fresh --undo
 
 It parks the blank store, puts your memory back, puts the snapshots back — one
 rename each, nothing deleted, nothing opened, and it refuses rather than moving
-one directory inside another. Restart Claude Code again afterwards.
+one directory inside another. It runs **exactly the same refusals as the forward
+direction** — the same forbidden roots, the same symlink and absolute-path rules,
+the same live-session check, the same `--yes` rule — and it will not act on a
+recorded path that is not a parked directory of this store, because that record
+is a row in a database. Restart Claude Code again afterwards.
+
+There is **no undo of an undo**: the store it displaces is parked under a
+`blank-<date>` name, which nothing reads as a parked store. A successful undo
+prints the two guarded lines that bring that one back.
 
 The same three moves are also **printed as shell lines**, before anything moves
 and again afterwards, so the way back is on your screen even if this is
 interrupted. Each printed line is guarded:
 
 ```
-[ -e "<destination>" ] && echo "REFUSING: … already exists" || mv "<source>" "<destination>"
+if [ -e "<destination>" ]; then echo "REFUSING: … already exists" >&2; false; else mv "<source>" "<destination>"; fi
 ```
 
 That guard is not decoration. A bare `mv a b` where `b` is an existing directory
 does not refuse and does not overwrite — it moves `a` **inside** `b`, and reports
-success. The blank store is *parked* by the first line, not removed: nothing in
+success. The refusal exits non-zero, so a pasted block stops rather than carrying
+on past it. The blank store is *parked* by the first line, not removed: nothing in
 this command deletes anything, including an undo.
 
 Two more things it will not do:

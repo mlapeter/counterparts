@@ -183,7 +183,21 @@ snapshots and exports; the removal record; telemetry by reference.
     renames and in every failure branch. *A bare `mv a b` onto an existing directory
     moves `a` inside `b` and reports success — measured — so each printed line is
     guarded, and `start-fresh --undo` does the same three moves without a shell.*
-18. **[M] Cut-over day is proved against a store the PINNED BUILD wrote, not a hand-made
+18. **[M] Both directions run ONE guard ring, and a test asserts they answer identically.**
+    `start-fresh.ts#pathGuard` is present / absolute / not a forbidden root by either
+    spelling / not a root / not the home directory / not holding the configuration / not a
+    symlink, and every path either direction would rename goes through it. *`--undo`
+    shipped as new code that ran none of the forward refusals and renamed inside a
+    `~/.bansai` with no tampering at all (confirmation review BLOCKER-1). Two
+    implementations of "what may I rename" is how they drifted; one function plus a test
+    comparing their sentences is what stops it.*
+19. **[M] A value read back out of a store is DATA, never an instruction.**
+    `store.previous.parked` is a `meta` row anything with the store open can write, so
+    `--undo` pins its shape (`parkedSiblingRefusal`: a sibling of the store, wearing a name
+    this package writes) rather than trusting it. *Proved against the four crafted values
+    the review used: a forbidden root, the store's own parent, a symlink, and a name
+    nothing writes.*
+20. **[M] Cut-over day is proved against a store the PINNED BUILD wrote, not a hand-made
     one.** `test/old-floor-fixture.ts` extracts `floor/v5-last` and runs that build's own
     `Store` API to produce a v5 store whose `-wal` holds the database its file does not.
     `start-fresh` parks it byte-identical, its output never mentions `STORE_PRE_ROWS`
