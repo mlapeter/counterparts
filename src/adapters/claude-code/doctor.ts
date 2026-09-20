@@ -1969,13 +1969,13 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
   ];
 }
 
-/** Calendar days apart, both `YYYY-MM-DD`. 0 when either will not read. */
-function daysBetween(from: string, to: string): number {
-  const a = Date.parse(`${from}T00:00:00Z`);
-  const b = Date.parse(`${to}T00:00:00Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
-  return Math.max(0, Math.round((b - a) / 86_400_000));
-}
+// `daysBetween` is `fired.ts`'s (E2, 2026-09-20) and is imported at the top of
+// this file rather than written twice. S2 landed a local copy of the same four
+// lines and the merge put them side by side; one definition is the rule this
+// module already keeps for every other reading it shares with the fired view.
+// The one behavioural difference is deliberate: the shared one can return a
+// NEGATIVE when a clock has moved backwards, and `overdue` below compares with
+// `>`, so a future date reads "not overdue" rather than being clamped to today.
 
 /** Calendar days a night may be owed before the line says so. A writer that
  *  missed last night has not failed; one that has missed three has. */

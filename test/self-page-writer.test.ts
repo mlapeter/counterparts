@@ -1038,6 +1038,87 @@ describe("the surfaces that report it", () => {
     expect(row?.evidence).toEqual({ kind: "event", names: [SELF_PAGE_WRITER_EVENT] });
   });
 
+  test("E2's young rule: on a day-1 store the writer is TOO NEW TO GRADE, not `never`", () => {
+    const c = counterpart();
+    const today = dateOf(c.store.now());
+    const report = firedReport(c.store, today);
+    // E2's rule, both clocks: under two lived days AND no durable row older
+    // than two calendar days. A store minutes old opened this view with
+    // twenty-eight `never` lines, which is what a broken install looks like.
+    expect(report.young).toBe(true);
+    // The row EXISTS — it is part of the roll-call — and the report is what
+    // tells every renderer not to read its silence as a fault. Doctor's Fired
+    // line and the console both branch on this one flag, and both are E2's own
+    // tested surfaces; what is asserted here is that the page writer is inside
+    // the set they cover rather than outside it.
+    expect(report.rows.find((r) => r.id === "page-writer")).toBeDefined();
+    expect(report.rows.every((r) => r.state !== "blocked")).toBe(true);
+    // ...and the roll-call comes back on its own once the store is old enough.
+    c.store.advanceClock(dayBefore(today, 1));
+    c.store.advanceClock(today);
+    expect(firedReport(c.store, today).young).toBe(false);
+  });
+
+  test("...and MY doctor line is GREEN on that same young store, on both clocks", () => {
+    const c = counterpart();
+    // The page writer's own line has always been green when it has never run on
+    // a store with no yesterday — that predates E2 and agrees with it. What is
+    // checked here is that the two rules do not disagree: E2 grades the store
+    // young on lived days AND calendar days, and this line grades it on whether
+    // a day before today holds anything, which on a fresh store is the same
+    // answer by a different road.
+    const f = pageWriterFindings(c.store, config())[0];
+    expect(f?.severity).toBe("green");
+    expect(f?.data["young"]).toBe(true);
+    expect(f?.fix).toBe("");
+    expect(firedReport(c.store, dateOf(c.store.now())).young).toBe(true);
+  });
+
+  test("the writer declares NO refusal channel, and that is the honest answer", () => {
+    // E2's `only:` allow-list exists because reading a namespace wholesale made
+    // a healthy store report `BLOCKED … dwell-too-short ×240` for ever. The test
+    // it sets is whether a NAMED RULE turned away a candidate that otherwise
+    // qualified — the owner saying no — rather than arithmetic saying not yet.
+    //
+    // Every skip this mechanism has is the second kind. `no-previous-day`,
+    // `already-claimed`, `asks-spent` and `no-memories` are the ORDINARY state
+    // of most of every day; `off` is a stand-down, which `disabled` is for; and
+    // `scope-question` corrects itself in one session by design. The one that
+    // is arguably a real gate — `no-room`, the host's ceiling turning away a
+    // block that qualified — already has a louder and better-aimed surface in
+    // the doctor line, which goes amber after two owed days and names
+    // `injectionBudgetBytes` in its fix. A second surface saying `blocked` for
+    // ever on a store with a tight ceiling is the duplication E2's own review
+    // warned about.
+    const row = MECHANISMS.find((m) => m.id === "page-writer");
+    expect(row?.refusals).toBeUndefined();
+    const c = counterpart();
+    seedYesterday(c, ["A placeholder thing noticed yesterday."]);
+    const today = dateOf(c.store.now());
+    // A store full of deferrals and skips still reads QUIET or FIRING — never
+    // `blocked`, which would be a standing false alarm.
+    c.recordPageWriterRun({ about: pageWriterAbout(today), mode: "session", outcome: "skipped", detail: "no-room" });
+    const state = firedReport(c.store, today).rows.find((r) => r.id === "page-writer")?.state;
+    expect(state).not.toBe("blocked");
+    expect(["firing", "new", "never", "quiet"]).toContain(state ?? "");
+  });
+
+  test("no registry key is declared twice, on either side of the merge", () => {
+    // Four exhaustive maps and one array, and E2 added rows to every one of
+    // them beside this branch's. A duplicate key is legal TypeScript and silently
+    // keeps the last one.
+    const ids = MECHANISMS.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(DURABLE_EVENT_NAMES).size).toBe(DURABLE_EVENT_NAMES.length);
+    for (const file of ["registries.ts", "web/flow.ts", "web/narrate.ts"]) {
+      const src = readFileSync(join(import.meta.dir, "..", "src", "adapters", "dashboard", file), "utf8");
+      const keys = [...src.matchAll(/^\s{2}"(self\.page\.writer\.ran|self\.page\.revised)":/gmu)].map((m) => m[1]);
+      // `narrate.ts` carries two different maps, so each name appears twice there.
+      const expected = file === "web/narrate.ts" ? 4 : 2;
+      expect(keys.length, file).toBe(expected);
+    }
+  });
+
   test("the fired view moves from never-fired to firing when a night runs", () => {
     const c = counterpart();
     const today = dateOf(c.store.now());

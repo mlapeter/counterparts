@@ -588,6 +588,21 @@ export const MECHANISMS: readonly Mechanism[] = [
   // forever; this asks "did last night happen", which is the question a page
   // that has stopped growing is the symptom of. A night that read the day and
   // had nothing to say still fires this row — that is the mechanism working.
+  //
+  // **NO `refusals` CHANNEL, on purpose** (checked against E2, 2026-09-20).
+  // This mechanism has plenty of named skips — `no-previous-day`,
+  // `already-claimed`, `asks-spent`, `no-memories`, `off`, and the two durable
+  // deferrals `no-room` and `scope-question` — and almost none of them is a
+  // GATE by the test `RefusalSource.only` sets. They are the ordinary condition
+  // of most of every day: after the first ask, `already-claimed` is what a
+  // healthy store says at every session start until midnight. Declaring them
+  // would reproduce the `dwell-too-short ×240` false alarm one namespace over.
+  // The one that is arguably a real gate — `no-room`, the host's ceiling
+  // turning away a block that qualified — already has a louder and better-aimed
+  // surface: doctor's Page writer line goes amber after two owed days and names
+  // `injectionBudgetBytes` in its fix. A second surface saying `blocked` for
+  // ever on a store with a tight ceiling would be the duplication E2's own
+  // review warned about.
   {
     id: "page-writer",
     label: "the day just lived was read back and my page was offered a revision",

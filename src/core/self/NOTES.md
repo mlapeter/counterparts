@@ -892,3 +892,40 @@ case for it. **If either of those doors ever opens**, the hazard to look at firs
 row beside the damaged one and break S1's one-row invariant. It is filed rather than guarded
 because today nothing can get there, and a guard against an unreachable state is a guard
 nobody can test.
+
+## 19. The writer beside E2, and why it declares no refusal channel (2026-09-20)
+
+Merged `origin/master` at `d60db90` (E2 — the "what was prevented" rows). One semantic
+conflict git could not see, and three interactions checked by running them.
+
+**The conflict: two `daysBetween`.** E2 put one in `fired.ts` and imports it into
+`doctor.ts`; S2 had landed a local copy of the same four lines for the page writer's
+staleness reading, and the merge put them side by side. Resolved by deleting the local one
+— one definition, shared with the fired view, which is the rule this module already keeps
+for every other reading the two surfaces share. The one behavioural difference is kept and
+named: the shared one returns a NEGATIVE when a clock has moved backwards where the local
+one clamped to zero, and the comparison it feeds uses `>`, so a future date reads "not
+overdue" rather than "today".
+
+**E2's young rule and this mechanism's doctor line agree, by different roads.** E2 grades a
+store too new when it is under two LIVED days and has no durable row older than two
+CALENDAR days — both clocks, because a store whose worker has been dead a fortnight also
+reads lived day 0 and that store needs the full list. The page writer's own line has been
+green-when-never-run-on-a-store-with-no-yesterday since S2 shipped, which is the same answer
+read off whether a day before today holds anything. Measured: on a fresh store both say
+young, and the roll-call comes back on its own after two `advanceClock` calls.
+
+**And it declares no refusal channel, which is the honest answer rather than an empty one.**
+`RefusalSource.only` exists because reading a namespace wholesale made a healthy store
+report `BLOCKED prune … dwell-too-short ×240` permanently — the test it sets is whether a
+NAMED RULE turned away a candidate that otherwise qualified, the owner saying no, rather
+than arithmetic saying not yet. Nearly every skip here is the second kind, and one of them
+is worse than that: after the night's first ask, `already-claimed` is what a perfectly
+healthy store says at every session start until midnight. Declaring these would rebuild the
+false alarm one namespace over.
+
+The one that is arguably a real gate is `no-room` — the host's ceiling turning away a block
+that qualified. It is left out anyway, because it already has a louder and better-aimed
+surface: doctor's Page writer line goes amber after two owed days and names
+`injectionBudgetBytes` in the fix. Two surfaces for one fact, one of them permanent on any
+store with a tight ceiling, is the shape the review was about.
