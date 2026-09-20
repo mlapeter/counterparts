@@ -570,6 +570,43 @@ export const NARRATORS = {
     }
   },
 
+  /**
+   * THE HANDOFF'S THREE (2026-09-20, E1). Calm on all three: leaving one is the
+   * mechanism working, being handed one is the mechanism paying off, and a
+   * refusal is a cap doing its job out loud.
+   */
+  "handoff.written": (t) => {
+    const bytes = n(t, "bytes") ?? 0;
+    const created = t.p["created"] === true;
+    const days = n(t, "lifeDays") ?? 0;
+    return calm(
+      `I left a handoff for the next session in this directory: ${num(bytes)} bytes, ` +
+        `${created ? "the first one here" : "replacing the one that stood"}, showing for ${num(days)} days of use.`,
+    );
+  },
+  "handoff.shown": (t) => {
+    const age = n(t, "ageDays");
+    const bytes = n(t, "bytes") ?? 0;
+    const when = age === null ? "" : age === 0 ? ", written today" : `, written ${num(age)} days of use ago`;
+    return calm(`I woke here and was handed the pointer to this directory's handoff${when} (${num(bytes)} bytes of the wake).`);
+  },
+  "handoff.cleared": (t) => {
+    const bytes = n(t, "bytes") ?? 0;
+    return calm(
+      `I finished the work in this directory and retired its handoff (${num(bytes)} bytes). The next session here is handed nothing.`,
+    );
+  },
+  "handoff.refused": (t) => {
+    const why = s(t, "reason") ?? "refused";
+    if (why === "no-room") {
+      const budget = n(t, "budget") ?? 0;
+      return calm(
+        `There was no room in this wake for the handoff pointer (the bundle would have been ${num(n(t, "bytes") ?? 0)} bytes against a ceiling of ${num(budget)}), so it was left off whole.`,
+      );
+    }
+    return calm(`A handoff was turned away (${why}). Nothing was left for the next session here.`);
+  },
+
   // ── retrieval ──────────────────────────────────────────────────────────────
   "recall.decision": (t) => {
     const surfaced = idsIn(t, "surfaced");
@@ -869,11 +906,27 @@ export const REF_KIND = {
   // The writer's row is about a DAY, not a memory: the ids it read are the
   // day's, and naming one of them would be picking a favourite.
   "self.page.writer.ran": "none",
+  // A written, shown or cleared handoff points at its own row, which resolves
+  // like any other. A refusal usually wrote nothing and points at nothing —
+  // `no-room` is the exception and does carry the row's id, which prints as the
+  // raw address under `"none"`, and a raw id beside "there was no room for it"
+  // reads correctly.
+  // ITS OWN KIND, and not "memory" (adversarial review NIT 5). The ref is a
+  // real row id and resolves, but resolving it through the MEMORY door is the
+  // one surface where a reader of a feature whose thesis is "never a memory"
+  // could see it called one.
+  "handoff.written": "handoff",
+  "handoff.shown": "handoff",
+  "handoff.cleared": "handoff",
+  "handoff.refused": "none",
   "recall.credit": "none",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge
   // rows, where they are the record; the row carries counts.
   "associate.flush": "none",
-} as const satisfies Record<DurableEventName, "memory" | "session" | "chunk" | "proposal" | "none">;
+} as const satisfies Record<
+  DurableEventName,
+  "memory" | "session" | "chunk" | "proposal" | "handoff" | "none"
+>;
 
 function subjectOf(store: Store, row: EventRow): string | null {
   if (row.ref === null) return null;
@@ -884,6 +937,10 @@ function subjectOf(store: Store, row: EventRow): string | null {
       return `swept chunk ${row.ref}`;
     case "proposal":
       return `authored draft ${row.ref}`;
+    case "handoff":
+      // A real row that resolves like any other — named for what it is, so the
+      // one feature whose thesis is "never a memory" is not printed as one.
+      return `handoff ${row.ref}`;
     case "none":
       // A name this file has never heard of, carrying a ref. Print the raw
       // address rather than guessing at what it points to.

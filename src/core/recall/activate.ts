@@ -161,6 +161,33 @@ function isPageRow(store: Store, id: string): boolean {
 }
 
 /**
+ * THE PER-DIRECTORY HANDOFF IS NOT A RECALL CANDIDATE (2026-09-20, E1).
+ *
+ * A handoff is working context for one directory — "what I was doing here" —
+ * delivered as a pointer at the wake of that directory and expandable by id
+ * from there. It is not an interpretation of what was learned, it carries no
+ * project scope a search could honour, and it expires. Surfacing one inside a
+ * turn would put another directory's unfinished business in front of this one.
+ *
+ * Read STRUCTURALLY for `isSelfPage`'s reason: `recall/` depends on no other
+ * core module, and a shape check that fails reads as "not a handoff", which only
+ * ever costs a candidate slot. The constant's owner is
+ * `handoff/index.ts#HANDOFF_ROLE`.
+ */
+export function isHandoff(doc: ProseDoc): boolean {
+  return doc.type === "schema" && doc.meta["role"] === "handoff";
+}
+
+/** `isHandoff` by id, for the scan. */
+function isHandoffRow(store: Store, id: string): boolean {
+  try {
+    return isHandoff(store.readProse(id));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A memory's confidentiality class, as the surfacing gate asks it.
  *
  * The truth table itself is `store/index.ts#confidentialByMeta`, which is also
@@ -414,6 +441,16 @@ export function activate(
     // the self kind pays for it — the page, the identity core, and the handful
     // of beliefs held about the self.
     if (row.type === "schema" && row.kind === "self" && isPageRow(store, id)) {
+      skipped += 1;
+      continue;
+    }
+    // The per-directory handoff (E1), for the page's reason and one of its own:
+    // it is already delivered as a pointer at the wake of the directory it
+    // belongs to, and it has no project scope of its own that a search could
+    // honour — so left in the pool it would surface one directory's working
+    // context inside another's turn. Gated on the row's own columns, as above,
+    // so only a SCHEMA row of the place kind pays for the prose read.
+    if (row.type === "schema" && row.kind === "place" && isHandoffRow(store, id)) {
       skipped += 1;
       continue;
     }

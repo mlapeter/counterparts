@@ -47,7 +47,7 @@ export * from "./gate.js";
 export * from "./render.js";
 export * from "./session.js";
 export * from "./tunables.js";
-export { activate, isConfidential, isSelfPage, gatedSal } from "./activate.js";
+export { activate, isConfidential, isHandoff, isSelfPage, gatedSal } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
 
 /** Telemetry: ids, counts, scores, tiers, reasons. NEVER body text or turn text. */
