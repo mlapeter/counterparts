@@ -31,7 +31,15 @@
  *      written only when `--budget` says what it is; without it the config is
  *      written without the key and the printed steps say so out loud.
  */
-import { chmodSync, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -435,4 +443,130 @@ function modeOf(path: string): { mode?: string } {
   } catch {
     return {};
   }
+}
+
+// ── did the two printed steps actually take (2026-09-20, finding 4) ─────────
+
+/**
+ * READ THE HOST'S OWN FILES and say whether what `install` printed is there.
+ *
+ * `install` prints the hooks block and the `claude mcp add` line and applies
+ * neither — correctly, because they edit somebody else's editor configuration.
+ * Nothing then checked them, so a user who pasted the block into a project
+ * settings file instead of the user one, or who never restarted, got a fully
+ * green `doctor` and total silence. The failure mode of this product is
+ * silence, and QUICKSTART §4 says as much about a hook that stands down.
+ *
+ * It lives HERE and not in `doctor.ts` because it is the other half of what
+ * this file prints: the block and the line are `settingsBlock` and
+ * `mcpCommand`, and the names they use — `HOST_EVENTS`, `MCP_SERVER_NAME` — are
+ * this module's. `doctor.ts` grades the reading and holds none of that
+ * vocabulary, exactly as it already takes `checkout` and `open` from its caller.
+ *
+ * **READ-ONLY, AND EVERY ANSWER NAMES THE FILES IT READ.** None of these paths
+ * is ours. `~/.claude.json` in particular is the host's own state file, which
+ * its documentation describes as one the host writes for itself — so it may
+ * move, and the line must then read "I looked here and did not find it", never
+ * "you did not install it". `CLAUDE_CONFIG_DIR` relocates both, checked first.
+ *
+ * Hooks MERGE across the host's settings files, so all four places a block can
+ * land are read and the answer is their union: finding the command in a project
+ * file is still finding it, and the line says where it looked.
+ *
+ * Verified against the host's documentation on 2026-09-20. True for now.
+ */
+export interface HostRead {
+  readonly expected: readonly string[];
+  readonly events: readonly string[];
+  readonly settingsRead: readonly string[];
+  readonly mcp: boolean;
+  readonly mcpName: string;
+  readonly mcpFile: string;
+  readonly mcpUnreadable: boolean;
+}
+
+/** What a hook command of ours looks like, wherever it was installed from —
+ *  a global install, a clone, or a worktree. Matched as a SUBSTRING: demanding
+ *  the exact text `install` printed would fail for everyone running from
+ *  source, which §2 of the QUICKSTART tells people they may do. */
+export const HOOK_COMMAND_MARK = /counterparts-hook|claude-code[/\\]bin[/\\]hook\.ts/;
+
+/** The host's settings files that can carry a user's hooks, in merge order. */
+export function hostSettingsFiles(base: string, cwd: string): string[] {
+  return [
+    join(base, ".claude", "settings.json"),
+    join(base, ".claude", "settings.local.json"),
+    join(cwd, ".claude", "settings.json"),
+    join(cwd, ".claude", "settings.local.json"),
+  ];
+}
+
+/** Where a `-s user` MCP registration lands. `CLAUDE_CONFIG_DIR` moves it. */
+export function hostMcpFile(base: string): string {
+  return join(base, ".claude.json");
+}
+
+/** The base both live under: `CLAUDE_CONFIG_DIR` when set, else the home dir. */
+export function hostConfigBase(home: string, env: Record<string, string | undefined>): string {
+  const moved = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  return moved.length > 0 ? moved : home;
+}
+
+function readJsonFile(path: string): { ok: boolean; value: Record<string, unknown> } {
+  if (!existsSync(path)) return { ok: false, value: {} };
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { ok: true, value: parsed as Record<string, unknown> }
+      : { ok: false, value: {} };
+  } catch {
+    return { ok: false, value: {} };
+  }
+}
+
+export function readHost(
+  home: string,
+  cwd: string,
+  env: Record<string, string | undefined> = process.env,
+): HostRead {
+  const base = hostConfigBase(home, env);
+  const events = new Set<string>();
+  const settingsRead: string[] = [];
+  for (const path of hostSettingsFiles(base, cwd)) {
+    const read = readJsonFile(path);
+    if (!read.ok) continue;
+    settingsRead.push(path);
+    const hooks = read.value["hooks"];
+    if (hooks === null || typeof hooks !== "object" || Array.isArray(hooks)) continue;
+    for (const [event, entries] of Object.entries(hooks as Record<string, unknown>)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries as unknown[]) {
+        if (entry === null || typeof entry !== "object") continue;
+        const inner = (entry as Record<string, unknown>)["hooks"];
+        if (!Array.isArray(inner)) continue;
+        for (const h of inner as unknown[]) {
+          if (h === null || typeof h !== "object") continue;
+          const command = (h as Record<string, unknown>)["command"];
+          if (typeof command === "string" && HOOK_COMMAND_MARK.test(command)) events.add(event);
+        }
+      }
+    }
+  }
+  const mcpFile = hostMcpFile(base);
+  const mcpRead = readJsonFile(mcpFile);
+  const servers = mcpRead.value["mcpServers"];
+  const mcp =
+    servers !== null &&
+    typeof servers === "object" &&
+    !Array.isArray(servers) &&
+    MCP_SERVER_NAME in (servers as Record<string, unknown>);
+  return {
+    expected: [...HOST_EVENTS],
+    events: [...events].sort(),
+    settingsRead,
+    mcp,
+    mcpName: MCP_SERVER_NAME,
+    mcpFile,
+    mcpUnreadable: existsSync(mcpFile) && !mcpRead.ok,
+  };
 }

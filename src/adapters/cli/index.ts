@@ -50,12 +50,16 @@ export {
   tempRoots,
   throwawayDefaultRefusal,
   mcpCommand,
+  readHost,
+  hostMcpFile,
+  hostSettingsFiles,
+  hostConfigBase,
   runCommand,
   settingsBlock,
   shellQuote,
   writeOnce,
 } from "./install.js";
-export type { ConfigInput, FileResult, InstallLayout, WroteWhat } from "./install.js";
+export type { ConfigInput, FileResult, HostRead, InstallLayout, WroteWhat } from "./install.js";
 
 export { assertSafeTarget, snapshot, snapshotName, vacuumInto } from "./snapshot.js";
 export type { CopiedEntry, CopyMethod, SnapshotReport } from "./snapshot.js";

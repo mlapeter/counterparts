@@ -41,6 +41,7 @@ import {
   ADAPTER_ASK_EVENT,
   BOUNDARY_EVENT,
   EMBED_BACKFILL_EVENT,
+  GATE_CHUNK_EVENT,
   GATE_DEPOSIT_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
@@ -64,7 +65,10 @@ import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
-import { STATE_MEANING, firedReport } from "../fired.js";
+import { STATE_MEANING, YOUNG_LIVED_DAYS, firedReport } from "../fired.js";
+// The one name the "no configuration was read" line needs, from the module that
+// owns it — so the sentence here and the refusal it replaced name the same var.
+import { CONFIG_ENV } from "../config-path.js";
 import {
   DEFAULT_KEEP,
   futureNamesIn,
@@ -130,7 +134,14 @@ export interface DoctorInput {
    * and REFUSES a bad one before it gets here (`bin/hook.ts`), so it passes
    * null and the config finding reports only what the file named.
    */
-  readonly configReason: "loaded" | "absent" | "unreadable" | null;
+  /**
+   * `not-read` (2026-09-20, finding 6) is `--dir` with no `--config` under the
+   * explicit-dir guard: the store was NAMED, so it is read, and the default
+   * configuration beside it was not opened at all — because opening it is what
+   * would reach the owner's live credentials file. Everything that comes out of
+   * a configuration then says so instead of grading a file nobody read.
+   */
+  readonly configReason: "loaded" | "absent" | "unreadable" | "not-read" | null;
   readonly config: AdapterConfig;
   /** The store this reading actually read. */
   readonly dir: string;
@@ -188,6 +199,13 @@ export interface DoctorInput {
    * case, whose counterpart is already open by the time it asks for a notice.
    */
   readonly open?: OpenReading;
+  /**
+   * WHETHER THE TWO STEPS THE USER DOES BY HAND ACTUALLY TOOK (finding 4).
+   * Absent: not read, and no finding is produced at all — the hook's case, which
+   * is already running BECAUSE the hooks are installed and has no budget for
+   * four more file reads.
+   */
+  readonly host?: HostReading;
   /** Bound the whole reading. Absent: no bound (the console's case). */
   readonly budgetMs?: number;
   readonly now?: () => number;
@@ -657,6 +675,31 @@ function budgetTruncatedPhases(p: Record<string, unknown>): string[] {
 function configFindings(input: DoctorInput): Finding[] {
   const out: Finding[] = [];
   const reason = input.configReason;
+  if (reason === "not-read") {
+    // NOT A FAULT AND NOT A GRADE. `--dir` named a store; nothing named a
+    // configuration, and reading the default one is what would open somebody's
+    // live credentials file. So the store is graded and this line says, in the
+    // words the refusal used to use, exactly what to type to grade the rest.
+    out.push(
+      finding(
+        "config",
+        "amber",
+        "Config",
+        `not read — you named a store with --dir and no configuration, so nothing here grades ${input.configPath}: no credentials, no embedder setting, no snapshot policy, no stance`,
+        `To grade those too: counterparts doctor --config <absolute path> (or set ${CONFIG_ENV}).`,
+        { path: input.configPath, reason },
+      ),
+    );
+    out.push(
+      input.store === null
+        ? finding("store", "red", "Store", `no store at ${input.dir}`, "Check the path you gave --dir.", {
+            dir: input.dir,
+            exists: false,
+          })
+        : finding("store", "green", "Store", input.dir, "", { dir: input.dir, exists: true }),
+    );
+    return out;
+  }
   if (reason === "absent" || reason === "unreadable") {
     out.push(
       finding(
@@ -717,8 +760,14 @@ function configFindings(input: DoctorInput): Finding[] {
           "embedder",
           "amber",
           "Embedder",
-          "embedder off: no vectors, no semantic channel — recall is lexical only",
-          `Add "embedder": { "enabled": true } to ${input.configPath} (read strictly: that exact shape).`,
+          // SAYS WHAT STILL WORKS (2026-09-20, finding 1). "No vectors, no
+          // semantic channel" is true and reads, on day 1, as a broken install.
+          // Lexical recall is a whole working channel, not a degraded mode, and
+          // the line that tells a new user so is the one that stops them going
+          // to buy a key the README says they do not need.
+          "off — recall matches on words, not on meaning. That channel works; what a key adds " +
+            "is finding a memory that says the same thing in different words",
+          `Optional. Add "embedder": { "enabled": true } to ${input.configPath} (read strictly: that exact shape), and set ${EMBED_KEY_ENV}.`,
           { enabled: false },
         ),
   );
@@ -736,10 +785,70 @@ function configFindings(input: DoctorInput): Finding[] {
 }
 
 /**
- * The credentials, BY NAME. The red is I32's own signature: no interpreter key
- * means the worker runs the day and interprets nothing.
+ * HAS THIS STORE EVER HAD A WORKING KEY (2026-09-20, finding 1).
+ *
+ * README says no API keys are required and QUICKSTART §6 says the worker still
+ * runs the day without one — and `doctor` on a brand-new keyless store printed
+ * a RED and exited 1. All three cannot be true. A careful reader concludes a
+ * fresh install is broken; a trusting one buys a key the docs said they did not
+ * need.
+ *
+ * The red was written for a real and serious case, so it is kept for that case
+ * and only that one: a key that was HERE and has gone. The discriminator is the
+ * store's own evidence, never a marker file — a marker would have to be written
+ * by something, and the thing that would write it is the thing that is missing.
+ *
+ *   - The interpreter ran if anything was ever interpreted. `gate.chunk` is the
+ *     crash sweep's own row and the sweep is the only interpreted write path,
+ *     so one such row ever is proof the key worked here.
+ *   - The embedder ran if any backfill ever embedded anything.
+ *
+ * Both are ONE bounded read each, over the whole log, and both answer "ever",
+ * so neither can be undone by retention sweeping the window.
  */
-function credentialFindings(input: DoctorInput): Finding[] {
+interface KeyHistory {
+  readonly interpreted: boolean;
+  readonly embedded: boolean;
+}
+
+export function keyHistory(store: Store | null): KeyHistory {
+  if (store === null) return { interpreted: false, embedded: false };
+  const any = (name: string, limit: number, ok: (p: Record<string, unknown>) => boolean): boolean => {
+    try {
+      return store.eventLog({ name, limit }).some((r) => ok(payloadOf(r)));
+    } catch {
+      // A store that will not answer is not a store that says "never had one".
+      // Both callers read `false` as "no evidence", and the line that follows
+      // says what works without a key rather than accusing anybody.
+      return false;
+    }
+  };
+  return {
+    // ONE ROW. `eventLog` orders ascending and `events_name` is an index, so
+    // "has there ever been one" is the cheapest question this file asks.
+    interpreted: any(GATE_CHUNK_EVENT, 1, () => true),
+    // A backfill row exists with or without a key — it records what is still
+    // waiting — so this one has to look at the number, over a bounded window of
+    // the OLDEST rows, which is where a key that worked and then went would be.
+    embedded: any(EMBED_BACKFILL_EVENT, KEY_HISTORY_ROWS, (p) => (num(p, "embedded") ?? 0) > 0),
+  };
+}
+
+/** How many backfill rows the "has a key ever worked here" read looks at. */
+const KEY_HISTORY_ROWS = 200;
+
+/** What a store with no key still does, in one sentence a new user can act on. */
+const WITHOUT_A_KEY =
+  "everything you and the assistant write by hand still lands — note, session_end, the journal, " +
+  "recall, the wake";
+
+/**
+ * The credentials, BY NAME. The red is I32's own signature: no interpreter key
+ * means the worker runs the day and interprets nothing — but see `keyHistory`
+ * above: that red is for a key that WENT AWAY, not for a store that never had
+ * one, which is a supported way to run.
+ */
+function credentialFindings(input: DoctorInput, history: KeyHistory): Finding[] {
   const load = input.credentials;
   const present = [...load.loaded, ...load.skippedPresent];
   const missing = CREDENTIAL_NAMES.filter((n) => !present.includes(n));
@@ -762,16 +871,39 @@ function credentialFindings(input: DoctorInput): Finding[] {
   const holds = present.length === 0 ? "holds no key" : `holds ${present.join(", ")}`;
   const out: Finding[] = [];
 
+  const data = {
+    path,
+    mode: load.mode,
+    reason: load.reason,
+    present: present.join(","),
+    missing: missing.join(","),
+    everInterpreted: history.interpreted,
+    everEmbedded: history.embedded,
+  };
+
   if (missing.includes(API_KEY_ENV)) {
+    // RED only when the key WORKED here and is now gone — the case this line
+    // was written for. Otherwise amber, and the sentence says what a store with
+    // no key does and what a key would add, rather than reporting a supported
+    // way to run as a fault on the first thing a new user sees.
     out.push(
-      finding(
-        "credentials",
-        "red",
-        "Credentials",
-        `${where} ${holds}: ${API_KEY_ENV} is missing, so the worker will run without an interpreter; nothing is encoded${shellClause(API_KEY_ENV)}`,
-        `Run: counterparts credentials set ${API_KEY_ENV} (the value on stdin; it is never echoed).`,
-        { path, mode: load.mode, reason: load.reason, present: present.join(","), missing: missing.join(",") },
-      ),
+      history.interpreted
+        ? finding(
+            "credentials",
+            "red",
+            "Credentials",
+            `${where} ${holds}: ${API_KEY_ENV} is missing, and this store HAS interpreted before — so something that was running has stopped; the worker now runs the day and encodes nothing${shellClause(API_KEY_ENV)}`,
+            `Run: counterparts credentials set ${API_KEY_ENV} (the value on stdin; it is never echoed).`,
+            data,
+          )
+        : finding(
+            "credentials",
+            "amber",
+            "Credentials",
+            `${where} ${holds} — no key has ever been used here, which is a supported way to run: ${WITHOUT_A_KEY}. What ${API_KEY_ENV} would add is the crash sweep, which reads a transcript a session never got to write from and turns it into memories${shellClause(API_KEY_ENV)}`,
+            `Optional. Run: counterparts credentials set ${API_KEY_ENV} (the value on stdin; it is never echoed).`,
+            data,
+          ),
     );
   } else if (missing.includes(EMBED_KEY_ENV)) {
     out.push(
@@ -781,18 +913,12 @@ function credentialFindings(input: DoctorInput): Finding[] {
         "Credentials",
         `${where} ${holds}: ${EMBED_KEY_ENV} is missing, so nothing is embedded${shellClause(EMBED_KEY_ENV)}`,
         `Run: counterparts credentials set ${EMBED_KEY_ENV} (the value on stdin; it is never echoed).`,
-        { path, mode: load.mode, reason: load.reason, present: present.join(","), missing: missing.join(",") },
+        data,
       ),
     );
   } else {
     out.push(
-      finding("credentials", "green", "Credentials", `${where} ${holds}`, "", {
-        path,
-        mode: load.mode,
-        reason: load.reason,
-        present: present.join(","),
-        missing: "",
-      }),
+      finding("credentials", "green", "Credentials", `${where} ${holds}`, "", data),
     );
   }
 
@@ -1171,14 +1297,23 @@ function authorshipFindings(input: DoctorInput, store: Store): Finding[] {
     fallback,
     truncated: asks.truncated || deposits.truncated,
   };
+  // TOO NEW TO GRADE (2026-09-20, finding 2), the same rule the Fired line
+  // keeps. Both ambers here are RATIOS — "the cap refused more often than it
+  // offered", "the sweep wrote more than the session did" — and a ratio over a
+  // handful of rows is not a reading. On a store that has not lived a day or
+  // two, the sentence stands and the colour does not: there is nothing here to
+  // fix that waiting will not answer.
+  const young = livedDay < YOUNG_LIVED_DAYS;
   return [
     finding(
       "authorship",
-      capBinds || sweepWins ? "amber" : "green",
+      !young && (capBinds || sweepWins) ? "amber" : "green",
       "Authorship",
-      detail,
-      fixes.join(" "),
-      data,
+      young && (capBinds || sweepWins)
+        ? `${detail} — too new to grade: this store is on lived day ${String(livedDay)}`
+        : detail,
+      young ? "" : fixes.join(" "),
+      { ...data, young, livedDay },
     ),
   ];
 }
@@ -1222,8 +1357,12 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
   }
   const report = firedReport(store, input.today);
   const c = report.counts;
+  const blocked =
+    c.blocked === 0
+      ? ""
+      : `, ${String(c.blocked)} ${c.blocked === 1 ? "was" : "were"} stopped by something that said so`;
   const roll =
-    `${report.from}→${report.today}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired this week, ` +
+    `${report.from}→${report.today}: ${String(c.firing)} of ${String(report.rows.length)} mechanisms fired this week${blocked}, ` +
     `${String(c.quiet)} ${c.quiet === 1 ? "has" : "have"} gone quiet, ` +
     `${String(c.never)} ${c.never === 1 ? "has" : "have"} never fired, ` +
     `${String(c.new)} ${c.new === 1 ? "is" : "are"} too new to grade, ` +
@@ -1235,6 +1374,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     from: report.from,
     to: report.today,
     firing: c.firing,
+    blocked: c.blocked,
     quiet: c.quiet,
     never: c.never,
     new: c.new,
@@ -1244,7 +1384,28 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     notRead: report.notRead.join(","),
     truncated: report.truncated,
     wentQuiet: report.wentQuiet.join("; "),
+    young: report.young,
+    livedDay: report.livedDay,
   };
+  // TOO NEW TO GRADE (2026-09-20, finding 2). On a store younger than a lived
+  // day or two, "28 have never fired" is a true sentence that reads like a
+  // broken install — nothing has fired because nothing has happened yet. One
+  // line saying so is more use than the roll-call, and the roll-call comes back
+  // on its own. GREEN, because there is nothing here to fix.
+  if (report.young) {
+    return [
+      finding(
+        "fired",
+        "green",
+        "Fired",
+        `this store is on lived day ${String(report.livedDay)} — too new to grade; nothing has fired ` +
+          `because nothing has happened yet` +
+          (c.blocked === 0 ? "" : `, though ${String(c.blocked)} was already stopped by something`),
+        c.blocked === 0 ? "" : "Run: counterparts fired — the blocked rows say by what.",
+        data,
+      ),
+    ];
+  }
   if (report.wentQuiet.length === 0) {
     return [
       finding(
@@ -1766,6 +1927,97 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
   ];
 }
 
+// ── the two steps the user does BY HAND ─────────────────────────────
+
+/**
+ * DID THE HOOKS BLOCK AND THE MCP REGISTRATION ACTUALLY TAKE (finding 4).
+ *
+ * `install` prints those two and applies neither, correctly: they edit somebody
+ * else's editor configuration. But nothing then checked them, so a user who
+ * pasted the block into a project settings file instead of the user one — or
+ * never restarted — got a fully green `doctor` and total silence. The failure
+ * mode of this product is silence, which is the one thing a diagnostic exists
+ * to break.
+ *
+ * **THE READ IS THE CALLER'S** (`cli/install.ts#readHost`), for the reason
+ * `checkout` and `open` are: it is four small file reads outside this store, in
+ * a format that belongs to the host, and the adapters here are leaves that do
+ * not import each other. What comes in carries the host's own vocabulary —
+ * which events were expected, what the server is called — so this file grades
+ * and keeps nothing it would have to hold in step.
+ *
+ * AMBER, NEVER RED, and it always says which files it read: `~/.claude.json` is
+ * the host's own state file, documented as one the host writes for itself, so a
+ * negative answer here is "I looked at these and did not find it", never "you
+ * did not install it".
+ */
+export interface HostReading {
+  /** The events a full install covers, in the host's spelling. */
+  readonly expected: readonly string[];
+  /** Which of `expected` carry a command that looks like ours. */
+  readonly events: readonly string[];
+  /** Every settings file this read actually opened and parsed. */
+  readonly settingsRead: readonly string[];
+  /** True when the MCP server is registered at user scope. */
+  readonly mcp: boolean;
+  readonly mcpName: string;
+  readonly mcpFile: string;
+  /** The MCP file exists but could not be read or parsed. */
+  readonly mcpUnreadable: boolean;
+}
+
+function hostFindings(reading: HostReading): Finding[] {
+  const total = reading.expected.length;
+  const missing = reading.expected.filter((e) => !reading.events.includes(e));
+  const where =
+    reading.settingsRead.length === 0
+      ? "no host settings file was readable"
+      : `read ${reading.settingsRead.join(", ")}`;
+  const data: Record<string, string | number | boolean | null> = {
+    events: reading.events.join(","),
+    missing: missing.join(","),
+    settingsRead: reading.settingsRead.join(","),
+    mcp: reading.mcp,
+    mcpFile: reading.mcpFile,
+  };
+  const mcpClause = reading.mcp
+    ? `the MCP server is registered in ${reading.mcpFile}`
+    : reading.mcpUnreadable
+      ? `${reading.mcpFile} could not be read, so the MCP registration could not be checked`
+      : `no MCP server named "${reading.mcpName}" in ${reading.mcpFile}`;
+
+  if (missing.length === 0 && reading.mcp) {
+    return [
+      finding(
+        "host",
+        "green",
+        "Host",
+        `all ${String(total)} hook events are installed and ${mcpClause}`,
+        "",
+        data,
+      ),
+    ];
+  }
+  const fixes: string[] = [];
+  if (missing.length > 0) {
+    fixes.push(
+      "Run: counterparts install — it prints the hooks block; paste that into ~/.claude/settings.json and restart the host.",
+    );
+  }
+  if (!reading.mcp && !reading.mcpUnreadable) {
+    fixes.push(
+      "Run: counterparts install — it prints the claude mcp add line; run that, then restart the host.",
+    );
+  }
+  const detail =
+    missing.length === total
+      ? `no hook of ours is installed on any of the ${String(total)} events (${where}); ${mcpClause}`
+      : missing.length > 0
+        ? `installed on ${reading.events.join(", ")} but NOT on ${missing.join(", ")} (${where}); ${mcpClause}`
+        : `all ${String(total)} hook events are installed; ${mcpClause}`;
+  return [finding("host", "amber", "Host", detail, fixes.join(" "), data)];
+}
+
 // ── the reading ─────────────────────────────────────────────────────────────
 
 const RANK: Record<Severity, number> = { red: 0, amber: 1, green: 2 };
@@ -1790,15 +2042,27 @@ export function worstFirst(findings: readonly Finding[]): Finding[] {
 export function doctorFindings(input: DoctorInput): Finding[] {
   const now = input.now ?? ((): number => Date.now());
   const deadline = input.budgetMs === undefined ? null : now() + input.budgetMs;
+  const unread = input.configReason === "not-read";
   const out: Finding[] = [
     ...configFindings(input),
-    ...credentialFindings(input),
+    // TWO BOUNDED READS, before anything else touches the store: whether a key
+    // has ever worked HERE is what decides red from amber on the line a new
+    // user reads first (finding 1). Cheap enough for the session-start budget —
+    // one indexed row, plus a window of backfill rows.
+    //
+    // NOT WHEN NO CONFIGURATION WAS READ: the credentials file is named by the
+    // configuration, so there is nothing to report on and the Config line above
+    // has already said so.
+    ...(unread ? [] : credentialFindings(input, keyHistory(input.store))),
     // Already READ by the caller (the git calls are its own bounded business),
     // so this costs nothing here and is answered before any store read.
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
     // Read by the caller for the same reason, and answered beside the `Store`
     // line it qualifies: "there is a store here" and "it opens" are two facts.
     ...(input.open === undefined ? [] : openFindings(input.open)),
+    // DID THE HOST STEPS TAKE (finding 4). Also read by the caller — it is four
+    // small file reads outside this store, and the hook does not pay for them.
+    ...(input.host === undefined ? [] : hostFindings(input.host)),
   ];
   const store = input.store;
   if (store === null) return worstFirst(out);
@@ -1810,7 +2074,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["authorship", () => authorshipFindings(input, store)],
     ["journal", () => journalFindings(store)],
     ["vectors", () => vectorFindings(store)],
-    ["snapshot", () => snapshotFindings(input, store)],
+    // The snapshot policy lives in the configuration, so with none read this
+    // line would grade a default nobody chose.
+    ...(unread ? [] : [["snapshot", (): Finding[] => snapshotFindings(input, store)] as const]),
     ["self-page", () => selfPageFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
@@ -1855,7 +2121,11 @@ export function reportLines(findings: readonly Finding[], today: string): string
   const ambers = ordered.filter((f) => f.severity === "amber").length;
   const lines = [`counterparts doctor — ${today} (UTC)`, ""];
   for (const f of ordered) {
-    lines.push(`${f.severity.toUpperCase().padEnd(SEVERITY_COLUMN)}${f.title.padEnd(TITLE_COLUMN)}${f.detail}`);
+    // A TITLE AS WIDE AS THE COLUMN STILL GETS ITS SPACE (2026-09-20). `padEnd`
+    // is a floor, not a gap: "Journal mode" is exactly `TITLE_COLUMN` long and
+    // printed as `GREEN Journal modewal (busy timeout 5000 ms)`.
+    const title = f.title.length >= TITLE_COLUMN ? `${f.title} ` : f.title.padEnd(TITLE_COLUMN);
+    lines.push(`${f.severity.toUpperCase().padEnd(SEVERITY_COLUMN)}${title}${f.detail}`);
     if (f.fix.length > 0) lines.push(`${" ".repeat(SEVERITY_COLUMN + TITLE_COLUMN)}fix: ${f.fix}`);
   }
   lines.push("");
