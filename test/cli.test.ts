@@ -28,6 +28,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { TUNABLES } from "../src/core/physics/index.js";
+import { STORE_EXPORT_EVENT } from "../src/core/counterpart.js";
 import {
   BRIEFING_KEY,
   PREFACE_RESERVE_BYTES,
@@ -646,6 +647,21 @@ describe("backup", () => {
 // ── export ──────────────────────────────────────────────────────────────────
 
 describe("export", () => {
+  /** Every file in an export, relative to its root and sorted. Paths only. */
+  function treeFiles(root: string): string[] {
+    const out: string[] = [];
+    const walk = (at: string, rel: string): void => {
+      for (const name of readdirSync(at).sort()) {
+        const full = join(at, name);
+        const next = rel === "" ? name : `${rel}/${name}`;
+        if (statSync(full).isDirectory()) walk(full, next);
+        else out.push(next);
+      }
+    };
+    walk(root, "");
+    return out;
+  }
+
   test("refuses to choose for you: neither --passphrase nor --plaintext is a refusal", async () => {
     store().put({ type: "memory", kind: "fact", body: "A memory that is not leaving quietly." });
     const c = consoleWith();
@@ -845,6 +861,305 @@ describe("export", () => {
     // The words are inside the sealed database, and come back out of it.
     expect((opened.get("counterparts.sqlite") as Buffer).toString("latin1")).toContain(secret);
     expect(() => decryptBundle(blob, "wrong passphrase")).toThrow();
+  });
+
+  // ── F7: the readable tree ─────────────────────────────────────────────────
+
+  /** A store with one of everything the markdown tree has a place for. */
+  function furnished(): { plain: string; secret: string; page: string; removed: string } {
+    const s = store();
+    const plain = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "Plain",
+      body: "ZQPLAINROW — an ordinary memory, readable in any editor. ZQOLDWORDING.",
+    });
+    const secret = s.put({
+      type: "memory",
+      kind: "person",
+      body: "ZQSECRETROW — the migraine clinic appointment.",
+      meta: { confidential: true },
+    });
+    const removed = s.put({ type: "memory", kind: "fact", body: "ZQREMOVEDROW — gone by the time this exports." });
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", "ZQCHAPTERROW — the afternoon it worked.");
+    const page = self.revisePage("ZQPAGEROW — who I am, so far.", { by: "owner", reason: "test" }).id as string;
+    // A revision, so there is an earlier wording for `--with-versions`: the
+    // OLD one carries `ZQOLDWORDING` and the live one does not.
+    s.revise(plain, { body: "ZQPLAINROW — revised, and the first wording is gone from here." });
+    // And a removal, so the tree can be asked what it does with a tombstone.
+    s.appendRemovalRecord({ memoryId: removed, stage: "requested", actor: "owner", reason: "test" });
+    s.appendRemovalRecord({ memoryId: removed, stage: "dark", actor: "owner", reason: "test" });
+    chaseRemoved(s, removed);
+    s.close();
+    return { plain, secret, page, removed };
+  }
+
+  test("--markdown writes a readable tree: memories by kind, the journal as is, the page on its own", async () => {
+    const { plain, page } = furnished();
+    const target = join(outside, "tree");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+
+    // Grouped by KIND, and the FILENAME IS THE ID — never a title, which can be
+    // as sensitive as a body and which a directory listing shows to anyone.
+    const written = readFileSync(join(target, "memories", "fact", `${plain}.md`), "utf8");
+    expect(written).toContain("ZQPLAINROW");
+    expect(written).toContain("title: Plain");
+    // Only `fact/`: the one `person` row here is confidential, and an omitted
+    // row does not even leave its kind's directory behind as a hint.
+    expect(readdirSync(join(target, "memories")).sort()).toEqual(["fact"]);
+    // The self page is its own file at the top of the tree.
+    expect(readFileSync(join(target, "self-page.md"), "utf8")).toContain("ZQPAGEROW");
+    expect(readFileSync(join(target, "self-page.md"), "utf8")).toContain(`id: ${page}`);
+    // The journal is rendered from the SAME rows and the SAME renderer as the
+    // copy under `<store>/journal/`, so "as is" is kept by using its code
+    // rather than by copying its files — which also means a stale copy of a
+    // removed episode could never be exported.
+    const journalFile = journalFiles(dir)[0] as string;
+    expect(readFileSync(join(target, journalFile), "utf8")).toBe(
+      readFileSync(join(dir, journalFile), "utf8"),
+    );
+    // Versions are behind their own flag.
+    expect(existsSync(join(target, "versions"))).toBe(false);
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Pass `--versions`");
+  });
+
+  test("--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree", async () => {
+    const { secret } = furnished();
+    const target = join(outside, "omitted");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    // Ruling 4, both halves: omitted, and said.
+    expect(existsSync(join(target, "memories", "person", `${secret}.md`))).toBe(false);
+    expect(text(c.out)).toContain("1 confidential row was left out");
+    // …and said INSIDE the artefact, because the terminal scrolls away and six
+    // months later the directory is all there is.
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain(
+      "Confidential memories omitted: **1**",
+    );
+    // NOT ONE BYTE of it anywhere in the tree.
+    for (const path of treeFiles(target)) {
+      const holds = readFileSync(join(target, path)).toString("latin1").includes("ZQSECRETROW");
+      expect({ path, holdsTheSecret: holds }).toEqual({ path, holdsTheSecret: false });
+    }
+
+    // …and the opt-in takes it, and says THAT rather than a count.
+    const opened = join(outside, "opened");
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], {
+        io: c2.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(opened, "memories", "person", `${secret}.md`), "utf8")).toContain(
+      "ZQSECRETROW",
+    );
+    expect(text(c2.out)).toContain("Confidential rows are INCLUDED");
+  });
+
+  test("a REMOVED row is never exported, and --with-versions takes the earlier wordings", async () => {
+    const { plain, removed } = furnished();
+    const target = join(outside, "versions");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--with-versions"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    // The tombstone has no words left and is not in the tree under any name.
+    expect(existsSync(join(target, "memories", "fact", `${removed}.md`))).toBe(false);
+    expect(treeFiles(target).some((p) => p.includes(removed))).toBe(false);
+    for (const path of treeFiles(target)) {
+      expect(readFileSync(join(target, path)).toString("latin1").includes("ZQREMOVEDROW")).toBe(false);
+    }
+    // The earlier wording is its own file, and it really is the OLD words.
+    const priorDir = join(target, "versions", plain);
+    expect(readdirSync(priorDir)).toEqual(["0001.md"]);
+    expect(readFileSync(join(priorDir, "0001.md"), "utf8")).toContain("ZQOLDWORDING");
+    // …and the live file is the CURRENT wording, not the old one.
+    expect(readFileSync(join(target, "memories", "fact", `${plain}.md`), "utf8")).not.toContain(
+      "ZQOLDWORDING",
+    );
+  });
+
+  test("--markdown --passphrase is supported PROPERLY: not one plaintext byte in the target", async () => {
+    // The pair is supported rather than refused, and this is the assertion that
+    // earns that: the tree is rendered into memory, sealed, and only then
+    // written. There is no scratch at all on this path — not in the target, not
+    // in the temp dir — so review B's MAJOR-4 shape cannot arise here.
+    furnished();
+    const target = join(outside, "sealed-tree");
+    const before = readdirSync(tmpdir()).filter((n) => n.startsWith("counterparts-export-")).length;
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--passphrase", "correct horse battery"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(readdirSync(target).sort()).toEqual(["README.md", BLOB_NAME].sort());
+    for (const name of readdirSync(target)) {
+      const bytes = readFileSync(join(target, name)).toString("latin1");
+      for (const mark of ["ZQPLAINROW", "ZQCHAPTERROW", "ZQPAGEROW"]) {
+        expect({ name, mark, holds: bytes.includes(mark) }).toEqual({ name, mark, holds: false });
+      }
+    }
+    // No scratch directory was made for this path at all.
+    expect(readdirSync(tmpdir()).filter((n) => n.startsWith("counterparts-export-")).length).toBe(before);
+    // And it opens: the readable tree is inside the blob, file by file.
+    const opened = decryptBundle(readFileSync(join(target, BLOB_NAME)), "correct horse battery");
+    expect([...opened.keys()].some((k) => k.startsWith("memories/"))).toBe(true);
+    expect([...opened.keys()]).toContain("README.md");
+    expect([...opened.keys()].some((k) => k.startsWith("journal/"))).toBe(true);
+  });
+
+  test("it refuses a target that is not empty, unless told", async () => {
+    furnished();
+    const target = join(outside, "occupied");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "somebody-elses-notes.md"), "not ours", "utf8");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("not empty");
+    expect(readdirSync(target)).toEqual(["somebody-elses-notes.md"]);
+    // Told, it writes.
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--into-non-empty"], {
+        io: c2.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(join(target, "README.md"))).toBe(true);
+  });
+
+  test("it refuses a target inside the store, and one inside a live v1 store, and writes nothing", async () => {
+    furnished();
+    const inside = join(dir, "export-here");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", inside, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("inside the store");
+    expect(existsSync(inside)).toBe(false);
+    // The store is still layout-clean: the refusal did not leave a directory in it.
+    Store.open({ dir, observer: true }).assertLayout();
+
+    const v1 = join(homedir(), ".bansai", "nope");
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", v1, "--markdown", "--plaintext"], { io: c2.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(v1)).toBe(false);
+  });
+
+  test("a store this build cannot open is refused in the SAME sentence, and the target is never made", async () => {
+    // F5's refusal, reached through this door: the words, not a bare code and a
+    // JSON blob — and nothing is created on either side.
+    const old = join(outside, "v5-store");
+    mkdirSync(join(old, "prose"), { recursive: true });
+    writeFileSync(join(old, "operational.sqlite"), "an older floor's database", "utf8");
+    const target = join(outside, "from-the-old-one");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: old } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("was written before this build's floor");
+    expect(text(c.err)).toContain("NOTHING WAS TOUCHED");
+    expect(existsSync(target)).toBe(false);
+    expect(readdirSync(old).sort()).toEqual(["operational.sqlite", "prose"]);
+  });
+
+  test("the flags that are about the tree refuse a database export BY NAME", async () => {
+    furnished();
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", join(outside, "no"), "--plaintext", "--include-confidential"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("--markdown");
+    expect(text(c.err)).toContain("carries every row");
+  });
+
+  test("an export leaves a durable row — counts and flags, never the target path", async () => {
+    furnished();
+    const target = join(outside, "rowed");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    const rows = store({ observer: true }).eventLog({ name: STORE_EXPORT_EVENT });
+    expect(rows.length).toBe(1);
+    const payload = JSON.parse((rows[0] as { payload: string | null }).payload as string) as Record<string, unknown>;
+    expect(payload["kind"]).toBe("markdown");
+    expect(payload["encrypted"]).toBe(false);
+    expect(payload["omittedConfidential"]).toBe(1);
+    expect(payload["rows"]).toBeGreaterThan(0);
+    // WHERE the memories went is more than the row needs, and the terminal has
+    // already said it (§5 G10). No body, no title, no path.
+    const json = JSON.stringify(payload);
+    expect(json).not.toContain(target);
+    expect(json).not.toContain("ZQPLAINROW");
+    expect(json).not.toContain("Plain");
+  });
+
+  test("an export is a READ, so it works under --observer — and writes no row, and says so", async () => {
+    furnished();
+    const target = join(outside, "instrument");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--observer"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Counterparts export");
+    expect(text(c.out)).toContain("No store.export row was written");
+    expect(store({ observer: true }).eventLog({ name: STORE_EXPORT_EVENT }).length).toBe(0);
+  });
+
+  test("a refusal never echoes a memory body", async () => {
+    furnished();
+    const occupied = join(outside, "echo-check");
+    mkdirSync(occupied, { recursive: true });
+    writeFileSync(join(occupied, "x"), "x", "utf8");
+    const refusals: string[] = [];
+    for (const argv of [
+      ["export", "--out", occupied, "--markdown", "--plaintext"],
+      ["export", "--out", join(dir, "inside"), "--markdown", "--plaintext"],
+      ["export", "--out", join(outside, "nochoice"), "--markdown"],
+      ["export", "--out", join(outside, "nomd"), "--plaintext", "--with-versions"],
+    ]) {
+      const c = consoleWith();
+      expect(await run(argv, { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+      refusals.push(text(c.err));
+    }
+    for (const said of refusals) {
+      for (const mark of ["ZQPLAINROW", "ZQSECRETROW", "ZQCHAPTERROW", "ZQPAGEROW"]) {
+        expect({ mark, echoed: said.includes(mark) }).toEqual({ mark, echoed: false });
+      }
+    }
   });
 });
 
