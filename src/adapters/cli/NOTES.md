@@ -619,14 +619,19 @@ close it would be a second source of truth about a directory, for a line of
 output; the next run's printed plan says exactly what is on the ground instead.
 A test asserts the silence, so nobody later turns it into a guess.
 
-**Two duplicated strings, on purpose.** `start-fresh.ts` spells `"store"` and
-`"snapshots"` rather than importing `DEFAULT_STORE_SUBDIR` and
-`SNAPSHOTS_DIR_NAME`. The first is only a *recognition* test — "does this store
-sit in the layout this package creates, so that a sibling `snapshots` is ours to
-park" — and the second lives in `adapters/snapshots.ts`, importing which would
-pull `openDb` into this module's import graph. That graph is the module's whole
-promise: it opens no database, and the doc comment says so. If the layout names
-ever move, this file is the second place to look.
+**Two duplicated strings, and the honest reason.** `start-fresh.ts` spells
+`"store"` and `"snapshots"` rather than importing `DEFAULT_STORE_SUBDIR` and
+`SNAPSHOTS_DIR_NAME`. Both are only *recognition* tests — "does this store sit in
+the layout this package creates, so that a sibling `snapshots` is ours to park" —
+and getting either wrong costs a folder not parked, never a byte moved.
+
+The tempting justification is wrong and is written down here so nobody rests on
+it: importing `adapters/snapshots.ts` would not "pull `openDb` into the import
+graph" in any way that matters, because this file already imports
+`core/store/index.js`, which reaches the whole store. **The module's promise is
+about CALLS, not imports** — it opens no database, and the one store function it
+calls, `preRowsMarkersIn`, reads filenames. If the layout names ever move, this
+file is the second place to look.
 
 **The merge-up over F5 (2026-09-20).** Four things changed underneath this
 command, and none of them changed its design — which was the point of asking the

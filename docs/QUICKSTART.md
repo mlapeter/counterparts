@@ -846,15 +846,24 @@ do, in another terminal:
 pgrep -fl counterparts
 ```
 
-It should print nothing at all. A line there is a hook, a worker, an MCP server or
-a dashboard still running. The command asks you to type the parked directory's name
-back before it does anything.
+Run that **before** you start and it should print nothing at all; run it while the
+command is waiting at its question and the only line should be the command itself.
+Anything else is a hook, a worker, an MCP server or a dashboard still running.
+
+**Run it from a plain terminal, not from inside Claude Code.** Your own session's
+record is one the check refuses on, so it will turn you away — correctly — and you
+will have closed the session anyway by the time you can answer.
+
+The command asks you to type the parked directory's name back before it does
+anything.
 
 What it does, in order:
 
 1. Renames `~/.counterparts/snapshots` to `snapshots.parked-<today>`, and then
    `~/.counterparts/store` to `store.parked-<today>` (with a `-2` if you have
-   done this already today). **One atomic rename each. It never copies, never
+   done this already today — the two suffixes are picked independently, so a
+   second run's store and snapshots may not wear matching numbers; the `mv` lines
+   the command prints are always exact). **One atomic rename each. It never copies, never
    deletes, and never opens the old store — not even read-only.**
 2. Creates a blank store back at `~/.counterparts/store`, by running `install`.
 3. Leaves `claude-code.json`, `credentials.env` and `scopes.json` exactly as they
@@ -867,9 +876,12 @@ The date in the parked name is **UTC**, like every other date this system writes
 so an evening run west of Greenwich parks under tomorrow's date. It is a label,
 not a claim about your clock.
 
-Then **restart Claude Code**. There is nothing to re-register: the MCP server is
-registered with `COUNTERPARTS_DATA_DIR=~/.counterparts/store`, and the blank store
-is at that same path.
+Then **restart Claude Code**. There is almost certainly nothing to re-register: if
+you registered the MCP server the way `install` prints it
+(`-e COUNTERPARTS_DATA_DIR=<your store>`), that path has not moved and the blank
+store is sitting at it. The command cannot read your host's files to check — it
+never touches them — so if you want to be sure, `claude mcp get counterparts` says
+what it was actually registered with.
 
 **`--dry-run` prints every rename and every file it would write and changes
 nothing.** Run that first if you want to see it.

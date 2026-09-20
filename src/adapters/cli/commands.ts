@@ -144,6 +144,7 @@ import { exportStore } from "./export.js";
 import {
   BIN,
   CREDENTIALS_FILE,
+  MCP_SERVER_NAME,
   configObject,
   credentialsHeld,
   credentialsTemplate,
@@ -2242,8 +2243,10 @@ async function startFreshCommand(
     io.out("  instrument that can answer, which is what this question is.");
     io.out("");
     io.out("  What you CAN check, in another terminal:");
-    io.out("    pgrep -fl counterparts     # it should print nothing at all");
-    io.out("  A line there is a hook, a worker, an MCP server or a dashboard still running.");
+    io.out("    pgrep -fl counterparts");
+    io.out("  THE ONLY LINE SHOULD BE THIS COMMAND ITSELF, sitting here waiting for you.");
+    io.out("  Anything else is a hook, a worker, an MCP server or a dashboard still");
+    io.out("  running, and it is holding this store open.");
     const stop = livenessRefusal(io, plan);
     if (stop !== null) return stop;
     if (parsed.flags["yes"] !== true) {
@@ -2395,10 +2398,19 @@ async function startFreshCommand(
   io.out("");
   io.out("Done. What is left is yours to do:");
   io.out("");
-  io.out(`  1. Nothing to re-register. The MCP server is registered with`);
-  io.out(`     COUNTERPARTS_DATA_DIR=${created}, and that path has not moved —`);
-  io.out("     the blank store is at it. The hooks read the same configuration they read");
-  io.out("     this morning, and it says the same thing it said this morning.");
+  // WHAT THIS COMMAND KNOWS, AND WHAT IT DOES NOT. It never reads
+  // `~/.claude/…` — `install` prints the host's two steps and refuses to touch
+  // them, and this inherits that. So it cannot say what the MCP server was
+  // actually registered with; what it CAN say is that the path did not move,
+  // and name the one command that answers the other half.
+  io.out(`  1. Probably nothing to re-register. Your store is still at`);
+  io.out(`       ${created}`);
+  io.out("     — the blank one is at the same path the old one was, and this command");
+  io.out("     never touched your configuration. So if the MCP server was registered the");
+  io.out(`     way 'install' prints it (-e COUNTERPARTS_DATA_DIR=<that path>), it already`);
+  io.out("     names the right store. This cannot read your host's files to check:");
+  io.out(`       claude mcp get ${MCP_SERVER_NAME}`);
+  io.out("     says what it was actually registered with.");
   io.out("  2. RESTART CLAUDE CODE. Every session that was open holds the old store by a");
   io.out("     file handle, and a handle does not follow a rename. Until they restart,");
   io.out("     they are still writing into the parked directory.");
