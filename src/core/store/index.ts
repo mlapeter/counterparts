@@ -107,6 +107,7 @@ export type {
   TombstoneRow,
 } from "./operational.js";
 export {
+  ADDED_COLUMNS,
   DEFAULT_RETENTION_DAYS,
   OBSERVER_READ_FLOOR,
   SCHEMA_VERSION,

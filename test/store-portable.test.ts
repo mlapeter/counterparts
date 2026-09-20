@@ -1,16 +1,27 @@
 /**
- * A store directory is SELF-CONTAINED (store CONTRACT §5 G15, finding I22).
+ * A store directory is SELF-CONTAINED (store CONTRACT §5 G15, finding I22) —
+ * and, since the floor, a store written by an older build is REFUSED BY NAME
+ * rather than migrated (`STORE_PRE_ROWS`).
  *
- * `prose_path` and `versions.path` used to hold ABSOLUTE paths, so a copied
- * store — `cp -R`, a `counterparts backup`, a restored snapshot — read and
- * DELETED the source's prose through the copy's rows. Every test below builds a
- * store in a fresh temp dir, copies it somewhere else, and then does the one
- * thing that tells the two apart: it destroys the SOURCE's file (or removes
- * through the COPY) and asks which side moved.
+ * **The scar, and what is left of it.** `prose_path` and `versions.path` used to
+ * hold ABSOLUTE paths, so a copied store — `cp -R`, a `counterparts backup`, a
+ * restored snapshot — read and DELETED the source's prose through the copy's
+ * rows. v5 answered that with store-relative columns and a placement rule, and
+ * this file used to test the rule: `resolveStoredPath`, `relativizeStoredPath`,
+ * the escape guard, the v4 → v5 migration and its census, ~330 lines of
+ * mechanism. Schema v6 deleted all of it, because a row IS its memory and there
+ * are no files outside the database for a copy to reach.
  *
- * The first describe uses only the API master had before the fix, so stashing
- * `src/` makes these FAIL ON THEIR ASSERTIONS rather than at import — that is
- * the pre-fix proof recorded in the PR.
+ * Constitution line 14 — port the scars, not the code. The CRITERION is what
+ * survives, and it is what the first describe asserts: copy a store, destroy
+ * the source, read and remove through the copy, and ask which side moved. Those
+ * tests are unchanged in what they claim; only the thing they destroy is
+ * different, because there is one file to destroy now instead of a tree.
+ *
+ * The second describe is the floor's own guard: a REAL pre-rows store, built
+ * here by hand because this build has no code that can write one, opened as a
+ * writer and as a session — refused by name, with the directory byte-identical
+ * afterwards.
  *
  * Hermetic (CLAUDE.md): fresh temp dirs, removed in afterEach, never a real
  * store.
@@ -19,30 +30,31 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { Database } from "bun:sqlite";
 
 import { EXIT, run, snapshot } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import {
+  DATABASE_FILE,
   DATA_DIR_ENV,
-  OBSERVER_READ_FLOOR,
-  PATHS_MIGRATED_EVENT,
   SCHEMA_VERSION,
   Store,
+  isDatabaseSidecar,
   paths,
-  relativizeStoredPath,
-  resolveStoredPath,
-  stored,
+  storeExists,
 } from "../src/core/store/index.js";
 
 let source: string;
@@ -81,14 +93,30 @@ function consoleAnswering(answer: string): { io: Io; out: string[]; err: string[
   };
 }
 
-/** Every `.md` under `prose/`, relative to the dir — the canonical bytes. */
-function proseFiles(dir: string): string[] {
-  const root = paths.prose(dir);
-  if (!existsSync(root)) return [];
-  return readdirSync(root, { recursive: true })
-    .map(String)
-    .filter((f) => f.endsWith(".md"))
-    .sort();
+/**
+ * Every file under `dir`, by relative path, hashed by CONTENT.
+ *
+ * The `-shm` is skipped and nothing else, the way every suite in this project
+ * does it since box 2 went to WAL: it is the shared index every connection
+ * writes read-marks into, a read-only one included. The `-wal` IS hashed,
+ * because committed pages live in it until a checkpoint and a hash that skipped
+ * it would pass over exactly the write this is here to catch.
+ */
+function fingerprint(dir: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (at: string): void => {
+    for (const name of readdirSync(at).sort()) {
+      const full = join(at, name);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (isDatabaseSidecar(name)) continue;
+      out[relative(dir, full)] = createHash("sha256").update(readFileSync(full)).digest("hex");
+    }
+  };
+  walk(dir);
+  return out;
 }
 
 beforeEach(() => {
@@ -106,64 +134,71 @@ afterEach(() => {
   else process.env[DATA_DIR_ENV] = priorEnv;
 });
 
-const BODY = "The copy must read its OWN prose, never the source's.";
+const BODY = "The copy must read its OWN words, never the source's.";
 
-/** A store with one memory and one revision (so `versions/` has a file too). */
-function seed(dir: string): { id: string; proseRel: string } {
+/** A store with one memory and one revision, so `versions` holds a row too. */
+function seed(dir: string): { id: string } {
   const s = store(dir);
   const id = s.put({ type: "memory", kind: "fact", body: BODY, title: "Portable" });
   s.revise(id, { body: BODY, title: "Portable, revised" });
   s.close();
   open.length = 0;
-  return { id, proseRel: join("prose", "memories", `${id}.md`) };
+  return { id };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("a copied store is self-contained — master-API tests (the pre-fix proof)", () => {
-  test("(a) `cp -R` the store, DESTROY the source's prose, and the copy still reads its own", () => {
-    const { id, proseRel } = seed(source);
+describe("a copied store is self-contained — the criterion, with the mechanism gone", () => {
+  test("(a) `cp -R` the store, DESTROY the source outright, and the copy still reads its own words", () => {
+    const { id } = seed(source);
     const copy = join(elsewhere, "store");
     cpSync(source, copy, { recursive: true });
-    expect(existsSync(join(copy, proseRel))).toBe(true);
 
-    // The one move that tells "reads the copy" from "reads the source": the
-    // source's file is gone, and the copy's own file is untouched.
-    rmSync(join(source, proseRel));
-    expect(existsSync(join(source, proseRel))).toBe(false);
+    // The one move that tells "reads the copy" from "reads the source": there
+    // is no source left at all. On the file floor this test removed one `.md`,
+    // because a copy could still be reading the source's prose through an
+    // absolute row; there is nothing outside the database to point at now, so
+    // the honest version of the same question is to take the whole store away.
+    rmSync(source, { recursive: true, force: true });
+    expect(existsSync(source)).toBe(false);
 
     const opened = store(copy);
     expect(opened.read(id).doc.body).toBe(BODY);
     expect(opened.read(id).doc.title).toBe("Portable, revised");
     // …and a version read resolves inside the copy too.
     expect(opened.readVersion(id, 1).title).toBe("Portable");
+    expect(opened.readVersion(id, 1).body).toBe(BODY);
+    // Re-create the source dir so afterEach's rmSync has something to remove.
+    mkdirSync(source, { recursive: true });
   });
 
-  test("(b) an owner removal run in the COPY leaves the SOURCE's prose untouched", async () => {
-    const { id, proseRel } = seed(source);
+  test("(b) an owner removal run in the COPY leaves the SOURCE byte-identical", async () => {
+    const { id } = seed(source);
     const copy = join(elsewhere, "store");
     cpSync(source, copy, { recursive: true });
-    const sourceBefore = proseFiles(source);
-    const sourceBytes = readFileSync(join(source, proseRel), "utf8");
-    const sourceVersions = readdirSync(paths.versionsFor(source, id));
+    const sourceBefore = fingerprint(source);
 
     const c = consoleAnswering(id);
     const code = await run(["remove", id, "--confirm", "--dir", copy], { io: c.io });
     expect(c.err.join("\n")).toBe("");
     expect(code).toBe(EXIT.ok);
 
-    // The copy's prose and archived versions are gone…
-    expect(existsSync(join(copy, proseRel))).toBe(false);
-    for (const v of sourceVersions) expect(existsSync(join(copy, "versions", id, v))).toBe(false);
-    // …and the source has every file it had, byte for byte.
-    expect(proseFiles(source)).toEqual(sourceBefore);
-    expect(readFileSync(join(source, proseRel), "utf8")).toBe(sourceBytes);
-    expect(readdirSync(paths.versionsFor(source, id))).toEqual(sourceVersions);
+    // The copy's words are gone — the row survives as a tombstone…
+    const removed = store(copy, { observer: true });
+    expect(removed.row(id)?.body).toBe("");
+    expect(removed.row(id)?.content_hash).toBe("");
+    expect(removed.versions(id).map((v) => v.body)).toEqual([""]);
+    removed.close();
+    open.length = 0;
+
+    // …and the source has every byte it had.
+    expect(fingerprint(source)).toEqual(sourceBefore);
     const back = store(source);
     expect(back.read(id).doc.body).toBe(BODY);
+    expect(back.readVersion(id, 1).body).toBe(BODY);
   });
 
-  test("(d) a `backup` snapshot opens standalone and reads its own prose after the source is gone", () => {
-    const { id, proseRel } = seed(source);
+  test("(d) a `backup` snapshot opens standalone and HOLDS THE WORDS after the source is gone", () => {
+    const { id } = seed(source);
     const s = store(source, { observer: true });
     const target = join(elsewhere, "snap");
     const report = snapshot(s, target);
@@ -173,342 +208,189 @@ describe("a copied store is self-contained — master-API tests (the pre-fix pro
 
     // Wipe the SOURCE entirely: a restore is exactly the case where it is gone.
     rmSync(source, { recursive: true, force: true });
-    expect(existsSync(join(target, proseRel))).toBe(true);
 
+    // THE DATABASE ALONE MUST CARRY THE BODIES NOW. On the file floor a
+    // database-only snapshot would have been scar §2.11 all over again; here it
+    // is the whole store, and this assertion is what proves the snapshot did
+    // not quietly become a copy of the bookkeeping.
+    expect(readdirSync(target)).toEqual([DATABASE_FILE]);
     const restored = store(target);
     expect(restored.read(id).doc.body).toBe(BODY);
     expect(restored.readVersion(id, 1).title).toBe("Portable");
+    expect(restored.readVersion(id, 1).body).toBe(BODY);
     // The restored store is writable and keeps writing INSIDE itself.
     const more = restored.put({ type: "memory", kind: "fact", body: "written after restore" });
-    expect(existsSync(join(target, "prose", "memories", `${more}.md`))).toBe(true);
-    // Re-create the source dir so afterEach's rmSync has something harmless to remove.
-    writeFileSync(join(elsewhere, ".keep"), "");
+    expect(restored.read(more).doc.body).toBe("written after restore");
+    mkdirSync(source, { recursive: true });
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// The v5 shape and the v4 → v5 migration. These use the API the fix added.
+// The pre-rows refusal (`STORE_PRE_ROWS`).
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Rewrite every path column to the ABSOLUTE form a pre-v5 build wrote, under `root`. */
-function regressToV4(dir: string, root: string): { prose: number; versions: number } {
-  const db = new Database(paths.operational(dir));
-  const prose = db
-    .prepare("SELECT id, prose_path AS p FROM memories WHERE prose_path <> ''")
-    .all() as { id: string; p: string }[];
-  for (const r of prose) db.run("UPDATE memories SET prose_path = ? WHERE id = ?", [join(root, r.p), r.id]);
-  const versions = db
-    .prepare("SELECT rowid AS k, path AS p FROM versions WHERE path <> ''")
-    .all() as { k: number; p: string }[];
-  for (const r of versions) db.run("UPDATE versions SET path = ? WHERE rowid = ?", [join(root, r.p), r.k]);
-  db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '4')");
-  db.close();
-  return { prose: prose.length, versions: versions.length };
-}
-
-function pathColumns(dir: string): { prose: string[]; versions: string[] } {
-  const db = new Database(paths.operational(dir), { readonly: true });
-  const prose = (db.prepare("SELECT prose_path AS p FROM memories ORDER BY id").all() as { p: string }[]).map(
-    (r) => r.p,
+/**
+ * A REAL v5 store, built by hand.
+ *
+ * By hand because it has to be: this build has no code that can write one any
+ * more, and a fixture that only pretended — an empty file called
+ * `operational.sqlite` — would prove the refusal fires on a name rather than on
+ * a store. This is the v5 DDL as `store/operational.ts` carried it at master
+ * `481b228`, a real memory row with a real `prose_path`, the prose file it
+ * names, and an archived version beside it.
+ */
+function buildV5Store(dir: string): { id: string; proseRel: string } {
+  const id = "mem_000000000001";
+  const proseRel = join("prose", "memories", `${id}.md`);
+  mkdirSync(join(dir, "prose", "memories"), { recursive: true });
+  mkdirSync(join(dir, "versions", id), { recursive: true });
+  mkdirSync(join(dir, "cache"), { recursive: true });
+  writeFileSync(
+    join(dir, proseRel),
+    `---\nid: ${id}\ntype: memory\nlearned: 2026-09-01\nbornDay: 0\npayload: ${JSON.stringify({
+      id,
+      type: "memory",
+      learnedOn: "2026-09-01",
+      bornDay: 0,
+      meta: {},
+    })}\n---\nThe words a v5 store keeps in a file.`,
+    "utf8",
   );
-  const versions = (
-    db.prepare("SELECT path AS p FROM versions ORDER BY memory_id, seq").all() as { p: string }[]
-  ).map((r) => r.p);
+  writeFileSync(join(dir, "versions", id, "0001-abcdef0123456789.md"), "an archived version", "utf8");
+
+  const db = new Database(join(dir, "operational.sqlite"), { create: true });
+  db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  db.exec(`CREATE TABLE memories (
+     id TEXT PRIMARY KEY, type TEXT NOT NULL, kind TEXT NOT NULL, band TEXT NOT NULL,
+     band_day INTEGER NOT NULL, novelty REAL, relevance REAL NOT NULL, emotional REAL NOT NULL,
+     predictive REAL NOT NULL, claimed REAL, birth_day INTEGER NOT NULL, uses REAL NOT NULL DEFAULT 0,
+     last_used_day INTEGER NOT NULL, reinforced_days INTEGER NOT NULL DEFAULT 0,
+     consolidated INTEGER NOT NULL DEFAULT 0, promoted_identity INTEGER NOT NULL DEFAULT 0,
+     protected INTEGER NOT NULL DEFAULT 0, pressure REAL NOT NULL DEFAULT 0,
+     last_challenged_day INTEGER, archived INTEGER NOT NULL DEFAULT 0, archived_reason TEXT,
+     superseded_by TEXT REFERENCES memories(id), revision INTEGER NOT NULL DEFAULT 0,
+     content_hash TEXT NOT NULL, prose_path TEXT NOT NULL, learned_on TEXT NOT NULL,
+     happened_on TEXT, source TEXT, origin_session TEXT, origin_scope TEXT, origin_ref TEXT)`);
+  db.exec(`CREATE TABLE versions (
+     memory_id TEXT NOT NULL REFERENCES memories(id), seq INTEGER NOT NULL, reason TEXT NOT NULL,
+     version_day INTEGER NOT NULL, archived_at INTEGER NOT NULL, path TEXT NOT NULL,
+     content_hash TEXT NOT NULL, successor_id TEXT REFERENCES memories(id),
+     PRIMARY KEY (memory_id, seq))`);
+  db.run("INSERT INTO meta (key, value) VALUES ('schemaVersion', '5')");
+  db.run("INSERT INTO meta (key, value) VALUES ('livedDay', '12')");
+  db.run(
+    `INSERT INTO memories (id, type, kind, band, band_day, relevance, emotional, predictive,
+       birth_day, last_used_day, content_hash, prose_path, learned_on)
+     VALUES (?, 'memory', 'fact', 'episodic', 0, 0, 0, 0, 0, 0, 'abcdef0123456789', ?, '2026-09-01')`,
+    [id, proseRel],
+  );
+  db.run(
+    `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash)
+     VALUES (?, 1, 'revise', 0, 0, ?, 'abcdef0123456789')`,
+    [id, join("versions", id, "0001-abcdef0123456789.md")],
+  );
   db.close();
-  return { prose, versions };
+  return { id, proseRel };
 }
 
-describe("the stored spelling is store-relative POSIX", () => {
-  test("a fresh write records `prose/<family>/<id>.md`, and a revision `versions/<id>/<seq>-<hash>.md`", () => {
-    const { id } = seed(source);
-    const cols = pathColumns(source);
-    expect(cols.prose).toEqual([stored.proseFile("memory", id)]);
-    expect(cols.prose[0]).toBe(`prose/memories/${id}.md`);
-    expect(cols.versions.length).toBe(1);
-    expect(cols.versions[0]).toMatch(new RegExp(`^versions/${id}/0001-[0-9a-f]{16}\\.md$`));
-    // Nothing stored is absolute, and nothing stored names the temp dir.
-    for (const p of [...cols.prose, ...cols.versions]) {
-      expect(p.startsWith("/")).toBe(false);
-      expect(p.includes(source)).toBe(false);
+describe("a store written before the floor is refused by name, and never touched", () => {
+  test("a WRITER open throws STORE_PRE_ROWS and the directory is byte-identical afterwards", () => {
+    const { proseRel } = buildV5Store(source);
+    const before = fingerprint(source);
+    expect(Object.keys(before).sort()).toEqual(
+      [proseRel, join("versions", "mem_000000000001", "0001-abcdef0123456789.md"), "operational.sqlite"].sort(),
+    );
+
+    let code = "NO_THROW";
+    let detail: Record<string, unknown> = {};
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+      detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
     }
-    // …and resolving it lands on the file that is actually there.
-    const s = store(source, { observer: true });
-    expect(s.absolutePath(cols.prose[0] as string)).toBe(paths.proseFile(source, "memory", id));
-    expect(existsSync(s.absolutePath(cols.prose[0] as string))).toBe(true);
-    expect(existsSync(s.absolutePath(cols.versions[0] as string))).toBe(true);
-  });
+    expect(code).toBe("STORE_PRE_ROWS");
+    // It names what it found, what this build writes, and which build still
+    // reads the store — a refusal that ends in something to do.
+    expect(detail["found"]).toBe("operational.sqlite");
+    expect(detail["expected"]).toBe(SCHEMA_VERSION);
+    expect(detail["readableBy"]).toBe("floor/v5-last");
 
-  test("a blank pointer resolves to NOTHING — never to the store root", () => {
-    // `join(dir, "")` is the store directory itself; handed to the removal
-    // path's `existsSync` + `rmSync` that would be the worst address there is.
-    expect(resolveStoredPath("/some/store", "")).toBe("");
-    const s = store(source);
-    expect(s.absolutePath("")).toBe("");
-    expect(s.absolutePath("prose/memories/mem_x.md")).toBe(join(source, "prose", "memories", "mem_x.md"));
-    // An absolute value — a pre-v5 row the migration could not place — is
-    // returned as it is, so that row reads where it always read.
-    expect(s.absolutePath("/elsewhere/not-a-store/file.md")).toBe("/elsewhere/not-a-store/file.md");
-  });
-
-  test("relativizeStoredPath: exact under the dir, the deepest prose/ or versions/ segment elsewhere, null when unplaceable", () => {
-    const dir = "/Users/o/.counterparts/store";
-    expect(relativizeStoredPath(dir, `${dir}/prose/memories/mem_a.md`)).toBe("prose/memories/mem_a.md");
-    expect(relativizeStoredPath(dir, `${dir}/versions/mem_a/0001-abc.md`)).toBe("versions/mem_a/0001-abc.md");
-    // Another spelling of the same store (macOS: /var vs /private/var), and a
-    // backup restored somewhere else with rows that still name the old dir.
-    expect(relativizeStoredPath(dir, "/private/var/folders/x/T/store/prose/memories/mem_b.md")).toBe(
-      "prose/memories/mem_b.md",
+    // NOTHING MOVED. Not one byte, and no new file: no `counterparts.sqlite`
+    // minted beside the old one, no `cache/` created, no v6 DDL run, and above
+    // all `schemaVersion` still reads 5 and `memories` still has no `body`.
+    expect(fingerprint(source)).toEqual(before);
+    expect(existsSync(paths.operational(source))).toBe(false);
+    const db = new Database(join(source, "operational.sqlite"), { readonly: true });
+    expect(
+      (db.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value,
+    ).toBe("5");
+    const columns = (db.prepare("PRAGMA table_info(memories)").all() as { name: string }[]).map(
+      (c) => c.name,
     );
-    expect(relativizeStoredPath(dir, "/old/machine/store/versions/mem_b/0002-def.md")).toBe(
-      "versions/mem_b/0002-def.md",
-    );
-    // A store that itself lives under a directory called `prose` or `versions`
-    // is keyed by the DEEPEST segment, which is the store-level one.
-    expect(relativizeStoredPath(dir, "/home/prose/archive/store/prose/episodes/epi_c.md")).toBe(
-      "prose/episodes/epi_c.md",
-    );
-    expect(relativizeStoredPath(dir, "/home/versions/store/prose/memories/mem_d.md")).toBe(
-      "prose/memories/mem_d.md",
-    );
-    // Already relative: unchanged (idempotent). Blank: unchanged. Unplaceable: null.
-    expect(relativizeStoredPath(dir, "prose/memories/mem_e.md")).toBe("prose/memories/mem_e.md");
-    expect(relativizeStoredPath(dir, "")).toBe("");
-    expect(relativizeStoredPath(dir, "/somewhere/else/mem_f.md")).toBeNull();
-  });
-});
-
-describe("the v4 → v5 migration at open", () => {
-  test("(c) rows holding ABSOLUTE paths — under this dir AND under another spelling of it — migrate at the first writer open, idempotently, and read", () => {
-    const { id } = seed(source);
-    // A second memory whose absolute path names a DIFFERENT root — the store as
-    // a previous machine or a `/private/var` spelling recorded it. Only the
-    // tail rule can place it.
-    const s0 = store(source);
-    const other = s0.put({ type: "memory", kind: "fact", body: "recorded under another spelling of this store" });
-    s0.close();
-    open.length = 0;
-    const regressed = regressToV4(source, source);
-    expect(regressed).toEqual({ prose: 2, versions: 1 });
-    const db = new Database(paths.operational(source));
-    db.run("UPDATE memories SET prose_path = ? WHERE id = ?", [
-      `/private/var/some/other/spelling/store/prose/memories/${other}.md`,
-      other,
-    ]);
+    expect(columns).toContain("prose_path");
+    expect(columns).not.toContain("body");
     db.close();
-    const before = pathColumns(source);
-    expect(before.prose.every((p) => p.startsWith("/"))).toBe(true);
-    expect(before.versions.every((p) => p.startsWith("/"))).toBe(true);
-
-    // The first WRITER open converts, in the migrate-at-open transaction…
-    const migrated = store(source);
-    expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
-    const after = pathColumns(source);
-    expect([...after.prose].sort()).toEqual(
-      [stored.proseFile("memory", id), stored.proseFile("memory", other)].sort(),
-    );
-    expect(after.versions[0]).toMatch(/^versions\//);
-    // …reads resolve inside THIS store…
-    expect(migrated.read(id).doc.body).toBe(BODY);
-    expect(migrated.read(other).doc.body).toBe("recorded under another spelling of this store");
-    expect(migrated.readVersion(id, 1).title).toBe("Portable");
-    // …the census says so…
-    expect(migrated.pathCensus()).toEqual({
-      prose: { relative: 2, absolute: 0, escaped: 0, missing: 0, blank: 0 },
-      versions: { relative: 1, absolute: 0, escaped: 0, missing: 0, blank: 0 },
-    });
-    // …and the conversion left a durable, counts-only record (constitution 16).
-    const record = migrated.eventLog({ name: PATHS_MIGRATED_EVENT });
-    expect(record.length).toBe(1);
-    expect(JSON.parse(record[0]?.payload ?? "{}")).toEqual({
-      from: "4",
-      to: SCHEMA_VERSION,
-      prose: { converted: 2, unplaceable: 0 },
-      versions: { converted: 1, unplaceable: 0 },
-    });
-    expect(record[0]?.payload ?? "").not.toContain(source);
-    migrated.close();
-    open.length = 0;
-
-    // IDEMPOTENT: a second open writes nothing — the database is byte-identical.
-    const bytes = readFileSync(paths.operational(source));
-    store(source).close();
-    open.length = 0;
-    expect(readFileSync(paths.operational(source))).toEqual(bytes);
-    expect(store(source).eventLog({ name: PATHS_MIGRATED_EVENT }).length).toBe(1);
+    expect(readFileSync(join(source, proseRel), "utf8")).toContain("The words a v5 store keeps in a file");
   });
 
-  test("a v4 copy opened as an OBSERVER reads without converting; `verify` shows the absolute count read-only", async () => {
-    const { id } = seed(source);
-    regressToV4(source, source);
-    const bytes = readFileSync(paths.operational(source));
+  test("an OBSERVER open, and a whole session, meet the same refusal and write nothing", () => {
+    buildV5Store(source);
+    const before = fingerprint(source);
 
-    const observer = store(source, { observer: true });
-    expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
-    expect(observer.read(id).doc.body).toBe(BODY);
-    expect(observer.pathCensus()).toEqual({
-      prose: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
-      versions: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
-    });
-    observer.close();
-    open.length = 0;
-    expect(readFileSync(paths.operational(source))).toEqual(bytes);
-
-    const c = consoleAnswering("");
-    expect(await run(["verify", "--dir", source], { io: c.io })).toBe(EXIT.ok);
-    const out = c.out.join("\n");
-    expect(out).toContain("Prose paths: 0 relative, 1 absolute (unmigrated), 0 missing files");
-    expect(out).toContain("Version paths: 0 relative, 1 absolute (unmigrated), 0 missing files");
-    expect(out).toContain("store schema v4: absolute paths are converted to relative at the next WRITER open");
-    expect(readFileSync(paths.operational(source))).toEqual(bytes);
-
-    // After a writer open the same command reads the converted state.
-    store(source).close();
-    open.length = 0;
-    const d = consoleAnswering("");
-    expect(await run(["verify", "--dir", source], { io: d.io })).toBe(EXIT.ok);
-    // On a v5 store a leftover absolute row was migrated and could not be
-    // placed, so the word beside the count changes with the schema.
-    expect(d.out.join("\n")).toContain("Prose paths: 1 relative, 0 absolute (unplaceable), 0 missing files");
-    expect(d.out.join("\n")).not.toContain("store schema v4");
-  });
-
-  test("an INSTRUMENT on a pre-v5 copy — or a moved pre-v5 store — reads the COPY's own files, source wiped, and writes nothing", async () => {
-    // The review of PR #79 reproduced the gap: an observer on a v4 copy read the
-    // SOURCE's prose (or failed once the source was gone) and `verify` called
-    // the copy's own present files "missing", until something WROTE to the
-    // copy. Absolute rows are now PLACED at read time by the migration's rule.
-    const { id, proseRel } = seed(source);
-    regressToV4(source, source);
-    const copy = join(elsewhere, "copy");
-    cpSync(source, copy, { recursive: true });
-    rmSync(source, { recursive: true, force: true });
-    expect(existsSync(join(copy, proseRel))).toBe(true);
-    const bytes = readFileSync(paths.operational(copy));
-
-    const observer = store(copy, { observer: true });
-    expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
-    expect(observer.read(id).doc.body).toBe(BODY);
-    expect(observer.readVersion(id, 1).title).toBe("Portable");
-    expect(observer.absolutePath(observer.row(id)?.prose_path ?? "")).toBe(join(copy, proseRel));
-    // The census is still a SPELLING census — the rows are absolute — but the
-    // files are the copy's own, so nothing is missing.
-    expect(observer.pathCensus()).toEqual({
-      prose: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
-      versions: { relative: 0, absolute: 1, escaped: 0, missing: 0, blank: 0 },
-    });
-    observer.close();
-    open.length = 0;
-    expect(readFileSync(paths.operational(copy))).toEqual(bytes);
-
-    const c = consoleAnswering("");
-    expect(await run(["verify", "--dir", copy], { io: c.io })).toBe(EXIT.ok);
-    expect(c.out.join("\n")).toContain("Prose paths: 0 relative, 1 absolute (unmigrated), 0 missing files");
-    expect(readFileSync(paths.operational(copy))).toEqual(bytes);
-
-    // The same store MOVED: an instrument reads it where it now is.
-    const moved = join(elsewhere, "moved");
-    renameSync(copy, moved);
-    const afterMove = store(moved, { observer: true });
-    expect(afterMove.read(id).doc.body).toBe(BODY);
-    expect(afterMove.pathCensus().prose.missing).toBe(0);
-    afterMove.close();
-    open.length = 0;
-    expect(readFileSync(paths.operational(moved))).toEqual(bytes);
-    // afterEach removes `elsewhere`; give it the source dir back to remove too.
-    writeFileSync(join(elsewhere, ".keep"), "");
-  });
-
-  test("a row that would resolve OUTSIDE prose/ or versions/ is refused by name, counted, and never resolved", async () => {
-    // Only a hand-edited database can hold one; the store's writers spell
-    // `prose/…` and `versions/…` and nothing else. The guard runs AFTER the
-    // join, so it judges where the value lands, not how it is spelled.
-    for (const bad of [
-      "../ESCAPE/prose/memories/mem_x.md",
-      ".",
-      "prose",
-      "prose/",
-      "cache/cache.sqlite",
-      "tmp/x.tmp",
-      "prose/../cache/cache.sqlite",
-      "/other/store/prose/../../secrets.txt",
+    for (const attempt of [
+      (): unknown => Store.open({ dir: source, observer: true }),
+      // The hook's own path. `Counterpart.open` makes `spans/` and `sessions/`
+      // of its own, so this also proves the refusal lands before any of that:
+      // a directory created here would be a byte written into his old store.
+      (): unknown => Counterpart.open({ dir: source, observer: true }),
+      (): unknown => Counterpart.open({ dir: source, owner: true }),
     ]) {
       let code = "NO_THROW";
       try {
-        resolveStoredPath("/some/store", bad);
+        attempt();
       } catch (err) {
         code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
       }
-      expect(`${bad} → ${code}`).toBe(`${bad} → STORED_PATH_ESCAPES`);
+      expect(code).toBe("STORE_PRE_ROWS");
     }
+    expect(fingerprint(source)).toEqual(before);
+    expect(existsSync(join(source, "spans"))).toBe(false);
+    expect(existsSync(join(source, "sessions"))).toBe(false);
+  });
 
-    const { id } = seed(source);
-    const s0 = store(source);
-    const tampered = s0.put({ type: "memory", kind: "fact", body: "a pointer someone edited by hand" });
-    s0.close();
-    open.length = 0;
-    // Regress to v4 and tamper, so the MIGRATION meets the row too.
-    regressToV4(source, source);
-    const db = new Database(paths.operational(source));
-    db.run("UPDATE memories SET prose_path = ? WHERE id = ?", ["../ESCAPE/prose/memories/mem_x.md", tampered]);
-    db.close();
+  test("a directory holding only prose/ — the database moved away — is refused too", () => {
+    // A store whose database was moved or deleted by hand still holds every one
+    // of its words. Minting a blank v6 store on top of them would bury the one
+    // copy there is, so the markers are all three, not just the database.
+    mkdirSync(join(source, "prose", "memories"), { recursive: true });
+    writeFileSync(join(source, "prose", "memories", "mem_x.md"), "words with no database", "utf8");
+    const before = fingerprint(source);
 
-    const s = store(source);
-    // The migration LEFT it and counted it; the good row converted.
-    expect(s.row(tampered)?.prose_path).toBe("../ESCAPE/prose/memories/mem_x.md");
-    expect(s.row(id)?.prose_path).toBe(stored.proseFile("memory", id));
-    expect(JSON.parse(s.eventLog({ name: PATHS_MIGRATED_EVENT })[0]?.payload ?? "{}")).toMatchObject({
-      prose: { converted: 1, unplaceable: 1 },
-    });
-    // Reads refuse by name — never a read of `<parent>/ESCAPE/…`.
     let code = "NO_THROW";
     try {
-      s.read(tampered);
+      Store.open({ dir: source });
     } catch (err) {
       code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
     }
-    expect(code).toBe("STORED_PATH_ESCAPES");
-    // The census calls it what it is — not "relative", and not stat'ed.
-    expect(s.pathCensus().prose).toEqual({ relative: 1, absolute: 0, escaped: 1, missing: 0, blank: 0 });
-    s.close();
-    open.length = 0;
-    const c = consoleAnswering("");
-    expect(await run(["verify", "--dir", source], { io: c.io })).toBe(EXIT.ok);
-    expect(c.out.join("\n")).toContain("1 ESCAPE the store");
-    expect(existsSync(join(source, "..", "ESCAPE"))).toBe(false);
+    expect(code).toBe("STORE_PRE_ROWS");
+    expect(fingerprint(source)).toEqual(before);
   });
 
-  test("a row the migration cannot place is LEFT and counted, and a missing file is a separate count", () => {
-    const { id, proseRel } = seed(source);
-    const s0 = store(source);
-    const stray = s0.put({ type: "memory", kind: "fact", body: "a pointer with no prose/ segment" });
-    s0.close();
-    open.length = 0;
-    regressToV4(source, source);
-    const db = new Database(paths.operational(source));
-    db.run("UPDATE memories SET prose_path = ? WHERE id = ?", ["/nowhere/at/all/file.md", stray]);
-    db.close();
-    rmSync(join(source, proseRel));
-
-    const migrated = store(source);
-    // The stray row keeps its absolute pointer (unmigrated, counted) and the
-    // placed row whose file is gone is counted as missing — two different facts.
-    expect(migrated.pathCensus().prose).toEqual({ relative: 1, absolute: 1, escaped: 0, missing: 2, blank: 0 });
-    expect(migrated.row(stray)?.prose_path).toBe("/nowhere/at/all/file.md");
-    expect(migrated.row(id)?.prose_path).toBe(stored.proseFile("memory", id));
-    const record = migrated.eventLog({ name: PATHS_MIGRATED_EVENT });
-    expect(JSON.parse(record[0]?.payload ?? "{}")).toMatchObject({
-      prose: { converted: 1, unplaceable: 1 },
-    });
+  test("`storeExists` says YES to a pre-rows store, so every console door reaches the named refusal", () => {
+    buildV5Store(source);
+    // It is the gate ~20 commands ask before they open anything. Answering
+    // "no store here" would send all of them down the "run init" path — the one
+    // sentence that invites somebody to build a store on top of his old one.
+    expect(storeExists(source)).toBe(true);
   });
 
-  test("a removed row's blanked pointers are untouched by the migration and counted as blank", async () => {
+  test("a v6 store is not refused, and the refusal costs a fresh store nothing", () => {
+    // Non-vacuity from the other side: the marker check must not be a thing
+    // that fires on any directory, and an empty dir is the ordinary first open.
     const { id } = seed(source);
-    const c = consoleAnswering(id);
-    expect(await run(["remove", id, "--confirm", "--dir", source], { io: c.io })).toBe(EXIT.ok);
-    regressToV4(source, source); // touches only non-blank rows
-    const migrated = store(source);
-    expect(migrated.row(id)?.prose_path).toBe("");
-    expect(migrated.pathCensus().prose).toEqual({ relative: 0, absolute: 0, escaped: 0, missing: 0, blank: 1 });
-    expect(migrated.eventLog({ name: PATHS_MIGRATED_EVENT })).toEqual([]);
+    expect(store(source, { observer: true }).read(id).doc.body).toBe(BODY);
+    const fresh = join(elsewhere, "fresh");
+    expect(store(fresh).getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 });

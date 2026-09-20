@@ -465,7 +465,7 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
  * fresh CREATE must list the same columns so both paths converge (a test
  * asserts table_info equality between a fresh open and a migrated one).
  */
-const ADDED_COLUMNS: readonly { table: string; column: string; ddl: string }[] = [
+export const ADDED_COLUMNS: readonly { table: string; column: string; ddl: string }[] = [
   // EMPTY at v6, and that is the floor's safety rule rather than an accident.
   //
   // A pre-v6 store is refused by name before anything opens it, so nothing here

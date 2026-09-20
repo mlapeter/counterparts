@@ -18,11 +18,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 import {
+  ADDED_COLUMNS,
   CACHE_SCHEMA_VERSION,
   DATA_DIR_ENV,
   DEFAULT_RETENTION_DAYS,
@@ -48,14 +50,16 @@ import {
   explicitDirSetting,
   hashText,
   newId,
-  parseProse,
   paths,
-  serializeProse,
+  renderMarkdown,
+  rowTombstoned,
   storeExists,
   vectorFormats,
 } from "../src/core/store/index.js";
 import type { ProseDoc, PutInput } from "../src/core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf, openDb } from "../src/core/store/db.js";
+import { readProseWalking } from "../src/core/store/walk-seam.js";
+import { bodyOf, makeBodyUnreadable, versionBodies } from "./store-fixture.js";
 // The word `sleep/dedup.ts` writes when it archives a duplicate, imported so
 // the seam's copy of it is pinned equal rather than hoped equal.
 import { MERGE_ARCHIVE_REASON } from "../src/core/sleep/index.js";
@@ -568,9 +572,9 @@ describe("no deletion surface (contract §5 G2, §16 G1)", () => {
   });
 });
 
-// ── box 1: prose ─────────────────────────────────────────────────────────────
+// ── the document shape, and markdown as an export ────────────────────────────
 
-describe("box 1 — canonical prose", () => {
+describe("the read shape, and markdown as an export", () => {
   const doc = (over: Partial<ProseDoc> = {}): ProseDoc => ({
     id: "mem_0123456789ab",
     type: "memory",
@@ -581,76 +585,128 @@ describe("box 1 — canonical prose", () => {
     ...over,
   });
 
-  test("round-trips byte-for-byte, body included", () => {
-    const d = doc({ title: "Preference", happenedOn: "2026-08", meta: { tier: 2, aliases: ["x"] } });
-    const text = serializeProse(d);
-    expect(parseProse(text)).toEqual(d);
-    expect(serializeProse(parseProse(text))).toBe(text);
-  });
-
-  test("unrecognized metadata survives parse → serialize untouched (§4.2 G6)", () => {
-    const d = doc({ meta: { fromTheFuture: { nested: [1, 2] }, provenance: "hook" } });
-    const parsed = parseProse(serializeProse(d));
-    expect(parsed.meta).toEqual({ fromTheFuture: { nested: [1, 2] }, provenance: "hook" });
-  });
-
-  test("omitted-when-absent: an unused field emits no line (§4.2 G8)", () => {
-    const bare = serializeProse(doc());
-    expect(bare).not.toContain("title:");
-    expect(bare).not.toContain("happened:");
-    // Adding then clearing the field returns the exact same bytes.
-    const withTitle = serializeProse(doc({ title: "T" }));
-    expect(withTitle).toContain("title: T");
-    expect(serializeProse(parseProse(bare))).toBe(bare);
-  });
-
-  test("the parser reads the payload, not the human lines", () => {
-    const text = serializeProse(doc({ title: "real" }));
-    const tampered = text.replace("title: real", "title: a lie");
-    expect(parseProse(tampered).title).toBe("real");
-  });
-
-  test("a body that opens with a fence does not confuse the parser", () => {
-    const d = doc({ body: "---\nnot frontmatter\n---\n" });
-    expect(parseProse(serializeProse(d)).body).toBe("---\nnot frontmatter\n---\n");
-  });
-
-  test("ambiguity is refused loudly, with the reason", () => {
-    expect(code(() => parseProse("no frontmatter here"))).toBe("PROSE_FRONTMATTER_MISSING");
-    expect(code(() => parseProse("---\nid: x\n"))).toBe("PROSE_FRONTMATTER_MISSING");
-    expect(code(() => parseProse("---\nid: x\n---\nbody"))).toBe("PROSE_PAYLOAD_MISSING");
-    expect(code(() => parseProse("---\npayload: {oops\n---\nbody"))).toBe("PROSE_PAYLOAD_MALFORMED");
-    expect(code(() => parseProse('---\npayload: {"id":"x"}\n---\nbody'))).toBe(
-      "PROSE_PAYLOAD_MALFORMED",
-    );
-    expect(code(() => serializeProse(doc({ body: 42 as unknown as string })))).toBe(
-      "PROSE_BODY_INVALID",
-    );
-    expect(
-      code(() => serializeProse(doc({ meta: { bad: () => 1 } as Record<string, unknown> }))),
-    ).toBe("PROSE_META_UNSERIALIZABLE");
-  });
-
-  test("write → read round-trip through the store, on disk as readable markdown", () => {
+  test("write → read round-trip through the store, with no file anywhere", () => {
     const s = store();
     const id = s.put(mem("Cold brew, not iced coffee.", { title: "Coffee", happenedOn: "2026-08-24" }));
-    const file = paths.proseFile(dir, "memory", id);
-    expect(existsSync(file)).toBe(true);
-    const raw = readFileSync(file, "utf8");
-    expect(raw.startsWith("---\n")).toBe(true);
-    expect(raw).toContain("Cold brew, not iced coffee.");
     const back = s.readProse(id);
     expect(back.body).toBe("Cold brew, not iced coffee.");
     expect(back.title).toBe("Coffee");
     expect(back.happenedOn).toBe("2026-08-24");
+    // THE WORDS ARE THE ROW. Not "also the row": there is no `prose/` at all,
+    // and the only thing under the store directory is the database and box 3.
+    expect(s.row(id)?.body).toBe("Cold brew, not iced coffee.");
+    expect(existsSync(join(dir, "prose"))).toBe(false);
+    expect(existsSync(join(dir, "versions"))).toBe(false);
+    expect(existsSync(join(dir, "tmp"))).toBe(false);
   });
 
-  test("a filename/payload disagreement is a hard error, not a repair", () => {
+  test("meta round-trips through the column untouched, unknown keys included (§4.2 G6)", () => {
+    // v1's named incident: a parser silently dropped tier, frequency,
+    // provenance and aliases on rewrite. The column holds the JSON verbatim, so
+    // the guarantee is now free — which is exactly why it is still asserted.
     const s = store();
-    const id = s.put(mem("body"));
-    const file = paths.proseFile(dir, "memory", id);
-    writeFileSync(file, readFileSync(file, "utf8").replaceAll(id, "mem_ffffffffffff"), "utf8");
-    expect(code(() => s.readProse(id))).toBe("PROSE_PAYLOAD_MISMATCH");
+    const meta = {
+      tier: 2,
+      aliases: ["x", "y"],
+      fromTheFuture: { nested: [1, 2, { deeper: null }] },
+      provenance: "hook",
+      falsey: false,
+      zero: 0,
+      empty: "",
+    };
+    const id = s.put(mem("a body", { meta }));
+    expect(s.readProse(id).meta).toEqual(meta);
+    // …and across a revision that patches ONE key.
+    s.revise(id, { meta: { tier: 3 } });
+    expect(s.readProse(id).meta).toEqual({ ...meta, tier: 3 });
+    // …and out of the ARCHIVED version, which carries its own copy.
+    expect(s.readVersion(id, 1).meta).toEqual(meta);
+    // …and after a reopen, so nothing depended on an in-process object.
+    s.close();
+    open.length = 0;
+    expect(store().readProse(id).meta).toEqual({ ...meta, tier: 3 });
+  });
+
+  test("a body that opens with a fence is just a body", () => {
+    // It had to be handled once, because the parser read frontmatter out of the
+    // same bytes. There is no parser; the column is the body.
+    const s = store();
+    const id = s.put(mem("---\nnot frontmatter\n---\n"));
+    expect(s.readProse(id).body).toBe("---\nnot frontmatter\n---\n");
+  });
+
+  test("meta that cannot survive JSON is refused loudly, before the row is written", () => {
+    const s = store();
+    expect(code(() => s.put(mem("x", { meta: { bad: (): number => 1 } as Record<string, unknown> })))).toBe(
+      "PROSE_META_UNSERIALIZABLE",
+    );
+    expect(code(() => s.put(mem("x", { meta: { bad: Number.NaN } })))).toBe(
+      "PROSE_META_UNSERIALIZABLE",
+    );
+    // Refused BEFORE anything landed, which is the half that matters.
+    expect(s.list()).toEqual([]);
+    expect(code(() => renderMarkdown(doc({ body: 42 as unknown as string })))).toBe(
+      "PROSE_BODY_INVALID",
+    );
+  });
+
+  test("markdown is an EXPORT: omitted-when-absent, and the payload line survives (§4.2 G8)", () => {
+    // Nothing parses this back any more, so what is asserted is the FORMAT —
+    // every `.md` the owner's store ever wrote is in it, and the `payload:` line
+    // is what makes one re-readable by a future importer without guessing.
+    const bare = renderMarkdown(doc());
+    expect(bare).not.toContain("title:");
+    expect(bare).not.toContain("happened:");
+    const withTitle = renderMarkdown(doc({ title: "T", happenedOn: "2026-08" }));
+    expect(withTitle).toContain("title: T");
+    expect(withTitle).toContain("happened: 2026-08");
+    const rendered = renderMarkdown(doc({ title: "Preference", meta: { tier: 2, aliases: ["x"] } }));
+    expect(rendered).toContain('payload: {"id":"mem_0123456789ab"');
+    expect(rendered).toContain('"meta":{"tier":2,"aliases":["x"]}');
+    expect(rendered.endsWith("Mike prefers prose over chips.\n")).toBe(true);
+  });
+
+  test("a row handed to a walking read for the WRONG id is refused by name", () => {
+    // `readProseFile`'s `expectId` check used to catch this; F3 flagged that
+    // deleting the file reader deletes the guard, so `walk-seam.ts` carries it.
+    const s = store();
+    const a = s.put(mem("the first memory"));
+    const b = s.put(mem("the second memory"));
+    expect(code(() => readProseWalking(s, a, s.row(b)))).toBe("PROSE_PAYLOAD_MISMATCH");
+    expect(readProseWalking(s, a, s.row(a)).body).toBe("the first memory");
+    expect(readProseWalking(s, a).body).toBe("the first memory");
+  });
+
+  test("a row whose WORDS went missing is a named fault, told apart from a removal", () => {
+    // The state `PROSE_FILE_MISSING` used to name. The pair is the whole point:
+    // blank body + blank hash is the owner's removal (answered `REMOVED` by the
+    // deny-list); blank body + a real hash is a row whose words went missing,
+    // and no write path in the store produces it.
+    const s = store();
+    const id = s.put(mem("words that are about to go missing"));
+    expect(rowTombstoned(s.row(id) as { body: string; content_hash: string })).toBe(false);
+    makeBodyUnreadable(s, id);
+    const row = s.row(id);
+    expect(row?.body).toBe("");
+    expect(row?.content_hash).not.toBe("");
+    expect(rowTombstoned(row as { body: string; content_hash: string })).toBe(false);
+    expect(code(() => s.read(id))).toBe("MEMORY_BODY_MISSING");
+    expect(code(() => s.readProse(id))).toBe("MEMORY_BODY_MISSING");
+    expect(code(() => readProseWalking(s, id))).toBe("MEMORY_BODY_MISSING");
+    // The ROW is still readable — that is how the owner sees something WAS here.
+    expect(s.row(id)?.kind).toBe("fact");
+  });
+
+  test("an empty body is refused at `revise` as it is at `put`", () => {
+    // `patch.body ?? prior.body` accepts `""` happily, and on this floor that
+    // would write the one state no write path may produce.
+    const s = store();
+    const id = s.put(mem("real words"));
+    expect(code(() => s.revise(id, { body: "" }))).toBe("PROSE_BODY_INVALID");
+    // Nothing moved: not the body, not the revision, not a version row.
+    expect(s.readProse(id).body).toBe("real words");
+    expect(s.row(id)?.revision).toBe(0);
+    expect(s.versions(id)).toEqual([]);
   });
 
   test("ids are type-prefixed, and a taken id is never reused", () => {
@@ -751,14 +807,25 @@ describe("box 2 — canonical operational state", () => {
     expect(code(() => s.advanceClock("2026-01-01"))).toBe("CLOCK_BACKWARDS");
   });
 
-  test("physics bookkeeping never rewrites prose (the strength-only exemption, structurally)", () => {
+  test("physics bookkeeping never rewrites content (the strength-only exemption, structurally)", () => {
+    // v1 decided this with a line-level diff over the rewritten file and a flag
+    // that granted permission to skip the archive copy. With physics in its own
+    // columns it is structural: `updatePhysics` names the columns it sets, and
+    // none of them is the body, the title, the meta or the hash.
     const s = store();
-    const id = s.put(mem("unchanged"));
-    const before = readFileSync(paths.proseFile(dir, "memory", id), "utf8");
+    const id = s.put(mem("unchanged", { title: "Unchanged" }));
+    const before = s.row(id);
     s.updatePhysics(id, { uses: 99, pressure: 0.9 });
     s.reinforce(id, 7);
-    expect(readFileSync(paths.proseFile(dir, "memory", id), "utf8")).toBe(before);
+    const after = s.row(id);
+    expect(after?.body).toBe(before?.body as string);
+    expect(after?.title).toBe(before?.title as string);
+    expect(after?.meta).toBe(before?.meta as string);
+    expect(after?.content_hash).toBe(before?.content_hash as string);
+    expect(after?.revision).toBe(before?.revision as number);
     expect(s.versions(id)).toEqual([]);
+    // …and the physics DID move, so the test is not vacuous.
+    expect(after?.uses).not.toBe(before?.uses as number);
   });
 
   test("referential integrity is enforced by the store, not by the caller", () => {
@@ -786,7 +853,7 @@ describe("box 2 — canonical operational state", () => {
 // ── transactionality ─────────────────────────────────────────────────────────
 
 describe("transactionality — a killed multi-row mutation leaves no partial state", () => {
-  test("an aborted putMany persists neither rows nor prose files", () => {
+  test("an aborted putMany persists nothing at all", () => {
     const s = store();
     const good = "mem_aaaaaaaaaaaa";
     const bad = "mem_bbbbbbbbbbbb";
@@ -801,13 +868,16 @@ describe("transactionality — a killed multi-row mutation leaves no partial sta
     ).toBe("PROSE_BODY_INVALID");
     expect(s.list()).toEqual([]);
     expect(s.has(good)).toBe(false);
-    expect(existsSync(paths.proseFile(dir, "memory", good))).toBe(false);
-    expect(
-      readdirSync(paths.prose(dir), { recursive: true }).filter((f) => String(f).endsWith(".md")),
-    ).toEqual([]);
-    // The staged temp survives (nothing here deletes) but is inert: it is not a .md
-    // under prose/, so no loader can mistake it for the memory it would have been.
-    expect(readdirSync(paths.tmp(dir)).every((f) => f.endsWith(".tmp"))).toBe(true);
+    // There is nothing ELSE to check any more, and that is the change worth
+    // naming: this test used to have to prove that no `.md` landed under
+    // `prose/` AND that the crash-leaked `tmp/` stage could not be loaded as a
+    // duplicate of the memory it would have been (§16 G4). One transaction
+    // rolled back is the whole of it now — no staging, no temp names, no
+    // half-written file outliving the rollback.
+    expect(readdirSync(dir).filter((n) => !n.startsWith("counterparts.sqlite-")).sort()).toEqual([
+      "cache",
+      "counterparts.sqlite",
+    ]);
   });
 
   test("an aborted linkMany persists none of its rows", () => {
@@ -864,14 +934,25 @@ describe("revision + bounded versioning", () => {
     expect(s.events("store.version.read").length).toBe(1);
   });
 
-  test("two archivals of the same content cannot silently overwrite each other", () => {
+  test("two archivals of the same content are two versions, not one", () => {
+    // §16 G4's collision case. It used to be a real hazard and a real
+    // mechanism: the archive was a FILE named `<seq>-<hash>.md`, identical
+    // bytes archived twice in the same millisecond produced the same name, and
+    // `archivePriorVersion` wrote with `wx` and bumped the sequence on EEXIST —
+    // v1 found a hard delete inside its own never-destroy mechanism exactly
+    // there. The version is a row keyed `(memory_id, seq)` now, so two
+    // archivals of identical bytes cannot collide however fast they arrive.
     const s = store();
     const id = s.put(mem("same"));
-    const first = s.revise(id, { body: "same" }); // archives "same"
-    const second = s.revise(id, { body: "same" }); // archives identical bytes again
+    const first = s.revise(id, { body: "same" });
+    const second = s.revise(id, { body: "same" });
     expect(second).not.toBe(first);
-    expect(s.versions(id).length).toBe(2);
-    expect(new Set(s.versions(id).map((v) => v.path)).size).toBe(2);
+    const versions = s.versions(id);
+    expect(versions.length).toBe(2);
+    expect(new Set(versions.map((v) => v.seq)).size).toBe(2);
+    // Same bytes, same hash, two rows — and both still readable.
+    expect(new Set(versions.map((v) => v.content_hash)).size).toBe(1);
+    expect(versionBodies(s, id)).toEqual(["same", "same"]);
   });
 
   test("supersede leaves a forwarding address; the old id resolves forever", () => {
@@ -980,7 +1061,7 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
     const cues = ["coffee", "render time dashboard", "memory debts"];
     const before = cues.map((c) => s.search(c));
     const vectorBefore = s.nearestTo(fakeEmbed("Cold brew every morning, never iced coffee"), 3);
-    const proseBefore = ids.map((id) => readFileSync(paths.proseFile(dir, "memory", id), "utf8"));
+    const bodiesBefore = ids.map((id) => bodyOf(s, id));
     const physicsBefore = ids.map((id) => s.physicsOf(id));
     expect(before[0]?.[0]?.id).toBe(ids[0] as string);
 
@@ -1010,9 +1091,7 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
     expect(s.nearestTo(fakeEmbed("Cold brew every morning, never iced coffee"), 3)).toEqual(
       vectorBefore,
     );
-    expect(ids.map((id) => readFileSync(paths.proseFile(dir, "memory", id), "utf8"))).toEqual(
-      proseBefore,
-    );
+    expect(ids.map((id) => bodyOf(s, id))).toEqual(bodiesBefore);
     expect(ids.map((id) => s.physicsOf(id))).toEqual(physicsBefore);
   });
 
@@ -1175,6 +1254,9 @@ describe("a removed id refuses BY NAME on every read path (§16 G12)", () => {
 
 // ── opening writes nothing when there is nothing to write ────────────────────
 
+/** The columns schema v6 introduced — the ones `ADDED_COLUMNS` may never carry. */
+const V6_COLUMNS = ["title", "body", "meta", "confidential"];
+
 describe("an instrument does not write at open (live-verify 2026-08-25)", () => {
   test("an observer open of a current store leaves the database byte-identical", () => {
     const writer = store();
@@ -1221,58 +1303,93 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
 
   test("the observer read floor is re-decided at EVERY schema bump — it never drifts", () => {
     // The floor is a claim: "every reader of the current version tolerates a
-    // store of the floor version as it stands". That claim was true for v5 over
-    // v4 because v5 changed only a spelling. A v6 that adds a column would make
-    // it false for v4, silently — a v6 instrument would select a column a v4
-    // store does not have, the exact failure the v3→v4 refusal existed to
-    // prevent. So the constant is pinned to one version behind, and whoever
-    // bumps SCHEMA_VERSION must raise the floor (or drop it back to the new
-    // version, refusing everything older) on purpose, here.
-    expect(OBSERVER_READ_FLOOR).toBe(SCHEMA_VERSION - 1);
+    // store of the floor version as it stands". It was true for v5 over v4
+    // because v5 changed only a spelling, and it is NOT true for v6 over v5:
+    // a v5 store keeps its words in files this build has no code to read, so a
+    // v6 instrument on one would report an empty store rather than an
+    // unreadable one — worse than refusing, because it looks like an answer.
+    //
+    // So the floor is the version itself, and this assertion is the thing that
+    // makes the next person DECIDE rather than inherit. Raising SCHEMA_VERSION
+    // without touching this line fails here.
+    expect(OBSERVER_READ_FLOOR).toBe(SCHEMA_VERSION);
   });
 
-  test("a v4 store — the read floor — OPENS under observer, reads, and is left byte-identical", () => {
-    // v5 changed only the SPELLING of two path columns and every v5 reader
-    // resolves both spellings, so an instrument may read a v4 store as it
-    // stands. Refusing would have taken `status`, `verify` and `backup` away
-    // from the owner between the merge and the first writer open.
+  test("a store one version behind refuses under observer — there is no floor below v6", () => {
     const writer = store();
-    const id = writer.put(mem("readable through a v5 instrument while still v4"));
-    writer.setMeta("schemaVersion", String(OBSERVER_READ_FLOOR));
+    writer.put(mem("written by this build, stamped one version back by hand"));
+    writer.setMeta("schemaVersion", String(SCHEMA_VERSION - 1));
     writer.close();
     open.length = 0;
     const before = databaseBytes(paths.operational(dir));
-    const observer = store({ observer: true });
-    expect(observer.getMeta("schemaVersion")).toBe(String(OBSERVER_READ_FLOOR));
-    expect(observer.read(id).doc.body).toBe("readable through a v5 instrument while still v4");
-    observer.close();
-    open.length = 0;
+    expect(code(() => store({ observer: true }))).toBe("STORE_UNINITIALIZED");
     expect(databaseBytes(paths.operational(dir))).toEqual(before);
-    // The writer that follows migrates it, as before.
+    // A WRITER still stamps it forward, as before.
     expect(store().getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
   });
 
-  test("a v3 store gains the v4 source columns at open — old rows read UNRECORDED, never a fabricated default", async () => {
+  test("ADDED_COLUMNS is EMPTY at v6, and may never name a column the floor introduced", () => {
+    // THE HAZARD, PINNED. `openOperational` migrates any store below
+    // SCHEMA_VERSION by adding whatever columns are listed here. Were `body`
+    // ever listed, a build that reached a pre-rows store would add it NULL to
+    // every row while the words sat in ~16,000 files it has no code to read,
+    // then stamp the store v6 — unreadable by the build that CAN read it.
+    //
+    // The constructor's `STORE_PRE_ROWS` refusal is what makes that
+    // unreachable; this is the second lock, and it is the one that survives
+    // somebody "helpfully" relaxing the first. The MECHANISM stays for whatever
+    // v7 adds additively to a v6 store, and the test below pins that it works.
+    expect(ADDED_COLUMNS).toEqual([]);
+    for (const spec of ADDED_COLUMNS) {
+      expect({ column: spec.column, namesAFloorColumn: V6_COLUMNS.includes(spec.column) }).toEqual({
+        column: spec.column,
+        namesAFloorColumn: false,
+      });
+    }
+  });
+
+  test("an unrecorded provenance reads NULL, never a fabricated default", () => {
+    // The mint-source doctrine's four columns are NULLABLE on purpose: a row
+    // whose provenance was never recorded renders "unrecorded" BY NAME, and a
+    // DEFAULT would fabricate it — the one existing v3 store was the replay
+    // evidence store, whose rows are almost all swept, and defaulting those
+    // 'authored' would have been a false claim in the column that exists for
+    // honest attribution.
+    //
+    // It used to be proved by regressing a store to v3 and watching
+    // `ensureAddedColumns` re-add the four. The migration cannot reach a
+    // pre-rows store any more, so what is asserted is the claim itself.
+    const s = store();
+    const unrecorded = s.put(mem("minted without saying who minted it"));
+    expect(s.row(unrecorded)?.source).toBeNull();
+    expect(s.row(unrecorded)?.origin_session).toBeNull();
+    expect(s.row(unrecorded)?.origin_scope).toBeNull();
+    expect(s.row(unrecorded)?.origin_ref).toBeNull();
+    // A filter on a source never matches it, which is what a caller asking
+    // "how many did the author write" wants.
+    expect(s.list({ source: "authored" })).toEqual([]);
+  });
+
+  test("a migrated schema and a fresh one are identical, column for column", async () => {
     const writer = store();
-    const id = writer.put(mem("born before provenance existed"));
+    const id = writer.put(mem("born before the stamp was moved"));
     writer.close();
     open.length = 0;
 
-    // Regress the file to v3: drop the v4 columns, stamp the old version —
-    // a REAL older schema, not a simulated flag.
+    // A REAL older stamp, not a simulated flag: the next writer open runs the
+    // whole migrate-at-open transaction — the DDL, `ensureAddedColumns`, the
+    // meta seeds and the version latch — over a store that already has rows.
     const { Database } = await import("bun:sqlite");
     const db = new Database(paths.operational(dir));
-    for (const col of ["source", "origin_session", "origin_scope", "origin_ref"]) {
-      db.exec(`ALTER TABLE memories DROP COLUMN ${col}`);
-    }
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '3')");
     db.close();
 
-    // A writer migrates at open, in one transaction; the old row's provenance
-    // is NULL — unrecorded by name — because a default would fabricate it.
     const migrated = store();
     expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    // The row is untouched, words included: a migration is not a rewrite.
+    expect(migrated.readProse(id).body).toBe("born before the stamp was moved");
     expect(migrated.row(id)?.source).toBeNull();
+    // …and it still takes writes, with their provenance recorded.
     const recorded = migrated.put({
       type: "memory",
       kind: "fact",
@@ -1376,7 +1493,12 @@ describe("observer mode is enforced at the store seam", () => {
     const writer = store();
     const id = writer.put(mem("Mike prefers plain chat over chips"));
     writer.advanceClock("2026-08-25");
-    const snapshot = readFileSync(paths.proseFile(dir, "memory", id), "utf8");
+    // The canonical bytes are the DATABASE's now, so "deposits nothing" is
+    // asserted against a hash of the file rather than of one memory's prose —
+    // a stricter claim than the one it replaces, since it covers every row.
+    const snapshot = createHash("sha256")
+      .update(readFileSync(paths.operational(dir)))
+      .digest("hex");
     writer.close();
     open.length = 0;
     return { id, snapshot };
@@ -1400,8 +1522,10 @@ describe("observer mode is enforced at the store seam", () => {
       expect(standdowns.at(-1)?.data?.site).toBe(method);
     }
     expect(s.events("store.observer.standdown").length).toBe(WRITE_METHODS.length);
-    // Deposits nothing: the canonical prose is byte-identical afterwards.
-    expect(readFileSync(paths.proseFile(dir, "memory", id), "utf8")).toBe(snapshot);
+    // Deposits nothing: the canonical database is byte-identical afterwards.
+    expect(createHash("sha256").update(readFileSync(paths.operational(dir))).digest("hex")).toBe(
+      snapshot,
+    );
     expect(s.list()).toEqual([id]);
     expect(s.livedDay()).toBe(1);
   });
@@ -1454,13 +1578,17 @@ describe("layout", () => {
         classified: true,
       });
     }
-    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "prose", "spans", "versions"]);
-    // The three rebuildable/ephemeral families: box 3, the write staging area,
-    // and the adapters' live-session registry (`adapters/sessions.ts`).
+    // `journal` is classified BEFORE anything writes it (F6 writes it), which
+    // is scar §2.11's criterion said forwards: v1 lost its canonical episode
+    // journal from every snapshot for three weeks by classifying the directory
+    // after the code that made it.
+    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "journal", "spans"]);
+    // The two rebuildable/ephemeral families left: box 3, and the adapters'
+    // live-session registry (`adapters/sessions.ts`). `tmp` went with the
+    // staging it existed for.
     expect(LAYOUT.filter((e) => !e.backup).map((e) => e.name).sort()).toEqual([
       "cache",
       "sessions",
-      "tmp",
     ]);
     s.assertLayout();
   });
@@ -1873,7 +2001,7 @@ describe("WAL, the busy timeout, and I39", () => {
       expect({ name, classified: classifyTopLevel(name) !== undefined }).toEqual({ name, classified: true });
     }
     s.assertLayout();
-    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "prose", "spans", "versions"]);
+    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "journal", "spans"]);
 
     // The copy route `backup` and `export` take, with an uncommitted write held
     // open across it — under WAL the committed row lives in the `-wal`, which is
