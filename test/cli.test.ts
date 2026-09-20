@@ -1163,6 +1163,78 @@ describe("export", () => {
     expect([...opened.keys()].some((k) => k.startsWith("journal/"))).toBe(true);
   });
 
+  test("MINOR-1/2: a CONFIDENTIAL page is omitted, not 'absent', and rows and versions count apart", async () => {
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    const pageId = self.revisePage("ZQPAGESECRET — who I am.", { by: "owner", reason: "t" }).id as string;
+    // The page exists and is confidential. The manifest used to print the "no
+    // page" branch for this store, which is the one thing the manifest exists
+    // to make impossible: a directory that reads as complete.
+    s.revise(pageId, { body: "ZQPAGESECRET — who I am, still.", meta: { confidential: true } });
+    const openRow = s.put({ type: "memory", kind: "fact", body: "An open memory, first wording." });
+    s.revise(openRow, { body: "An open memory, second wording.", meta: { confidential: true } });
+    // …and back to open. `revise` MERGES meta into the prior meta, so the class
+    // has to be cleared by name. The LIVE row is open and one of its earlier
+    // wordings is not — the shape the two counters exist for.
+    s.revise(openRow, { body: "An open memory, third wording.", meta: { confidential: false } });
+    expect(s.row(openRow)?.confidential).toBe(0);
+    s.close();
+
+    const target = join(outside, "counted");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--with-versions"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    expect(readme).toContain("omitted as confidential");
+    expect(readme).not.toContain("this store has no written self page");
+    // TWO UNITS, counted apart: one row (the page) and one earlier wording.
+    expect(readme).toContain("Confidential memories omitted: **1**");
+    expect(readme).toContain("earlier wording");
+    expect(text(c.out)).toContain("1 confidential row");
+    // Nothing of either leaked into the tree.
+    for (const path of treeFiles(target)) {
+      expect({
+        path,
+        holds: readFileSync(join(target, path)).toString("latin1").includes("ZQPAGESECRET"),
+      }).toEqual({ path, holds: false });
+    }
+  });
+
+  test("MINOR-3: --into-non-empty does not silently replace a file; --overwrite says which", async () => {
+    furnished();
+    const target = join(outside, "collide");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "SOMEBODY ELSE'S README — irreplaceable.", "utf8");
+    writeFileSync(join(target, "keepme.txt"), "keep", "utf8");
+
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--into-non-empty"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("README.md");
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("SOMEBODY ELSE'S README");
+
+    const c2 = consoleWith();
+    expect(
+      await run(
+        ["export", "--out", target, "--markdown", "--plaintext", "--into-non-empty", "--overwrite"],
+        { io: c2.io, env: { [ENV]: dir } },
+      ),
+    ).toBe(EXIT.ok);
+    expect(text(c2.out)).toContain("Replaced 1 existing file");
+    expect(text(c2.out)).toContain("README.md");
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Counterparts export");
+    // Nothing else was touched.
+    expect(readFileSync(join(target, "keepme.txt"), "utf8")).toBe("keep");
+  });
+
   test("it refuses a target that is not empty, unless told", async () => {
     furnished();
     const target = join(outside, "occupied");
@@ -1253,6 +1325,10 @@ describe("export", () => {
     ).toBe(EXIT.refused);
     expect(text(c.err)).toContain("--markdown");
     expect(text(c.err)).toContain("carries every row");
+    // MINOR-4: a refusal that names a flag the parser rejects is a second
+    // refusal. The flag is `--with-versions`.
+    expect(text(c.err)).toContain("--with-versions");
+    expect(text(c.err)).not.toMatch(/(?<!-with)--versions/);
   });
 
   test("an export leaves a durable row — counts and flags, never the target path", async () => {

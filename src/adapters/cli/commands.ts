@@ -463,7 +463,16 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   init: ["name"],
   note: ["kind", "title", "salience"],
   recall: ["id", "json"],
-  export: ["out", "passphrase", "plaintext", "markdown", "include-confidential", "with-versions", "into-non-empty"],
+  export: [
+    "out",
+    "passphrase",
+    "plaintext",
+    "markdown",
+    "include-confidential",
+    "with-versions",
+    "into-non-empty",
+    "overwrite",
+  ],
   backup: ["out"],
   // `strike-by-content-across-scopes` is the one chase this console refuses by
   // default: a row whose provenance recorded no scope (every migrated row) can
@@ -594,6 +603,7 @@ const FLAG_HELP: Record<string, string> = {
   // flag export does not take.
   "with-versions": "also write out every earlier wording of every memory (markdown only)",
   "into-non-empty": "write into a directory that already holds something",
+  overwrite: "replace the files this export's own paths collide with (it says which); without it a collision is a refusal",
   confirm: "actually do it — without this, removal is a dry run",
   // TWO COMMANDS, ONE SENTENCE, as `--json` already is: `remove --reason` is
   // recorded with the removal, `self-page --reason` with the version the write
@@ -841,6 +851,7 @@ export function parse(argv: readonly string[]): Parsed {
       "include-confidential": { type: "boolean" },
       "with-versions": { type: "boolean" },
       "into-non-empty": { type: "boolean" },
+      overwrite: { type: "boolean" },
       "echo-scan": { type: "string" },
       confirm: { type: "boolean" },
       name: { type: "string" },
@@ -3324,6 +3335,7 @@ function exportCommand(
       ...(flags["include-confidential"] === true ? { includeConfidential: true } : {}),
       ...(flags["with-versions"] === true ? { versions: true } : {}),
       ...(flags["into-non-empty"] === true ? { intoNonEmpty: true } : {}),
+      ...(flags["overwrite"] === true ? { overwrite: true } : {}),
     });
     if (!report.ok) {
       io.err(report.reason);

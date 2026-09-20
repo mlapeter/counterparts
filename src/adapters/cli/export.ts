@@ -79,10 +79,15 @@ export interface ExportOptions {
   markdown?: boolean;
   /** `--include-confidential`: ruling 4's opt-in. Markdown only. */
   includeConfidential?: boolean;
-  /** `--versions`: every archived wording as its own file. Markdown only. */
+  /** `--with-versions` on the console: every archived wording as its own file.
+   *  Markdown only. */
   versions?: boolean;
   /** `--into-non-empty`: write into a directory that already holds something. */
   intoNonEmpty?: boolean;
+  /** `--overwrite`: replace files this export's own paths collide with. Without
+   *  it a collision is a REFUSAL — the flag that says "I know this directory has
+   *  things in it" is not the same as "replace them without telling me". */
+  overwrite?: boolean;
 }
 
 export interface ExportReport {
@@ -135,7 +140,16 @@ interface MarkdownCensus {
   readonly notRendered: string[];
   readonly journal: number;
   readonly versions: number;
+  /** True when the store HOLDS a self page, whether or not it was exported. */
   readonly page: boolean;
+  /** …and true when it was left out for being confidential. The manifest must
+   *  not print "this store has no written self page" over a store that has
+   *  one (review f6f7 MINOR-1). */
+  readonly pageOmitted: boolean;
+  /** Earlier wordings left out as confidential — counted APART from rows,
+   *  because they are a different unit and mixing them made both wrong
+   *  (MINOR-2). */
+  readonly omittedVersions: number;
   /** Live rows that are ARCHIVED — faded, superseded or merged. Exported, and
    *  counted so the manifest can say so. */
   readonly archived: number;
@@ -188,6 +202,8 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     journal: 0,
     versions: 0,
     page: false,
+    pageOmitted: false,
+    omittedVersions: 0,
     archived: 0,
   };
   const counts = census as {
@@ -197,6 +213,8 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     journal: number;
     versions: number;
     page: boolean;
+    pageOmitted: boolean;
+    omittedVersions: number;
     archived: number;
   };
   const denied = new Set(store.deniedIds());
@@ -219,8 +237,15 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     if (denied.has(id)) continue;
     const row = store.row(id);
     if (row === undefined || rowTombstoned(row)) continue;
+    // WHETHER THE STORE HAS A PAGE is asked BEFORE the confidentiality gate: it
+    // is a fact about the store, not about this export, and answering it after
+    // the `continue` made the manifest assert there was no page over a store
+    // that had a confidential one (MINOR-1).
+    const isPage = row.type === "schema" && isSelfPageRow(store, id);
+    if (isPage) counts.page = true;
     if (row.confidential === 1 && opts.includeConfidential !== true) {
       counts.omittedConfidential += 1;
+      if (isPage) counts.pageOmitted = true;
       continue;
     }
     let doc: ProseDoc;
@@ -236,7 +261,6 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     counts.rows += 1;
     if (row.type === "episode") counts.journal += 1;
     if (row.archived === 1) counts.archived += 1;
-    if (row.type === "schema" && isSelfPageRow(store, id)) counts.page = true;
 
     if (opts.versions !== true) continue;
     for (const version of store.versions(id)) {
@@ -254,7 +278,7 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
       // second reading of the class in the egress door. A gate re-implemented
       // at a call site is a gate that will one day fail open (store/index.ts).
       if (opts.includeConfidential !== true && confidentialByMeta(prior.meta)) {
-        counts.omittedConfidential += 1;
+        counts.omittedVersions += 1;
         continue;
       }
       const priorText = render(`${id}@${String(version.seq)}`, prior);
@@ -391,7 +415,7 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     // there is, so honouring either flag there would be a lie in one direction
     // and honouring neither, silently, a lie in the other.
     return refused(
-      "--include-confidential and --versions are about the readable tree: pass --markdown with them, or drop them (a database export carries every row, confidential ones and every archived wording included).",
+      "--include-confidential and --with-versions are about the readable tree: pass --markdown with them, or drop them (a database export carries every row, confidential ones and every archived wording included).",
     );
   }
 
@@ -466,10 +490,27 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
   const counted = {
     rows: census?.rows ?? 0,
     omittedConfidential: census?.omittedConfidential ?? 0,
+    omittedVersions: census?.omittedVersions ?? 0,
     notRendered: census?.notRendered ?? [],
   };
 
   if (!encrypting) {
+    // A COLLISION IS A REFUSAL, unless the owner said to replace.
+    //
+    // `--into-non-empty` means "I know this directory has things in it"; it
+    // does not mean "replace them without telling me". The review watched an
+    // export overwrite a README.md that said "SOMEBODY ELSE'S README —
+    // irreplaceable" and report nothing (MINOR-3). Nothing is written until
+    // every path has been checked, so a refused export leaves the directory
+    // exactly as it found it.
+    const collisions = [...bundle.keys()].filter((path) => existsSync(join(target, path))).sort();
+    if (collisions.length > 0 && opts.overwrite !== true) {
+      return refused(
+        `refusing to replace ${String(collisions.length)} file${collisions.length === 1 ? "" : "s"} that ${collisions.length === 1 ? "is" : "are"} already in ${target}: ` +
+          `${collisions.slice(0, 5).join(", ")}${collisions.length > 5 ? `, and ${String(collisions.length - 5)} more` : ""}. ` +
+          "Name an empty directory, or pass --overwrite to replace exactly those.",
+      );
+    }
     for (const [path, buf] of bundle) {
       const out = join(target, path);
       mkdirSync(join(out, ".."), { recursive: true });
@@ -492,8 +533,9 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
         (kind === "markdown"
           ? "Unencrypted, at the owner's explicit request. Every file is plain markdown."
           : "Unencrypted, at the owner's explicit request. The database is readable by any SQLite.") +
-        confidentialNote(counted.omittedConfidential, opts) +
+        confidentialNote(counted.omittedConfidential, counted.omittedVersions, opts) +
         notRenderedNote(counted.notRendered) +
+        replacedNote(collisions) +
         sweptNote(sweptScratch),
       ...counted,
     };
@@ -511,7 +553,7 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     bytes,
     reason:
       `Encrypted with ${CIPHER} under a key derived from your passphrase. Lose the passphrase and this archive is gone.` +
-      confidentialNote(counted.omittedConfidential, opts) +
+      confidentialNote(counted.omittedConfidential, counted.omittedVersions, opts) +
       notRenderedNote(counted.notRendered) +
       sweptNote(sweptScratch),
     ...counted,
@@ -525,14 +567,34 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
  * only when something was left out is one whose absence means two different
  * things: nothing was confidential, or nobody checked.
  */
-function confidentialNote(omitted: number, opts: ExportOptions): string {
+function confidentialNote(omitted: number, omittedVersions: number, opts: ExportOptions): string {
   if (opts.markdown !== true) return "";
   if (opts.includeConfidential === true) {
     return " Confidential rows are INCLUDED, because --include-confidential was passed.";
   }
-  return omitted === 0
-    ? " No confidential rows were left out (there were none)."
-    : ` ${String(omitted)} confidential row${omitted === 1 ? " was" : "s were"} left out; pass --include-confidential to take ${omitted === 1 ? "it" : "them"} too.`;
+  if (omitted === 0 && omittedVersions === 0) {
+    return " No confidential rows were left out (there were none).";
+  }
+  const versions =
+    omittedVersions === 0
+      ? ""
+      : ` and ${String(omittedVersions)} confidential earlier wording${omittedVersions === 1 ? "" : "s"}`;
+  return (
+    ` ${String(omitted)} confidential row${omitted === 1 ? "" : "s"}${versions}` +
+    `${omitted === 1 && versions === "" ? " was" : " were"} left out;` +
+    " pass --include-confidential to take them too."
+  );
+}
+
+/** WHICH files this export replaced, when the owner said to. The flag whose
+ *  whole purpose is "I know this directory has things in it" is the one place
+ *  the report must say which of them went (review f6f7 MINOR-3). */
+function replacedNote(collisions: readonly string[]): string {
+  if (collisions.length === 0) return "";
+  return (
+    ` Replaced ${String(collisions.length)} existing file${collisions.length === 1 ? "" : "s"}, at your request: ` +
+    `${collisions.slice(0, 5).join(", ")}${collisions.length > 5 ? `, and ${String(collisions.length - 5)} more` : ""}.`
+  );
 }
 
 /** Rows that could not be rendered, by id — named, never silently absent. */
@@ -622,12 +684,21 @@ function plaintextReadme(files: number, bytes: number): string {
  * for the same reason.
  */
 function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
+  // TWO UNITS, SAID APART. A row and an earlier wording of a row are different
+  // things, and one counter for both reported 3 for an open memory with three
+  // confidential wordings and 1 for a confidential memory with three — four
+  // things omitted either way (review f6f7 MINOR-2). The version count is only
+  // meaningful when versions were being exported at all.
   const omitted =
     opts.includeConfidential === true
       ? "- Confidential memories are **included**: `--include-confidential` was passed."
-      : census.omittedConfidential === 0
+      : census.omittedConfidential === 0 && census.omittedVersions === 0
         ? "- Confidential memories omitted: **0** (there were none)."
-        : `- Confidential memories omitted: **${String(census.omittedConfidential)}**. They are still in your store; re-run with \`--include-confidential\` to take them too.`;
+        : `- Confidential memories omitted: **${String(census.omittedConfidential)}**` +
+          (opts.versions === true
+            ? `, and **${String(census.omittedVersions)}** confidential earlier wording${census.omittedVersions === 1 ? "" : "s"} of memories that are otherwise here.`
+            : ". (Earlier wordings were not being exported; `--with-versions` writes them, confidential ones excepted.)") +
+          " They are still in your store; re-run with `--include-confidential` to take them too.";
   return [
     "# Counterparts export (markdown)",
     "",
@@ -644,7 +715,11 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
       : `  ${String(census.archived)} of them ${census.archived === 1 ? "is" : "are"} ARCHIVED — faded, superseded or merged.` +
         " They are still your words, so they are here; the files do not mark which," +
         " and `counterparts status` is where that is readable.",
-    census.page ? "- `self-page.md` — the written self page, as it stands." : "- `self-page.md` — absent: this store has no written self page.",
+    census.pageOmitted
+      ? "- `self-page.md` — **omitted as confidential**. This store HAS a written self page; it was left out of this copy. `--include-confidential` takes it."
+      : census.page
+        ? "- `self-page.md` — the written self page, as it stands."
+        : "- `self-page.md` — absent: this store has no written self page.",
     "- `schemas/<id>.md` — the structured rows that are not the page (the identity core, beliefs).",
     `- \`journal/<year>/<date>-<id>.md\` — the first-person episode journal, as is: ` +
       `${String(census.journal)} episode${census.journal === 1 ? "" : "s"}.`,
