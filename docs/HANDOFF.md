@@ -1,6 +1,39 @@
 # Handoff — resume here
 
-## 2026-09-20, morning — read this first: F4 is a PR; the 09-18 evening "stalls" were the laptop sleeping
+## 2026-09-20, midday — read this first: F2 and F4 merged; S1 reviewed a third time and ready; F5 is building
+
+**State.** On the owner's word ("go ahead with all 3 merges"): #136 F2 snapshots, #144 F4 store test fixture, #145 docs.
+master = `481b228`; the coordinator's own run: 2388 pass / 0 fail, tsc clean. LIVE is still `039cd5d` — nothing is deployed.
+"Deploy day for F1" below is unchanged (target `4b8b524`). **Its step 2 closes every Claude Code session, which stops any
+builder that is running — the owner was told to say before he deploys.** Batches after F1: B = F3 + #139 + H1, C = F2,
+D = S1, each its own deploy on his word.
+
+**S1 (#138), head `054d084`, waiting for the owner's word.** Merge-up onto `481b228` by an Opus agent: two conflicts,
+both placement only (`doctor.ts`: Self page line after the Snapshot line; `recall/activate.ts`: the page skip above F3's
+store read). Third adversarial pass: `docs/adversarial-review-s1c-2026-09-20.md` — **SAFE TO MERGE AS IS**, 0 BLOCKER /
+1 MAJOR / 6 MINOR / 4 NIT; every earlier finding re-run and closed; the no-page wake re-proved byte-identical to the new
+master over 153 compositions; the promotion guard changes the page row and nothing else. The coordinator then made the
+words true with no behaviour change (the unreadable-page note, the cut described in §16 and the tunables, the split
+tunables table, a stale console comment, one test's cleanup) and ran it: 2466 pass / 0 fail, tsc clean.
+- *MAJOR-1, not a blocker and not S1's:* a schema row whose prose FILE is missing makes `Schemas.load` throw, so the
+  session stands down ("memory is OFF", doctor RED — H1 working). The identity core has had this since it shipped; a page
+  is one more such row once written. F5 removes the class (no file to lose). For now the v5 floor is left as it is; the
+  reviewer's narrow catch in `Schemas.load` is there if the owner wants it before cut-over.
+- *Left as follow-ups (rare states; fixing them would change code the review just proved):* m1 doctor says "no page
+  written yet" about a page that exists and cannot be read · m2 the page counts against the 72 KB self-schema valve ·
+  m3 a CLEARED page is still listed as permanent by `status` · n1 `--restore <missing seq>` exits 1 where other refusals
+  exit 2 · n3/n4 as in pass 2.
+
+**F5 is building** (Opus, branch `floor/f5-the-floor`, its own worktree; ONE PR, no merge; two adversarial reviews
+after). Its brief names where the floor plan is stale: F2's snapshot code picks the database by the literal file name
+F5 renames; the real lists of remaining layout sites are in #135's and #144's bodies; what `makeBodyUnreadable` means
+once bodies are rows comes back as the owner's choice. Tell it when S1 merges so it merges master in.
+
+**Also open:** #146 — one test file; the stand-down suite left a temp dir behind on every run since H1 (bun's cache
+under a fake HOME; two of three spawns had their own copy of the environment). Every brief now asks for a count of
+`counterparts-*` leftovers under `$TMPDIR` after a full run; that check found this one and a second in S1's tests.
+
+## 2026-09-20, morning — read second: F4 is a PR; the 09-18 evening "stalls" were the laptop sleeping
 
 **State.** master = `463e5b1` (batch A + `--ref` + batch B + docs; 2320 pass / 0 fail). LIVE is still `039cd5d`: nothing
 is deployed, and "Deploy day for F1" below is unchanged (target `4b8b524`, the `--ref` form, run from this worktree's copy
