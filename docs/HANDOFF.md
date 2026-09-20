@@ -1,6 +1,83 @@
 # Handoff — resume here
 
-## 2026-09-20, afternoon — read this first: DEPLOY DAY IS DONE (live = master = `40f92ae`, WAL); F5 is PR #148, under two reviews
+## 2026-09-20, evening — read this first: THE PLAN IS BUILT AND MERGED; the live store is pinned on the old floor; CUT-OVER DAY is the owner's word
+
+**State.** master = `bbfdc32` — the coordinator's run on a clean detached checkout AT `origin/master`: **2749 pass / 0 fail /
+44 files, `tsc` clean, no temp leftovers.** No open PRs, no agents running. **LIVE is pinned at the tag `floor/v5-last` =
+`40f92ae`** (old floor: `operational.sqlite` in WAL + `prose/` + `versions/`; 16,973 rows; doctor 0 red this morning).
+**master REFUSES that store by name (`STORE_PRE_ROWS`) and touches nothing — so master is deployed to the live checkout
+ONLY as step 3 of the runbook below, never before.** Doctor's Checkout line on live reads "behind master" on purpose.
+
+**What the owner said (2026-09-20):** "lets try to finish our plan today, and when we're at the correct spot, i'm ready to
+start fresh and try it as a new user. but we should finish everything we need for that first." Merges were pre-authorized
+once the pin existed (suite green + adversarial review clean + the coordinator read the diff); every deploy and cut-over
+still need his word. The coordinator recommended he run the cut-over fresh the next day rather than at the end of this one.
+
+**Merged today, in order** (each: an Opus builder in its own worktree → an adversarial review → a fix pass → the
+coordinator's own trial merge, suite run, and a probe of the fix that mattered; reviews are `docs/adversarial-review-*-2026-09-20.md`):
+
+| PR | what | how the review went |
+|---|---|---|
+| #148 F5 | the floor: bodies, versions, journal in rows; schema v6; `counterparts.sqlite`; `STORE_PRE_ROWS` | three passes (f5a, f5b, f5c): 6 MAJOR then 1 more — old code touching a v6 store locked the new build out (remedy now says MOVE ASIDE, never delete); a v5 db under the v6 name got stamped (shape lock); removal left words in `cache.sqlite`'s `-wal` and in FREED PAGES of the main db (now VACUUM + checkpoint on both, its own reported surface — the coordinator disabled the VACUUM line and watched the test go red); rotation would have deleted pre-rows snapshots; a faulted row now names its id; export scratch out of the target |
+| #153 E2 | "what was prevented" rows (`mcp.recall` is the MCP adapter's first durable row), `blocked` in the fired view, day-1 doctor/fired/status, a Host line, install loop 52/52 | `blocked` cried wolf on filters → an allow-list of real gates; `prospective.fire` has no caller → evidence `none` |
+| #152 S2 | the nightly page writer: `session` mode (default; the first session after a day is owed is asked, answers through `self_page`) and `host` mode (`claude -p`, stub-tested only) | 5 MAJOR: one oversized memory dropped the whole day; a memory could close the writer's marker; SIGTERM-only child kill; asked about empty days; **a typo in `pageWriter` turned memory OFF → now lenient, pinned to `session`** (coordinator probed it) |
+| #151 E1 | the per-directory handoff pointer on `session_end`; sent EMPTY it clears the pointer; `store/#noVector`: handoff AND self page are never embedded | 3 MAJOR; byte-identity with no handoff held over 2,824 compositions. The page's exclusion is the COORDINATOR'S working default — the builder first recorded it as an owner ruling and was made to correct six places |
+| #155 | coordinator's test fix | a scopes test passed on every branch only because doctor's Checkout line is RED on any non-master tree; on clean master it failed once E2 made keyless AMBER |
+| #154 F6+F7 | `journal/` — a derived, write-only markdown copy per episode (classified, NOT backed up; regenerates on restore); `export --markdown` (confidential omitted unless `--include-confidential`, count stated), `--markdown --passphrase` sealed in memory | 5 MAJOR: the writer followed a symlink OUT of the store (two locks now; coordinator disabled each in turn); failed-row flood; the journal-echo warning went silent on big stores (now exact, bound stated); export target symlinks; snapshots held removed words as markdown |
+| #150 N1 | `counterparts start-fresh` and `--undo` | three passes (n1, n1b): BLOCKER a typo'd `--config` fell back to the DEFAULT store and stamped it; then BLOCKER `--undo` ran none of the forward guards (renamed inside a fake `.bansai`). One shared `pathGuard` for both directions; the blank store is built in `store.new-<pid>` and renamed in; way back re-printed from the plan that ran; guarded `mv` lines. Coordinator ran the `.bansai` repro under a fake HOME: both directions refuse with the identical sentence, fingerprint unchanged |
+| #156 F8 | store CONTRACT rewritten for rows (17 guarantees in → 19 out, 0 retired, numbers stable); `tools/migrate/**` + its tests deleted (4,069 lines); zero non-comment code lines changed | coordinator checked every cited guarantee number still resolves |
+
+**Not built:** S3 (people and project pages) — the plan allowed it to slip past the first fresh start.
+
+### CUT-OVER DAY — the runbook (the order in plan §4 is WRONG: the pinned build has no `start-fresh`; deploy comes first)
+
+Why this order: the new build stands down cleanly against the old store (measured: `STORE_PRE_ROWS`, exit 0, nothing opened,
+every hash unchanged). The dangerous direction is the reverse — an OLD-build process touching the NEW store: review n1
+reproduced one memory's row landing in the parked store (by inode) and its body in the new store (by path). So step 1 is
+the one that matters.
+
+| # | who | step | what he should SEE — stop if it differs |
+|---|---|---|---|
+| 1 | owner | Close EVERY Claude Code session (this one included), both dashboards (ports 4747 and 4767 — one runs from the `flat-dashboard` worktree), every MCP server. From a PLAIN terminal: `pgrep -fl counterparts` | No line running `serve.ts`, `dashboard.ts`, `hook.ts` or `runner.ts`. Lines that match only by a path string (an editor, `tail`, `next dev`) are noise. |
+| 2 | owner | `counterparts backup --dir ~/.counterparts/store --out ~/counterparts-backups/<date>-pre-cutover` — **with the OLD build, i.e. BEFORE step 3**; the new build cannot open this store | every part `ok`, prose ≈ 16,973 files |
+| 3 | owner | `~/counterparts/tools/deploy-checkout.sh --repo ~/counterparts --ref origin/master --dry-run`, then without `--dry-run` (the live checkout's own copy has `--ref` since the 09-20 deploy). This also swaps `counterparts` on PATH (it links into that checkout) | "the move is forwards"; `deployed …` |
+| 4 | owner | `counterparts start-fresh --config ~/.counterparts/claude-code.json` — **never `--yes`** | `Store:` names `~/.counterparts/store` and is NOT blank; the plan lists `snapshots` then `store`; an OLD FLOOR paragraph names `operational.sqlite, prose, versions` and `floor/v5-last`; three guarded `mv` lines print BEFORE anything moves; it asks him to TYPE `store.parked-<today's UTC date>` |
+| 5 | owner | type the parked name | `Created a store at …/store.new-<pid>`, `parked snapshots:`, `parked store:`, `Done.`, and the way back printed AGAIN. If it stops with "the blank store could not be moved into place": read the three named directories and stop — nothing was deleted |
+| 6 | owner | restart Claude Code | an ordinary wake on a blank store ("has not lived a boundary") |
+| 7 | owner | `counterparts doctor --config ~/.counterparts/claude-code.json`; `ls ~/.counterparts/store` | only `counterparts.sqlite*`, `cache/`, `sessions/` (and `journal/` once a chapter lands). **No `prose/`, no `operational.sqlite`** — that is what catches a process nobody closed |
+| 8 | owner | follow `docs/QUICKSTART.md` as a stranger; notes go in `docs/new-user-findings.md` | first wake honestly says the page is still forming; after a day or two the page has a "lately" part |
+
+**Way back:** `counterparts start-fresh --undo` FIRST (new build; it parks the blank store with everything written to it, brings
+the old store and snapshots back by one rename each, and says the checkout must go back too) → `deploy-checkout.sh --repo
+~/counterparts --ref floor/v5-last` → restart. If he restarts before re-deploying, memory is visibly OFF for that session
+and the old store is untouched. `dataDir` never moves; nothing needs editing. The old store is never deleted by anything.
+
+**Expect on the blank store:** the store's day is UTC, so the writer's ask about "yesterday" arrives late afternoon local,
+not the next morning (filed; the words name the DATE). Night 1 writes nothing. Answer the first-launch scope question on
+day 1 or the writer keeps deferring. `considered: 0` with "did not fit" on a `self.page.writer.ran` row would mean S2's
+MAJOR-1 came back. Host mode (`claude -p`) has never met a real host: keychain from a background process, whether
+SessionStart hooks fire inside `claude -p`, and whether `--allowedTools` really leaves one tool are all unproved.
+
+**The four lines lower in this file that name `operational.sqlite` procedures are CORRECT until cut-over** (F8 left them on
+purpose); after it, the WAL standing rules apply to `counterparts.sqlite`.
+
+**Owner's choices, none blocking, each with a working default in place:** the self page excluded from embedding · the page
+writer ON by default · `export` allowed under `--observer` (it came off `OWNER_OPS`) · `journal/` not backed up · the new
+flags `export --overwrite` and `remove --echo-scan <n>` · N1's `--name` passthrough and the `install` wart · no repair
+command for a faulted row (the exits are restore-a-snapshot or `counterparts remove <id>`); `verify`/`status` now exit
+non-zero on one.
+
+**Still owed on the LIVE store before cut-over:** tomorrow morning, doctor's Snapshot line should be green and
+`~/.counterparts/snapshots/` should hold its first UTC-day folder (F2's first boundary). The owner's other sessions and
+both dashboards still run the pre-deploy build until restarted.
+
+**What the day taught the process:** never run `bun test` on a tree with conflict markers — it spins at 100 % CPU for ever
+(that was the seven-hour runaway of 09-18 too); a trial merge is never a clean `origin/master`, so after every merge the
+suite runs on a clean detached checkout AT `origin/master`; when the coordinator asks a builder for something, the brief
+says it is the COORDINATOR asking, or it gets written down as an owner ruling; the agents share one scratchpad and
+overwrite each other's files — unique names; a commit-body line shaped `Word: …` is parsed by git as a trailer.
+
+## 2026-09-20, afternoon — read second: DEPLOY DAY IS DONE (live = master = `40f92ae`, WAL); F5 is PR #148, under two reviews
 
 **Merged on the owner's word ("ok go ahead and merge all 3"):** #147 docs, #138 S1 the self page, #146 the stand-down
 suite's temp-dir leak. master = `40f92ae`; the coordinator's run: 2466 pass / 0 fail, tsc clean, no temp leftovers.
