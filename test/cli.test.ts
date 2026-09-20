@@ -669,9 +669,14 @@ describe("export", () => {
     // overwrite or sweep.
     const s = store();
     const secret = "ZQEXPORTSCRATCHPROBE the migraine clinic appointment";
-    // Big enough that the vacuum takes long enough to be killed inside it.
+    // BIG ENOUGH THAT THE WINDOW IS NOT A RACE. At 4,000 short bodies the
+    // vacuum finished before the poll could catch it about one run in three;
+    // ~60 MB of bodies makes `VACUUM INTO` take long enough that the kill lands
+    // inside it every time, and the assertion below is what would catch a
+    // regression back to a race.
+    const bulk = "padding that makes this memory large enough to matter. ".repeat(260);
     for (let i = 0; i < 4000; i += 1) {
-      s.put({ type: "memory", kind: "fact", body: `${secret} ${i} ${"padding ".repeat(30)}` });
+      s.put({ type: "memory", kind: "fact", body: `${secret} ${i} ${bulk}` });
     }
     s.close();
     const target = join(outside, "killed");
@@ -702,16 +707,21 @@ describe("export", () => {
       }
       return null;
     };
-    const deadline = Date.now() + 20_000;
+    const deadline = Date.now() + 30_000;
     let caught: string | null = null;
     while (caught === null && Date.now() < deadline && child.exitCode === null) {
       caught = scratchOf();
-      if (caught === null) await Bun.sleep(5);
+      if (caught === null) await Bun.sleep(1);
     }
     child.kill("SIGKILL");
     await child.exited;
     // Non-vacuous: we really did catch it mid-vacuum with the plaintext on disk.
     expect(caught).not.toBeNull();
+    // AND THIS TEST CLEANS UP AFTER ITSELF. The killed child's `finally` never
+    // ran — that is the whole point — so its scratch directory is exactly the
+    // leak the production sweep exists for, on a one-hour bound no suite run
+    // will reach. A test removes what it creates (CLAUDE.md).
+    rmSync(join(caught as string, ".."), { recursive: true, force: true });
 
     // NOT ONE PLAINTEXT BYTE IN THE TARGET, whatever stage it died at. Read as
     // bytes: a SQLite file is binary and a utf8 read could pull the needle
@@ -722,7 +732,7 @@ describe("export", () => {
       expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
     }
     expect(left.filter((n) => n.startsWith(".export-scratch-"))).toEqual([]);
-  }, 30_000);
+  }, 120_000);
 
   test("NEW-MINOR-6: an abandoned scratch in the TEMP dir is swept, and the sweep is bounded", async () => {
     // Moving the scratch out of the target was the big win; this is the rest of
