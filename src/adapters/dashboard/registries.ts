@@ -50,8 +50,10 @@ import {
   SNAPSHOT_FAILED_EVENT,
   SNAPSHOT_ROTATED_EVENT,
   SNAPSHOT_TAKEN_EVENT,
+  MCP_RECALL_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
   SWEEP_WAKE_EVENT,
   WAKE_DELIVERED_EVENT,
@@ -132,7 +134,9 @@ export type DurableEventName =
   | typeof SEMANTIC_LAG_EVENT
   | typeof SPAWN_REFUSED_EVENT
   | typeof SPAWN_FAILED_EVENT
+  | typeof SPAWN_STARTED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof MCP_RECALL_EVENT
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
@@ -154,6 +158,13 @@ export const DURABLE_EVENTS = {
   "adapter.runner.failed": "the detached worker failed after opening the store (which step, and the code)",
   "adapter.spawn.failed": "the detached worker could not be started at all (the OS said why)",
   "adapter.spawn.refused": "the detached worker was not started, by name (and how many times running)",
+  // The other half of those three (2026-09-20, E2): until it existed, a worker
+  // dead all week and a week with nothing to do left the same nothing.
+  "adapter.spawn.started": "the detached worker DID start, at least once today (one row per date, with the day's count)",
+  // The deliberate look's first durable row (2026-09-20, E2). The whole MCP tool
+  // surface wrote nothing, so a session that asked and got nothing and a session
+  // that never asked were the same silence.
+  "mcp.recall": "the session went looking for a memory on purpose (what kind of ask, how much came back, and every verdict that kept something out)",
   // Which CODE was live at a session start (2026-09-14): the hooks run whatever
   // the install tree has checked out, so a peer session's unmerged branch in
   // that tree is the memory layer the owner is using.

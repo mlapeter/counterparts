@@ -207,6 +207,60 @@ describe("every state is reachable from a fixture", () => {
     expect(primacy.firedInWindow).toBe(1);
   });
 
+  test("blocked — reached and turned away, which is neither `never` nor `quiet` (E2)", () => {
+    // The pattern the 2026-09-17 inventory called the one running through
+    // everything: the system records what happened and almost never records
+    // what was prevented, so a mechanism stopped at every attempt and one that
+    // had nothing to do read exactly alike.
+    const s = store();
+    // The worker was refused all week and never once started.
+    row(s, "adapter.spawn.refused", TODAY, { reason: "NO_CREDENTIAL", count: 12 });
+    row(s, "adapter.spawn.refused", daysBefore(TODAY, 1), { reason: "NO_CREDENTIAL", count: 8 });
+    row(s, "adapter.spawn.refused", daysBefore(TODAY, 2), { reason: "NO_DATA_DIR", count: 1 });
+
+    const start = pick(report(s), "worker-start");
+    expect(start.state).toBe("blocked");
+    expect(start.firedInWindow).toBe(0);
+    expect(start.total).toBe(0);
+    // COUNTED BY DAY, not by attempt: those rows are latched one per reason per
+    // date (I32), and the `count` field resets whenever a start succeeds.
+    expect(start.refusedInWindow).toBe(3);
+    expect(start.topRefusal).toBe("NO_CREDENTIAL ×2");
+    expect(start.note).toContain("did not fire this week");
+    expect(start.note).toContain("NO_CREDENTIAL");
+
+    // The mechanism whose OWN rows those are is firing, not blocked: the
+    // trouble seam working is the trouble seam working.
+    expect(pick(report(s), "worker-trouble").state).toBe("firing");
+
+    // And one start inside the window settles it: a mechanism that fired is
+    // firing, however much else was refused around it.
+    row(s, "adapter.spawn.started", TODAY, { count: 4 });
+    const started = pick(report(s), "worker-start");
+    expect(started.state).toBe("firing");
+    expect(started.refusedInWindow).toBe(3);
+  });
+
+  test("a brand-new store says it is too new to grade rather than listing 29 failures", () => {
+    // Finding 2, 2026-09-18: `fired` opened with 28 `never` lines on a store
+    // minutes old, which is what a broken install looks like.
+    const s = store();
+    const fresh = report(s);
+    expect(fresh.young).toBe(true);
+    expect(fresh.livedDay).toBe(0);
+    expect(fresh.calendarDays).toBe(null);
+
+    // BOTH CLOCKS. A store whose worker died a fortnight ago also reads lived
+    // day 0 — and that store gets the full list, because the full list is the
+    // diagnosis.
+    const stale = store();
+    row(stale, "adapter.boundary", daysBefore(TODAY, 12));
+    const old = report(stale);
+    expect(old.livedDay).toBe(0);
+    expect(old.calendarDays).toBe(12);
+    expect(old.young).toBe(false);
+  });
+
   test("the report counts the states and lists what went quiet, by label", () => {
     const s = store();
     row(s, "adapter.boundary", daysBefore(TODAY, 8));

@@ -356,14 +356,14 @@ export const MECHANISMS: readonly Mechanism[] = [
     },
   },
   {
+    // Durable since 2026-09-20 (E2). The row carries what was asked as shapes
+    // and sizes — never the question — how much came back, and every verdict
+    // that kept something out, which is the refusal column below.
     id: "deliberate-recall",
     label: "the session went looking for a memory on purpose and opened it in full",
     module: "mcp/deliberate.ts",
-    evidence: {
-      kind: "none",
-      reason:
-        "the whole tool surface writes no durable row; one `mcp.recall` event per call — tool, results, expanded, refused — would fix it.",
-    },
+    evidence: { kind: "event", names: ["mcp.recall"] },
+    since: "2026-09-20",
   },
   {
     id: "association",
@@ -564,15 +564,18 @@ export const MECHANISMS: readonly Mechanism[] = [
     evidence: { kind: "event", names: ["adapter.semantic.lag"] },
   },
   {
+    // The row the note below asked for, written since 2026-09-20 (E2) — one per
+    // calendar date, latched, because a boundary is a hot path. Its refusals
+    // come from the three rows of `worker-trouble`, which is what turns a week
+    // of silence from `never` into `blocked, by NO_CREDENTIAL`.
     id: "worker-start",
     label: "the background worker started when a session reached a boundary",
     module: "claude-code/hooks.ts, bin/runner.ts",
-    evidence: {
-      kind: "none",
-      reason:
-        "only a REFUSAL or a failure leaves a row; a healthy start leaves nothing, so a worker that has been dead all week and a week with nothing to do read exactly alike. One `adapter.spawn.started` row per boundary would fix it.",
+    evidence: { kind: "event", names: ["adapter.spawn.started"] },
+    refusals: {
+      names: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
     },
-    covers: ["adapter.spawn.refused", "adapter.spawn.failed", "adapter.runner.failed"],
+    since: "2026-09-20",
   },
   {
     id: "worker-trouble",

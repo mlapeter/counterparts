@@ -115,8 +115,13 @@ function seed(c: Counterpart): void {
  * A fingerprint of every CANONICAL byte: box 1 (prose + versions), box 2
  * (operational.sqlite) and the span buffer. Box 3 (`cache/`) is excluded by
  * design — it is the declared rebuildable cache — and so is `tmp/`.
+ *
+ * `parts` narrows it. A caller that means "no memory changed" says so by naming
+ * box 1 and the spans: box 2 is in WAL mode since F1, so its file is unchanged
+ * whatever was written to it until a checkpoint, and a fingerprint over it
+ * proves nothing either way (2026-09-20).
  */
-function fingerprint(root: string): string {
+function fingerprint(root: string, parts?: readonly string[]): string {
   const hash = createHash("sha256");
   const walk = (path: string, rel: string): void => {
     if (!existsSync(path)) return;
@@ -128,7 +133,7 @@ function fingerprint(root: string): string {
     hash.update(rel);
     hash.update(readFileSync(path));
   };
-  for (const name of ["prose", "versions", "spans", "operational.sqlite"]) {
+  for (const name of parts ?? ["prose", "versions", "spans", "operational.sqlite"]) {
     walk(join(root, name), name);
   }
   return hash.digest("hex");
@@ -1198,24 +1203,126 @@ describe("recall — deliberate retrieval", () => {
     expect(ownerView["reason"]).toBe("expanded");
   });
 
-  test("recall and status write nothing and train nothing — canonical state is byte-identical", async () => {
+  test("recall and status deposit nothing and train nothing — memory state is byte-identical", async () => {
+    // NARROWED, HONESTLY, 2026-09-20 (E2). This used to fingerprint box 2 as
+    // well and claim recall wrote NOTHING. It now writes exactly one telemetry
+    // row per call (`mcp.recall`) — the whole tool surface was durably silent,
+    // so "the session went looking and nothing came" and "the session never
+    // went looking" were the same absence.
+    //
+    // The old assertion would not have caught it either way: box 2 is in WAL
+    // mode since F1, so a write sits in `operational.sqlite-wal` and the file
+    // this walked was unchanged. So the guarantee is restated as what it
+    // actually is — G4's "ranking is not recording" — and asserted directly:
+    // not one memory, not one version, not one use.
     const s = server();
     seed(s.counterpart);
     await s.call("note", { text: "The sourdough starter needs feeding every day or it dies off." });
-    const before = fingerprint(dir);
-    const beforeUses = s.counterpart.store
-      .list({ archived: false })
-      .map((id) => s.counterpart.store.physicsOf(id).uses);
+    const before = fingerprint(dir, ["prose", "versions", "spans"]);
+    const beforeIds = s.counterpart.store.list({ archived: false });
+    const beforeUses = beforeIds.map((id) => s.counterpart.store.physicsOf(id).uses);
+    const rowsOf = (name: string): number =>
+      s.counterpart.store.eventLog({ name, limit: 100 }).length;
+    const beforeRecallRows = rowsOf("recall.decision");
 
     await s.call("recall", { question: "sourdough starter feeding" });
     await s.call("recall", { handle: "Sourdough" });
     await s.call("status", {});
 
-    expect(fingerprint(dir)).toBe(before);
-    const afterUses = s.counterpart.store
-      .list({ archived: false })
-      .map((id) => s.counterpart.store.physicsOf(id).uses);
-    expect(afterUses).toEqual(beforeUses);
+    // BOX 1 AND THE SPAN BUFFER: byte-identical. No memory, no version, no
+    // prose file, and nothing was strengthened by having been ranked.
+    expect(fingerprint(dir, ["prose", "versions", "spans"])).toBe(before);
+    expect(s.counterpart.store.list({ archived: false })).toEqual(beforeIds);
+    expect(beforeIds.map((id) => s.counterpart.store.physicsOf(id).uses)).toEqual(beforeUses);
+    // The ambient path's own record is NOT written by the deliberate one:
+    // `build()` is the pure half and `recall()` is the half that records.
+    expect(rowsOf("recall.decision")).toBe(beforeRecallRows);
+    // BOX 2: exactly the two telemetry rows, one per recall call. `status`
+    // writes none — its ring emit is all it has ever had.
+    expect(rowsOf("mcp.recall")).toBe(2);
+  });
+
+  test("the deliberate look leaves ONE durable row per call — counts and verdicts, never the question", async () => {
+    // `docs/recall-surfacing-diagnosis-2026-09-18.md`: the whole MCP tool
+    // surface wrote no durable row, so the fired view could only call the
+    // mechanism blind. E2 closes that for recall.
+    const s = server();
+    seed(s.counterpart);
+    const id = s.counterpart.store.put({
+      type: "memory",
+      kind: "skill",
+      title: "Sourdough starter",
+      body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
+    });
+    const secret = "pangolin-vellichor-quotidian";
+    await s.call("recall", { question: `what happened to my sourdough starter ${secret}` });
+    await s.call("recall", { handle: id });
+    await s.call("recall", { handle: "no such memory anywhere" });
+
+    const rows = s.counterpart.store.eventLog({ name: "mcp.recall", limit: 20 });
+    expect(rows.length).toBe(3);
+    const p = rows.map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+
+    // NOT ONE BYTE OF THE QUESTION, anywhere in any row — only its length.
+    expect(JSON.stringify(rows)).not.toContain(secret);
+    expect(p[0]?.["queryChars"]).toBe(`what happened to my sourdough starter ${secret}`.length);
+    expect(p[0]?.["path"]).toBe("question");
+    // NO IDS either: a durable pairing of memories with the moment somebody
+    // asked for them is a link this row has no need of.
+    expect(JSON.stringify(rows)).not.toContain(id);
+
+    // The expansion path counts what it opened; the question path counts what
+    // surfaced, and neither claims the other's number.
+    expect(p[1]?.["expanded"]).toBe(1);
+    expect(p[1]?.["surfaced"]).toBe(0);
+    expect(p[0]?.["expanded"]).toBe(0);
+
+    // WHAT WAS PREVENTED. An address that answers nothing says so by name, and
+    // a question that considered more than it returned says what kept the rest
+    // out rather than leaving the gap unexplained.
+    expect((p[2]?.["blockedBy"] as Record<string, number>)["handle-unknown"]).toBe(1);
+    const gated = p[0]?.["blockedBy"] as Record<string, number>;
+    expect(Object.values(gated).reduce((a, b) => a + b, 0)).toBe(
+      (p[0]?.["considered"] as number) -
+        (p[0]?.["surfaced"] as number) -
+        (p[0]?.["dim"] as number),
+    );
+  });
+
+  test("blockedBy carries `confidential-withheld` to the OWNER'S STORE, and still not to the caller", async () => {
+    // Two audiences, one gate. §9.1 G5 keeps a list silent to whoever asked —
+    // announcing a gap leaks that something is there. The durable row is read
+    // by the owner, in the owner's own store, where the memory already sits:
+    // without it the confidentiality gate stays exactly as unreadable as the
+    // 2026-09-17 inventory found it.
+    const s = server({ owner: false });
+    seed(s.counterpart);
+    s.counterpart.store.put({
+      type: "memory",
+      kind: "person",
+      title: "Clinic appointment",
+      body: "The clinic appointment about the recurring migraines is on the fourteenth.",
+      salience: { relevance: 0.7, emotional: 0.5, predictive: 0.5 },
+      meta: { confidential: true },
+    });
+    const listed = payload(await s.call("recall", { question: "the clinic appointment migraines" }));
+    expect(JSON.stringify(listed)).not.toContain("withheld");
+
+    const row = s.counterpart.store.eventLog({ name: "mcp.recall", limit: 5 })[0];
+    const blocked = (JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)[
+      "blockedBy"
+    ] as Record<string, number>;
+    expect(blocked["confidential-withheld"]).toBe(1);
+  });
+
+  test("an observer session writes no recall row at all", async () => {
+    // The stand-down is the store's own (observer-mode G7), so this is really a
+    // check that the row went through `noteAdapterEvent` and not around it.
+    const owner = server();
+    seed(owner.counterpart);
+    const watcher = server({ observer: true });
+    await watcher.call("recall", { question: "sourdough starter feeding" });
+    expect(owner.counterpart.store.eventLog({ name: "mcp.recall", limit: 5 }).length).toBe(0);
   });
 });
 

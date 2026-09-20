@@ -47,6 +47,7 @@ import {
   RECALL_DELIVERED_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   WAKE_DELIVERED_EVENT,
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
@@ -335,6 +336,15 @@ const EVENT_RING = 500;
  * Meta keys, not a schema change — the same shape `sleep.pruned.<id>` uses.
  */
 export const SPAWN_REFUSAL_PREFIX = "adapter.spawn.refusals.";
+
+/**
+ * The other side's counter (2026-09-20, E2): how many times the worker HAS
+ * started today. Two fixed keys rather than one per date, because nothing mows
+ * meta and the only question the `adapter.spawn.started` row asks of it is "how
+ * many today" — the row itself carries the date.
+ */
+export const SPAWN_START_DATE_KEY = "adapter.spawn.started.date";
+export const SPAWN_START_COUNT_KEY = "adapter.spawn.started.count";
 
 export class ClaudeCodeAdapter {
   readonly counterpart: Counterpart;
@@ -1452,11 +1462,65 @@ export class ClaudeCodeAdapter {
       // wrong now, and a counter that only ever climbed would escalate forever
       // off one bad afternoon.
       this.clearRefusals();
+      this.noteSpawnStart(input);
       return outcome;
     }
     const count = this.bumpRefusal(String(outcome.reason));
     this.noteSpawnRefusal(outcome, count, input);
     return outcome;
+  }
+
+  /**
+   * THE DURABLE ROW for a worker that DID start (2026-09-20, E2).
+   *
+   * I32 made every refusal durable and left the other half open: a healthy
+   * start wrote nothing, so a worker dead all week and a week with nothing to
+   * do read exactly alike, and the fired view could only call the mechanism
+   * blind (inventory §2 row 23). Scar §2.4 is symmetrical — a door that opened
+   * and a door nobody opened must not be the same absence either.
+   *
+   * ONE ROW PER CALENDAR DATE, latched at the store exactly like the refusals
+   * beside it. This runs at every boundary, which is a hot path, and three
+   * hundred identical rows a day would drown the log the view reads. The count
+   * beside it is the day's running tally, kept in box 2's meta with the refusal
+   * counters, so the one row still says how busy the machine was.
+   *
+   * Never throws, writes nothing under observer, and is not on the critical
+   * path: the worker has already been started by the time this runs.
+   */
+  private noteSpawnStart(input?: HookInput): void {
+    if (this.observer) return;
+    const date = input?.at ?? new Date(this.nowFn()).toISOString().slice(0, 10);
+    try {
+      this.counterpart.noteAdapterEvent(
+        SPAWN_STARTED_EVENT,
+        { date, count: this.bumpStart(date), session: input?.sessionId ?? null },
+        { dedupKey: `${SPAWN_STARTED_EVENT}:${date}` },
+      );
+    } catch (err) {
+      this.emit("adapter.spawn.record.failed", { code: codeOf(err) });
+    }
+  }
+
+  /**
+   * The day's start tally, beside the refusal counters in box 2's meta. TWO
+   * KEYS, not one per date: a key per day would grow without a sweep to mow it,
+   * and the only question this answers is "how many today". The tally resets
+   * the moment the date it was stamped with is no longer today.
+   */
+  private bumpStart(date: string): number {
+    try {
+      const store = this.counterpart.store;
+      const on = store.getMeta(SPAWN_START_DATE_KEY);
+      const next = on === date ? Number(store.getMeta(SPAWN_START_COUNT_KEY) ?? "0") + 1 : 1;
+      if (on !== date) store.setMeta(SPAWN_START_DATE_KEY, date);
+      store.setMeta(SPAWN_START_COUNT_KEY, String(next));
+      return next;
+    } catch {
+      // A lost count is never a lost hook (§5 G2). The row still lands, and it
+      // still says the worker started today, which is what it is for.
+      return 1;
+    }
   }
 
   /**

@@ -26,6 +26,7 @@ import {
   PRIMACY_STANDDOWN_EVENT,
   RUNNER_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { EMBED_SKIP_AFTER, indexTextOf } from "../src/core/store/index.js";
@@ -82,6 +83,8 @@ import {
   readAssignment,
   seatStatus,
   SPAWN_REFUSAL_PREFIX,
+  SPAWN_START_COUNT_KEY,
+  SPAWN_START_DATE_KEY,
   spawnDetached,
   substanceOf,
 } from "../src/adapters/claude-code/index.js";
@@ -1392,6 +1395,47 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     // And a start clears the slate — whatever was wrong is not wrong now.
     a.stop(input({ sessionId: "healthy" }));
     expect(a.spawnRefusals()["NO_DATA_DIR"] ?? 0).toBe(0);
+  });
+
+  test("a worker that DID start leaves one row per date, with the day's count (E2)", () => {
+    // The other half of I32. Until 2026-09-20 a healthy start wrote nothing, so
+    // a worker dead all week and a week with nothing to do left the same
+    // nothing and `fired` could only call the mechanism blind.
+    const { a } = adapter();
+    const store = a.counterpart.store;
+    const rows = (): Record<string, unknown>[] =>
+      store
+        .eventLog({ name: SPAWN_STARTED_EVENT, limit: 20 })
+        .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+
+    a.stop(input({ sessionId: "one" }));
+    a.stop(input({ sessionId: "two" }));
+    a.stop(input({ sessionId: "three" }));
+    // ONE ROW for three boundaries on one date — a boundary is a hot path and
+    // three hundred identical rows a day would drown the log this feeds.
+    expect(rows().length).toBe(1);
+    // The COUNT still says how busy the machine was; the latch means the row
+    // was written on the FIRST start, so it carries that moment's tally.
+    expect(rows()[0]?.["date"]).toBe("2026-01-02");
+    expect(rows()[0]?.["count"]).toBe(1);
+    expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("3");
+    expect(store.getMeta(SPAWN_START_DATE_KEY)).toBe("2026-01-02");
+
+    // A new date is a new row, and the day's tally starts over rather than
+    // accumulating for the life of the store.
+    a.stop(input({ sessionId: "four", at: "2026-01-03" }));
+    expect(rows().length).toBe(2);
+    expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("1");
+
+    // An observer writes neither the row nor the counter.
+    const watcher = new ClaudeCodeAdapter({
+      counterpart: a.counterpart,
+      config: config({ observer: true }),
+      spawner: fakeSpawner().spawner,
+    });
+    watcher.stop(input({ sessionId: "watching", at: "2026-01-04" }));
+    expect(rows().length).toBe(2);
+    expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("1");
   });
 
   test("NO clock can cap an ask any more — the day counter is gone (I32, closed 2026-09-17)", () => {

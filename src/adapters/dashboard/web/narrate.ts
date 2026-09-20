@@ -77,6 +77,16 @@ function refusalsOf(t: Told): Record<string, number> | null {
   return out;
 }
 
+/** `blockedBy` (E2), worst first, ties broken by name so a line is stable. */
+function topBlocked(t: Told): Record<string, number> {
+  const v = t.p["blockedBy"];
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return {};
+  const pairs = Object.entries(v as Record<string, unknown>)
+    .filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > 0)
+    .sort((a, b) => (b[1] === a[1] ? (a[0] < b[0] ? -1 : 1) : b[1] - a[1]));
+  return Object.fromEntries(pairs);
+}
+
 function n(t: Told, key: string): number | null {
   const v = t.p[key];
   return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -627,6 +637,45 @@ export const NARRATORS = {
     );
   },
 
+  // ── going looking on purpose ───────────────────────────────────────────────
+  "mcp.recall": (t) => {
+    const blocked = Object.entries(topBlocked(t));
+    const worst = blocked[0];
+    const stopped =
+      worst === undefined ? "" : ` ${String(worst[1])} more were kept out (${worst[0]}).`;
+    if (s(t, "path") === "handle") {
+      const opened = n(t, "expanded") ?? 0;
+      return calm(
+        opened === 0
+          ? `Something was asked for by name and I had nothing at that address.${stopped}`
+          : `${String(opened)} memor${opened === 1 ? "y was" : "ies were"} opened in full, by name.${stopped}`,
+      );
+    }
+    const surfaced = n(t, "surfaced") ?? 0;
+    const dim = n(t, "dim") ?? 0;
+    const considered = n(t, "considered") ?? 0;
+    if (surfaced + dim === 0) {
+      return calm(
+        `I went looking on purpose and nothing came back, out of ${String(considered)} considered.${stopped}`,
+      );
+    }
+    return calm(
+      `I went looking on purpose and ${String(surfaced)} came clearly to mind` +
+        (dim === 0 ? "" : `, with ${String(dim)} reached only by the effort`) +
+        `, out of ${String(considered)} considered.${stopped}`,
+    );
+  },
+
+  // ── the worker that did start ──────────────────────────────────────────────
+  "adapter.spawn.started": (t) => {
+    const starts = n(t, "count") ?? 0;
+    return calm(
+      starts <= 1
+        ? "The background worker started when a session reached a boundary."
+        : `The background worker started ${String(starts)} times today.`,
+    );
+  },
+
   // ── the copy that is kept beside me ────────────────────────────────────────
   "snapshot.taken": (t) => {
     const kept = n(t, "kept") ?? 0;
@@ -705,6 +754,10 @@ export const REF_KIND = {
   "adapter.semantic.lag": "none",
   "adapter.spawn.failed": "none",
   "adapter.spawn.refused": "none",
+  "adapter.spawn.started": "none",
+  // The deliberate look carries counts and verdicts and deliberately no ids —
+  // a durable pairing of memories with the moment somebody asked for them.
+  "mcp.recall": "none",
   "adapter.checkout": "none",
   "adapter.wake.delivered": "none",
   "adapter.wake.injected": "none",

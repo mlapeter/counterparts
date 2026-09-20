@@ -78,6 +78,8 @@ export {
   SCOPE_ASK_BYTES,
   SESSION_ENDING,
   SPAWN_REFUSAL_PREFIX,
+  SPAWN_START_COUNT_KEY,
+  SPAWN_START_DATE_KEY,
   substanceOf,
   wakeOutcome,
 } from "./hooks.js";

@@ -396,6 +396,10 @@ export const EVENT_NODE = {
   "adapter.spawn.refused": "sweep",
   "adapter.spawn.failed": "sweep",
   "adapter.runner.failed": "sweep",
+  // The other half of those three: the worker that DID start, same node.
+  "adapter.spawn.started": "sweep",
+  // The deliberate look is a retrieval, so it lands where the ambient one does.
+  "mcp.recall": "recall",
   // Which checkout was live at a session start. It belongs to the SESSION node:
   // it is a fact about the process the host started, recorded on the way in,
   // before anything was read or written.
