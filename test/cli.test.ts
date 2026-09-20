@@ -633,7 +633,7 @@ describe("export", () => {
     expect(existsSync(join(outside, "e", BLOB_NAME))).toBe(false);
   });
 
-  test("--plaintext is portable: prose readable in any editor, DB openable", async () => {
+  test("--plaintext is portable: one file, and the words are in it", async () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", title: "Portable", body: "Readable in any editor." });
     s.close();
@@ -643,12 +643,20 @@ describe("export", () => {
       EXIT.ok,
     );
 
-    const proseFile = join(target, "prose", "memories", `${id}.md`);
-    expect(readFileSync(proseFile, "utf8")).toContain("Readable in any editor.");
+    // THE BUNDLE IS THE DATABASE. `prose/**.md` was half of it until the floor;
+    // the words are columns now, so the one file has to carry them — which is
+    // what is asserted, rather than that the file merely exists.
     const copy = openDb(join(target, "counterparts.sqlite"));
-    expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
+    expect(copy.get<{ body: string }>("SELECT body FROM memories WHERE id = ?", id)?.body).toContain(
+      "Readable in any editor.",
+    );
     copy.close();
     expect(readFileSync(join(target, "README.md"), "utf8")).toContain("UNENCRYPTED");
+    // And the `VACUUM INTO` scratch did not land in the bundle — or, since
+    // `tmp/` went with the floor, in the STORE, where it would fail the next
+    // `assertLayout()` as an unclassified top-level path.
+    expect(readdirSync(target).sort()).toEqual(["README.md", "counterparts.sqlite"]);
+    Store.open({ dir, observer: true }).assertLayout();
   });
 
   test("--passphrase round-trips, and a wrong passphrase does not open it", async () => {
@@ -669,9 +677,9 @@ describe("export", () => {
     // The ciphertext does not carry the plaintext, checked rather than assumed.
     expect(blob.toString("utf8")).not.toContain(secret);
     const opened = decryptBundle(blob, "correct horse battery");
-    const prose = opened.get(`prose/memories/${id}.md`);
-    expect(prose?.toString("utf8")).toContain(secret);
-    expect(opened.has("counterparts.sqlite")).toBe(true);
+    expect([...opened.keys()]).toEqual(["counterparts.sqlite"]);
+    // The words are inside the sealed database, and come back out of it.
+    expect((opened.get("counterparts.sqlite") as Buffer).toString("latin1")).toContain(secret);
     expect(() => decryptBundle(blob, "wrong passphrase")).toThrow();
   });
 });
@@ -756,8 +764,8 @@ describe("remove — the loud removal", () => {
     expect(after.deniedIds()).toContain(id);
     const verdict = verifyRemoval(after, id);
     expect(verdict.denied).toBe(true);
-    expect(verdict.proseGone).toBe(true);
-    expect(proseHolds(dir, secret)).toBe(false);
+    expect(verdict.bodyGone).toBe(true);
+    expect(storeHolds(dir, secret)).toBe(false);
     // The survivor is untouched: removal chases one memory, not a neighbourhood.
     expect(after.list().filter((other) => other !== id).length).toBe(1);
   });
@@ -794,13 +802,16 @@ describe("remove — the loud removal", () => {
     expect(after.gateRecords("s1").map((r) => r.ref)).toEqual([neighbour]);
 
     const verdict = verifyRemoval(after, id);
-    expect(verdict).toMatchObject({ denied: true, proseGone: true, rowTombstoned: true, darkState: 0 });
+    expect(verdict).toMatchObject({ denied: true, bodyGone: true, rowTombstoned: true, darkState: 0 });
     // The skeleton that stays is stripped of every content pointer, and of the
     // physics that would let it go on ranking, conducting or resisting.
     const skeleton = after.row(id);
     expect(skeleton).toMatchObject({
       content_hash: "",
-      prose_path: "",
+      title: null,
+      body: "",
+      meta: "{}",
+      confidential: 0,
       protected: 0,
       promoted_identity: 0,
       uses: 0,
@@ -824,7 +835,7 @@ describe("remove — the loud removal", () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "Alive and not going anywhere." });
     expect(() => chaseRemoved(s, id)).toThrow(/REMOVAL_NOT_DARK/);
-    expect(s.row(id)?.prose_path).not.toBe("");
+    expect(s.row(id)?.body).not.toBe("");
     expect(s.removalRecord().length).toBe(0);
   });
 
@@ -837,8 +848,8 @@ describe("remove — the loud removal", () => {
     const observer = store({ observer: true });
     expect(() => chaseRemoved(observer, id)).toThrow(/OBSERVER_REFUSED/);
     expect(observer.events("store.observer.standdown").at(-1)?.data?.site).toBe("chaseRemoved");
-    // Nothing moved: the row is intact, edges and all.
-    expect(observer.row(id)?.prose_path).not.toBe("");
+    // Nothing moved: the row is intact, words and all.
+    expect(observer.row(id)?.body).not.toBe("");
     expect(observer.tombstones()).toEqual([]);
   });
 
@@ -893,7 +904,14 @@ describe("remove — the loud removal", () => {
 describe("remove — the span buffer is CHASED, and what it cannot reach it names", () => {
   const MARKER = "ZQRESIDUEPROBE the culvert gate key is kept under the third fence post.";
 
-  /** Store-relative paths of every file holding `needle`. Ids and paths, no text. */
+  /**
+   * Store-relative paths of every file holding `needle`. Ids and paths, no text.
+   *
+   * Read as BYTES, not as UTF-8 text: since the floor the memory's words live
+   * inside `counterparts.sqlite` and its `-wal`, and a `readFileSync(_, "utf8")`
+   * over a binary file replaces invalid sequences and can pull a needle apart.
+   * `latin1` is byte-for-byte, so a needle that is in the file is found.
+   */
   function grepStore(root: string, needle: string): string[] {
     const hits: string[] = [];
     const walk = (at: string, rel: string): void => {
@@ -901,11 +919,17 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
         const full = join(at, name);
         const next = rel === "" ? name : `${rel}/${name}`;
         if (statSync(full).isDirectory()) walk(full, next);
-        else if (readFileSync(full, "utf8").includes(needle)) hits.push(next);
+        else if (readFileSync(full).toString("latin1").includes(needle)) hits.push(next);
       }
     };
     walk(root, "");
     return hits;
+  }
+
+  /** True while the memory's own words are anywhere under the store — the
+   *  database, its sidecars, or the span buffer. `prose/` is gone. */
+  function canonicalHolds(root: string, needle: string): boolean {
+    return grepStore(root, needle).some((p) => !p.startsWith("spans/"));
   }
 
   function idFrom(lines: readonly string[]): string {
@@ -932,7 +956,8 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // The residue itself, before anything is removed: the prose AND the buffer.
     const seeded = grepStore(dir, "ZQRESIDUEPROBE");
     expect(seeded.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
-    expect(seeded.some((p) => p.startsWith("prose/"))).toBe(true);
+    // The canonical copy is IN THE DATABASE now, not a file under `prose/`.
+    expect(canonicalHolds(dir, "ZQRESIDUEPROBE")).toBe(true);
 
     // The DRY RUN counts it as a surface to chase, and says so above the closing
     // line — a disclosure under "Nothing has changed" is one the reader has
@@ -1014,11 +1039,18 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
       await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
     ).toBe(EXIT.ok);
 
+    // NOT ONE BYTE ANYWHERE UNDER THE STORE, database and `-wal` included.
+    //
+    // This is the assertion the floor could most easily have weakened without
+    // anyone noticing. An `UPDATE ... SET body = ''` in WAL mode leaves the page
+    // holding the old text in `counterparts.sqlite-wal` until a checkpoint moves
+    // it — measured on this branch, and why the removal now chases the
+    // write-ahead log as a surface of its own (`cli/removal.ts`).
     expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
-    // The other note's capture is untouched: in the buffer AND in its prose.
+    // The other note's capture is untouched: in the buffer AND in the database.
     const kept = grepStore(dir, "ZQKEEPER");
     expect(kept.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
-    expect(kept.some((p) => p.startsWith("prose/"))).toBe(true);
+    expect(canonicalHolds(dir, "ZQKEEPER")).toBe(true);
   });
 
   test("with the prose GONE, the coverage mark alone still chases it — which is why old rows need no migration", async () => {
@@ -1115,7 +1147,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const left = grepStore(dir, "ZQRESIDUEPROBE");
     expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
     expect(left.some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
-    expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
+    expect(canonicalHolds(dir, "ZQRESIDUEPROBE")).toBe(false);
   });
 
   test("the CONTENT fallback may only ever take a jot — a conversation turn is never struck by shape", async () => {
@@ -1163,7 +1195,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(text(c.out)).toContain('"unchased":1');
     // THE POINT: the conversation is untouched.
     expect(grepStore(dir, "ZQFALLBACK").some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
-    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.startsWith("prose/"))).toBe(false);
+    expect(canonicalHolds(dir, "ZQFALLBACK")).toBe(false);
   });
 
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
@@ -3876,14 +3908,19 @@ describe("a bulk write names its store with --dir, and nothing else names it", (
   });
 });
 
-/** True when any canonical prose file still holds `needle`. */
-function proseHolds(root: string, needle: string): boolean {
-  const walk = (path: string): boolean => {
-    if (!existsSync(path)) return false;
-    if (statSync(path).isDirectory()) {
-      return readdirSync(path).some((name) => walk(join(path, name)));
-    }
-    return readFileSync(path, "utf8").includes(needle);
-  };
-  return walk(paths.prose(root));
+/**
+ * True when any CANONICAL byte under the store still holds `needle` — the
+ * database and its sidecars, which is where a memory's words live since the
+ * floor. The span buffer is `remember/`'s own surface and is excluded here; the
+ * tests that care about it name it directly.
+ *
+ * Bytes, not UTF-8: a `readFileSync(_, "utf8")` over a SQLite file replaces
+ * invalid sequences and can pull the needle apart, which would make this pass
+ * for the wrong reason.
+ */
+function storeHolds(root: string, needle: string): boolean {
+  const db = paths.operational(root);
+  return [db, `${db}-wal`, `${db}-shm`].some(
+    (p) => existsSync(p) && readFileSync(p).toString("latin1").includes(needle),
+  );
 }

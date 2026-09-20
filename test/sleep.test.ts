@@ -973,8 +973,14 @@ describe("dedup", () => {
     const s = store();
     const a = put(s, { body: BODY, title: "Starter", physics: { birthDay: 0 } });
     const b = put(s, { body: BODY, title: "Different title", physics: { birthDay: 1 } });
-    // The two prose documents differ (id, title), so their content hashes differ.
-    expect(s.row(a)?.content_hash).not.toBe(s.row(b)?.content_hash);
+    // SINCE THE FLOOR the content hash addresses the BODY — one definition,
+    // both tables — so these two, which differ only in title, now hash the SAME.
+    // That makes the claim below sharper rather than weaker: dedup pairs by the
+    // interpretation, and here the interpretation is literally identical while
+    // the documents are not. `dedup.ts` still does not read this column; it
+    // compares tokenized bodies, which is what catches a near-duplicate too.
+    expect(s.row(a)?.content_hash).toBe(s.row(b)?.content_hash as string);
+    expect(s.row(a)?.title).not.toBe(s.row(b)?.title as string);
     const pairs = contentHashCandidates({ store: wrap(s), day: 1, liveIds: [a, b] });
     expect(pairs).toEqual([{ candidateId: b, originalId: a, sameContentHash: true }]);
   });

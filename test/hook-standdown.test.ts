@@ -202,7 +202,7 @@ describe("a store that will not open", () => {
     expect(Object.keys(parsed)).toEqual(["systemMessage"]);
     const message = String(parsed["systemMessage"]);
     expect(message).toStartWith(`${SAID}: `);
-    expect(message).toContain("(PROSE_FILE_MISSING)");
+    expect(message).toContain("(MEMORY_BODY_MISSING)");
     expect(message).toEndWith(STANDDOWN_TAIL);
     // AND THE STDERR LINE IS KEPT — the host log still carries what it carried.
     expect(run.stderr).toContain("[counterparts] hook stood down:");
@@ -250,7 +250,7 @@ describe("a store that will not open", () => {
     const record = JSON.parse(raw) as Record<string, unknown>;
     expect(record["sessionId"]).toBe("s-broken-6");
     expect(record["event"]).toBe("session-start");
-    expect(record["code"]).toBe("PROSE_FILE_MISSING");
+    expect(record["code"]).toBe("MEMORY_BODY_MISSING");
     expect(typeof record["at"]).toBe("string");
     expect(record["told"]).toBe(true);
     expect(record["transient"]).toEqual({ count: 0, at: "", told: false, escalated: false });
@@ -621,12 +621,14 @@ describe("the stand-down vocabulary", () => {
       expect(isDeliberate(new StoreError(code, {}))).toBe(true);
       expect(classifyStandDown(new StoreError(code, {}))).toBeNull();
     }
-    expect(isDeliberate(new StoreError("PROSE_FILE_MISSING", { path: "/x" }))).toBe(false);
+    expect(isDeliberate(new StoreError("MEMORY_BODY_MISSING", { id: "mem_x" }))).toBe(false);
   });
 
   test("a store code with no entry still gets a sentence and its own code", () => {
-    const fault = describeFault(new StoreError("ARCHIVE_COLLISION", { id: "m1" }));
-    expect(fault.code).toBe("ARCHIVE_COLLISION");
+    // `LAYOUT_UNCLASSIFIED` has no entry in `PLAIN_WORDS` and is a real code a
+    // read path can meet: a top-level path nobody classified.
+    const fault = describeFault(new StoreError("LAYOUT_UNCLASSIFIED", { name: "surprise" }));
+    expect(fault.code).toBe("LAYOUT_UNCLASSIFIED");
     expect(fault.reason.length).toBeGreaterThan(0);
   });
 
@@ -725,7 +727,7 @@ describe("the stand-down vocabulary", () => {
 
 describe("the say rule", () => {
   const busy = describeFault(new Error("database is locked"));
-  const broken = describeFault(new StoreError("PROSE_FILE_MISSING", { path: "/x" }));
+  const broken = describeFault(new StoreError("MEMORY_BODY_MISSING", { id: "mem_x" }));
   const at = Date.parse("2026-09-18T12:00:00.000Z");
 
   test("a persistent fault: SessionStart always, a prompt only while untold", () => {
@@ -918,21 +920,25 @@ describe("doctor reads the open, not just the directory", () => {
     expect(found?.severity).toBe("green");
   });
 
-  test("red on a store whose prose file is missing, naming the code and the path", () => {
+  test("red on a store whose words went missing, naming the code", () => {
     const gone = breakTheStore(store, "a belief the store holds");
     const reading = readCounterpartOpen(store);
     expect(reading.ok).toBe(false);
-    expect(reading.code).toBe("PROSE_FILE_MISSING");
+    expect(reading.code).toBe("MEMORY_BODY_MISSING");
     expect(reading.migratable).toBe(false);
-    expect(reading.path).toBe(gone);
+    // NO PATH, and that is the honest answer on this floor: the fault carries
+    // `{ id }` because there is no file to restore. `faultPath` returns null and
+    // doctor takes its own no-path arm, which it already had.
+    expect(reading.path).toBeNull();
+    expect(gone).toMatch(/^sch_/);
     const findings = doctorFindings(doctorInput({ open: reading }));
     const found = findings.find((f) => f.key === "store-open");
     expect(found?.severity).toBe("red");
-    expect(found?.detail).toContain("will not open — PROSE_FILE_MISSING:");
-    expect(found?.fix).toContain(gone);
+    expect(found?.detail).toContain("will not open — MEMORY_BODY_MISSING:");
+    expect(found?.fix).toContain("The code names what the read path met.");
     // And it reaches the console's own report, worst first.
     const printed = reportLines(findings, "2026-09-18").join("\n");
-    expect(printed).toContain("will not open — PROSE_FILE_MISSING");
+    expect(printed).toContain("will not open — MEMORY_BODY_MISSING");
     expect(worstFirst(findings).filter((f) => f.severity === "red").map((f) => f.key)).toContain(
       "store-open",
     );

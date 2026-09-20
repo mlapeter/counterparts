@@ -54,7 +54,8 @@ import { SpanBuffer, keyFor } from "../../core/remember/index.js";
 // `rmSync` from here would race a claim renaming the file aside, which is the
 // one state spec §2 G6 forbids (cli/INTERFACE-GAPS §9, closed 2026-09-05).
 import { strikeSpans } from "../../core/remember/owner-strike-seam.js";
-import { rowTombstoned } from "../../core/store/index.js";
+import { paths, rowTombstoned } from "../../core/store/index.js";
+import { isLocked, openDb } from "../../core/store/db.js";
 import type {
   OwnerRemovalOutcome,
   OwnerRemovalRequest,
@@ -772,6 +773,25 @@ export function ownerRemoval(
     unchased.push("cache");
   }
 
+  // THE WRITE-AHEAD LOG IS A SURFACE, and the floor is what made it one.
+  //
+  // §16 G14 says every copy is chased. While the words were a file, the blank
+  // of the row's pointer and the `rmSync` of the file between them left nothing
+  // readable behind. Now the words are a COLUMN, and an `UPDATE ... SET
+  // body = ''` in WAL mode appends the change to the `-wal` while the page
+  // holding the old text stays in it until a checkpoint moves it. Measured
+  // 2026-09-20 on this branch: right after a chase the doomed text is NOT in
+  // `counterparts.sqlite` and IS in `counterparts.sqlite-wal`; one TRUNCATE
+  // checkpoint clears it from both. (Nothing that LEAVES the machine ever held
+  // it — `backup` and `export` are `VACUUM INTO`, measured clean either way.)
+  //
+  // TRUNCATE rather than PASSIVE, because PASSIVE leaves the file at its length
+  // with the old bytes still in it. On its own connection, and it never throws:
+  // a checkpoint contended by another reader is reported as unchased, which is
+  // true and actionable, rather than taking the removal down after the rows
+  // have already gone.
+  chaseWriteAheadLog(store.dir, chased, unchased);
+
   append("complete");
   emit("cli.removal.complete", {
     target: request.targetId,
@@ -781,6 +801,39 @@ export function ownerRemoval(
   });
 
   return { chased, unchased, leftAlone, notes };
+}
+
+/**
+ * Fold the write-ahead log back into the database and truncate it, so the page
+ * that held the removed words stops being readable beside the store.
+ *
+ * Never throws (CLI CONTRACT §5 G8's reasoning): by the time this runs the rows
+ * are already gone and the record is already written, and a failure here is a
+ * line in the report, not an exception out of a removal that succeeded.
+ */
+function chaseWriteAheadLog(dir: string, chased: string[], unchased: string[]): void {
+  let db;
+  try {
+    db = openDb(paths.operational(dir));
+    const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
+    // The first column is 1 when SQLite could not finish — a reader was holding
+    // an older snapshot. Say so; the next checkpoint clears it.
+    const busy = row === undefined ? 1 : Object.values(row)[0];
+    if (busy === 0) chased.push("write-ahead log");
+    else unchased.push("write-ahead log (a reader held it; the next checkpoint folds it in)");
+  } catch (err) {
+    unchased.push(
+      isLocked(err)
+        ? "write-ahead log (the database was busy; the next checkpoint folds it in)"
+        : "write-ahead log",
+    );
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* a handle that will not close has already said what it could */
+    }
+  }
 }
 
 /**

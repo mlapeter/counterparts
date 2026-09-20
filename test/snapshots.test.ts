@@ -46,7 +46,7 @@ import {
   SNAPSHOT_TAKEN_EVENT,
 } from "../src/core/counterpart.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
-import { paths } from "../src/core/store/index.js";
+import { Store, paths } from "../src/core/store/index.js";
 import type { EventRow } from "../src/core/store/index.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
 import { RESTORE_STEPS } from "../src/adapters/claude-code/doctor.js";
@@ -551,16 +551,25 @@ describe("one run", () => {
     inside.close();
   });
 
-  test("copies the WHOLE backup set, not just the database", () => {
+  test("copies the WHOLE backup set, not just the database — and the words come with it", () => {
     const c = seeded();
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
     const copied = join(snapsDir, report.reason === "taken" ? (report.name as string) : "");
-    // Prose is canonical on today's floor; a database-only snapshot would be the
-    // scar §2.11 incident again.
-    expect(existsSync(join(copied, "prose"))).toBe(true);
     expect(existsSync(join(copied, "counterparts.sqlite"))).toBe(true);
     // Box 3 is classified as excluded and must NOT be there.
     expect(existsSync(join(copied, "cache"))).toBe(false);
+    // THE COPY STILL HAS THE MEMORIES. `prose/` was the thing this test used to
+    // look for, and losing it without replacing the claim would leave "the whole
+    // backup set" asserted against a set of one file nobody checked the contents
+    // of — which is scar §2.11 said backwards. The database alone has to carry
+    // the bodies now, so that is what is asserted.
+    const source = Store.open({ dir, observer: true });
+    const expected = source.list().map((id) => source.readProse(id).body).sort();
+    source.close();
+    expect(expected.length).toBeGreaterThan(0);
+    const restored = Store.open({ dir: copied, observer: true });
+    expect(restored.list().map((id) => restored.readProse(id).body).sort()).toEqual(expected);
+    restored.close();
   });
 
   test("a second run on the same UTC day is a no-op", () => {

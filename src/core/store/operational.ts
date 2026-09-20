@@ -79,9 +79,9 @@ export const DEFAULT_RETENTION_DAYS = 90;
  * is the `MEMORY_BODY_MISSING` fault, and reading the two as one condition would
  * turn a disk event into a silent "the owner removed this".
  *
- * Spelled once, here, because three modules ask it: the store's own reads,
- * `cli/removal.ts#verifyRemoval`, and `schemas/index.ts`, whose skip is what
- * keeps a session starting after a removal (#139).
+ * Spelled once, here, because three modules ask it: the store's own reads, the
+ * console's removal read-back, and `schemas/index.ts`, whose skip is what keeps
+ * a session starting after a removal (#139).
  */
 export function rowTombstoned(row: Pick<MemoryRow, "body" | "content_hash">): boolean {
   return row.body === "" && row.content_hash === "";
