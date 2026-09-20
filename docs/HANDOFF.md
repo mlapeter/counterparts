@@ -1,6 +1,27 @@
 # Handoff — resume here
 
-## 2026-09-18, afternoon — read this first: Wave 1 is launched (five builders), nothing merged yet
+## 2026-09-20, morning — read this first: F4 is a PR; the 09-18 evening "stalls" were the laptop sleeping
+
+**State.** master = `463e5b1` (batch A + `--ref` + batch B + docs; 2320 pass / 0 fail). LIVE is still `039cd5d`: nothing
+is deployed, and "Deploy day for F1" below is unchanged (target `4b8b524`, the `--ref` form, run from this worktree's copy
+of the script — which is identical to master's). Every merge and every deploy still waits for the owner's word.
+
+**Open PRs.** #136 F2 snapshots — ready, trial merge on master 2388 / 0, asked, no answer yet. #138 S1 self page — parked
+until F2 merges, then its merge-up, then the reviewer's final pass. **#144 F4, the one store test fixture — new.** The
+builder's work was committed but never pushed; the coordinator read the diff (7 files, all under `test/`, the fixture
+makes and removes its own temp dir, `makeBodyUnreadable` throws if there was nothing to remove), ran it (2320 / 0 in
+59 s, tsc clean), pushed it and opened the PR. It shares no file with F2 or S1, so it can merge in any order. What is
+left in `test/` for F5 is listed with line numbers in #144's body. F5 builds after F4 merges and itself merges last.
+
+**What the evening of 09-18 actually was.** The F4 builder "stalled" twice, full-suite runs took 784 s, 2468 s and
+3382 s against a normal 60–110 s, and up to five tests timed out. None of it was F4 or machine load: the laptop lid was
+closed. `pmset -g log` shows 42 sleep / DarkWake cycles between 20:00 and midnight; the 41-minute run used 33 s of CPU.
+Wall-clock timers fire on wake, so tests "time out" and the agent watchdog sees ten minutes of nothing. For now: wrap a
+long suite run in `caffeinate -i`, and builders need the lid open (caffeinate does not stop a lid-close sleep). The
+seven-hour 100 % CPU `bun test` found in F2's worktree that night is a different thing — a one-off hang inside
+`test/migrate.test.ts` on the pre-WAL base, stopped, not seen again.
+
+## 2026-09-18, afternoon — read second: Wave 1 is launched (five builders), nothing merged yet
 
 **The brief is still `docs/plan-parallel-rebuild-2026-09-18.md`.** A coordinating session started from its §8 prompt.
 
