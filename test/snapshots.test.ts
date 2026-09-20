@@ -298,6 +298,73 @@ describe("the directory rotation deletes inside — every refusal", () => {
 
 // ── danger 1: what rotation is willing to delete ────────────────────────────
 
+/**
+ * A REALISTIC pre-rows snapshot — the kind the owner actually has.
+ *
+ * `spans/` is the point. F2 went live on the v5 store, so his
+ * `~/.counterparts/snapshots/` fills with copies of it, and a v5 backup set was
+ * `["operational.sqlite", "prose", "spans", "versions"]`. `spans` is still in
+ * the new `LAYOUT`, so a real v5 copy was RECOGNISED as one of ours and was
+ * therefore rotatable. A v5 copy WITHOUT `spans/` was already safe, which is
+ * the near-miss that shows the rule was nearly right.
+ */
+function preRowsSnapshot(name: string, where = snapsDir): string {
+  const path = join(where, name);
+  mkdirSync(join(path, "prose", "memories"), { recursive: true });
+  mkdirSync(join(path, "versions"), { recursive: true });
+  mkdirSync(join(path, "spans", "default"), { recursive: true });
+  writeFileSync(join(path, "operational.sqlite"), "a v5 database");
+  writeFileSync(join(path, "prose", "memories", "mem_aaaaaaaaaaaa.md"), "ZQOLDFLOORWORDS");
+  writeFileSync(join(path, "spans", "default", "jots.jsonl"), "{}\n");
+  return path;
+}
+
+describe("a pre-rows snapshot is never rotated away (review B, MAJOR-2)", () => {
+  test("three real v5 copies beside fourteen v6 ones, keep 14: nothing v5 is deleted", () => {
+    // THE ARITHMETIC THAT MAKES THIS LIVE-RELEVANT. `resolveSnapshotsDir`
+    // returns `<dirname(store)>/snapshots` whenever the store is called
+    // `store`, and the cut-over most naturally mints the new one at the same
+    // path — so the fresh v6 store inherits the directory full of his pre-rows
+    // copies. Fourteen daily boundaries later, every one of them was gone.
+    for (const day of ["2026-09-01", "2026-09-02", "2026-09-03"]) {
+      preRowsSnapshot(`${day}T00-00-00-000Z`);
+    }
+    for (let d = 1; d <= 14; d += 1) {
+      fakeSnapshot(`2026-10-${String(d).padStart(2, "0")}T00-00-00-000Z`);
+    }
+
+    const report = rotate(snapsDir, 14, null, 0, []);
+    expect(report.deleted).toEqual([]);
+    // They do not count toward `keep` either — otherwise they would push the
+    // owner's real v6 copies out instead.
+    expect(report.kept).toBe(14);
+    expect(report.preRows.length).toBe(3);
+    expect(report.unrecognised).toEqual([]);
+    // …and the words are still on disk.
+    for (const day of ["2026-09-01", "2026-09-02", "2026-09-03"]) {
+      expect(
+        readFileSync(
+          join(snapsDir, `${day}T00-00-00-000Z`, "prose", "memories", "mem_aaaaaaaaaaaa.md"),
+          "utf8",
+        ),
+      ).toContain("ZQOLDFLOORWORDS");
+    }
+  });
+
+  test("with keep 1 they are still not the ones that go", () => {
+    // Non-vacuity from the other side: rotation IS deleting here, and it is
+    // deleting only v6 copies.
+    preRowsSnapshot("2026-09-01T00-00-00-000Z");
+    fakeSnapshot("2026-10-01T00-00-00-000Z");
+    fakeSnapshot("2026-10-02T00-00-00-000Z");
+    const report = rotate(snapsDir, 1, null, 0, []);
+    expect(report.deleted).toEqual(["2026-10-01T00-00-00-000Z"]);
+    expect(existsSync(join(snapsDir, "2026-09-01T00-00-00-000Z", "operational.sqlite"))).toBe(true);
+    expect(report.preRows).toEqual(["2026-09-01T00-00-00-000Z"]);
+  });
+
+});
+
 describe("rotation deletes only what it can prove is a snapshot", () => {
   test("keeps the newest N and reports every deletion, oldest first", () => {
     mkdirSync(snapsDir, { recursive: true });
@@ -505,9 +572,9 @@ describe("rotation deletes only what it can prove is a snapshot", () => {
   test("a missing directory and an empty one are different answers", () => {
     // Doctor needs those apart: one is a store that has not taken a copy yet,
     // the other is copies that have gone missing.
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [] });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [], preRows: [] });
     mkdirSync(snapsDir, { recursive: true });
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [] });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [], preRows: [] });
   });
 
   test("the name pattern is exactly what `snapshotName` writes", () => {

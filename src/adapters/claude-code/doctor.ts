@@ -1603,8 +1603,11 @@ function pageStaleOn(revisedOn: string, today: string, limit: number): boolean {
 export const RESTORE_STEPS =
   "To restore: stop every session, copy a snapshot directory to the store's path, " +
   "then counterparts verify --dir <store> --rebuild (with the embed key exported, or " +
-  "the vectors are dropped and refilled over the following days). The memories and " +
-  "the journal come back with the copy; the search index and the vectors are rebuilt.";
+  "the vectors are dropped and refilled over the following days). Everything comes back " +
+  "with the copy — the memories, their versions and the journal are all in the database; " +
+  "the search index and the vectors are rebuilt. A copy holding operational.sqlite or " +
+  "prose/ is from BEFORE the floor changed and this build cannot open it: it is kept and " +
+  "counted, never rotated, and the build tagged floor/v5-last reads it.";
 
 /** How stale the newest snapshot may be before this line goes amber. A daily
  *  mechanism that has not fired for two calendar days has missed one. */
@@ -1671,6 +1674,17 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     disk.unrecognised.length === 0
       ? ""
       : `; ${String(disk.unrecognised.length)} director${disk.unrecognised.length === 1 ? "y is" : "ies are"} named like snapshots but do not look like copies of a store, so they are not counted and will never be rotated: ${disk.unrecognised.slice(0, 3).join(", ")}${disk.unrecognised.length > 3 ? ` and ${String(disk.unrecognised.length - 3)} more` : ""}`;
+  // PRE-ROWS COPIES ARE SAID, AND THEY ARE NOT A FAULT (review B, MAJOR-2 and
+  // NIT-3/-4). After cut-over the owner's snapshots directory holds his old
+  // floor's copies permanently: they are never rotated, because this build
+  // cannot open one to know what is in it. That is the right outcome and it
+  // must not read as a problem — a permanently amber Snapshot line is a line
+  // people learn to skip. So it is a clause on the ordinary sentence, and the
+  // grading below deliberately does not consider it.
+  const older =
+    disk.preRows.length === 0
+      ? ""
+      : `; ${String(disk.preRows.length)} older-format cop${disk.preRows.length === 1 ? "y" : "ies"} this build cannot open — kept, never rotated, read by the build tagged floor/v5-last: ${disk.preRows.slice(0, 3).join(", ")}${disk.preRows.length > 3 ? ` and ${String(disk.preRows.length - 3)} more` : ""}`;
   const held = {
     ...data,
     onDisk,
@@ -1679,6 +1693,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     readable: disk.readable,
     future,
     unrecognised: disk.unrecognised.length,
+    preRows: disk.preRows.length,
   };
 
   const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
@@ -1745,6 +1760,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
       ? `; the newest snapshot.taken row says ${rowDated}, which is not on disk`
       : "") +
     strange +
+    older +
     misread;
   // Two or more calendar days back is a daily mechanism that has missed one, so
   // the boundary day itself is already amber.
