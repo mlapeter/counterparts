@@ -921,6 +921,92 @@ describe("transactionality — a killed multi-row mutation leaves no partial sta
 
 // ── revision, supersession, retention ────────────────────────────────────────
 
+// ── the crash window that no longer exists ──────────────────────────────────
+
+describe("a crash never leaves a row whose words are missing", () => {
+  /**
+   * THE CLAIM THE FLOOR IS FOR, measured rather than argued.
+   *
+   * `NOTES.md` §5 described the old write as stage -> commit box 2 -> publish the
+   * file, and named the window: between the commit and the rename a kill left a
+   * ROW whose prose file did not exist yet, and every read of it was an ENOENT.
+   * The words are a column now, so the row and its body land in the same
+   * transaction and the window is not narrowed, it is gone.
+   *
+   * A child process writes and revises in a tight loop and is SIGKILLed
+   * mid-flight — no handlers, no flush, the way a crash actually arrives. Then
+   * this process opens the store as a writer (which recovers the `-wal`) and
+   * asks SQLite whether the file is sound and asks every row whether its words
+   * are there and whether its hash still addresses them.
+   *
+   * Killed at a different moment each run, and run three times, because the
+   * interesting instants are the ones inside a commit.
+   */
+  async function killMidWrite(afterMs: number): Promise<void> {
+    const at = join(scratch(), `crash-${afterMs}`);
+    mkdirSync(at, { recursive: true });
+    const script = join(scratch(), `writer-${afterMs}.ts`);
+    writeFileSync(
+      script,
+      [
+        `import { Store } from ${JSON.stringify(join(STORE_SRC, "index.ts"))};`,
+        `const s = Store.open({ dir: ${JSON.stringify(at)} });`,
+        `const ids: string[] = [];`,
+        `for (let i = 0; ; i += 1) {`,
+        `  const id = s.put({ type: "memory", kind: "fact", body: "body " + i + " " + "x".repeat(400) });`,
+        `  ids.push(id);`,
+        `  // Revisions too: they write a version row and the head in one`,
+        `  // transaction, which is the pair the old floor could tear apart.`,
+        `  for (const other of ids.slice(-3)) s.revise(other, { body: "revised " + i + " " + "y".repeat(400) });`,
+        `}`,
+      ].join("\n"),
+      "utf8",
+    );
+    const child = Bun.spawn([process.execPath, "run", script], { stdout: "ignore", stderr: "ignore" });
+    await Bun.sleep(afterMs);
+    child.kill("SIGKILL");
+    await child.exited;
+
+    // A WRITER open, because that is what recovers the log — and it must not
+    // throw, which is half the claim.
+    const s = Store.open({ dir: at });
+    try {
+      const check = (
+        (s as unknown as { ops: { get<T>(sql: string): T | undefined } }).ops.get<
+          Record<string, string>
+        >("PRAGMA integrity_check") ?? {}
+      );
+      expect(Object.values(check)[0]).toBe("ok");
+      const ids = s.list();
+      // Non-vacuous: the child really did get work done before it died.
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) {
+        const row = s.row(id);
+        // EVERY row has its words, and the hash still addresses them. A torn
+        // write would show up as one or the other, on exactly one row.
+        expect({ id, empty: row?.body === "" }).toEqual({ id, empty: false });
+        expect({ id, hash: row?.content_hash }).toEqual({ id, hash: hashText(row?.body ?? "") });
+        // And it reads through the seam, which is what a session would do.
+        expect(s.readProse(id).body.length).toBeGreaterThan(0);
+        // Its archived versions are whole too, or there are none.
+        for (const v of s.versions(id)) {
+          expect({ id, seq: v.seq, empty: v.body === "" }).toEqual({ id, seq: v.seq, empty: false });
+          expect(s.readVersion(id, v.seq).body.length).toBeGreaterThan(0);
+        }
+      }
+    } finally {
+      s.close();
+      rmSync(at, { recursive: true, force: true });
+    }
+  }
+
+  test("SIGKILL mid-write leaves the store readable, every row's words intact", async () => {
+    for (const afterMs of [120, 260, 400]) {
+      await killMidWrite(afterMs);
+    }
+  }, 30_000);
+});
+
 describe("revision + bounded versioning", () => {
   test("an overwrite archives the prior version first, and it stays readable", () => {
     const s = store();
