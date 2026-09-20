@@ -25,7 +25,17 @@
  * different way of losing the data.
  */
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { join, relative } from "node:path";
 
@@ -84,6 +94,28 @@ function collect(store: Store, tmpDb: string): Bundle {
   return bundle;
 }
 
+/**
+ * Remove any `.export-scratch-*` an interrupted export of an OLDER BUILD left in
+ * this target.
+ *
+ * Belt and braces for exactly one window: a build between the floor landing and
+ * this fix wrote its scratch here, and a kill during the vacuum left a
+ * plaintext copy of the store behind under a timestamped name that the next
+ * export would never collide with. Nothing writes that name any more; this is
+ * how the ones already on disk go. It never throws — an export must not fail
+ * because a stale file would not delete.
+ */
+function sweepStaleScratch(target: string): void {
+  try {
+    for (const name of readdirSync(target)) {
+      if (!name.startsWith(".export-scratch-")) continue;
+      rmSync(join(target, name), { recursive: true, force: true });
+    }
+  } catch {
+    /* an unreadable target fails for its own reasons, further down */
+  }
+}
+
 export function exportStore(store: Store, opts: ExportOptions): ExportReport {
   const encrypting = typeof opts.passphrase === "string" && opts.passphrase.length > 0;
   if (!encrypting && opts.plaintext !== true) {
@@ -113,21 +145,33 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     };
   }
 
-  // THE SCRATCH LANDS IN THE TARGET, not in the store.
+  // THE SCRATCH GOES IN THE OS TEMP DIR — not in the store, and NOT IN THE
+  // TARGET.
   //
-  // It used to go in `<store>/tmp/`, which the floor deleted along with the
-  // staging it existed for — and a scratch file in the store directory would
-  // now fail the next `assertLayout()` as an unclassified top-level path (§5
-  // G11). The target is the one directory already PROVEN to be outside the
-  // store: `assertSafeTarget` above refuses a destination inside it, and
-  // refuses one that contains it. The dot prefix and the `finally` keep it out
-  // of the plaintext bundle the branch below writes into the same directory.
-  const tmpDb = join(target, `.export-scratch-${Date.now()}.sqlite`);
+  // It lived in `<store>/tmp/` until the floor deleted that directory with the
+  // staging it existed for, and a scratch file in the store would now fail the
+  // next `assertLayout()` as an unclassified top-level path (§5 G11). The first
+  // fix moved it into the target, which `assertSafeTarget` proves is outside
+  // the store — and that was the wrong outside. The scratch is a PLAINTEXT
+  // SQLite copy of the whole store, and the target of a `--passphrase` export
+  // is by definition the place the copy is going: an external disk, a synced
+  // folder, the directory the owner is about to hand somebody. Review B killed
+  // an exporter mid-`VACUUM INTO` and found a 4 MB unencrypted copy of the
+  // memories left behind under a timestamped name that nothing would ever
+  // overwrite or sweep (MAJOR-4). `--passphrase` exists precisely to say "this
+  // copy leaves the machine".
+  //
+  // `mkdtempSync` gives it a private directory (0700 by construction) that the
+  // OS reaps, so an interrupted export leaks at worst into a temp dir rather
+  // than into the artefact. The whole directory goes in the `finally`.
+  sweepStaleScratch(target);
+  const scratchDir = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+  const tmpDb = join(scratchDir, "scratch.sqlite");
   let bundle: Bundle;
   try {
     bundle = collect(store, tmpDb);
   } finally {
-    rmSync(tmpDb, { force: true });
+    rmSync(scratchDir, { recursive: true, force: true });
   }
 
   let bytes = 0;

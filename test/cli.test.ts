@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { TUNABLES } from "../src/core/physics/index.js";
 import {
@@ -659,6 +659,77 @@ describe("export", () => {
     Store.open({ dir, observer: true }).assertLayout();
   });
 
+  test("an INTERRUPTED --passphrase export leaves no plaintext in the target (review B, MAJOR-4)", async () => {
+    // THE SCRATCH IS A PLAINTEXT COPY OF THE WHOLE STORE. It lived in the
+    // TARGET until this fix, and the target of a `--passphrase` export is by
+    // definition the place the copy is going — an external disk, a synced
+    // folder, the directory the owner is about to hand somebody. A kill during
+    // the vacuum left a timestamped file there that nothing would ever
+    // overwrite or sweep.
+    const s = store();
+    const secret = "ZQEXPORTSCRATCHPROBE the migraine clinic appointment";
+    // Big enough that the vacuum takes long enough to be killed inside it.
+    for (let i = 0; i < 4000; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `${secret} ${i} ${"padding ".repeat(30)}` });
+    }
+    s.close();
+    const target = join(outside, "killed");
+    mkdirSync(target, { recursive: true });
+
+    const script = join(outside, "exporter.ts");
+    writeFileSync(
+      script,
+      [
+        `import { run } from ${JSON.stringify(resolve(import.meta.dir, "../src/adapters/cli/index.ts"))};`,
+        `await run(["export", "--out", ${JSON.stringify(target)}, "--passphrase", "correct horse battery", "--dir", ${JSON.stringify(dir)}],`,
+        `  { io: { out: () => {}, err: () => {}, prompt: async () => "" } });`,
+      ].join("\n"),
+      "utf8",
+    );
+    const child = Bun.spawn([process.execPath, "run", script], { stdout: "ignore", stderr: "ignore" });
+    // Kill it while it is working, not before it starts.
+    await Bun.sleep(220);
+    child.kill("SIGKILL");
+    await child.exited;
+
+    // NOT ONE PLAINTEXT BYTE IN THE TARGET, whatever stage it died at. Read as
+    // bytes: a SQLite file is binary and a utf8 read could pull the needle
+    // apart, passing for the wrong reason.
+    const left = readdirSync(target);
+    for (const name of left) {
+      const holds = readFileSync(join(target, name)).toString("latin1").includes(secret);
+      expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
+    }
+    expect(left.filter((n) => n.startsWith(".export-scratch-"))).toEqual([]);
+  }, 30_000);
+
+  test("a stale scratch from an older build is swept at the start of the next export", async () => {
+    // Nothing writes that name any more; this is how the ones already on disk
+    // go. The window was real: a build between the floor landing and the fix
+    // wrote its scratch into the target.
+    const s = store();
+    const secret = "ZQSTALESCRATCHPROBE";
+    s.put({ type: "memory", kind: "fact", body: `a memory holding ${secret}` });
+    s.close();
+    const target = join(outside, "stale");
+    mkdirSync(target, { recursive: true });
+    const stale = join(target, ".export-scratch-1789921802515.sqlite");
+    writeFileSync(stale, `a plaintext copy holding ${secret}`, "utf8");
+
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--passphrase", "correct horse battery"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(stale)).toBe(false);
+    for (const name of readdirSync(target)) {
+      const holds = readFileSync(join(target, name)).toString("latin1").includes(secret);
+      expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
+    }
+  });
+
   test("--passphrase round-trips, and a wrong passphrase does not open it", async () => {
     const s = store();
     const secret = "The migraine clinic appointment is on the fourteenth.";
@@ -1052,6 +1123,84 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(kept.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
     expect(canonicalHolds(dir, "ZQKEEPER")).toBe(true);
   });
+
+  test("review B, MAJOR-1: BOTH databases' logs are folded in, and the whole directory is clean", async () => {
+    // Box 3 is in WAL too, and the `rebuildCache()` one step inside the
+    // ceremony rewrites its `doc_tokens` rows — so the OLD pages sit in
+    // `cache/cache.sqlite*` until something folds them over. The chase visited
+    // box 2 only, and the console printed `unchased: nothing`: the owner told
+    // the directory was clean when reviewer B had found the removed word still
+    // in `cache/cache.sqlite` in 3 of 5 runs.
+    //
+    // **I could not reproduce that residue here** — 0 hits across 12 shapes
+    // (200/600/1500 fillers x two body sizes x with and without a forced
+    // pre-removal checkpoint), and 5 rounds of the real ceremony with the fix
+    // disabled. So this pins the MECHANISM, which is deterministic, rather than
+    // a byte pattern I cannot summon: box 3's log is TRUNCATED by the removal,
+    // which is the thing that folds those pages over, and the whole directory
+    // is grepped anyway so the residue is caught if the shape ever arises.
+    const WORD = "ZQCACHERESIDUEPROBE";
+    const s = store();
+    for (let i = 0; i < 300; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(40)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: `a doomed memory holding ${WORD}` });
+    s.revise(id, { body: `revised, still holding ${WORD}` });
+    s.close();
+    // Box 3's log carries real frames going in, so truncating it is a change.
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(0);
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    // Reported as its OWN surface, so "cache" keeps meaning the index and this
+    // keeps meaning the file. Both logs named, neither implied.
+    expect(printed).toContain("write-ahead log");
+    expect(printed).toContain("cache write-ahead log");
+    // THE MECHANISM: box 3's log is folded back and truncated to nothing, which
+    // is what moves those pages. Box 2's is NOT zero afterwards and must not be
+    // asserted so — the `complete` stage of the removal record is appended
+    // after the checkpoint, on purpose: the checkpoint runs while it is still
+    // guaranteed to run, and a removal record carries no body (§16 G9).
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBe(0);
+    // …and the whole directory, read as bytes — both databases, both logs, the
+    // `-shm`s, `sessions/`, `spans/`, the journal and the version rows.
+    expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
+  test("review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed", async () => {
+    // The same rule box 2 already had: a reader holding an older snapshot means
+    // the log cannot be truncated, and the honest answer is to say so rather
+    // than to throw or to claim it. The removal's rows have already gone by
+    // then; a checkpoint problem is a line in the report.
+    //
+    // It takes about five seconds on purpose — the rebuild inside the ceremony
+    // waits out `BUSY_TIMEOUT_MS` against the held read transaction before it
+    // proceeds. That is F1's busy timeout doing its job, not this fix.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "ZQCONTENDEDPROBE doomed" });
+    s.close();
+
+    const holder = openDb(paths.cache(dir));
+    holder.exec("BEGIN");
+    holder.get("SELECT count(*) AS n FROM doc_tokens");
+    try {
+      const c = consoleWith([id]);
+      expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+      const printed = text(c.out);
+      // Named as unchased, with the reason and what clears it — not silence,
+      // and not a claim that it was done.
+      expect(printed).toContain("cache write-ahead log (a reader held it");
+      expect(printed).toContain("the next checkpoint folds it in");
+    } finally {
+      try {
+        holder.exec("ROLLBACK");
+      } catch {
+        /* the removal may have taken it already */
+      }
+      holder.close();
+    }
+  }, 30_000);
 
   test("with the prose GONE, the coverage mark alone still chases it — which is why old rows need no migration", async () => {
     // The retroactive half, isolated. Deleting the prose file takes away BOTH

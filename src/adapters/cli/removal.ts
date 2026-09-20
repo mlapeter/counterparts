@@ -834,20 +834,52 @@ export function ownerRemoval(
  * line in the report, not an exception out of a removal that succeeded.
  */
 function chaseWriteAheadLog(dir: string, chased: string[], unchased: string[]): void {
+  // BOTH DATABASES, and the second one is review B's MAJOR-1.
+  //
+  // The first draft checkpointed box 2 and called the surface done. Box 3 is
+  // also in WAL and also holds the removed memory's text — as `doc_tokens`
+  // rows, rewritten by the `rebuildCache()` one step earlier — and the OLD
+  // pages sit in `cache/cache.sqlite` until something folds them over.
+  // Reviewer B found the words there in 3 of 5 runs of one shape while the
+  // console printed `unchased: nothing`: the owner told the directory was
+  // clean when it was not. The index really was chased (`live_rows=[]`); it was
+  // the bytes on disk that were not, and the same open-checkpoint-close cleared
+  // them 3/3 when asked directly.
+  //
+  // Not a freelist problem and not a `secure_delete` one (`freelist_count` was
+  // 0 in those runs): these are exactly box 2's pages, in the database this
+  // function did not visit. Reported as its OWN surface, so "cache" keeps
+  // meaning the index and this keeps meaning the file.
+  checkpoint(paths.operational(dir), "write-ahead log", chased, unchased);
+  checkpoint(paths.cache(dir), "cache write-ahead log", chased, unchased);
+}
+
+/**
+ * One database folded back into itself and its log truncated, reported by name.
+ *
+ * TRUNCATE rather than PASSIVE, which leaves the file at its length with the
+ * old bytes still in it. On its own connection, and it never throws: a
+ * contended checkpoint is a line in the report — true and actionable — rather
+ * than an exception out of a removal whose rows have already gone.
+ */
+function checkpoint(path: string, surface: string, chased: string[], unchased: string[]): void {
+  // A database that is not there has no log to fold. Box 3 is rebuildable and
+  // a store may never have built one.
+  if (!existsSync(path)) return;
   let db;
   try {
-    db = openDb(paths.operational(dir));
+    db = openDb(path);
     const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
     // The first column is 1 when SQLite could not finish — a reader was holding
     // an older snapshot. Say so; the next checkpoint clears it.
     const busy = row === undefined ? 1 : Object.values(row)[0];
-    if (busy === 0) chased.push("write-ahead log");
-    else unchased.push("write-ahead log (a reader held it; the next checkpoint folds it in)");
+    if (busy === 0) chased.push(surface);
+    else unchased.push(`${surface} (a reader held it; the next checkpoint folds it in)`);
   } catch (err) {
     unchased.push(
       isLocked(err)
-        ? "write-ahead log (the database was busy; the next checkpoint folds it in)"
-        : "write-ahead log",
+        ? `${surface} (the database was busy; the next checkpoint folds it in)`
+        : surface,
     );
   } finally {
     try {
