@@ -835,11 +835,20 @@ few days of a store are mostly you learning what it does. One command:
 counterparts start-fresh --config ~/.counterparts/claude-code.json
 ```
 
-**Close every Claude Code session and the dashboard first.** A running session's
+**Close every Claude Code session and every dashboard first.** A running session's
 hooks and its MCP server hold the store open by a file handle, and a handle does
 not follow a rename — until they restart, they go on writing into the directory
-that was just parked. The command says this, checks what it cheaply can, and asks
-you to type the parked directory's name back before it does anything.
+that was just parked. **Nothing in the command can check this for you**: a session
+sitting idle writes nothing, so it leaves no record and no timestamp. What you can
+do, in another terminal:
+
+```
+pgrep -fl counterparts
+```
+
+It should print nothing at all. A line there is a hook, a worker, an MCP server or
+a dashboard still running. The command asks you to type the parked directory's name
+back before it does anything.
 
 What it does, in order:
 
@@ -887,8 +896,17 @@ Two more things it will not do:
 - It parks the snapshots folder only when that folder is the one this layout owns
   (`~/.counterparts/snapshots`). A `snapshots.dir` or `snapshots.mirror` you pointed
   somewhere of your own is **left alone** — it is your directory — and the command
-  says so. The new store's rotation will then see the old store's copies there and
-  count them.
+  says so. The new store's rotation then shares that folder with whatever is already
+  in it: copies of a store on the old floor are recognised there and never deleted
+  or counted, but copies this floor wrote do count toward `keep`, so the new store's
+  oldest copy could rotate out sooner than you expect.
+
+If the store being parked was written **before this build's floor** — the case on
+cut-over day, when the code is new and the store on disk is not — the command says
+so, names the files it recognised, and carries on. It has nothing to open, so the
+floor is not its problem: a rename does not care what is inside a directory. That
+is also why the store you park stays readable by the build that wrote it
+(`floor/v5-last`), exactly as it was.
 
 `counterparts status` on the new store will say what day it began on and where the
 previous one is parked.

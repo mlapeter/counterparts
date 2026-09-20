@@ -627,3 +627,35 @@ park" — and the second lives in `adapters/snapshots.ts`, importing which would
 pull `openDb` into this module's import graph. That graph is the module's whole
 promise: it opens no database, and the doc comment says so. If the layout names
 ever move, this file is the second place to look.
+
+**The merge-up over F5 (2026-09-20).** Four things changed underneath this
+command, and none of them changed its design — which was the point of asking the
+filesystem rather than the floor.
+
+- **The fixture stopped being a stand-in.** `test/old-floor-fixture.ts` extracts
+  the pinned tag with `git archive` (never a second worktree — that touches the
+  shared repository) and runs THAT build's `Store` API in a child to write a real
+  v5 store. It is worth the seconds: the hand-made version proved that the
+  command tolerates three filenames, and the claim is about a store with bodies
+  in files, archived versions, a journal, spans, a cache and a WAL. On the
+  fixture as measured `operational.sqlite` is 4 KB and its `-wal` is ~600 KB, so
+  "never opens it" is load-bearing rather than decorative: an open-and-close
+  could checkpoint 600 KB out of the sidecar and into the file.
+- **`storeExists()` now answers true for a pre-rows store** (F5, so that ~20
+  console commands reach the named refusal instead of "run init"). This command
+  still keeps `sight()`, and the difference is real rather than stylistic: a
+  half-made store holding only a `cache/` is "no store" to `storeExists` and
+  "something is here" to `sight`. The second answer parks it; the first would let
+  `install` mint a store beside a stale box 3 belonging to another store's rows.
+  Both readings are pinned by a test across four directories.
+- **The plan says which floor it found**, through `preRowsMarkersIn` — filenames,
+  never an open. A reader on cut-over day has just met F5's refusal somewhere
+  else; being told it is the same fact, and that it is the reason parking is
+  right, is cheaper than leaving them to connect it.
+- **F5's rotation already refuses to delete or count a copy holding pre-rows
+  markers**, so parking `snapshots/` is belt and braces — kept, because the
+  bracing is free and the failure it prevents is not. What DID need correcting is
+  the sentence about a `snapshots.dir` pointed elsewhere: "the new rotation will
+  count the old copies" is now only true of copies this floor wrote. Old-floor
+  copies are recognised and left alone; new-floor ones count toward `keep`. Both
+  the printed line and QUICKSTART say that now.

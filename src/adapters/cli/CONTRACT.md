@@ -156,10 +156,20 @@ snapshots and exports; the removal record; telemetry by reference.
     *Read-only is not exempt: under WAL, committed pages live in the `-wal` until somebody
     checkpoints them, and an opener is somebody.*
 14. **[M] `start-fresh` asks the FILESYSTEM whether a store is there, never the floor.**
-    "The directory exists and holds something", never `storeExists()` — which looks for
-    the canonical database by name, and the name changes with the floor. On cut-over day
-    the store on disk is one the running build refuses to open by name, and that is
-    exactly the store this command exists to protect.
+    "The directory exists and holds something", never `storeExists()`. *Since F5 that
+    function answers true for a pre-rows store too, so the two readings now agree on an
+    old-floor store — and still differ on a half-made one holding only a `cache/`, where
+    `storeExists` says "no store" and would let `install` mint one beside a stale box 3.
+    Proved against four directories: absent, empty, old floor, new floor, and one wearing
+    both database names.* The command's only reading OF the floor is `preRowsMarkersIn`
+    — filenames, never an open — and it is used to SAY which floor the parked store is
+    on, never to decide anything.
+15. **[M] Cut-over day is proved against a store the PINNED BUILD wrote, not a hand-made
+    one.** `test/old-floor-fixture.ts` extracts `floor/v5-last` and runs that build's own
+    `Store` API to produce a v5 store whose `-wal` holds the database its file does not.
+    `start-fresh` parks it byte-identical, its output never mentions `STORE_PRE_ROWS`
+    because nothing opened it, and the rollback lines *as printed* restore it — still
+    refused by name, still readable by the build that wrote it.
 
 ## 6. Scars honored
 
