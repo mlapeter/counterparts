@@ -730,6 +730,11 @@ const SELF_PAGE: ToolSpec = {
         description:
           "The `version` the read gave you — -1 when the read said there was no page. Pass it and a write that crossed with somebody else's is refused, with the current page handed back to merge; omit it and the last write wins.",
       },
+      session: {
+        type: "string",
+        description:
+          "Only when the nightly page-writer block at the start of this session asked you to write, and only the id IT named. It is how the write is recorded as that night's work rather than as an ordinary amendment. Omit it every other time; the page is never refused for lack of it.",
+      },
     },
     required: [],
     additionalProperties: false,

@@ -77,6 +77,36 @@ function refusalsOf(t: Told): Record<string, number> | null {
   return out;
 }
 
+/**
+ * Verdicts that are NEVER NAMED ON A SCREEN, however true the row is.
+ *
+ * `confidential-withheld` is the one verdict this package holds silent to
+ * whoever asked (§9.1 G5), because announcing a gap leaks that something is
+ * behind it. The durable row keeps the count — it is the owner's own store, and
+ * without it the confidentiality gate is as unreadable as the 2026-09-17
+ * inventory found it — but a narrated page is a third audience the row is not:
+ * it gets screenshotted, screen-shared and demoed. "1 more was kept out
+ * (confidential-withheld)" is that gap announced in plain English on a page.
+ *
+ * The count still reaches the sentence; only the WORD is withheld.
+ */
+const UNNAMEABLE_VERDICTS: readonly string[] = ["confidential-withheld"];
+
+/** `blockedBy` (E2), worst first, ties broken by name so a line is stable, and
+ *  the silent verdicts folded into an unnamed total. */
+function topBlocked(t: Told): { total: number; named: [string, number][] } {
+  const v = t.p["blockedBy"];
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return { total: 0, named: [] };
+  const pairs = Object.entries(v as Record<string, unknown>).filter(
+    (e): e is [string, number] => typeof e[1] === "number" && e[1] > 0,
+  );
+  const total = pairs.reduce((sum, [, n]) => sum + n, 0);
+  const named = pairs
+    .filter(([reason]) => !UNNAMEABLE_VERDICTS.includes(reason))
+    .sort((a, b) => (b[1] === a[1] ? (a[0] < b[0] ? -1 : 1) : b[1] - a[1]));
+  return { total, named };
+}
+
 function n(t: Told, key: string): number | null {
   const v = t.p[key];
   return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -509,6 +539,36 @@ export const NARRATORS = {
     const by = s(t, "by") ?? "someone";
     return calm(`A write to my page was turned away (${why}), from ${by}. The page is unchanged.`);
   },
+  /**
+   * THE NIGHTLY WRITER'S RUN (2026-09-20, S2). Calm on every arm including the
+   * failures: a night that could not run is the mechanism reporting, and the
+   * page is untouched either way. The one arm worth reading twice is
+   * `nothing-to-say` — it says out loud that the day changed nothing, which is
+   * the outcome a silence would otherwise be mistaken for.
+   */
+  "self.page.writer.ran": (t) => {
+    const about = s(t, "about") ?? "a day";
+    const mode = s(t, "mode") ?? "session";
+    const outcome = s(t, "outcome") ?? "ran";
+    const considered = n(t, "considered") ?? 0;
+    const read = considered === 0 ? "" : ` after reading ${considered} memor${considered === 1 ? "y" : "ies"} from it`;
+    switch (outcome) {
+      case "asked":
+        return calm(`I was asked to revise my page from ${about}${read}.`);
+      case "started":
+        return calm(`A windowless session of me was started to revise my page from ${about}.`);
+      case "revised":
+        return calm(`My page was revised from ${about}${read}: ${num(n(t, "bytesBefore") ?? 0)} bytes became ${num(n(t, "bytesAfter") ?? 0)}.`);
+      case "nothing-to-say":
+        return calm(`I read ${about}${read} and left my page as it stands — nothing about who I am moved that day.`);
+      case "refused":
+        return calm(`A revision of my page from ${about} was turned away (${s(t, "detail") ?? "refused"}). The page is unchanged.`);
+      case "failed":
+        return calm(`The nightly writer could not run for ${about} (${s(t, "detail") ?? "failed"}). The page is unchanged.`);
+      default:
+        return calm(`The nightly writer stood down for ${about} (${s(t, "detail") ?? "skipped"}), in ${mode} mode.`);
+    }
+  },
 
   /**
    * THE HANDOFF'S THREE (2026-09-20, E1). Calm on all three: leaving one is the
@@ -664,6 +724,65 @@ export const NARRATORS = {
     );
   },
 
+  // ── going looking on purpose ───────────────────────────────────────────────
+  "mcp.recall": (t) => {
+    const { total, named } = topBlocked(t);
+    const worst = named[0];
+    // The NUMBER is always said; the REASON only when it is one this package
+    // will name on a screen. A gap with no word beside it is still a gap
+    // announced, so the sentence says "a gate" rather than trailing off.
+    const stopped =
+      total === 0
+        ? ""
+        : worst === undefined
+          ? ` ${String(total)} more ${total === 1 ? "was" : "were"} kept out by a gate.`
+          : ` ${String(total)} more ${total === 1 ? "was" : "were"} kept out (most often ${worst[0]}).`;
+    if (s(t, "path") === "handle") {
+      const opened = n(t, "expanded") ?? 0;
+      return calm(
+        opened === 0
+          ? `Something was asked for by name and I had nothing at that address.${stopped}`
+          : `${String(opened)} memor${opened === 1 ? "y was" : "ies were"} opened in full, by name.${stopped}`,
+      );
+    }
+    const surfaced = n(t, "surfaced") ?? 0;
+    const dim = n(t, "dim") ?? 0;
+    const considered = n(t, "considered") ?? 0;
+    if (surfaced + dim === 0) {
+      return calm(
+        `I went looking on purpose and nothing came back, out of ${String(considered)} considered.${stopped}`,
+      );
+    }
+    return calm(
+      `I went looking on purpose and ${String(surfaced)} came clearly to mind` +
+        (dim === 0 ? "" : `, with ${String(dim)} reached only by the effort`) +
+        `, out of ${String(considered)} considered.${stopped}`,
+    );
+  },
+
+  // ── remembering to act ─────────────────────────────────────────────────────
+  "prospective.fire": (t) => {
+    const fires = n(t, "fires") ?? 0;
+    const cap = n(t, "cap") ?? 0;
+    return notable(
+      `The time came for ${subject(t)} and I let it come to mind` +
+        (cap === 0 ? "." : ` — ${String(Math.max(0, cap - fires))} more mention${cap - fires === 1 ? "" : "s"} allowed before I leave it alone.`),
+    );
+  },
+  "prospective.fire.refused": (t) =>
+    calm(
+      `I held back a reminder about ${subject(t)} (${s(t, "reason") ?? "no reason recorded"}). Holding debts and losing deadlines is the whole of the tact rule; this is it working.`,
+    ),
+
+  // ── the worker that did start ──────────────────────────────────────────────
+  //
+  // NO COUNT IN THIS SENTENCE. The row is latched one per calendar date, so it
+  // is written by the day's FIRST start and any tally on it would read `1`
+  // forever. The day's real tally is in the adapter's meta counters, which
+  // doctor's Spawn line prints; this row says the door opened.
+  "adapter.spawn.started": () =>
+    calm("The background worker started when a session reached a boundary today."),
+
   // ── the copy that is kept beside me ────────────────────────────────────────
   "snapshot.taken": (t) => {
     const kept = n(t, "kept") ?? 0;
@@ -742,6 +861,14 @@ export const REF_KIND = {
   "adapter.semantic.lag": "none",
   "adapter.spawn.failed": "none",
   "adapter.spawn.refused": "none",
+  "adapter.spawn.started": "none",
+  // The deliberate look carries counts and verdicts and deliberately no ids —
+  // a durable pairing of memories with the moment somebody asked for them.
+  "mcp.recall": "none",
+  // Both prospective rows point at the MEMORY whose window it is: the window
+  // key is a derived address on that row, not an entity of its own.
+  "prospective.fire": "memory",
+  "prospective.fire.refused": "memory",
   "adapter.checkout": "none",
   "adapter.wake.delivered": "none",
   "adapter.wake.injected": "none",
@@ -776,6 +903,9 @@ export const REF_KIND = {
   // nothing rather than at the page it did not change.
   "self.page.revised": "memory",
   "self.page.refused": "none",
+  // The writer's row is about a DAY, not a memory: the ids it read are the
+  // day's, and naming one of them would be picking a favourite.
+  "self.page.writer.ran": "none",
   // A written, shown or cleared handoff points at its own row, which resolves
   // like any other. A refusal usually wrote nothing and points at nothing —
   // `no-room` is the exception and does carry the row's id, which prints as the

@@ -499,6 +499,63 @@ execution ceiling, socket lifetime, credential availability AND which source ans
     back immediately. Doctor prints these steps as the remedy on any Snapshot
     finding that is not green.
 
+### The nightly page writer, in two modes (S2, 2026-09-20 — true for now)
+
+**[M] Session mode is the default, and it costs the wake nothing.** When the writer is owed
+the day just gone, the SessionStart hook puts the core's instruction in `HookResult.ask` —
+the same field, beside the wake and never inside it, that the first-launch scope question
+uses and for the same reason: the bundle's byte count and its tail sentinel are load-bearing.
+The wake's `injection`, `bytes` and `sentinel` are byte-identical with the writer off and
+with it on, and that is asserted rather than argued. **The first-launch question wins the
+field** when both want it; the writer's is deferred with a ring event and the night stays
+owed. **No room under the reported ceiling defers rather than truncating**, and claims
+nothing. One session is asked once — a compaction re-firing SessionStart asks nothing — and
+the mark is a DATE on the session's registry record, which is also the only evidence the
+MCP server accepts for writing `by: "writer"` on the revision that comes back.
+
+**[M] Host mode starts a windowless session of the self, and reads the outcome from the
+store.** `claude -p`, so the ordinary SessionStart hook fires inside the child and the
+writer wakes with the wake; exactly one pre-approved tool, the page's. The plan is pure and
+decides everything; the starter is six lines. The package's own values go onto the child's
+environment LAST (§2.13), and `COUNTERPARTS_SESSION` / `COUNTERPARTS_SCOPE` are REMOVED
+rather than inherited — a whole new host session that inherited the parent's session id
+would bind its MCP server to a session that has already ended. The night it is writing rides
+as a pinned DATE (`COUNTERPARTS_PAGE_WRITER`), because a windowless child's session id is
+minted by the host after the launcher is gone. **The child's stdout is never parsed into a
+verdict**: what the run did is read from the page's version chain and from the row the tool
+left, and the exit code decides only between "nothing to say" and "could not run". The
+child's own SessionStart raises no writer ask — session mode only — or a session started to
+do the writing would be asked to do it.
+
+**[M] The ask is measured, not predicted, and a deferral is not a silence.** The composed
+block is checked against the host's reported ceiling AFTER composing (the estimate is its
+shortest shape; the delivered one is longer), and re-composed once against the room the
+first attempt proved was really there. A block that will not fit, or that can carry none of
+the day, is DEFERRED — and the deferral leaves a durable `skipped` row, deduped one per
+night per reason, which claims nothing and can never close a night. The first-launch scope
+question still wins the field, but only once per night: on a blank store it is exactly what
+is pending on nights 1–3, and an unanswered one used to starve the writer for ever.
+
+**[M] It never costs anything else.** The writer runs last in the detached worker, inside
+the same `finally` as the snapshot, so a day whose sweep broke is still a day that gets
+written about; it never throws; and a failure never fails a wake, a boundary or a session.
+Doctor's `Page writer` line is GREEN when it has never run on a store with no yesterday and
+GREEN on a night that had nothing to say, AMBER only on a failure or a refusal or on the
+writer being off while a page stands, and never RED.
+
+**[M] The child gets the day on STDIN and a stance this package chose.** The instruction is
+not in `argv`, where `ps` shows it to every process on the machine, and
+`COUNTERPARTS_OBSERVER` is deleted from the child's environment beside the two session
+variables: a shell that exported it would hand the child an observer store whose
+`self_page` refuses, and the night would then read `nothing-to-say` — fail-closed, but a
+silently wrong answer. A child that ignores SIGTERM is escalated to SIGKILL on its process
+group and then given up on, so the worker cannot be held past its own watchdog.
+
+**UNVERIFIED, and named rather than claimed:** no build has started a real `claude -p`.
+Everything above about host mode is proved against a stub executable. What a real machine
+has to answer is keychain access from a background process (`claude setup-token` is the
+documented route, spec §16), which is why `session` is the default.
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

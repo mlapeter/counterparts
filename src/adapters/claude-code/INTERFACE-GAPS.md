@@ -602,3 +602,54 @@ That is a different mechanism, not a wider parameter, and it is not built.
    the notice (unknown must not warn) and wrong for a reader counting greens. A
    fourth severity is the honest shape, and it touches the report, the JSON, the
    dashboard and every caller that partitions on three.
+
+## 12. Nobody has run a windowless host session, and this adapter cannot prove one from inside the suite (2026-09-20, S2)
+
+Host mode is the owner's pick for the nightly page writer, and every part of it that is
+this package's — the plan, the argument and environment shape, the watchdog, the claim, how
+the outcome is read back — is under test against a stub executable. Three things are not,
+and cannot be without a real machine and a real login:
+
+1. **Keychain access from a background process.** The child authenticates with the
+   subscription login, and the detached worker that starts it is not a terminal. The
+   documented route for unattended runs is `claude setup-token` (spec §16). Until somebody
+   runs it, `NO_CREDENTIAL`-shaped failures will surface as `failed(exit …)` on the run's
+   row, which is honest but not diagnostic.
+2. **That SessionStart hooks actually fire inside `claude -p`.** The whole reason for host
+   mode is that they do — it is what makes the child a session of the self rather than a
+   stranger with a prompt. The docs say so; no probe here has watched it happen.
+3. **That `--allowedTools` with one MCP tool name and `--permission-mode default` really
+   leaves the child with one tool.** The SPELLING is confirmed — this host lists its
+   counterparts tools as `mcp__counterparts__chapter`, `mcp__counterparts__session_end` and
+   so on, so `mcp__counterparts__self_page` follows the convention. What is unproved is the
+   flag pair's effect on a windowless run. A spelling or a flag the host does not honour
+   fails CLOSED (the tool prompts, nobody answers, the run ends with the page untouched and
+   a `nothing-to-say` row), which is the right direction but is indistinguishable from a
+   night that genuinely had nothing to say.
+
+Filed here rather than guessed at: the exact steps the owner has to run by hand are in the
+PR that landed this, and until one of those runs happens, `session` mode is the one that is
+known to work.
+
+## 13. The "nightly" writer is not nightly anywhere west of UTC (2026-09-20, S2 review)
+
+`store.today()` is `new Date().toISOString().slice(0, 10)` — UTC, like every other date in
+this store, by the decision `store/index.ts#dateOf` records. The page writer keys its night
+off that date, so from US Pacific the day rolls over at 5 p.m. local: "yesterday" becomes
+available, is claimed and is written **in the late afternoon**, and the window it covers is
+5 p.m.-to-5 p.m. local rather than a person's day. The morning session finds the night
+already claimed.
+
+**Nothing here is being changed for it.** Two clocks in one store is a scar this repo
+already has a name for, and `learned_on` — the field the writer selects the day by — is
+stamped on the same calendar, so a locally-dated writer would read a UTC-dated day and get
+a different set of memories than the one it named.
+
+**What WAS changed is the words.** The block, the doctor line and the contracts say which
+DATE a run is about and never "last night" or "this morning", because those were the only
+part of it that was actually false.
+
+The real fix, if the owner wants one, is the one `self/INTERFACE-GAPS` §9's neighbour asks
+for: a per-owner zone read wherever a day is decided — one clock, moved once — and not a
+second clock bolted onto this mechanism. Until then it belongs on the findings list for the
+first blank-store trial, where it is a thing to notice rather than a thing to fix.

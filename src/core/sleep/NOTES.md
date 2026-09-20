@@ -743,3 +743,28 @@ fabricated zero (scar §2.4) arriving through an exception. `runCycle` now
 attaches the reports it had — plus `CycleKilled`'s phase and stage — to the
 escaping error as a non-enumerable symbol property, and the recorder writes
 `null`, never 0, for every count the run never finished taking.
+
+## 16. `skipped` reaches the durable row — 2026-09-20 (E2)
+
+Every phase has always counted what it turned away, by reason, in `PhaseReport.skipped` —
+consolidate mirrors physics' whole `blockedBy` vocabulary into it as `promotion:<reason>`,
+and each phase pre-seeds its categories with zeroes so one can never go missing from the
+report. Nothing durable copied it. `recordSleepCycle` built the `sleep.cycle` payload out
+of `phase`, `status`, `reason`, `budgetExhausted` and `skippedForBudget`, and dropped the
+map.
+
+So the consequence of `docs/promotion-diagnosis-2026-09-17.md` — one consolidate pass that
+examined a third of the store and promoted nothing — was unanswerable the moment the
+worker exited. The reasons existed, in memory, for the length of one cycle. That is the
+pattern the mechanism inventory named as running through everything: *the system records
+what happened and almost never records what was prevented.*
+
+**Nothing new is computed and nothing new is read.** The map is the value the phase
+already produced, spread into a payload that is already built inside the try that protects
+the throw path. Only the NONZERO entries ride: the zeroes exist so the in-process report
+is total, and eight of them per phase per boundary is how a log gets too big to read. A
+phase that turned nothing away carries no field at all — absent, rather than an empty
+object a reader has to interpret.
+
+`adapters/fired.ts` reads them keyed `<phase>/<reason>`, so one row answers for promotion,
+prune, dedup and decay and none of them can claim another's.
