@@ -550,3 +550,71 @@ through with `--dir`, and the dry runs unguarded. The reviewer's exact case
 stopped AT the door rather than one step in at box 3's "nothing to convert"
 refusal, since both are exit 2. `test/repair-dates.test.ts`'s "console door"
 stays as it was.
+
+---
+
+## `start-fresh` — starting over as one command (2026-09-20, N1)
+
+**What it is.** One command that parks the store beside itself under a dated
+name, parks the snapshots folder the same way, and creates a blank store back at
+the same path. It exists because the trial loop the owner wants — use it as a
+stranger, collect every rough edge, fix, start over, repeat — otherwise runs
+through the floor plan's §2 step 5 by hand, five commands with seventeen
+thousand private memories on the other side of a typo.
+
+**The rule, and why the module is arranged around it.** It never deletes and
+never opens the old store, *including read-only*: under WAL a commit lives in the
+`-wal` until somebody checkpoints it, and an opener is somebody. `start-fresh.ts`
+makes exactly one mutating call, `rename`, and imports nothing that can open a
+database.
+
+**Decisions taken, each a working default:**
+
+- **The store comes from the CONFIGURATION, and `--dir` is refused.** The store
+  that matters is the one the hooks and the MCP server open. `--dir` is a common
+  flag, so it parses on every command; ignoring it silently here would be the
+  `--dirr` scar pointed at the most dangerous verb in the package.
+- **The new store lands at the SAME path**, which is where this departs from the
+  floor plan's step 5 (`store-v2` beside the old one, then re-run `claude mcp
+  add`). Parking in place means `dataDir` does not move, so `claude-code.json`
+  and `credentials.env` are kept byte for byte — `install` without `--force`
+  keeps both — and there is no MCP re-registration to forget, which was named as
+  failure mode (b) of the clean cut.
+- **`install` does the creating**, called as itself rather than re-implemented.
+  Its host-steps tail is skipped by the one caller it is false for: printing
+  "register the MCP server" on this path would send the owner to run a command
+  he does not need, on the day he is most likely to follow instructions
+  literally. Its ceiling is handed back from the configuration for the same
+  reason — otherwise the run ends on "NO injectionBudgetBytes was written",
+  which is true of a cold start and false when the file was kept.
+- **Snapshots first, store second**, so a kill between the two renames leaves the
+  configuration pointing at a store that is still there. The window where it
+  points at nothing is two syscalls wide, and the rollback lines are printed
+  before the first rename, so even a kill inside it leaves the way back on the
+  screen.
+- **What counts as "a store is here" is a filesystem question** — the directory
+  exists and holds something — never `storeExists()`, which looks for the
+  canonical database by name. After F5 that name changes, so on cut-over day
+  `storeExists()` would answer "no store here" about the store being protected.
+- **A fresh `-shm` warns; it does not refuse.** Measured on this build:
+  under `bun:sqlite` the `-wal` and the `-shm` survive a clean close, so that
+  file is recent after any console command at all — including the `doctor`
+  somebody ran a minute before typing this one. Refusing on it made the command
+  refuse itself in testing. The refusal rests on the live-session registry
+  instead, which is genuinely about a host that has not ended a session.
+- **The confirmation is the real gate, and says so.** No cheap read can see an
+  idle open session: it writes nothing. So the prompt states that in those words
+  rather than implying the checks above it were sufficient.
+- **The record of the beginning is a meta row, not a durable event.**
+  `store.started`, `store.started.by`, `store.previous.parked` in box 2's
+  general-purpose key space, beside `embed.failed.<id>` and `sleep.pruned.<id>`.
+  A durable event name would have had to be added to `core/counterpart.ts` and
+  accounted for in `fired`'s registry — where a mechanism that fires once in a
+  store's lifetime would read "never" forever on every store that was simply
+  installed. `status` reads the rows back; nothing else does.
+
+**Known, and left alone for now.** A kill between the install and that record
+leaves a blank store that `status` simply says nothing about. A state file to
+close it would be a second source of truth about a directory, for a line of
+output; the next run's printed plan says exactly what is on the ground instead.
+A test asserts the silence, so nobody later turns it into a guess.

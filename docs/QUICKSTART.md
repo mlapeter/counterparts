@@ -819,6 +819,63 @@ then restart every open Claude Code session (§5). Your store is untouched:
 
 ---
 
+## 9a. Starting over
+
+You may want a blank memory — to see what a new user sees, or because the first
+few days of a store are mostly you learning what it does. One command:
+
+```
+counterparts start-fresh --config ~/.counterparts/claude-code.json
+```
+
+**Close every Claude Code session and the dashboard first.** A running session's
+hooks and its MCP server hold the store open by a file handle, and a handle does
+not follow a rename — until they restart, they go on writing into the directory
+that was just parked. The command says this, checks what it cheaply can, and asks
+you to type the parked directory's name back before it does anything.
+
+What it does, in order:
+
+1. Renames `~/.counterparts/snapshots` to `snapshots.parked-<today>`, and then
+   `~/.counterparts/store` to `store.parked-<today>` (with a `-2` if you have
+   done this already today). **One atomic rename each. It never copies, never
+   deletes, and never opens the old store — not even read-only.**
+2. Creates a blank store back at `~/.counterparts/store`, by running `install`.
+3. Leaves `claude-code.json` and `credentials.env` exactly as they were, byte for
+   byte. Your keys, your ceiling, your scopes: untouched.
+
+Then **restart Claude Code**. There is nothing to re-register: the MCP server is
+registered with `COUNTERPARTS_DATA_DIR=~/.counterparts/store`, and the blank store
+is at that same path.
+
+**`--dry-run` prints every rename and every file it would write and changes
+nothing.** Run that first if you want to see it.
+
+**Going back** is the reverse of the renames, and the command prints the exact
+lines before it moves anything:
+
+```
+mv ~/.counterparts/store       ~/.counterparts/store.blank-<today>
+mv ~/.counterparts/store.parked-<today>      ~/.counterparts/store
+mv ~/.counterparts/snapshots.parked-<today>  ~/.counterparts/snapshots
+```
+
+The blank store is *parked* by that first line, not removed — nothing in this
+command deletes anything, including an undo. Restart Claude Code again afterwards.
+
+Two more things it will not do:
+
+- It refuses `--dir`. The store it parks is the one your **configuration** names,
+  because that is the one your hooks and your MCP server open; a second answer on
+  the command line is how the wrong store would get moved. Use `--config` to name
+  a different configuration.
+- It refuses by name to touch anything under `~/.bansai` or `~/.claude-engram`.
+
+`counterparts status` on the new store will say what day it began on and where the
+previous one is parked.
+
+---
+
 ## 10. What is actually verified, and what is not
 
 The install loop (`tools/install-loop/run.sh`) runs in a throwaway HOME with no

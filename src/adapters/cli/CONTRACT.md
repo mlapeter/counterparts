@@ -72,8 +72,13 @@ owner owns the data.
 ## 5. Contract
 
 **Inputs** — owner commands: `status`, `install`, `on`/`off`, `protected` (list),
-`remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18); interactive
-confirmation; the data directory.
+`remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18), `start-fresh`
+(2026-09-20); interactive confirmation; the data directory.
+*`start-fresh` is the second command in this module that asks a human before it acts, and
+the first whose danger is not deletion but MOVEMENT. It resolves its store from the host
+CONFIGURATION rather than from `--dir`, which it refuses in words: the store that matters
+is the one the hooks and the MCP server open, and a second answer on the command line is
+how the wrong one would get moved.*
 *`self-page` is deliberately NOT on `OWNER_OPS`, and it is the second command with a
 reason of its own for that (`scope` is the first). It both READS and writes: reading the
 page must work from an instrument, because "what does my page actually say" is the first
@@ -131,9 +136,24 @@ snapshots and exports; the removal record; telemetry by reference.
     gated channel without one.
 11. **[A] Command names, flag shapes, and output formatting are surface** and may change
     without touching a core contract.
-12. **[M] Owner-in-the-loop is a short, named list — currently one item: removal.**
-    Candidates for the list get discussed, never assumed (§14.3). Everything else that can
-    be safely autonomous is.
+12. **[M] Owner-in-the-loop is a short, named list — currently two items: removal, and
+    `start-fresh`.** Candidates for the list get discussed, never assumed (§14.3).
+    Everything else that can be safely autonomous is. *`start-fresh` joined it on
+    2026-09-20 for a reason removal does not share: what it moves cannot be checked by
+    this process. A session holding the store open by a file handle goes on writing into
+    the parked directory after the rename, and no cheap read can see an idle one — so the
+    human is not a formality here, he is the only instrument that can answer.*
+13. **[M] `start-fresh` never deletes and never opens the store it parks** — not for
+    writing, not read-only. The only mutating call in `cli/start-fresh.ts` is `rename`,
+    and the parked directory is proved byte-identical afterwards by a fingerprint over
+    every file including the `-wal` and the `-shm` and over every directory's entry list.
+    *Read-only is not exempt: under WAL, committed pages live in the `-wal` until somebody
+    checkpoints them, and an opener is somebody.*
+14. **[M] `start-fresh` asks the FILESYSTEM whether a store is there, never the floor.**
+    "The directory exists and holds something", never `storeExists()` — which looks for
+    the canonical database by name, and the name changes with the floor. On cut-over day
+    the store on disk is one the running build refuses to open by name, and that is
+    exactly the store this command exists to protect.
 
 ## 6. Scars honored
 

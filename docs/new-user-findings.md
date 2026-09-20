@@ -23,6 +23,41 @@ what the package actually carries.
 
 ---
 
+## 2026-09-20 — N1, building `start-fresh` (one finding, found while building it)
+
+### 1. `install` on a KEPT configuration tells you no injection ceiling was written, when the file it kept has one
+
+*Where:* `counterparts install` run a second time against an existing
+`~/.counterparts/claude-code.json`, without `--budget`.
+
+*What happened:* the run reports `kept …/claude-code.json`, and then prints
+
+```
+  NO "injectionBudgetBytes" was written: nobody told us this host's ceiling
+  and this package invents none (scar §2.18). Re-run with --budget <bytes>,
+  or add the key to …/claude-code.json.
+```
+
+The kept file already holds `"injectionBudgetBytes": 12000`.
+
+*Why a new user stalls:* it is true of a cold start and false here — the paragraph sends a
+reader to add a key he already has, to a file the same run has just told him was kept. It
+is the last thing on the screen, so it is the thing he acts on.
+
+*Severity:* CONFUSING.
+
+*Disposition:* worked around in `start-fresh`, not fixed at the source. `start-fresh` hands
+the ceiling it read out of the configuration back to `install` as `--budget`, so the
+paragraph is skipped; because the file is kept, nothing is written either way. The real fix
+is a choice for the owner: condition that paragraph on the configuration having been
+WRITTEN (`config.what !== "kept"`) rather than on `--budget` being absent, which is a
+one-line change to `installCommand` and a change to `install`'s output on a path other
+commands and the install loop exercise — so it was left for him rather than taken here.
+
+---
+
+---
+
 ## 2026-09-18 — N2, the first stranger's dry run (hermetic, no live Claude Code)
 
 An agent followed `README.md` and then `docs/QUICKSTART.md` literally, top to bottom, in a
