@@ -53,6 +53,7 @@ import { Store, hashText } from "../store/index.js";
 // skips the archived-read telemetry AND the deny-list, and this module is one of
 // the two files `test/cli.test.ts` allows to import it.
 import { readProseWalking } from "../store/walk-seam.js";
+import { rowTombstoned } from "../store/index.js";
 import type { MemoryRow, PutInput } from "../store/index.js";
 import type { Band, Kind, Salience } from "../types.js";
 import { AliasIndex, collision, handleKey } from "./aliases.js";
@@ -198,9 +199,9 @@ export class Schemas {
    *
    * **The two skips are counted apart, because only one of them is explained.**
    * A row the deny-list names was removed by the owner and its absence is the
-   * point. A row with a blanked `prose_path` and NO removal record is something
-   * else — a half-written migration, a disk event — and skipping it buys uptime
-   * with data disappearing without a word. Both are skipped (a session that
+   * point. A TOMBSTONED row with no removal record is something else — a
+   * half-written repair, a disk event — and skipping it buys uptime with data
+   * disappearing without a word. Both are skipped (a session that
    * cannot start helps nobody), and `loadSkips()` says which was which, so the
    * difference is a fact rather than a silence. Nothing prints it yet.
    */
@@ -213,7 +214,7 @@ export class Schemas {
         this.skips.removed += 1;
         continue;
       }
-      if (row.prose_path === "") {
+      if (rowTombstoned(row)) {
         this.skips.unaccounted.push(id);
         continue;
       }
@@ -1117,9 +1118,9 @@ export class Schemas {
   /**
    * A row this index must not hold, because the owner removed it.
    *
-   * Two states, and the first one is the crash. **Chased:** `prose_path` is
-   * blanked and the file is gone (`store/owner-op-seam.ts`), so reading the
-   * prose throws `PROSE_FILE_MISSING` — out of `Schemas.open`, out of
+   * Two states, and the first one is the crash. **Chased:** the row is a
+   * tombstone — body and content hash both blanked (`store/owner-op-seam.ts`)
+   * — so reading it throws `MEMORY_BODY_MISSING` out of `Schemas.open`, out of
    * `Counterpart.open`, and the hook catches that and exits 0, which is a
    * session with no wake, no recall and no capture and one line on stderr.
    * Free to check: the row is already in hand. **Dark:** marked but not yet
@@ -1138,7 +1139,7 @@ export class Schemas {
    * stay distinguishable.
    */
   private removed(id: string, row: MemoryRow, denied?: ReadonlySet<string>): boolean {
-    if (row.prose_path === "") return true;
+    if (rowTombstoned(row)) return true;
     return denied === undefined ? this.store.deniedIds().includes(id) : denied.has(id);
   }
 
@@ -1184,10 +1185,10 @@ export class Schemas {
     if (rec.role === "entity") return undefined;
     // ── the removal gate, and it runs BEFORE the prose is read ──────────────
     //
-    // Chased: the pointer is blanked, so reading it is the `PROSE_FILE_MISSING`
-    // that used to come out of `Counterpart.open`. Free to see; the row is in
-    // hand.
-    if (row.prose_path === "") return undefined;
+    // Chased: the row is a tombstone, so reading it is the
+    // `MEMORY_BODY_MISSING` that used to come out of `Counterpart.open`. Free
+    // to see; the row is in hand.
+    if (rowTombstoned(row)) return undefined;
     // Dark: marked, not yet chased — row and file both still there, and only
     // the deny-list knows. `physicsOf` asks it (`requireRow` → `refuseIfDenied`)
     // and this call has to happen anyway, so the gate costs nothing; what

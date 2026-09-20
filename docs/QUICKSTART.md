@@ -155,17 +155,24 @@ This command writes three things that are **yours**:
 ├── claude-code.json      the adapter's configuration
 ├── credentials.env       0600, holding only comments that name the two keys
 └── store/                the memory itself — the default data dir
-    ├── prose/            the memories, as Markdown you can read in any editor
-    ├── versions/         prior versions of a memory that was revised
-    ├── operational.sqlite
-    ├── cache/            rebuildable index; losing it costs a re-index
-    └── tmp/              staging for atomic writes
+    ├── counterparts.sqlite   the memories, their prior versions, everything
+    └── cache/            rebuildable index; losing it costs a re-index
 ```
 
-Two more directories appear under `store/` the first time they are needed and not
-before: `spans/` (lived experience awaiting encoding, written by the hooks and by
-`counterparts note`) and `sessions/` (the live-session registry, §5). A fresh
-store has neither, and `counterparts status` lists all of them either way.
+**One file holds your memory.** The bodies, their revision history and every
+structured field are rows in `counterparts.sqlite`, so a backup is a file copy
+and a memory can never disagree with its own bookkeeping. You read your memories
+through the dashboard, `counterparts recall`, or by asking — and
+`counterparts export` writes them out as Markdown whenever you want them as
+files. (SQLite keeps two sidecars beside it, `-wal` and `-shm`; they belong to
+the database and are copied with it.)
+
+Three more directories appear under `store/` the first time they are needed and
+not before: `spans/` (lived experience awaiting encoding, written by the hooks
+and by `counterparts note`), `journal/` (the counterpart's diary, also written
+as Markdown files as each chapter lands) and `sessions/` (the live-session
+registry, §5). A fresh store has none of them, and `counterparts status` lists
+them either way.
 
 …and `install` **prints**, without applying, the two things that belong to Claude
 Code: the hooks block and the MCP registration. It never opens
@@ -654,9 +661,9 @@ mentions the same words is somebody else's memory and is never touched.
 On a memory that never rode the buffer the same `spans` line reads `spans: not
 applicable`, which is stated rather than omitted — a surface that goes silent
 when it is empty is how the residue stayed invisible in the first place. One
-state is still `NOT chased`, and it is the honest one: a memory whose prose file
-is already gone AND whose mint never recorded a span hash cannot be addressed in
-the buffer at all. The command says which way it is blind, and counts itself
+state is still `NOT chased`, and it is the honest one: a memory whose words are
+already gone from its row AND whose mint never recorded a span hash cannot be
+addressed in the buffer at all. The command says which way it is blind, and counts itself
 `unchased: 1`.
 
 ### Prove the hook works without opening Claude Code
@@ -1017,9 +1024,9 @@ rather than from a script.
    tool mid-conversation and one file can still answer — `buffer.jsonl`, holding
    the turn in which you SAID it. That is transcript, not the memory, and it is
    left on purpose; `remove` counts it on a `spans echo` line rather than
-   passing over it. The other thing it names: a memory whose prose file is
-   already gone AND whose mint recorded no span hash — an old row, or one whose
-   prose you deleted by hand — cannot be addressed in the buffer at all, and
+   passing over it. The other thing it names: a memory whose words are already
+   gone from its row AND whose mint recorded no span hash — an old row, or one
+   edited in the database by hand — cannot be addressed in the buffer at all, and
    `remove` says which way it is blind on its `NOT chased` line and counts it
    `unchased: 1` rather than reporting `nothing`.
 7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and

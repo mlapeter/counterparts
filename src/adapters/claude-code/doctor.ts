@@ -78,7 +78,7 @@ import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
 // The same vocabulary the hook's stand-down uses, so the terminal and the
 // console cannot end up with two answers to "why did it not open".
-import { describeFault, faultPath } from "./standdown.js";
+import { describeFault, faultId, faultPath } from "./standdown.js";
 
 /** Worst first. The order of this array IS the report's order. */
 export const SEVERITIES = ["red", "amber", "green"] as const;
@@ -494,6 +494,10 @@ export interface OpenReading {
   readonly busy: boolean;
   /** The path the error named, when it named one. Never memory text (§5 G10). */
   readonly path: string | null;
+  /** The ROW the error named, when it named one — an id, never memory text.
+   *  `MEMORY_BODY_MISSING` carries one and no path, because on this floor the
+   *  words are the row and there is no file to restore (review B, MAJOR-3). */
+  readonly id: string | null;
 }
 
 /**
@@ -515,7 +519,16 @@ export function readCounterpartOpen(
     // OBSERVER, because `doctor` is an instrument: it reads and never writes,
     // and an owner open of a store that is not there would MINT one.
     opened = open(dir);
-    return { dir, ok: true, code: null, reason: "", migratable: false, busy: false, path: null };
+    return {
+      dir,
+      ok: true,
+      code: null,
+      reason: "",
+      migratable: false,
+      busy: false,
+      path: null,
+      id: null,
+    };
   } catch (err) {
     const fault = describeFault(err);
     return {
@@ -526,6 +539,7 @@ export function readCounterpartOpen(
       migratable: isStoreError(err, "STORE_UNINITIALIZED"),
       busy: fault.kind === "transient",
       path: faultPath(err),
+      id: faultId(err),
     };
   } finally {
     // Closed immediately, so this reading and the store the console opens next
@@ -1442,9 +1456,23 @@ function openFindings(reading: OpenReading): Finding[] {
       "red",
       "Store open",
       said,
-      reading.path === null
-        ? "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met."
-        : `Every session's hooks stand down here. Restore ${reading.path} — a row in this store points at it, and the read path chases it at every open.`,
+      reading.path !== null
+        ? `Every session's hooks stand down here. Restore ${reading.path} — a row in this store points at it, and the read path chases it at every open.`
+        : reading.id !== null
+          ? // THE ROW, NAMED. On the file floor this said "restore <path>" and the
+            // owner could fetch that one file from a snapshot; the words are the
+            // row now, so the id is the only handle there is — and without it he
+            // cannot tell which of thousands of rows to act on (review B,
+            // MAJOR-3). There is no repair COMMAND for this today, so the two
+            // real exits are named rather than a command invented.
+            `Every session's hooks stand down here: no wake, no recall, no capture. The row the read path ` +
+            `met is ${reading.id} — its words are gone and its content hash still names them, which no write ` +
+            `path in this build produces. THERE MAY BE MORE THAN ONE: this names the row that threw, and ` +
+            `counterparts verify --dir <store> lists every such row. Two ways out, both the owner's call: ` +
+            `restore a snapshot over the store (see the Snapshot line), or remove those rows — ` +
+            `counterparts remove <id> --confirm --dir <store> — which tombstones each one and lets sessions ` +
+            `start again, permanently and without its words.`
+          : "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met.",
       data,
     ),
   ];
@@ -1603,8 +1631,11 @@ function pageStaleOn(revisedOn: string, today: string, limit: number): boolean {
 export const RESTORE_STEPS =
   "To restore: stop every session, copy a snapshot directory to the store's path, " +
   "then counterparts verify --dir <store> --rebuild (with the embed key exported, or " +
-  "the vectors are dropped and refilled over the following days). The memories and " +
-  "the journal come back with the copy; the search index and the vectors are rebuilt.";
+  "the vectors are dropped and refilled over the following days). Everything comes back " +
+  "with the copy — the memories, their versions and the journal are all in the database; " +
+  "the search index and the vectors are rebuilt. A copy holding operational.sqlite or " +
+  "prose/ is from BEFORE the floor changed and this build cannot open it: it is kept and " +
+  "counted, never rotated, and the build tagged floor/v5-last reads it.";
 
 /** How stale the newest snapshot may be before this line goes amber. A daily
  *  mechanism that has not fired for two calendar days has missed one. */
@@ -1671,6 +1702,17 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     disk.unrecognised.length === 0
       ? ""
       : `; ${String(disk.unrecognised.length)} director${disk.unrecognised.length === 1 ? "y is" : "ies are"} named like snapshots but do not look like copies of a store, so they are not counted and will never be rotated: ${disk.unrecognised.slice(0, 3).join(", ")}${disk.unrecognised.length > 3 ? ` and ${String(disk.unrecognised.length - 3)} more` : ""}`;
+  // PRE-ROWS COPIES ARE SAID, AND THEY ARE NOT A FAULT (review B, MAJOR-2 and
+  // NIT-3/-4). After cut-over the owner's snapshots directory holds his old
+  // floor's copies permanently: they are never rotated, because this build
+  // cannot open one to know what is in it. That is the right outcome and it
+  // must not read as a problem — a permanently amber Snapshot line is a line
+  // people learn to skip. So it is a clause on the ordinary sentence, and the
+  // grading below deliberately does not consider it.
+  const older =
+    disk.preRows.length === 0
+      ? ""
+      : `; ${String(disk.preRows.length)} older-format cop${disk.preRows.length === 1 ? "y" : "ies"} this build cannot open — kept, never rotated, read by the build tagged floor/v5-last: ${disk.preRows.slice(0, 3).join(", ")}${disk.preRows.length > 3 ? ` and ${String(disk.preRows.length - 3)} more` : ""}`;
   const held = {
     ...data,
     onDisk,
@@ -1679,6 +1721,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
     readable: disk.readable,
     future,
     unrecognised: disk.unrecognised.length,
+    preRows: disk.preRows.length,
   };
 
   const read = newestRows(store, SNAPSHOT_TAKEN_EVENT, 1, livedDay);
@@ -1745,6 +1788,7 @@ function snapshotFindings(input: DoctorInput, store: Store): Finding[] {
       ? `; the newest snapshot.taken row says ${rowDated}, which is not on disk`
       : "") +
     strange +
+    older +
     misread;
   // Two or more calendar days back is a daily mechanism that has missed one, so
   // the boundary day itself is already amber.

@@ -125,6 +125,12 @@ snapshots and exports; the removal record; telemetry by reference.
    BOUNDED retention (H lived days). Bounded canonical-until-expiry state belongs IN the
    backup set, and LAYOUT says so; this guarantee's premise applied to v1's shape. The
    implementation followed LAYOUT, which guarantee 5 makes the single source of truth.*
+   *Second correction (2026-09-20, the floor): there is no `versions/` directory
+   either. An archived version is a ROW in `counterparts.sqlite`, so it is inside
+   the database the snapshot copies through `VACUUM INTO` and there is nothing
+   left for this guarantee to exclude. Still bounded, still 90 lived days — and
+   the prune now deletes the WORDS rather than a note about a file (owner ruling
+   1, 2026-09-18; `store/NOTES.md` 2026-09-20).*
 7. **[M] `export` is the only egress**, and it is explicit, encrypted, and owner-keyed. A
    test asserts no other module opens a network socket to a non-model, non-embedding
    endpoint.

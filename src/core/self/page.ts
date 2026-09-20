@@ -203,12 +203,33 @@ export function isSelfPageRow(store: Store, id: string): boolean {
   }
 }
 
-/** The page as a value, or null. To every reader in `self/` a page whose prose
- *  will not read is absent, never a throw (§5 G7). That is this module's half
- *  only: a page whose prose FILE is gone never gets this far today, because
- *  `Schemas.load` reads every schema row at open and `Counterpart.open` throws
- *  `PROSE_FILE_MISSING` first — the session stands down and doctor reads RED
- *  (measured, `docs/adversarial-review-s1c-2026-09-20.md` MAJOR-1). */
+/**
+ * The page as a value, or null. To every reader in `self/` a page whose body
+ * will not read is absent, never a throw (§5 G7).
+ *
+ * **What is upstream of that changed with the floor** (schema v6), and the note
+ * this replaces was written on the floor before it. There used to be a THIRD
+ * state — the page's prose FILE deleted underneath the store — and it never got
+ * this far: `Schemas.load` reads every schema row at open, `readProseFile` threw
+ * `PROSE_FILE_MISSING`, and `Counterpart.open` took the whole session down with
+ * doctor reading RED (measured, `docs/adversarial-review-s1c-2026-09-20.md`
+ * MAJOR-1). There is no file to lose now, so that state is gone with it.
+ *
+ * What is left is two, and `Schemas.load` tells them apart:
+ *
+ *   - **Tombstoned** — body and content hash both blank, which is what the
+ *     owner's removal leaves (`store/operational.ts#rowTombstoned`). `load`
+ *     SKIPS it and counts it, so the session still starts, and the deny-list
+ *     answers anyone who asks for the id by name. A CLEARED page is a different
+ *     thing again and is this function's own business: the row and its words are
+ *     intact, a marker in `meta` says the owner emptied it, and the line below
+ *     reads it as absent so the wake goes back to its empty-page behaviour.
+ *   - **Its words went missing** — a blank body beside a real content hash, a
+ *     state no write path produces. `MEMORY_BODY_MISSING` still comes out of
+ *     `Schemas.load` and still stands the session down, on purpose: a store that
+ *     lost a memory's words underneath itself is a fault the owner must see, not
+ *     a page to quietly render as empty.
+ */
 export function readSelfPage(store: Store): SelfPage | null {
   const id = findPageRow(store);
   if (id === null) return null;

@@ -92,7 +92,12 @@ export function mergeRecordKey(id: string): string {
 /**
  * The shipped candidate source: identical INTERPRETATIONS, hashed here.
  *
- * Note what is deliberately not used: `memories.content_hash` addresses the whole
+ * Note what is deliberately not used: `memories.content_hash`. Since the floor
+ * (2026-09-20) it addresses the BODY — `hashText(body)`, one definition across
+ * both tables — so two memories that differ only in title now hash the same,
+ * which makes it a fine exact-duplicate test and still the wrong tool here: it
+ * cannot see a NEAR duplicate, which is what this pass is for. Before the floor
+ * it addressed the whole
  * serialized prose document, id and frontmatter included, so two distinct
  * memories can never share one — it is a change detector, not a duplicate
  * detector. The duplicate question is about the body, which is the memory

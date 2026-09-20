@@ -2500,19 +2500,29 @@ describe("every ingestion entrance this adapter creates goes through the battery
       }),
     });
 
-    // The totality: NO canonical byte anywhere in the store holds the secret.
+    // THE TOTALITY: no canonical byte anywhere in the store holds the secret.
+    //
+    // It used to walk `prose/`. Since the floor the canonical bytes are the
+    // database's, so the walk is the whole store directory, read as BYTES —
+    // a `readFileSync(_, "utf8")` over a SQLite file replaces invalid sequences
+    // and could pull the credential apart, passing for the wrong reason. The
+    // `-wal` is included deliberately: a redaction that landed in the database
+    // while the raw text sat in the log would be the gap this test exists for.
     const files: string[] = [];
     const walk = (root: string): void => {
       for (const entry of readdirSync(root, { withFileTypes: true })) {
         const full = join(root, entry.name);
         if (entry.isDirectory()) walk(full);
-        else files.push(readFileSync(full, "utf8"));
+        else files.push(readFileSync(full).toString("latin1"));
       }
     };
-    walk(join(dir, "prose"));
-    const prose = files.join("\n");
-    expect(prose.length).toBeGreaterThan(0);
-    expect(prose).not.toContain(CREDENTIAL);
+    walk(dir);
+    const bytes = files.join("\n");
+    // Non-vacuous from two sides: there ARE memories in this store (the three
+    // deposits above), and their words really are in these bytes.
+    expect(c.store.list().length).toBeGreaterThan(0);
+    expect(bytes).toContain("is the one to rotate this quarter");
+    expect(bytes).not.toContain(CREDENTIAL);
   });
 });
 

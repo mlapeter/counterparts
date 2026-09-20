@@ -1,10 +1,23 @@
 /**
  * The store seam.
  *
- * Three boxes behind one object:
- *   1. canonical prose      — `prose/**.md`            (box 1, `prose.ts`)
- *   2. canonical operational — `operational.sqlite`    (box 2, `operational.ts`)
- *   3. rebuildable cache     — `cache/cache.sqlite`    (box 3, `cache.ts`)
+ * TWO boxes behind one object, since the floor (schema v6, 2026-09-20):
+ *   2. canonical      — `counterparts.sqlite`   (box 2, `operational.ts`)
+ *   3. rebuildable    — `cache/cache.sqlite`    (box 3, `cache.ts`)
+ *
+ * Box 1 — `prose/**.md`, one markdown file per memory — is gone. `memories`
+ * carries `title`, `body` and `meta`, and `versions` carries its own copy of the
+ * three, so a memory and its history are one row and one transaction. Markdown
+ * is an EXPORT (`render.ts`), and `ProseDoc` is still the read shape, which is
+ * why `physics/`, `recall/`, `associate/`, `prospective/`, `encode/` and most of
+ * `sleep/` never learned the floor moved.
+ *
+ * What that buys, in the words of the scars it closes: a crash can no longer
+ * leave a row whose words are missing (there is no window between "commit the
+ * row" and "publish the file"), removing a memory is one transaction rather than
+ * a file chase, a backup is one file, and a copied store cannot read or delete
+ * the source store's words because there are none outside the database (I22,
+ * whose mechanism is deleted and whose criterion is kept).
  *
  * Every write crosses `mutate()`: it checks the observer stance FIRST, then opens a
  * transaction on box 2. That ordering is the point — an instrument refuses before it
@@ -24,8 +37,8 @@
  * accessor, and an instrument reading the skeleton of a removed memory is how the
  * owner sees that something WAS here (constitution 16).
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, MemorySource, Salience } from "../types.js";
 import { creditUse } from "../physics/index.js";
@@ -34,7 +47,13 @@ import type { Db } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
-import { DEFAULT_RETENTION_DAYS, SCHEMA_VERSION, openOperational, rowToPhysics } from "./operational.js";
+import {
+  DEFAULT_RETENTION_DAYS,
+  SCHEMA_VERSION,
+  openOperational,
+  rowToPhysics,
+  rowTombstoned,
+} from "./operational.js";
 import type {
   EdgeRow,
   EventRow,
@@ -47,21 +66,25 @@ import type {
 } from "./operational.js";
 import { grantOwnerOps } from "./owner-op-seam.js";
 import {
+  DATABASE_FILE,
   LAYOUT,
+  PRE_ROWS_READABLE_BY,
   assertLayoutClassified,
   assertSafeDataDir,
   dataDir,
   paths,
-  resolveStoredPath,
+  preRowsLeftoversAreEmpty,
+  preRowsMarkersIn,
 } from "./paths.js";
 import {
   ID_PREFIX,
-  archivePriorVersion,
-  publishStaged,
-  readProseFile,
-  stageProse,
+  assertIdWellFormed,
+  bodyForStorage,
+  hashText,
+  parseMeta,
+  serializeMeta,
 } from "./prose.js";
-import type { ProseDoc, ProseType, Staged } from "./prose.js";
+import type { ProseDoc, ProseType } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
   deindexDoc,
@@ -81,6 +104,7 @@ export * from "./errors.js";
 export * from "../observer.js";
 export * from "./paths.js";
 export * from "./prose.js";
+export * from "./render.js";
 export type { Db, Statement } from "./db.js";
 export type {
   MemoryRow,
@@ -93,14 +117,14 @@ export type {
   TombstoneRow,
 } from "./operational.js";
 export {
+  ADDED_COLUMNS,
   DEFAULT_RETENTION_DAYS,
+  isPreRowsDatabase,
   OBSERVER_READ_FLOOR,
-  PATHS_MIGRATED_EVENT,
   SCHEMA_VERSION,
-  relativizeStoredPaths,
   rowToPhysics,
+  rowTombstoned,
 } from "./operational.js";
-export type { PathsConverted } from "./operational.js";
 export {
   tokenize,
   cosine,
@@ -201,31 +225,17 @@ export interface PutInput {
   origin?: { session?: string; scope?: string; ref?: string; spanHash?: string };
 }
 
-/** One column's spelling census — `Store.pathCensus()`, printed by `verify`. */
-export interface PathCensus {
-  /** Store-relative rows (the v5 shape). */
-  readonly relative: number;
-  /** Absolute rows: on a v4 store, not yet migrated; on a v5 store, the ones the
-   *  migration could not place. Either way resolved against THIS store when a
-   *  `prose/` or `versions/` segment allows it, and read as given otherwise. */
-  readonly absolute: number;
-  /** Rows that would resolve OUTSIDE `prose/` or `versions/` — a hand-edited
-   *  database. Never resolved (`STORED_PATH_ESCAPES`), never stat'ed. */
-  readonly escaped: number;
-  /** Non-blank, resolvable rows whose file is not on disk. */
-  readonly missing: number;
-  /** Blanked pointers — removed rows. Nothing to resolve. */
-  readonly blank: number;
-}
-
 /**
- * A memory's confidentiality class, read from the prose payload's `meta`.
+ * A memory's confidentiality class, from its `meta`.
  *
- * The truth table lives HERE, beside the read that carries it, because it is a
+ * The truth table lives HERE, beside the writes that carry it, because it is a
  * gate: `recall/activate.ts#isConfidential` is the same answer by the same
  * function, so the surfacing boundary and `StoredMemory.confidential` can never
- * disagree. It reads `meta` today; when the body moves into the row it reads a
- * column, and nothing above this line notices.
+ * disagree. Since the floor it is also evaluated ONCE PER WRITE and stored in
+ * `memories.confidential`, so the gate no longer parses JSON on every read —
+ * a gate that re-parses at every call site is a gate that will one day fail
+ * open. The function stays the single definition both the column and the
+ * boundary are computed from.
  */
 export function confidentialByMeta(meta: Readonly<Record<string, unknown>>): boolean {
   if (meta["confidential"] === true) return true;
@@ -243,10 +253,9 @@ export interface StoredMemory {
   supersededBy: string | null;
   revision: number;
   contentHash: string;
-  /** The confidentiality class, computed from `doc.meta` (`confidentialByMeta`).
-   *  Carried on the read so a caller gates on a boolean rather than on a JSON
-   *  payload it had to re-interpret — a gate that parses on every read is a gate
-   *  that will one day fail open. */
+  /** The confidentiality class, read off the ROW's column (written from
+   *  `confidentialByMeta` at every write). Carried on the read so a caller gates
+   *  on a boolean rather than on JSON it had to re-interpret. */
   confidential: boolean;
 }
 
@@ -565,6 +574,46 @@ export class Store {
     this.nowFn = opts.now ?? Date.now;
     this.onEvent = opts.onEvent;
 
+    // ── THE PRE-ROWS REFUSAL, AND IT IS THE FIRST THING THAT HAPPENS ───────
+    //
+    // Before `fresh`, before the first `mkdirSync`, before `openOperational`,
+    // before `assertLayout` — because every one of those writes something, and
+    // the whole promise of this refusal is that a store written by an older
+    // floor is left BYTE-IDENTICAL by an attempt to open it.
+    //
+    // The hazard it closes is the one thing in this rebuild that could destroy
+    // the owner's live memory. `openOperational` migrates any store below
+    // `SCHEMA_VERSION`; a v5 store reaching it would get `body` NULL on every
+    // row while its words sat in ~16,000 markdown files this build cannot see,
+    // and it would then be stamped v6 — unreadable by the build that CAN read
+    // it. There is no migration and there is not going to be one (owner ruling
+    // 6): the cut-over carries nothing and he starts as a new user.
+    //
+    // ORDER MATTERS TWICE OVER. `assertLayout()` would also refuse a v5 store,
+    // on the unclassified `prose/` — but only after the database had been
+    // opened and a blank `counterparts.sqlite` minted beside the old one, and a
+    // refusal that names the layout instead of the floor is the wrong sentence
+    // for somebody looking at three weeks of memory.
+    //
+    // It reads FILENAMES, never the old database (`preRowsMarkersIn`): since F1
+    // the live store is in WAL, so an open-and-close to read its schema version
+    // could checkpoint and remove its `-wal` — moving the bytes of the store
+    // this exists to leave alone. `openOperational` carries the SECOND lock,
+    // for a v5 database wearing the v6 name, where the file is already open and
+    // that argument no longer applies.
+    const preRows = preRowsMarkersIn(this.dir);
+    if (preRows.length > 0) {
+      throw new StoreError("STORE_PRE_ROWS", {
+        dir: this.dir,
+        // ALL of them, not the first: a refusal that named only
+        // `operational.sqlite` never mentioned the 16,000 files under `prose/`,
+        // which is the part the owner would want named.
+        found: preRows.join(", "),
+        expected: SCHEMA_VERSION,
+        ...preRowsRemedy(this.dir, preRows),
+      });
+    }
+
     // AN INSTRUMENT WRITES NOTHING AT OPEN when there is a store to read.
     //
     // The old constructor ran the DDL and four meta upserts on every open,
@@ -589,24 +638,16 @@ export class Store {
         expected: SCHEMA_VERSION,
       });
     }
-    const writesAtOpen = !this.observer;
-    for (const sub of writesAtOpen
-      ? [
-          paths.prose(this.dir),
-          paths.versions(this.dir),
-          paths.tmp(this.dir),
-          paths.cacheDir(this.dir),
-        ]
-      : // Box 3 only, and only because it is DECLARED rebuildable: an instrument
-        // needs somewhere to open the cache, and materializing the cache's own
-        // container changes no canonical state and takes no canonical lock.
-        [paths.cacheDir(this.dir)]) {
-      mkdirSync(sub, { recursive: true });
-    }
+    // ONE DIRECTORY, either way: box 3's. `prose/`, `versions/` and `tmp/` went
+    // with the floor — the canonical box is a single file SQLite makes itself,
+    // and there is nothing left to stage. Box 3's container is made even under
+    // observer, and only because it is DECLARED rebuildable: an instrument
+    // needs somewhere to open the cache, and materializing the cache's own
+    // directory changes no canonical state and takes no canonical lock.
+    mkdirSync(paths.cacheDir(this.dir), { recursive: true });
     this.ops = openOperational(paths.operational(this.dir), {
-      initialize: writesAtOpen,
+      initialize: !this.observer,
       retentionDays: this.retentionDays,
-      now: this.nowFn,
     });
     this.cache = openCache(paths.cache(this.dir));
     // The owner-op capability. Handed to the seam module, never to a caller:
@@ -639,8 +680,7 @@ export class Store {
       reindexLexical: (id) => {
         const row = this.row(id);
         if (row === undefined) return;
-        const doc = readProseFile(this.absolutePath(row.prose_path), id);
-        indexDoc(this.cache, doc.id, indexText(doc));
+        indexDoc(this.cache, id, indexTextOf(row.title, row.body));
       },
     });
     this.assertLayout();
@@ -731,10 +771,9 @@ export class Store {
   // ── writes ─────────────────────────────────────────────────────────────────
 
   put(input: PutInput): string {
-    const { staged, doc } = this.mutate("put", () => this.insertOne(input));
-    publishStaged(staged);
+    const doc = this.mutate("put", () => this.insertOne(input));
     this.indexOne(doc);
-    this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: staged.hash });
+    this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: hashText(doc.body) });
     return doc.id;
   }
 
@@ -744,11 +783,20 @@ export class Store {
    * the rest persist. Two different promises; the caller picks, out loud.
    */
   putMany(inputs: readonly PutInput[], opts: { isolate?: boolean } = {}): string[] {
-    const staged = this.mutate("putMany", () => {
-      const out: { staged: Staged; doc: ProseDoc; input: PutInput }[] = [];
+    const landed = this.mutate("putMany", () => {
+      const out: { doc: ProseDoc; input: PutInput }[] = [];
       for (const input of inputs) {
         try {
-          out.push({ ...this.insertOne(input), input });
+          // A SAVEPOINT PER ITEM under `isolate`, not a bare call. The insert
+          // used to be preceded by a file stage that validated everything
+          // first, so a throw happened before any row was written; now the
+          // validation and the INSERT are in the same method, and a failure
+          // after the INSERT — a constraint, a foreign key, anything a later
+          // reviewer adds below it — would otherwise be swallowed here and
+          // COMMITTED by the outer transaction. `Db.transaction` nests as
+          // SAVEPOINT / ROLLBACK TO, so per-item isolation is structural
+          // (§16 G6) rather than a property of the current line order.
+          out.push({ doc: this.isolatedInsert(input, opts.isolate === true), input });
         } catch (err) {
           if (!opts.isolate) throw err;
           this.emit("store.put.skipped", input.id, {
@@ -758,28 +806,35 @@ export class Store {
       }
       return out;
     });
-    for (const s of staged) {
-      publishStaged(s.staged);
+    for (const s of landed) {
       this.indexOne(s.doc);
       this.emit("store.put", s.doc.id, {
         type: s.doc.type,
         kind: s.input.kind,
-        hash: s.staged.hash,
+        hash: hashText(s.doc.body),
       });
     }
-    return staged.map((s) => s.doc.id);
+    return landed.map((s) => s.doc.id);
+  }
+
+  /** `insertOne`, inside its own savepoint when the caller asked for isolation. */
+  private isolatedInsert(input: PutInput, isolate: boolean): ProseDoc {
+    return isolate ? this.ops.transaction(() => this.insertOne(input)) : this.insertOne(input);
   }
 
   /**
-   * In-place content revision. Archives the prior version FIRST (§16 G4).
+   * In-place content revision. The prior version is written in the SAME
+   * transaction as the update (§16 G4) — not before it, because there is no
+   * longer a before: the version is a row, not a file copied out of the way.
    *
    * `learnedOn` / `happenedOn` are the PROVENANCE half, and they travel this same
    * door on purpose (§I7, `NOTES.md` 2026-09-05): correcting a date is a change to
-   * canonical prose, so it keeps the prior version exactly the way a body change
+   * canonical content, so it keeps the prior version exactly the way a body change
    * does — constitution 7, nothing is silently overwritten and the old date stays
-   * readable in `versions/`. Both write the prose frontmatter AND the column, in
-   * one transaction, because a document and its query surface disagreeing about a
-   * date is worse than either being wrong alone.
+   * readable in the version. **That is why `versions` carries `learned_on` and
+   * `happened_on` of its own**, which the floor plan did not ask for: with the
+   * dates read off the live row instead, one correction would have silently
+   * rewritten every version behind it.
    */
   revise(
     id: string,
@@ -792,22 +847,32 @@ export class Store {
       reason?: string;
     },
   ): number {
-    const { staged, doc, seq } = this.mutate("revise", () => {
+    const { doc, seq, hash } = this.mutate("revise", () => {
       const row = this.requireRow(id);
-      const current = readFileSync(this.absolutePath(row.prose_path), "utf8");
-      const version = archivePriorVersion(this.dir, id, current, row.revision + 1);
+      const prior = this.docOf(row);
+      const seq = row.revision + 1;
+      // THE PRIOR VERSION, WORDS AND ALL, IN THE SAME TRANSACTION. It used to be
+      // a file copied into `versions/<id>/` before the new text was staged, with
+      // a `wx` collision loop and a crash window between the two; it is now a
+      // row written beside the update, so "an overwrite keeps the prior version"
+      // is a property of the transaction rather than of the ordering (§5 G5).
       this.ops.run(
-        `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+        `INSERT INTO versions
+           (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
+            title, body, meta, learned_on, happened_on)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
         id,
-        version.seq,
+        seq,
         patch.reason ?? "revise",
         this.livedDay(),
         this.nowFn(),
-        version.storedPath,
-        version.hash,
+        row.content_hash,
+        row.title,
+        row.body,
+        row.meta,
+        row.learned_on,
+        row.happened_on,
       );
-      const prior = readProseFile(this.absolutePath(row.prose_path), id);
       const next: ProseDoc = {
         ...prior,
         body: patch.body ?? prior.body,
@@ -816,24 +881,36 @@ export class Store {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.learnedOn !== undefined) next.learnedOn = patch.learnedOn;
       if (patch.happenedOn !== undefined) next.happenedOn = patch.happenedOn;
-      const s = stageProse(this.dir, next);
+      // THE SAME RULE AS `put`, through the same function. `patch.body ?? ...`
+      // accepts `""` happily, and on this floor that would write the one state
+      // no write path may produce — a row whose hash names words its body no
+      // longer holds, which every read answers as `MEMORY_BODY_MISSING` and
+      // which takes the next session's `Schemas.open` down on a schema row.
+      // Whitespace-only and a lone surrogate go through it too.
+      next.body = bodyForStorage(next.body, id);
+      const nextHash = hashText(next.body);
       this.ops.run(
-        "UPDATE memories SET content_hash = ?, revision = ? WHERE id = ?",
-        s.hash,
-        version.seq,
+        `UPDATE memories
+            SET content_hash = ?, revision = ?, title = ?, body = ?, meta = ?,
+                confidential = ?, learned_on = ?, happened_on = ?
+          WHERE id = ?`,
+        nextHash,
+        seq,
+        next.title ?? null,
+        next.body,
+        serializeMeta(next.meta, id),
+        // RECOMPUTED, never carried: a revision that patches `meta` can turn
+        // the confidentiality gate on or off, and a column that went stale
+        // against its own truth table is a gate that fails open silently.
+        confidentialByMeta(next.meta) ? 1 : 0,
+        next.learnedOn,
+        next.happenedOn ?? null,
         id,
       );
-      if (patch.learnedOn !== undefined) {
-        this.ops.run("UPDATE memories SET learned_on = ? WHERE id = ?", patch.learnedOn, id);
-      }
-      if (patch.happenedOn !== undefined) {
-        this.ops.run("UPDATE memories SET happened_on = ? WHERE id = ?", patch.happenedOn, id);
-      }
-      return { staged: s, doc: next, seq: version.seq };
+      return { doc: next, seq, hash: nextHash };
     });
-    publishStaged(staged);
     this.indexOne(doc);
-    this.emit("store.revise", id, { seq, hash: staged.hash });
+    this.emit("store.revise", id, { seq, hash });
     return seq;
   }
 
@@ -843,32 +920,42 @@ export class Store {
    * what expires at H, not the ability to resolve (§5 G4, §16 G3).
    */
   supersede(oldId: string, input: PutInput, reason = "supersede"): string {
-    const { staged, doc, newId } = this.mutate("supersede", () => {
+    const { doc, newId } = this.mutate("supersede", () => {
       const row = this.requireRow(oldId);
       const created = this.insertOne(input);
+      // The version row carries a COPY of the head's words rather than a pointer
+      // to the file both used to share. The head keeps its own row and its own
+      // body too, so the text is held twice for as long as the version row
+      // lives — the honest cost of rows over files, bounded by the 90-day
+      // version prune (owner ruling 1). See `store/NOTES.md`.
       this.ops.run(
-        `INSERT INTO versions (memory_id, seq, reason, version_day, archived_at, path, content_hash, successor_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO versions
+           (memory_id, seq, reason, version_day, archived_at, content_hash, successor_id,
+            title, body, meta, learned_on, happened_on)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         oldId,
         row.revision + 1,
         reason,
         this.livedDay(),
         this.nowFn(),
-        row.prose_path,
         row.content_hash,
-        created.doc.id,
+        created.id,
+        row.title,
+        row.body,
+        row.meta,
+        row.learned_on,
+        row.happened_on,
       );
       this.ops.run(
         `UPDATE memories SET superseded_by = ?, archived = 1, archived_reason = ?, revision = ?
           WHERE id = ?`,
-        created.doc.id,
+        created.id,
         reason,
         row.revision + 1,
         oldId,
       );
-      return { ...created, newId: created.doc.id };
+      return { doc: created, newId: created.id };
     });
-    publishStaged(staged);
     this.indexOne(doc);
     // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
     // the prose and the forwarding address — this is the INDEX, and the index
@@ -1336,9 +1423,22 @@ export class Store {
   }
 
   /**
-   * Bounded versioning (contract §4): superseded-version ROWS older than H lived
-   * days stop being tracked. Every discard reports what and how much (scar §2.4).
-   * The archived prose file is left where it is — this module destroys nothing.
+   * Bounded versioning (contract §4): superseded-version rows older than H lived
+   * days go. Every discard reports what and how much (scar §2.4).
+   *
+   * **THIS DELETES THE OWNER'S EARLIER WORDS, and since the floor that is the
+   * plain truth of it.** The line that used to stand here said "the archived
+   * prose file is left where it is — this module destroys nothing", and it was
+   * true: a version row was a NOTE about a file nothing ever unlinked, so the
+   * prune cost the history its index and not one word. The words are IN the row
+   * now, so at H the wording itself is gone.
+   *
+   * Kept anyway, at 90 lived days (owner ruling 1, 2026-09-18), and his reason
+   * is the general steer: simple, elegant working-memory mechanics over keeping
+   * everything, and losing some history after a month or two is an acceptable
+   * price. Our own store sets `retentionDays` high for debugging.
+   * `test/self-page.test.ts` makes the cost visible on the self page, which is
+   * where an owner would feel it first.
    */
   pruneSupersededVersions(): PruneReport {
     const report = this.mutate("pruneSupersededVersions", () => {
@@ -1418,8 +1518,7 @@ export class Store {
         skippedArchived += 1;
         continue;
       }
-      const doc = readProseFile(this.absolutePath(row.prose_path), row.id);
-      const text = indexText(doc);
+      const text = indexTextOf(row.title, row.body);
       // KEEP MEANS KEEP. A row that already has a vector is not offered to the
       // embedder at all under `keepVectors` — the first version called it and
       // let `indexDoc` overwrite what it had just promised to preserve, so a
@@ -1714,7 +1813,7 @@ export class Store {
 
   read(id: string): StoredMemory {
     const row = this.requireRow(id);
-    const doc = readProseFile(this.absolutePath(row.prose_path), id);
+    const doc = this.docOf(row);
     if (row.archived === 1) {
       // §5 G13: a read-back of archived content is an event, so "did the archival
       // mechanisms ever pay for themselves" is an answerable question in v2.
@@ -1730,7 +1829,7 @@ export class Store {
       supersededBy: row.superseded_by,
       revision: row.revision,
       contentHash: row.content_hash,
-      confidential: confidentialByMeta(doc.meta),
+      confidential: row.confidential === 1,
     };
   }
 
@@ -1807,66 +1906,30 @@ export class Store {
     );
     if (row === undefined) throw new StoreError("VERSION_UNKNOWN", { id, seq });
     this.emit("store.version.read", id, { seq, reason: row.reason });
-    return readProseFile(this.absolutePath(row.path), id);
+    return this.versionDoc(id, row);
   }
 
   /**
-   * A row's stored path (`prose_path`, a version's `path`), made absolute
-   * against THIS store — the one address a caller may hand to the filesystem.
+   * Rows whose WORDS WENT MISSING — `body = ''` with a content hash that still
+   * names them. Ids only; never a body (§5 G10).
    *
-   * Rows hold store-relative paths (`prose/<family>/<id>.md`; CONTRACT §5 G15),
-   * so a copied or restored store names the files beside it and never the
-   * files of the store it was copied from. A pre-v5 absolute row is PLACED
-   * against this store by the migration's own rule, so an instrument on a v4
-   * copy reads the copy's file too. `""` — a chased row's blanked pointer —
-   * resolves to `""`, never to the store root; a value that would land outside
-   * `prose/` or `versions/` throws `STORED_PATH_ESCAPES` (`paths.ts`).
+   * The fault `MEMORY_BODY_MISSING` is raised for, counted. It is not a
+   * tombstone (both halves blank, the owner's removal) and no write path in
+   * this build produces it: `put` and `revise` both refuse an empty body, and
+   * the chase blanks the pair together. So a non-empty answer means something
+   * happened to the store underneath itself.
+   *
+   * It exists because the fault stands EVERY session down while `status` and
+   * `verify` both read green, and doctor's red line named the class and not the
+   * row — so the owner could not find which of thousands of rows to act on
+   * (review B, MAJOR-3). A read; nothing here crosses the write seam.
    */
-  absolutePath(storedPath: string): string {
-    return resolveStoredPath(this.dir, storedPath);
-  }
-
-  /**
-   * How the two path columns are spelled, and whether their files are there.
-   * `verify` prints this; it is the owner's read-only view of the v5 migration
-   * on a live store (constitution 16). Pure reads plus one `stat` per row.
-   *
-   *   relative  — the v5 shape, resolved against this store;
-   *   absolute  — a pre-v5 spelling: unmigrated on a v4 store, unplaceable on a
-   *               v5 one; placed against this store where a segment allows it;
-   *   escaped   — would resolve outside the store's two roots; never resolved;
-   *   missing   — a non-blank, resolvable pointer whose file does not exist.
-   *
-   * Blank pointers (removed rows) are none of these: there is nothing to resolve.
-   */
-  pathCensus(): { prose: PathCensus; versions: PathCensus } {
-    const census = (rows: readonly { p: string }[]): PathCensus => {
-      const out = { relative: 0, absolute: 0, escaped: 0, missing: 0, blank: 0 };
-      for (const { p } of rows) {
-        if (p.length === 0) {
-          out.blank += 1;
-          continue;
-        }
-        let resolved: string;
-        try {
-          resolved = this.absolutePath(p);
-        } catch (err) {
-          if (err instanceof StoreError && err.code === "STORED_PATH_ESCAPES") {
-            out.escaped += 1;
-            continue;
-          }
-          throw err;
-        }
-        if (isAbsolute(p)) out.absolute += 1;
-        else out.relative += 1;
-        if (!existsSync(resolved)) out.missing += 1;
-      }
-      return out;
-    };
-    return {
-      prose: census(this.ops.all<{ p: string }>("SELECT prose_path AS p FROM memories")),
-      versions: census(this.ops.all<{ p: string }>("SELECT path AS p FROM versions")),
-    };
+  faultedIds(): string[] {
+    return this.ops
+      .all<{ id: string }>(
+        "SELECT id FROM memories WHERE body = '' AND content_hash <> '' ORDER BY id",
+      )
+      .map((r) => r.id);
   }
 
   edgesFrom(src: string): EdgeRow[] {
@@ -2017,9 +2080,13 @@ export class Store {
     if (this.isDenied(id)) throw new StoreError("REMOVED", { id, by: "owner" });
   }
 
-  /** Runs INSIDE the caller's transaction. Stages prose; never publishes it. */
-  private insertOne(input: PutInput): { staged: Staged; doc: ProseDoc } {
+  /** Runs INSIDE the caller's transaction. One INSERT; there is nothing to publish. */
+  private insertOne(input: PutInput): ProseDoc {
     const id = input.id ?? newId(input.type);
+    // Both id checks BEFORE the row: the shape rule used to live in
+    // `serializeProse`, which ran while the file was staged and so refused
+    // before anything had been written. It has to keep refusing first.
+    assertIdWellFormed(id);
     if (!id.startsWith(`${ID_PREFIX[input.type]}_`)) {
       throw new StoreError("ID_MALFORMED", { id, type: input.type });
     }
@@ -2027,9 +2094,11 @@ export class Store {
     // reuse that would matter is the one that quietly resurrects what the owner
     // removed — so the deny-list is consulted at birth as well as at read.
     if (this.has(id) || this.isDenied(id)) throw new StoreError("ID_TAKEN", { id });
-    if (typeof input.body !== "string" || input.body.length === 0) {
-      throw new StoreError("PROSE_BODY_INVALID", { id, reason: "empty" });
-    }
+    // NORMALISED AND CHECKED BEFORE THE ROW. `bodyForStorage` is the one rule
+    // both write doors share: whitespace-only is empty, and a lone surrogate is
+    // folded to what SQLite will actually store so the hash below addresses the
+    // bytes that land (review B, MINOR-4/-5).
+    const body = bodyForStorage(input.body, id);
     const day = this.livedDay();
     // Source and origin mirror into the prose meta: the document is canonical
     // and self-describing; the columns are the query surface for the same fact.
@@ -2049,11 +2118,15 @@ export class Store {
       learnedOn: input.learnedOn ?? this.today(),
       bornDay: input.physics?.birthDay ?? day,
       meta,
-      body: input.body,
+      body,
     };
     if (input.title !== undefined) doc.title = input.title;
     if (input.happenedOn !== undefined) doc.happenedOn = input.happenedOn;
-    const staged = stageProse(this.dir, doc);
+    // Serialized (and so G6-checked) BEFORE the INSERT, for the same reason:
+    // a function or a NaN in `meta` is silent data loss, and the refusal must
+    // land while nothing has been written.
+    const metaJson = serializeMeta(meta, id);
+    const contentHash = hashText(doc.body);
     const s: Salience = {
       novelty: input.salience?.novelty ?? null,
       relevance: input.salience?.relevance ?? 0,
@@ -2066,9 +2139,10 @@ export class Store {
          id, type, kind, band, band_day, novelty, relevance, emotional, predictive,
          claimed, birth_day, uses, last_used_day, reinforced_days, consolidated,
          promoted_identity, protected, pressure, last_challenged_day, archived,
-         archived_reason, superseded_by, revision, content_hash, prose_path,
-         learned_on, happened_on, source, origin_session, origin_scope, origin_ref)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         archived_reason, superseded_by, revision, content_hash,
+         learned_on, happened_on, source, origin_session, origin_scope, origin_ref,
+         title, body, meta, confidential)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.type,
       input.kind,
@@ -2088,18 +2162,80 @@ export class Store {
       input.physics?.protected ? 1 : 0,
       input.physics?.pressure ?? 0,
       input.physics?.lastChallengedDay ?? null,
-      staged.hash,
-      // The ROW holds the store-relative spelling; `finalPath` is only for the
-      // rename that publishes the file (§5 G15).
-      staged.storedPath,
+      contentHash,
       doc.learnedOn,
       doc.happenedOn ?? null,
       input.source ?? null,
       input.origin?.session ?? null,
       input.origin?.scope ?? null,
       input.origin?.ref ?? null,
+      doc.title ?? null,
+      doc.body,
+      metaJson,
+      confidentialByMeta(meta) ? 1 : 0,
     );
-    return { staged, doc };
+    return doc;
+  }
+
+  /**
+   * A row read as the document it is.
+   *
+   * THE READ SEAM, and the reason nothing above `store/` noticed the floor
+   * move: `ProseDoc` is the shape it always was, assembled from columns now
+   * instead of parsed out of a file's frontmatter.
+   *
+   * The body check is the fault `PROSE_FILE_MISSING` used to be. A blank body
+   * beside a blank hash is a TOMBSTONE — the owner removed this — and never
+   * reaches here through a read, because the deny-list refuses the id by name
+   * first (`requireRow`); a blank body beside a real hash is a row whose words
+   * went missing underneath the store, which no write path in this module
+   * produces and which is worth a loud, named refusal rather than an empty
+   * memory that reads as if it said nothing.
+   */
+  private docOf(row: MemoryRow): ProseDoc {
+    if (row.body.length === 0) {
+      throw new StoreError("MEMORY_BODY_MISSING", {
+        id: row.id,
+        tombstoned: rowTombstoned(row),
+      });
+    }
+    const doc: ProseDoc = {
+      id: row.id,
+      type: row.type,
+      learnedOn: row.learned_on,
+      bornDay: row.birth_day,
+      meta: parseMeta(row.meta, row.id),
+      body: row.body,
+    };
+    if (row.title !== null) doc.title = row.title;
+    if (row.happened_on !== null) doc.happenedOn = row.happened_on;
+    return doc;
+  }
+
+  /**
+   * An archived version read as the document it was.
+   *
+   * `title`, `body`, `meta` and the two PROVENANCE dates come from the version
+   * row, because all five can be revised and the version is what they were;
+   * `type` and `bornDay` come from the live row, because neither can (an id's
+   * prefix pins its family, and a birth day is physics, not content).
+   */
+  private versionDoc(id: string, version: VersionRow): ProseDoc {
+    if (version.body.length === 0) {
+      throw new StoreError("MEMORY_BODY_MISSING", { id, seq: version.seq });
+    }
+    const head = this.row(id);
+    const doc: ProseDoc = {
+      id,
+      type: head?.type ?? "memory",
+      learnedOn: version.learned_on,
+      bornDay: head?.birth_day ?? 0,
+      meta: parseMeta(version.meta, id),
+      body: version.body,
+    };
+    if (version.title !== null) doc.title = version.title;
+    if (version.happened_on !== null) doc.happenedOn = version.happened_on;
+    return doc;
   }
 
   /** Box 3 is best-effort by design: it is rebuildable, so it never fails a write. */
@@ -2132,6 +2268,63 @@ function indexText(doc: ProseDoc): string {
   return indexTextOf(doc.title, doc.body);
 }
 
+/**
+ * What to TELL somebody whose directory holds pre-rows names — and, when it is
+ * ambiguous, what not to tell them.
+ *
+ * Three cases, and the middle one is the finding this exists for (review A,
+ * MAJOR-1). Master's `Store` constructor mkdirs `prose/`, `versions/`, `tmp/`
+ * and mints `operational.sqlite` BEFORE it reaches `assertLayout()`, so **one**
+ * old-build SessionStart hook on a v6 store leaves every marker behind. That is
+ * the rollback the cut-over plan actually calls for, and after it the new build
+ * refuses its own store for ever while telling the owner it is "readable by
+ * floor/v5-last" — the build that just stood down on the same directory. Both
+ * builds dead, and nothing saying which four names to remove.
+ *
+ * **The discrimination is by LISTING, never by opening** — see
+ * `preRowsLeftoversAreEmpty`. An old build's leftovers are EMPTY `prose/` and
+ * `versions/`; a real v5 store's are not, and a directory that has both names
+ * because somebody hand-copied a `counterparts.sqlite` into a v5 store is
+ * holding every memory he has under `prose/`. "Remove those four" is the right
+ * instruction for the first and a catastrophe for the second, so the sentence
+ * asks before it says it. **Nothing here deletes anything**; the owner does.
+ */
+function preRowsRemedy(
+  dir: string,
+  found: readonly string[],
+): { readableBy: string } | { alsoFound: string; remedy: string } {
+  if (!existsSync(paths.operational(dir))) return { readableBy: PRE_ROWS_READABLE_BY };
+  const leftovers = found.filter((n) => n !== DATABASE_FILE).join(", ");
+  // MOVE ASIDE, NEVER REMOVE — and that is what makes the guess below safe to
+  // get wrong (third review, NEW-MINOR-2). By LISTING alone an old build's
+  // empty leftovers and a REAL v5 store whose `prose/` somebody moved out look
+  // identical: both have an empty `prose/` and an `operational.sqlite`, and the
+  // second one's database holds every memory's physics, bands, dates and the
+  // permanent removal record. Telling him to delete it would destroy the store.
+  // Telling him to move it into a folder of its own costs one `mv` and is
+  // reversible whichever of the two it turns out to be.
+  if (preRowsLeftoversAreEmpty(dir)) {
+    return {
+      alsoFound: DATABASE_FILE,
+      remedy:
+        `${DATABASE_FILE} is THIS build's store. Beside it are ${leftovers} (and possibly tmp/), ` +
+        `which an older build leaves behind when it is pointed at a store like this one — its ` +
+        `prose/ and versions/ are empty here. MOVE THOSE OUT of this directory into a folder of ` +
+        `their own; do not delete them, and do not delete ${DATABASE_FILE}. This store then opens ` +
+        `again with every memory in it. If you moved prose/ aside yourself, that operational.sqlite ` +
+        `is your PRE-ROWS store and the words that go with it are wherever you put them — keep both, ` +
+        `and open it with the build tagged ${PRE_ROWS_READABLE_BY}.`,
+    };
+  }
+  return {
+    alsoFound: DATABASE_FILE,
+    remedy:
+      `this directory holds TWO stores' names — a pre-rows store (${leftovers}, WITH FILES IN IT) ` +
+      `and a ${DATABASE_FILE}. DELETE NEITHER. Move one of them out into a directory of its own and ` +
+      `point at the one you mean; the pre-rows half is read by the build tagged ${PRE_ROWS_READABLE_BY}.`,
+  };
+}
+
 export function newId(type: ProseType): string {
   return `${ID_PREFIX[type]}_${randomBytes(6).toString("hex")}`;
 }
@@ -2160,7 +2353,16 @@ export function today(): string {
   return dateOf(Date.now());
 }
 
-/** True when a data dir has already been initialized (used by adapters, not writes). */
+/**
+ * True when a data dir has already been initialized (used by adapters, not writes).
+ *
+ * A PRE-ROWS store counts, and has to: ~20 console commands gate on this before
+ * they open anything, and a v5 store answering "false" would send every one of
+ * them down the "there is no store here, run init" path — which is both wrong
+ * and the one sentence that invites somebody to create a store on top of his
+ * old one. Answering true sends them all to the named `STORE_PRE_ROWS` refusal
+ * instead, which says what happened and which build still reads it.
+ */
 export function storeExists(dir: string = dataDir()): boolean {
-  return existsSync(paths.operational(dir));
+  return existsSync(paths.operational(dir)) || preRowsMarkersIn(dir).length > 0;
 }

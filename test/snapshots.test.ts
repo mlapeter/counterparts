@@ -46,7 +46,7 @@ import {
   SNAPSHOT_TAKEN_EVENT,
 } from "../src/core/counterpart.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
-import { paths } from "../src/core/store/index.js";
+import { Store, paths } from "../src/core/store/index.js";
 import type { EventRow } from "../src/core/store/index.js";
 import { loadConfig } from "../src/adapters/claude-code/config.js";
 import { RESTORE_STEPS } from "../src/adapters/claude-code/doctor.js";
@@ -148,7 +148,7 @@ function seeded(): Counterpart {
 function fakeSnapshot(name: string, where = snapsDir): string {
   const path = join(where, name);
   mkdirSync(path, { recursive: true });
-  writeFileSync(join(path, "operational.sqlite"), "not really a database");
+  writeFileSync(join(path, "counterparts.sqlite"), "not really a database");
   return path;
 }
 
@@ -297,6 +297,109 @@ describe("the directory rotation deletes inside — every refusal", () => {
 });
 
 // ── danger 1: what rotation is willing to delete ────────────────────────────
+
+/**
+ * A REALISTIC pre-rows snapshot — the kind the owner actually has.
+ *
+ * `spans/` is the point. F2 went live on the v5 store, so his
+ * `~/.counterparts/snapshots/` fills with copies of it, and a v5 backup set was
+ * `["operational.sqlite", "prose", "spans", "versions"]`. `spans` is still in
+ * the new `LAYOUT`, so a real v5 copy was RECOGNISED as one of ours and was
+ * therefore rotatable. A v5 copy WITHOUT `spans/` was already safe, which is
+ * the near-miss that shows the rule was nearly right.
+ */
+function preRowsSnapshot(name: string, where = snapsDir): string {
+  const path = join(where, name);
+  mkdirSync(join(path, "prose", "memories"), { recursive: true });
+  mkdirSync(join(path, "versions"), { recursive: true });
+  mkdirSync(join(path, "spans", "default"), { recursive: true });
+  writeFileSync(join(path, "operational.sqlite"), "a v5 database");
+  writeFileSync(join(path, "prose", "memories", "mem_aaaaaaaaaaaa.md"), "ZQOLDFLOORWORDS");
+  writeFileSync(join(path, "spans", "default", "jots.jsonl"), "{}\n");
+  return path;
+}
+
+describe("the pre-rows rule reaches the partial sweep too (review f5c, NIT-3)", () => {
+  test("an abandoned `.partial-` holding PRE-ROWS names is kept, not cleaned", () => {
+    // The one path left that still deleted pre-rows bytes. B-MAJOR-2's rule —
+    // a directory holding any `PRE_ROWS_MARKERS` entry is never ours — was
+    // applied to finished copies and not to partials.
+    //
+    // A partial is by definition an incomplete copy, so in principle it is a
+    // half-copy nobody wants. "In principle" is exactly the confidence that
+    // lost three weeks of journal in v1, and the cost of keeping one is a
+    // directory — while a copy of the owner's old floor, interrupted or not,
+    // may be the only thing holding those words.
+    const stale = join(snapsDir, `${PARTIAL_PREFIX}2026-09-01T00-00-00-000Z-4242`);
+    mkdirSync(join(stale, "prose", "memories"), { recursive: true });
+    writeFileSync(join(stale, "operational.sqlite"), "a v5 database");
+    writeFileSync(join(stale, "prose", "memories", "mem_1.md"), "ZQOLDFLOORWORDS");
+    const old = (Date.parse("2026-09-18T12:00:00Z") - 30 * 24 * 60 * 60_000) / 1000;
+    utimesSync(stale, old, old);
+
+    const errors: string[] = [];
+    expect(cleanPartials(snapsDir, Date.parse("2026-09-18T12:00:00Z"), errors)).toBe(0);
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(stale, "prose", "memories", "mem_1.md"), "utf8")).toContain(
+      "ZQOLDFLOORWORDS",
+    );
+
+    // Non-vacuous: a partial of THIS build's shape, same age, is still swept.
+    const ours = join(snapsDir, `${PARTIAL_PREFIX}2026-09-02T00-00-00-000Z-4243`);
+    mkdirSync(join(ours, "spans"), { recursive: true });
+    writeFileSync(join(ours, "counterparts.sqlite"), "half a database");
+    utimesSync(ours, old, old);
+    expect(cleanPartials(snapsDir, Date.parse("2026-09-18T12:00:00Z"), errors)).toBe(1);
+    expect(existsSync(ours)).toBe(false);
+    expect(existsSync(stale)).toBe(true);
+  });
+});
+
+describe("a pre-rows snapshot is never rotated away (review B, MAJOR-2)", () => {
+  test("three real v5 copies beside fourteen v6 ones, keep 14: nothing v5 is deleted", () => {
+    // THE ARITHMETIC THAT MAKES THIS LIVE-RELEVANT. `resolveSnapshotsDir`
+    // returns `<dirname(store)>/snapshots` whenever the store is called
+    // `store`, and the cut-over most naturally mints the new one at the same
+    // path — so the fresh v6 store inherits the directory full of his pre-rows
+    // copies. Fourteen daily boundaries later, every one of them was gone.
+    for (const day of ["2026-09-01", "2026-09-02", "2026-09-03"]) {
+      preRowsSnapshot(`${day}T00-00-00-000Z`);
+    }
+    for (let d = 1; d <= 14; d += 1) {
+      fakeSnapshot(`2026-10-${String(d).padStart(2, "0")}T00-00-00-000Z`);
+    }
+
+    const report = rotate(snapsDir, 14, null, 0, []);
+    expect(report.deleted).toEqual([]);
+    // They do not count toward `keep` either — otherwise they would push the
+    // owner's real v6 copies out instead.
+    expect(report.kept).toBe(14);
+    expect(report.preRows.length).toBe(3);
+    expect(report.unrecognised).toEqual([]);
+    // …and the words are still on disk.
+    for (const day of ["2026-09-01", "2026-09-02", "2026-09-03"]) {
+      expect(
+        readFileSync(
+          join(snapsDir, `${day}T00-00-00-000Z`, "prose", "memories", "mem_aaaaaaaaaaaa.md"),
+          "utf8",
+        ),
+      ).toContain("ZQOLDFLOORWORDS");
+    }
+  });
+
+  test("with keep 1 they are still not the ones that go", () => {
+    // Non-vacuity from the other side: rotation IS deleting here, and it is
+    // deleting only v6 copies.
+    preRowsSnapshot("2026-09-01T00-00-00-000Z");
+    fakeSnapshot("2026-10-01T00-00-00-000Z");
+    fakeSnapshot("2026-10-02T00-00-00-000Z");
+    const report = rotate(snapsDir, 1, null, 0, []);
+    expect(report.deleted).toEqual(["2026-10-01T00-00-00-000Z"]);
+    expect(existsSync(join(snapsDir, "2026-09-01T00-00-00-000Z", "operational.sqlite"))).toBe(true);
+    expect(report.preRows).toEqual(["2026-09-01T00-00-00-000Z"]);
+  });
+
+});
 
 describe("rotation deletes only what it can prove is a snapshot", () => {
   test("keeps the newest N and reports every deletion, oldest first", () => {
@@ -505,9 +608,9 @@ describe("rotation deletes only what it can prove is a snapshot", () => {
   test("a missing directory and an empty one are different answers", () => {
     // Doctor needs those apart: one is a store that has not taken a copy yet,
     // the other is copies that have gone missing.
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [] });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: false, unrecognised: [], preRows: [] });
     mkdirSync(snapsDir, { recursive: true });
-    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [] });
+    expect(readSnapshotsDir(snapsDir)).toEqual({ names: [], readable: true, unrecognised: [], preRows: [] });
   });
 
   test("the name pattern is exactly what `snapshotName` writes", () => {
@@ -532,7 +635,7 @@ describe("one run", () => {
     expect(report.files).toBeGreaterThan(0);
 
     // The copy is a real store, and the memory is in it.
-    const copy = openDb(join(snapsDir, report.name as string, "operational.sqlite"));
+    const copy = openDb(join(snapsDir, report.name as string, "counterparts.sqlite"));
     expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
     copy.close();
 
@@ -545,22 +648,31 @@ describe("one run", () => {
     expect(p["name"]).toBe(report.name);
     expect(p["kept"]).toBe(1);
     expect(p["mirror"]).toBe("off");
-    const inside = openDb(join(snapsDir, report.name as string, "operational.sqlite"));
+    const inside = openDb(join(snapsDir, report.name as string, "counterparts.sqlite"));
     const seen = inside.all<{ name: string }>("SELECT name FROM events").map((r) => r.name);
     expect(seen).not.toContain(SNAPSHOT_TAKEN_EVENT);
     inside.close();
   });
 
-  test("copies the WHOLE backup set, not just the database", () => {
+  test("copies the WHOLE backup set, not just the database — and the words come with it", () => {
     const c = seeded();
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
     const copied = join(snapsDir, report.reason === "taken" ? (report.name as string) : "");
-    // Prose is canonical on today's floor; a database-only snapshot would be the
-    // scar §2.11 incident again.
-    expect(existsSync(join(copied, "prose"))).toBe(true);
-    expect(existsSync(join(copied, "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(copied, "counterparts.sqlite"))).toBe(true);
     // Box 3 is classified as excluded and must NOT be there.
     expect(existsSync(join(copied, "cache"))).toBe(false);
+    // THE COPY STILL HAS THE MEMORIES. `prose/` was the thing this test used to
+    // look for, and losing it without replacing the claim would leave "the whole
+    // backup set" asserted against a set of one file nobody checked the contents
+    // of — which is scar §2.11 said backwards. The database alone has to carry
+    // the bodies now, so that is what is asserted.
+    const source = Store.open({ dir, observer: true });
+    const expected = source.list().map((id) => source.readProse(id).body).sort();
+    source.close();
+    expect(expected.length).toBeGreaterThan(0);
+    const restored = Store.open({ dir: copied, observer: true });
+    expect(restored.list().map((id) => restored.readProse(id).body).sort()).toEqual(expected);
+    restored.close();
   });
 
   test("a second run on the same UTC day is a no-op", () => {
@@ -833,12 +945,12 @@ describe("one run", () => {
     expect(verifyCopy(candidate, 0)).toContain("no files");
     // Files, but no database.
     writeFileSync(join(candidate, "something.md"), "prose");
-    expect(verifyCopy(candidate, 1)).toContain("no operational.sqlite");
+    expect(verifyCopy(candidate, 1)).toContain("no counterparts.sqlite");
     // A database that is there and empty.
-    writeFileSync(join(candidate, "operational.sqlite"), "");
+    writeFileSync(join(candidate, "counterparts.sqlite"), "");
     expect(verifyCopy(candidate, 2)).toContain("is empty");
     // A database that is not one.
-    writeFileSync(join(candidate, "operational.sqlite"), "this is not a database");
+    writeFileSync(join(candidate, "counterparts.sqlite"), "this is not a database");
     expect(verifyCopy(candidate, 2)).toMatch(/would not open|did not verify/);
 
     // And a real snapshot passes, which is the arm that must not be broken.
@@ -870,9 +982,13 @@ describe("a half-copy is never a snapshot", () => {
     mkdirSync(snapsDir, { recursive: true });
     // Exactly what a worker killed mid-copy leaves: a partial directory wearing
     // today's instant, with a torn tree inside it.
+    // A partial THIS build could actually leave: the database and `spans/`,
+    // half-written. It used to hold a `prose/` — which no copy of a v6 store
+    // has, and which the sweep now reads as a pre-rows copy and keeps (see the
+    // test below).
     const abandoned = join(snapsDir, `${PARTIAL_PREFIX}2026-09-18T09-00-00-000Z-4242`);
-    mkdirSync(join(abandoned, "prose"), { recursive: true });
-    writeFileSync(join(abandoned, "operational.sqlite"), "half a database");
+    mkdirSync(join(abandoned, "spans"), { recursive: true });
+    writeFileSync(join(abandoned, "counterparts.sqlite"), "half a database");
 
     // It is not a snapshot: not counted toward `keep`...
     expect(snapshotNamesIn(snapsDir)).toEqual([]);
@@ -967,7 +1083,7 @@ describe("a snapshot can actually be restored", () => {
     const c = seeded();
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
     const copy = join(snapsDir, report.name as string);
-    const db = join(copy, "operational.sqlite");
+    const db = join(copy, "counterparts.sqlite");
     // WHICH FLOOR THIS RAN ON, recorded rather than assumed. Since F1 the source
     // is WAL and this is the interesting case — a copy that inherited the
     // source's mode would be a copy that cannot be opened on read-only media.
@@ -1022,7 +1138,7 @@ describe("the mirror", () => {
     expect(report.reason).toBe("taken");
     expect(report.mirror?.ok).toBe(true);
     const name = report.name as string;
-    expect(existsSync(join(mirror, name, "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(mirror, name, "counterparts.sqlite"))).toBe(true);
     // Its own rotation: three old plus the new one, keeping two.
     expect(snapshotNamesIn(mirror)).toEqual(["2026-09-03T00-00-00-000Z", name]);
     // No partial left in the mirror either.

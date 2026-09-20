@@ -25,6 +25,8 @@ export type { Command, Io, RunOptions } from "./commands.js";
 
 export {
   BLOB_NAME,
+  EXPORT_SCRATCH_STALE_MS,
+  sweepStaleExportScratch,
   CIPHER,
   EXPORT_FORMAT,
   KDF,
