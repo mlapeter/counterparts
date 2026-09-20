@@ -7,6 +7,9 @@ their reason, and what would change them. Everything below is a working default
 
 ## 1. Prose format: human lines derived, one payload authoritative
 
+*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+
+
 The contract asks for "human-legible text beside an authoritative machine payload;
 the parser reads only the payload" (§3, spec §4.2 G7). Shape chosen:
 
@@ -35,6 +38,9 @@ the body, verbatim
 
 ## 2. The strength-only archive exemption is not ported — it is structural
 
+*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+
+
 v1 needed a "rewrite differing in nothing but strength bookkeeping skips the archive
 copy" rule, decided by a line-level diff (§16 G5). With physics in box 2, a strength
 change never rewrites prose at all: `updatePhysics`/`reinforce` touch only the
@@ -59,6 +65,9 @@ a distinct-day count and identity promotion is gated on it. `updatePhysics()` se
 absolute values and remains authoritative over both.
 
 ## 3. Bounded versioning prunes ROWS; prose files are never deleted here
+
+*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+
 
 `pruneSupersededVersions()` deletes `versions` rows older than H lived days and
 reports the count (scar §2.4: every discard says what and how much). The archived
@@ -85,6 +94,9 @@ out loud: `putMany(inputs)` rolls the batch back on the first failure,
 with the reason code, and persists the rest.
 
 ## 5. Write ordering: stage → commit box 2 → publish prose
+
+*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+
 
 Filesystems are not transactional, so one crash window is unavoidable. Chosen
 ordering and why:
@@ -591,6 +603,9 @@ its text, and a guard is not telemetry — with the value-identity argument reco
 reach (`docs/PARALLEL-RUN-STATUS.md`, same date).
 ## 2026-09-05 — a store directory is self-contained: the path columns are store-relative (schema v5)
 
+*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+
+
 **The bug (finding I22, LAUNCH-STATUS G26).** `insertOne` wrote `staged.finalPath` —
 `join(dir, "prose", family, id + ".md")`, ABSOLUTE — into `memories.prose_path`, and
 `revise`/`supersede` wrote the same shape into `versions.path`. Every reader then handed
@@ -1026,3 +1041,85 @@ notices. The table is odd in two places and both are preserved on purpose, with 
 test per value: the class comparison is case-sensitive and untrimmed (`"OPEN"`
 and `" open"` are confidential), and `confidential` is checked with `=== true`
 (`1` and `"true"` are not).
+
+## 2026-09-20 — the floor: the memory IS the row (schema v6)
+
+*F5. Sections 1, 2, 3, 5 and the 2026-09-05 self-contained note above describe
+the floor this replaced and are marked for F8's deletion. What follows is what
+this build learned, with the measurements.*
+
+**What moved.** `memories` gained `title`, `body`, `meta` and `confidential`;
+`versions` gained `title`, `body`, `meta` and the two provenance dates; both
+path columns are gone, and with them `prose/`, `versions/`, `tmp/`,
+`stored.*`, the placement rules, the census and ~1,000 lines of code. `ProseDoc`
+is unchanged, which is the seam that held: `physics/`, `recall/`, `associate/`,
+`prospective/`, `encode/`, most of `sleep/` and all of S1's self page never
+learned the floor moved, and S1's 78 tests passed on v6 without an edit.
+
+**The refusal keys on FILENAMES, not on the schema version, and that was a
+correction.** The first design read `meta.schemaVersion` out of the old database
+and refused below 6. Two things are wrong with it. The rename to
+`counterparts.sqlite` (ruling 5) means a v5 directory has no file at that path,
+so `fresh` would have read true, `openOperational` would have MINTED a blank v6
+store beside `operational.sqlite`, and the refusal would have arrived from
+`assertLayout` — as `LAYOUT_UNCLASSIFIED`, after the damage, naming the wrong
+thing. And since F1 the live store is in WAL: an open-and-close to read the
+version can checkpoint and delete its `-wal`, so the act of asking would move the
+bytes of the store the refusal exists to leave untouched. `PRE_ROWS_MARKERS` is
+`operational.sqlite`, `prose`, `versions` — all three, because a store whose
+database was moved by hand still holds every one of its words in files, and
+minting a blank store on top of them would bury the only copy.
+
+**`ADDED_COLUMNS` is empty, and that is the second lock.** `openOperational`
+migrates anything below `SCHEMA_VERSION` by adding whatever is listed there. The
+constructor's refusal makes a pre-rows store unreachable; the empty list is what
+survives somebody relaxing the constructor. `test/store.test.ts` asserts both the
+emptiness and that no entry may ever name a v6 column.
+
+**`OBSERVER_READ_FLOOR` is the version itself.** v5 earned a floor below it
+because its only change was a spelling every v5 reader resolved both ways. v6
+cannot: a v6 instrument on a v5 store would report an EMPTY store rather than an
+unreadable one, which is worse than refusing because it looks like an answer.
+
+**The removal leaves its words in the `-wal` until a checkpoint, and now chases
+it.** Measured 2026-09-20 on a store with 200 filler rows: right after a chase
+the doomed text is NOT in `counterparts.sqlite` (the `UPDATE` rewrote the page)
+and IS in `counterparts.sqlite-wal`; one `wal_checkpoint(TRUNCATE)` clears it
+from both; a `VACUUM INTO` copy never held it either way. So `backup` and
+`export` were always clean and the STORE DIRECTORY was not — a surface that did
+not exist while `rmSync` took the words away. The console's removal now ends with
+that checkpoint, on its own connection, reported and never thrown.
+
+**`content_hash` is `hashText(body)` now**, one definition across both tables,
+where it used to address the whole serialized document. Two consequences worth
+knowing: two memories differing only in title hash the SAME (which sharpened
+`sleep/dedup.ts`'s test rather than weakening it — dedup pairs by the
+interpretation, and the interpretation is what the hash now addresses), and a
+title-only or meta-only revision no longer moves the hash. Nothing compares this
+column to a hash computed elsewhere; `origin.spanHash` is the buffer's own hash
+of a different string.
+
+**`supersede` holds the words twice**, and `revise` holds them twice for as long
+as the version lives: the head row keeps its body and the version row carries a
+copy, where both used to point at one file. Bounded by the 90-day prune (ruling
+1) — and the prune now deletes the owner's earlier words rather than a note
+about a file that was never deleted. That is the ruling's real cost, and it is
+made visible by a test on the self page rather than left as a sentence.
+
+**Two columns the plan did not ask for.** `versions.learned_on` and
+`versions.happened_on`. The plan's §1.1 listed `title`, `body`, `meta` and
+`content_hash`; the CODE disagreed, because `revise({learnedOn})` travels the
+same door as a body change precisely so a corrected date keeps its prior version
+(`index.ts#revise`, and the comment there predates the floor). Taking the dates
+from the LIVE row instead would have silently rewritten every version behind a
+correction. A version doc takes `type` and `bornDay` from the head row, because
+neither can be revised.
+
+**The unreadable state has a name, and it needed one.** `body = ''` with
+`content_hash = ''` is a TOMBSTONE — the owner's removal — and `body = ''` beside
+a real hash is `MEMORY_BODY_MISSING`, a row whose words went missing underneath
+the store. No write path produces the second: `put` and `revise` both refuse an
+empty body (`revise` did not, and `patch.body ?? prior.body` accepted `""`
+happily — fixed here). The pair is what lets `Schemas.load` skip a removed schema
+row and keep the session alive (#139) while still standing the session down on a
+store that lost a memory's words.
