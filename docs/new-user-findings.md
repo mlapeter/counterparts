@@ -465,3 +465,30 @@ One artefact of running hermetically, so nobody reads the outputs above wrong: t
 block printed `"/Users/mlapeter/.bun/bin/bun"` as the runtime because the walk borrowed the
 machine's one bun binary into a throwaway `HOME`. A real stranger gets their own
 `$HOME/.bun/bin/bun` there.
+
+---
+
+## 2026-09-20 — N1's adversarial review (one finding for somebody else)
+
+### 1. `doctor` reads GREEN on a `Config` whose `dataDir` does not exist
+
+*Where:* `counterparts doctor --config <path>`, on a machine where the store the
+configuration names is not there — the state an interrupted `start-fresh` leaves, and
+the state a hand-edited `dataDir` leaves.
+
+*What happened:* `RED  Store  no store at …` and, two lines below it,
+`GREEN Config … — read; dataDir …/store`. The Store line covers the situation, so
+nothing is hidden; the Config line is asserting a path that is not there.
+
+*Why a new user stalls:* they are reading a list of graded findings, and one of them
+says green about the exact fact the red one is about. The green reads as "the
+configuration is fine, the problem is elsewhere", which sends them to look at the store
+rather than at the path in the file.
+
+*Severity:* NIT.
+
+*Disposition:* a choice for the owner, and not N1's to take — `doctor.ts` is shared by
+several tracks and this is one line in its Config finding. The options: leave it (the
+Store line is the one that matters and doctor is graded worst-first anyway), or have the
+Config finding read amber when the `dataDir` it reports does not exist. Found by the N1
+adversarial review, 2026-09-20 (m4).

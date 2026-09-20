@@ -715,3 +715,67 @@ filesystem rather than the floor.
   count the old copies" is now only true of copies this floor wrote. Old-floor
   copies are recognised and left alone; new-floor ones count toward `keep`. Both
   the printed line and QUICKSTART say that now.
+
+---
+
+## What the adversarial review changed (2026-09-20)
+
+The rule held — the reviewer could not make it delete anything and could not make
+it open the store it parks — and everything found was in the ring AROUND the
+rename. Five of the fixes changed the design rather than a sentence.
+
+**The order is the fix for two findings at once.** The blank store is now built
+in a sibling (`store.new-<pid>`, same filesystem) BEFORE anything is parked, and
+moved into place with one atomic rename. That closes M1 — `install` could refuse
+*after* both renames, on a fractional `injectionBudgetBytes` that `loadConfig`
+accepts and `installCommand` does not, leaving the configuration pointing at
+nothing — because an install that refuses now costs a temporary directory. And it
+shrinks M4: the window in which a real SessionStart hook could mint a store at
+`dataDir` went from a whole `install` to two renames. The window cannot be closed
+entirely — `rename` needs the old directory out of the way first — so the second
+rename REFUSES on a non-empty destination and names all three directories rather
+than burying one inside another.
+
+**The cold arm had a store in it all along (B1).** An absent configuration meant
+"a machine with nothing on it", so `storeDir` was `""`, the install pin was
+skipped, and `installLayout` fell back to `$COUNTERPARTS_DATA_DIR` else
+`~/.counterparts/store`. One mistyped character on `--config` was enough to open
+and stamp the live store. It now computes the landing place up front from the
+CONFIGURATION'S OWN directory and an EMPTY environment — so the variable cannot
+redirect it — prints it (the `Store:` line is never blank again, which is what let
+two contradictory sentences share a screen), pins it, and refuses if anything at
+all is there.
+
+**A plan that is read and a plan that runs must not differ (M2).** The date is
+frozen for the whole run, so a UTC midnight cannot rename the plan out from under
+the printed block. The re-read after the confirmation now refuses when the ground
+moved instead of silently executing a different plan. And the way back is printed
+again *after* the renames, from the plan that ran, listing only the steps that
+actually moved.
+
+**A bare `mv` is not a move (M3).** `mv a b` where `b` exists moves `a` INSIDE
+`b`, exit 0 — measured. Every printed line is guarded, and the way back is a
+command now (`--undo`) with the same discipline. The test parses the printed lines
+out of real output and runs them through `/bin/sh`, against a free destination and
+against one that exists; proving a guard any other way proves the intention
+instead.
+
+**Two of my own premises were wrong**, and the code moved rather than the test.
+`--undo` could never hit its own destination check for the blank store, because it
+picks a free name; the reachable collision is a snapshots folder the rotation puts
+back, and it is LEFT and said rather than merged or refused-over. And the undo's
+pre-check read the ground as it stands rather than as it will be at each step, so
+it refused its own plan — step 1 is exactly what frees the path step 2 needs.
+
+**`--yes` is not enough on a store with something in it.** The reviewer's own
+machine had two dashboards holding the live store open while the review was being
+written, and neither leaves a record this command can read. `--yes` exists for a
+script and for the install loop, where the store is a throwaway; on a real one the
+typed confirmation is the only instrument that catches an idle dashboard, so
+skipping it needs a second sentence: `--nothing-is-open`.
+
+**And a symlinked `snapshots` no longer refuses the whole command.** Symlinking a
+backup folder onto an external disk is an ordinary thing to have done, and there
+was no way through but editing the configuration. It is treated exactly as a
+configured `snapshots.dir` is: left, and said out loud. The store still moves,
+which is what the owner came for.

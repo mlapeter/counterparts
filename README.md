@@ -135,8 +135,9 @@ rename, does the same with the snapshots folder, and creates a blank store back 
 same path. **It never copies, never deletes, and never opens the old store — not even
 read-only.** Your configuration and your credentials are kept byte for byte, so there is
 nothing to re-register; restart Claude Code and you are a new user. `--dry-run` prints
-every rename and changes nothing, and the command prints the three `mv` lines that undo
-it before it moves anything. QUICKSTART §9a has the whole of it.
+every rename and changes nothing, `counterparts start-fresh --undo` puts it all back, and
+the same three moves are printed as guarded shell lines before anything moves.
+QUICKSTART §9a has the whole of it.
 
 ---
 

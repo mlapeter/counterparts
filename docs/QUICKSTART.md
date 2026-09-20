@@ -856,9 +856,17 @@ do, in another terminal:
 pgrep -fl counterparts
 ```
 
-Run that **before** you start and it should print nothing at all; run it while the
-command is waiting at its question and the only line should be the command itself.
-Anything else is a hook, a worker, an MCP server or a dashboard still running.
+Look for lines running one of **ours**: `serve.ts` (an MCP server), `dashboard.ts`,
+`hook.ts`, `runner.ts` (the worker). Each of those is holding the store open.
+**Ignore anything that merely has the word in a path** — `pgrep -f` matches the
+whole command line, so an editor, a `tail`, a dev server in a directory with this
+name in it will all show up and none of them matters. This command will be in the
+list too, while it waits for you.
+
+A dashboard and an MCP server leave **no live-session record at all**, so the
+command cannot see them however hard it looks. That is why it asks you to type the
+name, and why `--yes` on a store with anything in it is refused unless you also
+pass `--nothing-is-open` — which is you saying the sentence `--yes` does not.
 
 **Run it from a plain terminal, not from inside Claude Code.** Your own session's
 record is one the check refuses on, so it will turn you away — correctly — and you
@@ -870,12 +878,13 @@ anything.
 What it does, in order:
 
 1. Renames `~/.counterparts/snapshots` to `snapshots.parked-<today>`, and then
-   `~/.counterparts/store` to `store.parked-<today>` (with a `-2` if you have
-   done this already today — the two suffixes are picked independently, so a
-   second run's store and snapshots may not wear matching numbers; the `mv` lines
-   the command prints are always exact). **One atomic rename each. It never copies, never
+   `~/.counterparts/store` to `store.parked-<today>` (with a shared `-2` if you
+   have done this already today — both directories always wear the same suffix). **One atomic rename each. It never copies, never
    deletes, and never opens the old store — not even read-only.**
 2. Creates a blank store back at `~/.counterparts/store`, by running `install`.
+   It builds it **beside** your memory first and moves it into place with one
+   rename, so there is never a stretch where the configuration points at nothing
+   and a stray hook could mint a store there.
 3. Leaves `claude-code.json`, `credentials.env` and `scopes.json` exactly as they
    were, byte for byte. Your keys, your ceiling and your per-directory settings are
    host wiring, not memory — and leaving `scopes.json` alone is the point: a
@@ -896,17 +905,28 @@ what it was actually registered with.
 **`--dry-run` prints every rename and every file it would write and changes
 nothing.** Run that first if you want to see it.
 
-**Going back** is the reverse of the renames, and the command prints the exact
-lines before it moves anything:
+**Going back is one command:**
 
 ```
-mv ~/.counterparts/store       ~/.counterparts/store.blank-<today>
-mv ~/.counterparts/store.parked-<today>      ~/.counterparts/store
-mv ~/.counterparts/snapshots.parked-<today>  ~/.counterparts/snapshots
+counterparts start-fresh --undo
 ```
 
-The blank store is *parked* by that first line, not removed — nothing in this
-command deletes anything, including an undo. Restart Claude Code again afterwards.
+It parks the blank store, puts your memory back, puts the snapshots back — one
+rename each, nothing deleted, nothing opened, and it refuses rather than moving
+one directory inside another. Restart Claude Code again afterwards.
+
+The same three moves are also **printed as shell lines**, before anything moves
+and again afterwards, so the way back is on your screen even if this is
+interrupted. Each printed line is guarded:
+
+```
+[ -e "<destination>" ] && echo "REFUSING: … already exists" || mv "<source>" "<destination>"
+```
+
+That guard is not decoration. A bare `mv a b` where `b` is an existing directory
+does not refuse and does not overwrite — it moves `a` **inside** `b`, and reports
+success. The blank store is *parked* by the first line, not removed: nothing in
+this command deletes anything, including an undo.
 
 Two more things it will not do:
 
@@ -923,9 +943,16 @@ Two more things it will not do:
   or counted, but copies this floor wrote do count toward `keep`, so the new store's
   oldest copy could rotate out sooner than you expect.
 
-If the store being parked was written **before this build's floor** — the case on
-cut-over day, when the code is new and the store on disk is not — the command says
-so, names the files it recognised, and carries on. It has nothing to open, so the
+**On cut-over day, deploy first.** If you are moving from an older build, update
+the checkout *before* you run this, not after: the older build does not have this
+command at all, and in the gap between a fresh start and a deploy any session that
+starts would run the old build against the new store and write half a memory into
+each of them. The new build's hooks stand down cleanly and harmlessly against an
+old store, so deploy-first costs nothing. Close everything, back up with the old
+build (the new one cannot open an old store), deploy, then run this.
+
+If the store being parked was written **before this build's floor** — that same
+case — the command says so, names the files it recognised, and carries on. It has nothing to open, so the
 floor is not its problem: a rename does not care what is inside a directory. That
 is also why the store you park stays readable by the build that wrote it
 (`floor/v5-last`), exactly as it was.

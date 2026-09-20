@@ -164,7 +164,26 @@ snapshots and exports; the removal record; telemetry by reference.
     both database names.* The command's only reading OF the floor is `preRowsMarkersIn`
     — filenames, never an open — and it is used to SAY which floor the parked store is
     on, never to decide anything.
-15. **[M] Cut-over day is proved against a store the PINNED BUILD wrote, not a hand-made
+15. **[M] `start-fresh` never creates a store at a path nobody named.** The cold arm's
+    landing place is computed from the CONFIGURATION'S own directory and an empty
+    environment, printed before it is used, pinned onto `install`, and refused if
+    anything is there. *A mistyped `--config` used to fall through to
+    `$COUNTERPARTS_DATA_DIR`, else `~/.counterparts/store` — the live one — and stamp it
+    "began today" (N1 review B1). The `Store:` line is never blank, because a blank one
+    is what let "there is no store at that path" and "Store already present at …" share a
+    screen.*
+16. **[M] The blank store is built before anything is parked, and arrives with one
+    rename.** An `install` that refuses therefore costs a temporary directory rather than
+    leaving the configuration pointing at nothing, and the window in which another
+    process can mint a store at `dataDir` is two renames wide. A destination that is not
+    empty at the second rename is a REFUSAL naming all three directories, never a merge.
+17. **[M] The way back is printed from the plan that RAN, and every line refuses rather
+    than nesting.** The date is frozen for the run; a re-read that finds the ground moved
+    refuses instead of executing a plan nobody read; the block is re-printed after the
+    renames and in every failure branch. *A bare `mv a b` onto an existing directory
+    moves `a` inside `b` and reports success — measured — so each printed line is
+    guarded, and `start-fresh --undo` does the same three moves without a shell.*
+18. **[M] Cut-over day is proved against a store the PINNED BUILD wrote, not a hand-made
     one.** `test/old-floor-fixture.ts` extracts `floor/v5-last` and runs that build's own
     `Store` API to produce a v5 store whose `-wal` holds the database its file does not.
     `start-fresh` parks it byte-identical, its output never mentions `STORE_PRE_ROWS`
