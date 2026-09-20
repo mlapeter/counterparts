@@ -971,6 +971,51 @@ describe("the review's findings, each with the thing that was wrong", () => {
     expect(eventNames(s)).toContain(HANDOFF_REFUSED_EVENT);
   });
 
+  test("a refusal the STORE raises is named and durable too — not a throw out of the seam", () => {
+    // F5's floor refuses inputs of its own (a whitespace- or NUL-only body, a
+    // lone surrogate). An uncaught throw here would hand the caller an error
+    // and the owner no row, which is MAJOR-2's shape on a different input.
+    const s = store();
+    const refusing = new Handoffs({
+      store: new Proxy(s, {
+        get(target, prop, recv) {
+          if (prop === "put") {
+            return () => {
+              throw Object.assign(new Error("STORE_REFUSED"), { code: "MEMORY_BODY_EMPTY" });
+            };
+          }
+          return Reflect.get(target, prop, recv) as unknown;
+        },
+      }) as Store,
+      gate: episodeGate(),
+    });
+    const out = refusing.write({ body: BODY, scope: HERE });
+    expect(out.written).toBe(false);
+    expect(out.reason).toBe("store-refused");
+    const row = s.eventLog({ limit: 100 }).find((r) => r.name === HANDOFF_REFUSED_EVENT);
+    expect(row).toBeDefined();
+    const payload = JSON.parse(row?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload["reason"]).toBe("store-refused");
+    expect(payload["code"]).toBe("MEMORY_BODY_EMPTY");
+    expect(findHandoffRow(s, HERE)).toBeNull();
+  });
+
+  test("a body the floor itself refuses never reaches the store unnamed", () => {
+    // The live shapes F5 named. Today the battery turns all of these away
+    // first, which is why the row says `gate-refused` — but either way it is a
+    // NAMED refusal with a durable row, never a throw and never silence.
+    const s = store();
+    const h = handoffs(s);
+    for (const body of ["\u0000\u0000", "\u0000 x \u0000", "\ud800\ud800", "​​"]) {
+      const before = s.eventLog({ limit: 500 }).length;
+      const out = h.write({ body, scope: HERE });
+      expect(out.written).toBe(false);
+      expect(["gate-refused", "empty", "empty-after-gate", "store-refused"]).toContain(out.reason);
+      expect(s.eventLog({ limit: 500 }).length).toBe(before + 1);
+    }
+    expect(findHandoffRow(s, HERE)).toBeNull();
+  });
+
   test("MINOR-8: two rows for one directory — newest wins, and the loser stops holding the reserve", () => {
     const s = store();
     const h = handoffs(s);

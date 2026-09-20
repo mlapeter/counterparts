@@ -13,8 +13,8 @@ same shape `findSelfPage` uses for `meta.role`, and it is bounded by the number 
 rows about places, which is a handful in any store anyone has.
 
 **The real fix** is a meta-indexed lookup, which F5 may make cheap when bodies move into
-rows. Until then: do not put this call on a hot path. It runs at a boundary (`anyLive`), at
-a wake (`pointer`) and at a write, and nowhere else.
+rows. Until then: do not put this call on a hot path. It runs at a boundary
+(`liveBlockBytes`, one walk), at a wake (`pointer`) and at a write, and nowhere else.
 
 ## 2. `expandHandle` has no scope filter
 

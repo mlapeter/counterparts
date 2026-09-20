@@ -24,7 +24,7 @@ published bundle, the host's ceiling and the scope at once.
 
 ## 2. Why the reserve is CONDITIONAL, sized to the real block, and off below a share
 
-`wakeReserveBytes()` adds `HANDOFF_RESERVE_BYTES` to the preface's reserve only while some
+`wakeReserveBytes()` adds `reserveBytes(...)` to the preface's reserve only while some
 directory in this store holds a live, unexpired handoff.
 
 - **Unconditional** would make every wake in every store 448 bytes smaller than master's
@@ -38,9 +38,11 @@ directory in this store holds a live, unexpired handoff.
   only symptom would be `handoff.shown` going quiet — which is exactly the shape of failure
   the fired view exists to catch and exactly the shape nobody looks for.
 
-The scan `anyLive()` runs is bounded by the number of schema rows of the place kind, which is
-a handful, and it is wrapped: a store that will not answer reserves nothing, which composes
-the wake master composes.
+The scan `liveBlockBytes()` runs is ONE walk of the schema rows of the place kind — a
+handful — and it is wrapped: a store that will not answer reserves nothing, which composes
+the wake master composes. It builds each `Handoff` from the row it already holds rather
+than asking `readHandoff` per directory, which would walk the store once per directory at
+every boundary for a number that is the same shape as the one in hand.
 
 **Two more things, both learned from the adversarial review of 2026-09-20 (MAJOR-1).**
 

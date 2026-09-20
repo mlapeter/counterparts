@@ -776,8 +776,11 @@ export const REF_KIND = {
   // nothing rather than at the page it did not change.
   "self.page.revised": "memory",
   "self.page.refused": "none",
-  // A written or shown handoff points at its own row, which resolves like any
-  // other; a refusal wrote nothing and points at nothing.
+  // A written, shown or cleared handoff points at its own row, which resolves
+  // like any other. A refusal usually wrote nothing and points at nothing —
+  // `no-room` is the exception and does carry the row's id, which prints as the
+  // raw address under `"none"`, and a raw id beside "there was no room for it"
+  // reads correctly.
   // ITS OWN KIND, and not "memory" (adversarial review NIT 5). The ref is a
   // real row id and resolves, but resolving it through the MEMORY door is the
   // one surface where a reader of a feature whose thesis is "never a memory"

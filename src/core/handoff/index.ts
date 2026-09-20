@@ -190,6 +190,7 @@ export type HandoffRefusal =
   | "not-text"
   | "nothing-to-clear"
   | "no-room"
+  | "store-refused"
   | "too-large"
   | "forged-markers"
   | "gate-refused";
@@ -375,13 +376,19 @@ export function duplicateHandoffRows(store: Store, scope: string): string[] {
  *  to every reader here, never a throw (`self/` §5 G7's rule, borrowed). */
 export function readHandoff(store: Store, scope: string): Handoff | null {
   const id = findHandoffRow(store, scope);
-  if (id === null) return null;
+  return id === null ? null : handoffOf(store, { id, scope, writtenDay: null });
+}
+
+/** The same read, for a caller that has already walked and holds the row. */
+function handoffOf(store: Store, live: LiveRow): Handoff | null {
+  const id = live.id;
   let doc: ProseDoc;
   try {
     doc = store.readProse(id);
   } catch {
     return null;
   }
+  const scope = live.scope;
   const row = store.row(id);
   const writtenDay = doc.meta[HANDOFF_META_WRITTEN_DAY];
   const writtenOn = doc.meta[HANDOFF_META_WRITTEN_ON];
@@ -574,9 +581,13 @@ export class Handoffs {
   liveBlockBytes(day?: number): number[] {
     const d = day ?? this.store.livedDay();
     const out: number[] = [];
-    for (const [scope, row] of newestPerScope(liveHandoffRows(this.store))) {
+    // ONE walk, not one per directory. The first draft called `readHandoff`
+    // per scope, and each of those walks the store again — D+1 walks for D
+    // directories, at every boundary, for a number that is the same shape as
+    // the one already in hand.
+    for (const [, row] of newestPerScope(liveHandoffRows(this.store))) {
       if (row.writtenDay === null || daysLeft(row.writtenDay, d) <= 0) continue;
-      const h = readHandoff(this.store, scope);
+      const h = handoffOf(this.store, row);
       if (h === null) continue;
       const block = pointerBlock(h, d);
       if (block !== null) out.push(byteLengthOf(block));
@@ -663,22 +674,39 @@ export class Handoffs {
     const existing = findHandoffRow(this.store, scope);
     let id: string;
     let version: number;
-    if (existing === null) {
-      id = this.store.put({
-        type: "schema",
-        kind: HANDOFF_KIND,
-        title: handoffTitle(scope),
-        body: text,
-        meta,
-        learnedOn: this.store.today(),
-        // NOT protected, on purpose: this is the one standing row in the store
-        // that is meant to be let go, and `protected` is what would stop the
-        // prune from ever doing it.
-      });
-      version = 0;
-    } else {
-      id = existing;
-      version = this.store.revise(id, { body: text, title: handoffTitle(scope), meta, reason: "handoff" });
+    // THE STORE'S OWN REFUSALS ARE NAMED TOO. `put` and `revise` refuse inputs
+    // of their own — a body that is whitespace or NUL only, a lone surrogate
+    // (F5, the floor) — and an uncaught throw here would leave the caller a
+    // thrown error and the owner no row, which is MAJOR-2's shape on a
+    // different input. The store's verdict is the truth and is reported as
+    // such rather than second-guessed: nothing here pre-strips a body to get
+    // past a refusal that exists for a reason.
+    try {
+      if (existing === null) {
+        id = this.store.put({
+          type: "schema",
+          kind: HANDOFF_KIND,
+          title: handoffTitle(scope),
+          body: text,
+          meta,
+          learnedOn: this.store.today(),
+          // NOT protected, on purpose: this is the one standing row in the
+          // store that is meant to be let go, and `protected` is what would
+          // stop the prune from ever doing it.
+        });
+        version = 0;
+      } else {
+        id = existing;
+        version = this.store.revise(id, {
+          body: text,
+          title: handoffTitle(scope),
+          meta,
+          reason: "handoff",
+        });
+      }
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      return refuse("store-refused", { bytes, code: typeof code === "string" ? code : "UNKNOWN" });
     }
     // THE DWELL CLOCK, RESET. `store.revise` writes the body and a version row
     // and touches no physics column, so a row born on day 1 and rewritten on day
