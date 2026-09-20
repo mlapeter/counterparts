@@ -12,13 +12,24 @@
  * apart is the test v1 shipped: eleven days of truncated wakes, all green.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Store } from "../src/core/store/index.js";
-import type { PutInput } from "../src/core/store/index.js";
+import { Store, renderMarkdown } from "../src/core/store/index.js";
+import type { EventRow, PutInput } from "../src/core/store/index.js";
 // The box-2 chase, for the one test that needs a store to have actually been
 // chased. Pinned to `adapters/cli/` inside `src/` by the caller-universality
 // test; a test file is where the destruction path gets exercised, not reached.
@@ -31,6 +42,10 @@ import {
   BRIEFING_KEY,
   FRAMING,
   FROZEN_KINDS,
+  JOURNAL_BACKFILL_PER_PASS,
+  JOURNAL_COPY_WRITTEN_EVENT,
+  JOURNAL_COPY_FAILED_EVENT,
+  JOURNAL_TEMP_STALE_MS,
   LANE_ORDER,
   PREFACE_RESERVE_BYTES,
   SELF_TUNABLES,
@@ -52,6 +67,11 @@ import {
   groupDigits,
   identityShareBytes,
   intakeEpisode,
+  journalFileEpisodeId,
+  journalFiles,
+  journalFilesFor,
+  journalRelativePath,
+  syncJournalCopy,
   prefaceLine,
   rankLanes,
   readSentinel,
@@ -60,7 +80,14 @@ import {
   stateKey,
   withTunables,
 } from "../src/core/self/index.js";
-import type { EpisodeGate, LaneName, Lanes, Ranked, Resolve } from "../src/core/self/index.js";
+import type {
+  ChapterAppend,
+  EpisodeGate,
+  LaneName,
+  Lanes,
+  Ranked,
+  Resolve,
+} from "../src/core/self/index.js";
 
 const SELF_SRC = fileURLToPath(new URL("../src/core/self/", import.meta.url));
 
@@ -2263,5 +2290,405 @@ describe("structural guarantees", () => {
       expect(json).not.toContain("zygomorphic");
       expect(json).not.toContain("brachiate");
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// F6 — the journal's markdown copy
+// ═══════════════════════════════════════════════════════════════════════════
+describe("the journal's markdown copy", () => {
+  const SUBSTANCE = { turns: 9, bytes: 6_000 };
+
+  /** A chaptered session, and the episode it wrote. */
+  function chaptered(s: Store, text: string, session = "s1"): { self: Self; episodeId: string } {
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter(session, SUBSTANCE);
+    const written = self.appendChapter(session, text);
+    return { self, episodeId: written.episodeId as string };
+  }
+
+  test("a chapter write produces a file whose text IS the row, rendered once", () => {
+    const s = store();
+    const { episodeId } = chaptered(s, "ZQJOURNALPROBE — the afternoon the export finally worked.");
+    const list = journalFiles(dir);
+    expect(list.length).toBe(1);
+    const rel = list[0] as string;
+    // The path says which episode and which day, and nothing else — never a
+    // title, which can be as sensitive as the body.
+    expect(rel).toBe(journalRelativePath(s.readProse(episodeId)));
+    expect(rel).toMatch(/^journal\/\d{4}\/\d{4}-\d{2}-\d{2}-epi_.+\.md$/);
+    // ONE RENDERER. Byte-for-byte what `render.ts` produces from the row — no
+    // summary, no re-rendering of the words (owner ruling 2, 2026-09-18).
+    const onDisk = readFileSync(join(dir, rel), "utf8");
+    expect(onDisk).toBe(renderMarkdown(s.readProse(episodeId)));
+    expect(onDisk).toContain("ZQJOURNALPROBE");
+    // The front matter identifies the episode and carries nothing else: id,
+    // type, the dates, the born day, and the payload the row already holds.
+    const frontMatter = onDisk.split("---\n")[1] as string;
+    expect(frontMatter).toContain(`id: ${episodeId}`);
+    expect(frontMatter).toContain("type: episode");
+    expect(frontMatter).toContain(`"sessionId":"s1"`);
+    expect(frontMatter).toContain(`"chapters":1`);
+  });
+
+  test("a second chapter rewrites the SAME file — one file per episode, always", () => {
+    const s = store();
+    const { self, episodeId } = chaptered(s, "First: ZQFIRSTCHAPTER.");
+    self.openChapter("s1", { turns: 30, bytes: 40_000 });
+    self.appendChapter("s1", "Second: ZQSECONDCHAPTER.");
+    expect(journalFiles(dir).length).toBe(1);
+    const onDisk = readFileSync(join(dir, journalFiles(dir)[0] as string), "utf8");
+    expect(onDisk).toContain("ZQFIRSTCHAPTER");
+    expect(onDisk).toContain("ZQSECONDCHAPTER");
+    expect(onDisk).toBe(renderMarkdown(s.readProse(episodeId)));
+    // And no temp file survived the rename.
+    expect(journalFiles(dir).filter((f) => f.includes(".tmp-"))).toEqual([]);
+  });
+
+  test("DELETING journal/ LOSES NOTHING: the next boundary writes it again", () => {
+    const s = store();
+    const { self } = chaptered(s, "ZQREGROWPROBE — what a derived copy is for.");
+    rmSync(join(dir, "journal"), { recursive: true, force: true });
+    expect(journalFiles(dir)).toEqual([]);
+    // The row is untouched, which is the whole claim.
+    expect(s.list({ type: "episode" }).length).toBe(1);
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(1);
+    expect(readFileSync(join(dir, journalFiles(dir)[0] as string), "utf8")).toContain(
+      "ZQREGROWPROBE",
+    );
+  });
+
+  test("a COLD store fills in one pass; a WARM one is bounded, and the next pass finishes it", () => {
+    // TWO BOUNDS, because there are two cases. A store with no copies at all is
+    // a RESTORE — `journal/` is not in the backup set since the f6f7 review —
+    // and a restore that took forty worker runs to become readable would have
+    // made "it costs nothing to stop copying it" false. A store that already
+    // has copies is the ordinary one, and there the small count protects the
+    // worker's cycle. The wall clock bounds both.
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    const make = (n: number, tag: string): void => {
+      for (let i = 0; i < n; i += 1) {
+        s.put({
+          type: "episode",
+          kind: "self",
+          body: `## chapter 1 — lived day 0\n\n${tag} episode ${i}\n`,
+          meta: { sessionId: `${tag}${i}`, chapters: 1 },
+        });
+      }
+    };
+    make(JOURNAL_BACKFILL_PER_PASS + 3, "cold");
+    expect(journalFiles(dir)).toEqual([]);
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(JOURNAL_BACKFILL_PER_PASS + 3);
+
+    // Now the store is warm, and the ordinary bound is back.
+    make(JOURNAL_BACKFILL_PER_PASS + 3, "warm");
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(2 * JOURNAL_BACKFILL_PER_PASS + 3);
+    // Bounded is not "gives up".
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(2 * (JOURNAL_BACKFILL_PER_PASS + 3));
+  });
+
+  test("a copy that cannot be written is a ROW, never a thrown chapter", () => {
+    const s = store();
+    // A FILE where the directory must go: the mkdir fails, the write fails,
+    // and the chapter — already committed — must not notice.
+    writeFileSync(join(dir, "journal"), "not a directory", "utf8");
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter("s1", SUBSTANCE);
+    let append: ChapterAppend | null = null;
+    expect(() => {
+      append = self.appendChapter("s1", "ZQFAILPROBE — the disk said no.");
+    }).not.toThrow();
+    const written = append as unknown as ChapterAppend;
+    expect(written.reason).toBe("appended");
+    expect(written.copy).toBe("failed");
+    // THE CHAPTER IS SAFE. That is what a failed copy is allowed to cost.
+    expect(s.readProse(written.episodeId as string).body).toContain("ZQFAILPROBE");
+    const rows = s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT });
+    expect(rows.length).toBe(1);
+    const payload = JSON.parse((rows[0] as EventRow).payload as string) as Record<string, unknown>;
+    // The DIRECTORY is what is wrong, and the row says that rather than blaming
+    // the episode it happened to be asked about (MAJOR-2).
+    expect(payload["reason"]).toBe("journal-dir-unwritable");
+    expect(payload["scope"]).toBe("directory");
+    // Content-by-reference: the reason is a CODE and the chapter is not in it.
+    expect(JSON.stringify(payload)).not.toContain("ZQFAILPROBE");
+    rmSync(join(dir, "journal"), { force: true });
+  });
+
+  test("MAJOR-2 — an unwritable journal/ is ONE row a day, not one per chapter and 25 per pass", () => {
+    // Measured by the review: 5 chapters → 5 rows, then 25 more per worker
+    // cycle, for ever, in the log that `fired`, the dashboard and `doctor` all
+    // read — and the doctor line is correctly silent-until-standing, which made
+    // the flood invisible while it happened.
+    const s = store();
+    writeFileSync(join(dir, "journal"), "a file where the directory must go", "utf8");
+    const self = new Self({ store: s, gate: PASS_GATE });
+    self.openChapter("s1", SUBSTANCE);
+    for (let i = 0; i < 5; i += 1) {
+      self.appendChapter("s1", `chapter text ${i}`);
+    }
+    for (let i = 0; i < 30; i += 1) {
+      s.put({
+        type: "episode",
+        kind: "self",
+        body: `## chapter 1 — lived day 0\n\nepisode ${i}\n`,
+        meta: { sessionId: `s${i}`, chapters: 1 },
+      });
+    }
+    for (let i = 0; i < 3; i += 1) self.boundary({ budgetBytes: 4_000, day: 0 });
+
+    const rows = s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT });
+    // ONE fact about the store, said once for the day: the directory will not
+    // take a file. Not one row per episode that cannot be written into it.
+    expect(rows.length).toBe(1);
+    const payload = JSON.parse((rows[0] as EventRow).payload as string) as Record<string, unknown>;
+    expect(payload["reason"]).toBe("journal-dir-unwritable");
+    // …and it is a DIRECTORY-level row, so it names no episode.
+    expect((rows[0] as EventRow).ref).toBeNull();
+    rmSync(join(dir, "journal"), { force: true });
+  });
+
+  test("MAJOR-2 — a failing episode does not eat the next pass's budget (the starvation, measured)", () => {
+    const s = store();
+    const self = new Self({ store: s, gate: PASS_GATE });
+    // WARM the store first: a store with no copies at all takes the cold bound,
+    // which is a different rule and not the one under test here.
+    self.openChapter("warm", SUBSTANCE);
+    self.appendChapter("warm", "a first chapter, so this store is not a restore");
+    const ids: string[] = [];
+    for (let i = 0; i < JOURNAL_BACKFILL_PER_PASS + 3; i += 1) {
+      ids.push(
+        s.put({
+          type: "episode",
+          kind: "self",
+          body: `## chapter 1 — lived day 0\n\nepisode ${i}\n`,
+          meta: { sessionId: `s${i}`, chapters: 1 },
+        }),
+      );
+    }
+    // The first 25 in the order the backfill selects them (`ORDER BY id`) are
+    // made to fail PER EPISODE and not at the directory: a DIRECTORY at the
+    // exact path the file wants, so the temp write succeeds and the rename does
+    // not. The three behind them are ordinary.
+    const doomed = [...ids].sort().slice(0, JOURNAL_BACKFILL_PER_PASS);
+    const healthy = [...ids].sort().slice(JOURNAL_BACKFILL_PER_PASS);
+    for (const id of doomed) {
+      mkdirSync(join(dir, journalRelativePath(s.readProse(id))), { recursive: true });
+    }
+
+    // Pass one spends its whole budget on the doomed ones — that is the
+    // ordinary bound doing its job, and nothing behind them is reached.
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    for (const id of healthy) expect(journalFilesFor(dir, id)).toEqual([]);
+    // Pass two must NOT spend it on them again. Before this fix the same 25 ids
+    // were selected every pass, for ever, and the three behind them were never
+    // written at all.
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    for (const id of healthy) expect(journalFilesFor(dir, id).length).toBe(1);
+    // And the failures were recorded once each, not once per pass.
+    expect(s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT }).length).toBe(
+      JOURNAL_BACKFILL_PER_PASS,
+    );
+  });
+
+  test("an observer writes no file and no row", () => {
+    const writer = store();
+    chaptered(writer, "ZQOBSERVERPROBE — written by the writer.");
+    expect(journalFiles(dir).length).toBe(1);
+    writer.close();
+    const instrument = store({ observer: true });
+    // The stance comes off the STORE, which is what makes it impossible to hold
+    // a writing `Self` over an instrument's store.
+    const self = new Self({ store: instrument, gate: PASS_GATE });
+    expect(self.appendChapter("s2", "an instrument's chapter").reason).toBe("observer");
+    // The boundary's backfill is on the PUBLISHED arm, which an observer never
+    // reaches — so a store missing its copies keeps missing them under an
+    // instrument, which is the right direction (observer-mode G3).
+    rmSync(join(dir, "journal"), { recursive: true, force: true });
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir)).toEqual([]);
+  });
+
+  test("a stale temp is swept and a fresh one is not — the bound is the point", () => {
+    const s = store();
+    const { self } = chaptered(s, "ZQTEMPPROBE — a crashed rename.");
+    const year = join(dir, (journalFiles(dir)[0] as string).split("/").slice(0, -1).join("/"));
+    const stale = join(year, "2026-01-01-epi_gone.md.tmp-aaaa1111");
+    const fresh = join(year, "2026-01-01-epi_gone.md.tmp-bbbb2222");
+    writeFileSync(stale, "a crashed rename's words", "utf8");
+    writeFileSync(fresh, "a live writer's words", "utf8");
+    const aged = (Date.now() - JOURNAL_TEMP_STALE_MS - 60_000) / 1000;
+    utimesSync(stale, aged, aged);
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    rmSync(fresh, { force: true });
+  });
+
+  test("the copy is DERIVED: nothing outside its own writer reads one back", () => {
+    // The whole safety of this feature is that the file is downstream of the
+    // row. A parser would make the two able to disagree, which is what the
+    // floor deleted `prose.ts#parseProse` to end.
+    const offenders: string[] = [];
+    const walk = (at: string): void => {
+      for (const name of readdirSync(at)) {
+        const full = join(at, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!name.endsWith(".ts")) continue;
+        // Its own writer compares the file it is about to overwrite with the
+        // text it is about to write; that read decides "unchanged" and its
+        // result never reaches the store.
+        if (full.endsWith(join("self", "journal-file.ts"))) continue;
+        const body = readFileSync(full, "utf8");
+        if (/readFileSync\([^)]*journal/i.test(body)) offenders.push(full);
+      }
+    };
+    walk(fileURLToPath(new URL("../src/", import.meta.url)));
+    expect(offenders).toEqual([]);
+  });
+
+  // ── the module owns ONE directory, and a symlink is how it stops being true ─
+
+  /** A directory outside the store, removed by the caller. */
+  function outside(): string {
+    return mkdtempSync(join(tmpdir(), "counterparts-self-away-"));
+  }
+
+  test("MAJOR-1 — a symlinked YEAR directory does not carry a chapter out of the store", () => {
+    const away = outside();
+    try {
+      const s = store();
+      const { self } = chaptered(s, "First, written where it belongs.");
+      const year = join(dir, "journal", "2026");
+      rmSync(year, { recursive: true, force: true });
+      symlinkSync(away, year);
+
+      // `journal/` is the one directory the owner is INVITED to treat as files,
+      // so pointing a year at a synced folder or a vault is a thing a person
+      // does. It must not become a door out of the store: `assertLayout`
+      // classifies the top-level name and never looks inside it.
+      self.openChapter("s1", { turns: 30, bytes: 40_000 });
+      const append = self.appendChapter("s1", "ZQSYMLINKOUT — this must not land outside.");
+      expect(append.reason).toBe("appended");
+      expect(append.copy).toBe("failed");
+      expect(readdirSync(away)).toEqual([]);
+      const rows = s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT });
+      expect(rows.length).toBe(1);
+      expect(
+        JSON.parse((rows[0] as EventRow).payload as string)["reason"],
+      ).toBe("journal-symlink");
+      // The chapter itself is safe, which is the whole bargain.
+      expect(s.readProse(append.episodeId as string).body).toContain("ZQSYMLINKOUT");
+    } finally {
+      rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  test("MAJOR-1 — the removal arm never unlinks THROUGH a symlink", () => {
+    const away = outside();
+    try {
+      const s = store();
+      const { episodeId } = chaptered(s, "An episode with a copy.");
+      const rel = journalFiles(dir)[0] as string;
+      const name = rel.slice(rel.lastIndexOf("/") + 1);
+      const year = join(dir, "journal", "2026");
+      rmSync(year, { recursive: true, force: true });
+      // A file OUTSIDE the store wearing the name this episode's copy would
+      // wear, reached only through the link.
+      writeFileSync(join(away, name), "somebody else's file", "utf8");
+      symlinkSync(away, year);
+
+      // Tombstone the row, then ask the copy to follow the invariant.
+      s.appendRemovalRecord({ memoryId: episodeId, stage: "dark", actor: "owner", reason: "test" });
+      const result = syncJournalCopy(s, episodeId);
+      expect(result.outcome).toBe("failed");
+      expect(result.reason).toBe("journal-symlink");
+      // The file outside the store is untouched — a removal that deleted it
+      // would be this module destroying something it does not own.
+      expect(existsSync(join(away, name))).toBe(true);
+      // …and it is not listed as one of ours either.
+      expect(journalFiles(dir)).toEqual([]);
+    } finally {
+      rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  test("MAJOR-1 — a DANGLING link under journal/ is refused too, not treated as absent", () => {
+    // `lstat` stats the LINK, so a link pointing nowhere is still a link and
+    // still refused. The interesting half is that it must not read as "this
+    // episode has no copy": that is what would make the backfill write through
+    // it the moment somebody created the destination.
+    const s = store();
+    const { self } = chaptered(s, "An episode with a copy.");
+    rmSync(join(dir, "journal", "2026"), { recursive: true, force: true });
+    symlinkSync(join(dir, "journal", "nowhere-at-all"), join(dir, "journal", "2026"));
+    self.openChapter("s1", { turns: 30, bytes: 40_000 });
+    expect(self.appendChapter("s1", "ZQDANGLING — not through a link to nowhere.").copy).toBe(
+      "failed",
+    );
+    expect(journalFiles(dir)).toEqual([]);
+    expect(existsSync(join(dir, "journal", "nowhere-at-all"))).toBe(false);
+    rmSync(join(dir, "journal", "2026"), { force: true });
+  });
+
+  test("MAJOR-1 — `journal` ITSELF being a symlink is refused, not followed", () => {
+    const away = outside();
+    try {
+      const s = store();
+      rmSync(join(dir, "journal"), { recursive: true, force: true });
+      symlinkSync(away, join(dir, "journal"));
+      const self = new Self({ store: s, gate: PASS_GATE });
+      self.openChapter("s1", { turns: 9, bytes: 6_000 });
+      const append = self.appendChapter("s1", "ZQROOTLINK — not through the root either.");
+      expect(append.copy).toBe("failed");
+      expect(readdirSync(away)).toEqual([]);
+      rmSync(join(dir, "journal"), { force: true });
+    } finally {
+      rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  test("MAJOR-4b — only `journal/<year>/<date>-<id>.md` is one of ours", () => {
+    const s = store();
+    chaptered(s, "The real copy.");
+    // A file at the wrong DEPTH wearing a copy's name — which is what an export
+    // smuggled in through a symlinked target used to leave behind. It is not a
+    // copy, so it is neither listed, nor swept, nor counted as "already have".
+    mkdirSync(join(dir, "journal", "sub", "journal", "2026"), { recursive: true });
+    writeFileSync(
+      join(dir, "journal", "sub", "journal", "2026", "2026-09-20-epi_smuggled.md"),
+      "not ours",
+      "utf8",
+    );
+    writeFileSync(join(dir, "journal", "2026-09-20-epi_tooshallow.md"), "not ours either", "utf8");
+    // The walk still SEES them — it is a listing of the directory — but neither
+    // is addressed as a copy, so neither is returned for its apparent episode,
+    // swept as a temp, or counted as a copy that episode already has.
+    expect(journalFiles(dir).length).toBe(3);
+    expect(journalFiles(dir).filter((f) => journalFileEpisodeId(f) !== null)).toEqual([
+      journalFiles(dir).find((f) => /^journal\/2026\/2026-\d{2}-\d{2}-epi_.+\.md$/.test(f)) as string,
+    ]);
+    expect(journalFilesFor(dir, "epi_smuggled")).toEqual([]);
+    expect(journalFilesFor(dir, "epi_tooshallow")).toEqual([]);
+  });
+
+  test("CONFIDENTIAL does not reach an episode row today — and this is where it will land when it does", () => {
+    const s = store();
+    const { episodeId } = chaptered(s, "ZQCONFPROBE — an ordinary chapter.");
+    // `confidentialByMeta` reads `meta.confidential` / `meta.confidentiality`,
+    // and the chapter door writes neither: it has no parameter for it. So the
+    // class does not apply to the journal today. The local copy is the owner's
+    // own disk and is written as is either way (ruling 2, 2026-09-18); it is
+    // `export --markdown` that omits a confidential row, and that is F7's test.
+    expect(s.row(episodeId)?.confidential).toBe(0);
+    expect(readFileSync(join(dir, journalFiles(dir)[0] as string), "utf8")).toContain("ZQCONFPROBE");
   });
 });

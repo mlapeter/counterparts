@@ -54,6 +54,12 @@ import { SpanBuffer, keyFor } from "../../core/remember/index.js";
 // `rmSync` from here would race a claim renaming the file aside, which is the
 // one state spec §2 G6 forbids (cli/INTERFACE-GAPS §9, closed 2026-09-05).
 import { strikeSpans } from "../../core/remember/owner-strike-seam.js";
+// The journal's markdown copy is a SURFACE (F6): a derived file under
+// `<store>/journal/` holding an episode's words. `syncJournalCopy` is imported
+// rather than an `rmSync` from here for the same reason `strikeSpans` is — the
+// directory belongs to `self/`, and the invariant it keeps ("a file exists
+// exactly when a live episode row does") is what makes the chase provable.
+import { journalFilesFor, syncJournalCopy } from "../../core/self/journal-file.js";
 import { paths, rowTombstoned } from "../../core/store/index.js";
 import { isLocked, openDb } from "../../core/store/db.js";
 import type {
@@ -171,6 +177,9 @@ export interface PlanOptions {
    * provenance never recorded which project it came from.
    */
   crossScopeContent?: boolean;
+  /** How many episodes the journal-echo check reads. Injectable so a test can
+   *  prove the bound is REPORTED rather than silent. */
+  echoScanMax?: number;
 }
 
 export interface RemovalOptions extends PlanOptions {
@@ -190,6 +199,52 @@ const MEMORY_BEARING = new Set(["memory", "episode", "schema"]);
  */
 const SPANS_BLIND =
   "this removal did not reach it, and a later backup would copy it (export would not).";
+
+/**
+ * The journal surface's own blind sentence, for the same reason `SPANS_BLIND`
+ * is one: a directory that still holds the words after a chase said it was
+ * clean is a fact the owner must be handed, in the same words wherever it is
+ * printed. (It is no longer in the backup set — see `olderCopiesNote` — so the
+ * sentence is about this store's own disk, not about future copies.)
+ */
+const JOURNAL_STILL_THERE =
+  "journal/ — it is a derived copy, and deleting that file by hand loses nothing";
+
+/**
+ * WHAT A REMOVAL CANNOT REACH: the copies already on disk.
+ *
+ * F6 did not create this gap — every snapshot has always held whatever the
+ * store held when it was taken — but it changed its severity by a wide margin
+ * and nothing said so (f6f7 review MAJOR-5). A removed memory inside an old
+ * snapshot's DATABASE is a file somebody must know to open; the same words in
+ * an old snapshot's `journal/*.md` are a grep hit, a Spotlight result, a synced
+ * folder's problem.
+ *
+ * Two things make this sentence honest rather than alarming, and both are said:
+ * snapshots taken FROM TODAY carry no `journal/` at all (it left the backup set
+ * in the same change), and a snapshot is the owner's own file to delete.
+ *
+ * It names the DEFAULT snapshot directory and counts what is in it. The console
+ * reads no host configuration, so a configured `snapshots.dir` is not visible
+ * from here — the sentence says so rather than implying the default is the
+ * whole story.
+ */
+function olderCopiesNote(storeDir: string): string {
+  const snapshots = join(storeDir, "..", "snapshots");
+  let copies = 0;
+  try {
+    copies = readdirSync(snapshots).length;
+  } catch {
+    /* none, or not readable from here: the sentence still holds */
+  }
+  return (
+    `snapshots and backups TAKEN BEFORE TODAY still hold these words, and the journal ones hold them as plain markdown` +
+    (copies === 0
+      ? ` — none in the default location (${relative(storeDir, snapshots)}), and a location set in your host configuration is not visible from this console.`
+      : ` — ${copies} cop${copies === 1 ? "y" : "ies"} in the default location (${relative(storeDir, snapshots)}), plus anywhere else you have taken one.`) +
+    " A removal does not reach into them; they are yours to delete. Snapshots taken from today carry no journal/ at all."
+  );
+}
 
 /**
  * Every `*.jsonl` under a directory — the live streams and the claims beside
@@ -510,6 +565,93 @@ export function spanResidue(
 }
 
 /**
+ * How many episodes the echo check reads before it stops and says so.
+ *
+ * It reads bodies, which is the expensive thing this console does — but removal
+ * is a rare, deliberate owner operation and the alternative is the failure this
+ * bound exists to replace. A store past this many episodes gets a REPORTED
+ * partial check rather than a silent one.
+ */
+export const JOURNAL_ECHO_SCAN_MAX = 2_000;
+
+export interface JournalEcho {
+  /** Episode ids whose chapters hold these words. Ids only (§16 G15). */
+  readonly ids: readonly string[];
+  /** Episodes actually read, and how many exist. Equal ⇒ the check was whole. */
+  readonly checked: number;
+  readonly total: number;
+}
+
+/** Whitespace-folded, so a chapter that wrapped a sentence differently from the
+ *  memory minted out of it is still recognised as holding it. */
+function folded(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * WHICH EPISODES HOLD THESE WORDS — asked exactly, not ranked.
+ *
+ * This used to read the `contamination` list, which is `store.search(body, 20)`:
+ * a ranked top-20 full-text search. Measured by the f6f7 review (MAJOR-3): with
+ * twenty-five near-identical memories — the ordinary shape of a store that has
+ * thought about one subject for a while — the episode fell off the end of the
+ * list, and the report printed `chase journal: 0`, `journal(0, nothing beside
+ * the row)` and `unchased: nothing` while a plain `.md` under the store still
+ * held the removed sentence. That is F5 review-B MAJOR-1's shape one directory
+ * over, with an FTS rank as the only thing between this console and it.
+ *
+ * Two questions, cheapest first:
+ *
+ *   1. **The exact link.** A memory minted from an episode carries
+ *      `meta.episodeId` (`self/episodes.ts` writes it; `memoriesForEpisode`
+ *      reads it). One field, no scan, no ambiguity.
+ *   2. **The containment scan**, for the un-linked "quotes these words" case:
+ *      every `type: "episode"` row, whitespace-folded, asked whether it holds
+ *      the doomed body. Bounded by `JOURNAL_ECHO_SCAN_MAX`, and the bound is
+ *      REPORTED — a stated bound is survivable, a silent one is not.
+ *
+ * The episodes' markdown copies say exactly what their rows say, so an answer
+ * about the rows is an answer about the files.
+ */
+function journalEcho(
+  store: Store,
+  targetId: string,
+  body: string,
+  doc: { meta?: Record<string, unknown> } | null,
+  opts: PlanOptions,
+): JournalEcho {
+  const ids: string[] = [];
+  const linked = doc?.meta?.["episodeId"];
+  if (typeof linked === "string" && linked.length > 0 && linked !== targetId) {
+    const row = store.row(linked);
+    if (row !== undefined && row.type === "episode" && !rowTombstoned(row)) ids.push(linked);
+  }
+  const needle = folded(body);
+  let episodes: string[];
+  try {
+    episodes = store.list({ type: "episode" });
+  } catch {
+    return { ids, checked: 0, total: 0 };
+  }
+  if (needle.length === 0) return { ids, checked: episodes.length, total: episodes.length };
+  const cap = Math.max(0, opts.echoScanMax ?? JOURNAL_ECHO_SCAN_MAX);
+  let checked = 0;
+  for (const id of episodes) {
+    if (checked >= cap) break;
+    checked += 1;
+    if (id === targetId || ids.includes(id)) continue;
+    try {
+      const row = store.row(id);
+      if (row === undefined || rowTombstoned(row)) continue;
+      if (folded(store.readProse(id).body).includes(needle)) ids.push(id);
+    } catch {
+      /* a row that will not read cannot be claimed either way */
+    }
+  }
+  return { ids, checked, total: episodes.length };
+}
+
+/**
  * STEP 1 + 2: validate, then read everything the removal will need. Pure — it
  * writes nothing and takes no lock, so it is safe to run before a confirmation
  * prompt and safe to run again after one (scar §2.13's re-plan-under-the-lock
@@ -595,6 +737,15 @@ export function planRemoval(
   // before anything is chased, because after the chase there is nothing left to
   // search for. Counts and states come out; not one line of what it read.
   const spans = spanResidue(store, targetId, body, chase.hashes, opts);
+  // THE JOURNAL'S MARKDOWN COPY (F6). Two different questions, and they get
+  // two different answers:
+  //   - this memory's OWN file — an episode has one; anything else has none —
+  //     which the chase syncs away with the row.
+  //   - OTHER episodes whose chapters quote these words. LEFT ON PURPOSE and
+  //     said out loud, the way a spans echo is (§16 G15) — never "unchased",
+  //     because nothing failed to be reached.
+  const ownJournalFiles = journalFilesFor(store.dir, targetId).length;
+  const journalEchoes = journalEcho(store, targetId, body, doc, opts);
 
   return {
     targetId,
@@ -608,6 +759,12 @@ export function planRemoval(
       { surface: "prospective", count: prospective.length },
       { surface: "operational rows", count: 1 },
       { surface: "cache", count: 1 },
+      // Stated at 0 too, like `spans`: silence about an empty surface is what
+      // made the span residue undiscoverable (LAUNCH-STATUS §I2). The count is
+      // this memory's OWN copy; the echo below is a different question and gets
+      // its own sentence, because a `0` here with an echo under it would read as
+      // "this surface is clean" over a file that holds the words.
+      { surface: "journal", count: ownJournalFiles },
       // The seventh, and it is in this list rather than beside it now: a surface
       // that is chased belongs with the chased ones. It is stated at 0 too — the
       // silence about an empty buffer is what made the residue undiscoverable
@@ -639,12 +796,30 @@ export function planRemoval(
     unchasable: spans.state === "unknown" ? [spans.line] : [],
     // What is deliberately not taken. The wording is the plan's, so the dry run
     // and the completion report say the same thing about the same lines.
-    leftAlone:
-      spans.echoes > 0
+    leftAlone: [
+      ...(spans.echoes > 0
         ? [
             `spans echo: ${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture. Left on purpose. Nothing prunes the buffer today, so ${spans.echoes === 1 ? "it stays" : "they stay"} there.`,
           ]
-        : [],
+        : []),
+      ...(journalEchoes.ids.length > 0
+        ? [
+            `journal echo: ${journalEchoes.ids.length} episode${journalEchoes.ids.length === 1 ? "" : "s"} whose chapters quote these words — the counterpart's own account of those days, not this memory. Left on purpose, row and markdown copy alike, so ${journalEchoes.ids.length === 1 ? "that .md under journal/ still holds the words" : "those .md files under journal/ still hold the words"}, and any snapshot or backup already taken holds them too. To take one as well: ${journalEchoes.ids.map((id) => `counterparts remove ${id} --confirm`).join(" · ")}`,
+          ]
+        : []),
+      // A BOUNDED CHECK SAYS SO. A stated bound is survivable; a silent one is
+      // the finding this whole line exists to close (MAJOR-3).
+      ...(journalEchoes.checked < journalEchoes.total
+        ? [
+            `journal echo check was BOUNDED: checked ${journalEchoes.checked} of ${journalEchoes.total} episodes, so an episode past that quoting these words is not named above. 'counterparts export --out <dir> --markdown --plaintext' writes every chapter out if you want to look yourself.`,
+          ]
+        : []),
+      // THE COPIES ALREADY ON DISK, whenever a journal file is in play — this
+      // memory's own, or another episode's (review f6f7 MAJOR-5).
+      ...(row.type === "episode" || journalEchoes.ids.length > 0
+        ? [olderCopiesNote(store.dir)]
+        : []),
+    ],
   };
 }
 
@@ -787,6 +962,40 @@ export function ownerRemoval(
   } catch {
     unchased.push("operational rows");
     append("chased");
+  }
+
+  // THE JOURNAL'S MARKDOWN COPY (F6), chased after the row and before the
+  // cache, because it is derived from the row and the row has just gone dark.
+  //
+  // It is a file under `<store>/journal/` holding an episode's words, and it is
+  // exactly the shape of finding the reviews raised twice on this floor: a
+  // second on-disk copy the chase does not visit while the console prints
+  // `unchased: nothing`. `syncJournalCopy` re-asks the invariant rather than
+  // deleting by name — the row is tombstoned and denied by now, so the answer
+  // is "no file", and the same call is what the chapter door uses to write one.
+  try {
+    const synced = syncJournalCopy(store, request.targetId);
+    if (synced.outcome === "failed") {
+      unchased.push(
+        `journal (${synced.reason ?? "unknown"}) — the markdown copy of this episode is still under ${JOURNAL_STILL_THERE}`,
+      );
+    } else if (synced.outcome === "removed") {
+      chased.push("journal(1 markdown copy)");
+    } else {
+      // "nothing to remove" is a disclosure, not a silence: a memory that never
+      // had a journal file and an episode whose file was chased must not read
+      // the same (§16 G15). And when an ECHO was reported, this line may not
+      // say "nothing beside the row" — that reads as "this surface is clean"
+      // two lines above a disclosure that it is not (review f6f7 MAJOR-3).
+      const echoes = plan.leftAlone.filter((line) => line.startsWith("journal echo:")).length;
+      chased.push(
+        echoes === 0
+          ? "journal(0, nothing beside the row)"
+          : "journal(0 of its own; other episodes' copies left on purpose, see above)",
+      );
+    }
+  } catch {
+    unchased.push(`journal (threw) — the markdown copy may still be under ${JOURNAL_STILL_THERE}`);
   }
 
   // Box 3: the rebuild skips every denied id and LOGS the skip, so the cache

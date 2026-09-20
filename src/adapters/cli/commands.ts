@@ -36,6 +36,7 @@ import {
   Counterpart,
   RECALL_CREDIT_EVENT,
   RECALL_DECISION_EVENT,
+  STORE_EXPORT_EVENT,
 } from "../../core/counterpart.js";
 import { PROBE_ROW_CEILING, probeOQ4, renderProbe } from "../../core/recall/probe.js";
 import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
@@ -213,7 +214,17 @@ export const OWNER_OPS: readonly Command[] = [
   // `note` deposits. `recall` is a pure read and stays off this list, exactly
   // like `status`: an instrument may look at a memory and may not add to one.
   "note",
-  "export",
+  // `export` came OFF this list on 2026-09-20 (F7), and it is the only removal
+  // this list has had. An export READS the store and writes outside it — that
+  // is what `assertSafeTarget` proves about its target — so the one write it
+  // ever made to the store was the `store.export` row F7 added, and under
+  // observer that row is simply not written and the report says so. Standing
+  // the whole command down instead refused a READ, which is the one thing an
+  // instrument is for; it also meant the parallel-run instruments could not
+  // take a readable copy of the store they were measuring.
+  //
+  // `backup` stays, deliberately: it is the same shape and could follow, but it
+  // has no owner ruling behind it and this change is not the place to make one.
   "backup",
   "remove",
   "verify",
@@ -324,6 +335,9 @@ export function usage(): string {
     "  recall <question>   Ask memory a question. Read-only. --id <id> asks for one",
     "                      memory in full instead. --json for the tool's own payload.",
     "  export --out <dir>  Portable copy. --passphrase <secret> or --plaintext.",
+    "                      --markdown writes the readable tree instead of the database;",
+    "                      it omits confidential rows unless --include-confidential, says",
+    "                      how many, and takes --with-versions.",
     "  backup --out <dir>  Snapshot: prose + canonical DB via VACUUM INTO. Cache excluded.",
     "  remove <id>         The loud removal. Dry run unless --confirm.",
     "  verify              Census of the cache against canonical state. Read-only.",
@@ -459,14 +473,23 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   init: ["name"],
   note: ["kind", "title", "salience"],
   recall: ["id", "json"],
-  export: ["out", "passphrase", "plaintext"],
+  export: [
+    "out",
+    "passphrase",
+    "plaintext",
+    "markdown",
+    "include-confidential",
+    "with-versions",
+    "into-non-empty",
+    "overwrite",
+  ],
   backup: ["out"],
   // `strike-by-content-across-scopes` is the one chase this console refuses by
   // default: a row whose provenance recorded no scope (every migrated row) can
   // only be chased in the buffer by matching its body, and matching a body
   // across every project on the machine is how one removal reaches into work
   // nobody named. The dry run lists what it WOULD match; this flag performs it.
-  remove: ["confirm", "reason", "strike-by-content-across-scopes"],
+  remove: ["confirm", "reason", "strike-by-content-across-scopes", "echo-scan"],
   verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors", "retry-skipped"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
@@ -582,6 +605,15 @@ const FLAG_HELP: Record<string, string> = {
   out: "the directory to write into",
   passphrase: "encrypt the export with this secret",
   plaintext: "do not encrypt the export (said on purpose, never by default)",
+  markdown: "export the readable markdown tree instead of the database file",
+  "include-confidential": "include confidential memories in the markdown tree (they are omitted, and counted, by default)",
+  // NOT `--versions`: `self-page` takes both `--versions` and `--version`, and
+  // the help-page totality test reads flags as substrings — an `export
+  // --versions` puts the string `--version` on export's page, where it names a
+  // flag export does not take.
+  "with-versions": "also write out every earlier wording of every memory (markdown only)",
+  "into-non-empty": "write into a directory that already holds something",
+  overwrite: "replace the files this export's own paths collide with (it says which); without it a collision is a refusal",
   confirm: "actually do it — without this, removal is a dry run",
   // TWO COMMANDS, ONE SENTENCE, as `--json` already is: `remove --reason` is
   // recorded with the removal, `self-page --reason` with the version the write
@@ -589,6 +621,8 @@ const FLAG_HELP: Record<string, string> = {
   reason: "the reason, recorded with the change it makes",
   "strike-by-content-across-scopes":
     "for a memory whose provenance records no project: chase its words through EVERY project's capture buffer (an exact jot, never a substring). Look at what the dry run lists first",
+  "echo-scan":
+    "how many episodes the journal-echo check reads before it stops and says so (default 2000)",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   "prune-index": "take the archived and superseded rows out of the text index, keeping the embeddings",
@@ -827,6 +861,12 @@ export function parse(argv: readonly string[]): Parsed {
       reason: { type: "string" },
       passphrase: { type: "string" },
       plaintext: { type: "boolean" },
+      markdown: { type: "boolean" },
+      "include-confidential": { type: "boolean" },
+      "with-versions": { type: "boolean" },
+      "into-non-empty": { type: "boolean" },
+      overwrite: { type: "boolean" },
+      "echo-scan": { type: "string" },
       confirm: { type: "boolean" },
       name: { type: "string" },
       embedder: { type: "boolean" },
@@ -1147,7 +1187,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       case "backup":
         return await backupCommand(dir, io, parsed.flags["out"], now);
       case "export":
-        return exportCommand(dir, io, parsed.flags);
+        return exportCommand(dir, io, parsed.flags, observer);
       case "remove":
         return await removeCommand(dir, io, parsed.positional[0], parsed.flags, now);
       case "backfill-claims":
@@ -3434,6 +3474,7 @@ function exportCommand(
   dir: string,
   io: Io,
   flags: Record<string, string | boolean | undefined>,
+  observer: boolean,
 ): number {
   const out = flags["out"];
   if (typeof out !== "string" || out.length === 0) {
@@ -3444,19 +3485,72 @@ function exportCommand(
     io.err(`no store at ${dir}`);
     return EXIT.failed;
   }
-  const store = Store.open({ dir, observer: true });
+  // AN EXPORT IS A READ, and a store this build cannot open refuses BEFORE the
+  // target directory is created — nothing is touched on either side. The
+  // sentence is the one every other door prints for the same refusal
+  // (`describeDirRefusal` → `describePreRowsRefusal`), never a bare code and a
+  // JSON blob (review f5a MINOR-3, f5c NEW-MINOR-3).
+  //
+  // It opens WRITABLE unless the console has stood down, for one reason: the
+  // durable `store.export` row. Until it existed, an export that ran and an
+  // export that never had were the same silence — the §2.4 gap the snapshot row
+  // closed for the automatic copy. Under `--observer` the copy is still made and
+  // the row is not, and the report says which (an instrument does not write to
+  // the store it is reading, the durable row included).
+  let store: Store;
   try {
+    store = Store.open({ dir, observer });
+  } catch (err) {
+    io.err(`export refused: ${describeDirRefusal(err, dir)}`);
+    return EXIT.refused;
+  }
+  try {
+    const markdown = flags["markdown"] === true;
     const report = exportStore(store, {
       target: out,
       ...(typeof flags["passphrase"] === "string" ? { passphrase: flags["passphrase"] } : {}),
       ...(flags["plaintext"] === true ? { plaintext: true } : {}),
+      ...(markdown ? { markdown: true } : {}),
+      ...(flags["include-confidential"] === true ? { includeConfidential: true } : {}),
+      ...(flags["with-versions"] === true ? { versions: true } : {}),
+      ...(flags["into-non-empty"] === true ? { intoNonEmpty: true } : {}),
+      ...(flags["overwrite"] === true ? { overwrite: true } : {}),
     });
     if (!report.ok) {
       io.err(report.reason);
       return EXIT.refused;
     }
     io.out(`Exported ${report.files} files (${report.bytes} bytes) to ${report.target}`);
-    io.out(`Mode: ${report.mode}. ${report.reason}`);
+    io.out(`Kind: ${report.kind}. Mode: ${report.mode}. ${report.reason}`);
+    // THE DURABLE ROW. Counts and flags only: which kind, how many rows went,
+    // how many confidential ones were left out, whether it was sealed. NOT the
+    // target — where the owner sent his memories is more than the row needs to
+    // prove the door works (§5 G10), and the terminal has already said it.
+    if (!observer) {
+      try {
+        store.appendEvent({
+          name: STORE_EXPORT_EVENT,
+          day: store.livedDay(),
+          payload: {
+            date: store.today(),
+            kind: report.kind,
+            encrypted: report.mode === "encrypted",
+            files: report.files,
+            bytes: report.bytes,
+            rows: report.rows,
+            omittedConfidential: report.omittedConfidential,
+            versions: flags["with-versions"] === true,
+            notRendered: report.notRendered.length,
+          },
+        });
+      } catch {
+        /* a copy that was made is not undone by a row that could not be written */
+      }
+    } else {
+      io.out(
+        "No store.export row was written: this console is in observer stance, and an instrument does not write to the store it is reading.",
+      );
+    }
     return EXIT.ok;
   } finally {
     store.close();
@@ -3491,12 +3585,21 @@ async function removeCommand(
   }
 
   const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
+  // HOW MANY EPISODES THE JOURNAL-ECHO CHECK READS. Injectable so the bound can
+  // be proved REPORTED rather than silent; absent, the module's own applies.
+  const echoScanRaw = typeof flags["echo-scan"] === "string" ? Number(flags["echo-scan"]) : NaN;
+  const planOpts = {
+    crossScopeContent,
+    ...(Number.isFinite(echoScanRaw) && echoScanRaw >= 0
+      ? { echoScanMax: Math.floor(echoScanRaw) }
+      : {}),
+  };
 
   // THE PLAN, made read-only and with no lock held (scar E5).
   const planning = Store.open({ dir, observer: true });
   let plan;
   try {
-    plan = planRemoval(planning, targetId, { crossScopeContent });
+    plan = planRemoval(planning, targetId, planOpts);
   } finally {
     planning.close();
   }
@@ -3558,7 +3661,7 @@ async function removeCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
-    const replan = planRemoval(store, targetId, { crossScopeContent });
+    const replan = planRemoval(store, targetId, planOpts);
     if (!replan.valid) {
       io.err(`refused after re-plan: ${replan.reason}. Nothing has changed.`);
       return EXIT.refused;
@@ -3571,7 +3674,7 @@ async function removeCommand(
         reason: typeof flags["reason"] === "string" ? flags["reason"] : "owner request",
         requestedAt: now(),
       },
-      { crossScopeContent, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
+      { ...planOpts, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
     );
     io.out("");
     io.out(`Removed ${targetId}.`);

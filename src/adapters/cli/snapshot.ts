@@ -26,17 +26,20 @@
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
+  realpathSync,
   statSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { openDb } from "../../core/store/db.js";
 import {
   DATABASE_FILE,
   LAYOUT,
   assertSafeDataDir,
+  forbiddenRoots,
   isWithin,
   paths,
 } from "../../core/store/index.js";
@@ -62,18 +65,81 @@ export interface SnapshotReport {
 }
 
 /**
- * The destination guard (§5 G3, scar §2.13). BOTH SIDES ARE RESOLVED BEFORE THEY
- * ARE COMPARED — v1's migration guard was a raw string comparison, and
- * `--out ~/.bansai/` with a trailing slash pointed it at the live store and
- * mass-wrote about 11,000 files.
+ * A path with every SYMLINK ON THE WAY TO IT resolved — the leaf itself usually
+ * does not exist yet, so the nearest existing ancestor is realpath'd and the
+ * tail is rejoined.
  *
- * Two refusals, and the second one is the one people forget: a destination
- * INSIDE the data directory would put the copy in the tree it is copying, which
- * both recurses and lands an unclassified top-level path in the store.
+ * Why it exists (f6f7 review MAJOR-4, measured): `resolve()` normalises `..` but
+ * never reads the filesystem, so a target reached through a link into the store
+ * was judged "outside" and written anyway — a whole export tree, memories and
+ * all, landed inside `<store>/journal/`.
+ *
+ * A DANGLING link is refused here by name rather than left to `mkdirSync`,
+ * which throws a raw `EEXIST` on one. A guard that holds because of an errno is
+ * not a guard, and "file already exists" is not a sentence about safety.
+ */
+function realOf(path: string, what: string): string {
+  const full = resolve(path);
+  const tail: string[] = [];
+  let at = full;
+  for (;;) {
+    let entry;
+    try {
+      entry = lstatSync(at);
+    } catch {
+      const up = dirname(at);
+      // The filesystem root cannot be missing; stop rather than loop.
+      if (up === at) return full;
+      tail.unshift(basename(at));
+      at = up;
+      continue;
+    }
+    if (entry.isSymbolicLink() && !existsSync(at)) {
+      throw new Error(
+        `refusing a ${what} that is a dangling symlink: ${at} points at something that does not exist`,
+      );
+    }
+    try {
+      return join(realpathSync(at), ...tail);
+    } catch {
+      return full;
+    }
+  }
+}
+
+/**
+ * The destination guard (§5 G3, scar §2.13). BOTH SIDES ARE RESOLVED — through
+ * `..` AND through symlinks — BEFORE THEY ARE COMPARED. v1's migration guard was
+ * a raw string comparison, and `--out ~/.bansai/` with a trailing slash pointed
+ * it at the live store and mass-wrote about 11,000 files.
+ *
+ * **Both sides, and the forbidden roots too.** On macOS `$TMPDIR` is itself
+ * reached through a link (`/var` → `/private/var`), so realpath'ing one side
+ * only would stop every "inside the store" case from being detected and make a
+ * fake-`HOME` test of the v1 roots pass vacuously.
+ *
+ * Two refusals people forget, and now a third: a destination INSIDE the data
+ * directory would put the copy in the tree it is copying, which both recurses
+ * and lands an unclassified top-level path in the store; a destination that
+ * CONTAINS the store is the same problem upside down; and a destination whose
+ * link lands in `~/.bansai` or `~/.claude-engram` is v1's live memory reached
+ * the one way `assertSafeDataDir` alone cannot see.
  */
 export function assertSafeTarget(dataDir: string, target: string): string {
-  const resolvedTarget = assertSafeDataDir(target);
-  const resolvedSource = resolve(dataDir);
+  // The plain-path v1-root refusal first, on the path as typed: it is the
+  // sentence the owner gets for `--out ~/.bansai/`, and it should not change
+  // shape because a link was involved.
+  assertSafeDataDir(target);
+  const resolvedTarget = realOf(target, "destination");
+  const resolvedSource = realOf(dataDir, "store");
+  // …and again on the resolved path, so a link whose DESTINATION is inside a
+  // live v1 store is refused by the same rule that refuses the path itself.
+  assertSafeDataDir(resolvedTarget);
+  for (const root of forbiddenRoots()) {
+    if (isWithin(realOf(root, "store"), resolvedTarget)) {
+      throw new Error(`refusing a destination inside ${root}: ${resolvedTarget}`);
+    }
+  }
   if (isWithin(resolvedSource, resolvedTarget)) {
     throw new Error(
       `refusing to write a copy inside the store it is copying: ${resolvedTarget}`,
@@ -82,7 +148,10 @@ export function assertSafeTarget(dataDir: string, target: string): string {
   if (isWithin(resolvedTarget, resolvedSource)) {
     throw new Error(`refusing a destination that contains the store: ${resolvedTarget}`);
   }
-  return resolvedTarget;
+  // The TYPED path is what comes back, not the realpath'd one: every caller
+  // prints it and every test names it, and telling the owner his export went to
+  // `/private/var/…` when he typed `/var/…` is a different kind of confusing.
+  return resolve(target);
 }
 
 function copyTree(from: string, to: string): number {
