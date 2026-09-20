@@ -952,23 +952,69 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
     // The reviewer's probe: thousands of `<!-- counterparts:wake ` prefixes with
     // no `>` between them. Against the old unanchored `[^>]*` this backtracked
     // for 680 ms at 200 KB, four times per attachment, on the prompt path.
+    //
+    // MEASURED AS A RATIO, not against a wall clock (2026-09-20, finding 7).
+    // This test asserted `elapsed < 100` ms, which is a claim about the machine
+    // rather than about the algorithm: it failed on master whenever something
+    // else was running, and an adversarial review of F5 hit it on a clean tree.
+    // The property it exists to prove is growth, so growth is what it measures —
+    // four times the input must cost about four times the work, not sixteen.
+    //
+    // Writing it this way IMMEDIATELY FAILED, and the search really was
+    // quadratic: `sight()` cut its slice at the next newline, and `indexOf`
+    // costs the distance it travels, so a run of unterminated prefixes made
+    // every iteration scan to the far end. The cut is now `SENTINEL_MAX_BYTES`
+    // alone (the anchored regexes exclude `\n` themselves, so the match is
+    // identical). Measured through `readWakeArrival`, prefixes → best of 5:
+    //
+    //                          1000     2000     4000     8000    16000   2k→8k
+    //   the newline cut       1.44ms   3.37ms   8.88ms  30.61ms  109.3ms   9.1×
+    //   the bounded cut       0.93ms   1.75ms   3.13ms   6.07ms   11.9ms   3.5×
+    //   the `[^>]*` regex this replaced in 2026-09:            587ms@8k   15.3×
+    //
+    // Linear lands near 4 for a 4× input, quadratic near 16. The bound below
+    // sits between them and FAILS both quadratic implementations above.
     const { injection } = await woken();
     const expected = injection.split("\n").slice(-1)[0] as string;
-    const poison = `${"<!-- counterparts:wake ".repeat(8000)}${injection}`;
-    const path = writeTranscript([
-      ...PREAMBLE,
-      hookAttachment({ stdout: poison, content: poison }),
-    ]);
+    const poisoned = (prefixes: number): string => {
+      const poison = `${"<!-- counterparts:wake ".repeat(prefixes)}${injection}`;
+      return writeTranscript([...PREAMBLE, hookAttachment({ stdout: poison, content: poison })]);
+    };
     // The read bound is 256 KiB on the live path; this probe raises it so the
     // whole poisoned attachment is actually scanned — the reviewer's 200 KB at
     // the size the bound would allow, rather than a line the reader drops.
-    const started = performance.now();
-    const arrival = readWakeArrival(path, { expect: expected, maxBytes: 1024 * 1024 });
-    const elapsed = performance.now() - started;
-    expect(elapsed).toBeLessThan(100);
-    // And the real sentinel is still the answer: a match that IS the
-    // expectation beats an earlier one that is not.
-    expect(arrival.tail.matchesExpected).toBe(true);
+    const read = (path: string): number => {
+      const started = performance.now();
+      const arrival = readWakeArrival(path, { expect: expected, maxBytes: 4 * 1024 * 1024 });
+      const elapsed = performance.now() - started;
+      // And the real sentinel is still the answer: a match that IS the
+      // expectation beats an earlier one that is not.
+      expect(arrival.tail.matchesExpected).toBe(true);
+      return elapsed;
+    };
+    // THE MINIMUM OF SEVERAL RUNS, after a warm-up. A scheduler can only ever
+    // make a run slower, so the fastest of N is the closest this can get to the
+    // work actually done; an average would carry whatever else the machine did.
+    const best = (path: string): number => {
+      let min = Infinity;
+      for (let i = 0; i < 5; i += 1) min = Math.min(min, read(path));
+      return min;
+    };
+    const smallPath = poisoned(2000);
+    const bigPath = poisoned(8000);
+    read(smallPath); // warm up: first-touch page faults are not the algorithm
+    const small = best(smallPath);
+    const big = best(bigPath);
+    const ratio = big / Math.max(small, 0.001);
+    // The ratio rides on the failure message, so a break says what it measured
+    // rather than only that a boolean was wrong.
+    expect({ quadratic: ratio >= 8, ratio: Number(ratio.toFixed(1)) }).toMatchObject({
+      quadratic: false,
+    });
+    // A second, deliberately generous guard, so a search that went linear-but-
+    // catastrophic (an accidental whole-file read per prefix) still fails. The
+    // quadratic implementations measured 31 ms and 587 ms at this size.
+    expect(big).toBeLessThan(2000);
   });
 
   test("no string from the wake body can reach a payload, a session record or an error", async () => {

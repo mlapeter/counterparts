@@ -205,9 +205,19 @@ T0=$(date +%s)
 # ── 1. install from the packed tarball ──────────────────────────────────────
 
 step "npm pack produces a tarball"
-PACK_OUT=$(cd "$REPO" && PATH="$REAL_PATH" "$NPM_BIN" pack --pack-destination "$WORK" 2>&1)
+# STDERR GOES TO A FILE, NOT INTO THE PIPE (2026-09-20, finding 5). `npm pack`
+# prints the tarball name on stdout and its notices — npm's update banner, a
+# workspace warning, an audit line — on stderr. With `2>&1` the two are
+# interleaved, so `tail -1` returned whatever npm said last and the step failed
+# about one run in five with a name that was never a file.
+PACK_ERR="$WORK/npm-pack.stderr"
+PACK_OUT=$(cd "$REPO" && PATH="$REAL_PATH" "$NPM_BIN" pack --pack-destination "$WORK" 2>"$PACK_ERR")
 TARBALL=$(printf '%s\n' "$PACK_OUT" | tail -1)
-if [ -f "$WORK/$TARBALL" ]; then ok; else no "npm pack produced no tarball" "$PACK_OUT"; fi
+if [ -f "$WORK/$TARBALL" ]; then
+  ok
+else
+  no "npm pack produced no tarball" "$(printf 'stdout:\n%s\nstderr:\n%s\n' "$PACK_OUT" "$(cat "$PACK_ERR" 2>/dev/null)")"
+fi
 
 step "the tarball ships sources and licence, and no tests or internal tools"
 LISTING=$(tar -tzf "$WORK/$TARBALL" 2>&1)
