@@ -2,8 +2,16 @@
 
 ## 1. Purpose
 
-The substrate: three boxes — canonical prose, one small canonical transactional database,
-one rebuildable search cache — and the single seam every write crosses.
+The substrate: **two** boxes — one small canonical transactional database, one
+rebuildable search cache — and the single seam every write crosses.
+
+> **THIS PAGE IS MID-REWRITE (F8).** The floor moved on 2026-09-20 (schema v6):
+> memory bodies, their archived versions and their metadata are COLUMNS, box 1
+> — `prose/**.md`, one markdown file per memory — is gone, and markdown is an
+> export (`render.ts`). Everything below that the code no longer keeps is marked
+> **[F8: gone]** or **[F8: rewrite]** in place rather than quietly edited, so a
+> reader can see what changed and F8 has a list. Nothing is marked that is still
+> true. `NOTES.md` 2026-09-20 carries the reasoning and the measurements.
 
 ## 2. Brain analog
 
@@ -15,26 +23,40 @@ ended up with canonical state spread across a prose store plus half a dozen side
 
 ## 3. Keeps
 
-- **Prose is canonical and readable in any editor.** [v1] Constitution line 6; test-triage
-  P1 `schema-md.test.ts` / `files.test.ts` — a portable format must survive round-trip.
-- **Lossless serialization that refuses ambiguity**: human-legible text beside an
-  authoritative machine payload; the parser reads only the payload; content that could
-  break the parser is rejected loudly, never truncated. [v1] behavioral-spec §4.2 G7.
+- **[F8: rewrite] The owner can VIEW every memory.** Constitution line 6, in the
+  owner's own words (2026-09-16): "going forward by 'readable' we mean if
+  someone can view them" — in a file or in the database. The dashboard,
+  `counterparts recall`, the console and asking the counterpart all show prose;
+  `counterparts export` writes markdown. What is no longer claimed is that every
+  memory IS a markdown file.
+- **[F8: gone] Lossless serialization that refuses ambiguity**: the frontmatter
+  parser, and the authoritative `payload:` line that existed so a lossy YAML
+  reading could never become the truth. Nothing parses markdown back; the format
+  survives in `render.ts` as the export, and the one guard that outlived it is
+  `assertJsonSafe` over the `meta` column. [v1] behavioral-spec §4.2 G7.
 - **Round-trip fidelity extends to metadata** — unrecognized fields survive
-  parse→serialize untouched. [v1] §4.2 G6 (v1 incident: a parser silently dropped tier,
-  frequency, provenance, and aliases on rewrite).
-- **Omitted-when-absent** — a section never used serializes byte-identically to a store
-  that predates the section. [v1] §4.2 G8.
+  untouched. [v1] §4.2 G6 (v1 incident: a parser silently dropped tier,
+  frequency, provenance, and aliases on rewrite). *Free since the floor: `meta`
+  is one TEXT column holding the JSON verbatim, and a value JSON would drop or
+  transform is refused before the row is written.*
+- **[F8: gone] Omitted-when-absent** — a section never used serializes
+  byte-identically to a store that predates the section. [v1] §4.2 G8. *A
+  property of the markdown format, which is now an export; `render.ts` keeps it
+  and `test/store.test.ts` still asserts it there.*
 - **Ids are immutable, never reused, type-prefixed; resolution follows lineage; a cycle,
   a dangling id, or an over-deep chain is a hard error.** [v1] §4.2 G2, test-triage P1
   `ids.test.ts`.
 - **Every mutable sub-item carries a stable handle. Prose is the content; the handle is
   the identity.** [v1] §4.2 G1.
-- **Archive-on-overwrite, atomic and collision-proof**, with temp files named so a
-  crash-leaked one cannot be loaded as a duplicate. [v1] §16 G4.
-- **The strength-only exemption to archive-on-overwrite** — a rewrite differing in nothing
-  but strength bookkeeping skips the archive copy, decided by a conservative line-level
-  diff, with the flag as permission only. [v1] §16 G5.
+- **Archive-on-overwrite, in one transaction.** [v1] §16 G4. *Since the floor the
+  prior version is a ROW written beside the update, so "atomic and
+  collision-proof" is a property of the transaction: no `wx` loop, no temp-file
+  naming ceremony, and no crash-leaked stage that could be loaded as a
+  duplicate, because there is no stage.*
+- **[F8: gone] The strength-only exemption to archive-on-overwrite** — a
+  conservative line-level diff with the flag as permission only. [v1] §16 G5.
+  *Structural since box 2: `updatePhysics` names the columns it sets and none of
+  them is the body, the title, the meta or the hash.*
 - **Destruction enforced by absence**, with a caller-universality test. [v1] §16 G1–G2,
   earned-mechanism #14: "the shape — enforced by absence, verified mechanically — is worth
   more than the specific mechanism."
@@ -51,11 +73,15 @@ ended up with canonical state spread across a prose store plus half a dozen side
   2026-09-05).
 - **One content-address function**, so a raw span, a run record, and a rejected proposal
   join on the same key. [v1] §17.1.
-- **A store directory is self-contained.** Every file a row names is named RELATIVE to
-  the store root, so a copy, a move, or a restored backup reads and chases its own files
-  and never another store's (§5 G15; finding I22, 2026-09-05). Constitution line 6 —
-  local-first, portable — and line 7's "backups catch catastrophe" both rest on it: a
-  backup that still pointed at the live store was not a backup.
+- **A store directory is self-contained.** A copy, a move or a restored backup
+  reads and removes its OWN memories and never another store's (finding I22,
+  2026-09-05). Constitution line 6 — local-first, portable — and line 7's
+  "backups catch catastrophe" both rest on it: a backup that still pointed at the
+  live store was not a backup. *Structural since the floor rather than enforced:
+  a row IS its memory, so there is nothing outside the database for a copy to
+  reach. The mechanism that defended it while rows named files — store-relative
+  columns, `resolveStoredPath`, the escape guard — is deleted; the criterion is
+  still tested (`test/store-portable.test.ts`).*
 
 ## 4. Drops / simplifies
 
@@ -144,7 +170,11 @@ by reference only.
    site every write path inherits — never by remembering at each call site. Supersession
    leaves a forwarding address; a dangling reference is a hard error, not a silent drop
    (scar §2.2; v1's cross-boundary dangling gap, §6.2 known gaps, is closed by this).
-5. **[M] Overwrites archive the prior version first**, atomically and collision-proof.
+5. **[M] An overwrite keeps the prior version, body included, in the same
+   transaction.** *(Restated at the floor: it was "archives the prior version
+   first, atomically and collision-proof", which described an ordering between a
+   file copy and a file rename. The version is a row now, written beside the
+   update, so there is no first and no window.)*
 6. **[M] Removal is ordered so every crash point is safe**: at each moment a memory is
    fully alive, or dark *and* recorded. A failed record append is never reported as
    success — if the record cannot be written, nothing moves (§16 G10–G11).
@@ -165,9 +195,12 @@ by reference only.
     on an explicit documented exclusion list. Adding a directory breaks the build until it
     is classified (scar §2.11 — v1 silently omitted the canonical episode journal from
     snapshots for three weeks).
-    *Note (2026-09-18, when the boxes went to WAL): the database entry classifies by PREFIX,
-    so `operational.sqlite-wal` and `-shm` are covered, and `backupSet()` is unchanged —
-    but* **`operational.sqlite` is no longer the database on its own.** *Pages committed
+    *Note (2026-09-18, when the boxes went to WAL; the FILENAME updated 2026-09-20 at
+    the floor, where `operational.sqlite` became the name `STORE_PRE_ROWS` refuses on —
+    it is not this store's database any more, and leaving it here named the one file
+    this build will not open): the database entry classifies by PREFIX, so
+    `counterparts.sqlite-wal` and `-shm` are covered, and `backupSet()` is unchanged —
+    but* **`counterparts.sqlite` is no longer the database on its own.** *Pages committed
     since the last checkpoint live in the `-wal`, so a copy of the file alone opens and is
     silently short, and deleting a `-wal` deletes what is inside it. The copies that are
     whole are `counterparts backup` and `export` — both `VACUUM INTO`, whose output is a
@@ -215,8 +248,17 @@ by reference only.
     the whole suite, so a forgetful test is REFUSED rather than redirected — the second
     layer under the temp-home redirect (LAUNCH-STATUS I21, owner ruling 2026-09-05;
     `NOTES.md` same date).
-15. **[M] A store directory is self-contained: copying or moving it never touches another
-    store's files.** `memories.prose_path` and `versions.path` hold store-relative POSIX
+15. **[F8: rewrite — the mechanism below is DELETED; the property is now
+    structural] A store directory is self-contained: copying or moving it never
+    touches another store's files.** *Since schema v6 a row IS its memory: there
+    are no files outside the database, so a copy cannot read or delete a source
+    store's words. `memories.prose_path` and `versions.path` are gone, with
+    `stored.*`, `resolveStoredPath`, `relativizeStoredPath`,
+    `isCanonicalRelativePath` and `STORED_PATH_ESCAPES`; the two resolvers live
+    on in `tools/parallel/legacy-paths.ts` for the read-only instruments that
+    still read the owner's pre-rows store. The tests that prove the criterion
+    survive. What follows describes the v5 floor and is kept until F8 rewrites
+    this page.* `memories.prose_path` and `versions.path` held store-relative POSIX
     paths — `prose/<family>/<id>.md`, `versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`)
     — and every read, write and chase resolves them against the OPENED directory
     (`Store.absolutePath`), never against the process's working directory. A pre-v5
@@ -237,6 +279,43 @@ by reference only.
     stands (`OBSERVER_READ_FLOOR`), because the only thing v5 changed is a spelling every
     v5 reader accepts.*
 
+16. **[M] A store written by an older floor is refused BY NAME, never migrated.**
+    A data directory holding `operational.sqlite`, `prose/` or `versions/` was
+    written by a build that kept its memories in files, and this one has no code
+    that reads them. `Store`'s constructor throws `STORE_PRE_ROWS` — carrying
+    what it found, the version this build writes, and `readableBy:
+    "floor/v5-last"`, the tag whose build still opens it — **before any
+    transaction, before any directory is created, and without opening the old
+    database**. Filenames are the evidence deliberately: reading the schema
+    version would mean opening a WAL store whose `-wal` a close could
+    checkpoint away, moving the bytes the refusal exists to leave alone.
+    `ADDED_COLUMNS` is empty and may never name a v6 column, which is the second
+    lock: `openOperational` migrates anything below `SCHEMA_VERSION`, and `body`
+    added that way would be NULL on every row while the words sat in files,
+    stamping the store v6 and unreadable by the build that can read it.
+    `OBSERVER_READ_FLOOR` is `SCHEMA_VERSION`: there is no floor below v6,
+    because a v6 instrument on a v5 store would report an empty store rather
+    than an unreadable one. There is no migration and there is not going to be
+    one (owner ruling 6, 2026-09-18: the cut-over carries nothing).
+    `test/store-portable.test.ts` builds a real v5 store by hand and proves the
+    directory is byte-identical after a refused writer open, a refused observer
+    open and a refused session.
+17. **[M] A removal reclaims the pages that held the words — the log AND the
+    free list — on both databases.** Blanking a body is an `UPDATE`: in WAL mode
+    the old page stays in the `-wal` until a checkpoint, and a body long enough
+    to take OVERFLOW pages leaves whole pages on the FREELIST still holding the
+    words (`secure_delete` is FAST by default and zeroes only the slack of a page
+    being rewritten). Measured 2026-09-20, deterministic with marks at the start,
+    middle and end of a ~40 KB body. So the console's removal ends with `VACUUM`
+    then `PRAGMA wal_checkpoint(TRUNCATE)` on each database, on its own
+    connection, reported as its own surface and never thrown (§16 G14 — every
+    copy is chased; scar §2.20). A contended reclaim is REPORTED in words, with
+    what is still true and the command that finishes it — never `nothing`.
+    Nothing that leaves the machine ever carried it: `backup`, `export` and the
+    rotating snapshot all go through `VACUUM INTO`, which copies live pages only,
+    measured clean even from a store in the residue state. Snapshots taken
+    BEFORE a removal hold the memory properly and are not reached.
+
 ## 6. Scars honored
 
 **E5** (rescoped: transactions for structured state; locks only where files stay
@@ -254,9 +333,15 @@ comment) · **§2.13** (path guards resolve before they compare) · **§2.20**
    rebuild costs — re-indexing text is free, re-embedding costs money and an API round
    trip. A vector cache that is never backed up is also a bill that must be re-paid after
    any loss. (Phase-2 storage agenda item, SYNTHESIS.)
-2. **Does prose stay one file per memory?** v1 had 13.6K files across 36 scope
-   directories, and 89K files in the archive tree. One file per memory is legible and
-   greppable; it is also what made backups 2.6 GB.
-3. **How does a v1→v2 import traverse the seam?** It is a near-certainty, and it is the
-   exact shape of scar §2.7's worst incident — v1's migration path bypassed the secrets
-   gate and put three live API keys into the store.
+2. ~~**Does prose stay one file per memory?**~~ **ANSWERED, 2026-09-20: no.**
+   The owner's reading of constitution line 6 is that he can VIEW a memory, in a
+   file or in the database (2026-09-16), and the count answered the rest: about
+   16,000 files beside a 7 MB database, two things that could disagree. Bodies,
+   versions and the journal are rows; markdown is an export. *(F8 deletes this
+   question.)*
+3. **How does a v1→v2 import traverse the seam?** Still open, and now further
+   away on purpose: the cut-over carries NOTHING (owner ruling 6, 2026-09-18) —
+   he starts as a new user, and which memories come back is its own later
+   conversation. The shape of the hazard is unchanged and is why: scar §2.7's
+   worst incident was v1's migration path bypassing the secrets gate and putting
+   three live API keys into the store.

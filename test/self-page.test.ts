@@ -10,14 +10,16 @@
  * later mistakes for one, and this file is about the mechanism, not the words.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { episodeGate } from "../src/core/bridge.js";
 import { runCycle } from "../src/core/sleep/index.js";
-import { Store } from "../src/core/store/index.js";
+import { Store, rowTombstoned } from "../src/core/store/index.js";
+import { openDb } from "../src/core/store/db.js";
+import { snapshot } from "../src/adapters/cli/index.js";
 import {
   FRAMING,
   NO_PAGE_VERSION,
@@ -1004,3 +1006,118 @@ function readSentinelBytes(text: string): number {
   const last = text.split("\n").at(-1) ?? "";
   return Number(/bytes=(\d+)/.exec(last)?.[1] ?? -1);
 }
+
+// ── the page on the rows floor (schema v6) ──────────────────────────────────
+
+describe("the page on the rows floor", () => {
+  test("the page and every version of it are COLUMNS — nothing is a file", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.revisePage(PAGE_TWO, { reason: "second", by: "session" });
+    const id = findSelfPage(s) as string;
+
+    // S1 wrote the page through the ordinary Store API "so it does not care
+    // which floor it is on". This is that claim measured from underneath: the
+    // body is the row's column and each archived version carries its own.
+    expect(s.row(id)?.body).toBe(PAGE_TWO);
+    expect(s.row(id)?.kind).toBe("self");
+    expect(s.versions(id).map((v) => v.body)).toEqual([PAGE]);
+    expect(me.pageVersions({ bodies: true }).map((v) => v.body)).toEqual([PAGE]);
+    // And there is nowhere else it could be.
+    expect(readdirSync(dir).filter((n) => !n.startsWith("counterparts.sqlite-")).sort()).toEqual([
+      "cache",
+      "counterparts.sqlite",
+    ]);
+  });
+
+  test("a snapshot of a v6 store brings the page AND its versions back", () => {
+    const s = store();
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.revisePage(PAGE_TWO, { reason: "second", by: "session" });
+    const id = findSelfPage(s) as string;
+
+    const target = join(otherDir("counterparts-page-snap-"), "snap");
+    const report = snapshot(s, target);
+    expect(report.ok).toBe(true);
+
+    // THE DATABASE ALONE HAS TO CARRY IT. On the file floor the page's prose and
+    // its archived versions were two more files in the copied tree; the snapshot
+    // is one file now, and if it did not hold the page this would be scar §2.11
+    // with the self in it.
+    const restored = Store.open({ dir: target, observer: true });
+    open.push(restored);
+    expect(findSelfPage(restored)).toBe(id);
+    expect(readSelfPage(restored)?.body).toBe(PAGE_TWO);
+    expect(restored.versions(id).map((v) => v.body)).toEqual([PAGE]);
+    expect(restored.readVersion(id, 1).body).toBe(PAGE);
+  });
+
+  test("the version prune takes the page's OLD WORDS with it — ruling 1, made visible", () => {
+    // Owner ruling 1 (2026-09-18): the prune stays, at 90 lived days, and
+    // self-page versions follow the same 90 for now. What changed underneath
+    // that number is the point of this test: a version row used to be a NOTE
+    // about a file that was never deleted, so the prune cost the history its
+    // index and nothing else. The words are in the row now, so the prune
+    // deletes the owner's earlier page. `retentionDays` is short here to make a
+    // 90-day rule observable in one test.
+    const s = store({ retentionDays: 1 });
+    const me = self(s);
+    me.revisePage(PAGE, { reason: "first", by: "owner" });
+    me.revisePage(PAGE_TWO, { reason: "second", by: "session" });
+    const id = findSelfPage(s) as string;
+    expect(s.versions(id).map((v) => v.body)).toEqual([PAGE]);
+
+    s.advanceClock("2026-09-20");
+    s.advanceClock("2026-09-21");
+    s.advanceClock("2026-09-22");
+    const report = s.pruneSupersededVersions();
+    expect(report.pruned).toBe(1);
+    // The old page is GONE, words and all — and the live page is untouched.
+    expect(s.versions(id)).toEqual([]);
+    expect(me.pageVersions()).toEqual([]);
+    expect(me.page()?.body).toBe(PAGE_TWO);
+    expect(readSelfPage(s)?.body).toBe(PAGE_TWO);
+  });
+
+  test("a REMOVED page row is skipped and the session still starts; one whose WORDS went missing is not", () => {
+    // The two states `Schemas.load` now tells apart, asked of the one schema row
+    // a new user is guaranteed to have. There used to be a third — the page's
+    // prose file deleted underneath the store, which took every session down
+    // (`docs/adversarial-review-s1c-2026-09-20.md` MAJOR-1) — and the floor
+    // removed it: there is no file to lose.
+    const s = store();
+    self(s).revisePage(PAGE, { reason: "first", by: "owner" });
+    const id = findSelfPage(s) as string;
+
+    // TOMBSTONED — body and hash both blank, which is what the owner's removal
+    // leaves. `Schemas.load` skips it and counts it as unaccounted, because
+    // nothing here wrote a removal record; a session still opens.
+    const db = openDb(join(dir, "counterparts.sqlite"));
+    db.run("UPDATE memories SET body = '', content_hash = '' WHERE id = ?", id);
+    db.close();
+    const after = store();
+    expect(rowTombstoned(after.row(id) as { body: string; content_hash: string })).toBe(true);
+    const c = Counterpart.open({ dir, owner: true });
+    open.push(c);
+    expect(readSelfPage(after)).toBeNull();
+    expect(c.schemas.loadSkips().unaccounted).toEqual([id]);
+    c.close();
+
+    // ITS WORDS WENT MISSING — a blank body beside a real hash, a state no write
+    // path produces. That is a FAULT and it still stands the session down, on
+    // purpose: a store that lost a memory's words underneath itself is
+    // something the owner must see, not a page to render as empty.
+    const db2 = openDb(join(dir, "counterparts.sqlite"));
+    db2.run("UPDATE memories SET content_hash = 'deadbeefdeadbeef' WHERE id = ?", id);
+    db2.close();
+    let code = "NO_THROW";
+    try {
+      Counterpart.open({ dir, owner: true }).close();
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+    }
+    expect(code).toBe("MEMORY_BODY_MISSING");
+  });
+});

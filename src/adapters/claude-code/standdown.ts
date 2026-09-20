@@ -118,17 +118,20 @@ export function isDeliberate(err: unknown): boolean {
  * from a hook would be a glossary that goes stale where nobody reads it.
  */
 const PLAIN_WORDS: Partial<Record<StoreErrorCode, string>> = {
-  PROSE_FILE_MISSING: "a memory's prose file is missing from the store",
-  PROSE_FRONTMATTER_MISSING: "a memory's prose file has no frontmatter",
-  PROSE_PAYLOAD_MISSING: "a memory's prose file carries no payload",
-  PROSE_PAYLOAD_MALFORMED: "a memory's prose file has a payload this build cannot read",
-  PROSE_PAYLOAD_MISMATCH: "a memory's prose file and its row disagree about which memory it is",
-  PROSE_BODY_INVALID: "a memory's prose file has a body this build cannot read",
+  MEMORY_BODY_MISSING: "a memory's row is in the store and its words are not",
+  MEMORY_META_MALFORMED: "a memory's metadata is not something this build can read",
+  PROSE_PAYLOAD_MISMATCH: "a row and the memory it was read for disagree about which memory it is",
+  PROSE_BODY_INVALID: "a memory has a body this build cannot write",
   ID_DANGLING: "a row points at a memory that is not in the store",
   ID_CYCLE: "a revision chain in the store points back at itself",
   ID_CHAIN_TOO_DEEP: "a revision chain in the store is longer than this build follows",
-  STORED_PATH_ESCAPES: "a stored path points outside the store",
   SCHEMA_AHEAD: "this store was written by a newer build than the one running",
+  // The one entry that carries an INSTRUCTION, because it is the one fault a
+  // reader can act on without another command: the tag is the way back in, and
+  // a bare `floor/v5-last` in a JSON payload told nobody it was a thing to check
+  // out (review A, NIT-2). It fits the 200-character reason cap with room.
+  STORE_PRE_ROWS:
+    "this store keeps its memories in files, which this build does not read — it was written before the floor changed; the build that reads it is the tag floor/v5-last",
   SQLITE_UNAVAILABLE: "this runtime has no SQLite binding",
   DATA_DIR_FORBIDDEN: "the configured data dir is one this build refuses to open",
   STORE_UNINITIALIZED: "there is no store here yet, or it is a schema behind",
@@ -141,6 +144,29 @@ export const OPEN_FAILED_WORDS = "the store would not open";
  * A code and plain words for ANY failure — including the deliberate ones, which
  * `doctor` still has to name even though the hook stays quiet about them.
  */
+/**
+ * The pre-rows reason clause, which depends on WHICH pre-rows case this is.
+ *
+ * `PLAIN_WORDS` is a constant table and cannot look at the error; for the
+ * LOCKOUT case (a v6 store an older build left its empty leftovers in) the
+ * constant sentence sends the owner at `floor/v5-last` — the build that has just
+ * stood down on this same directory. That is A-MAJOR-1's circle surviving in the
+ * one channel the owner actually reads (third review, NEW-MINOR-1); the correct
+ * sentence was on stderr and in doctor only.
+ *
+ * So when the refusal carries its own `remedy` — which it does exactly when this
+ * directory also holds a `counterparts.sqlite` — the reason says that instead,
+ * and points at the door that has the full sentence.
+ */
+function preRowsReason(err: unknown): string | null {
+  if (!isStoreError(err, "STORE_PRE_ROWS")) return null;
+  if (typeof err.detail["remedy"] !== "string") return null;
+  return (
+    "this directory holds this build's store AND an older build's leftovers, so it will not " +
+    "open either by guess — run counterparts doctor for the names and what to move"
+  );
+}
+
 export function describeFault(err: unknown): StandDownFault {
   // TOTAL, and the reason is not theoretical politeness: this runs inside the
   // handler that exists so a hook never fails the host, and everything below
@@ -162,7 +188,11 @@ function readFault(err: unknown): StandDownFault {
   // turn. `isLocked` is `db.ts`'s own test, imported rather than mirrored.
   const kind: StandDownKind = isLocked(err) ? "transient" : "persistent";
   if (isStoreError(err)) {
-    return { code: err.code, reason: PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS, kind };
+    return {
+      code: err.code,
+      reason: preRowsReason(err) ?? PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS,
+      kind,
+    };
   }
   const message = err instanceof Error ? err.message : String(err);
   return {
@@ -189,6 +219,21 @@ export function faultPath(err: unknown): string | null {
   if (!isStoreError(err)) return null;
   const path = err.detail["path"];
   return typeof path === "string" && path.length > 0 ? path : null;
+}
+
+/**
+ * The ROW a store fault is about, when the fault is about one.
+ *
+ * `faultPath`'s counterpart on this floor. `MEMORY_BODY_MISSING` carries
+ * `{ id }` and no path, because there is no file to restore — and doctor's
+ * red line named the CLASS and not the row, so every session was down and the
+ * owner could not find which of ~17,000 rows to act on (review B, MAJOR-3).
+ * An id is the one thing that makes the fault addressable.
+ */
+export function faultId(err: unknown): string | null {
+  if (!isStoreError(err)) return null;
+  const id = err.detail["id"];
+  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 /** Whitespace collapsed: an error message is not this file's to format. */

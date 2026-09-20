@@ -33,6 +33,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
+import { EXIT, run } from "../src/adapters/cli/index.js";
+import type { Io } from "../src/adapters/cli/index.js";
 import { join, resolve } from "node:path";
 
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
@@ -205,6 +208,131 @@ function fingerprint(dir: string): Record<string, string> {
   return out;
 }
 
+/**
+ * A REAL pre-rows store, built by hand — the shape this build refuses to open.
+ *
+ * A trimmed copy of `test/store-portable.test.ts`'s fixture: enough of the v5
+ * shape that the refusal is answering a store rather than a filename, and no
+ * `cache/`, so the directory listing afterwards proves the refusal ran before
+ * the constructor's first `mkdirSync`.
+ */
+/** A console that captures both streams and answers no prompt. */
+function consoleWith(): { io: Io; out: string[]; err: string[] } {
+  const out: string[] = [];
+  const err: string[] = [];
+  return {
+    io: { out: (l) => out.push(l), err: (l) => err.push(l), prompt: async (): Promise<string> => "" },
+    out,
+    err,
+  };
+}
+
+function buildPreRowsStore(dir: string): void {
+  mkdirSync(join(dir, "prose", "memories"), { recursive: true });
+  writeFileSync(join(dir, "prose", "memories", "mem_000000000001.md"), "words in a file", "utf8");
+  const db = new Database(join(dir, "operational.sqlite"), { create: true });
+  db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  db.run("INSERT INTO meta (key, value) VALUES ('schemaVersion', '5')");
+  db.close();
+}
+
+// ── the checkout deployed early, which is the plan's failure mode (a) ───────
+
+describe("a store written before the floor", () => {
+  test("the hook says it by name, exits 0, and does not touch the store", () => {
+    // THE HAZARD THIS WHOLE PHASE IS ABOUT, at the door it would actually come
+    // through. `tools/deploy-checkout.sh` pins the runtime at `floor/v5-last`
+    // until cut-over day; deploying past the pin by habit is the failure the
+    // plan names, and what makes it a loud broken session rather than a
+    // corrupted store is that every hook of every session lands here instead.
+    rmSync(store, { recursive: true, force: true });
+    buildPreRowsStore(store);
+    const before = fingerprint(store);
+
+    const run = runHook("SessionStart", "s-pre-rows-1");
+    expect(run.code).toBe(0);
+    const message = systemMessage(run) ?? "";
+    expect(message).toStartWith(`${SAID}: `);
+    expect(message).toContain("(STORE_PRE_ROWS)");
+    // It says which build still opens the store IN THE MESSAGE the owner sees,
+    // so the sentence ends in something to do rather than in a dead end — and
+    // `Run: counterparts doctor` now prints the same sentence rather than the
+    // JSON blob that sent him in a circle (review A, MINOR-3 / NIT-2).
+    expect(message).toContain("the tag floor/v5-last");
+    expect(run.stderr).toContain("floor/v5-last");
+    expect(run.stderr).toContain("[counterparts] hook stood down:");
+
+    // THE OLD STORE IS UNTOUCHED — with one thing written, named rather than
+    // hidden: the stand-down MARKER, which is what makes "said once per
+    // session" work and which lands under `sessions/`.
+    //
+    // That is host state, not memory: no content, and `sessions/` is classified
+    // by BOTH floors' LAYOUT (it is in v5's too), so the old build still opens
+    // this store and `assertLayout` still passes there. Nothing canonical moved
+    // — no `counterparts.sqlite` minted beside the old one, no `cache/`, no v6
+    // DDL, and the prose and the database are byte-identical.
+    const after = fingerprint(store);
+    const added = Object.keys(after).filter((k) => !(k in before));
+    expect(added).toEqual(["sessions/s-pre-rows-1.standdown.json"]);
+    for (const [path, hash] of Object.entries(before)) {
+      expect({ path, hash: after[path] }).toEqual({ path, hash });
+    }
+    expect(readdirSync(store).sort()).toEqual(["operational.sqlite", "prose", "sessions"]);
+    // And the marker carries no memory text (§5 G10) — it is a code and a date.
+    const marker = readFileSync(join(store, "sessions", "s-pre-rows-1.standdown.json"), "utf8");
+    expect(JSON.parse(marker)["code"]).toBe("STORE_PRE_ROWS");
+    expect(marker).not.toContain("words in a file");
+  });
+
+  test("NEW-MINOR-1: in the LOCKOUT case the visible message does not send him at floor/v5-last", () => {
+    // A-MAJOR-1's circle surviving in the one channel the owner actually reads.
+    // `PLAIN_WORDS.STORE_PRE_ROWS` is a constant table and cannot look at the
+    // error, so the lockout — a v6 store an older build left its empty
+    // leftovers in — got the same sentence as a genuine pre-rows store: "the
+    // build that reads it is the tag floor/v5-last", which is the build that
+    // has just stood down on this same directory.
+    rmSync(store, { recursive: true, force: true });
+    const s = Store.open({ dir: store });
+    s.put({ type: "memory", kind: "fact", body: "a memory this build wrote and still owns" });
+    s.close();
+    mkdirSync(join(store, "prose"), { recursive: true });
+    mkdirSync(join(store, "versions"), { recursive: true });
+    writeFileSync(join(store, "operational.sqlite"), "", "utf8");
+
+    const run = runHook("SessionStart", "s-lockout-1");
+    expect(run.code).toBe(0);
+    const message = systemMessage(run) ?? "";
+    expect(message).toStartWith(`${SAID}: `);
+    expect(message).toContain("(STORE_PRE_ROWS)");
+    // It says what this directory IS and sends him to the door that carries the
+    // full sentence — and NOT at the tag.
+    expect(message).toContain("holds this build's store AND an older build's leftovers");
+    expect(message).toContain("counterparts doctor");
+    expect(message).not.toContain("floor/v5-last");
+
+    // The GENUINE pre-rows store still names the tag, because there it is the
+    // right answer — this is a discrimination, not a blanket removal.
+    rmSync(store, { recursive: true, force: true });
+    buildPreRowsStore(store);
+    expect(systemMessage(runHook("SessionStart", "s-lockout-2")) ?? "").toContain(
+      "the tag floor/v5-last",
+    );
+  });
+
+  test("it is a PERSISTENT fault, not a transient one: a second turn is quiet, a new session is told", () => {
+    // Deploying past the pin is not a race, and grading it transient would put
+    // the notice on a retry loop instead of in front of the owner once.
+    rmSync(store, { recursive: true, force: true });
+    buildPreRowsStore(store);
+    expect(isDeliberate(new StoreError("STORE_PRE_ROWS", { dir: store }))).toBe(false);
+    expect(describeFault(new StoreError("STORE_PRE_ROWS", { dir: store })).kind).toBe("persistent");
+
+    expect(systemMessage(runHook("UserPromptSubmit", "s-pre-rows-2"))).toContain(SAID);
+    expect(runHook("UserPromptSubmit", "s-pre-rows-2").stdout).toBe("");
+    expect(systemMessage(runHook("UserPromptSubmit", "s-pre-rows-3"))).toContain(SAID);
+  });
+});
+
 // ── the fault is said out loud ──────────────────────────────────────────────
 
 describe("a store that will not open", () => {
@@ -217,7 +345,7 @@ describe("a store that will not open", () => {
     expect(Object.keys(parsed)).toEqual(["systemMessage"]);
     const message = String(parsed["systemMessage"]);
     expect(message).toStartWith(`${SAID}: `);
-    expect(message).toContain("(PROSE_FILE_MISSING)");
+    expect(message).toContain("(MEMORY_BODY_MISSING)");
     expect(message).toEndWith(STANDDOWN_TAIL);
     // AND THE STDERR LINE IS KEPT — the host log still carries what it carried.
     expect(run.stderr).toContain("[counterparts] hook stood down:");
@@ -265,7 +393,7 @@ describe("a store that will not open", () => {
     const record = JSON.parse(raw) as Record<string, unknown>;
     expect(record["sessionId"]).toBe("s-broken-6");
     expect(record["event"]).toBe("session-start");
-    expect(record["code"]).toBe("PROSE_FILE_MISSING");
+    expect(record["code"]).toBe("MEMORY_BODY_MISSING");
     expect(typeof record["at"]).toBe("string");
     expect(record["told"]).toBe(true);
     expect(record["transient"]).toEqual({ count: 0, at: "", told: false, escalated: false });
@@ -636,12 +764,14 @@ describe("the stand-down vocabulary", () => {
       expect(isDeliberate(new StoreError(code, {}))).toBe(true);
       expect(classifyStandDown(new StoreError(code, {}))).toBeNull();
     }
-    expect(isDeliberate(new StoreError("PROSE_FILE_MISSING", { path: "/x" }))).toBe(false);
+    expect(isDeliberate(new StoreError("MEMORY_BODY_MISSING", { id: "mem_x" }))).toBe(false);
   });
 
   test("a store code with no entry still gets a sentence and its own code", () => {
-    const fault = describeFault(new StoreError("ARCHIVE_COLLISION", { id: "m1" }));
-    expect(fault.code).toBe("ARCHIVE_COLLISION");
+    // `LAYOUT_UNCLASSIFIED` has no entry in `PLAIN_WORDS` and is a real code a
+    // read path can meet: a top-level path nobody classified.
+    const fault = describeFault(new StoreError("LAYOUT_UNCLASSIFIED", { name: "surprise" }));
+    expect(fault.code).toBe("LAYOUT_UNCLASSIFIED");
     expect(fault.reason.length).toBeGreaterThan(0);
   });
 
@@ -740,7 +870,7 @@ describe("the stand-down vocabulary", () => {
 
 describe("the say rule", () => {
   const busy = describeFault(new Error("database is locked"));
-  const broken = describeFault(new StoreError("PROSE_FILE_MISSING", { path: "/x" }));
+  const broken = describeFault(new StoreError("MEMORY_BODY_MISSING", { id: "mem_x" }));
   const at = Date.parse("2026-09-18T12:00:00.000Z");
 
   test("a persistent fault: SessionStart always, a prompt only while untold", () => {
@@ -933,24 +1063,85 @@ describe("doctor reads the open, not just the directory", () => {
     expect(found?.severity).toBe("green");
   });
 
-  test("red on a store whose prose file is missing, naming the code and the path", () => {
+  test("red on a store whose words went missing, naming the code", () => {
     const gone = breakTheStore(store, "a belief the store holds");
     const reading = readCounterpartOpen(store);
     expect(reading.ok).toBe(false);
-    expect(reading.code).toBe("PROSE_FILE_MISSING");
+    expect(reading.code).toBe("MEMORY_BODY_MISSING");
     expect(reading.migratable).toBe(false);
-    expect(reading.path).toBe(gone);
+    // NO PATH, and that is the honest answer on this floor: the fault carries
+    // `{ id }` because there is no file to restore. `faultPath` returns null and
+    // doctor takes its own no-path arm, which it already had.
+    expect(reading.path).toBeNull();
+    expect(gone).toMatch(/^sch_/);
     const findings = doctorFindings(doctorInput({ open: reading }));
     const found = findings.find((f) => f.key === "store-open");
     expect(found?.severity).toBe("red");
-    expect(found?.detail).toContain("will not open — PROSE_FILE_MISSING:");
+    expect(found?.detail).toContain("will not open — MEMORY_BODY_MISSING:");
+    // NOT the generic sentence any more: the remedy names the row (see the
+    // MAJOR-3 test below for the whole loop).
     expect(found?.fix).toContain(gone);
     // And it reaches the console's own report, worst first.
     const printed = reportLines(findings, "2026-09-18").join("\n");
-    expect(printed).toContain("will not open — PROSE_FILE_MISSING");
+    expect(printed).toContain("will not open — MEMORY_BODY_MISSING");
     expect(worstFirst(findings).filter((f) => f.severity === "red").map((f) => f.key)).toContain(
       "store-open",
     );
+  });
+
+  test("review B, MAJOR-3: the faulted ROW is named, everywhere the owner looks", async () => {
+    // A faulted row stands EVERY session down, and before this nothing named
+    // which row: doctor's red line gave the class, `status` printed a normal
+    // summary and exited 0, and `verify` printed a green census and exited 0.
+    // The owner had a dead store and two surfaces telling him it was fine.
+    //
+    // On the file floor the same fault printed "Restore <path>" — one file he
+    // could fetch from a snapshot. The words are the row now, so the id is the
+    // only handle there is.
+    const gone = breakTheStore(store, "a belief the store holds");
+    expect(gone).toMatch(/^sch_/);
+
+    // 1. DOCTOR names the row and both ways out.
+    const reading = readCounterpartOpen(store);
+    expect(reading.code).toBe("MEMORY_BODY_MISSING");
+    expect(reading.id).toBe(gone);
+    const found = doctorFindings(doctorInput({ open: reading })).find((f) => f.key === "store-open");
+    expect(found?.severity).toBe("red");
+    expect(found?.fix).toContain(gone);
+    // There is no repair COMMAND for this today, so the two real exits are
+    // named rather than one invented.
+    expect(found?.fix).toContain("restore a snapshot");
+    expect(found?.fix).toContain("counterparts remove <id> --confirm");
+    // AND IT SAYS THERE MAY BE MORE. Doctor names the row that THREW, which is
+    // one of possibly many; `verify` is the surface that lists them all, and
+    // before this the remedy was a one-at-a-time loop of unknown length
+    // (review f5c, NEW-MINOR-5).
+    expect(found?.fix).toContain("THERE MAY BE MORE THAN ONE");
+    expect(found?.fix).toContain("counterparts verify --dir <store> lists every such row");
+
+    // 2. STATUS does not print a green census over a store no session opens.
+    const st = consoleWith();
+    expect(await run(["status", "--dir", store], { io: st.io })).not.toBe(EXIT.ok);
+    expect(st.err.join("\n")).toContain(gone);
+    expect(st.err.join("\n")).toContain("Every session stands down");
+
+    // 3. VERIFY counts them, names them, and exits non-zero.
+    const vf = consoleWith();
+    expect(await run(["verify", "--dir", store], { io: vf.io })).not.toBe(EXIT.ok);
+    expect(vf.err.join("\n")).toContain("Rows whose words are missing: 1");
+    expect(vf.err.join("\n")).toContain(gone);
+    // The census itself still prints — it is true, and hiding it would be a
+    // second kind of lying.
+    expect(vf.out.join("\n")).toContain("Floor: schema v6");
+
+    // And a HEALTHY store still says nothing of the sort, on either door.
+    const clean = join(work, "clean");
+    Store.open({ dir: clean }).close();
+    const okStatus = consoleWith();
+    expect(await run(["status", "--dir", clean], { io: okStatus.io })).toBe(EXIT.ok);
+    expect(okStatus.err.join("\n")).not.toContain("words are missing");
+    const okVerify = consoleWith();
+    expect(await run(["verify", "--dir", clean], { io: okVerify.io })).toBe(EXIT.ok);
   });
 
   test("the reading writes NOTHING: the store is byte-identical after it", () => {

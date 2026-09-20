@@ -25,11 +25,21 @@
  * different way of losing the data.
  */
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { join, relative } from "node:path";
 
-import { paths } from "../../core/store/index.js";
+import { DATABASE_FILE, paths } from "../../core/store/index.js";
 import type { Store } from "../../core/store/index.js";
 import { assertSafeTarget, vacuumInto } from "./snapshot.js";
 
@@ -59,26 +69,114 @@ export interface ExportReport {
   readonly reason: string;
 }
 
-/** path (relative, portable) -> file bytes. Prose stays prose. */
+/** path (relative, portable) -> file bytes. */
 type Bundle = Map<string, Buffer>;
 
+/**
+ * THE BUNDLE IS THE DATABASE.
+ *
+ * It used to be the database plus a walk of `prose/**.md`, because that is where
+ * the memories were. Since the floor (schema v6) the bodies, their archived
+ * versions and their metadata are rows, so the one file IS the export and the
+ * walk had nothing left to find. That makes the §2.11 rule the whole of this
+ * function rather than a footnote on it: the copy goes through `VACUUM INTO`,
+ * which is SQLite's own consistent-snapshot path, and never a file copy of a
+ * live database — doubly so now that a torn copy would lose the words and not
+ * just the bookkeeping.
+ *
+ * `--markdown`, `journal/` and `spans/` are F7's; this phase owns the deletion
+ * of the prose walk and the move of the scratch file, nothing more.
+ */
 function collect(store: Store, tmpDb: string): Bundle {
   const bundle: Bundle = new Map();
-  const proseRoot = paths.prose(store.dir);
-  const walk = (path: string): void => {
-    if (!existsSync(path)) return;
-    if (statSync(path).isDirectory()) {
-      for (const name of readdirSync(path).sort()) walk(join(path, name));
-      return;
-    }
-    bundle.set(join("prose", relative(proseRoot, path)), readFileSync(path));
-  };
-  walk(proseRoot);
-  // THE DATABASE GOES THROUGH VACUUM INTO, even here. §2.11 does not care
-  // whether the file copy is labelled "backup" or "export".
   const copied = vacuumInto(paths.operational(store.dir), tmpDb);
-  if (copied.ok) bundle.set("operational.sqlite", readFileSync(tmpDb));
+  if (copied.ok) bundle.set(DATABASE_FILE, readFileSync(tmpDb));
   return bundle;
+}
+
+/**
+ * Remove any `.export-scratch-*` an interrupted export of an OLDER BUILD left in
+ * this target.
+ *
+ * Belt and braces for exactly one window: a build between the floor landing and
+ * this fix wrote its scratch here, and a kill during the vacuum left a
+ * plaintext copy of the store behind under a timestamped name that the next
+ * export would never collide with. Nothing writes that name any more; this is
+ * how the ones already on disk go. It never throws — an export must not fail
+ * because a stale file would not delete.
+ */
+function sweepStaleScratch(target: string): void {
+  try {
+    for (const name of readdirSync(target)) {
+      if (!name.startsWith(".export-scratch-")) continue;
+      rmSync(join(target, name), { recursive: true, force: true });
+    }
+  } catch {
+    /* an unreadable target fails for its own reasons, further down */
+  }
+}
+
+/** What the report says when this export cleaned up after an interrupted one. */
+function sweptNote(swept: readonly string[]): string {
+  if (swept.length === 0) return "";
+  return (
+    ` Also removed ${String(swept.length)} abandoned scratch ` +
+    `director${swept.length === 1 ? "y" : "ies"} an interrupted export had left in the temp dir ` +
+    "(each held an unencrypted copy of the store)."
+  );
+}
+
+/** The prefix this module's scratch directories wear, in the OS temp dir. */
+export const EXPORT_SCRATCH_PREFIX = "counterparts-export-";
+
+/**
+ * How old an abandoned scratch directory must be before a later export removes
+ * it. **The bound is the whole point**: without it this sweep would delete a
+ * CONCURRENT export's directory mid-vacuum, which is a collision the target
+ * sweep above cannot have (it matches a name nothing writes any more).
+ *
+ * Same reasoning and the same number as `adapters/snapshots.ts#PARTIAL_STALE_MS`:
+ * comfortably longer than any single export could plausibly still be running.
+ */
+export const EXPORT_SCRATCH_STALE_MS = 60 * 60_000;
+
+/**
+ * Remove abandoned `counterparts-export-*` directories from the OS temp dir.
+ *
+ * An interrupted `--passphrase` export leaves a PLAINTEXT SQLite copy of the
+ * whole store in one (0700, so only this user can read it) and nothing swept
+ * it: on macOS `/var/folders` is reaped after roughly three days of non-access,
+ * otherwise it sits there (review f5c, NEW-MINOR-6). Moving it out of the
+ * target was the big win; this is the rest of it.
+ *
+ * Exact prefix, `mtime` older than the bound, and only entries this user owns —
+ * the temp dir is shared on some systems, and a sweep that took somebody else's
+ * directory would be a worse bug than the one it fixes. Never throws.
+ */
+export function sweepStaleExportScratch(now = Date.now()): string[] {
+  const swept: string[] = [];
+  const root = tmpdir();
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return swept;
+  }
+  for (const name of names) {
+    if (!name.startsWith(EXPORT_SCRATCH_PREFIX)) continue;
+    const full = join(root, name);
+    try {
+      const st = statSync(full);
+      if (!st.isDirectory()) continue;
+      if (st.uid !== process.getuid?.()) continue;
+      if (now - st.mtimeMs < EXPORT_SCRATCH_STALE_MS) continue;
+      rmSync(full, { recursive: true, force: true });
+      swept.push(name);
+    } catch {
+      /* a directory that will not stat or will not go is not this export's problem */
+    }
+  }
+  return swept;
 }
 
 export function exportStore(store: Store, opts: ExportOptions): ExportReport {
@@ -110,13 +208,36 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     };
   }
 
-  const tmpDb = join(paths.tmp(store.dir), `export-${Date.now()}.sqlite`);
-  mkdirSync(paths.tmp(store.dir), { recursive: true });
+  // THE SCRATCH GOES IN THE OS TEMP DIR — not in the store, and NOT IN THE
+  // TARGET.
+  //
+  // It lived in `<store>/tmp/` until the floor deleted that directory with the
+  // staging it existed for, and a scratch file in the store would now fail the
+  // next `assertLayout()` as an unclassified top-level path (§5 G11). The first
+  // fix moved it into the target, which `assertSafeTarget` proves is outside
+  // the store — and that was the wrong outside. The scratch is a PLAINTEXT
+  // SQLite copy of the whole store, and the target of a `--passphrase` export
+  // is by definition the place the copy is going: an external disk, a synced
+  // folder, the directory the owner is about to hand somebody. Review B killed
+  // an exporter mid-`VACUUM INTO` and found a 4 MB unencrypted copy of the
+  // memories left behind under a timestamped name that nothing would ever
+  // overwrite or sweep (MAJOR-4). `--passphrase` exists precisely to say "this
+  // copy leaves the machine".
+  //
+  // `mkdtempSync` gives it a private directory (0700 by construction) that the
+  // OS reaps, so an interrupted export leaks at worst into a temp dir rather
+  // than into the artefact. The whole directory goes in the `finally`.
+  sweepStaleScratch(target);
+  // …and the ones an interrupted export of our own left in the OS temp dir.
+  // Said out loud rather than done in silence: it is the owner's plaintext.
+  const sweptScratch = sweepStaleExportScratch();
+  const scratchDir = mkdtempSync(join(tmpdir(), EXPORT_SCRATCH_PREFIX));
+  const tmpDb = join(scratchDir, "scratch.sqlite");
   let bundle: Bundle;
   try {
     bundle = collect(store, tmpDb);
   } finally {
-    rmSync(tmpDb, { force: true });
+    rmSync(scratchDir, { recursive: true, force: true });
   }
 
   let bytes = 0;
@@ -139,7 +260,9 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
       target,
       files: bundle.size,
       bytes,
-      reason: "Unencrypted, at the owner's explicit request. Prose is readable in any editor.",
+      reason:
+        "Unencrypted, at the owner's explicit request. The database is readable by any SQLite." +
+        sweptNote(sweptScratch),
     };
   }
 
@@ -152,7 +275,9 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     target,
     files: bundle.size,
     bytes,
-    reason: `Encrypted with ${CIPHER} under a key derived from your passphrase. Lose the passphrase and this archive is gone.`,
+    reason:
+      `Encrypted with ${CIPHER} under a key derived from your passphrase. Lose the passphrase and this archive is gone.` +
+      sweptNote(sweptScratch),
   };
 }
 
@@ -215,12 +340,12 @@ function plaintextReadme(files: number, bytes: number): string {
     "",
     `${files} files, ${bytes} bytes, written at the owner's explicit request with --plaintext.`,
     "",
-    "- `prose/` — the memories themselves, Markdown, readable in any editor.",
-    "- `operational.sqlite` — canonical operational state, copied through SQLite's",
-    "  own VACUUM INTO, never as a file copy of a live database.",
+    `- \`${DATABASE_FILE}\` — the whole store: the memories themselves, their`,
+    "  archived versions, and every structured field. Copied through SQLite's own",
+    "  VACUUM INTO, never as a file copy of a live database.",
     "",
     "The rebuildable cache is deliberately not included: it is reconstructed from",
-    "the two things above.",
+    "the database above.",
     "",
     "This copy is not encrypted. Treat it the way you would treat the store itself.",
     "",

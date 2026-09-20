@@ -52,6 +52,7 @@ import {
   SPAWN_REFUSAL_PREFIX,
   TUNABLES,
   anyRed,
+  RESTORE_STEPS,
   doctorFindings,
   loadCredentials,
   noticeMessage,
@@ -108,7 +109,21 @@ afterEach(() => {
 function fakeSnapshot(name: string): void {
   const path = join(root, "snapshots", name);
   mkdirSync(path, { recursive: true });
-  writeFileSync(join(path, "operational.sqlite"), "a copy");
+  writeFileSync(join(path, "counterparts.sqlite"), "a copy");
+}
+
+/**
+ * A copy of the owner's PRE-ROWS store, with `spans/` — which is what made a
+ * real v5 snapshot look like one of ours and therefore rotatable (review B,
+ * MAJOR-2): `spans` was in the old backup set and is still in the new `LAYOUT`.
+ */
+function preRowsSnapshot(name: string): void {
+  const path = join(root, "snapshots", name);
+  mkdirSync(join(path, "prose", "memories"), { recursive: true });
+  mkdirSync(join(path, "spans", "default"), { recursive: true });
+  writeFileSync(join(path, "operational.sqlite"), "a v5 database");
+  writeFileSync(join(path, "prose", "memories", "mem_aaaaaaaaaaaa.md"), "old-floor words");
+  writeFileSync(join(path, "spans", "default", "jots.jsonl"), "{}\n");
 }
 
 /** A real store at `dir`, minted the way every other surface mints one. */
@@ -491,6 +506,32 @@ describe("doctor — the reading", () => {
     // And the remedy is the restore procedure, because this is the line somebody
     // reads on the day they need it.
     expect(snap.fix).toContain("--rebuild");
+  });
+
+  test("a PRE-ROWS copy is named, not counted, and NOT graded a fault (review B, MAJOR-2)", () => {
+    // After cut-over the owner's snapshots directory holds his old floor's
+    // copies permanently — never rotated, because this build cannot open one to
+    // know what is in it. That is the right outcome and it must not read as a
+    // problem: a permanently amber Snapshot line is a line people learn to skip.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    for (const d of ["2026-09-01", "2026-09-02"]) preRowsSnapshot(`${d}T03-00-00-000Z`);
+    fakeSnapshot("2026-09-14T03-00-00-000Z");
+    const snap = by(doctorFindings(input({ store: s })), "snapshot");
+    expect(snap.severity).toBe("green");
+    expect(snap.detail).toContain("2 older-format copies this build cannot open");
+    expect(snap.detail).toContain("kept, never rotated");
+    expect(snap.detail).toContain("floor/v5-last");
+    expect(snap.data?.["preRows"]).toBe(2);
+    // NOT counted as copies of this store — otherwise they would push his real
+    // ones out of the `keep` window.
+    expect(snap.data?.["onDisk"]).toBe(1);
+    // And the restore steps say what they are, so the next panic is not about
+    // them (B-NIT-3).
+    expect(RESTORE_STEPS).toContain("BEFORE the floor changed");
+    expect(RESTORE_STEPS).toContain("floor/v5-last");
   });
 
   test("a snapshot older than two days is amber", () => {
@@ -879,9 +920,9 @@ describe("doctor — the reading", () => {
     // the mode back. `VACUUM INTO` writes a fresh database in the default mode.
     const at = mkdtempSync(join(tmpdir(), "counterparts-doctor-delete-"));
     try {
-      const src = openDb(join(dir, "operational.sqlite"));
+      const src = openDb(join(dir, "counterparts.sqlite"));
       try {
-        src.exec(`VACUUM INTO '${join(at, "operational.sqlite")}'`);
+        src.exec(`VACUUM INTO '${join(at, "counterparts.sqlite")}'`);
       } finally {
         src.close();
       }
@@ -895,7 +936,7 @@ describe("doctor — the reading", () => {
       expect(amber.fix).toContain("converts it");
       // AND THE READING CONVERTED NOTHING. A console that fixed the thing it was
       // asked to report would be writing while standing down.
-      expect(journalModeOf(join(at, "operational.sqlite"))).toBe("delete");
+      expect(journalModeOf(join(at, "counterparts.sqlite"))).toBe("delete");
     } finally {
       rmSync(at, { recursive: true, force: true });
     }

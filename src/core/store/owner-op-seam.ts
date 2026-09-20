@@ -28,11 +28,13 @@
  *      refuses to load the id, at read and at rebuild — a restored backup or a
  *      stray copy cannot quietly resurrect it, and the stray is skipped and
  *      logged, never deleted (§16 G12).
- *   5. Copies are chased — prose and version FILES by the CLI, box-2 rows by
- *      `chaseRemoved` here, box 3 by a rebuild — and `stage: "chased"` (appended
- *      inside this module's own transaction) then `stage: "complete"` follow.
+ *   5. Copies are chased — the words and every box-2 row by `chaseRemoved`
+ *      here, in ONE transaction, and box 3 by a rebuild — then `stage: "chased"`
+ *      (appended inside that same transaction) and `stage: "complete"` follow.
  *      Every crash point leaves the memory either fully alive, or dark AND
- *      recorded (§16 G11).
+ *      recorded (§16 G11). Since the floor (schema v6) the CLI has no files left
+ *      to chase: the words ARE the columns this blanks, so the erase is one
+ *      commit rather than a file walk that could be interrupted halfway.
  *
  * Note kept from inside v1's released ceremony (contract §4): the cooling-off
  * period was deliberately WALL-CLOCK, not active days — a week of not using the
@@ -135,8 +137,11 @@ export const REMOVED_REASON = "removed-by-owner";
  * What DIES: the edges touching it (in both directions — an erased id left in
  * the learned graph keeps CONDUCTING activation between its former neighbours,
  * §16 G14), its prospective windows, the per-session gate rows that name it,
- * and every content pointer it had (prose path, content hash, and the same pair
- * on each of its version rows, whose files the CLI has already chased).
+ * and THE WORDS THEMSELVES — the body, the title, the meta and the content hash,
+ * on the memory row and on every one of its version rows. Before the floor
+ * these were pointers at files the CLI deleted separately; the columns are the
+ * content now, so blanking them IS the erase and it happens inside the same
+ * transaction as the record.
  *
  * What SURVIVES, on purpose:
  *   - the removal record (canonical, append-only) and therefore the deny-list;
@@ -188,20 +193,35 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
     db.run("DELETE FROM gate_session WHERE ref = ?", id);
 
     // Version rows stay (a successor's predecessor pointer lives here) and lose
-    // both content pointers. `reason` is lineage metadata — "supersede",
-    // "revise" — that the removal has no cause to destroy, so it is left alone.
-    db.run("UPDATE versions SET path = '', content_hash = '' WHERE memory_id = ?", id);
+    // every word they held. `reason`, `version_day` and `successor_id` are
+    // lineage metadata the removal has no cause to destroy, so they are left
+    // alone; `learned_on` and `happened_on` go with the content, because a date
+    // a memory was learned on is a fact ABOUT the removed memory.
+    db.run(
+      `UPDATE versions
+          SET title = NULL, body = '', meta = '{}', content_hash = '',
+              learned_on = '', happened_on = NULL
+        WHERE memory_id = ?`,
+      id,
+    );
 
     if (row !== undefined) {
       // The skeleton: an address, its family, and nothing else. Physics is
       // zeroed rather than kept — a removed memory is not a protected one, and
       // must not go on conducting, ranking or resisting anything.
+      // THE TOMBSTONE SHAPE. `body = ''` AND `content_hash = ''` together are
+      // what `rowTombstoned` reads, and both halves have to land: a blank body
+      // beside a hash that still names words would read as a row whose words
+      // went missing (`MEMORY_BODY_MISSING`) rather than as a removal, and
+      // `Schemas.load`'s skip — the thing that keeps the next session starting
+      // after a removal — is keyed on the pair.
       db.run(
         `UPDATE memories
             SET novelty = NULL, relevance = 0, emotional = 0, predictive = 0, claimed = NULL,
                 uses = 0, reinforced_days = 0, consolidated = 0, promoted_identity = 0,
                 protected = 0, pressure = 0, last_challenged_day = NULL,
-                archived = 1, archived_reason = ?, content_hash = '', prose_path = '',
+                archived = 1, archived_reason = ?, content_hash = '',
+                title = NULL, body = '', meta = '{}', confidential = 0,
                 learned_on = '', happened_on = NULL
           WHERE id = ?`,
         REMOVED_REASON,
