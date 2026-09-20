@@ -125,9 +125,15 @@ import type {
   PageRevision,
   PageVersion,
   PageWriteOptions,
+  PageWriterDue,
+  PageWriterMode,
+  PageWriterOutcome,
+  PageWriterRun,
+  PageWriterStatus,
   SelfPage,
   WakeDelivery,
   WakeResult,
+  WriterInput,
 } from "./self/index.js";
 import { cyclePartial, runCycle } from "./sleep/index.js";
 import type { CyclePartial, CycleReport, Phase } from "./sleep/index.js";
@@ -2045,6 +2051,79 @@ export class Counterpart {
    */
   revisePage(body: string, opts: PageWriteOptions): PageRevision {
     return this.self.revisePage(body, opts);
+  }
+
+  // ── the nightly page writer (S2) ───────────────────────────────────────────
+
+  /**
+   * IS THE PAGE OWED A REVISION for the day just gone? Pure; the caller that
+   * acts on it writes the claim. `off` and `observer` are named refusals, not a
+   * bare false, so a mechanism that is standing down says which kind it is.
+   */
+  pageWriterDue(opts: { mode: PageWriterMode; today?: string }): PageWriterDue {
+    return this.self.pageWriterDue(opts);
+  }
+
+  /**
+   * WHAT THE NIGHTLY WRITER IS HANDED — the page as it stands and the day just
+   * gone, bounded and ordered by salience.
+   *
+   * **CONFIDENTIAL ROWS DO NOT GO**, in either mode, and what was held back is
+   * counted onto the run's row. It is the same rule the crash fallback's wake
+   * follows (`sweepWake`) for the same reason: this material is put in front of
+   * a model call, and a row the owner marked confidential is not material for
+   * one. PROTECTED rows are not held back here, and that is the one deliberate
+   * difference: `sweepWake` hides them because its reader is about to propose
+   * new memories from a transcript and must not restate permanent ink as
+   * discovery, while this reader's whole job is to write about the self. The
+   * page itself is governed by `PAGE_ON_EGRESS` where it goes out at all; in
+   * session mode it is already in the session's own wake.
+   *
+   * Pass `omit` to widen the filter; the default is confidential-only.
+   */
+  pageWriterInput(opts: {
+    about: string;
+    today?: string;
+    day?: number;
+    budgetBytes?: number;
+    omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
+  }): WriterInput {
+    return this.self.pageWriterInput({
+      ...opts,
+      omit: opts.omit ?? ((m): boolean => m.confidential),
+    });
+  }
+
+  /** The run's durable row — the only thing S2 writes that is not the page. */
+  recordPageWriterRun(run: {
+    about: string;
+    mode: PageWriterMode;
+    outcome: PageWriterOutcome;
+    detail?: string;
+    bytesBefore?: number;
+    bytesAfter?: number;
+    considered?: number;
+    omitted?: number;
+    day?: number;
+    dedupKey?: string;
+  }): boolean {
+    return this.self.recordPageWriterRun(run);
+  }
+
+  /** How a date came out, with the derivation named. Pure. */
+  pageWriterStatus(about: string, today?: string): PageWriterStatus {
+    return this.self.pageWriterStatus(about, today);
+  }
+
+  /** Every recorded attempt, newest first. Pure. */
+  pageWriterRuns(opts: { about?: string; limit?: number } = {}): PageWriterRun[] {
+    return this.self.pageWriterRuns(opts);
+  }
+
+  /** Is that night's claim still open? What the page's door asks before it
+   *  writes `by: "writer"` rather than `by: "session"`. Pure. */
+  pageWriterClaimOpen(about: string, today?: string): boolean {
+    return this.self.pageWriterClaimOpen(about, today);
   }
 
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */

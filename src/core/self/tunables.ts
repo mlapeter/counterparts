@@ -115,6 +115,31 @@ export interface SelfTunables {
    */
   PAGE_ON_EGRESS: boolean;
 
+  // ── the nightly page writer (S2, `self/writer.ts`) ────────────────────────
+  /**
+   * How much of the day's memories the writer is handed, in bytes. The writer
+   * reads one day, not a life, and the page it produces is capped at
+   * `PAGE_MAX_BYTES` — handing it more than it can use costs tokens and buys
+   * nothing. The cut is by salience, from the end, and what did not fit is
+   * COUNTED on the run's row, so a page written from half a day says so. CAL.
+   */
+  PAGE_WRITER_MEMORY_BYTES: number;
+  /** ...and a ceiling on the COUNT, so one day of very short memories cannot
+   *  become a hundred bullets. CAL. */
+  PAGE_WRITER_MEMORY_MAX: number;
+  /**
+   * How many SESSIONS may be asked to do one day's writing, in session mode.
+   *
+   * Not a pacer — the scar this package carries about pacers is about the
+   * BLOCKED MOMENT at Stop, where one ask on one conjunction is the rule
+   * (CONTRACT §3). This ask rides beside the wake at SessionStart, the way the
+   * first-launch scope question does, and its cadence is the day boundary
+   * itself. The count exists because the first session of a morning may be deep
+   * in something else and never get to it; two is enough to make that survivable
+   * and small enough that a page nobody wants is not asked for all day. CAL.
+   */
+  PAGE_WRITER_ASKS_PER_DAY: number;
+
   // ── budget telemetry ──────────────────────────────────────────────────────
   /** Fraction of the budget at which the render reports pressure. A budget gets
    *  an event when APPROACHED and one when crossed (scar §2.4). [v1: 0.9] */
@@ -195,6 +220,10 @@ export const SELF_TUNABLES: SelfTunables = {
   PAGE_STALE_DAYS: 14,
   PAGE_EMPTY_SHOWS_LIST: true,
   PAGE_ON_EGRESS: true,
+
+  PAGE_WRITER_MEMORY_BYTES: 8_192,
+  PAGE_WRITER_MEMORY_MAX: 40,
+  PAGE_WRITER_ASKS_PER_DAY: 2,
 
   BUDGET_PRESSURE: 0.9,
 

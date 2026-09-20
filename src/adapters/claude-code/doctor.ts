@@ -61,6 +61,13 @@ import type { EventRow } from "../../core/store/index.js";
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
 import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
+import {
+  hasDayBefore,
+  lastPageWriterRun,
+  pageWriterAbout,
+  pageWriterDue,
+  pageWriterStatus,
+} from "../../core/self/writer.js";
 import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
@@ -76,7 +83,7 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, pageWriterMode } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -1833,6 +1840,147 @@ export function selfPageFindings(store: Store): Finding[] {
   ];
 }
 
+/**
+ * THE NIGHTLY PAGE WRITER (2026-09-20, S2) — one line: has last night happened,
+ * and what did it come to.
+ *
+ * **GREEN when it has never run on a store younger than a day**, and that is
+ * the whole design of this line rather than a leniency. A mechanism that fires
+ * once a night cannot have fired on a store installed this morning, and a line
+ * that says something is wrong from the moment it lands is a line people learn
+ * to read past — the same rule `fired.ts` states for its `blind` rows and the
+ * same one `selfPageFindings` follows for an absent page.
+ *
+ * Green also for a night that read the day and had nothing to say: that is the
+ * mechanism working, and it is stated in words rather than left as a silence.
+ *
+ * AMBER, with a fix, on the two readings that mean something has stopped: the
+ * writer is switched off while a page exists (somebody turned it off and the
+ * page will now only move by hand), and a run that failed or was refused. Never
+ * red: nothing here can cost a session its memory.
+ */
+export function pageWriterFindings(store: Store, config: AdapterConfig): Finding[] {
+  const mode = pageWriterMode(config);
+  const today = dateOf(store.now());
+  const about = pageWriterAbout(today);
+  const last = lastPageWriterRun(store);
+  const page = readSelfPage(store);
+  const data = {
+    mode,
+    lastAbout: last?.about ?? "",
+    lastOutcome: last?.outcome ?? "",
+    ran: last !== null,
+  };
+  // A BLOCK THAT COULD NOT BE READ IS AMBER, AND IT SAYS WHICH KEY. The block is
+  // lenient now (S2 review), so a typo costs the setting rather than the store's
+  // memory — but a setting that silently did nothing is the other half of that
+  // failure, and this is the line that stops it being silent.
+  const ignored = config.pageWriter?.ignored ?? [];
+  if (ignored.length > 0) {
+    return [
+      finding(
+        "page-writer",
+        "amber",
+        "Page writer",
+        `${mode} mode; ${ignored.join("; ")}`,
+        "Fix the pageWriter block in claude-code.json. Nothing else in the file was affected, and memory is unaffected.",
+        { ...data, ignored: ignored.join(" | ") },
+      ),
+    ];
+  }
+  if (mode === "off") {
+    // GREEN, always. Off is a setting somebody chose, and a diagnostic that
+    // grades a deliberate choice as a fault is the shape of line people learn to
+    // read past — the same rule `fired.ts` states for a `disabled` mechanism.
+    // The line still says what off MEANS, so nobody has to remember.
+    return [
+      finding(
+        "page-writer",
+        "green",
+        "Page writer",
+        page === null
+          ? "off — nothing writes the self page on its own, and nothing has been written by hand either"
+          : "off — the page stands, and from here it changes only when somebody writes it",
+        "",
+        data,
+      ),
+    ];
+  }
+  if (last === null) {
+    // NEVER RUN. On a store with no yesterday that is the correct state and
+    // says so; on one that has lived a day it is still green, because the
+    // mechanism runs at the NEXT session start and has not been given a turn.
+    const young = !hasDayBefore(store, today);
+    return [
+      finding(
+        "page-writer",
+        "green",
+        "Page writer",
+        young
+          ? `${mode} mode; never run — this store has no day before ${today} yet`
+          : `${mode} mode; never run — the next session start is its first turn (${about})`,
+        "",
+        { ...data, young },
+      ),
+    ];
+  }
+  const status = pageWriterStatus(store, last.about, today);
+  const when = `last ran for ${last.about}${last.on === "" ? "" : ` on ${last.on}`}`;
+  // IS TONIGHT'S ALREADY OWED, AND HAS IT BEEN OWED FOR A WHILE? The failure
+  // this catches is the one with no row at all behind it: an ask that will not
+  // fit the host's ceiling is DEFERRED, and a deferral leaves only a ring event
+  // that dies with the hook process. Without this line, a writer that stopped
+  // being delivered on day 4 reads exactly like one that ran last night —
+  // which is I32's shape, and the reason this line exists at all.
+  const owed = pageWriterDue(store, {
+    mode,
+    today,
+    observer: store.observer,
+    asksPerDay: SELF_TUNABLES.PAGE_WRITER_ASKS_PER_DAY,
+  });
+  const staleFor = last.on === "" ? 0 : daysBetween(last.on, today);
+  const overdue = owed.due && staleFor > PAGE_WRITER_STALE_DAYS;
+  const bad = status.outcome === "failed" || status.outcome === "refused";
+  const detail =
+    `${mode} mode; ${when} — ${status.outcome}` +
+    (status.derived ? " (derived: it was handed the day and wrote nothing)" : "") +
+    (status.run !== null && status.run.detail.length > 0 && !status.derived
+      ? `, ${status.run.detail}`
+      : "") +
+    (owed.due ? `; ${owed.about} is owed` : "") +
+    (overdue ? ` and nothing has been delivered for ${String(staleFor)} days` : "");
+  return [
+    finding(
+      "page-writer",
+      bad || overdue ? "amber" : "green",
+      "Page writer",
+      detail,
+      bad || overdue
+        ? "counterparts fired --dir <store> --observer shows the run's own row. A night that is owed but never delivered is usually the host's injection ceiling: the block is deferred rather than truncated, so raise injectionBudgetBytes or run the writer in host mode. counterparts self-page --write amends the page by hand meanwhile."
+        : "",
+      {
+        ...data,
+        outcome: status.outcome,
+        derived: status.derived,
+        owedFor: owed.due ? owed.about : "",
+        staleFor,
+      },
+    ),
+  ];
+}
+
+// `daysBetween` is `fired.ts`'s (E2, 2026-09-20) and is imported at the top of
+// this file rather than written twice. S2 landed a local copy of the same four
+// lines and the merge put them side by side; one definition is the rule this
+// module already keeps for every other reading it shares with the fired view.
+// The one behavioural difference is deliberate: the shared one can return a
+// NEGATIVE when a clock has moved backwards, and `overdue` below compares with
+// `>`, so a future date reads "not overdue" rather than being clamped to today.
+
+/** Calendar days a night may be owed before the line says so. A writer that
+ *  missed last night has not failed; one that has missed three has. */
+export const PAGE_WRITER_STALE_DAYS = 2;
+
 /** A page that was written and then cleared: when, why, and what is restorable.
  *  Null when no page row exists at all. */
 function clearedPage(
@@ -2242,6 +2390,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // line would grade a default nobody chose.
     ...(unread ? [] : [["snapshot", (): Finding[] => snapshotFindings(input, store)] as const]),
     ["self-page", () => selfPageFindings(store)],
+    ["page-writer", () => pageWriterFindings(store, input.config)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

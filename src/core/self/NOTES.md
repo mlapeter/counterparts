@@ -694,3 +694,238 @@ has, and it is not this change's to take.
 
 The identity core is deliberately NOT exempted: it could cross on master, and
 exempting it would be the same quiet retention change one row smaller.
+
+## 15. The nightly page writer: how the day is chosen, why the claim is a row, and the one thing it refuses to claim to know (2026-09-20, S2)
+
+S1 put a written page at the head of every wake and left nothing to fill it. On the
+owner's live store that was survivable — a session that happens to think of it can write
+one — but on a store a stranger installed this morning it means the page never forms at
+all. So S2 is the mechanism, and these are the four choices it turned on.
+
+**The day is a CALENDAR date, and it is always yesterday.** The lived day was the obvious
+candidate and is wrong here for the reason `episodes.ts` already gives about the ask cap
+(I32): `livedDay` advances inside `advanceClock`, which runs inside the sleep cycle, which
+runs inside the detached worker. A worker that cannot start freezes that clock — it did,
+for seven days — while the calendar keeps going. A nightly mechanism keyed to a clock the
+night itself advances can miss every night and still look on time. The row carries both:
+`about`, the calendar date it read, and `day`, the lived day it ran on, which is what every
+other durable row in this store is stamped with.
+
+It does not chase a backlog, and that is a decision rather than an omission. A machine that
+was off for a week comes back and writes about the day just gone. Six model calls and six
+revisions of one page in one morning is how a page starts drifting, and the memories of
+those days are still in the store and still reach the page through the ordinary lanes.
+
+**The claim is a durable row, not a lock file.** The obvious shape was `spawn.ts`'s: a file
+opened `wx`, a pid, a staleness window. The row is better here for two reasons the file
+cannot match. It is *the same object the fired view and doctor already read*, so "did last
+night happen" is answered by the mechanism's own record rather than by a second artefact
+nobody looks at; and it works across machines, because two laptops sharing a store over a
+sync folder share the row and would not share a pid. What the row gives up is atomicity in
+the last few milliseconds: two hooks that both read "no claim" in the same tick can both
+write one. That is why the allowance is a count rather than a boolean — a duplicate ask is
+already inside the budget, and the second writer's `ifVersion` refuses cleanly with a row
+saying so.
+
+**Two asks per day, and it is not a second pacer.** The scar this module carries about
+pacers (CONTRACT §3) is precise: it is about the BLOCKED MOMENT at Stop, where two asks on
+two substance pacers drew about a dozen asks from a 13-turn evening. Nothing here goes near
+it — the writer's ask fires at SessionStart, consults no substance, spends none of
+`MAX_ASKS_PER_SESSION`, and rides in the same field the first-launch scope question uses.
+Its cadence is the day boundary. The count exists because one ask per day is brittle in
+practice: the first session of a morning is often deep in something else, and a night lost
+to that is a day missing from the page forever. Two was chosen over three because the
+whole design of the doctor line is that a mechanism must not nag, and the same is true of
+the ask itself.
+
+**The one thing it refuses to claim.** "Nothing to say" had to be a first-class outcome —
+a day that changed nothing about who the self is should end with no revision, and that must
+be recorded rather than inferred from silence. Host mode can report it honestly: a
+windowless session handed one instruction and one tool, which exits clean without calling
+the tool, has answered. Session mode cannot. A session that was asked and wrote nothing may
+have decided there was nothing to say, or may have been three hours into a refactor and
+never read the block. Storing `nothing-to-say` there would be the engine putting words in
+the writer's mouth, which is §2.4 from the other direction. So session mode stores the
+claim, and `pageWriterStatus` READS a claim whose day has ended as `nothing-to-say` with
+`derived: true` — and every surface that prints it prints that it was derived. The claim
+carries the date it was MADE (`on`) as well as the date it is about, because "is this still
+in flight" is a question about the first and not the second.
+
+**What is still unproved, and it is host mode's half.** Nothing in this build has started a
+real `claude -p`. The launcher, its argument and environment shape, its watchdog and its
+claim are all exercised against a stub executable; what a real machine has to answer is
+whether a background process can reach the keychain for the subscription login
+(`claude setup-token` is the documented route — spec §16). Until somebody runs it, `session`
+is the mode that is actually known to work, which is why it is the default.
+
+## 16. Two things the first build of the writer got wrong, both invisible to its own tests (2026-09-20, review of S2)
+
+Both were found by asking what the mechanism does on a REAL store rather than on a
+fixture, and both would have made session mode — the default — quietly not work.
+
+**The block repeated the page, so on any store a few days old the ask was deferred every
+morning and nothing durable said so.** The first version handed the writer the page body
+followed by up to 8 KB of the day's memories, and then checked whether the total fitted
+beside the wake under the host's ceiling. On the fixture — a 60-byte page and one memory —
+it always fitted. On a store with a 4 KB page and a productive day behind it, against the
+9 KB ceiling this host reports, it never does: the wake has already spent most of the
+ceiling, and the page is in the wake, so the block was re-sending the single biggest thing
+the reader already had. The deferral was correct behaviour (never truncate, never smuggle
+past the ceiling) and its only trace was a ring event that dies with the hook process,
+which is I32's shape exactly: a mechanism refused every time with no row anyone can read.
+
+Two fixes, and the second is the one that generalises. The block now POINTS at the page
+(version, bytes, last revised, "it is at the head of your wake, call the tool with no
+arguments to read it whole") instead of repeating it — which is also just true, in both
+modes, since host mode's whole reason for existing is that the child runs the ordinary
+SessionStart hook. And the day is sized to the room that is actually left: the empty block
+is measured first, with the same function that composes the full one so the two cannot
+drift, and the memories get the remainder. A day that does not all fit is delivered SHORT
+with the count on the run's row, rather than the whole ask being dropped.
+
+The third fix is the diagnostic, because the first two do not make deferral impossible:
+doctor's line now reads `pageWriterDue` itself and goes amber when a night has been owed
+for more than two days with nothing delivered. A deferral still leaves no durable row —
+nothing claimed is the correct behaviour — so the only honest way to see it is to notice
+that the night is still owed.
+
+**`by: "writer"` could never fire in session mode, because the real MCP server is
+unbound.** The server is launched from a static host configuration and never learns which
+session it serves; it binds lazily, on the first tool call that carries an id
+(`requireBoundSession`). A session answering the page-writer ask right after its wake has
+called nothing else, so `this.session` was null, so the registry mark was never read, so
+every night's revision was filed as an ordinary amendment and the night then read as
+`nothing-to-say`. The inverse of the honesty the outcome exists for, and the test passed
+because `openServer({ session })` sets the id at launch, which production does not do.
+
+The ask now names the session id and the tool takes an optional `session`, the way the Stop
+ask and `chapter` already do. It is honoured NON-FATALLY: `requireBoundSession` is reused
+so there is one definition of corroboration, and its refusal value is discarded. A page
+amendment has never needed a session and must not start being refused for lack of one; what
+a bad claim costs is the `writer` label, and the ring says why.
+
+## 17. What the adversarial review found, and the one thing that could not be fixed (2026-09-20, review of S2)
+
+Five MAJORs, none a blocker, and every one of them a case where the mechanism was honest
+about something that was not true. They are worth keeping together because they share a
+shape: **the fixture was smaller than the world.** A 60-byte page and one memory fits any
+budget, dies on any signal, and has no second day; the defects lived in the gap between
+that and a real store.
+
+**The block told the writer the day was empty.** `dayMemories` stopped at the first memory
+that would not fit, so any room smaller than the LARGEST memory's cost dropped every one of
+them — and `writerInstruction`, handed an empty list, said "Nothing was written down on
+<date>". The reviewer reproduced it across a 260-byte band of ordinary budgets on a 3 KB
+page and a 20-memory day. The next morning that reads as a derived `nothing-to-say`, and the
+narrator says "nothing about who I am moved that day" about a day with twenty things in it.
+Three fixes, because one was not enough: the loop fills past a miss instead of stopping;
+the empty branch distinguishes "the day was empty" from "I could not see the day" using
+`dropped`, which was in scope and discarded; and a block that can carry NONE of the day
+defers rather than spending one of the night's two asks on a sentence.
+
+**A memory could close the block it was quoted in.** `flattenLine` collapsed whitespace and
+nothing else, and the framing sentence sat at the top of the block while the untrusted
+material sat at the bottom. A memory is exactly what the sweep proposes from a transcript,
+so this was a first-class injection into the one prompt that revises the identity page. The
+markers go now — this block's and the wake's, which `page.ts` already refuses on the way IN
+— and the sentence that says the list is material moved down to sit beside it. The general
+lesson, which is not new: framing is positional, and a warning above content the reader has
+not met yet is a warning about nothing.
+
+**A child that ignores SIGTERM hung the worker.** Both alarms signalled and neither
+resolved, and the promise resolved only on `close`, so a trapping child kept the worker
+inside its `finally` holding the store open — measured at 25 seconds against a 3-second
+child watchdog. The fix is the ordinary escalation nobody wrote the first time: SIGTERM,
+grace, SIGKILL to the process group, and then a reap timer that resolves the promise whether
+or not the OS ever confirms. The child is `detached` now solely so there is a group to kill.
+
+**`no-memories` was declared and never returned.** `hasDayBefore` asks whether the store
+holds anything older than today, which is true for ever after the first memory, so a machine
+used twice a week was asked every single morning about five empty days. The dead enum member
+was the evidence that the first build meant to prevent exactly this.
+
+**One typo turned memory off.** The `pageWriter` block was strict on the argument that
+`host` starts a process — and the argument does not survive contact with the code, because
+`mode` is an exact-string allowlist and a typo can only ever resolve to the fallback.
+Strictness bought nothing and cost the owner his store's memory for a misspelling in an
+optional block, which is the failure the F2 ruling moved `snapshots` out of strictness to
+avoid. It is lenient now, with the fallback PINNED to `session` — the one protection
+strictness was really offering, kept — and a doctor amber naming the key and the value.
+
+**And the one that could not be fixed, only told the truth about.** The docstring and the
+CONTRACT both said the day arrives "newest and most salient first". There is no newest:
+inside one calendar day `learned_on` is a date, `birth_day` is the lived day, and `newId` is
+six random bytes, so every row of a day ties on every clock the store has. The reviewer
+offered two options — tie-break on rowid, or delete the word — and the first is not
+available from the `Store` API. So the word is gone, from the code, the block and the
+contract, and what is asserted instead is the property that is real: the cut is
+deterministic, which is what §1 G3 asks for. A tie-break on insertion order would need
+`store/` to expose one, and that is a real ask rather than a fix to make here.
+
+## 18. What the floor (F5) changed underneath the writer, measured rather than assumed (2026-09-20)
+
+Merged `origin/master` at `3f6a6eb` — bodies, versions and the journal are rows in
+`counterparts.sqlite` now. The merge was clean; one test needed rewriting, because it was
+the one place in this file that still knew a body was a file. Three interactions were
+checked by running them, and all three came out needing no change to the mechanism:
+
+**A body the new floor refuses never reaches it.** `put`/`revise` now refuse whitespace-only
+and NUL-only bodies (`store/prose.ts#bodyForStorage`) and a throw out of `revisePage` would
+break the one guarantee this path makes — every call returns a reason and leaves a row.
+Measured: `""` is refused `empty` by `self/`'s own check, and `"   "` and `"\0\0\0"` are
+both refused `gate-refused (content-empty)` by the battery, which sits in front of the
+store. The store never sees any of them.
+
+**A FAULTED page row does not reach the writer, because it does not reach anything.** F5's
+fault state — `body = ''` with the content hash still naming the words that were there — is
+raised by `Schemas.load`, which reads every schema row at open. Measured: `Counterpart.open`
+throws, so the session stands down and doctor reads RED naming the id. There is no wake for
+the writer to fail and no boundary for it to break. That is the S1 review's MAJOR-1 carried
+onto the new floor, and it is still `schemas/`'s to answer rather than this mechanism's.
+
+**A TOMBSTONED page row cannot be made.** `planRemoval` refuses the page row by name
+(`is-the-self-page`, S1) and the destruction seam under it refuses an id with no dark
+removal record first — measured, `chaseRemoved` throws `REMOVAL_NOT_DARK`. So the state
+`Schemas.load` skips is unreachable for this row, which is why the writer carries no special
+case for it. **If either of those doors ever opens**, the hazard to look at first is that
+`findPageRow` skips a row whose body will not read, so `revisePage` would mint a SECOND page
+row beside the damaged one and break S1's one-row invariant. It is filed rather than guarded
+because today nothing can get there, and a guard against an unreachable state is a guard
+nobody can test.
+
+## 19. The writer beside E2, and why it declares no refusal channel (2026-09-20)
+
+Merged `origin/master` at `d60db90` (E2 — the "what was prevented" rows). One semantic
+conflict git could not see, and three interactions checked by running them.
+
+**The conflict: two `daysBetween`.** E2 put one in `fired.ts` and imports it into
+`doctor.ts`; S2 had landed a local copy of the same four lines for the page writer's
+staleness reading, and the merge put them side by side. Resolved by deleting the local one
+— one definition, shared with the fired view, which is the rule this module already keeps
+for every other reading the two surfaces share. The one behavioural difference is kept and
+named: the shared one returns a NEGATIVE when a clock has moved backwards where the local
+one clamped to zero, and the comparison it feeds uses `>`, so a future date reads "not
+overdue" rather than "today".
+
+**E2's young rule and this mechanism's doctor line agree, by different roads.** E2 grades a
+store too new when it is under two LIVED days and has no durable row older than two
+CALENDAR days — both clocks, because a store whose worker has been dead a fortnight also
+reads lived day 0 and that store needs the full list. The page writer's own line has been
+green-when-never-run-on-a-store-with-no-yesterday since S2 shipped, which is the same answer
+read off whether a day before today holds anything. Measured: on a fresh store both say
+young, and the roll-call comes back on its own after two `advanceClock` calls.
+
+**And it declares no refusal channel, which is the honest answer rather than an empty one.**
+`RefusalSource.only` exists because reading a namespace wholesale made a healthy store
+report `BLOCKED prune … dwell-too-short ×240` permanently — the test it sets is whether a
+NAMED RULE turned away a candidate that otherwise qualified, the owner saying no, rather
+than arithmetic saying not yet. Nearly every skip here is the second kind, and one of them
+is worse than that: after the night's first ask, `already-claimed` is what a perfectly
+healthy store says at every session start until midnight. Declaring these would rebuild the
+false alarm one namespace over.
+
+The one that is arguably a real gate is `no-room` — the host's ceiling turning away a block
+that qualified. It is left out anyway, because it already has a louder and better-aimed
+surface: doctor's Page writer line goes amber after two owed days and names
+`injectionBudgetBytes` in the fix. Two surfaces for one fact, one of them permanent on any
+store with a tight ceiling, is the shape the review was about.

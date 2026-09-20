@@ -69,7 +69,11 @@ import {
 } from "../../core/prospective/index.js";
 // The self page's two, from `self/` itself (2026-09-18, S1): a written page is
 // not a briefing render, and a refused write is not an accepted one.
-import { SELF_PAGE_REFUSED_EVENT, SELF_PAGE_REVISED_EVENT } from "../../core/self/index.js";
+import {
+  SELF_PAGE_REFUSED_EVENT,
+  SELF_PAGE_REVISED_EVENT,
+  SELF_PAGE_WRITER_EVENT,
+} from "../../core/self/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -125,6 +129,7 @@ export type DurableEventName =
   | typeof SELF_BRIEFING_EVENT
   | typeof SELF_PAGE_REVISED_EVENT
   | typeof SELF_PAGE_REFUSED_EVENT
+  | typeof SELF_PAGE_WRITER_EVENT
   | typeof RECALL_CREDIT_EVENT
   | typeof ASSOCIATE_FLUSH_EVENT
   | typeof BAND_TRANSITION_EVENT
@@ -206,6 +211,12 @@ export const DURABLE_EVENTS = {
   // corollary): the 196 refused asks sat in the events table unseen.
   "self.page.revised": "the written self page was amended (who wrote it, why, how big, and which version it produced)",
   "self.page.refused": "a write to the self page was turned away (empty, past the hard limit, stopped by the gate battery, carrying the wake's own markers, or naming a version the page has moved past)",
+  // The nightly writer's own row (2026-09-20, S2). It is a row per ATTEMPT, not
+  // per revision: the page's row says what changed, and this one says whether
+  // the night ran at all, in which mode, and what it came to — including the
+  // day it read and had nothing to say about, which is an answer and not a
+  // silence.
+  "self.page.writer.ran": "the nightly page writer ran (which day it read, in which mode, how many memories it was handed, and whether it revised the page, had nothing to say, was refused or failed)",
   "recall.credit": "a boundary decided which memories the replies actually used, and credited them",
   // Learned association had no line in the log at all: an edge is its own
   // record, so a flush that never happened read exactly like a credit pass with
