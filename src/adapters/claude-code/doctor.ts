@@ -1465,11 +1465,13 @@ function openFindings(reading: OpenReading): Finding[] {
             // cannot tell which of thousands of rows to act on (review B,
             // MAJOR-3). There is no repair COMMAND for this today, so the two
             // real exits are named rather than a command invented.
-            `Every session's hooks stand down here: no wake, no recall, no capture. The row is ${reading.id} — ` +
-            `its words are gone and its content hash still names them, which no write path in this build produces. ` +
-            `Two ways out, both the owner's call: restore a snapshot over the store (see the Snapshot line), or ` +
-            `remove that one row — counterparts remove ${reading.id} --confirm --dir <store> — which tombstones it ` +
-            `and lets sessions start again, permanently and without its words.`
+            `Every session's hooks stand down here: no wake, no recall, no capture. The row the read path ` +
+            `met is ${reading.id} — its words are gone and its content hash still names them, which no write ` +
+            `path in this build produces. THERE MAY BE MORE THAN ONE: this names the row that threw, and ` +
+            `counterparts verify --dir <store> lists every such row. Two ways out, both the owner's call: ` +
+            `restore a snapshot over the store (see the Snapshot line), or remove those rows — ` +
+            `counterparts remove <id> --confirm --dir <store> — which tombstones each one and lets sessions ` +
+            `start again, permanently and without its words.`
           : "Every session's hooks stand down here: no wake, no recall, no capture. The code names what the read path met.",
       data,
     ),

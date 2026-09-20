@@ -22,7 +22,7 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -51,6 +51,7 @@ import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, isDatabaseSidecar
 import { makeBodyUnreadable } from "./store-fixture.js";
 import {
   BLOB_NAME,
+  EXPORT_SCRATCH_STALE_MS,
   CONFIG_FILE,
   COMMANDS,
   COMMAND_BLURB,
@@ -686,11 +687,31 @@ describe("export", () => {
       ].join("\n"),
       "utf8",
     );
+    // POLL FOR THE SCRATCH, do not sleep at it. The first version slept 220 ms
+    // and the reviewer's own probe suggested the child had usually finished the
+    // vacuum and run its `finally` before the kill landed — so the test was
+    // asserting a clean target for a case it never reached (review f5c, NIT-4).
+    // Now the kill is landed WHILE the plaintext copy exists, which is the
+    // window the finding is about.
     const child = Bun.spawn([process.execPath, "run", script], { stdout: "ignore", stderr: "ignore" });
-    // Kill it while it is working, not before it starts.
-    await Bun.sleep(220);
+    const scratchOf = (): string | null => {
+      for (const name of readdirSync(tmpdir())) {
+        if (!name.startsWith("counterparts-export-")) continue;
+        const inner = join(tmpdir(), name, "scratch.sqlite");
+        if (existsSync(inner) && statSync(inner).size > 0) return inner;
+      }
+      return null;
+    };
+    const deadline = Date.now() + 20_000;
+    let caught: string | null = null;
+    while (caught === null && Date.now() < deadline && child.exitCode === null) {
+      caught = scratchOf();
+      if (caught === null) await Bun.sleep(5);
+    }
     child.kill("SIGKILL");
     await child.exited;
+    // Non-vacuous: we really did catch it mid-vacuum with the plaintext on disk.
+    expect(caught).not.toBeNull();
 
     // NOT ONE PLAINTEXT BYTE IN THE TARGET, whatever stage it died at. Read as
     // bytes: a SQLite file is binary and a utf8 read could pull the needle
@@ -702,6 +723,47 @@ describe("export", () => {
     }
     expect(left.filter((n) => n.startsWith(".export-scratch-"))).toEqual([]);
   }, 30_000);
+
+  test("NEW-MINOR-6: an abandoned scratch in the TEMP dir is swept, and the sweep is bounded", async () => {
+    // Moving the scratch out of the target was the big win; this is the rest of
+    // it. An interrupted `--passphrase` export leaves a PLAINTEXT copy of the
+    // whole store in `$TMPDIR/counterparts-export-*` and nothing swept it.
+    const s = store();
+    const secret = "ZQTEMPSWEEPPROBE";
+    s.put({ type: "memory", kind: "fact", body: `a memory holding ${secret}` });
+    s.close();
+
+    // One abandoned scratch, aged past the bound; one FRESH one, which stands
+    // for a concurrent export and must survive.
+    const old = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    writeFileSync(join(old, "scratch.sqlite"), `a plaintext copy holding ${secret}`, "utf8");
+    const aged = Date.now() - EXPORT_SCRATCH_STALE_MS - 60_000;
+    utimesSync(old, aged / 1000, aged / 1000);
+    const fresh = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    writeFileSync(join(fresh, "scratch.sqlite"), "a live export's work", "utf8");
+
+    try {
+      const target = join(outside, "sweep");
+      const c = consoleWith();
+      expect(
+        await run(["export", "--out", target, "--passphrase", "correct horse battery"], {
+          io: c.io,
+          env: { [ENV]: dir },
+        }),
+      ).toBe(EXIT.ok);
+      // The abandoned one is gone and the report SAYS so — it is the owner's
+      // plaintext, not housekeeping to do in silence.
+      expect(existsSync(old)).toBe(false);
+      expect(text(c.out)).toContain("abandoned scratch");
+      expect(text(c.out)).toContain("unencrypted copy of the store");
+      // THE BOUND: a concurrent export's directory is untouched. Without it
+      // this sweep would introduce the collision the target sweep cannot have.
+      expect(existsSync(join(fresh, "scratch.sqlite"))).toBe(true);
+    } finally {
+      rmSync(old, { recursive: true, force: true });
+      rmSync(fresh, { recursive: true, force: true });
+    }
+  });
 
   test("a stale scratch from an older build is swept at the start of the next export", async () => {
     // Nothing writes that name any more; this is how the ones already on disk

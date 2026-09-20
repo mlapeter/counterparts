@@ -419,6 +419,42 @@ function hasBodyColumn(db: Db): boolean {
   }
 }
 
+/**
+ * Is the database at `path` a PRE-ROWS one wearing the current filename?
+ *
+ * The second lock's question, asked without a `Store` — for the two console
+ * doors that open box 3 directly and so never meet `openOperational` at all
+ * (`migrate-cache`, and `verify --rebuild`'s census). Review f5c measured both
+ * running to completion on a v5 database renamed to `counterparts.sqlite`, and
+ * `migrate-cache --apply` would rewrite and VACUUM ~17,000 documents' index in
+ * a store this build has declared it cannot read.
+ *
+ * Opening it is safe HERE in a way it is not at the filename door: this file is
+ * already named `counterparts.sqlite`, so it is not the owner's parked v5 store
+ * with a `-wal` full of his words — that one is caught by name, before anything
+ * opens. `wal: false`, one PRAGMA and one SELECT, closed immediately.
+ *
+ * False for a file that is not there, is not a database, or is a healthy v6 one.
+ */
+export function isPreRowsDatabase(path: string): boolean {
+  let db;
+  try {
+    db = openDb(path, { wal: false });
+    const found = readSchemaVersion(db);
+    if (found === null) return false;
+    const n = Number.parseInt(found, 10);
+    return Number.isFinite(n) && n < SCHEMA_VERSION && !hasBodyColumn(db);
+  } catch {
+    return false;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* nothing to say about a handle that will not close */
+    }
+  }
+}
+
 /** The schema version recorded in the file, or null if there is not one yet. */
 function readSchemaVersion(db: Db): string | null {
   try {

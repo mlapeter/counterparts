@@ -116,6 +116,69 @@ function sweepStaleScratch(target: string): void {
   }
 }
 
+/** What the report says when this export cleaned up after an interrupted one. */
+function sweptNote(swept: readonly string[]): string {
+  if (swept.length === 0) return "";
+  return (
+    ` Also removed ${String(swept.length)} abandoned scratch ` +
+    `director${swept.length === 1 ? "y" : "ies"} an interrupted export had left in the temp dir ` +
+    "(each held an unencrypted copy of the store)."
+  );
+}
+
+/** The prefix this module's scratch directories wear, in the OS temp dir. */
+export const EXPORT_SCRATCH_PREFIX = "counterparts-export-";
+
+/**
+ * How old an abandoned scratch directory must be before a later export removes
+ * it. **The bound is the whole point**: without it this sweep would delete a
+ * CONCURRENT export's directory mid-vacuum, which is a collision the target
+ * sweep above cannot have (it matches a name nothing writes any more).
+ *
+ * Same reasoning and the same number as `adapters/snapshots.ts#PARTIAL_STALE_MS`:
+ * comfortably longer than any single export could plausibly still be running.
+ */
+export const EXPORT_SCRATCH_STALE_MS = 60 * 60_000;
+
+/**
+ * Remove abandoned `counterparts-export-*` directories from the OS temp dir.
+ *
+ * An interrupted `--passphrase` export leaves a PLAINTEXT SQLite copy of the
+ * whole store in one (0700, so only this user can read it) and nothing swept
+ * it: on macOS `/var/folders` is reaped after roughly three days of non-access,
+ * otherwise it sits there (review f5c, NEW-MINOR-6). Moving it out of the
+ * target was the big win; this is the rest of it.
+ *
+ * Exact prefix, `mtime` older than the bound, and only entries this user owns —
+ * the temp dir is shared on some systems, and a sweep that took somebody else's
+ * directory would be a worse bug than the one it fixes. Never throws.
+ */
+export function sweepStaleExportScratch(now = Date.now()): string[] {
+  const swept: string[] = [];
+  const root = tmpdir();
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return swept;
+  }
+  for (const name of names) {
+    if (!name.startsWith(EXPORT_SCRATCH_PREFIX)) continue;
+    const full = join(root, name);
+    try {
+      const st = statSync(full);
+      if (!st.isDirectory()) continue;
+      if (st.uid !== process.getuid?.()) continue;
+      if (now - st.mtimeMs < EXPORT_SCRATCH_STALE_MS) continue;
+      rmSync(full, { recursive: true, force: true });
+      swept.push(name);
+    } catch {
+      /* a directory that will not stat or will not go is not this export's problem */
+    }
+  }
+  return swept;
+}
+
 export function exportStore(store: Store, opts: ExportOptions): ExportReport {
   const encrypting = typeof opts.passphrase === "string" && opts.passphrase.length > 0;
   if (!encrypting && opts.plaintext !== true) {
@@ -165,7 +228,10 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
   // OS reaps, so an interrupted export leaks at worst into a temp dir rather
   // than into the artefact. The whole directory goes in the `finally`.
   sweepStaleScratch(target);
-  const scratchDir = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+  // …and the ones an interrupted export of our own left in the OS temp dir.
+  // Said out loud rather than done in silence: it is the owner's plaintext.
+  const sweptScratch = sweepStaleExportScratch();
+  const scratchDir = mkdtempSync(join(tmpdir(), EXPORT_SCRATCH_PREFIX));
   const tmpDb = join(scratchDir, "scratch.sqlite");
   let bundle: Bundle;
   try {
@@ -194,7 +260,9 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
       target,
       files: bundle.size,
       bytes,
-      reason: "Unencrypted, at the owner's explicit request. Prose is readable in any editor.",
+      reason:
+        "Unencrypted, at the owner's explicit request. The database is readable by any SQLite." +
+        sweptNote(sweptScratch),
     };
   }
 
@@ -207,7 +275,9 @@ export function exportStore(store: Store, opts: ExportOptions): ExportReport {
     target,
     files: bundle.size,
     bytes,
-    reason: `Encrypted with ${CIPHER} under a key derived from your passphrase. Lose the passphrase and this archive is gone.`,
+    reason:
+      `Encrypted with ${CIPHER} under a key derived from your passphrase. Lose the passphrase and this archive is gone.` +
+      sweptNote(sweptScratch),
   };
 }
 

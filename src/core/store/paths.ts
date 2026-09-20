@@ -447,9 +447,17 @@ export function describePreRowsRefusal(err: unknown, remedy: string): string | n
   const dir = typeof detail["dir"] === "string" ? detail["dir"] : String(detail["path"] ?? "");
   const found = String(detail["found"] ?? "");
   const own = typeof detail["remedy"] === "string" ? detail["remedy"] : null;
+  // WHAT `found` IS depends on WHICH lock refused. The filename door names the
+  // old names it saw; the SHAPE door names the schema version it read out of a
+  // database already wearing the current name, and rendering that as a filename
+  // printed "it keeps its memories in files (5)" (review f5c, NIT-1).
+  const shape = detail["reason"] === "no-body-column";
+  const what = shape
+    ? `it is a schema v${found} database under this build's own filename`
+    : `it keeps its memories in files (${found})`;
   return (
-    `refused: ${dir} was written before this build's floor — it keeps its memories in files ` +
-    `(${found}), and this build keeps them in the database. NOTHING WAS TOUCHED. ` +
+    `refused: ${dir} was written before this build's floor — ${what}, ` +
+    `and this build keeps them in the database. NOTHING WAS TOUCHED. ` +
     (own ??
       `The build that reads it is tagged ${PRE_ROWS_READABLE_BY}: check it out ` +
       `(git checkout ${PRE_ROWS_READABLE_BY}) to open this store, or name a store this build wrote.`) +

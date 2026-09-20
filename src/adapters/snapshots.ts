@@ -972,6 +972,17 @@ export function cleanPartials(dir: string, now: number, errors: string[]): numbe
       // clock-skew family as a future-dated copy — is not kept forever by a
       // negative age that is always under the bound (second F2 review, NIT-2).
       if (Math.abs(now - statSync(path).mtimeMs) < PARTIAL_STALE_MS) continue;
+      // A PARTIAL HOLDING PRE-ROWS NAMES IS STILL NOT OURS TO DELETE.
+      //
+      // B-MAJOR-2's rule — a directory holding any `PRE_ROWS_MARKERS` entry is
+      // never ours — was applied to finished copies and not here, and this was
+      // the one path left that still deleted pre-rows bytes (review f5c,
+      // NIT-3). A partial is by definition incomplete, so in principle it is a
+      // half-copy nobody wants; but "in principle" is exactly the confidence
+      // that deleted three weeks of journal in v1, and the cost of keeping one
+      // is a directory. It stops being counted as cleaned, and the rotation's
+      // `preRows` channel names it.
+      if (copyKind(path) === "pre-rows") continue;
       rmSync(path, { recursive: true, force: true });
       cleaned += 1;
     } catch (err) {

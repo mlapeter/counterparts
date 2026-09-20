@@ -119,6 +119,7 @@ export type {
 export {
   ADDED_COLUMNS,
   DEFAULT_RETENTION_DAYS,
+  isPreRowsDatabase,
   OBSERVER_READ_FLOOR,
   SCHEMA_VERSION,
   rowToPhysics,
@@ -2294,15 +2295,25 @@ function preRowsRemedy(
 ): { readableBy: string } | { alsoFound: string; remedy: string } {
   if (!existsSync(paths.operational(dir))) return { readableBy: PRE_ROWS_READABLE_BY };
   const leftovers = found.filter((n) => n !== DATABASE_FILE).join(", ");
+  // MOVE ASIDE, NEVER REMOVE — and that is what makes the guess below safe to
+  // get wrong (third review, NEW-MINOR-2). By LISTING alone an old build's
+  // empty leftovers and a REAL v5 store whose `prose/` somebody moved out look
+  // identical: both have an empty `prose/` and an `operational.sqlite`, and the
+  // second one's database holds every memory's physics, bands, dates and the
+  // permanent removal record. Telling him to delete it would destroy the store.
+  // Telling him to move it into a folder of its own costs one `mv` and is
+  // reversible whichever of the two it turns out to be.
   if (preRowsLeftoversAreEmpty(dir)) {
     return {
       alsoFound: DATABASE_FILE,
       remedy:
-        `${DATABASE_FILE} is THIS build's store and it is intact — an older build was pointed at it ` +
-        `and left ${leftovers} behind, all of them empty, which is why this refuses. ` +
-        `Check that prose/ and versions/ really are empty, remove ${leftovers} and tmp/, and this ` +
-        `store opens again with every memory in it. Do not point the older build at this directory ` +
-        `again: restore the parked pre-rows store instead.`,
+        `${DATABASE_FILE} is THIS build's store. Beside it are ${leftovers} (and possibly tmp/), ` +
+        `which an older build leaves behind when it is pointed at a store like this one — its ` +
+        `prose/ and versions/ are empty here. MOVE THOSE OUT of this directory into a folder of ` +
+        `their own; do not delete them, and do not delete ${DATABASE_FILE}. This store then opens ` +
+        `again with every memory in it. If you moved prose/ aside yourself, that operational.sqlite ` +
+        `is your PRE-ROWS store and the words that go with it are wherever you put them — keep both, ` +
+        `and open it with the build tagged ${PRE_ROWS_READABLE_BY}.`,
     };
   }
   return {

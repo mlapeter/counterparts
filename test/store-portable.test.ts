@@ -469,9 +469,17 @@ describe("a store written before the floor is refused by name, and never touched
     expect(detail["alsoFound"]).toBe(DATABASE_FILE);
     expect(detail["readableBy"]).toBeUndefined();
     const remedy = String(detail["remedy"]);
-    expect(remedy).toContain("is THIS build's store and it is intact");
-    expect(remedy).toContain("all of them empty");
+    expect(remedy).toContain("is THIS build's store");
     expect(remedy).toContain("opens again with every memory in it");
+    // MOVE ASIDE, NEVER REMOVE. By listing alone this case and "a real v5 store
+    // whose prose/ was moved out" are indistinguishable, so the instruction has
+    // to be safe when the guess is wrong (third review, NEW-MINOR-2).
+    expect(remedy).toContain("MOVE THOSE OUT");
+    expect(remedy).toContain("do not delete them");
+    expect(remedy).not.toMatch(/\bremove\b/i);
+    expect(remedy).not.toMatch(/\brm\b/i);
+    // …and it names the case the guess cannot rule out.
+    expect(remedy).toContain("If you moved prose/ aside yourself");
     // Every marker is named, not just the first (A-NIT-1).
     expect(String(detail["found"])).toContain("operational.sqlite");
     expect(String(detail["found"])).toContain("prose");
@@ -601,6 +609,45 @@ describe("a store written before the floor is refused by name, and never touched
     expect(() => Store.open({ dir: source })).toThrow(/STORE_PRE_ROWS/);
   });
 
+  test("NEW-MINOR-2: a real v5 store whose prose/ was MOVED OUT is not told to delete anything", () => {
+    // The misfire the third review found. This directory is indistinguishable
+    // from the lockout by LISTING — empty `prose/`, an `operational.sqlite` —
+    // but that database holds 3 memories' physics, bands, dates and the
+    // permanent removal record. The old wording said "remove it".
+    const { proseRel } = buildV5Store(source);
+    const parked = join(elsewhere, "parked");
+    mkdirSync(parked, { recursive: true });
+    // His shape: the WORDS moved aside, the empty directories left behind. A
+    // store whose memories were never revised has an empty `versions/` anyway.
+    renameSync(join(source, "prose"), join(parked, "prose"));
+    renameSync(join(source, "versions"), join(parked, "versions"));
+    mkdirSync(join(source, "prose"), { recursive: true });
+    mkdirSync(join(source, "versions"), { recursive: true });
+    writeFileSync(paths.operational(source), "a v6 database somebody copied in", "utf8");
+    const before = fingerprint(source);
+
+    let detail: Record<string, unknown> = {};
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      detail = (err as { detail?: Record<string, unknown> }).detail ?? {};
+    }
+    const remedy = String(detail["remedy"]);
+    // The guess is WRONG here — it reads as the lockout — and the instruction
+    // is still safe, which is the whole point of move-aside.
+    expect(remedy).toContain("MOVE THOSE OUT");
+    // The only use of the word "delete" is a PROHIBITION, never an instruction.
+    expect(remedy).not.toMatch(/\bremove\b/i);
+    expect(remedy).toContain("do not delete them");
+    expect(remedy).toContain("If you moved prose/ aside yourself");
+    expect(remedy).toContain("keep both");
+    expect(fingerprint(source)).toEqual(before);
+    // And the parked words are exactly where he put them.
+    expect(readFileSync(join(parked, proseRel.replace(/^prose\//, "prose/")), "utf8")).toContain(
+      "The words a v5 store keeps in a file",
+    );
+  });
+
   test("A-MINOR-3: every refusal has one sentence a person can act on", () => {
     buildV5Store(source);
     let refusal: unknown;
@@ -667,6 +714,74 @@ describe("a store written before the floor is refused by name, and never touched
       // …and it is true: not one byte, `cache/`'s `-shm` included.
       expect({ argv, after: fingerprint(source) }).toEqual({ argv, after: before });
     }
+  });
+
+  test("NEW-MINOR-3/-4: the SHAPE-lock shape gets the same sentence, and box 3 is not touched", async () => {
+    // A v5 database wearing the v6 NAME. `preRowsMarkersIn` cannot see it —
+    // there is no old filename left — so `status` and `verify` met
+    // `OBSERVER_READ_FLOOR`'s `STORE_UNINITIALIZED` and printed a bare code and
+    // a JSON blob, while `verify --rebuild`, `migrate-cache` and the hook all
+    // printed the sentence. And `migrate-cache` was not refused at all: it ran
+    // to completion against box 3 of a store this build says it cannot read.
+    buildV5Store(source);
+    rmSync(join(source, "prose"), { recursive: true, force: true });
+    rmSync(join(source, "versions"), { recursive: true, force: true });
+    renameSync(join(source, "operational.sqlite"), paths.operational(source));
+    mkdirSync(join(source, "cache"), { recursive: true });
+    const cache = new Database(paths.cache(source), { create: true });
+    cache.exec("CREATE TABLE doc_tokens (memory_id TEXT, token TEXT)");
+    cache.close();
+    const before = fingerprint(source);
+
+    for (const argv of [
+      ["status"],
+      ["verify"],
+      ["verify", "--rebuild", "--drop-vectors"],
+      ["migrate-cache"],
+      ["migrate-cache", "--apply", "--yes"],
+    ]) {
+      const c = consoleAnswering("");
+      const code = await run([...argv, "--dir", source], { io: c.io });
+      const printed = [...c.out, ...c.err].join("\n");
+      expect({ argv, ok: code !== EXIT.ok }).toEqual({ argv, ok: true });
+      expect({ argv, said: printed.includes("written before this build's floor") }).toEqual({
+        argv,
+        said: true,
+      });
+      expect({ argv, blob: printed.includes("STORE_UNINITIALIZED {") }).toEqual({
+        argv,
+        blob: false,
+      });
+      // NOT ONE BYTE, `cache/`'s `-shm` included — the sweep that used to move
+      // before the refusal arrived.
+      expect({ argv, after: fingerprint(source) }).toEqual({ argv, after: before });
+    }
+
+    // The stamp did not move either: the second lock still refuses the writer.
+    const db = new Database(paths.operational(source), { readonly: true });
+    expect(
+      (db.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get() as { value: string }).value,
+    ).toBe("5");
+    db.close();
+  });
+
+  test("NEW-NIT-1: the sentence says a VERSION is a version, not a filename", () => {
+    // `describePreRowsRefusal` rendered `found` as though it were always names,
+    // so the shape lock printed "it keeps its memories in files (5)".
+    buildV5Store(source);
+    rmSync(join(source, "prose"), { recursive: true, force: true });
+    rmSync(join(source, "versions"), { recursive: true, force: true });
+    renameSync(join(source, "operational.sqlite"), paths.operational(source));
+    let refusal: unknown;
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      refusal = err;
+    }
+    const said = describePreRowsRefusal(refusal, "Name a store with --dir.") ?? "";
+    expect(said).not.toContain("files (5)");
+    expect(said).toContain("schema v5");
+    expect(said).toContain(HOW_TO_READ_IT);
   });
 
   test("a v6 store is not refused, and the refusal costs a fresh store nothing", () => {

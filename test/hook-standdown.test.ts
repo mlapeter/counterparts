@@ -284,6 +284,41 @@ describe("a store written before the floor", () => {
     expect(marker).not.toContain("words in a file");
   });
 
+  test("NEW-MINOR-1: in the LOCKOUT case the visible message does not send him at floor/v5-last", () => {
+    // A-MAJOR-1's circle surviving in the one channel the owner actually reads.
+    // `PLAIN_WORDS.STORE_PRE_ROWS` is a constant table and cannot look at the
+    // error, so the lockout — a v6 store an older build left its empty
+    // leftovers in — got the same sentence as a genuine pre-rows store: "the
+    // build that reads it is the tag floor/v5-last", which is the build that
+    // has just stood down on this same directory.
+    rmSync(store, { recursive: true, force: true });
+    const s = Store.open({ dir: store });
+    s.put({ type: "memory", kind: "fact", body: "a memory this build wrote and still owns" });
+    s.close();
+    mkdirSync(join(store, "prose"), { recursive: true });
+    mkdirSync(join(store, "versions"), { recursive: true });
+    writeFileSync(join(store, "operational.sqlite"), "", "utf8");
+
+    const run = runHook("SessionStart", "s-lockout-1");
+    expect(run.code).toBe(0);
+    const message = systemMessage(run) ?? "";
+    expect(message).toStartWith(`${SAID}: `);
+    expect(message).toContain("(STORE_PRE_ROWS)");
+    // It says what this directory IS and sends him to the door that carries the
+    // full sentence — and NOT at the tag.
+    expect(message).toContain("holds this build's store AND an older build's leftovers");
+    expect(message).toContain("counterparts doctor");
+    expect(message).not.toContain("floor/v5-last");
+
+    // The GENUINE pre-rows store still names the tag, because there it is the
+    // right answer — this is a discrimination, not a blanket removal.
+    rmSync(store, { recursive: true, force: true });
+    buildPreRowsStore(store);
+    expect(systemMessage(runHook("SessionStart", "s-lockout-2")) ?? "").toContain(
+      "the tag floor/v5-last",
+    );
+  });
+
   test("it is a PERSISTENT fault, not a transient one: a second turn is quiet, a new session is told", () => {
     // Deploying past the pin is not a race, and grading it transient would put
     // the notice on a retry loop instead of in front of the owner once.
@@ -1076,7 +1111,13 @@ describe("doctor reads the open, not just the directory", () => {
     // There is no repair COMMAND for this today, so the two real exits are
     // named rather than one invented.
     expect(found?.fix).toContain("restore a snapshot");
-    expect(found?.fix).toContain(`counterparts remove ${gone}`);
+    expect(found?.fix).toContain("counterparts remove <id> --confirm");
+    // AND IT SAYS THERE MAY BE MORE. Doctor names the row that THREW, which is
+    // one of possibly many; `verify` is the surface that lists them all, and
+    // before this the remedy was a one-at-a-time loop of unknown length
+    // (review f5c, NEW-MINOR-5).
+    expect(found?.fix).toContain("THERE MAY BE MORE THAN ONE");
+    expect(found?.fix).toContain("counterparts verify --dir <store> lists every such row");
 
     // 2. STATUS does not print a green census over a store no session opens.
     const st = consoleWith();

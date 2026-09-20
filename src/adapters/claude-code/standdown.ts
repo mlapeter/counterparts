@@ -144,6 +144,29 @@ export const OPEN_FAILED_WORDS = "the store would not open";
  * A code and plain words for ANY failure — including the deliberate ones, which
  * `doctor` still has to name even though the hook stays quiet about them.
  */
+/**
+ * The pre-rows reason clause, which depends on WHICH pre-rows case this is.
+ *
+ * `PLAIN_WORDS` is a constant table and cannot look at the error; for the
+ * LOCKOUT case (a v6 store an older build left its empty leftovers in) the
+ * constant sentence sends the owner at `floor/v5-last` — the build that has just
+ * stood down on this same directory. That is A-MAJOR-1's circle surviving in the
+ * one channel the owner actually reads (third review, NEW-MINOR-1); the correct
+ * sentence was on stderr and in doctor only.
+ *
+ * So when the refusal carries its own `remedy` — which it does exactly when this
+ * directory also holds a `counterparts.sqlite` — the reason says that instead,
+ * and points at the door that has the full sentence.
+ */
+function preRowsReason(err: unknown): string | null {
+  if (!isStoreError(err, "STORE_PRE_ROWS")) return null;
+  if (typeof err.detail["remedy"] !== "string") return null;
+  return (
+    "this directory holds this build's store AND an older build's leftovers, so it will not " +
+    "open either by guess — run counterparts doctor for the names and what to move"
+  );
+}
+
 export function describeFault(err: unknown): StandDownFault {
   // TOTAL, and the reason is not theoretical politeness: this runs inside the
   // handler that exists so a hook never fails the host, and everything below
@@ -165,7 +188,11 @@ function readFault(err: unknown): StandDownFault {
   // turn. `isLocked` is `db.ts`'s own test, imported rather than mirrored.
   const kind: StandDownKind = isLocked(err) ? "transient" : "persistent";
   if (isStoreError(err)) {
-    return { code: err.code, reason: PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS, kind };
+    return {
+      code: err.code,
+      reason: preRowsReason(err) ?? PLAIN_WORDS[err.code] ?? OPEN_FAILED_WORDS,
+      kind,
+    };
   }
   const message = err instanceof Error ? err.message : String(err);
   return {

@@ -67,7 +67,10 @@ import {
   dateOf,
   decodeVector,
   describeGuardRefusal,
+  DATABASE_FILE,
   describePreRowsRefusal,
+  isPreRowsDatabase,
+  isStoreError,
   preRowsMarkersIn,
   encodeVector,
   explicitDirSetting,
@@ -1174,11 +1177,51 @@ function resolveDir(env: Record<string, string | undefined>): string {
  * the one instruction the owner is given ("Run: counterparts doctor") printing
  * the same blob. A dead end at the exact moment of the cut-over.
  */
-function describeDirRefusal(err: unknown): string {
+/**
+ * `refused: …` exactly once. The store's own sentences already open with the
+ * word, and `init`/`install` added their own prefix in front of it (review f5c,
+ * NIT-2).
+ */
+function prefixedRefusal(said: string): string {
+  return said.startsWith("refused:") ? said : `refused: ${said}`;
+}
+
+function describeDirRefusal(err: unknown, dir?: string): string {
   return (
     describeGuardRefusal(err, `Name the store: --dir <path>, or ${DATA_DIR_ENV}.`) ??
     describePreRowsRefusal(err, `Name a store with --dir <path>.`) ??
+    preRowsInDisguise(err, dir) ??
     String((err as Error).message ?? err)
+  );
+}
+
+/**
+ * The shape-lock shape, wearing `STORE_UNINITIALIZED`'s clothes.
+ *
+ * A door that opens as an OBSERVER never reaches the second lock: `initialize:
+ * false` short-circuits on `OBSERVER_READ_FLOOR` and throws
+ * `STORE_UNINITIALIZED` first. So `status` and `verify` printed a bare code and
+ * a JSON blob on a v5 database renamed to `counterparts.sqlite`, while
+ * `verify --rebuild`, `migrate-cache`, `init` and the hook all printed the
+ * sentence — A-MINOR-3's exact complaint surviving on the other lock's shape
+ * (review f5c, NEW-MINOR-3).
+ *
+ * Only asked when the store has already refused, and only about a file already
+ * named `counterparts.sqlite` — never the owner's parked v5 store, which is
+ * caught by NAME before anything opens it.
+ */
+function preRowsInDisguise(err: unknown, dir: string | undefined): string | null {
+  if (dir === undefined) return null;
+  if (!isStoreError(err, "STORE_UNINITIALIZED")) return null;
+  if (!isPreRowsDatabase(paths.operational(dir))) return null;
+  return describePreRowsRefusal(
+    new StoreError("STORE_PRE_ROWS", {
+      dir,
+      found: DATABASE_FILE,
+      expected: SCHEMA_VERSION,
+      reason: "no-body-column",
+    }),
+    `Name a store with --dir <path>.`,
   );
 }
 
@@ -1204,7 +1247,7 @@ function probeCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1250,7 +1293,7 @@ function firedCommand(dir: string, io: Io, namedDir: boolean, now: () => number)
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1361,7 +1404,7 @@ async function selfPageCommand(
   try {
     counterpart = openCounterpart(dir, observer);
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1520,7 +1563,7 @@ function statusCommand(dir: string, io: Io, namedDir: boolean): number {
   try {
     store = Store.open({ dir, observer: true });
   } catch (err) {
-    io.err(`could not open the store: ${describeDirRefusal(err)}`);
+    io.err(`could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {
@@ -1733,7 +1776,7 @@ function installCommand(
   try {
     store = Store.open({ dir: layout.store });
   } catch (err) {
-    io.err(`refused: ${describeDirRefusal(err)}`);
+    io.err(prefixedRefusal(describeDirRefusal(err, layout.store)));
     return EXIT.refused;
   }
   const resolved = store.dir;
@@ -1881,7 +1924,7 @@ function initCommand(dir: string, io: Io, home = homedir(), name?: string): numb
   try {
     store = Store.open({ dir });
   } catch (err) {
-    io.err(`refused: ${describeDirRefusal(err)}`);
+    io.err(prefixedRefusal(describeDirRefusal(err, dir)));
     return EXIT.refused;
   }
   const resolved = store.dir;
@@ -2323,11 +2366,20 @@ function vectorFormatLine(v: VectorFormatCensus): string {
  * cache after a rollback is a paid re-embed.
  */
 function refusePreRows(dir: string, io: Io): number | null {
+  // TWO SHAPES, and only the first is a filename question. The second is a v5
+  // database wearing the v6 NAME, which `preRowsMarkersIn` cannot see — review
+  // f5c measured `migrate-cache` running to completion on one, and
+  // `verify --rebuild` reaching box 3 before box 2 refused it.
   const found = preRowsMarkersIn(dir);
-  if (found.length === 0) return null;
+  const detail: Record<string, string | number> = { dir, expected: SCHEMA_VERSION };
+  if (found.length > 0) detail["found"] = found.join(", ");
+  else if (isPreRowsDatabase(paths.operational(dir))) {
+    detail["found"] = DATABASE_FILE;
+    detail["reason"] = "no-body-column";
+  } else return null;
   io.err(
     describePreRowsRefusal(
-      new StoreError("STORE_PRE_ROWS", { dir, found: found.join(", "), expected: SCHEMA_VERSION }),
+      new StoreError("STORE_PRE_ROWS", detail),
       "Name a store with --dir <path>.",
     ) ?? `refused: ${dir} was written before this build's floor.`,
   );
@@ -2555,8 +2607,10 @@ function verifyCensus(dir: string, io: Io): number {
       `Rows whose words are missing: ${String(faulted.length)} — ${faulted.slice(0, 5).join(", ")}` +
         (faulted.length > 5 ? ` and ${String(faulted.length - 5)} more` : "") +
         ". Each has an empty body and a content hash that still names it, which no write path " +
-        "in this build produces. A session that reads one stands down. Restore a snapshot over " +
-        "the store, or remove that row by id to tombstone it and let sessions start again.",
+        "in this build produces. A session that loads a BELIEF or reads that memory stands down: " +
+        "a faulted schema row takes every session with it, an ordinary memory only the reads that " +
+        "reach it. Restore a snapshot over the store, or remove that row by id to tombstone it " +
+        "and let sessions start again.",
     );
   }
   for (const line of eventLogLines(log)) io.out(line);
@@ -3171,7 +3225,7 @@ function backupCommand(
     store = Store.open({ dir, observer: true });
   } catch (err) {
     io.out(`Snapshot: none — nothing was copied.`);
-    io.err(`  could not open the store: ${describeDirRefusal(err)}`);
+    io.err(`  could not open the store: ${describeDirRefusal(err, dir)}`);
     return EXIT.failed;
   }
   try {

@@ -319,6 +319,42 @@ function preRowsSnapshot(name: string, where = snapsDir): string {
   return path;
 }
 
+describe("the pre-rows rule reaches the partial sweep too (review f5c, NIT-3)", () => {
+  test("an abandoned `.partial-` holding PRE-ROWS names is kept, not cleaned", () => {
+    // The one path left that still deleted pre-rows bytes. B-MAJOR-2's rule —
+    // a directory holding any `PRE_ROWS_MARKERS` entry is never ours — was
+    // applied to finished copies and not to partials.
+    //
+    // A partial is by definition an incomplete copy, so in principle it is a
+    // half-copy nobody wants. "In principle" is exactly the confidence that
+    // lost three weeks of journal in v1, and the cost of keeping one is a
+    // directory — while a copy of the owner's old floor, interrupted or not,
+    // may be the only thing holding those words.
+    const stale = join(snapsDir, `${PARTIAL_PREFIX}2026-09-01T00-00-00-000Z-4242`);
+    mkdirSync(join(stale, "prose", "memories"), { recursive: true });
+    writeFileSync(join(stale, "operational.sqlite"), "a v5 database");
+    writeFileSync(join(stale, "prose", "memories", "mem_1.md"), "ZQOLDFLOORWORDS");
+    const old = (Date.parse("2026-09-18T12:00:00Z") - 30 * 24 * 60 * 60_000) / 1000;
+    utimesSync(stale, old, old);
+
+    const errors: string[] = [];
+    expect(cleanPartials(snapsDir, Date.parse("2026-09-18T12:00:00Z"), errors)).toBe(0);
+    expect(errors).toEqual([]);
+    expect(readFileSync(join(stale, "prose", "memories", "mem_1.md"), "utf8")).toContain(
+      "ZQOLDFLOORWORDS",
+    );
+
+    // Non-vacuous: a partial of THIS build's shape, same age, is still swept.
+    const ours = join(snapsDir, `${PARTIAL_PREFIX}2026-09-02T00-00-00-000Z-4243`);
+    mkdirSync(join(ours, "spans"), { recursive: true });
+    writeFileSync(join(ours, "counterparts.sqlite"), "half a database");
+    utimesSync(ours, old, old);
+    expect(cleanPartials(snapsDir, Date.parse("2026-09-18T12:00:00Z"), errors)).toBe(1);
+    expect(existsSync(ours)).toBe(false);
+    expect(existsSync(stale)).toBe(true);
+  });
+});
+
 describe("a pre-rows snapshot is never rotated away (review B, MAJOR-2)", () => {
   test("three real v5 copies beside fourteen v6 ones, keep 14: nothing v5 is deleted", () => {
     // THE ARITHMETIC THAT MAKES THIS LIVE-RELEVANT. `resolveSnapshotsDir`
@@ -946,8 +982,12 @@ describe("a half-copy is never a snapshot", () => {
     mkdirSync(snapsDir, { recursive: true });
     // Exactly what a worker killed mid-copy leaves: a partial directory wearing
     // today's instant, with a torn tree inside it.
+    // A partial THIS build could actually leave: the database and `spans/`,
+    // half-written. It used to hold a `prose/` — which no copy of a v6 store
+    // has, and which the sweep now reads as a pre-rows copy and keeps (see the
+    // test below).
     const abandoned = join(snapsDir, `${PARTIAL_PREFIX}2026-09-18T09-00-00-000Z-4242`);
-    mkdirSync(join(abandoned, "prose"), { recursive: true });
+    mkdirSync(join(abandoned, "spans"), { recursive: true });
     writeFileSync(join(abandoned, "counterparts.sqlite"), "half a database");
 
     // It is not a snapshot: not counted toward `keep`...
