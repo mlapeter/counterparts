@@ -510,12 +510,29 @@ left, and the exit code decides only between "nothing to say" and "could not run
 child's own SessionStart raises no writer ask — session mode only — or a session started to
 do the writing would be asked to do it.
 
+**[M] The ask is measured, not predicted, and a deferral is not a silence.** The composed
+block is checked against the host's reported ceiling AFTER composing (the estimate is its
+shortest shape; the delivered one is longer), and re-composed once against the room the
+first attempt proved was really there. A block that will not fit, or that can carry none of
+the day, is DEFERRED — and the deferral leaves a durable `skipped` row, deduped one per
+night per reason, which claims nothing and can never close a night. The first-launch scope
+question still wins the field, but only once per night: on a blank store it is exactly what
+is pending on nights 1–3, and an unanswered one used to starve the writer for ever.
+
 **[M] It never costs anything else.** The writer runs last in the detached worker, inside
 the same `finally` as the snapshot, so a day whose sweep broke is still a day that gets
 written about; it never throws; and a failure never fails a wake, a boundary or a session.
 Doctor's `Page writer` line is GREEN when it has never run on a store with no yesterday and
 GREEN on a night that had nothing to say, AMBER only on a failure or a refusal or on the
 writer being off while a page stands, and never RED.
+
+**[M] The child gets the day on STDIN and a stance this package chose.** The instruction is
+not in `argv`, where `ps` shows it to every process on the machine, and
+`COUNTERPARTS_OBSERVER` is deleted from the child's environment beside the two session
+variables: a shell that exported it would hand the child an observer store whose
+`self_page` refuses, and the night would then read `nothing-to-say` — fail-closed, but a
+silently wrong answer. A child that ignores SIGTERM is escalated to SIGKILL on its process
+group and then given up on, so the worker cannot be held past its own watchdog.
 
 **UNVERIFIED, and named rather than claimed:** no build has started a real `claude -p`.
 Everything above about host mode is proved against a stub executable. What a real machine

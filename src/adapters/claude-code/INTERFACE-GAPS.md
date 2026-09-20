@@ -630,3 +630,26 @@ and cannot be without a real machine and a real login:
 Filed here rather than guessed at: the exact steps the owner has to run by hand are in the
 PR that landed this, and until one of those runs happens, `session` mode is the one that is
 known to work.
+
+## 13. The "nightly" writer is not nightly anywhere west of UTC (2026-09-20, S2 review)
+
+`store.today()` is `new Date().toISOString().slice(0, 10)` — UTC, like every other date in
+this store, by the decision `store/index.ts#dateOf` records. The page writer keys its night
+off that date, so from US Pacific the day rolls over at 5 p.m. local: "yesterday" becomes
+available, is claimed and is written **in the late afternoon**, and the window it covers is
+5 p.m.-to-5 p.m. local rather than a person's day. The morning session finds the night
+already claimed.
+
+**Nothing here is being changed for it.** Two clocks in one store is a scar this repo
+already has a name for, and `learned_on` — the field the writer selects the day by — is
+stamped on the same calendar, so a locally-dated writer would read a UTC-dated day and get
+a different set of memories than the one it named.
+
+**What WAS changed is the words.** The block, the doctor line and the contracts say which
+DATE a run is about and never "last night" or "this morning", because those were the only
+part of it that was actually false.
+
+The real fix, if the owner wants one, is the one `self/INTERFACE-GAPS` §9's neighbour asks
+for: a per-owner zone read wherever a day is decided — one clock, moved once — and not a
+second clock bolted onto this mechanism. Until then it belongs on the findings list for the
+first blank-store trial, where it is a thing to notice rather than a thing to fix.

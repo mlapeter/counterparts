@@ -238,3 +238,26 @@ of the callers waiting for it.
 
 A `dedupKey` that REPORTED the collapse (`appendEvent` returning 0 for "already there"
 rather than a seq) would be enough on its own, and is the smaller of the two asks.
+
+## 10. There is no recency to sort a single day by (2026-09-20, S2 review)
+
+`writer.ts#dayMemories` orders the day by salience and then by the store's own id order,
+and the contract now says exactly that. What it would rather say is "and then the newest
+first", because within one calendar day salience ties on almost every pair — every row has
+the same `birth_day`, no uses, and identical decay — so the tie-break is what actually
+decides which 40 of 400 the writer sees.
+
+Nothing in the `Store` API can break that tie. `learned_on` is a DATE. `birth_day` is the
+lived day. `newId` is six random bytes (`store/index.ts#newId`), so ids carry no time.
+`list()` returns `ORDER BY id`, which is therefore arbitrary-but-stable rather than
+chronological.
+
+**The ask, if it is ever wanted:** an ordering key on `MemoryRow` that is monotonic in
+insertion — the rowid `list` already sorts against, exposed; or `list({ order: "minted" })`.
+It is one column that already exists in box 2 and is not published.
+
+**Why it is filed rather than pressed.** The property the cut actually needs is that it was
+CHOSEN rather than iteration luck (§1 G3), and a deterministic id order has that. What is
+lost is only that "the end of the day" — often the part a person would most want written
+about — has no better chance than the middle of it. Worth revisiting the first time the
+page reads as if it were written about the wrong half of a day.

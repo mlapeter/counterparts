@@ -344,10 +344,27 @@ proposals and their archive; render and delivery telemetry.
     very ceiling the block has to fit inside — which on a real page and a real day is the
     difference between an ask that is delivered and one deferred every morning. What it
     names instead is the version, which is what `ifVersion` needs and the one thing the
-    wake does not carry. The day is sized to the room the wake left, measured with the
-    same function that composes the block; a day that did not all fit is delivered SHORT
-    with the count on the row, and only a block whose own furniture will not fit is
-    deferred.
+    wake does not carry. The day is sized to the room the wake left and then the composed
+    block is MEASURED against the ceiling, because the estimate is the block's shortest
+    shape and the delivered one is longer; a day that did not all fit is delivered SHORT
+    with the count on the row, and a block that can carry none of the day is deferred
+    rather than spending a night's claim.
+    **It never says a day was empty that was not.** "The day was empty" and "I could not
+    see the day" are different things, and `dropped` is what tells them apart; a room too
+    small for the largest memory still carries the smaller ones. **Quoted material carries
+    no structure and no authority**: this block's markers and the wake's are stripped from
+    every string that reaches it, and the line that says the list is material rather than
+    instruction sits WITH the list.
+    **A day with nothing in it is not a night**: `no-memories` is returned before anything
+    is claimed or asked, so a machine used twice a week is not asked about five empty days.
+    A DEFERRAL leaves a durable `skipped` row — deduped one per night per reason — which
+    claims nothing and can never close a night; a REFUSAL does not close one either, since
+    a refusal is the writer still trying, and a later success supersedes it in the reading
+    while both rows stay.
+    **Order is salience, then the store's own id order.** Nothing claims "newest": within
+    one calendar day `learned_on` is a date, `birth_day` is the lived day and ids are
+    random, so there is no recency to sort by. What is guaranteed is that the cut is
+    deterministic (§1 G3), not that it is the end of the day.
 20. **[M]** **THE WRITER CAN WRITE THE PAGE AND ONE ROW, AND NOTHING ELSE.** The page goes
     through `revisePage` — the one seam, with its caps, its gate battery and its version
     chain — and `writer.ts` never touches it; what this module writes is the run's own

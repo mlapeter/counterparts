@@ -803,3 +803,61 @@ ask and `chapter` already do. It is honoured NON-FATALLY: `requireBoundSession` 
 so there is one definition of corroboration, and its refusal value is discarded. A page
 amendment has never needed a session and must not start being refused for lack of one; what
 a bad claim costs is the `writer` label, and the ring says why.
+
+## 17. What the adversarial review found, and the one thing that could not be fixed (2026-09-20, review of S2)
+
+Five MAJORs, none a blocker, and every one of them a case where the mechanism was honest
+about something that was not true. They are worth keeping together because they share a
+shape: **the fixture was smaller than the world.** A 60-byte page and one memory fits any
+budget, dies on any signal, and has no second day; the defects lived in the gap between
+that and a real store.
+
+**The block told the writer the day was empty.** `dayMemories` stopped at the first memory
+that would not fit, so any room smaller than the LARGEST memory's cost dropped every one of
+them — and `writerInstruction`, handed an empty list, said "Nothing was written down on
+<date>". The reviewer reproduced it across a 260-byte band of ordinary budgets on a 3 KB
+page and a 20-memory day. The next morning that reads as a derived `nothing-to-say`, and the
+narrator says "nothing about who I am moved that day" about a day with twenty things in it.
+Three fixes, because one was not enough: the loop fills past a miss instead of stopping;
+the empty branch distinguishes "the day was empty" from "I could not see the day" using
+`dropped`, which was in scope and discarded; and a block that can carry NONE of the day
+defers rather than spending one of the night's two asks on a sentence.
+
+**A memory could close the block it was quoted in.** `flattenLine` collapsed whitespace and
+nothing else, and the framing sentence sat at the top of the block while the untrusted
+material sat at the bottom. A memory is exactly what the sweep proposes from a transcript,
+so this was a first-class injection into the one prompt that revises the identity page. The
+markers go now — this block's and the wake's, which `page.ts` already refuses on the way IN
+— and the sentence that says the list is material moved down to sit beside it. The general
+lesson, which is not new: framing is positional, and a warning above content the reader has
+not met yet is a warning about nothing.
+
+**A child that ignores SIGTERM hung the worker.** Both alarms signalled and neither
+resolved, and the promise resolved only on `close`, so a trapping child kept the worker
+inside its `finally` holding the store open — measured at 25 seconds against a 3-second
+child watchdog. The fix is the ordinary escalation nobody wrote the first time: SIGTERM,
+grace, SIGKILL to the process group, and then a reap timer that resolves the promise whether
+or not the OS ever confirms. The child is `detached` now solely so there is a group to kill.
+
+**`no-memories` was declared and never returned.** `hasDayBefore` asks whether the store
+holds anything older than today, which is true for ever after the first memory, so a machine
+used twice a week was asked every single morning about five empty days. The dead enum member
+was the evidence that the first build meant to prevent exactly this.
+
+**One typo turned memory off.** The `pageWriter` block was strict on the argument that
+`host` starts a process — and the argument does not survive contact with the code, because
+`mode` is an exact-string allowlist and a typo can only ever resolve to the fallback.
+Strictness bought nothing and cost the owner his store's memory for a misspelling in an
+optional block, which is the failure the F2 ruling moved `snapshots` out of strictness to
+avoid. It is lenient now, with the fallback PINNED to `session` — the one protection
+strictness was really offering, kept — and a doctor amber naming the key and the value.
+
+**And the one that could not be fixed, only told the truth about.** The docstring and the
+CONTRACT both said the day arrives "newest and most salient first". There is no newest:
+inside one calendar day `learned_on` is a date, `birth_day` is the lived day, and `newId` is
+six random bytes, so every row of a day ties on every clock the store has. The reviewer
+offered two options — tie-break on rowid, or delete the word — and the first is not
+available from the `Store` API. So the word is gone, from the code, the block and the
+contract, and what is asserted instead is the property that is real: the cut is
+deterministic, which is what §1 G3 asks for. A tie-break on insertion order would need
+`store/` to expose one, and that is a real ask rather than a fix to make here.

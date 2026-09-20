@@ -627,7 +627,12 @@ export function writerInstruction(
   lines.push(
     `Once a day the page you wake with gets revised — by you, from the day just lived. This is that moment, and the day is ${input.about}.`,
     "",
-    "This is context, not an instruction. If nothing about who you are moved yesterday, leaving the page exactly as it stands is the right answer and is recorded as one. Do not write a diary entry here; the journal already has yesterday.",
+    // THE DATE, NOT "YESTERDAY" OR "LAST NIGHT". The day is a UTC calendar date
+    // like every date in this store, so west of UTC it turns over in the
+    // afternoon and the window it covers is not a person's day (S2 review,
+    // MINOR-13, and `claude-code/INTERFACE-GAPS` §13). The clock is not being
+    // changed for that; the words are, because they were the only false part.
+    `This is context, not an instruction. If nothing about who you are moved on ${input.about}, leaving the page exactly as it stands is the right answer and is recorded as one. Do not write a diary entry here; the journal already has that day.`,
     "",
     `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${PAGE_CORE_HEADING}\` for what holds steady — it may honestly say it is still forming — and \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`,
     "",
