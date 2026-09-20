@@ -59,7 +59,9 @@ memory text to a third party, which should be a decision rather than something a
 environment variable switches on. And the crash-recovery path — the one that reconstructs
 a session that ended before the AI could write it up — cannot run; when it does run, it
 sends that captured conversation to a model provider. Both are the only two ways anything
-here leaves your machine, and both are yours to turn on.
+here leaves your machine, and both are yours to turn on. `counterparts doctor` grades a
+store that has never had a key **amber**, not red, and says on the line what works without
+one — so a fresh keyless install is a clean bill of health and not an alarm.
 
 **Counterparts is not on npm yet, and this repository is not public yet.** Nothing is
 published under the npm name, and the clone below will refuse anyone who is not the author

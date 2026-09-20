@@ -102,6 +102,11 @@ describe("the registry cannot go stale", () => {
     for (const m of MECHANISMS) {
       if (m.evidence.kind === "event") for (const n of m.evidence.names) accounted.add(n);
       for (const n of m.covers ?? []) accounted.add(n);
+      // A row this mechanism reads its REFUSALS from accounts for that name as
+      // surely as its evidence does (E2): the owner sees it, under the
+      // mechanism it is about. Requiring it in `covers` as well would be the
+      // same list twice, which is the staleness this file exists to prevent.
+      for (const n of m.refusals?.names ?? []) accounted.add(n);
     }
     const orphans = DURABLE_EVENT_NAMES.filter((n) => !accounted.has(n));
     expect(
@@ -120,6 +125,7 @@ describe("the registry cannot go stale", () => {
         for (const n of m.evidence.names) if (!known.has(n)) invented.push(`${m.id}: ${n}`);
       }
       for (const n of m.covers ?? []) if (!known.has(n)) invented.push(`${m.id}: ${n}`);
+      for (const n of m.refusals?.names ?? []) if (!known.has(n)) invented.push(`${m.id}: ${n}`);
     }
     expect(invented).toEqual([]);
   });
@@ -205,6 +211,244 @@ describe("every state is reachable from a fixture", () => {
     const primacy = pick(report(s), "primacy");
     expect(primacy.state).toBe("retired");
     expect(primacy.firedInWindow).toBe(1);
+  });
+
+  test("blocked — reached and turned away, which is neither `never` nor `quiet` (E2)", () => {
+    // The pattern the 2026-09-17 inventory called the one running through
+    // everything: the system records what happened and almost never records
+    // what was prevented, so a mechanism stopped at every attempt and one that
+    // had nothing to do read exactly alike.
+    const s = store();
+    // The worker was refused all week and never once started.
+    row(s, "adapter.spawn.refused", TODAY, { reason: "NO_CREDENTIAL", count: 12 });
+    row(s, "adapter.spawn.refused", daysBefore(TODAY, 1), { reason: "NO_CREDENTIAL", count: 8 });
+    row(s, "adapter.spawn.refused", daysBefore(TODAY, 2), { reason: "NO_DATA_DIR", count: 1 });
+
+    const start = pick(report(s), "worker-start");
+    expect(start.state).toBe("blocked");
+    expect(start.firedInWindow).toBe(0);
+    expect(start.total).toBe(0);
+    // COUNTED BY DAY, not by attempt: those rows are latched one per reason per
+    // date (I32), and the `count` field resets whenever a start succeeds.
+    expect(start.refusedInWindow).toBe(3);
+    expect(start.topRefusal).toBe("NO_CREDENTIAL ×2");
+    expect(start.note).toContain("did not fire this week");
+    expect(start.note).toContain("NO_CREDENTIAL");
+
+    // The mechanism whose OWN rows those are is firing, not blocked: the
+    // trouble seam working is the trouble seam working.
+    expect(pick(report(s), "worker-trouble").state).toBe("firing");
+
+    // And one start inside the window settles it: a mechanism that fired is
+    // firing, however much else was refused around it.
+    row(s, "adapter.spawn.started", TODAY, { count: 4 });
+    const started = pick(report(s), "worker-start");
+    expect(started.state).toBe("firing");
+    expect(started.refusedInWindow).toBe(3);
+  });
+
+  test("physics' 'not yet' reasons NEVER read as blocked, on a store where nothing is wrong (E2)", () => {
+    /**
+     * THE FALSE ALARM AN ADVERSARIAL REVIEW CAUGHT BY RUNNING IT.
+     *
+     * Forty ordinary memories, seven clean nights, nothing misconfigured — and
+     * the first version of this reported, in the first section printed:
+     *
+     *   BLOCKED promotion  … most often base-below-identity-threshold ×80
+     *   BLOCKED prune      … most often dwell-too-short ×240
+     *
+     * Those are physics' `blockedBy` vocabularies, and they are mostly "not
+     * yet": the ordinary condition of nearly every memory on nearly every
+     * healthy night, scaling with store size × nights. This fixture is those
+     * exact reasons at those exact shapes, and it asserts silence.
+     */
+    const s = store();
+    row(s, "sleep.cycle", TODAY, {
+      phases: [
+        {
+          phase: "decay",
+          status: "ran",
+          reason: "ok",
+          skipped: { "at-floor": 40, unchanged: 40 },
+        },
+        {
+          phase: "consolidate",
+          status: "ran",
+          reason: "ok",
+          skipped: {
+            "below-semantic-floor": 40,
+            "promotion:base-below-identity-threshold": 40,
+            "promotion:insufficient-distinct-days": 40,
+          },
+        },
+        { phase: "prune", status: "ran", reason: "ok", skipped: { "blocked:dwell-too-short": 40 } },
+        { phase: "dedup", status: "ran", reason: "ok", skipped: { "left-alone:below-tau": 12 } },
+      ],
+    });
+    const r = report(s);
+
+    for (const id of ["promotion", "prune", "dedup", "decay"]) {
+      const m = pick(r, id);
+      expect(m.refusedInWindow, id).toBe(0);
+      expect(m.state, id).not.toBe("blocked");
+    }
+    expect(r.counts.blocked).toBe(0);
+    // And doctor's week-over-week list stays empty, so the Fired line cannot go
+    // amber because of a phase that is working.
+    expect(r.wentBlocked).toEqual([]);
+
+    // Promotion has NO gate in its whole vocabulary, so it carries no refusal
+    // column at all rather than an empty one — `already-identity` is "nothing
+    // to do" and the other two are thresholds.
+    expect(MECHANISMS.find((m) => m.id === "promotion")?.refusals).toBeUndefined();
+  });
+
+  test("a REAL gate does read as blocked — the allow-list is not just 'off' (E2)", () => {
+    // The other half: `protected` is the owner saying this may never be
+    // forgotten, and `declared-revision-never-merged` is a rule refusing a
+    // merge the similarity would have made. Both are a named rule turning away
+    // a candidate that qualified, which is what `blocked` means.
+    const s = store();
+    row(s, "sleep.cycle", TODAY, {
+      phases: [
+        {
+          phase: "prune",
+          status: "ran",
+          reason: "ok",
+          // The gates AND the filters in one map, so the split is asserted.
+          skipped: {
+            "blocked:protected": 3,
+            "blocked:in-live-revision-chain": 1,
+            "blocked:dwell-too-short": 240,
+            "blocked:above-floor": 99,
+            journal: 14,
+          },
+        },
+        {
+          phase: "dedup",
+          status: "ran",
+          reason: "ok",
+          skipped: {
+            "left-alone:declared-revision-never-merged": 2,
+            "left-alone:no-similarity-supplied": 500,
+          },
+        },
+      ],
+    });
+    const r = report(s);
+
+    const prune = pick(r, "prune");
+    expect(prune.state).toBe("blocked");
+    // FOUR, not 343: the two gates only.
+    expect(prune.refusedInWindow).toBe(4);
+    expect(prune.topRefusal).toBe("protected ×3");
+
+    const dedup = pick(r, "dedup");
+    expect(dedup.state).toBe("blocked");
+    // TWO, not 502. `no-similarity-supplied` is the embedder being off, which
+    // fires for every pair on the default configuration and has its own amber.
+    expect(dedup.refusedInWindow).toBe(2);
+    expect(dedup.topRefusal).toBe("declared-revision-never-merged ×2");
+  });
+
+  test("the night's refusals come off the cycle row, and no phase claims another's (E2)", () => {
+    // `docs/promotion-diagnosis-2026-09-17.md`: one consolidate pass examined a
+    // third of the store, promoted nothing, and the store could not say why —
+    // the reasons lived in a ring that died with the worker. The phase reports
+    // have carried them all along; the durable row threw them away.
+    const s = store();
+    row(s, "sleep.cycle", TODAY, {
+      phases: [
+        {
+          phase: "prune",
+          status: "ran",
+          reason: "ok",
+          skipped: { "blocked:protected": 5, journal: 14 },
+        },
+        {
+          phase: "dedup",
+          status: "ran",
+          reason: "ok",
+          skipped: { "left-alone:revision-successor-never-merged": 1 },
+        },
+      ],
+    });
+    const r = report(s);
+
+    // No phase claims another's, and none of them claims a candidate filter.
+    expect(pick(r, "prune").refusedInWindow).toBe(5);
+    expect(pick(r, "prune").topRefusal).toBe("protected ×5");
+    expect(pick(r, "prune").evidence).toBe("memory.pruned");
+    expect(pick(r, "prune").note).toContain("sleep.cycle");
+    expect(pick(r, "dedup").refusedInWindow).toBe(1);
+    // Decay has no refusal source at all, so a phase report of its own cannot
+    // give it one.
+    expect(pick(r, "decay").refusedInWindow).toBe(0);
+
+    // And the cycle itself FIRED — a night that ran and refused things is a
+    // night that ran. The refusal column is on the mechanisms, not on it.
+    expect(pick(r, "sleep-cycle").state).toBe("firing");
+  });
+
+  test("a refusal channel younger than the older window makes no week-over-week claim (E2)", () => {
+    // MINOR 5: rows written before this PR carry no `skipped` at all, so a
+    // phase that pruned last week and is `blocked:protected` this week would
+    // land in `wentBlocked` and turn doctor amber — "your prune phase regressed
+    // on deploy day" when all that changed is the schema. The STATE is still
+    // true of this week; the comparison is what is withheld.
+    const s = store();
+    row(s, "memory.pruned", daysBefore(TODAY, 9));
+    row(s, "sleep.cycle", TODAY, {
+      phases: [{ phase: "prune", status: "ran", reason: "ok", skipped: { "blocked:protected": 2 } }],
+    });
+
+    const fresh = report(s, TODAY);
+    expect(pick(fresh, "prune").state).toBe("blocked");
+    expect(pick(fresh, "prune").firedInPreviousWindow).toBe(1);
+    expect(fresh.wentBlocked).toEqual([]);
+
+    // Once BOTH windows are old enough to have carried the field, the claim is
+    // made — the suppression is about the schema, not about the phase.
+    const later = report(s, "2026-10-05");
+    expect(later.wentBlocked).toEqual([]);
+    const ready = firedReport(s, "2026-09-30");
+    expect(ready.rows.find((x) => x.id === "prune")?.state).not.toBe("blocked");
+  });
+
+  test("a refusal row with no reason still COUNTS — the store knew and the view said no (MINOR 4)", () => {
+    // `reasonOnce` used to return nothing for a row whose payload carries no
+    // readable `reason`, so a store holding an `adapter.spawn.refused` row with
+    // a malformed payload reported the worker as never refused. The store knew;
+    // the view said otherwise. That is the exact failure this page is about.
+    const s = store();
+    row(s, "adapter.spawn.refused", TODAY, {});
+    row(s, "adapter.spawn.refused", daysBefore(TODAY, 1), { reason: "" });
+
+    const start = pick(report(s), "worker-start");
+    expect(start.state).toBe("blocked");
+    expect(start.refusedInWindow).toBe(2);
+    expect(start.topRefusal).toBe("(no reason recorded) ×2");
+    expect(start.note).toContain("(no reason recorded)");
+  });
+
+  test("a brand-new store says it is too new to grade rather than listing 29 failures", () => {
+    // Finding 2, 2026-09-18: `fired` opened with 28 `never` lines on a store
+    // minutes old, which is what a broken install looks like.
+    const s = store();
+    const fresh = report(s);
+    expect(fresh.young).toBe(true);
+    expect(fresh.livedDay).toBe(0);
+    expect(fresh.calendarDays).toBe(null);
+
+    // BOTH CLOCKS. A store whose worker died a fortnight ago also reads lived
+    // day 0 — and that store gets the full list, because the full list is the
+    // diagnosis.
+    const stale = store();
+    row(stale, "adapter.boundary", daysBefore(TODAY, 12));
+    const old = report(stale);
+    expect(old.livedDay).toBe(0);
+    expect(old.calendarDays).toBe(12);
+    expect(old.young).toBe(false);
   });
 
   test("the report counts the states and lists what went quiet, by label", () => {
@@ -449,7 +693,9 @@ describe("the tables that stand in for a mechanism with no event", () => {
     const s = store();
     expect(pick(report(s), "removal").state).toBe("never");
     expect(pick(report(s), "removal").total).toBe(0);
-    expect(pick(report(s), "prospective-fired").state).toBe("never");
+    // `prospective-fired` LEFT this describe block on 2026-09-20: it reads two
+    // durable rows now, not `last_fired_day`. Its empty-store state is `new`,
+    // and the reason is the point — the evidence is younger than the window.
   });
 
   test("with the probes off, the probe-backed mechanisms are NAMED as unread rather than guessed at", () => {

@@ -23,6 +23,86 @@ what the package actually carries.
 
 ---
 
+## 2026-09-20 — what E2 closed, and what it left
+
+The E2 branch (`everyday/e2-prevented-and-day1`) took the coordinator's recommended
+default on each of the six it was handed. **Closed here: 1, 2, 3, 4, 5, 6, and the flaky
+LINEAR test.** The rest of the 2026-09-18 list below is untouched and still open.
+
+Each closure is stated as what a new user now sees, measured on a blank store under a
+throwaway `HOME` on the branch:
+
+- **1 — keyless doctor.** RED became AMBER **only on a store that has never had a key**.
+  The discriminator is the store's own evidence rather than a marker file: one `gate.chunk`
+  row ever proves the interpreter worked here, and a key that was here and has gone is
+  still the red it was written for. The amber says what works without a key and what a key
+  would add. The `SessionStart` notice goes quiet with it, because a notice needs a red —
+  which also closes finding 8 by removing the truncated sentence rather than by shortening
+  it. The Embedder line says the same for lexical recall. *This is the owner's option (a).*
+- **2 — `fired`'s 28 `never` lines.** One day-1 line, then only what has fired and anything
+  blocked. `young` is a fact on the report, so the console, doctor and the dashboard share
+  one definition — and **both clocks must agree**, so a store whose worker died a fortnight
+  ago still gets the full list, which is its diagnosis. `counterparts fired --all` is the
+  escape hatch. Doctor's Fired line says "too new to grade"; Authorship stands its two
+  ambers down on a young store for the same reason (both are ratios).
+- **3 — `status`.** The census leads, the prose follows, `Layout:` is behind `--layout`.
+  Two new lines carry the day's facts: new today, lived day, last active, last boundary,
+  self page, newest snapshot, journal mode, removed, permanent.
+- **4 — nothing checked the two host steps.** A `Host` line reads `~/.claude/settings.json`
+  and the three other places a hooks block can land (they merge), plus the user-scope MCP
+  registration in `~/.claude.json`, honouring `CLAUDE_CONFIG_DIR`. Amber, never red, and it
+  always names the files it read. **The owner's other option — a "your first session should
+  look like this" paragraph in QUICKSTART §4 — is not done and is still worth doing.**
+- **5 — `tools/install-loop/run.sh`.** `npm pack`'s stderr no longer shares the pipe the
+  tarball name is read from. The step count is unchanged, so `test/install-loop.test.ts`'s
+  52 is untouched.
+- **6 — `doctor --dir` under the guard.** `--dir` is a name, so the store is graded; the
+  default configuration beside it is not opened at all (its `credentialsFile` is what the
+  guard protects), and one amber says which questions therefore went unasked.
+- **the flaky LINEAR test** (`docs/adversarial-review-f5a-2026-09-20.md` NIT, and a failure
+  on master whenever the machine is busy). Rewritten as a growth ratio — and that
+  immediately failed, because **the sentinel search really was quadratic**: it cut its slice
+  at the next newline, and `indexOf` costs the distance it travels. Fixed, and measured.
+
+**Still open from the list below:** 7 (rebrief's two byte counts — already fixed in N2's own
+PR), 9 (Vectors counts the identity core, and its fix line is jargon — **untouched here on
+purpose, and now the most visible remaining day-1 wart**: it is the one amber on a blank
+store that neither explains itself nor can be acted on), 10 (README's stale suite numbers),
+11 (§3 says unbounded is supported, §7's command refuses), 12 (the hook path looks like a
+clone path), 13 (no uninstall — N1's), 14, 15, 16.
+
+**Two things an adversarial read caught before this merged, worth recording because both
+were the same mistake — a surface that says MORE reading SAFER than it did before:**
+
+- The first draft read the whole of each sleep phase's `skipped` map as refusals. That map
+  mixes candidate FILTERS (`journal`, `archived`, `schema`) with real refusals, so on the
+  owner's own store — fourteen journal chapters, nothing at the floor — prune would have
+  reported `blocked, most often journal ×14` **every single week**, for a phase working
+  perfectly. Each phase namespaces its real refusals (`promotion:`, `blocked:`,
+  `left-alone:`), and only that namespace is read. Decay has no refusal namespace at all
+  and so has no refusal column.
+- `blocked` outranks `quiet` in the state machine, so a mechanism that fired last week and
+  was refused every day this week left `wentQuiet` — and doctor's Fired line, which graded
+  on that list alone, would have gone **green** for it where it was amber before. There is
+  a `wentBlocked` list now and the finding grades on both.
+
+**Three new ones, found while closing these:**
+
+- **A. `counterparts fired` has no `--json`.** It has `--all` now, which is what the day-1
+  line points at, but every other read-only command that renders a structure offers `--json`
+  and this one does not. *Severity:* NIT. *Disposition:* a choice for the owner.
+- **B. `status`'s `Today` count had to be computed inside the census walk.**
+  `countMemories({ learnedOnFrom })` counts removed and superseded rows, so the first draft
+  printed `2 new` beside `Memories: 1`. Worth knowing that the filter and the census answer
+  different populations. *Severity:* NIT (fixed here), but the store's `MemoryFilter` has no
+  way to ask the census's question, which is a real gap.
+- **C. The `Host` line depends on paths that are not ours.** `~/.claude.json` is documented
+  as a file the host writes for itself. Everything here is written so a moved path reads "I
+  looked here and did not find it" — but it will eventually read that wrongly, and the fix
+  when it does is to re-verify the paths, not to delete the line. *Severity:* NIT.
+
+---
+
 ## 2026-09-18 — N2, the first stranger's dry run (hermetic, no live Claude Code)
 
 An agent followed `README.md` and then `docs/QUICKSTART.md` literally, top to bottom, in a
@@ -63,7 +143,7 @@ a trusting one goes and buys an API key the docs told them they did not need.
 
 *Severity:* CONFUSING (it is the first thing the product says to a new user).
 
-*Disposition:* **a choice for the owner.** Three ways out: (a) `doctor` grades the missing
+*Disposition:* **CLOSED 2026-09-20 by option (a)** — see the section above. Three ways out: (a) `doctor` grades the missing
 interpreter key **amber** on a store that has never had one, and keeps red for the case it
 was built for — a key that went away on a store that was using it; (b) keep it red and stop
 calling no-key a supported mode, saying plainly in §1 and §6 that day-1 `doctor` is red
@@ -94,7 +174,7 @@ four numbers they came for are buried above it. §7 describes the first line car
 never mentions the Layout block at all, so the page and the command disagree about what
 this command is.
 
-*Severity:* CONFUSING. *Disposition:* **a choice for the owner** — the layout block behind
+*Severity:* CONFUSING. *Disposition:* **CLOSED 2026-09-20** — the layout block behind
 a `--layout` flag (or `--verbose`), or shortened to one line per directory with no file or
 section references, or left alone and described in §7 so it is not a surprise.
 
@@ -112,7 +192,7 @@ neither surface says so. Twenty-eight "never" lines is what a broken install wou
 like, and there is nothing on the page telling the reader that this is the expected day-1
 reading.
 
-*Severity:* CONFUSING. *Disposition:* **a choice for the owner** — `fired` opens with one
+*Severity:* CONFUSING. *Disposition:* **CLOSED 2026-09-20 (the first option, and more)** — `fired` opens with one
 line when the store has lived zero days ("this store is N days old; nothing has fired
 because nothing has happened yet"), or QUICKSTART gains a sentence saying so, or both.
 
@@ -132,7 +212,7 @@ you restart, here is how you know": no `/mcp` check, no "ask the assistant to ca
 *Why a new user stalls:* the failure mode is silence. The product's own §4 says a hook that
 stands down "says so on stderr and exits 0 … and no hook will tell you."
 
-*Severity:* CONFUSING. *Disposition:* **a choice for the owner** — a
+*Severity:* CONFUSING. *Disposition:* **HALF CLOSED 2026-09-20** — the
 `doctor` "Host" line that reads the settings file and the MCP registration and says which
 of the five events it found; or a short "your first session should look like this"
 paragraph in §4 (what the assistant sees, what `/mcp` should list); or both. The second is
@@ -204,7 +284,7 @@ Two runs truncated at slightly different points (`it is …` and `it is neve…`
 what gets cut. The trailing `run: counterparts doctor` survives, so it is recoverable —
 but the first impression is a truncated error.
 
-*Severity:* ROUGH. *Disposition:* **a choice for the owner** — shorten the fix sentence so
+*Severity:* ROUGH. *Disposition:* **CLOSED 2026-09-20, sideways** — finding 1 removed the notice from a keyless store entirely, so the truncated sentence is no longer printed. It would still truncate on a store that HAS lost its key; shorten the fix sentence so
 it fits the budget, or put the shortest form (`counterparts credentials set
 ANTHROPIC_API_KEY`) first and the parenthetical last so the cut falls on the optional part.
 
@@ -327,7 +407,7 @@ it would use, and `counterparts status` is the command for people.
 *What happened:* 52/52 pass in **4 s** on this machine.
 
 *Severity:* NIT. *Disposition:* **a choice for the owner** — widen to "a few seconds", or
-leave it. Not changed here: `test/install-loop.test.ts` pins the number 52 in that same
+leave it. (The one-in-five `npm pack` flake behind the variance is fixed as of 2026-09-20.) Not changed here: `test/install-loop.test.ts` pins the number 52 in that same
 sentence, so it is worth touching once rather than twice.
 
 ### What this dry run could not check
