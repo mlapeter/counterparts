@@ -43,6 +43,8 @@ import { readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import { TOOL_NAMES, openServer, toolSpec } from "../src/adapters/mcp/index.js";
+import { openAdapter } from "../src/adapters/claude-code/index.js";
+import { canonicalScope } from "../src/adapters/sessions.js";
 
 const HERE = "/tmp/placeholder-project-a";
 const THERE = "/tmp/placeholder-project-b";
@@ -725,5 +727,102 @@ describe("the field on the session_end ask", () => {
     });
     expect(summary.credited).toBe(0);
     expect(s.counterpart.store.row(id)?.uses).toBe(0);
+  });
+});
+
+// ── the two ends meet ───────────────────────────────────────────────────────
+
+/**
+ * THE ONE TEST WHERE THE WRITER AND THE READER ARE DIFFERENT PROCESSES' CODE.
+ *
+ * Everywhere above, both ends are handed the same literal string, so the scope
+ * match is asserted against itself. The live path is not that: the MCP server
+ * canonicalises the directory the host named at launch (`hostScope` ->
+ * `canonicalScope`) and writes it into `meta.scope`; the SessionStart hook gets
+ * its own from the session registry or `startDirectory`, canonicalised by the
+ * same function, and `findHandoffRow` compares the two as exact strings. On
+ * this platform `/var` is a symlink to `/private/var`, so a temp directory is
+ * exactly the shape that would catch the two ends disagreeing.
+ */
+describe("the session that writes it and the session that reads it", () => {
+  test("written through the ask in a directory, handed back at the next wake there", async () => {
+    // A real directory, named the way a host names one — unresolved.
+    const here = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
+    try {
+      const s = openServer({ dir, session: "sess_a", scope: here, owner: true });
+      open.push(s.counterpart);
+      await s.call("session_end", {
+        session: "sess_a",
+        memories: [{ content: "The empty-input case is the one still failing in the rewrite." }],
+        handoff: BODY,
+      });
+      await s.counterpart.sessionEnd({ date: "2026-09-20", budgetBytes: 9_000 });
+      s.counterpart.close();
+      open.length = 0;
+
+      // A DIFFERENT adapter, in a different process's shape, given the scope the
+      // hook entry point would have resolved.
+      const a = openAdapter(
+        { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+        { command: "/bin/true", args: ["runner"] },
+      );
+      open.push(a.counterpart);
+      const out = a.sessionStart({
+        sessionId: "sess_b",
+        scope: canonicalScope(here),
+        at: "2026-09-20",
+      });
+      expect(out.ok).toBe(true);
+      expect(out.injection).toContain("Where I left off in this directory (2026-09-20):");
+      expect(out.injection).toContain(BODY);
+      // The sentinel the hook records as the delivery expectation is the
+      // DELIVERED one — the pointer included.
+      expect(out.sentinel).toContain(`bytes=${out.bytes}`);
+      expect(out.injection.trimEnd().endsWith(out.sentinel as string)).toBe(true);
+      // And the durable row says a session was handed it, not merely that one
+      // existed (scar §2.3).
+      const row = a.counterpart.store
+        .eventLog({ limit: 200 })
+        .find((r) => r.name === HANDOFF_SHOWN_EVENT);
+      expect(row).toBeDefined();
+      expect((JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)["session"]).toBe(
+        "sess_b",
+      );
+    } finally {
+      rmSync(here, { recursive: true, force: true });
+    }
+  });
+
+  test("a session waking in a NEIGHBOURING directory is handed nothing", async () => {
+    const here = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
+    const there = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
+    try {
+      const s = openServer({ dir, session: "sess_a", scope: here, owner: true });
+      open.push(s.counterpart);
+      await s.call("session_end", {
+        session: "sess_a",
+        memories: [{ content: "The empty-input case is the one still failing in the rewrite." }],
+        handoff: BODY,
+      });
+      await s.counterpart.sessionEnd({ date: "2026-09-20", budgetBytes: 9_000 });
+      s.counterpart.close();
+      open.length = 0;
+
+      const a = openAdapter(
+        { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+        { command: "/bin/true", args: ["runner"] },
+      );
+      open.push(a.counterpart);
+      const out = a.sessionStart({
+        sessionId: "sess_b",
+        scope: canonicalScope(there),
+        at: "2026-09-20",
+      });
+      expect(out.injection).not.toContain("Where I left off");
+      expect(eventNames(a.counterpart.store)).not.toContain(HANDOFF_SHOWN_EVENT);
+    } finally {
+      rmSync(here, { recursive: true, force: true });
+      rmSync(there, { recursive: true, force: true });
+    }
   });
 });

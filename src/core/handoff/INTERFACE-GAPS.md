@@ -61,7 +61,21 @@ one — shaped like `counterparts self-page`. It was left out rather than guesse
 owner has not used this mechanism yet, and the first thing he wants from it is not a thing
 to decide in advance (constitution line 15).
 
-## 5. No host but Claude Code passes a scope at wake
+## 5. Every handoff row is one more file `Schemas.load` reads at open
+
+**Owner:** `store/` (F5 closes it).
+**Needed:** nothing — this is recorded, not worked around.
+**Have:** `Schemas.load` reads every `type: "schema"` row's prose at open, and on a v5 store
+a missing prose file throws `PROSE_FILE_MISSING` from `Counterpart.open` before anything
+else runs: the session stands down and doctor reads RED. That is the self page's hazard
+(`docs/adversarial-review-s1c-2026-09-20.md` MAJOR-1), and a handoff row is one more of the
+same, once per directory the owner works in.
+
+**The real fix is F5**, which moves bodies into rows and removes the class. Nothing is done
+here: adding a second read path for one row would be machinery bought against a failure that
+is already being fixed at its root.
+
+## 6. No host but Claude Code passes a scope at wake
 
 **Owner:** whoever writes the next adapter.
 **Needed:** `Counterpart.wake(budget, delivery, here)`'s third argument.

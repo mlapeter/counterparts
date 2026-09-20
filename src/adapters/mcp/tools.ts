@@ -428,7 +428,7 @@ const SESSION_END: ToolSpec = {
       handoff: {
         type: "string",
         description:
-          "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two. The next session in this directory sees a one-line pointer to it at its wake and can expand it by id; it replaces whatever handoff this directory had, and stops showing after about two weeks of use. Leave it out when nothing here is unfinished.",
+          "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two. The next session in this directory sees a one-line pointer to it at its wake and can expand it by id; it stops showing after about two weeks of use. Setting it REPLACES whatever handoff this directory had — so if an earlier handoff said the work was half done and it is now finished, say that: 'nothing unfinished here' is a real handoff and is the only way to retire a stale one. Leaving it out leaves the previous one standing.",
       },
       memories: {
         type: "array",

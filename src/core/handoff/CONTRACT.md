@@ -122,6 +122,13 @@ does not log its own refusal) · **§13 G3** (one ask at the blocked moment).
 2. **Is a fortnight right?** `HANDOFF_LIFE_DAYS` is a guess with a reason, not a measurement.
    The row to watch is `handoff.shown`'s `ageDays`: if pointers are only ever read within a
    day or two, the life is too long and the cost is context nobody uses.
-3. **Should an expired row be archived rather than left to the prune?** Today it sits live
+3. **A stale pointer has no cheap retirement.** The ask fires up to six times a session, so
+   a session can write "half done" early and finish the work by the last ask — and the only
+   way to retire that pointer is to write another one. `empty` is refused, and there is no
+   owner command (INTERFACE-GAPS §4). The tool's description now says out loud that "nothing
+   unfinished here" is a real handoff and the only retirement there is, which is a sentence
+   rather than a mechanism. If pointers are seen going stale in real use, the mechanism is a
+   clear verb on the field, not a shorter life.
+4. **Should an expired row be archived rather than left to the prune?** Today it sits live
    and unread for the 90 lived days `D_FLOOR_DAYS` asks for. That is correct and it is also
    a row `list()` walks for three months after it stopped mattering.
