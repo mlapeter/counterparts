@@ -264,8 +264,32 @@ export const LAYOUT: readonly LayoutEntry[] = [
   {
     name: "journal",
     match: "exact",
-    backup: true,
-    why: "The counterpart's diary, ALSO written as markdown files as each chapter lands (owner, 2026-09-17 §15 item 9). The chapters themselves are rows like every other memory; this is a copy, kept because plain files outlive the system that wrote them. CLASSIFIED HERE BEFORE ANYTHING WRITES IT, on purpose: v1 lost its canonical episode journal from every snapshot for three weeks by classifying the directory after the code that made it (scar §2.11).",
+    // NOT BACKED UP, since 2026-09-20 (f6f7 review MAJOR-5). It was `true` for
+    // the two days between F6 landing and that review, on the reasoning that a
+    // directory the owner is invited to read should ride along with a copy of
+    // the store. What the review measured is the cost of that: every rotating
+    // snapshot held every episode's words as plain greppable markdown, so a
+    // removal that emptied the live store byte for byte left the removed
+    // chapter readable in fourteen copies — and a database inside an old
+    // snapshot is a file somebody must know to open, while a `.md` inside one
+    // is a search result, a Spotlight hit, a synced folder's problem.
+    //
+    // It costs NOTHING to stop copying it, which is the whole argument: the
+    // files are DERIVED. The snapshot carries the rows; the first backfill pass
+    // on a restored store writes every file again, and `test/cli.test.ts`
+    // proves that on a store with more episodes than one ordinary pass's
+    // budget. Scar §2.11 is not in play — that scar is about losing the
+    // CANONICAL journal from every backup for three weeks, and this journal is
+    // canonical in the database.
+    //
+    // Still CLASSIFIED, which is the half of §2.11 that does apply: an
+    // unclassified top-level path refuses the store at open, and
+    // `snapshots.ts#looksCopied` keys on classification rather than on this
+    // flag, so rotation of copies already on disk is unaffected.
+    // [F8: the store CONTRACT's §5 G11 line should carry "classified is not the
+    // same question as backed up", which this entry is now the example of.]
+    backup: false,
+    why: "The counterpart's diary, ALSO written as markdown files as each chapter lands (owner, 2026-09-17 §15 item 9) — a COPY, kept because plain files outlive the system that wrote them. The chapters themselves are rows like every other memory, so this directory is derived: it is not backed up, and a restored store regenerates every file from its rows at the next boundary. Deliberately excluded rather than merely absent: copying it put removed episodes' words into every rotating snapshot as plain greppable markdown (f6f7 review MAJOR-5).",
   },
   {
     name: "sessions",

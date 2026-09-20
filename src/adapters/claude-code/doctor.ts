@@ -62,6 +62,10 @@ import { SELF_TUNABLES } from "../../core/self/tunables.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
 import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
 import {
+  JOURNAL_COPY_FAILED_EVENT,
+  JOURNAL_COPY_WRITTEN_EVENT,
+} from "../../core/self/journal-file.js";
+import {
   hasDayBefore,
   lastPageWriterRun,
   pageWriterAbout,
@@ -1774,6 +1778,46 @@ function vectorFindings(store: Store): Finding[] {
 }
 
 /**
+ * THE JOURNAL'S MARKDOWN COPY (2026-09-20, F6) — A LINE ONLY WHEN ONE IS OWED.
+ *
+ * This group returns NOTHING in the ordinary case, which is the deliberate part.
+ * The copy is derived: it is rewritten on every chapter and refilled at every
+ * boundary, so "how many files are there" is a number nobody needs and a
+ * permanently green line here would be one more row the owner learns to skip
+ * (the same argument `snapshotFindings` makes about a permanently amber one).
+ *
+ * The one reading worth a line is a STANDING failure: the newest
+ * `journal.copy.failed` row is newer than the newest `journal.copy.written`,
+ * which means the last attempt did not land and the next one has not fixed it.
+ * Amber, never red — the chapter itself is a row in the database and is not at
+ * risk, which is exactly what the detail says.
+ */
+export function journalCopyFindings(store: Store): Finding[] {
+  const day = store.livedDay();
+  const failed = newestRows(store, JOURNAL_COPY_FAILED_EVENT, 1, day);
+  if (failed.unknown || failed.rows.length === 0) return [];
+  const newestFailed = failed.rows[failed.rows.length - 1] as EventRow;
+  const written = newestRows(store, JOURNAL_COPY_WRITTEN_EVENT, 1, day);
+  const newestWritten = written.rows[written.rows.length - 1];
+  // A later success is the fix, and a fixed fault is not a line.
+  if (newestWritten !== undefined && newestWritten.seq > newestFailed.seq) return [];
+  const payload = payloadOf(newestFailed);
+  const reason = typeof payload["reason"] === "string" ? payload["reason"] : "no reason recorded";
+  const on = typeof payload["date"] === "string" ? payload["date"] : "(date unrecorded)";
+  const episode = newestFailed.ref ?? "(unrecorded)";
+  return [
+    finding(
+      "journal-copy",
+      "amber",
+      "Journal copy",
+      `the readable copy of the journal could not be written on ${on} (${episode}: ${reason}), and nothing has written one since. The chapters themselves are rows in the database and are unharmed.`,
+      "Check that the store directory is writable; the next chapter or the next session boundary writes it again, and deleting journal/ loses nothing.",
+      { episode, reason, on },
+    ),
+  ];
+}
+
+/**
  * THE SELF PAGE (2026-09-18, S1) — one line: is there one, how big, how old.
  *
  * GREEN when absent, amber when stale, and never red. A store with no page has
@@ -2391,6 +2435,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ...(unread ? [] : [["snapshot", (): Finding[] => snapshotFindings(input, store)] as const]),
     ["self-page", () => selfPageFindings(store)],
     ["page-writer", () => pageWriterFindings(store, input.config)],
+    // F6: silent unless a copy failure is standing. Two bounded event reads.
+    ["journal-copy", () => journalCopyFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

@@ -374,6 +374,24 @@ proposals and their archive; render and delivery telemetry.
     calls. A writer failure costs the writer: it never fails a wake, a boundary or a
     session, and with the writer off or never run the wake is byte-identical to a build
     without it (asserted).
+21. **[M]** **THE JOURNAL HAS A MARKDOWN COPY, AND IT IS DERIVED, WRITE-ONLY AND
+    DISPOSABLE** (F6, 2026-09-20; owner decision 2 of 2026-09-17 §15 item 9, ruling 2 of
+    2026-09-18). One `.md` per episode under `<store>/journal/<YYYY>/`, rendered by
+    `store/render.ts#renderMarkdown` and by nothing else — as is, no summary, front matter
+    limited to what identifies the episode. Four properties, each asserted: **nothing in
+    `src/` reads a copy back** (the row is the truth); **deleting `journal/` loses nothing**
+    — the next chapter, or the detached worker's next bounded backfill pass (`Self.boundary`
+    is the consolidation cycle's last content write, not the Stop hook), writes it again; **a copy
+    never fails a session** — it cannot throw, and a failure is a durable
+    `journal.copy.failed` row with a reason code while the chapter itself is already
+    committed; **an observer writes neither the file nor the row**. Written atomically
+    (temp beside it, then rename) because a crashed rename otherwise leaves a chapter's
+    words in a file nothing owns. **The directory is classified but NOT backed up** (f6f7
+    review MAJOR-5): copying a derived directory put removed episodes' words into every
+    rotating snapshot as plain markdown, and a restored store regenerates every file from
+    its rows at the next boundary. *This is the one module in `self/` that treats `Store.dir` as
+    a filesystem root; `remember/spans.ts` is the precedent.* The owner's `remove` chases it
+    as a named surface — see `adapters/cli/CONTRACT.md`.
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.

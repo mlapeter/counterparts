@@ -28,7 +28,16 @@ owner owns the data.
   §16 G13 — v1 named this bug: chasing copies first made every span unidentifiable.
 - **Chase every surface, including the derived association graph.** [v1] §16 G14 — an
   erased id left in the learned graph keeps *conducting* activation between its former
-  neighbors.
+  neighbors. **The surfaces on the rows floor are: the row and its versions (blanked in one
+  transaction), the edges, the prospective windows, the gate rows, box 3, both databases'
+  write-ahead logs and freed pages, `remember/`'s span buffer, and — since 2026-09-20 —
+  `journal/`, the episode journal's derived markdown copy.** Each is named in the report at
+  its count, **including at zero**: a surface that is silent when it is empty is the silent
+  partial success below. A copy the chase cannot reach is named under `unchased` with a
+  sentence saying what is still where; a chapter of the counterpart's own journal that
+  merely QUOTES the removed words is named under `leftAlone`, by episode id, the way a spans
+  echo is — nothing failed to be reached, and removing an account of a day is its own
+  decision with its own id.
 - **No silent partial success**, and a contamination scan returns **ids only** — printing
   the matches would re-leak exactly what is being erased. [v1] §16 G15.
 - **Removal targets are restricted to memory-bearing roots.** [v1] §16 G16 — the archive,
@@ -134,6 +143,23 @@ snapshots and exports; the removal record; telemetry by reference.
 7. **[M] `export` is the only egress**, and it is explicit, encrypted, and owner-keyed. A
    test asserts no other module opens a network socket to a non-model, non-embedding
    endpoint.
+   *Extended 2026-09-20 (F7, owner ruling 4 of 2026-09-18).* It takes two shapes and the
+   report names which ran: the whole store as one SQLite file through `VACUUM INTO`, or
+   `--markdown`, a readable tree — one file per memory grouped by kind, the journal as is,
+   the self page as its own file, `--with-versions` for every earlier wording. **Filenames
+   are ids, never titles.** The markdown tree **omits confidential rows unless
+   `--include-confidential`, and says how many it omitted** — in the terminal and in a
+   manifest inside the tree, at zero as well, because a directory that does not say what
+   is missing from it reads as complete. Removed rows are never exported; a row that will
+   not render is named by its id rather than silently absent. **`--markdown --passphrase`
+   is supported properly** — the tree is rendered into memory, sealed, and only then
+   written, so that path has no scratch anywhere. It refuses a non-empty target unless
+   told, refuses a target inside the store or a live v1 store, and refuses a store this
+   build cannot open in the floor's own sentence, touching nothing on either side. One
+   durable `store.export` row carries counts and flags and **not the target path**.
+   *`export` is NOT on `OWNER_OPS` (2026-09-20): an export reads the store and writes
+   outside it, so under `--observer` the copy is made, the durable row is not, and the
+   report says which.*
 8. **[M] Backups never leave the machine and never throw** — a backup problem must not
    block a consolidation cycle.
 9. **[M] Reads are pure.** Inspecting the protected list or the census writes nothing and
