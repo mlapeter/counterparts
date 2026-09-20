@@ -1281,7 +1281,7 @@ describe("the adapter's surface", () => {
       expect(out).toContain("observer mode");
     }
     expect(readdirSync(untouched)).toEqual(before);
-    expect(existsSync(join(untouched, "operational.sqlite"))).toBe(false);
+    expect(existsSync(join(untouched, "counterparts.sqlite"))).toBe(false);
     rmSync(untouched, { recursive: true, force: true });
   });
 

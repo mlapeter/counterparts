@@ -1665,7 +1665,7 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
     // gone and NOTHING says who took it. There is no store API for this, and
     // there should not be — the chase is the only thing that blanks a pointer
     // on purpose — so the test writes it the way the damage would.
-    const db = new Database(join(dir, "operational.sqlite"));
+    const db = new Database(join(dir, "counterparts.sqlite"));
     db.run("UPDATE memories SET prose_path = '' WHERE id = ?", [ids.second]);
     db.close();
 

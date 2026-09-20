@@ -148,7 +148,7 @@ function seeded(): Counterpart {
 function fakeSnapshot(name: string, where = snapsDir): string {
   const path = join(where, name);
   mkdirSync(path, { recursive: true });
-  writeFileSync(join(path, "operational.sqlite"), "not really a database");
+  writeFileSync(join(path, "counterparts.sqlite"), "not really a database");
   return path;
 }
 
@@ -532,7 +532,7 @@ describe("one run", () => {
     expect(report.files).toBeGreaterThan(0);
 
     // The copy is a real store, and the memory is in it.
-    const copy = openDb(join(snapsDir, report.name as string, "operational.sqlite"));
+    const copy = openDb(join(snapsDir, report.name as string, "counterparts.sqlite"));
     expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
     copy.close();
 
@@ -545,7 +545,7 @@ describe("one run", () => {
     expect(p["name"]).toBe(report.name);
     expect(p["kept"]).toBe(1);
     expect(p["mirror"]).toBe("off");
-    const inside = openDb(join(snapsDir, report.name as string, "operational.sqlite"));
+    const inside = openDb(join(snapsDir, report.name as string, "counterparts.sqlite"));
     const seen = inside.all<{ name: string }>("SELECT name FROM events").map((r) => r.name);
     expect(seen).not.toContain(SNAPSHOT_TAKEN_EVENT);
     inside.close();
@@ -558,7 +558,7 @@ describe("one run", () => {
     // Prose is canonical on today's floor; a database-only snapshot would be the
     // scar §2.11 incident again.
     expect(existsSync(join(copied, "prose"))).toBe(true);
-    expect(existsSync(join(copied, "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(copied, "counterparts.sqlite"))).toBe(true);
     // Box 3 is classified as excluded and must NOT be there.
     expect(existsSync(join(copied, "cache"))).toBe(false);
   });
@@ -833,12 +833,12 @@ describe("one run", () => {
     expect(verifyCopy(candidate, 0)).toContain("no files");
     // Files, but no database.
     writeFileSync(join(candidate, "something.md"), "prose");
-    expect(verifyCopy(candidate, 1)).toContain("no operational.sqlite");
+    expect(verifyCopy(candidate, 1)).toContain("no counterparts.sqlite");
     // A database that is there and empty.
-    writeFileSync(join(candidate, "operational.sqlite"), "");
+    writeFileSync(join(candidate, "counterparts.sqlite"), "");
     expect(verifyCopy(candidate, 2)).toContain("is empty");
     // A database that is not one.
-    writeFileSync(join(candidate, "operational.sqlite"), "this is not a database");
+    writeFileSync(join(candidate, "counterparts.sqlite"), "this is not a database");
     expect(verifyCopy(candidate, 2)).toMatch(/would not open|did not verify/);
 
     // And a real snapshot passes, which is the arm that must not be broken.
@@ -872,7 +872,7 @@ describe("a half-copy is never a snapshot", () => {
     // today's instant, with a torn tree inside it.
     const abandoned = join(snapsDir, `${PARTIAL_PREFIX}2026-09-18T09-00-00-000Z-4242`);
     mkdirSync(join(abandoned, "prose"), { recursive: true });
-    writeFileSync(join(abandoned, "operational.sqlite"), "half a database");
+    writeFileSync(join(abandoned, "counterparts.sqlite"), "half a database");
 
     // It is not a snapshot: not counted toward `keep`...
     expect(snapshotNamesIn(snapsDir)).toEqual([]);
@@ -967,7 +967,7 @@ describe("a snapshot can actually be restored", () => {
     const c = seeded();
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
     const copy = join(snapsDir, report.name as string);
-    const db = join(copy, "operational.sqlite");
+    const db = join(copy, "counterparts.sqlite");
     // WHICH FLOOR THIS RAN ON, recorded rather than assumed. Since F1 the source
     // is WAL and this is the interesting case — a copy that inherited the
     // source's mode would be a copy that cannot be opened on read-only media.
@@ -1022,7 +1022,7 @@ describe("the mirror", () => {
     expect(report.reason).toBe("taken");
     expect(report.mirror?.ok).toBe(true);
     const name = report.name as string;
-    expect(existsSync(join(mirror, name, "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(mirror, name, "counterparts.sqlite"))).toBe(true);
     // Its own rotation: three old plus the new one, keeping two.
     expect(snapshotNamesIn(mirror)).toEqual(["2026-09-03T00-00-00-000Z", name]);
     // No partial left in the mirror either.

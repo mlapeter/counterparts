@@ -108,7 +108,7 @@ afterEach(() => {
 function fakeSnapshot(name: string): void {
   const path = join(root, "snapshots", name);
   mkdirSync(path, { recursive: true });
-  writeFileSync(join(path, "operational.sqlite"), "a copy");
+  writeFileSync(join(path, "counterparts.sqlite"), "a copy");
 }
 
 /** A real store at `dir`, minted the way every other surface mints one. */
@@ -879,9 +879,9 @@ describe("doctor — the reading", () => {
     // the mode back. `VACUUM INTO` writes a fresh database in the default mode.
     const at = mkdtempSync(join(tmpdir(), "counterparts-doctor-delete-"));
     try {
-      const src = openDb(join(dir, "operational.sqlite"));
+      const src = openDb(join(dir, "counterparts.sqlite"));
       try {
-        src.exec(`VACUUM INTO '${join(at, "operational.sqlite")}'`);
+        src.exec(`VACUUM INTO '${join(at, "counterparts.sqlite")}'`);
       } finally {
         src.close();
       }
@@ -895,7 +895,7 @@ describe("doctor — the reading", () => {
       expect(amber.fix).toContain("converts it");
       // AND THE READING CONVERTED NOTHING. A console that fixed the thing it was
       // asked to report would be writing while standing down.
-      expect(journalModeOf(join(at, "operational.sqlite"))).toBe("delete");
+      expect(journalModeOf(join(at, "counterparts.sqlite"))).toBe("delete");
     } finally {
       rmSync(at, { recursive: true, force: true });
     }

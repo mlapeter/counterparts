@@ -29,7 +29,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { gunzipSync, gzipSync } from "node:zlib";
 import { join, relative } from "node:path";
 
-import { paths } from "../../core/store/index.js";
+import { DATABASE_FILE, paths } from "../../core/store/index.js";
 import type { Store } from "../../core/store/index.js";
 import { assertSafeTarget, vacuumInto } from "./snapshot.js";
 
@@ -77,7 +77,7 @@ function collect(store: Store, tmpDb: string): Bundle {
   // THE DATABASE GOES THROUGH VACUUM INTO, even here. §2.11 does not care
   // whether the file copy is labelled "backup" or "export".
   const copied = vacuumInto(paths.operational(store.dir), tmpDb);
-  if (copied.ok) bundle.set("operational.sqlite", readFileSync(tmpDb));
+  if (copied.ok) bundle.set(DATABASE_FILE, readFileSync(tmpDb));
   return bundle;
 }
 
@@ -216,7 +216,7 @@ function plaintextReadme(files: number, bytes: number): string {
     `${files} files, ${bytes} bytes, written at the owner's explicit request with --plaintext.`,
     "",
     "- `prose/` — the memories themselves, Markdown, readable in any editor.",
-    "- `operational.sqlite` — canonical operational state, copied through SQLite's",
+    `- \`${DATABASE_FILE}\` — canonical operational state, copied through SQLite's`,
     "  own VACUUM INTO, never as a file copy of a live database.",
     "",
     "The rebuildable cache is deliberately not included: it is reconstructed from",

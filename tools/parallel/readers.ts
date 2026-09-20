@@ -695,8 +695,24 @@ function splitKeysOf(name: string, payload: Record<string, unknown>): string[] {
   return out;
 }
 
+/**
+ * v2's canonical database, under whichever name this data dir holds it.
+ *
+ * TWO SPELLINGS, on purpose. The file was `operational.sqlite` for the whole
+ * parallel run and is `counterparts.sqlite` from the floor change onward (owner
+ * ruling 5, 2026-09-18), and this tool has to read the owner's store on both
+ * sides of cut-over day without being re-pointed — a reader that silently
+ * stopped finding the store would report every day after the flip as "no v2
+ * store", which is the one answer that looks like data.
+ *
+ * The NEW name wins when both are present, and is what an empty directory is
+ * reported as missing, so a message names the spelling a store would have today.
+ */
 export function v2StorePath(dataDir: string): string {
-  return join(dataDir, "operational.sqlite");
+  const current = join(dataDir, "counterparts.sqlite");
+  if (existsSync(current)) return current;
+  const legacy = join(dataDir, "operational.sqlite");
+  return existsSync(legacy) ? legacy : current;
 }
 
 export interface V2DayOptions {

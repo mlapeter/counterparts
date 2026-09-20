@@ -169,7 +169,7 @@ function fingerprint(root: string): string {
   // sidecar until a checkpoint moves it into the file, so hashing the database
   // file alone would pass over the write this is watching for. (The `-shm` is
   // not: it is the index every reader writes read-marks into.)
-  for (const name of ["prose", "versions", "spans", "operational.sqlite", "operational.sqlite-wal"]) {
+  for (const name of ["prose", "versions", "spans", "counterparts.sqlite", "counterparts.sqlite-wal"]) {
     walk(join(root, name), name);
   }
   return parts.join("|");
@@ -512,12 +512,12 @@ describe("backup", () => {
     writer.exec("COMMIT");
     writer.close();
 
-    const db = report.copied.find((e) => e.name === "operational.sqlite");
+    const db = report.copied.find((e) => e.name === "counterparts.sqlite");
     expect(db?.method).toBe("vacuum-into");
     expect(db?.ok).toBe(true);
 
     // Open the copy and read a row written inside the pre-copy write window.
-    const copy = openDb(join(target, "operational.sqlite"));
+    const copy = openDb(join(target, "counterparts.sqlite"));
     const row = copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id);
     expect(row?.id).toBe(id);
     // And the uncommitted write is NOT in the copy: a consistent snapshot, not
@@ -570,7 +570,7 @@ describe("backup", () => {
     open.length = 0;
 
     // Exactly the live shape (live-verify 2026-08-25): a second process holds an
-    // open write transaction on operational.sqlite while the owner runs a
+    // open write transaction on counterparts.sqlite while the owner runs a
     // backup. Before the fix the CONSTRUCTOR wrote at open, hit the lock, and
     // threw "database is locked" out of `run()` — no report, no exit code, a
     // stack trace on the owner's terminal.
@@ -593,7 +593,7 @@ describe("backup", () => {
     expect(code).toBe(EXIT.ok);
     expect(text(c.out)).toContain("ok  ");
     const snapDir = join(outside, readdirSync(outside)[0] as string);
-    const copy = openDb(join(snapDir, "operational.sqlite"));
+    const copy = openDb(join(snapDir, "counterparts.sqlite"));
     expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
     copy.close();
   });
@@ -645,7 +645,7 @@ describe("export", () => {
 
     const proseFile = join(target, "prose", "memories", `${id}.md`);
     expect(readFileSync(proseFile, "utf8")).toContain("Readable in any editor.");
-    const copy = openDb(join(target, "operational.sqlite"));
+    const copy = openDb(join(target, "counterparts.sqlite"));
     expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
     copy.close();
     expect(readFileSync(join(target, "README.md"), "utf8")).toContain("UNENCRYPTED");
@@ -671,7 +671,7 @@ describe("export", () => {
     const opened = decryptBundle(blob, "correct horse battery");
     const prose = opened.get(`prose/memories/${id}.md`);
     expect(prose?.toString("utf8")).toContain(secret);
-    expect(opened.has("operational.sqlite")).toBe(true);
+    expect(opened.has("counterparts.sqlite")).toBe(true);
     expect(() => decryptBundle(blob, "wrong passphrase")).toThrow();
   });
 });

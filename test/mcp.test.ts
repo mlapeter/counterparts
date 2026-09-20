@@ -113,7 +113,7 @@ function seed(c: Counterpart): void {
 
 /**
  * A fingerprint of every CANONICAL byte: box 1 (prose + versions), box 2
- * (operational.sqlite) and the span buffer. Box 3 (`cache/`) is excluded by
+ * (counterparts.sqlite) and the span buffer. Box 3 (`cache/`) is excluded by
  * design — it is the declared rebuildable cache — and so is `tmp/`.
  */
 function fingerprint(root: string): string {
@@ -128,7 +128,7 @@ function fingerprint(root: string): string {
     hash.update(rel);
     hash.update(readFileSync(path));
   };
-  for (const name of ["prose", "versions", "spans", "operational.sqlite"]) {
+  for (const name of ["prose", "versions", "spans", "counterparts.sqlite"]) {
     walk(join(root, name), name);
   }
   return hash.digest("hex");

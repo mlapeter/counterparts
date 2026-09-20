@@ -67,6 +67,7 @@ import {
   realpathOr,
   scanTranscripts,
   transcriptFiles,
+  v2StorePath,
 } from "../tools/parallel/readers.js";
 import { preflightArtifacts, readBars, runPreflight } from "../tools/parallel/preflight.js";
 import { surfaceSetComponents, surfaceSetHash } from "../tools/parallel/surface.js";
@@ -1427,7 +1428,7 @@ describe("the v2 store reader", () => {
     buildStore(data, (s) => {
       s.put({ type: "memory", kind: "fact", body: "A synthetic fixture memory." });
     });
-    const path = join(data, "operational.sqlite");
+    const path = v2StorePath(data);
     const before = createHash("sha256").update(readFileSync(path)).digest("hex");
 
     const writable = new Database(path);
@@ -1466,7 +1467,7 @@ describe("the v2 store reader", () => {
       /STORE_NOT_PROVED_READ_ONLY/,
     );
     // And the store is untouched by the attempt.
-    const path = join(data, "operational.sqlite");
+    const path = v2StorePath(data);
     const db = new Database(path, { readonly: true });
     const names = (db.prepare("SELECT name FROM sqlite_master").all() as { name: string }[]).map(
       (r) => r.name,
@@ -1517,7 +1518,7 @@ describe("the v2 store reader", () => {
 
     // `Store.archive()` writes no versions row, so the old join could only ever
     // return zero — which is why the number was never a measurement.
-    const roDb = new Database(join(data, "operational.sqlite"), { readonly: true });
+    const roDb = new Database(v2StorePath(data), { readonly: true });
     const versions = roDb.prepare("SELECT COUNT(*) AS n FROM versions").all() as { n: number }[];
     roDb.close();
     expect(versions[0]?.n).toBe(0);

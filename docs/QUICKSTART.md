@@ -157,7 +157,7 @@ This command writes three things that are **yours**:
 └── store/                the memory itself — the default data dir
     ├── prose/            the memories, as Markdown you can read in any editor
     ├── versions/         prior versions of a memory that was revised
-    ├── operational.sqlite
+    ├── counterparts.sqlite
     ├── cache/            rebuildable index; losing it costs a re-index
     └── tmp/              staging for atomic writes
 ```

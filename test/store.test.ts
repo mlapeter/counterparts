@@ -1454,7 +1454,7 @@ describe("layout", () => {
         classified: true,
       });
     }
-    expect(s.backupSet().sort()).toEqual(["operational.sqlite", "prose", "spans", "versions"]);
+    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "prose", "spans", "versions"]);
     // The three rebuildable/ephemeral families: box 3, the write staging area,
     // and the adapters' live-session registry (`adapters/sessions.ts`).
     expect(LAYOUT.filter((e) => !e.backup).map((e) => e.name).sort()).toEqual([
@@ -1865,15 +1865,15 @@ describe("WAL, the busy timeout, and I39", () => {
     const id = s.put(mem("copied through SQLite's own snapshot path"));
     // The `-wal`/`-shm` are on disk while the store is open, and `LAYOUT`'s
     // database entry matches by PREFIX — so the store still opens (§5 G11).
-    expect(readdirSync(dir).filter((n) => n.startsWith("operational.sqlite-")).sort()).toEqual([
-      "operational.sqlite-shm",
-      "operational.sqlite-wal",
+    expect(readdirSync(dir).filter((n) => n.startsWith("counterparts.sqlite-")).sort()).toEqual([
+      "counterparts.sqlite-shm",
+      "counterparts.sqlite-wal",
     ]);
     for (const name of readdirSync(dir)) {
       expect({ name, classified: classifyTopLevel(name) !== undefined }).toEqual({ name, classified: true });
     }
     s.assertLayout();
-    expect(s.backupSet().sort()).toEqual(["operational.sqlite", "prose", "spans", "versions"]);
+    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "prose", "spans", "versions"]);
 
     // The copy route `backup` and `export` take, with an uncommitted write held
     // open across it — under WAL the committed row lives in the `-wal`, which is

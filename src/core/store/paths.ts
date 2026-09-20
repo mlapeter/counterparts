@@ -46,6 +46,22 @@ export const DEFAULT_DATA_DIR_NAME = ".counterparts";
 export const DEFAULT_STORE_SUBDIR = "store";
 
 /**
+ * The canonical database's file name (owner ruling 5, 2026-09-18).
+ *
+ * It was `operational.sqlite` while the memories themselves were markdown files
+ * beside it and the database held "the operational bits". Once the bodies are
+ * rows the name stops being true, and a name that lies is a name somebody will
+ * one day act on. There is no migration to worry about: the cut-over starts a
+ * blank store, and a directory holding the OLD name is refused by name before
+ * anything opens it (`STORE_PRE_ROWS`, `store/index.ts`).
+ *
+ * Spelled once. `LAYOUT` and `paths.operational` both read it, and
+ * `adapters/snapshots.ts` takes it from `basename(paths.operational("."))`
+ * rather than typing it a second time.
+ */
+export const DATABASE_FILE = "counterparts.sqlite";
+
+/**
  * Roots this repo may never write into: v1's live memory and its ancestor.
  * (CLAUDE.md "never touch the live stores"; scar §2.13 — a path guard resolves
  * both sides before it compares, so `~/.bansai/../.bansai/x` is caught too.)
@@ -239,7 +255,7 @@ export const LAYOUT: readonly LayoutEntry[] = [
     why: "Archived prior versions of canonical prose (archive-on-overwrite).",
   },
   {
-    name: "operational.sqlite",
+    name: DATABASE_FILE,
     match: "prefix",
     backup: true,
     why: "Box 2 — canonical operational state. Backed up as a database, not rebuilt.",
@@ -341,7 +357,7 @@ export const paths = {
   versionFile: (dir: string, id: string, seq: number, hash: string) =>
     join(dir, stored.versionFile(id, seq, hash)),
   tmp: (dir: string) => join(dir, "tmp"),
-  operational: (dir: string) => join(dir, "operational.sqlite"),
+  operational: (dir: string) => join(dir, DATABASE_FILE),
   cacheDir: (dir: string) => join(dir, "cache"),
   cache: (dir: string) => join(dir, "cache", "cache.sqlite"),
 } as const;
