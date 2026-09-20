@@ -39,7 +39,13 @@ import { tmpdir } from "node:os";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { join, relative } from "node:path";
 
-import { DATABASE_FILE, paths, renderMarkdown, rowTombstoned } from "../../core/store/index.js";
+import {
+  DATABASE_FILE,
+  confidentialByMeta,
+  paths,
+  renderMarkdown,
+  rowTombstoned,
+} from "../../core/store/index.js";
 import type { MemoryRow, ProseDoc, Store } from "../../core/store/index.js";
 import { isSelfPageRow } from "../../core/self/page.js";
 import { journalRelativePath } from "../../core/self/journal-file.js";
@@ -130,6 +136,9 @@ interface MarkdownCensus {
   readonly journal: number;
   readonly versions: number;
   readonly page: boolean;
+  /** Live rows that are ARCHIVED — faded, superseded or merged. Exported, and
+   *  counted so the manifest can say so. */
+  readonly archived: number;
 }
 
 /**
@@ -160,6 +169,15 @@ interface MarkdownCensus {
  * in the terminal report and in the manifest at the top of the tree. A removed
  * (tombstoned) row is never exported at all; it has no words left to export and
  * its id is on the deny-list.
+ *
+ * **ARCHIVED rows ARE exported**, and the manifest says how many. A memory that
+ * faded, was superseded or was merged is still the owner's own words, and an
+ * export that quietly dropped them would be a copy he could not tell was
+ * partial — the failure mode the confidential count exists to prevent, one class
+ * over. They are NOT marked file by file: the frontmatter is
+ * `renderMarkdown`'s, which carries the payload the row holds and not its
+ * physics, and that renderer is shared with the journal copy. A count in the
+ * manifest is the honest version of what this export knows.
  */
 function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; census: MarkdownCensus } {
   const bundle: Bundle = new Map();
@@ -170,6 +188,7 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     journal: 0,
     versions: 0,
     page: false,
+    archived: 0,
   };
   const counts = census as {
     rows: number;
@@ -178,6 +197,7 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     journal: number;
     versions: number;
     page: boolean;
+    archived: number;
   };
   const denied = new Set(store.deniedIds());
 
@@ -215,6 +235,7 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
     put(pathFor(store, row, doc), text);
     counts.rows += 1;
     if (row.type === "episode") counts.journal += 1;
+    if (row.archived === 1) counts.archived += 1;
     if (row.type === "schema" && isSelfPageRow(store, id)) counts.page = true;
 
     if (opts.versions !== true) continue;
@@ -227,10 +248,12 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
         continue;
       }
       // A version of a confidential row is confidential; the `versions` table
-      // has no column of its own, so the LIVE row's class governs and the
-      // version's own meta is asked too (a row can have become confidential, or
-      // stopped being, between wordings).
-      if (opts.includeConfidential !== true && confidentialDoc(prior)) {
+      // has no column of its own, so the LIVE row's class governs (the loop
+      // above has already skipped the whole row) and the version's own meta is
+      // asked too, through `confidentialByMeta` — the ONE truth table, never a
+      // second reading of the class in the egress door. A gate re-implemented
+      // at a call site is a gate that will one day fail open (store/index.ts).
+      if (opts.includeConfidential !== true && confidentialByMeta(prior.meta)) {
         counts.omittedConfidential += 1;
         continue;
       }
@@ -243,13 +266,6 @@ function collectMarkdown(store: Store, opts: ExportOptions): { bundle: Bundle; c
 
   put("README.md", markdownReadme(census, opts));
   return { bundle, census };
-}
-
-/** A version's own confidentiality, read off the meta it carries. */
-function confidentialDoc(doc: ProseDoc): boolean {
-  if (doc.meta["confidential"] === true) return true;
-  const klass = doc.meta["confidentiality"];
-  return typeof klass === "string" && klass.toLowerCase() !== "normal";
 }
 
 /** Where one row's markdown goes in the tree. Ids only; never a title. */
@@ -623,6 +639,11 @@ function markdownReadme(census: MarkdownCensus, opts: ExportOptions): string {
     "",
     "- `memories/<kind>/<id>.md` — one file per memory, grouped by kind. The file name is",
     "  the memory's id; the title, dates and everything else are in the frontmatter.",
+    census.archived === 0
+      ? "  None of them is archived: every memory here is a live one."
+      : `  ${String(census.archived)} of them ${census.archived === 1 ? "is" : "are"} ARCHIVED — faded, superseded or merged.` +
+        " They are still your words, so they are here; the files do not mark which," +
+        " and `counterparts status` is where that is readable.",
     census.page ? "- `self-page.md` — the written self page, as it stands." : "- `self-page.md` — absent: this store has no written self page.",
     "- `schemas/<id>.md` — the structured rows that are not the page (the identity core, beliefs).",
     `- \`journal/<year>/<date>-<id>.md\` — the first-person episode journal, as is: ` +

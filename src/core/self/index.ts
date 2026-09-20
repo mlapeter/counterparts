@@ -1104,10 +1104,18 @@ export class Self {
     //
     // A store whose `journal/` was deleted — or one whose episodes predate this
     // code, which is every store that existed before today — gets its copies
-    // back here, a bounded handful per boundary. It is AFTER the publish on
-    // purpose: the briefing is the boundary's job and a slow disk must not be
-    // able to delay it. Bounded twice (count and wall clock) because this runs
-    // inside a session's Stop hook.
+    // back here, a bounded handful per pass. It is AFTER the publish on purpose:
+    // the briefing is this method's job and a slow disk must not be able to
+    // delay it.
+    //
+    // WHERE THIS RUNS: `Self.boundary` is the consolidation cycle's last content
+    // write, through `core/briefing.ts#selfRenderer` — so this is the DETACHED
+    // WORKER, not the session's Stop hook (that calls `Counterpart.boundary`,
+    // which is a different method). Bounded twice all the same, because the
+    // worker is watchdogged and shares its cycle with decay, dedup and the
+    // prune. The honest consequence is in `journal-file.ts`: a long-standing
+    // store fills over many worker runs, and the chapter door is what keeps a
+    // live one current.
     this.backfillJournal(req.day);
     return { briefing, schema, published: true, reason: "published", hash };
   }

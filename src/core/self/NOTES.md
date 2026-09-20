@@ -735,9 +735,19 @@ a `journal.copy.failed` row rather than an exception.
    (`journalFileEpisodeId`), and a sweep bounded by mtime — bounded for exactly
    the reason `cli/export.ts`'s temp sweep is: an unbounded one would take a
    concurrent writer's file between its write and its rename.
-5. **The backfill is bounded twice.** It runs inside a session's Stop hook, so a
-   count (25) *and* a wall clock (250 ms) stop it; what is left is the next
-   boundary's. It fills what is MISSING and does not re-derive what is present —
+5. **The backfill is bounded twice, and it does not run where the first draft of
+   this note said it did.** `Self.boundary` is the consolidation cycle's last
+   content write (through `core/briefing.ts#selfRenderer`, SEAMS G), so the
+   backfill runs in the **detached worker**, not in the session's Stop hook —
+   that calls `Counterpart.boundary`, a different method that appends spans and
+   thinks about nothing. The bounds stay: a count (25) *and* a wall clock
+   (250 ms), because the worker is watchdogged and shares a cycle with decay,
+   dedup and the prune. The honest consequence, stated rather than glossed: a
+   store with a thousand episodes and no `journal/` fills over forty WORKER
+   RUNS, which is weeks on a normal cadence, not minutes. The chapter door is
+   what keeps a live store current; the backfill is for episodes that predate
+   the feature or a directory somebody deleted.
+   It fills what is MISSING and does not re-derive what is present —
    re-rendering every episode to prove nothing had changed would read every body
    in the store at every boundary.
 

@@ -172,8 +172,8 @@ are copied with it.)
 **Your journal is already readable, without exporting anything.** Every chapter
 the counterpart writes is copied to `store/journal/<year>/<date>-<id>.md` as it
 lands — open one in any editor. It is a copy: the database is the original, and
-deleting `journal/` loses nothing (the next chapter, or the next session's end,
-writes it again).
+deleting `journal/` loses nothing (the next chapter writes it again, and the
+background worker refills anything still missing, a few files per run).
 
 Three more directories appear under `store/` the first time they are needed and
 not before: `spans/` (lived experience awaiting encoding, written by the hooks

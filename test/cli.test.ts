@@ -933,6 +933,27 @@ describe("export", () => {
     expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Pass `--with-versions`");
   });
 
+  test("ARCHIVED memories are in the tree, and the manifest says how many", async () => {
+    // A memory that faded, was superseded or was merged is still the owner's
+    // own words. Dropping them quietly would be a copy he could not tell was
+    // partial — the same failure the confidential count exists to prevent, one
+    // class over. Only a REMOVED row is absent.
+    const s = store();
+    const faded = s.put({ type: "memory", kind: "fact", body: "ZQARCHIVEDROW — let go at the floor." });
+    s.put({ type: "memory", kind: "fact", body: "ZQLIVEROW — still standing." });
+    s.archive(faded, "decayed");
+    s.close();
+    const target = join(outside, "archived");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(target, "memories", "fact", `${faded}.md`), "utf8")).toContain(
+      "ZQARCHIVEDROW",
+    );
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("1 of them is ARCHIVED");
+  });
+
   test("--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree", async () => {
     const { secret } = furnished();
     const target = join(outside, "omitted");

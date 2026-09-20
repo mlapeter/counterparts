@@ -20,8 +20,8 @@
  *   - **DERIVED AND WRITE-ONLY.** The row is the truth. Nothing in this
  *     codebase ever reads a journal file back into the store — there is no
  *     parser here, on purpose, and `render.ts` says the same from its side.
- *     Deleting `journal/` loses nothing: the next chapter, or the next
- *     boundary's backfill, writes it again.
+ *     Deleting `journal/` loses nothing: the next chapter, or the background
+ *     worker's next backfill pass, writes it again.
  *   - **WRITTEN AS IS** (owner ruling 2, 2026-09-18). No summary, no
  *     re-rendering of the words, no second renderer: `render.ts#renderMarkdown`
  *     is what export writes and it is what this writes, byte for byte. The
@@ -59,17 +59,28 @@ export const JOURNAL_COPY_WRITTEN_EVENT = "journal.copy.written";
 export const JOURNAL_COPY_FAILED_EVENT = "journal.copy.failed";
 
 /**
- * How many missing copies one boundary pass writes.
+ * How many missing copies one backfill pass writes.
  *
- * The backfill runs inside the Stop hook's boundary, which is a session's own
- * wall clock, so it is bounded twice: by this count and by the deadline below.
- * A store with a thousand episodes and no `journal/` fills over forty
- * boundaries rather than making one session wait for a thousand file writes.
+ * WHERE IT ACTUALLY RUNS, checked rather than assumed: `Self.boundary()` is the
+ * consolidation cycle's last content write, reached through
+ * `core/briefing.ts#selfRenderer` (SEAMS G), so the backfill runs in the
+ * DETACHED WORKER — not in the session's Stop hook, which calls
+ * `Counterpart.boundary` (a different method: it appends spans and thinks about
+ * nothing). The owner's `counterparts rebrief` is the other door.
+ *
+ * It is still bounded twice, by this count and by the deadline below, for the
+ * same reason every other phase in that worker is: the worker is watchdogged
+ * and shares a cycle with decay, dedup and the prune, and a file loop with no
+ * ceiling is how one phase eats another's budget. The cost of the bound is
+ * honest: a store with a thousand episodes and no `journal/` fills over forty
+ * WORKER RUNS, which on the owner's cadence is weeks, not minutes. The chapter
+ * door is what keeps a live store's copies current; this is for a store whose
+ * episodes predate the feature, or whose `journal/` was deleted.
  */
 export const JOURNAL_BACKFILL_PER_PASS = 25;
 
 /** …and the wall-clock half of that bound. A slow disk stops the pass, not the
- *  session; whatever is left is the next boundary's work. */
+ *  cycle; whatever is left is the next run's work. */
 export const JOURNAL_BACKFILL_BUDGET_MS = 250;
 
 /**
@@ -339,11 +350,11 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
  * Episodes with no file — the backfill's work list, bounded by the caller.
  *
  * Ids and names only: one `SELECT id`, one directory walk, no row read and no
- * body. That is what makes it cheap enough to ask at every boundary.
+ * body. That is what makes it cheap enough to ask at every cycle.
  *
  * It fills what is MISSING and does not re-derive what is present. Drift within
  * a file is the chapter door's business (it rewrites on every append) and the
- * removal chase's (it syncs what it removed); a boundary that re-rendered every
+ * removal chase's (it syncs what it removed); a pass that re-rendered every
  * episode would read every body in the store to prove nothing had changed.
  */
 export function journalBackfillTargets(store: Store, limit: number): string[] {

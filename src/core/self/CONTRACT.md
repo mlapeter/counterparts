@@ -322,7 +322,8 @@ proposals and their archive; render and delivery telemetry.
     `store/render.ts#renderMarkdown` and by nothing else — as is, no summary, front matter
     limited to what identifies the episode. Four properties, each asserted: **nothing in
     `src/` reads a copy back** (the row is the truth); **deleting `journal/` loses nothing**
-    — the next chapter, or the next boundary's bounded backfill, writes it again; **a copy
+    — the next chapter, or the detached worker's next bounded backfill pass (`Self.boundary`
+    is the consolidation cycle's last content write, not the Stop hook), writes it again; **a copy
     never fails a session** — it cannot throw, and a failure is a durable
     `journal.copy.failed` row with a reason code while the chapter itself is already
     committed; **an observer writes neither the file nor the row**. Written atomically
