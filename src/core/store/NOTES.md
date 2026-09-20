@@ -5,50 +5,15 @@ The CONTRACT is the spec and is never edited from here; this file records choice
 their reason, and what would change them. Everything below is a working default
 (CLAUDE.md), not law.*
 
-## 1. Prose format: human lines derived, one payload authoritative
+*Rewritten in part on 2026-09-20 (F8), when the floor moved the memories into rows.
+Sections **1** (the markdown format — it is `render.ts`'s documentation now, because
+markdown is an export) and **5** (the stage → commit → rename crash window — there is no
+stage) are GONE, and their numbers are left as gaps rather than closed up, so the one
+citation that reaches into this file by number (`db.ts` → §9) keeps pointing where it
+meant to. Sections 3, 6 and the 2026-09-05 self-contained note are rewritten; everything
+dated stays as it was written, because a log corrected after the fact stops being one.*
 
-*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
-
-
-The contract asks for "human-legible text beside an authoritative machine payload;
-the parser reads only the payload" (§3, spec §4.2 G7). Shape chosen:
-
-```
----
-id: mem_ab12…
-type: memory
-title: Coffee
-happened: 2026-08-24
-learned: 2026-08-25
-bornDay: 4
-payload: {"id":"mem_ab12…","type":"memory",…,"meta":{…}}
----
-the body, verbatim
-```
-
-- The `key: value` lines are **rendered from the payload** and ignored on parse; a
-  hand-edit to them is discarded on the next write, and a test pins that.
-- **The body is NOT in the payload.** One source of truth for content, so an owner's
-  edit in any editor is unambiguous — the alternative (body in both places) makes
-  "which one wins" a policy question on every read.
-- Ambiguity is refused loudly with a code, never truncated: missing fence, missing
-  payload line, malformed JSON, non-JSON-safe metadata (functions, `undefined`,
-  symbols, non-finite numbers), a body that is not a string, and a
-  filename/payload id disagreement.
-
-## 2. The strength-only archive exemption is not ported — it is structural
-
-*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
-
-
-v1 needed a "rewrite differing in nothing but strength bookkeeping skips the archive
-copy" rule, decided by a line-level diff (§16 G5). With physics in box 2, a strength
-change never rewrites prose at all: `updatePhysics`/`reinforce` touch only the
-database. The exemption's *effect* is preserved and its machinery is dropped
-(constitution line 15). A test asserts the prose file is byte-identical after
-physics churn. **Reopen if** prose ever carries a strength-derived field.
-
-## 2b. Every field on the shared seam gets a column
+## 2. Every field on the shared seam gets a column
 
 `MemoryPhysics` and `Salience` (`src/core/types.ts`) are stored field-for-field,
 including the two optional ones added while this module was being built:
@@ -64,18 +29,23 @@ the one derived thing the store computes, because a weighted sum cannot reconstr
 a distinct-day count and identity promotion is gated on it. `updatePhysics()` sets
 absolute values and remains authoritative over both.
 
-## 3. Bounded versioning prunes ROWS; prose files are never deleted here
+## 3. Bounded versioning: the prune deletes ROWS, and since the floor those rows hold words
 
-*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
-
+*Rewritten at the floor (F8). It used to say the archived prose FILE a pruned row
+pointed at was left on disk — this module exports no way to delete a file — so
+retention here meant "the store stops tracking the version" rather than "the bytes
+are gone", and reclaiming them was an owner operation. There is no file. The
+version's words ARE its row, and the prune deletes them.*
 
 `pruneSupersededVersions()` deletes `versions` rows older than H lived days and
-reports the count (scar §2.4: every discard says what and how much). The archived
-prose file that a pruned row pointed at is **left on disk** — this module exports no
-way to delete a file, by design (§5 G2). So retention here means "the store stops
-tracking the version", not "the bytes are gone"; reclaiming the bytes is an owner
-operation on the CLI's path (`owner-op-seam.ts`). Two resolvabilities, deliberately
-distinct and separately tested:
+reports the count (scar §2.4: every discard says what and how much). The owner
+took that ruling knowing what the floor had done to its cost — on by default at 90
+lived days, ruling 1 of 2026-09-18, his steer being simple working-memory mechanics
+over keeping everything, and losing some data after a month or two an acceptable
+price. It is a real cost and it is made visible by a test rather than left as a
+sentence.
+
+Two resolvabilities, deliberately distinct and separately tested:
 
 - `resolve(oldId)` follows `superseded_by` **forever** — a dangling reference is a
   hard error, so this can never expire (§5 G4).
@@ -93,34 +63,27 @@ out loud: `putMany(inputs)` rolls the batch back on the first failure,
 `putMany(inputs, { isolate: true })` skips the failure, logs `store.put.skipped`
 with the reason code, and persists the rest.
 
-## 5. Write ordering: stage → commit box 2 → publish prose
+## 6. Telemetry: an in-memory ring, and one durable table an adapter prunes
 
-*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+*Corrected (F8). This section used to say events go to the ring and an optional
+`onEvent` sink and nowhere else — "a durable log sink belongs to an adapter". Half of
+that held and half did not: the sink was built, and it is a table in box 2.*
 
+Two channels, and the observer argument is what keeps them apart:
 
-Filesystems are not transactional, so one crash window is unavoidable. Chosen
-ordering and why:
+- **The ring** — capped, in-process, plus an optional `onEvent` sink. Every `emit`
+  goes here, an instrument's included. Nothing durable, nothing on disk.
+- **`events`, a box 2 table** — written only by `appendEvent`, which is in
+  `WRITE_METHODS` and crosses the stance check like every other write. So an
+  instrument standing down writes no row, and observer mode's one deliberate write
+  stays its stand-down event (observer-mode.md G6) rather than becoming every event
+  it happened to watch. That was the whole reason this section said "not box 2", and
+  putting the check on the write METHOD answered it without giving up the log.
 
-1. Serialize and **stage** the prose into `tmp/` under a name carrying pid, time,
-   a counter and randomness, suffixed `.tmp` (§16 G4: a crash-leaked stage must not
-   be loadable as a duplicate — the loader only reads `*.md` under `prose/`).
-2. Commit box 2 (rows).
-3. `rename(2)` the stage into place — atomic, leaves no residue.
-
-A crash between 2 and 3 leaves a row whose prose is missing, and `read()` fails
-loudly with `PROSE_FILE_MISSING`; the staged bytes are still on disk for repair. The
-inverse ordering would leave canonical prose that the store cannot see — a silent
-loss, which is the worse failure. A rolled-back write leaves an inert temp; nothing
-sweeps it, because a sweeper is a deleter.
-
-## 6. Telemetry does not live in the canonical database
-
-Events go to an in-memory ring plus an optional `onEvent` sink — not to box 2 and
-not to a log file. Reason: observer mode's one deliberate write is its stand-down
-event (observer-mode.md G6), and if events were canonical rows an instrument would
-mutate the canonical database by standing down. Events carry ids, hashes, counts,
-kinds and codes only (§5 G10). **A durable log sink belongs to an adapter**, which
-can decide retention.
+Retention belongs to the adapter that wanted it: `pruneEvents({ limit })` is called
+by sleep's `log` phase, deletes UNLATCHED rows past `retentionDays` lived days
+oldest-first, caps the call, and reports what went and what is left. Rows carry ids,
+hashes, counts, kinds and codes only, never text (§5 G10).
 
 ## 7. Box 3 is an inverted table, not FTS5
 
@@ -144,17 +107,23 @@ It sits in `store/` because the seam is its only consumer today; when a second c
 module needs it, **move the file to `src/core/observer.ts`** — it has no imports, so
 hoisting is a move, not a rewrite.
 
-The check happens in `mutate()` *before* any staging, so an observer cannot leave a
-temp file behind, and every stand-down emits `store.observer.standdown` naming the
-site. `WRITE_METHODS` is the enumerated list, and the totality test asserts it
-equals the set of sites found in the source — adding a write method without listing
-it fails the suite.
+The check happens in `mutate()`, which every write method enters before it touches
+anything, and every stand-down emits `store.observer.standdown` naming the site.
+`WRITE_METHODS` is the enumerated list, and the totality test asserts it equals the
+set of sites found in the source — adding a write method without listing it fails
+the suite. *(It used to say "before any staging, so an observer cannot leave a temp
+file behind". There is no staging and no `tmp/` since the floor; the position of the
+check is unchanged and the reason for it is now the simpler one — nothing may reach
+a transaction.)*
 
 Not implemented, deliberately: the byte-identical-canonical-database assertion
 (observer-mode.md G4). SQLite may touch file bytes on open alone, so the property is
-tested as *refusal at the seam* plus byte-identical prose. **Owner: whoever builds
-the probe harness**; the honest form of the test is a populated-store probe run
-compared on logical content, not bytes.
+tested as *refusal at the seam* plus the directory hashed around the open — which
+since 2026-09-18 means the `-wal` WITH the database and only the `-shm` skipped
+(`isDatabaseSidecar`), because a commit lives in the `-wal` until a checkpoint and a
+hash that skipped it would pass over exactly the write it exists to catch. **Owner:
+whoever builds the probe harness**; the honest form of the test is a populated-store
+probe run compared on logical content, not bytes.
 
 ## 9. Runtime adapter
 
@@ -163,10 +132,13 @@ compared on logical content, not bytes.
 crash. `PRAGMA foreign_keys = ON` at every open (SQLite defaults it OFF, and §5 G4
 puts referential integrity in the store).
 
-Journal mode was **DELETE**, because WAL leaves permanent `-wal`/`-shm` sidecars and
-every top-level path must be classified (§5 G11). That reason expired: `LAYOUT`'s
-database entry matches by PREFIX, so the sidecars have been classified all along. It
-is **WAL since 2026-09-18** — see the dated note below.
+Journal mode was **DELETE**, and the reason given here was that WAL leaves permanent
+`-wal`/`-shm` sidecars while every top-level path must be classified (§5 G11). That
+reason had already expired when it was written — `LAYOUT`'s database entry matches by
+PREFIX, so the sidecars were classified all along — and `db.ts` cites this line for
+the reason that no longer holds. Both boxes are **WAL since 2026-09-18** (§5 G18);
+the dated note below carries the pragma order, the measurements, and the three things
+a WAL store cannot do that a DELETE store could.
 
 **The Node branch is structurally present but has not been live-verified**: this
 machine runs Node 20 and `node:sqlite` landed in 22. Verify at packaging, together
@@ -177,13 +149,20 @@ with the exact version floor CLAUDE.md flags.
 - **The one-seam totality test over every ENTRANCE** (§5 G1) enumerates the Store's
   own write methods today. The other entrances — hooks, import, replay harness —
   do not exist yet; the test grows with them.
-- **The caller-universality test on removal** (§5 G2) needs a caller. `owner-op-seam.ts`
-  is types only and exports no function; the store's half — the append-only removal
-  record and the deny-list consulted at read and rebuild — is implemented and tested.
+- ~~**The caller-universality test on removal** (§5 G2) needs a caller.~~ **DONE.**
+  `owner-op-seam.ts` stopped being types-only on 2026-08-25 (`chaseRemoved`,
+  `grantOwnerOps`, `REMOVED_REASON`, later `unarchiveMerged`), its export list is
+  pinned by name, and `test/cli.test.ts` asserts that no core module, no other
+  adapter and no other test imports `removal.ts`.
 - **`erase`-style copy-chasing across box 3 and the edge graph** (§5 G7) is the CLI's
   operation; the store provides the record, the deny-list, and the rebuild skip.
 - **Multi-writer / lock discipline (scar E5)** is satisfied for structured state by
-  the transaction; concurrent *processes* writing prose is untested.
+  the transaction, and since 2026-09-18 concurrent PROCESSES are covered for the two
+  databases as well — WAL plus a busy timeout set first, with a test that holds a
+  write transaction on one handle and asserts the second waits (§5 G18). What is
+  still argued rather than tested is the two mutable directories that are not
+  databases: §5 G3's totality does not prove one writer each for `spans/` and
+  `sessions/` (CONTRACT §7 question 4).
 - **Backups** (§16 G18) are not this module's job; `backupSet()` reports the
   classification so the backup tool cannot silently omit a directory the way v1 did.
 
@@ -601,140 +580,44 @@ evaluate one new side-effect-free environment read. Surface-set hash unchanged
 riding today's owed restart rather than IDENTICAL — G12's first class is telemetry-only by
 its text, and a guard is not telemetry — with the value-identity argument recorded as the
 reach (`docs/PARALLEL-RUN-STATUS.md`, same date).
-## 2026-09-05 — a store directory is self-contained: the path columns are store-relative (schema v5)
+## 2026-09-05 — a store directory is self-contained (schema v5, and what survived the floor)
 
-*[F8 DELETES THIS SECTION.] It describes the FILE floor, which schema v6 replaced on 2026-09-20. Kept until F8 rewrites this file so the change is visible rather than silent; the 2026-09-20 section below says what replaced it.*
+*Condensed at the floor (F8). The v5 MECHANISM is deleted and the long version of this
+note with it: the store-relative path columns, `resolveStoredPath`'s four cases, the
+blank-pointer line that mattered most in review, `relativizeStoredPath`'s deepest-segment
+tail rule, the `../ESCAPE/…` guard, the argument for why a schema bump beat a tolerant
+no-bump, the `OBSERVER_READ_FLOOR` exception that bump earned, and the migration's three
+properties with their 79/82/67 ms measurement. All of it existed to keep a row's POINTER
+honest, and there is no pointer. The bug and the property are what is worth keeping.*
 
+**The bug** (finding I22, LAUNCH-STATUS G26). `insertOne` wrote an ABSOLUTE
+`<dir>/prose/<family>/<id>.md` into `memories.prose_path`, and `revise`/`supersede` wrote
+the same shape into `versions.path`. Every reader handed the column straight to
+`readFileSync`, and `adapters/cli/removal.ts` handed it to `rmSync`. So a copied store —
+`cp -R`, a `counterparts backup`, a restored snapshot — opened fine, listed its own rows,
+and read the ORIGINAL's prose through them; a removal run in the copy reported success and
+deleted the original's file while the copy's own survived. Constitution line 7's
+catastrophe case — source gone, open the backup — is exactly where a read-only reader
+failed.
 
-**The bug (finding I22, LAUNCH-STATUS G26).** `insertOne` wrote `staged.finalPath` —
-`join(dir, "prose", family, id + ".md")`, ABSOLUTE — into `memories.prose_path`, and
-`revise`/`supersede` wrote the same shape into `versions.path`. Every reader then handed
-the column straight to `readFileSync`, and `adapters/cli/removal.ts` handed it to
-`rmSync`. So a copied store — `cp -R`, a `counterparts backup`, a restored snapshot —
-opened fine, listed its own rows, and read the ORIGINAL's prose through them; a removal
-run in the copy reported success and deleted the original's file while the copy's own
-survived. `test/store-portable.test.ts` reproduces both against the pre-fix build: (a)
-delete the source's file, read through the copy → `PROSE_FILE_MISSING` naming the
-SOURCE's path; (b) remove through the copy → exit 0, no stderr, the copy's file still on
-disk. The owner's ruling: "a copied store should also include a copy of the prose files"
-— which `backup` and `cp -R` already did; the copy just never looked at them.
+**What keeps it now: nothing does, and that is the point.** A row IS its memory, so there
+is no address outside the database for a copy to resolve against the wrong root, and no
+resolver left to get one wrong. The criterion is unchanged and still proved —
+`test/store-portable.test.ts` copies a store, destroys the source outright and reads
+through the copy; removes through the copy and finds the source byte-identical; and opens
+a `backup` snapshot standalone (§5 G15). `tools/parallel/legacy-paths.ts` keeps
+`resolveStoredPath` and `relativizeStoredPath` for the read-only instruments that still
+read the owner's parked pre-rows store; nothing in `src/` imports either.
 
-**The representation.** One spelling per file, relative to the store root and
-POSIX-separated whatever the host: `prose/<family>/<id>.md` and
-`versions/<id>/<seq>-<hash>.md` (`paths.ts#stored`). The absolute forms `paths.proseFile`
-/ `paths.versionFile` are `join(dir, stored.…)` of exactly those, so the two cannot
-drift. Every reader — the six in `index.ts`, `schemas/`, the console, removal, both
-dashboards, the parallel tool's raw-DB readers — resolves through one function,
-`resolveStoredPath(dir, stored)` (`Store.absolutePath` for callers holding a store).
-Four cases, each chosen: relative → `join(dir, …)`; absolute → PLACED against the
-opened dir by the migration's own rule (below), and only an unplaceable row — no
-`prose/` or `versions/` segment — is read as given; **`""` → `""`**; and anything that
-would land outside `<dir>/prose/` or `<dir>/versions/` once joined is refused by name
-(`STORED_PATH_ESCAPES`) and never returned. The `""` line is the one that mattered most
-in the first review pass: `join(dir, "")` is the store ROOT, and the removal path feeds
-the resolved value to `existsSync` + `rmSync`. A chased row's blanked pointer must
-resolve to nothing.
-
-**What the adversarial review changed (2026-09-05, PR #79 MERGE WITH CHANGES).** The
-first version returned an absolute row AS GIVEN, and the shipped G15 said "never as
-given" — the contract was ahead of the code. The reviewer reproduced the consequence: a
-v5 *instrument* on a v4 copy read the LIVE store's prose under the copy's ids (and
-returned the live store's edits, silently, when the two had diverged), threw
-`PROSE_FILE_MISSING` naming the source's path once the source was gone, and `verify`
-on the copy called five present files "missing" — until something WROTE to the copy.
-Constitution 7's catastrophe case (source gone, open the backup) is exactly where a
-read-only reader failed. The fix is seven lines: the resolver places an absolute row
-with `relativizeStoredPath` — pure, no stat, no write — and falls back to as-given only
-when unplaceable. A pre-v5 `counterparts backup` is therefore a valid revert artifact
-under any v5 reader, not only after a writer opens it. The second change is hardening
-the reviewer asked for: a hand-edited relative row such as `../ESCAPE/prose/x.md` was
-selected by the migration's predicate, returned unchanged, called "relative" by the
-census, and joined to an address outside the store. `isCanonicalRelativePath` now judges
-every join by where it LANDS — strictly under `prose/` or `versions/`, resolved before
-compared (scar §2.13) — on both the relative and the placed-absolute branch, so the two
-rules compose (`/x/prose/../../y` is caught after its tail is joined). The migration
-counts such a row `unplaceable` and leaves it; the census counts it `escaped`; reads
-refuse it by name. The guard is deliberately wider than the reviewer's minimum: a row
-naming `cache/cache.sqlite` or `tmp/…` resolves inside the store but outside its two
-canonical roots, and a removal that trusted it would have deleted box 3.
-
-**Why a schema bump (v5) rather than a tolerant no-bump.** The migration is data-only —
-no DDL moves — and every v5 reader accepts both spellings, so a tolerant scheme that
-converted opportunistically and never bumped would have worked for v5 code. What decided
-it is what v4 CODE does to a v5 store: `readProseFile("prose/…")` resolves against the
-process's working directory, so `removal.ts` gets `existsSync(rel) === false`, pushes
-`"prose"` to `chased`, and `verifyRemoved` reports `proseGone: true` while the file
-survives — a removal that lies, silently. With the bump, v4 code refuses a v5 store by
-name (`SCHEMA_AHEAD`). Loud beats silent. The cost is named in the PR: **the revert lever
-is one-way once the live store has opened under v5.** Checking master back out to a
-pre-v5 build after the first writer open leaves a store that build cannot open; the way
-back is a restore from a pre-v5 backup (whose rows the tail rule below places correctly
-under v5 again) or a hand rewrite of the two columns.
-
-**The observer read floor is the exception the bump earns.** Since 2026-08-25 an
-instrument refuses a store a schema behind (`STORE_UNINITIALIZED`) rather than migrate
-under the process that owns it. Kept for v3 and below — v3 lacks columns the readers
-select. Lifted for v4 (`OBSERVER_READ_FLOOR = 4`): the only thing v5 changed is a
-spelling every v5 reader accepts, so a v4 store reads correctly through a v5 observer,
-and refusing would have taken `status`, `verify`, `backup` and the dashboard away from
-the owner between the merge and the first writer open — precisely the window in which
-`verify` is meant to show the unmigrated count. (Without the floor, `dashboard.ts` would
-also have rendered that refusal as "No store at … run `counterparts init`", which is
-false.) A test holds the v4 database byte-identical across an observer open.
-
-**The migration, and its three properties.** `relativizeStoredPaths` runs inside the
-existing migrate-at-open transaction, on the two columns, for rows whose value is not
-blank and not already `prose/…` or `versions/…`. Per row: if the path lies under the
-opened dir, `relative()` is exact; otherwise the DEEPEST `/prose/` or `/versions/`
-segment keys the tail — the case that matters is a store written under one spelling and
-opened under another (`/var/…` vs `/private/var/…` on macOS; the parallel tool met this
-exact pair and grew `realpathOr` for it), and a backup restored to a new directory whose
-rows still name the old one. The tail after the store-level segment can never contain a
-second such segment (an id may not contain a slash). A row with neither segment is
-LEFT, not blanked and not guessed, and counted `unplaceable`. Whether the file exists
-at the new address is deliberately not consulted: the absolute address is wrong for a
-copied store whatever sits at it, and a missing file is a separate fact
-(`Store.pathCensus()` counts it separately; `verify` prints "N relative, M absolute
-(unmigrated), K missing files" for each column on a v4 store, and "(unplaceable)" in
-place of "(unmigrated)" on a v5 one — a leftover absolute row there WAS migrated and
-could not be placed, so "unmigrated" would be the wrong word).
-
-- *Idempotent by predicate, not only by latch.* The version row short-circuits a v5
-  open before the branch is reached; but two writers racing into the migrate branch on
-  the same v4 file both select "rows not yet relative", and the second finds none. A
-  test asserts the database is byte-identical across a second open.
-- *Recorded.* A conversion that touched anything appends one `store.migrate.paths` row
-  to `events` in the same transaction — from/to versions and four counts, never a path
-  (constitution 16; §5 G10). Its timestamp comes from the injected provenance clock,
-  threaded into `openOperational` as `now`, so `two-clocks.test.ts`'s count of ambient
-  `Date.now()` calls in `index.ts` stays at one.
-- *Cheap, measured.* On a synthetic store built under `mkdtemp` — 15,000 `memories`
-  rows and 2,000 `versions` rows holding absolute paths under the dir, stamped v4, no
-  prose files (the migration never stats them) — the first `Store.open()` took **79, 82,
-  67 ms** on three fresh stores, converting every row (`converted: 15000` / `2000`,
-  `unplaceable: 0`, one event); the steady-state open that followed measured under a
-  millisecond. That is one SELECT and one prepared UPDATE per row inside one transaction,
-  and it matters because the first writer open on the live store is a SessionStart hook
-  or the MCP server, not a console command with a progress line. It is the first
-  migrate-at-open that store will ever run: v4 dates from 2026-08-29 and the store was
-  created 2026-09-03.
-- *Re-decided at every bump.* `OBSERVER_READ_FLOOR` is a claim — "every reader of the
-  current version tolerates a floor-version store as it stands" — that v5 makes true for
-  v4 and a v6 column add would silently make false. `test/store.test.ts` pins the floor to
-  `SCHEMA_VERSION - 1`, so the next bump must raise it or drop it on purpose.
-
-**What `backup` and `export` do now.** `snapshot` already copied `prose/` and
-`versions/` whole and the database through `VACUUM INTO`; a snapshot restored anywhere
-now reads its own files (test (d), source wiped before the read). The plaintext `export`
-bundles `prose/` and the database but NOT `versions/`, so a restored export's version
-rows dangle — pre-existing, out of this change's scope, named here rather than fixed.
+**The one loose end the v5 note named, closed by the floor rather than by anybody:** the
+plaintext `export` bundled `prose/` and the database but NOT `versions/`, so a restored
+export's version rows dangled. Versions are rows in the one database `VACUUM INTO` copies,
+so there is nothing left to omit.
 
 **Brain analog: none.** This is the engineering floor (CONTRACT §2). What it protects is
-constitution line 6 — memory that "travels across hosts" cannot be pinned to one
-machine's directory tree — and line 7's "backups catch catastrophe", which was not true
-while a backup's rows pointed at the live store.
-
----
+constitution line 6 — memory that "travels across hosts" cannot be pinned to one machine's
+directory tree — and line 7's "backups catch catastrophe", which was not true while a
+backup's rows pointed at the live store.
 
 ## The backfill's give-up list lives in meta (I33, 2026-09-11)
 
@@ -951,7 +834,9 @@ reason to go back; all three are worth knowing before they are met.
    `export` go through `VACUUM INTO`, whose output is always a plain DELETE-mode
    database, so a snapshot is readable anywhere, on any medium, by any build. It
    is the LIVE directory, copied as it stands onto read-only media, that refuses.
-2. **`operational.sqlite` on its own is no longer the database.** A copy of the
+2. **The database file on its own is no longer the database.** *(Written as
+   `operational.sqlite`, which is what it was called until the floor renamed it
+   `counterparts.sqlite` two days later — owner ruling 5.)* A copy of the
    file alone opens read-write and is *silently short* by everything committed
    since the last checkpoint (it refuses `SQLITE_CANTOPEN` read-only, which is
    the honest half). The supported copies are `counterparts backup`, `export`,
@@ -1044,9 +929,10 @@ and `" open"` are confidential), and `confidential` is checked with `=== true`
 
 ## 2026-09-20 — the floor: the memory IS the row (schema v6)
 
-*F5. Sections 1, 2, 3, 5 and the 2026-09-05 self-contained note above describe
-the floor this replaced and are marked for F8's deletion. What follows is what
-this build learned, with the measurements.*
+*F5. Sections 1, 2 and 5 above described the floor this replaced and were deleted
+by F8; 3, 6 and the 2026-09-05 self-contained note were rewritten in place, each
+saying what it used to say. What follows is what this build learned, with the
+measurements.*
 
 **What moved.** `memories` gained `title`, `body`, `meta` and `confidential`;
 `versions` gained `title`, `body`, `meta` and the two provenance dates; both
