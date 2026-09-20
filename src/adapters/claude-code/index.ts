@@ -20,7 +20,9 @@ export {
   embedSeat,
   embedderState,
   interpretSeat,
+  PAGE_WRITER_FALLBACK_MODE,
   loadConfig,
+  pageWriterMode,
   seatStatus,
 } from "./config.js";
 export type {
@@ -54,7 +56,9 @@ export {
   checkoutIsGraded,
   doctorFindings,
   noticeMessage,
+  pageWriterFindings,
   readCheckout,
+  RESTORE_STEPS,
   readCounterpartOpen,
   reportJson,
   reportLines,
@@ -74,10 +78,15 @@ export {
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   HOOKS,
+  ASK_SEPARATOR_BYTES,
+  PAGE_WRITER_TOOL,
   SCOPE_ASK,
   SCOPE_ASK_BYTES,
+  SCOPE_PATIENCE_DEFERRALS,
   SESSION_ENDING,
   SPAWN_REFUSAL_PREFIX,
+  SPAWN_START_COUNT_KEY,
+  SPAWN_START_DATE_KEY,
   substanceOf,
   wakeOutcome,
 } from "./hooks.js";
@@ -113,6 +122,25 @@ export type {
   LiveEmbedder,
   LiveEmbedderOptions,
 } from "./embed-client.js";
+
+export {
+  DEFAULT_HOST_COMMAND,
+  KILL_GRACE_MS,
+  MCP_SELF_PAGE_TOOL,
+  PAGE_WRITER_ENV,
+  PERMISSION_MODE,
+  REAP_GRACE_MS,
+  planPageWriter,
+  runPageWriter,
+} from "./page-writer.js";
+export type {
+  ChildResult,
+  PageWriterPlan,
+  PageWriterPlanInput,
+  PageWriterRefusal,
+  PageWriterRunResult,
+  PageWriterStarter,
+} from "./page-writer.js";
 
 export { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "./spawn.js";
 export type { PlanInput, SpawnOutcome, SpawnPlan, SpawnRefusal, Spawner } from "./spawn.js";

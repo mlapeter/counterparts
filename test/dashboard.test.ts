@@ -54,7 +54,6 @@ import {
   WRITE_METHODS,
   hashText,
   isDatabaseSidecar,
-  serializeProse,
 } from "../src/core/store/index.js";
 import {
   ABSENCE,
@@ -920,11 +919,12 @@ describe("browse — the memory list, and one memory opened", () => {
     // here has to ADDRESS the text shown below it — not merely equal a column.
     // The old version of this test opened the printed path and compared the file;
     // this is the same assertion without a filesystem in it, which is where the
-    // shared store fixture is headed. `content_hash` is `hashText` over the
-    // serialized document, so recomputing it from the document proves the pair.
+    // shared store fixture is headed. Since the floor `content_hash` is
+    // `hashText` over the BODY — one definition, both tables — so recomputing it
+    // from the body the owner is shown proves the pair.
     const doc = d.store.readProse(s.authoredId);
     expect(doc.body).toContain("storage split");
-    expect(hashText(serializeProse(doc))).toBe(row?.content_hash as string);
+    expect(hashText(doc.body)).toBe(row?.content_hash as string);
     expect(stripAnsi(text)).toContain("storage split");
   });
 
@@ -1281,7 +1281,7 @@ describe("the adapter's surface", () => {
       expect(out).toContain("observer mode");
     }
     expect(readdirSync(untouched)).toEqual(before);
-    expect(existsSync(join(untouched, "operational.sqlite"))).toBe(false);
+    expect(existsSync(join(untouched, "counterparts.sqlite"))).toBe(false);
     rmSync(untouched, { recursive: true, force: true });
   });
 

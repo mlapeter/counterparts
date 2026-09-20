@@ -43,6 +43,12 @@
  * passes an explicit `env`. If you add a third, do one of those two things.
  * `os.userInfo().homedir` is likewise unmocked; nothing in src/, tools/ or test/
  * calls it today.
+ *
+ * THE SPAWN SITES, kept current (2026-09-20): `test/parallel.test.ts` passes every
+ * directory as an explicit flag; `test/remember.test.ts`, `test/old-floor-fixture.ts`
+ * (two) and `test/start-fresh.test.ts` (the `/bin/sh` runs of the printed rollback
+ * lines) all pass an explicit `env` with a fake `HOME`. Add a site, do one of those two
+ * things, and add it here.
  */
 import { afterAll, mock } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";

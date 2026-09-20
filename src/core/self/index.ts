@@ -105,6 +105,22 @@ import {
   renderPage,
 } from "./page.js";
 import type { SelfPage, SelfPageAuthor } from "./page.js";
+import {
+  SELF_PAGE_WRITER_EVENT,
+  dayMemories,
+  pageWriterClaimOpen,
+  pageWriterDue,
+  pageWriterRuns,
+  pageWriterStatus,
+} from "./writer.js";
+import type {
+  PageWriterDue,
+  PageWriterMode,
+  PageWriterOutcome,
+  PageWriterRun,
+  PageWriterStatus,
+  WriterInput,
+} from "./writer.js";
 import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
 import {
@@ -130,11 +146,19 @@ import type {
   IngestResult,
   Substance,
 } from "./episodes.js";
+import {
+  backfillJournalCopies,
+  noteJournalCopy,
+  syncJournalCopy,
+} from "./journal-file.js";
+import type { JournalCopyOutcome } from "./journal-file.js";
 import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 
 export * from "./briefing.js";
+export * from "./journal-file.js";
 export * from "./page.js";
+export * from "./writer.js";
 export * from "./episodes.js";
 export * from "./freeze.js";
 export * from "./identity.js";
@@ -299,6 +323,12 @@ export interface ChapterAppend {
    *  append inside one chapter continues it — the live-append case (§13 G2). */
   readonly heading: boolean;
   readonly reason: "appended" | "observer" | "anonymous-session" | "gate-refused";
+  /**
+   * What happened to the markdown copy under `<store>/journal/` (F6). Null when
+   * no chapter was written. A `failed` here is NEVER a failed append: the row is
+   * canonical and landed before the copy was attempted.
+   */
+  readonly copy: JournalCopyOutcome | null;
 }
 
 /**
@@ -862,6 +892,137 @@ export class Self {
     };
   }
 
+  // ── the nightly page writer (S2) ───────────────────────────────────────────
+
+  /**
+   * IS A RUN OWED for the day just gone? Pure — it decides, it does not claim.
+   *
+   * The caller that acts on `due: true` writes the claim with
+   * `recordPageWriterRun({ outcome: "asked" | "started" })`, and from then on
+   * this says `already-claimed`.
+   */
+  pageWriterDue(opts: { mode: PageWriterMode; today?: string }): PageWriterDue {
+    return pageWriterDue(this.store, {
+      mode: opts.mode,
+      today: opts.today ?? this.store.today(),
+      observer: this.observer,
+      asksPerDay: this.tunables.PAGE_WRITER_ASKS_PER_DAY,
+    });
+  }
+
+  /**
+   * WHAT THE WRITER IS HANDED: the page as it stands, and the day just gone,
+   * bounded by `PAGE_WRITER_MEMORY_BYTES` and ordered by salience.
+   *
+   * `omit` is the CALLER's, exactly as `build`'s is and for the same reason —
+   * the confidentiality class is `recall/`'s to read and not this module's. A
+   * composition that will leave the machine passes one; what it hides is
+   * counted onto the run's row rather than disappearing.
+   *
+   * Pure: it reads and composes. Nothing here writes.
+   */
+  pageWriterInput(opts: {
+    about: string;
+    today?: string;
+    day?: number;
+    budgetBytes?: number;
+    omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
+  }): WriterInput {
+    const day = opts.day ?? this.store.livedDay();
+    const picked = dayMemories(this.store, {
+      about: opts.about,
+      day,
+      budgetBytes: opts.budgetBytes ?? this.tunables.PAGE_WRITER_MEMORY_BYTES,
+      max: this.tunables.PAGE_WRITER_MEMORY_MAX,
+      ...(opts.omit === undefined ? {} : { omit: opts.omit }),
+    });
+    return {
+      about: opts.about,
+      today: opts.today ?? this.store.today(),
+      page: this.page(),
+      memories: picked.memories,
+      dropped: picked.dropped,
+      omitted: picked.omitted,
+      bytes: picked.bytes,
+    };
+  }
+
+  /**
+   * THE RUN'S DURABLE ROW — the only thing this mechanism writes besides the
+   * page, and the page goes through `revisePage` like every other write.
+   *
+   * An observer records nothing (observer-mode G3: an instrument that logged
+   * its own activity would be changing the store it is reading), and an append
+   * that will not land costs the ROW and never the run (§5 G7).
+   */
+  recordPageWriterRun(run: {
+    about: string;
+    mode: PageWriterMode;
+    outcome: PageWriterOutcome;
+    detail?: string;
+    bytesBefore?: number;
+    bytesAfter?: number;
+    considered?: number;
+    omitted?: number;
+    day?: number;
+    /** One row per key, ever. For the rows that would otherwise repeat at every
+     *  session start of every day — a deferral has no other bound. */
+    dedupKey?: string;
+  }): boolean {
+    const day = run.day ?? this.store.livedDay();
+    const payload = {
+      about: run.about,
+      // The date the run HAPPENED on, beside the one it is about: a claim is
+      // only in flight while the day that made it is still running.
+      on: this.store.today(),
+      mode: run.mode,
+      outcome: run.outcome,
+      detail: run.detail ?? "",
+      bytesBefore: run.bytesBefore ?? 0,
+      bytesAfter: run.bytesAfter ?? 0,
+      considered: run.considered ?? 0,
+      omitted: run.omitted ?? 0,
+    };
+    if (this.observer) {
+      this.emit("self.observer.standdown", undefined, { site: "recordPageWriterRun" });
+      return false;
+    }
+    try {
+      this.store.appendEvent({
+        name: SELF_PAGE_WRITER_EVENT,
+        day,
+        payload,
+        ...(run.dedupKey === undefined ? {} : { dedupKey: run.dedupKey }),
+      });
+    } catch {
+      this.emit("self.page.writer.unrecorded", undefined, { about: run.about, outcome: run.outcome });
+      return false;
+    }
+    this.emit("self.page.writer.ran", undefined, {
+      about: run.about,
+      mode: run.mode,
+      outcome: run.outcome,
+      bytesAfter: payload.bytesAfter,
+    });
+    return true;
+  }
+
+  /** How a date came out, with the derivation named. Pure. */
+  pageWriterStatus(about: string, today?: string): PageWriterStatus {
+    return pageWriterStatus(this.store, about, today ?? this.store.today());
+  }
+
+  /** Every recorded attempt, newest first. Pure. */
+  pageWriterRuns(opts: { about?: string; limit?: number } = {}): PageWriterRun[] {
+    return pageWriterRuns(this.store, opts);
+  }
+
+  /** Is that night's claim still open — the question the page's door asks
+   *  before it writes `by: "writer"` on a revision. Pure. */
+  pageWriterClaimOpen(about: string, today?: string): boolean {
+    return pageWriterClaimOpen(this.store, about, today ?? this.store.today());
+  }
+
   /**
    * UNWRITE THE PAGE — the owner's door, and only the owner's.
    *
@@ -1087,7 +1248,47 @@ export class Self {
       );
     }
     this.emit("self.briefing.published", undefined, { bytes: briefing.bytes, hash });
+    // THE JOURNAL'S BACKFILL (F6), and this is the only place it runs.
+    //
+    // A store whose `journal/` was deleted — or one whose episodes predate this
+    // code, which is every store that existed before today — gets its copies
+    // back here, a bounded handful per pass. It is AFTER the publish on purpose:
+    // the briefing is this method's job and a slow disk must not be able to
+    // delay it.
+    //
+    // WHERE THIS RUNS: `Self.boundary` is the consolidation cycle's last content
+    // write, through `core/briefing.ts#selfRenderer` — so this is the DETACHED
+    // WORKER, not the session's Stop hook (that calls `Counterpart.boundary`,
+    // which is a different method). Bounded twice all the same, because the
+    // worker is watchdogged and shares its cycle with decay, dedup and the
+    // prune. The honest consequence is in `journal-file.ts`: a long-standing
+    // store fills over many worker runs, and the chapter door is what keeps a
+    // live one current.
+    this.backfillJournal(req.day);
     return { briefing, schema, published: true, reason: "published", hash };
+  }
+
+  /**
+   * Fill in missing journal files, a bounded pass. Never throws; an observer
+   * never reaches it (the publish arm above returns first).
+   */
+  private backfillJournal(day: number): void {
+    try {
+      const report = backfillJournalCopies(this.store);
+      for (const result of report.results) {
+        noteJournalCopy(this.store, result, { day, site: "backfill" });
+      }
+      if (report.written > 0 || report.failed > 0 || report.sweptTemps > 0) {
+        this.emit("self.journal.backfill", undefined, {
+          written: report.written,
+          failed: report.failed,
+          swept: report.sweptTemps,
+          more: report.more,
+        });
+      }
+    } catch {
+      /* a derived copy never takes a boundary down (§1.5) */
+    }
   }
 
   /**
@@ -1450,11 +1651,11 @@ export class Self {
       // Identity-safe join (§13 G7): every anonymous session collapses to the
       // same marker, so one session's account would pool into another's.
       this.emit("self.episode.skipped", undefined, { reason: "anonymous-session" });
-      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "anonymous-session" };
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "anonymous-session", copy: null };
     }
     if (this.observer) {
       this.emit("self.observer.standdown", sessionId, { site: "appendChapter" });
-      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "observer" };
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "observer", copy: null };
     }
     // Every ingestion entrance runs the battery — a chapter is canonical prose,
     // and a credential in one landed durably before this gate existed (found by
@@ -1466,7 +1667,7 @@ export class Self {
         gate: verdict.gate,
         reason: verdict.reason,
       });
-      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "gate-refused" };
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "gate-refused", copy: null };
     }
     const gatedText = verdict.text ?? text;
     const state = this.episodeState(sessionId, d);
@@ -1492,7 +1693,26 @@ export class Self {
       created: written.created,
       bytes: byteLength(gatedText),
     });
-    return { ...written, reason: "appended" };
+    // THE MARKDOWN COPY, AFTER THE ROW AND NEVER INSTEAD OF IT (F6). The
+    // chapter is committed above; this is a derived file, it cannot throw, and
+    // a failure is a durable row rather than a failed `chapter` call. Written
+    // per append rather than once at session end because the plan's one
+    // undetermined question (§7.6) resolves that way in the code: the episode
+    // row is rewritten per append, so the file is a whole-file rewrite either
+    // way, and per-append is the reading that does not lose a crashed session's
+    // last chapter.
+    const copy = syncJournalCopy(this.store, written.episodeId);
+    noteJournalCopy(this.store, copy, {
+      day: d,
+      chapters: written.chapter,
+      site: "chapter",
+    });
+    this.emit("self.journal.copy", written.episodeId, {
+      outcome: copy.outcome,
+      bytes: copy.bytes,
+      ...(copy.reason === null ? {} : { reason: copy.reason }),
+    });
+    return { ...written, reason: "appended", copy: copy.outcome };
   }
 
   /**

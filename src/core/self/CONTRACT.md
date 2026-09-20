@@ -316,6 +316,82 @@ proposals and their archive; render and delivery telemetry.
     pruned). It is the OWNER's door: no MCP tool reaches it, because a session that could
     unwrite the page could erase the self between two turns. The owner's `remove` refuses
     the page row by name and points at it.
+19. **[M]** **THE NIGHTLY PAGE WRITER RUNS ON THE CALENDAR, AT MOST ONCE, AND IS NOT A
+    SECOND PACER** (`writer.ts`, S2, 2026-09-20 — true for now). A run is ABOUT one
+    calendar date, always yesterday, and never chases a backlog. It is keyed to the
+    calendar and not the lived day for I32's reason: the lived clock advances inside the
+    cycle the detached worker runs, and a nightly mechanism keyed to a clock the night
+    itself advances can miss every night and look on time. **The first durable row for a
+    date is the CLAIM**, so two boundaries — or two machines' worth of hooks against one
+    store — do not both set a night going; at most `PAGE_WRITER_ASKS_PER_DAY` sessions are
+    offered one day. That is a COUNT and not a pacer: guarantee 3's scar is about the
+    BLOCKED MOMENT at Stop, where one ask on one conjunction is the rule, and this ask
+    rides beside the wake at SessionStart the way the first-launch scope question does,
+    consulting no substance and spending none of `MAX_ASKS_PER_SESSION`.
+    **A store with no yesterday writes nothing and leaves no row**, so a line about it
+    cannot nag from the day a fresh install is made. **No revision is a first-class
+    outcome**: host mode reports it (a windowless session handed one tool that did not use
+    it has answered), session mode cannot tell it from "never got to it" and so does not
+    claim to — it stores the claim, and the READING of a claim whose day has ended is
+    `nothing-to-say`, marked `derived` wherever it is shown — except an abandoned
+    `started`, which reads `failed`, because host mode closes its own claim on every path
+    it can reach. `by: "writer"` is the DOOR's and is not claimable from a tool call: the
+    evidence is a date the SessionStart hook wrote on the session's registry record, or
+    one the launcher pinned onto a windowless child's environment, honoured only while
+    that night's claim is open.
+    **The block does not repeat the page**: the reader woke with it at the head of its own
+    wake in both modes, and sending it twice would spend up to `PAGE_MAX_BYTES` of the
+    very ceiling the block has to fit inside — which on a real page and a real day is the
+    difference between an ask that is delivered and one deferred every morning. What it
+    names instead is the version, which is what `ifVersion` needs and the one thing the
+    wake does not carry. The day is sized to the room the wake left and then the composed
+    block is MEASURED against the ceiling, because the estimate is the block's shortest
+    shape and the delivered one is longer; a day that did not all fit is delivered SHORT
+    with the count on the row, and a block that can carry none of the day is deferred
+    rather than spending a night's claim.
+    **It never says a day was empty that was not.** "The day was empty" and "I could not
+    see the day" are different things, and `dropped` is what tells them apart; a room too
+    small for the largest memory still carries the smaller ones. **Quoted material carries
+    no structure and no authority**: this block's markers and the wake's are stripped from
+    every string that reaches it, and the line that says the list is material rather than
+    instruction sits WITH the list.
+    **A day with nothing in it is not a night**: `no-memories` is returned before anything
+    is claimed or asked, so a machine used twice a week is not asked about five empty days.
+    A DEFERRAL leaves a durable `skipped` row — deduped one per night per reason — which
+    claims nothing and can never close a night; a REFUSAL does not close one either, since
+    a refusal is the writer still trying, and a later success supersedes it in the reading
+    while both rows stay.
+    **Order is salience, then the store's own id order.** Nothing claims "newest": within
+    one calendar day `learned_on` is a date, `birth_day` is the lived day and ids are
+    random, so there is no recency to sort by. What is guaranteed is that the cut is
+    deterministic (§1 G3), not that it is the end of the day.
+20. **[M]** **THE WRITER CAN WRITE THE PAGE AND ONE ROW, AND NOTHING ELSE.** The page goes
+    through `revisePage` — the one seam, with its caps, its gate battery and its version
+    chain — and `writer.ts` never touches it; what this module writes is the run's own
+    durable row. No memory is created, none promoted, no strength moves. **No model call
+    happens in core**: this module composes what the writer is handed and the ADAPTER makes
+    the call, exactly as `counterpart.ts#sweepWake` composes and `interpret-client.ts`
+    calls. A writer failure costs the writer: it never fails a wake, a boundary or a
+    session, and with the writer off or never run the wake is byte-identical to a build
+    without it (asserted).
+21. **[M]** **THE JOURNAL HAS A MARKDOWN COPY, AND IT IS DERIVED, WRITE-ONLY AND
+    DISPOSABLE** (F6, 2026-09-20; owner decision 2 of 2026-09-17 §15 item 9, ruling 2 of
+    2026-09-18). One `.md` per episode under `<store>/journal/<YYYY>/`, rendered by
+    `store/render.ts#renderMarkdown` and by nothing else — as is, no summary, front matter
+    limited to what identifies the episode. Four properties, each asserted: **nothing in
+    `src/` reads a copy back** (the row is the truth); **deleting `journal/` loses nothing**
+    — the next chapter, or the detached worker's next bounded backfill pass (`Self.boundary`
+    is the consolidation cycle's last content write, not the Stop hook), writes it again; **a copy
+    never fails a session** — it cannot throw, and a failure is a durable
+    `journal.copy.failed` row with a reason code while the chapter itself is already
+    committed; **an observer writes neither the file nor the row**. Written atomically
+    (temp beside it, then rename) because a crashed rename otherwise leaves a chapter's
+    words in a file nothing owns. **The directory is classified but NOT backed up** (f6f7
+    review MAJOR-5): copying a derived directory put removed episodes' words into every
+    rotating snapshot as plain markdown, and a restored store regenerates every file from
+    its rows at the next boundary. *This is the one module in `self/` that treats `Store.dir` as
+    a filesystem root; `remember/spans.ts` is the precedent.* The owner's `remove` chases it
+    as a named surface — see `adapters/cli/CONTRACT.md`.
 
 **The briefing's tunables** — every one CAL (scar §2.8), all of them in `tunables.ts`, none
 of them a budget. The composed budget is the caller's and lives nowhere in this module.
@@ -335,6 +411,9 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
 | `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
 | `PAGE_ON_EGRESS` | true | Whether a composition that FILTERS (`omit` — the crash fallback woken as the self) carries the page. The owner's decision of 2026-09-17; `false` gives that composition no page and the identity list the filter left standing. |
+| `PAGE_WRITER_MEMORY_BYTES` | 8,192 | Bytes of the day just gone the nightly writer is handed. It reads one day, not a life, and what did not fit is counted on the run's row. |
+| `PAGE_WRITER_MEMORY_MAX` | 40 | ...and a ceiling on the count, so a day of very short memories cannot become a hundred bullets. |
+| `PAGE_WRITER_ASKS_PER_DAY` | 2 | How many SESSIONS may be offered one day's writing in session mode. A count, not a pacer (G19): the first session of a morning may be deep in something else, and two makes that survivable without asking all day. |
 | `FIRST_ASK_TURNS` / `FIRST_ASK_BYTES` | 6 / 4,000 | The first ask needs both — or `SOLO_ASK_BYTES` alone. |
 | `SOLO_ASK_BYTES` | 12,000 | Bytes alone, so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_BYTES` | 8 / 8,000 | Further substance since the last ask, **both** required. |

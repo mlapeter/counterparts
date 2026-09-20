@@ -173,6 +173,14 @@ reader nothing they were not already told — and it would otherwise accrue use 
 association edges for being what it always is, and, having no project scope, surface under
 a project it was never written in. The role string is read structurally rather than
 imported; `recall/` depends on nothing in `self/`. One line to reverse.*
+*A SECOND is excluded the same way (2026-09-20, E1): the per-directory HANDOFF
+(`activate.ts#isHandoff`). It is working context for one place — delivered as a pointer at
+the wake of that directory, expandable there by id, and expiring — not an interpretation of
+what was learned, and it carries no project scope a search could honour, so left in the pool
+it would put one directory's unfinished business in front of another's turn. It is NOT
+refused at `deliberate.ts#expandHandle`, because the pointer's whole shape is a line and an
+id; what it is refused is CREDIT (`counterpart.ts#creditReferences`), so expanding one
+reinforces nothing and can never promote.*
 **Outputs** — a rendered injection (empty string, affect flag, footnotes, or a surfaced
 gist); a decision record (tier counts, ids, salience — content-by-reference); reference
 credit at the boundary; reinforcement deltas handed to `physics/`.

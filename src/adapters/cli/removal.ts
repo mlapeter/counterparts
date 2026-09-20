@@ -30,17 +30,23 @@
  *      (§16 G12).
  *   5. **Chase**, then `chased`, then `complete`. Whatever could not be chased
  *      is REPORTED, never silently dropped (§16 G15: no silent partial success).
- *      Box 1 (the prose file and every archived version file) is chased here;
- *      box 2 (the row, its edges, its prospective windows, the gate rows that
- *      name it, and every content pointer it had) by `chaseRemoved` on the
- *      store's owner-op seam, which appends the `chased` stage inside its own
- *      transaction; box 3 by a rebuild that skips and logs the denied id.
+ *      The raw-capture buffer under `spans/` is chased here, because it is
+ *      `remember/`'s state machine and not this module's to unlink; box 2 (the
+ *      row, its BODY and every archived version's body, its edges, its
+ *      prospective windows, the gate rows that name it, and every content
+ *      pointer it had) by `chaseRemoved` on the store's owner-op seam, which
+ *      appends the `chased` stage inside its own transaction; box 3 by a
+ *      rebuild that skips and logs the denied id. *(Until the floor — schema
+ *      v6, 2026-09-20 — there was a box 1 to chase here as well: the memory's
+ *      prose file and every archived version file. The words are columns now,
+ *      so they go with the row, in one transaction; see `reclaim` below for
+ *      what that costs.)*
  *
  * The record carries no body and no content hash (§16 G9, scar §2.20): a hash of
  * low-entropy content is brute-forceable, which would make the record of a
  * removal a leak of the thing removed.
  */
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 // The span buffer's OWN scope-directory function, imported rather than
@@ -54,7 +60,14 @@ import { SpanBuffer, keyFor } from "../../core/remember/index.js";
 // `rmSync` from here would race a claim renaming the file aside, which is the
 // one state spec §2 G6 forbids (cli/INTERFACE-GAPS §9, closed 2026-09-05).
 import { strikeSpans } from "../../core/remember/owner-strike-seam.js";
-import { paths } from "../../core/store/index.js";
+// The journal's markdown copy is a SURFACE (F6): a derived file under
+// `<store>/journal/` holding an episode's words. `syncJournalCopy` is imported
+// rather than an `rmSync` from here for the same reason `strikeSpans` is — the
+// directory belongs to `self/`, and the invariant it keeps ("a file exists
+// exactly when a live episode row does") is what makes the chase provable.
+import { journalFilesFor, syncJournalCopy } from "../../core/self/journal-file.js";
+import { paths, rowTombstoned } from "../../core/store/index.js";
+import { isLocked, openDb } from "../../core/store/db.js";
 import type {
   OwnerRemovalOutcome,
   OwnerRemovalRequest,
@@ -170,6 +183,9 @@ export interface PlanOptions {
    * provenance never recorded which project it came from.
    */
   crossScopeContent?: boolean;
+  /** How many episodes the journal-echo check reads. Injectable so a test can
+   *  prove the bound is REPORTED rather than silent. */
+  echoScanMax?: number;
 }
 
 export interface RemovalOptions extends PlanOptions {
@@ -189,6 +205,52 @@ const MEMORY_BEARING = new Set(["memory", "episode", "schema"]);
  */
 const SPANS_BLIND =
   "this removal did not reach it, and a later backup would copy it (export would not).";
+
+/**
+ * The journal surface's own blind sentence, for the same reason `SPANS_BLIND`
+ * is one: a directory that still holds the words after a chase said it was
+ * clean is a fact the owner must be handed, in the same words wherever it is
+ * printed. (It is no longer in the backup set — see `olderCopiesNote` — so the
+ * sentence is about this store's own disk, not about future copies.)
+ */
+const JOURNAL_STILL_THERE =
+  "journal/ — it is a derived copy, and deleting that file by hand loses nothing";
+
+/**
+ * WHAT A REMOVAL CANNOT REACH: the copies already on disk.
+ *
+ * F6 did not create this gap — every snapshot has always held whatever the
+ * store held when it was taken — but it changed its severity by a wide margin
+ * and nothing said so (f6f7 review MAJOR-5). A removed memory inside an old
+ * snapshot's DATABASE is a file somebody must know to open; the same words in
+ * an old snapshot's `journal/*.md` are a grep hit, a Spotlight result, a synced
+ * folder's problem.
+ *
+ * Two things make this sentence honest rather than alarming, and both are said:
+ * snapshots taken FROM TODAY carry no `journal/` at all (it left the backup set
+ * in the same change), and a snapshot is the owner's own file to delete.
+ *
+ * It names the DEFAULT snapshot directory and counts what is in it. The console
+ * reads no host configuration, so a configured `snapshots.dir` is not visible
+ * from here — the sentence says so rather than implying the default is the
+ * whole story.
+ */
+function olderCopiesNote(storeDir: string): string {
+  const snapshots = join(storeDir, "..", "snapshots");
+  let copies = 0;
+  try {
+    copies = readdirSync(snapshots).length;
+  } catch {
+    /* none, or not readable from here: the sentence still holds */
+  }
+  return (
+    `snapshots and backups TAKEN BEFORE TODAY still hold these words, and the journal ones hold them as plain markdown` +
+    (copies === 0
+      ? ` — none in the default location (${relative(storeDir, snapshots)}), and a location set in your host configuration is not visible from this console.`
+      : ` — ${copies} cop${copies === 1 ? "y" : "ies"} in the default location (${relative(storeDir, snapshots)}), plus anywhere else you have taken one.`) +
+    " A removal does not reach into them; they are yours to delete. Snapshots taken from today carry no journal/ at all."
+  );
+}
 
 /**
  * Every `*.jsonl` under a directory — the live streams and the claims beside
@@ -509,6 +571,93 @@ export function spanResidue(
 }
 
 /**
+ * How many episodes the echo check reads before it stops and says so.
+ *
+ * It reads bodies, which is the expensive thing this console does — but removal
+ * is a rare, deliberate owner operation and the alternative is the failure this
+ * bound exists to replace. A store past this many episodes gets a REPORTED
+ * partial check rather than a silent one.
+ */
+export const JOURNAL_ECHO_SCAN_MAX = 2_000;
+
+export interface JournalEcho {
+  /** Episode ids whose chapters hold these words. Ids only (§16 G15). */
+  readonly ids: readonly string[];
+  /** Episodes actually read, and how many exist. Equal ⇒ the check was whole. */
+  readonly checked: number;
+  readonly total: number;
+}
+
+/** Whitespace-folded, so a chapter that wrapped a sentence differently from the
+ *  memory minted out of it is still recognised as holding it. */
+function folded(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * WHICH EPISODES HOLD THESE WORDS — asked exactly, not ranked.
+ *
+ * This used to read the `contamination` list, which is `store.search(body, 20)`:
+ * a ranked top-20 full-text search. Measured by the f6f7 review (MAJOR-3): with
+ * twenty-five near-identical memories — the ordinary shape of a store that has
+ * thought about one subject for a while — the episode fell off the end of the
+ * list, and the report printed `chase journal: 0`, `journal(0, nothing beside
+ * the row)` and `unchased: nothing` while a plain `.md` under the store still
+ * held the removed sentence. That is F5 review-B MAJOR-1's shape one directory
+ * over, with an FTS rank as the only thing between this console and it.
+ *
+ * Two questions, cheapest first:
+ *
+ *   1. **The exact link.** A memory minted from an episode carries
+ *      `meta.episodeId` (`self/episodes.ts` writes it; `memoriesForEpisode`
+ *      reads it). One field, no scan, no ambiguity.
+ *   2. **The containment scan**, for the un-linked "quotes these words" case:
+ *      every `type: "episode"` row, whitespace-folded, asked whether it holds
+ *      the doomed body. Bounded by `JOURNAL_ECHO_SCAN_MAX`, and the bound is
+ *      REPORTED — a stated bound is survivable, a silent one is not.
+ *
+ * The episodes' markdown copies say exactly what their rows say, so an answer
+ * about the rows is an answer about the files.
+ */
+function journalEcho(
+  store: Store,
+  targetId: string,
+  body: string,
+  doc: { meta?: Record<string, unknown> } | null,
+  opts: PlanOptions,
+): JournalEcho {
+  const ids: string[] = [];
+  const linked = doc?.meta?.["episodeId"];
+  if (typeof linked === "string" && linked.length > 0 && linked !== targetId) {
+    const row = store.row(linked);
+    if (row !== undefined && row.type === "episode" && !rowTombstoned(row)) ids.push(linked);
+  }
+  const needle = folded(body);
+  let episodes: string[];
+  try {
+    episodes = store.list({ type: "episode" });
+  } catch {
+    return { ids, checked: 0, total: 0 };
+  }
+  if (needle.length === 0) return { ids, checked: episodes.length, total: episodes.length };
+  const cap = Math.max(0, opts.echoScanMax ?? JOURNAL_ECHO_SCAN_MAX);
+  let checked = 0;
+  for (const id of episodes) {
+    if (checked >= cap) break;
+    checked += 1;
+    if (id === targetId || ids.includes(id)) continue;
+    try {
+      const row = store.row(id);
+      if (row === undefined || rowTombstoned(row)) continue;
+      if (folded(store.readProse(id).body).includes(needle)) ids.push(id);
+    } catch {
+      /* a row that will not read cannot be claimed either way */
+    }
+  }
+  return { ids, checked, total: episodes.length };
+}
+
+/**
  * STEP 1 + 2: validate, then read everything the removal will need. Pure — it
  * writes nothing and takes no lock, so it is safe to run before a confirmation
  * prompt and safe to run again after one (scar §2.13's re-plan-under-the-lock
@@ -548,14 +697,23 @@ export function planRemoval(
   if (store.deniedIds().includes(targetId)) return none("already-removed");
   // THE SELF PAGE IS NOT REMOVED, IT IS CLEARED (2026-09-18, S1, and the
   // adversarial review that found the dead end). Removal tombstones a row —
-  // blank `prose_path`, id on the deny-list, row still listed — and `schemas/`
-  // reads every `type: "schema"` row's prose at open, so removing the page (or
-  // the identity core, which has had the same exposure since it shipped) left a
-  // store that would not open at all, with the wake hook swallowing the error
-  // so the symptom was silence. The page is also the most conspicuous schema
-  // row an owner has: `enumerate()` lists it and `status` prints its id. So the
-  // console sends him one door along, to the one that keeps the page as a
-  // version and lets him put it back.
+  // blank body, blank content hash, id on the deny-list, row still listed — and
+  // `schemas/` reads every `type: "schema"` row at open, so removing the page
+  // (or the identity core, which has had the same exposure since it shipped)
+  // left a store that would not open at all, with the wake hook swallowing the
+  // error so the symptom was silence.
+  //
+  // *(The floor, 2026-09-20, closed the crash half of that: `Schemas.load`
+  // SKIPS a tombstoned row and counts it, so a removed page no longer takes the
+  // session down. Everything below still holds and is why this door stays —
+  // removal is permanent and the page is the one schema row the owner is
+  // guaranteed to have, so sending him to `--clear` is about being able to put
+  // it back, not only about the store opening.)*
+  //
+  // The page is also the most conspicuous schema row an owner has:
+  // `enumerate()` lists it and `status` prints its id. So the console sends him
+  // one door along, to the one that keeps the page as a version and lets him
+  // put it back.
   if (isSelfPageRow(store, targetId)) return none("is-the-self-page");
 
   // EVERYTHING THAT READS THE DOOMED CONTENT HAPPENS HERE (§16 G13).
@@ -585,6 +743,15 @@ export function planRemoval(
   // before anything is chased, because after the chase there is nothing left to
   // search for. Counts and states come out; not one line of what it read.
   const spans = spanResidue(store, targetId, body, chase.hashes, opts);
+  // THE JOURNAL'S MARKDOWN COPY (F6). Two different questions, and they get
+  // two different answers:
+  //   - this memory's OWN file — an episode has one; anything else has none —
+  //     which the chase syncs away with the row.
+  //   - OTHER episodes whose chapters quote these words. LEFT ON PURPOSE and
+  //     said out loud, the way a spans echo is (§16 G15) — never "unchased",
+  //     because nothing failed to be reached.
+  const ownJournalFiles = journalFilesFor(store.dir, targetId).length;
+  const journalEchoes = journalEcho(store, targetId, body, doc, opts);
 
   return {
     targetId,
@@ -598,6 +765,12 @@ export function planRemoval(
       { surface: "prospective", count: prospective.length },
       { surface: "operational rows", count: 1 },
       { surface: "cache", count: 1 },
+      // Stated at 0 too, like `spans`: silence about an empty surface is what
+      // made the span residue undiscoverable (LAUNCH-STATUS §I2). The count is
+      // this memory's OWN copy; the echo below is a different question and gets
+      // its own sentence, because a `0` here with an echo under it would read as
+      // "this surface is clean" over a file that holds the words.
+      { surface: "journal", count: ownJournalFiles },
       // The seventh, and it is in this list rather than beside it now: a surface
       // that is chased belongs with the chased ones. It is stated at 0 too — the
       // silence about an empty buffer is what made the residue undiscoverable
@@ -629,12 +802,30 @@ export function planRemoval(
     unchasable: spans.state === "unknown" ? [spans.line] : [],
     // What is deliberately not taken. The wording is the plan's, so the dry run
     // and the completion report say the same thing about the same lines.
-    leftAlone:
-      spans.echoes > 0
+    leftAlone: [
+      ...(spans.echoes > 0
         ? [
             `spans echo: ${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture. Left on purpose. Nothing prunes the buffer today, so ${spans.echoes === 1 ? "it stays" : "they stay"} there.`,
           ]
-        : [],
+        : []),
+      ...(journalEchoes.ids.length > 0
+        ? [
+            `journal echo: ${journalEchoes.ids.length} episode${journalEchoes.ids.length === 1 ? "" : "s"} whose chapters quote these words — the counterpart's own account of those days, not this memory. Left on purpose, row and markdown copy alike, so ${journalEchoes.ids.length === 1 ? "that .md under journal/ still holds the words" : "those .md files under journal/ still hold the words"}, and any snapshot or backup already taken holds them too. To take one as well: ${journalEchoes.ids.map((id) => `counterparts remove ${id} --confirm`).join(" · ")}`,
+          ]
+        : []),
+      // A BOUNDED CHECK SAYS SO. A stated bound is survivable; a silent one is
+      // the finding this whole line exists to close (MAJOR-3).
+      ...(journalEchoes.checked < journalEchoes.total
+        ? [
+            `journal echo check was BOUNDED: checked ${journalEchoes.checked} of ${journalEchoes.total} episodes, so an episode past that quoting these words is not named above. 'counterparts export --out <dir> --markdown --plaintext' writes every chapter out if you want to look yourself.`,
+          ]
+        : []),
+      // THE COPIES ALREADY ON DISK, whenever a journal file is in play — this
+      // memory's own, or another episode's (review f6f7 MAJOR-5).
+      ...(row.type === "episode" || journalEchoes.ids.length > 0
+        ? [olderCopiesNote(store.dir)]
+        : []),
+    ],
   };
 }
 
@@ -652,12 +843,15 @@ export function ownerRemoval(
 ): OwnerRemovalOutcome {
   const emit = opts.onEvent ?? ((): void => {});
   const notes: RemovalNote[] = [];
-  const append = (stage: RemovalNote["stage"]): void => {
+  const append = (stage: RemovalNote["stage"], addendum?: string): void => {
     const note: RemovalNote = {
       memoryId: request.targetId,
       stage,
       actor: request.actor,
-      reason: request.reason,
+      // The OWNER's reason stays first and whole; an addendum is appended
+      // rather than substituted, because why he removed it is the part of this
+      // record that matters longest.
+      reason: addendum === undefined ? request.reason : `${request.reason} [${addendum}]`,
     };
     store.appendRemovalRecord(note);
     notes.push(note);
@@ -675,16 +869,6 @@ export function ownerRemoval(
 
   // 3. REQUESTED — if this throws, nothing has moved and nothing will (§16 G10).
   append("requested");
-
-  const row = store.row(request.targetId);
-  // RESOLVED AGAINST THIS STORE, never taken as a filesystem path (§5 G15): the
-  // row holds `prose/<family>/<id>.md`, and before it did, a removal run in a
-  // copied store deleted the SOURCE's file through the copy's absolute pointer
-  // (finding I22). A blanked pointer resolves to `""`, so an already-chased row
-  // can never resolve to the store root.
-  const prosePath =
-    row === undefined || row.prose_path === "" ? null : store.absolutePath(row.prose_path);
-  const versions = store.versions(request.targetId);
 
   // Read the body BEFORE `dark`, and keep it local: it is the strike's fallback
   // predicate for a memory whose mint recorded no span hash, and after the chase
@@ -705,9 +889,9 @@ export function ownerRemoval(
   const leftAlone: string[] = [...plan.leftAlone];
 
   // 5. CHASE. THE SPAN BUFFER FIRST, because it is the only surface whose key
-  //    the later steps destroy: `chaseRemoved` blanks the row's `origin_ref`
-  //    pointers' usefulness and the prose file carries the hash. Strike while
-  //    the addressing still exists.
+  //    the later steps destroy: `chaseRemoved` blanks the row — its
+  //    `origin_ref`, its body and its `content_hash` — and those are what
+  //    address a span. Strike while the addressing still exists.
   //
   //    It is `remember/`'s own seam, not an `rmSync` from here: `spans/` is that
   //    module's state machine, and a claim renaming the buffer aside underneath
@@ -761,35 +945,15 @@ export function ownerRemoval(
     }
   }
 
-  //    Box 1 next: the prose and every archived version of it.
-  if (prosePath !== null && existsSync(prosePath)) {
-    try {
-      rmSync(prosePath, { force: true });
-      chased.push("prose");
-    } catch {
-      unchased.push("prose");
-    }
-  } else {
-    chased.push("prose");
-  }
-  let versionsGone = 0;
-  for (const version of versions) {
-    try {
-      const versionPath = version.path === "" ? "" : store.absolutePath(version.path);
-      if (versionPath !== "" && existsSync(versionPath)) rmSync(versionPath, { force: true });
-      versionsGone += 1;
-    } catch {
-      /* counted below */
-    }
-  }
-  if (versionsGone === versions.length) chased.push("versions");
-  else unchased.push("versions");
-  try {
-    rmSync(paths.versionsFor(store.dir, request.targetId), { recursive: true, force: true });
-  } catch {
-    /* an empty directory left behind is not a leak */
-  }
-
+  //    THE WORDS ARE NOT A SEPARATE STEP ANY MORE. Until the floor this is
+  //    where box 1 was chased: unlink the memory's prose file, unlink each
+  //    archived version's file, remove the `versions/<id>/` directory — four
+  //    filesystem operations with three crash points between them and the box-2
+  //    transaction below, each one leaving a different half-erased state. Since
+  //    schema v6 the words are columns on the rows, so `chaseRemoved` blanks
+  //    them inside the same transaction that removes the edges and appends the
+  //    record. One commit; no window (§16 G11).
+  //
   // Box 2, and the `chased` stage with it: the seam appends the record INSIDE
   // its own transaction, so the rows and the record land together or not at all.
   // What survives is named in the report, never implied (§16 G15).
@@ -806,6 +970,40 @@ export function ownerRemoval(
     append("chased");
   }
 
+  // THE JOURNAL'S MARKDOWN COPY (F6), chased after the row and before the
+  // cache, because it is derived from the row and the row has just gone dark.
+  //
+  // It is a file under `<store>/journal/` holding an episode's words, and it is
+  // exactly the shape of finding the reviews raised twice on this floor: a
+  // second on-disk copy the chase does not visit while the console prints
+  // `unchased: nothing`. `syncJournalCopy` re-asks the invariant rather than
+  // deleting by name — the row is tombstoned and denied by now, so the answer
+  // is "no file", and the same call is what the chapter door uses to write one.
+  try {
+    const synced = syncJournalCopy(store, request.targetId);
+    if (synced.outcome === "failed") {
+      unchased.push(
+        `journal (${synced.reason ?? "unknown"}) — the markdown copy of this episode is still under ${JOURNAL_STILL_THERE}`,
+      );
+    } else if (synced.outcome === "removed") {
+      chased.push("journal(1 markdown copy)");
+    } else {
+      // "nothing to remove" is a disclosure, not a silence: a memory that never
+      // had a journal file and an episode whose file was chased must not read
+      // the same (§16 G15). And when an ECHO was reported, this line may not
+      // say "nothing beside the row" — that reads as "this surface is clean"
+      // two lines above a disclosure that it is not (review f6f7 MAJOR-3).
+      const echoes = plan.leftAlone.filter((line) => line.startsWith("journal echo:")).length;
+      chased.push(
+        echoes === 0
+          ? "journal(0, nothing beside the row)"
+          : "journal(0 of its own; other episodes' copies left on purpose, see above)",
+      );
+    }
+  } catch {
+    unchased.push(`journal (threw) — the markdown copy may still be under ${JOURNAL_STILL_THERE}`);
+  }
+
   // Box 3: the rebuild skips every denied id and LOGS the skip, so the cache
   // comes back without the memory and with a record that it was left out.
   try {
@@ -815,7 +1013,37 @@ export function ownerRemoval(
     unchased.push("cache");
   }
 
-  append("complete");
+  // THE WRITE-AHEAD LOG IS A SURFACE, and the floor is what made it one.
+  //
+  // §16 G14 says every copy is chased. While the words were a file, the blank
+  // of the row's pointer and the `rmSync` of the file between them left nothing
+  // readable behind. Now the words are a COLUMN, and an `UPDATE ... SET
+  // body = ''` in WAL mode appends the change to the `-wal` while the page
+  // holding the old text stays in it until a checkpoint moves it. Measured
+  // 2026-09-20 on this branch: right after a chase the doomed text is NOT in
+  // `counterparts.sqlite` and IS in `counterparts.sqlite-wal`; one TRUNCATE
+  // checkpoint clears it from both. (Nothing that LEAVES the machine ever held
+  // it — `backup` and `export` are `VACUUM INTO`, measured clean either way.)
+  //
+  // TRUNCATE rather than PASSIVE, because PASSIVE leaves the file at its length
+  // with the old bytes still in it. On its own connection, and it never throws:
+  // a checkpoint contended by another reader is reported as unchased, which is
+  // true and actionable, rather than taking the removal down after the rows
+  // have already gone.
+  chaseWriteAheadLog(store.dir, chased, unchased);
+
+  // THE DURABLE RECORD MUST NOT CLAIM MORE THAN THE CONSOLE (third review's
+  // open question). The record's stages carry no surface list, so `complete`
+  // has always meant "the ceremony finished", not "everything was reached" —
+  // but a reader coming back to it months later has only that word. So when
+  // anything went unchased the count rides on the stage's own `reason`, beside
+  // the owner's: the console's sentence is ephemeral and this is not.
+  append(
+    "complete",
+    unchased.length === 0
+      ? undefined
+      : `${unchased.length} surface${unchased.length === 1 ? "" : "s"} unchased — see the console report`,
+  );
   emit("cli.removal.complete", {
     target: request.targetId,
     chased: chased.length,
@@ -827,13 +1055,117 @@ export function ownerRemoval(
 }
 
 /**
+ * Fold the write-ahead log back into the database and truncate it, so the page
+ * that held the removed words stops being readable beside the store.
+ *
+ * Never throws (CLI CONTRACT §5 G8's reasoning): by the time this runs the rows
+ * are already gone and the record is already written, and a failure here is a
+ * line in the report, not an exception out of a removal that succeeded.
+ */
+function chaseWriteAheadLog(dir: string, chased: string[], unchased: string[]): void {
+  // BOTH DATABASES, and the second one is review B's MAJOR-1.
+  //
+  // The first draft checkpointed box 2 and called the surface done. Box 3 is
+  // also in WAL and also holds the removed memory's text — as `doc_tokens`
+  // rows, rewritten by the `rebuildCache()` one step earlier — and the OLD
+  // pages sit in `cache/cache.sqlite` until something folds them over.
+  // Reviewer B found the words there in 3 of 5 runs of one shape while the
+  // console printed `unchased: nothing`: the owner told the directory was
+  // clean when it was not. The index really was chased (`live_rows=[]`); it was
+  // the bytes on disk that were not, and the same open-checkpoint-close cleared
+  // them 3/3 when asked directly.
+  //
+  // Not a freelist problem and not a `secure_delete` one (`freelist_count` was
+  // 0 in those runs): these are exactly box 2's pages, in the database this
+  // function did not visit. Reported as its OWN surface, so "cache" keeps
+  // meaning the index and this keeps meaning the file.
+  reclaim(paths.operational(dir), "write-ahead log and freed pages", chased, unchased);
+  reclaim(paths.cache(dir), "cache write-ahead log and freed pages", chased, unchased);
+}
+
+/**
+ * One database made to stop holding the removed words: **VACUUM, then a TRUNCATE
+ * checkpoint**, reported by name.
+ *
+ * **Why VACUUM and not just the checkpoint** (the third review's NEW-MAJOR-1).
+ * Blanking a body frees the pages it sat on, and a body long enough to take
+ * OVERFLOW pages leaves whole pages on the freelist. `secure_delete` is 2 (FAST)
+ * by default, which zeroes only the slack of a page being rewritten, never a
+ * whole freed page — so the words stayed legible in `counterparts.sqlite`
+ * itself, in a page no row points at, while the report said `unchased: nothing`.
+ * Measured on this branch, deterministic 5/5 with marks at the start, middle and
+ * end of a ~40 KB body: only the START mark was cleared (its page gets reused),
+ * the middle and the end survived. A SECOND checkpoint does not help. VACUUM
+ * rebuilds the file from the live pages only, and it is the one remedy that
+ * clears residue whatever freed the page and whenever — a revision months ago,
+ * a prune, this removal — which is what "removed means gone" has to mean.
+ *
+ * **Order matters:** in WAL mode a VACUUM writes into the log, so the main file
+ * is unchanged until a checkpoint. VACUUM alone reads as a no-op.
+ *
+ * `secure_delete = ON` for the chase's own connection was the cheaper candidate
+ * and is NOT used: it measured clean on some shapes and left the middle and end
+ * marks on others, because it only zeroes what THAT transaction frees — a page
+ * freed by an earlier revision is not its business. A guarantee that depends on
+ * page-allocation luck is not a guarantee.
+ *
+ * **Cost, measured, on a 17,000-memory store** (9.3 MB box 2, 16.6 MB box 3):
+ * VACUUM 23 ms and 58 ms, checkpoint under a millisecond. Removal is a rare,
+ * deliberate owner operation; this is not a price anyone will feel.
+ *
+ * It never throws (CLI CONTRACT §5 G8): by the time this runs the rows are gone
+ * and the record is written. A contended VACUUM is a line in the report saying
+ * what is still there and what clears it — never silence, and never `nothing`.
+ */
+function reclaim(path: string, surface: string, chased: string[], unchased: string[]): void {
+  // A database that is not there has nothing to reclaim. Box 3 is rebuildable
+  // and a store may never have built one.
+  if (!existsSync(path)) return;
+  let db;
+  try {
+    db = openDb(path);
+    db.exec("VACUUM");
+    const row = db.get<Record<string, number>>("PRAGMA wal_checkpoint(TRUNCATE)");
+    // The first column is 1 when SQLite could not finish — a reader was holding
+    // an older snapshot. Say so; the next checkpoint clears it.
+    const busy = row === undefined ? 1 : Object.values(row)[0];
+    if (busy === 0) chased.push(surface);
+    else unchased.push(`${surface} (${STILL_THERE})`);
+  } catch (err) {
+    // The REASON rides along — a SQLite message is a code and a path, never
+    // memory text (§5 G10) — because "could not" with no why is the silence
+    // this whole report exists to remove.
+    const why = isLocked(err) ? "the database was busy" : String((err as Error).message ?? err);
+    unchased.push(`${surface} (${why}; ${STILL_THERE})`);
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* a handle that will not close has already said what it could */
+    }
+  }
+}
+
+/**
+ * What is true when the reclaim could not finish, and what clears it. Said in
+ * the report rather than left as a silence: the ROWS are gone either way — this
+ * is about pages no row points at, which a later removal or a named command
+ * folds over.
+ */
+const STILL_THERE =
+  "the memory's rows are gone, but its words may remain in pages no row points at until " +
+  "the next successful removal or 'counterparts verify --dir <store> --rebuild'";
+
+/**
  * The read-back a removal is only trustworthy with: is the id dark, is its prose
  * gone, and does any canonical file still hold its text? Ids only in, verdict
  * out — no body ever crosses this boundary.
  */
 export function verifyRemoval(store: Store, targetId: string): {
   denied: boolean;
-  proseGone: boolean;
+  /** True when the row carries no words: the body is blank. Named `proseGone`
+   *  while the words were a file; it asks the same question of the column. */
+  bodyGone: boolean;
   /** True while a row exists at all — after the chase it is a stripped skeleton. */
   rowSurvives: boolean;
   /** True when that row has been stripped of every content pointer. */
@@ -842,14 +1174,12 @@ export function verifyRemoval(store: Store, targetId: string): {
   darkState: number;
 } {
   const row = store.row(targetId);
-  const prosePath =
-    row === undefined || row.prose_path === "" ? null : store.absolutePath(row.prose_path);
   const tombstone = store.tombstones().find((e) => e.id === targetId);
   return {
     denied: store.deniedIds().includes(targetId),
-    proseGone: prosePath === null || !existsSync(prosePath),
+    bodyGone: row === undefined || row.body === "",
     rowSurvives: row !== undefined,
-    rowTombstoned: tombstone !== undefined && row?.content_hash === "" && row?.prose_path === "",
+    rowTombstoned: tombstone !== undefined && row !== undefined && rowTombstoned(row),
     darkState:
       store.edgesFrom(targetId).length + store.prospectiveFor(targetId).length,
   };

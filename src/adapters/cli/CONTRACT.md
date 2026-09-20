@@ -28,7 +28,16 @@ owner owns the data.
   §16 G13 — v1 named this bug: chasing copies first made every span unidentifiable.
 - **Chase every surface, including the derived association graph.** [v1] §16 G14 — an
   erased id left in the learned graph keeps *conducting* activation between its former
-  neighbors.
+  neighbors. **The surfaces on the rows floor are: the row and its versions (blanked in one
+  transaction), the edges, the prospective windows, the gate rows, box 3, both databases'
+  write-ahead logs and freed pages, `remember/`'s span buffer, and — since 2026-09-20 —
+  `journal/`, the episode journal's derived markdown copy.** Each is named in the report at
+  its count, **including at zero**: a surface that is silent when it is empty is the silent
+  partial success below. A copy the chase cannot reach is named under `unchased` with a
+  sentence saying what is still where; a chapter of the counterpart's own journal that
+  merely QUOTES the removed words is named under `leftAlone`, by episode id, the way a spans
+  echo is — nothing failed to be reached, and removing an account of a day is its own
+  decision with its own id.
 - **No silent partial success**, and a contamination scan returns **ids only** — printing
   the matches would re-leak exactly what is being erased. [v1] §16 G15.
 - **Removal targets are restricted to memory-bearing roots.** [v1] §16 G16 — the archive,
@@ -72,8 +81,13 @@ owner owns the data.
 ## 5. Contract
 
 **Inputs** — owner commands: `status`, `install`, `on`/`off`, `protected` (list),
-`remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18); interactive
-confirmation; the data directory.
+`remove <id>`, `export`, `backup`, `restore`, `self-page` (2026-09-18), `start-fresh`
+(2026-09-20); interactive confirmation; the data directory.
+*`start-fresh` is the second command in this module that asks a human before it acts, and
+the first whose danger is not deletion but MOVEMENT. It resolves its store from the host
+CONFIGURATION rather than from `--dir`, which it refuses in words: the store that matters
+is the one the hooks and the MCP server open, and a second answer on the command line is
+how the wrong one would get moved.*
 *`self-page` is deliberately NOT on `OWNER_OPS`, and it is the second command with a
 reason of its own for that (`scope` is the first). It both READS and writes: reading the
 page must work from an instrument, because "what does my page actually say" is the first
@@ -120,9 +134,32 @@ snapshots and exports; the removal record; telemetry by reference.
    BOUNDED retention (H lived days). Bounded canonical-until-expiry state belongs IN the
    backup set, and LAYOUT says so; this guarantee's premise applied to v1's shape. The
    implementation followed LAYOUT, which guarantee 5 makes the single source of truth.*
+   *Second correction (2026-09-20, the floor): there is no `versions/` directory
+   either. An archived version is a ROW in `counterparts.sqlite`, so it is inside
+   the database the snapshot copies through `VACUUM INTO` and there is nothing
+   left for this guarantee to exclude. Still bounded, still 90 lived days — and
+   the prune now deletes the WORDS rather than a note about a file (owner ruling
+   1, 2026-09-18; `store/NOTES.md` 2026-09-20).*
 7. **[M] `export` is the only egress**, and it is explicit, encrypted, and owner-keyed. A
    test asserts no other module opens a network socket to a non-model, non-embedding
    endpoint.
+   *Extended 2026-09-20 (F7, owner ruling 4 of 2026-09-18).* It takes two shapes and the
+   report names which ran: the whole store as one SQLite file through `VACUUM INTO`, or
+   `--markdown`, a readable tree — one file per memory grouped by kind, the journal as is,
+   the self page as its own file, `--with-versions` for every earlier wording. **Filenames
+   are ids, never titles.** The markdown tree **omits confidential rows unless
+   `--include-confidential`, and says how many it omitted** — in the terminal and in a
+   manifest inside the tree, at zero as well, because a directory that does not say what
+   is missing from it reads as complete. Removed rows are never exported; a row that will
+   not render is named by its id rather than silently absent. **`--markdown --passphrase`
+   is supported properly** — the tree is rendered into memory, sealed, and only then
+   written, so that path has no scratch anywhere. It refuses a non-empty target unless
+   told, refuses a target inside the store or a live v1 store, and refuses a store this
+   build cannot open in the floor's own sentence, touching nothing on either side. One
+   durable `store.export` row carries counts and flags and **not the target path**.
+   *`export` is NOT on `OWNER_OPS` (2026-09-20): an export reads the store and writes
+   outside it, so under `--observer` the copy is made, the durable row is not, and the
+   report says which.*
 8. **[M] Backups never leave the machine and never throw** — a backup problem must not
    block a consolidation cycle.
 9. **[M] Reads are pure.** Inspecting the protected list or the census writes nothing and
@@ -131,9 +168,67 @@ snapshots and exports; the removal record; telemetry by reference.
     gated channel without one.
 11. **[A] Command names, flag shapes, and output formatting are surface** and may change
     without touching a core contract.
-12. **[M] Owner-in-the-loop is a short, named list — currently one item: removal.**
-    Candidates for the list get discussed, never assumed (§14.3). Everything else that can
-    be safely autonomous is.
+12. **[M] Owner-in-the-loop is a short, named list — currently two items: removal, and
+    `start-fresh`.** Candidates for the list get discussed, never assumed (§14.3).
+    Everything else that can be safely autonomous is. *`start-fresh` joined it on
+    2026-09-20 for a reason removal does not share: what it moves cannot be checked by
+    this process. A session holding the store open by a file handle goes on writing into
+    the parked directory after the rename, and no cheap read can see an idle one — so the
+    human is not a formality here, he is the only instrument that can answer.*
+13. **[M] `start-fresh` never deletes and never opens the store it parks** — not for
+    writing, not read-only. The only mutating call in `cli/start-fresh.ts` is `rename`,
+    and the parked directory is proved byte-identical afterwards by a fingerprint over
+    every file including the `-wal` and the `-shm` and over every directory's entry list.
+    *Read-only is not exempt: under WAL, committed pages live in the `-wal` until somebody
+    checkpoints them, and an opener is somebody.*
+14. **[M] `start-fresh` asks the FILESYSTEM whether a store is there, never the floor.**
+    "The directory exists and holds something", never `storeExists()`. *Since F5 that
+    function answers true for a pre-rows store too, so the two readings now agree on an
+    old-floor store — and still differ on a half-made one holding only a `cache/`, where
+    `storeExists` says "no store" and would let `install` mint one beside a stale box 3.
+    Proved against four directories: absent, empty, old floor, new floor, and one wearing
+    both database names.* The command's only reading OF the floor is `preRowsMarkersIn`
+    — filenames, never an open — and it is used to SAY which floor the parked store is
+    on, never to decide anything.
+15. **[M] `start-fresh` never creates a store at a path nobody named.** The cold arm's
+    landing place is computed from the CONFIGURATION'S own directory and an empty
+    environment, printed before it is used, pinned onto `install`, and refused if
+    anything is there. *A mistyped `--config` used to fall through to
+    `$COUNTERPARTS_DATA_DIR`, else `~/.counterparts/store` — the live one — and stamp it
+    "began today" (N1 review B1). The `Store:` line is never blank, because a blank one
+    is what let "there is no store at that path" and "Store already present at …" share a
+    screen.*
+16. **[M] The blank store is built before anything is parked, and arrives with one
+    rename.** An `install` that refuses therefore costs a temporary directory rather than
+    leaving the configuration pointing at nothing, and the window in which another
+    process can mint a store at `dataDir` is two renames wide. A destination that is not
+    empty at the second rename is a REFUSAL naming all three directories, never a merge.
+17. **[M] The way back is printed from the plan that RAN, and every line refuses rather
+    than nesting.** The date is frozen for the run; a re-read that finds the ground moved
+    refuses instead of executing a plan nobody read; the block is re-printed after the
+    renames and in every failure branch. *A bare `mv a b` onto an existing directory
+    moves `a` inside `b` and reports success — measured — so each printed line is
+    guarded, and `start-fresh --undo` does the same three moves without a shell.*
+18. **[M] Both directions run ONE guard ring, and a test asserts they answer identically.**
+    `start-fresh.ts#pathGuard` is present / absolute / not a forbidden root by either
+    spelling / not a root / not the home directory / not holding the configuration / not a
+    symlink, and every path either direction would rename goes through it. *`--undo`
+    shipped as new code that ran none of the forward refusals and renamed inside a
+    `~/.bansai` with no tampering at all (confirmation review BLOCKER-1). Two
+    implementations of "what may I rename" is how they drifted; one function plus a test
+    comparing their sentences is what stops it.*
+19. **[M] A value read back out of a store is DATA, never an instruction.**
+    `store.previous.parked` is a `meta` row anything with the store open can write, so
+    `--undo` pins its shape (`parkedSiblingRefusal`: a sibling of the store, wearing a name
+    this package writes) rather than trusting it. *Proved against the four crafted values
+    the review used: a forbidden root, the store's own parent, a symlink, and a name
+    nothing writes.*
+20. **[M] Cut-over day is proved against a store the PINNED BUILD wrote, not a hand-made
+    one.** `test/old-floor-fixture.ts` extracts `floor/v5-last` and runs that build's own
+    `Store` API to produce a v5 store whose `-wal` holds the database its file does not.
+    `start-fresh` parks it byte-identical, its output never mentions `STORE_PRE_ROWS`
+    because nothing opened it, and the rollback lines *as printed* restore it — still
+    refused by name, still readable by the build that wrote it.
 
 ## 6. Scars honored
 

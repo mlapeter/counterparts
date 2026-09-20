@@ -96,6 +96,8 @@ Read-only. Method, so it can be re-run: row counts via
 the prose payload line. Counts by kind only; no body text was read for content.
 
 > **2026-09-18 — do not reuse this recipe once the store is in WAL mode (F1, PR #137).** `?immutable=1` makes SQLite ignore the `-wal`, so every query reads the database as of the last checkpoint — silently short, no error (proved in `docs/adversarial-review-f1-2026-09-18.md`). Use plain `sqlite3 -readonly <path>`. What is written here is what was run at the time, under DELETE mode, where it was right.
+>
+> **2026-09-20 — and the filename moves at cut-over.** A store this build writes has no `operational.sqlite`; its database is `counterparts.sqlite` (§16 item 3). The path above is still the right one for the store this section measured — it is parked, pre-rows, and read by the build tagged `floor/v5-last`.
 
 
 | on disk | count | size |
@@ -399,11 +401,12 @@ Nothing is built. No estimate.
 - `claude-code/`: session start delivers the handoff lane for the working directory.
 - `dashboard/`: an entity view.
 - `cli/`: export renders pages; backup is one `VACUUM INTO`.
-- Migration: one pass, 16K prose files into rows, `versions/` bodies into the versions
-  table. The confidentiality flag lives in the prose payload's `meta` today
-  (`src/core/recall/activate.ts#isConfidential`) and must be carried into a column. The
-  file-per-memory layout has two real consumers to retire honestly: `backup` and
-  `verify`'s census.
+- ~~Migration: one pass, 16K prose files into rows, `versions/` bodies into the versions
+  table.~~ **SUPERSEDED, 2026-09-18 (owner ruling 6) and again by §16 item 3's close: there is
+  no migration.** The cut-over carries nothing, a pre-rows store is refused by name rather than
+  converted, and the 16K files stay where they are, read-only, on disk. The confidentiality flag
+  did become a column (`memories.confidential`), because a gate that re-parses JSON at every call
+  site is a gate that will one day fail open; `backup` and `verify`'s census were retired honestly.
 - Sequencing note: the owner told the coordinating session at close that the three
   follow-up batches wait until this architecture conversation lands. G56 seeding is needed
   regardless of the outcome here.
@@ -655,9 +658,32 @@ overbuild that part, to the detriment of the actual software that users will use
      more restrictive of the session's start directory and the event's directory, plus a doctor section
      (asks raised / refused / paced, authored against fallback, last seven days);
    - the fallback woken as the self (`feat/fallback-woken-as-self`).
-3. **The floor**: memories, versions and the journal into database rows; WAL and a busy timeout; rotating
-   snapshots (optionally to a second location); export writes pages and the journal as markdown; the
-   journal also saved as markdown files (the owner said yes; kept light, see §15 item 9).
+3. **The floor — BUILT, as F1–F8; F1–F7 merged to master 2026-09-20, F8 in review, NOTHING DEPLOYED.**
+   The live checkout is pinned at `floor/v5-last` on purpose until cut-over day, so the owner's store is
+   still pre-rows and doctor reads behind master deliberately. Memories, versions and the journal into
+   database rows; WAL and a busy timeout set FIRST; rotating snapshots with an optional `mirror`; export
+   writes the journal and, with `--markdown`, every memory; the journal also saved as markdown files.
+   **What was built that this line did not plan**, all of it found while building:
+   - **The database is renamed** `operational.sqlite` → `counterparts.sqlite` (owner ruling 5,
+     2026-09-18): the old name meant "the operational bits beside the real memories", which stopped
+     being true.
+   - **There is no migration and there will not be one** (owner ruling 6): a pre-rows store is refused
+     BY NAME before any transaction (`STORE_PRE_ROWS`), and the refusal keys on the FILENAMES
+     `operational.sqlite` / `prose` / `versions`, **not** on the schema version — reading the version
+     would mean opening a WAL store whose `-wal` a close could checkpoint away, moving the bytes the
+     refusal exists to leave alone. `tools/migrate/**` and its tests are deleted (F8).
+   - **A removal now has to VACUUM.** Blanking a body frees pages that still hold the words; a
+     checkpoint materialises them rather than clearing them. Both databases get `VACUUM` then
+     `wal_checkpoint(TRUNCATE)` (store CONTRACT §5 G17, found by F5's third adversarial review).
+   - **Rotation never deletes a snapshot folder that holds pre-rows markers**, so the copies of the
+     parked store survive cut-over.
+   - **The journal's markdown copy is classified but NOT backed up.** It is derived — a restored store
+     writes every file again at its next boundary — and copying it put removed episodes' words into
+     every rotating snapshot as plain greppable markdown. Classified and backed up turned out to be two
+     questions, which this item's "the journal also saved as markdown files" did not distinguish.
+   - `versions` carries `learned_on` / `happened_on` as well as `title`/`body`/`meta`/`content_hash`,
+     because a date correction travels the same door as a body change; and `content_hash` is now
+     `hashText(body)`, one definition across both tables.
 4. **The self page**: two parts, kept in the database with versions; a page-revision tool; the nightly
    runner (a windowless host session first); the page replaces the list at wake; the dashboard shows the
    page and each night's change; people and project pages by the earning rule.

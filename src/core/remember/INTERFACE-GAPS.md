@@ -21,10 +21,12 @@ throws `LAYOUT_UNCLASSIFIED`.** The entry to add:
 ```
 
 `backup: true` is the point — spans are the one thing in the data dir that is
-neither canonical prose nor rebuildable cache, and dropping them from the backup set
-is exactly the silent loss the buffer exists to prevent. (`store/`'s own test asserts
-the backup set equals `["operational.sqlite", "prose", "versions"]`; that expectation
-grows by one.)
+neither the canonical database nor rebuildable cache, and dropping them from the
+backup set is exactly the silent loss the buffer exists to prevent. (`store/`'s
+own test asserts the whole backup set, so adding one is a line there too. Since
+the floor, 2026-09-20, it is
+`["counterparts.sqlite", "journal", "spans"]` — `prose` and `versions` went when
+the bodies became rows.)
 
 ## 2. `encode/` — the `GateFn` (the gate battery)
 

@@ -1,22 +1,23 @@
 /**
  * One fixture for stores — the suite's single piece of layout knowledge.
  *
- * Today a memory's body is a markdown file under `prose/` and its archived
- * versions are files under `versions/`; tomorrow (the floor, phase 5) both are
- * columns on a row and those directories do not exist. Every test that only
- * wanted "what does this memory SAY" had to know that, and sixteen files knowing
- * it is sixteen files in the floor's diff — the one diff in this rebuild that
- * can make a store unreadable, and so the one that has to stay legible.
+ * A memory's body was a markdown file under `prose/` and its archived versions
+ * were files under `versions/`; since the floor (schema v6) both are columns on
+ * a row and those directories do not exist. Every test that only wanted "what
+ * does this memory SAY" had to know that, and sixteen files knowing it would
+ * have been sixteen files in the floor's diff — the one diff in this rebuild
+ * that can make a store unreadable, and so the one that had to stay legible.
+ * It worked: the floor changed this file and two store suites.
  *
  * So the answers live here instead:
  *
  *   - `bodyOf` / `versionBodies` go through the `Store` API (`readProse`,
  *     `versions`, `readVersion`), which phase 5 keeps unchanged. They are
  *     layout-free already, and exist so no test reaches for a path again.
- *   - `makeBodyUnreadable` is the one function in `test/` that DOES know there is
- *     a file, and it is here so phase 5 changes one function rather than four
- *     call sites in three suites. See its own note — it may have no honest
- *     successor once bodies are in rows.
+ *   - `makeBodyUnreadable` is the one function in `test/` that reaches past the
+ *     `Store` API into the database underneath it, and it is here so the floor
+ *     changed one function rather than four call sites in three suites. See its
+ *     own note for what it does on the rows floor and why.
  *   - `makeStore` is the hand-rolled "fresh temp dir, opened store, clean up
  *     after" shape, for the tests that need a SECOND store beside the one their
  *     `beforeEach` already makes.
@@ -26,11 +27,12 @@
  * `Store.open` explicitly (so `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is satisfied
  * without an environment variable), and `cleanup()` closes before it removes.
  */
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Store } from "../src/core/store/index.js";
+import { Store, paths } from "../src/core/store/index.js";
+import { openDb } from "../src/core/store/db.js";
 
 /** A store nobody else shares, and the one call that takes it away again. */
 export interface MadeStore {
@@ -85,30 +87,52 @@ export function versionBodies(store: Store, id: string): string[] {
 }
 
 /**
- * Take a memory's body away UNDERNEATH the store, leaving its row intact.
+ * Take a memory's words away UNDERNEATH the store, leaving its row intact.
  *
- * The state four tests need is "the row is there and its words are not": a
- * doctor reading red with `PROSE_FILE_MISSING`, `Self` naming an element
- * unreadable rather than removed, and two removal-chase plans that have to work
- * with nothing but the row. Today that is one `rmSync`, which is why this is the
- * only function in `test/` that resolves a stored path.
+ * The state four tests need is "the row is there and its words are not": doctor
+ * reading RED on a store no session can open, `Self` naming an element
+ * *unreadable* rather than *removed*, and two removal-chase plans that have to
+ * work with nothing but the row. It was one `rmSync` while a body was a file,
+ * and F4 collected it here so the floor would have one function to answer
+ * rather than four call sites in three suites.
  *
- * It returns the absolute path it removed, because one caller
- * (`hook-standdown.test.ts`) asserts the store names that exact path back.
+ * **THE ANSWER IS BLANK THE COLUMN, and the row's `content_hash` is what makes
+ * it honest.** The floor gives the store a pair, not a flag:
  *
- * PHASE 5: a body is a column, so there is no file to remove and no path to
- * return. The honest successor may be "blank the column" — or there may be
- * none, in which case these four tests are retired rather than rewritten. That
- * is a ruling for the floor, and it is a smaller one because it is asked here
- * once instead of in three suites.
+ *   - `body = '' AND content_hash = ''` is a TOMBSTONE. The owner removed this;
+ *     the deny-list answers by name, and `Schemas.load` skips it so the next
+ *     session still starts (#139).
+ *   - `body = ''` with the hash still naming the words that were there is the
+ *     FAULT — a row whose words went missing underneath the store. No write
+ *     path in `store/` produces it: `put` and `revise` both refuse an empty
+ *     body, and the chase blanks both halves together. So it is exactly the
+ *     state this helper wants, and every read answers it `MEMORY_BODY_MISSING`.
+ *
+ * That is why the four tests are rewritten rather than retired: "unreadable"
+ * still means something specific on this floor, it is still distinguishable
+ * from "removed", and the mechanism the tests exercise — doctor's red Store
+ * line, the hook's stand-down, `Self`'s `[unreadable]` — is unchanged.
+ *
+ * It writes through a SECOND connection rather than through the store's own,
+ * which is the whole point: the store must meet this state having never made
+ * it. Returns the id, where it used to return the path it removed — on this
+ * floor there is no path, and `MEMORY_BODY_MISSING` carries `{ id }` for the
+ * same reason.
  */
 export function makeBodyUnreadable(store: Store, id: string): string {
-  const path = store.absolutePath(store.row(id)?.prose_path ?? "");
-  // Asserted, not assumed: a helper that silently removed nothing would make
+  const row = store.row(id);
+  // Asserted, not assumed: a helper that silently blanked nothing would make
   // every caller vacuous at once.
-  if (!existsSync(path)) {
-    throw new Error(`makeBodyUnreadable: ${id} has no body on disk at ${path}`);
+  if (row === undefined) throw new Error(`makeBodyUnreadable: ${id} is not in this store`);
+  if (row.body.length === 0) throw new Error(`makeBodyUnreadable: ${id} already has no words`);
+  if (row.content_hash.length === 0) {
+    throw new Error(`makeBodyUnreadable: ${id} carries no content hash, so this would tombstone it`);
   }
-  rmSync(path, { force: true });
-  return path;
+  const db = openDb(paths.operational(store.dir));
+  try {
+    db.run("UPDATE memories SET body = '' WHERE id = ?", id);
+  } finally {
+    db.close();
+  }
+  return id;
 }

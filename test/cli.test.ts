@@ -22,16 +22,21 @@
  * in `afterEach`, and `store/paths.ts` structurally refuses `~/.bansai`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { TUNABLES } from "../src/core/physics/index.js";
+import { STORE_EXPORT_EVENT } from "../src/core/counterpart.js";
 import {
   BRIEFING_KEY,
   PREFACE_RESERVE_BYTES,
+  Self,
   byteLength,
+  journalFileEpisodeId,
+  journalFiles,
+  journalFilesFor,
   readSentinel,
 } from "../src/core/self/index.js";
 import { PHASES, TUNABLES as SLEEP_TUNABLES, markerKey } from "../src/core/sleep/index.js";
@@ -51,6 +56,7 @@ import { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, LAYOUT, Store, isDatabaseSidecar
 import { makeBodyUnreadable } from "./store-fixture.js";
 import {
   BLOB_NAME,
+  EXPORT_SCRATCH_STALE_MS,
   CONFIG_FILE,
   COMMANDS,
   COMMAND_BLURB,
@@ -169,7 +175,7 @@ function fingerprint(root: string): string {
   // sidecar until a checkpoint moves it into the file, so hashing the database
   // file alone would pass over the write this is watching for. (The `-shm` is
   // not: it is the index every reader writes read-marks into.)
-  for (const name of ["prose", "versions", "spans", "operational.sqlite", "operational.sqlite-wal"]) {
+  for (const name of ["prose", "versions", "spans", "counterparts.sqlite", "counterparts.sqlite-wal"]) {
     walk(join(root, name), name);
   }
   return parts.join("|");
@@ -229,7 +235,7 @@ describe("status", () => {
     expect(printed).toContain("self 0");
   });
 
-  test("counts, the removal record, the permanent list, and the layout — and writes nothing", async () => {
+  test("the numbers first, then the record and the list; the layout only when asked (finding 3)", async () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "person", title: "Ada", body: "Ada reads the logs first." });
     s.updatePhysics(kept, { protected: true });
@@ -251,7 +257,34 @@ describe("status", () => {
     expect(printed).toContain("Permanent");
     expect(printed).toContain(kept);
     expect(printed).toContain("protected");
-    for (const entry of LAYOUT) expect(printed).toContain(entry.name);
+
+    // THE CENSUS COMES FIRST (2026-09-20, finding 3). This command is what
+    // `install` tells a new user to check with, and the four numbers they came
+    // for used to sit under a ten-line block naming `assertLayout()`, "Box 3"
+    // and `adapters/expansions.ts` — none of which a reader can look up.
+    const lines = printed.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines[0]?.startsWith("Store: ")).toBe(true);
+    expect(lines[1]?.startsWith("Memories: ")).toBe(true);
+    // The day's facts are one line, and the store's shape is the next.
+    expect(printed).toMatch(/Today \(\d{4}-\d{2}-\d{2}\): \d+ new/);
+    expect(printed).toContain("Lived day 0");
+    expect(printed).toContain("Last boundary never");
+    expect(printed).toContain("Self page: none yet");
+    expect(printed).toContain("Journal mode: wal");
+    // `Today` counts the SAME population the line above it does, or the two
+    // numbers on one page disagree: two rows exist, one is removed, one is a
+    // live memory born today.
+    expect(printed).toContain("Today (");
+    expect(printed).toContain(": 1 new");
+
+    // AND THE LAYOUT IS NOT PRINTED unless it is asked for.
+    for (const entry of LAYOUT) expect(printed).not.toContain(entry.why);
+    const withLayout = consoleWith();
+    expect(await run(["status", "--layout"], { io: withLayout.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    for (const entry of LAYOUT) expect(text(withLayout.out)).toContain(entry.name);
+
     // §5 G9: reads are pure.
     expect(fingerprint(dir)).toBe(before);
   });
@@ -512,18 +545,72 @@ describe("backup", () => {
     writer.exec("COMMIT");
     writer.close();
 
-    const db = report.copied.find((e) => e.name === "operational.sqlite");
+    const db = report.copied.find((e) => e.name === "counterparts.sqlite");
     expect(db?.method).toBe("vacuum-into");
     expect(db?.ok).toBe(true);
 
     // Open the copy and read a row written inside the pre-copy write window.
-    const copy = openDb(join(target, "operational.sqlite"));
+    const copy = openDb(join(target, "counterparts.sqlite"));
     const row = copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id);
     expect(row?.id).toBe(id);
     // And the uncommitted write is NOT in the copy: a consistent snapshot, not
     // a smear of whatever the file happened to hold.
     expect(copy.get("SELECT value FROM meta WHERE key = ?", "uncommitted")).toBeUndefined();
     copy.close();
+  });
+
+  test("MAJOR-5: a snapshot does NOT carry the journal's copies, and a restore REGENERATES them", () => {
+    // THE FLIP, and the reason for it. `journal: backup: true` meant every
+    // rotating snapshot held every episode's words as plain greppable markdown
+    // — so a removal emptied the live store (proved by byte grep elsewhere) and
+    // left the words in fourteen copies that any grep, Spotlight index or
+    // synced folder can read. A database in an old snapshot is a file somebody
+    // must know to open; a markdown file in one is a search result.
+    //
+    // It costs nothing to stop copying it, because the copy is DERIVED: the
+    // rows are in the snapshot and the next backfill pass writes the files
+    // again. Scar §2.11 does not apply — that was about losing the CANONICAL
+    // journal from a backup, and this one is not canonical.
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    const ids: string[] = [];
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    ids.push(self.appendChapter("s1", "ZQSNAPSHOTJOURNAL — the chapter.").episodeId as string);
+    // MORE than one pass's ordinary budget, so "brings every copy back" is not
+    // a vacuous claim about a store small enough not to need the cold bound.
+    for (let i = 0; i < 30; i += 1) {
+      ids.push(
+        s.put({
+          type: "episode",
+          kind: "self",
+          body: `## chapter 1 — lived day 0\n\nZQSNAPSHOTJOURNAL episode ${i}\n`,
+          meta: { sessionId: `e${i}`, chapters: 1 },
+        }),
+      );
+    }
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(ids.length);
+
+    const target = join(outside, "no-journal");
+    expect(snapshot(s, target).ok).toBe(true);
+    s.close();
+    // NOT in the copy — not the directory, not one file, not one byte.
+    expect(existsSync(join(target, "journal"))).toBe(false);
+    for (const name of readdirSync(target)) {
+      expect({
+        name,
+        holds: readFileSync(join(target, name)).toString("latin1").includes("ZQSNAPSHOTJOURNAL"),
+      }).toEqual({ name, holds: name === "counterparts.sqlite" });
+    }
+
+    // …and the restore brings them back, at the first boundary, all of them.
+    const restored = Store.open({ dir: target });
+    open.push(restored);
+    expect(journalFiles(target)).toEqual([]);
+    new Self({ store: restored, gate: () => ({ ok: true }) }).boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(target).length).toBe(ids.length);
+    for (const id of ids) expect(journalFilesFor(target, id).length).toBe(1);
   });
 
   test("the backup set IS the layout's, and every top-level path is classified", async () => {
@@ -563,6 +650,82 @@ describe("backup", () => {
     expect(report.errors.length).toBe(1);
   });
 
+  test("MAJOR-4 — a destination reached THROUGH A SYMLINK into the store is refused too", () => {
+    // `resolve()` normalises `..` but never reads the filesystem, so a target
+    // that passes through a link into the store was judged "outside" and
+    // written anyway. The review put a whole export tree inside `<store>/journal/`
+    // that way. The guard is shared with `backup`, so both are asserted here.
+    const s = store();
+    mkdirSync(join(dir, "journal"), { recursive: true });
+    const link = join(outside, "lnk");
+    symlinkSync(join(dir, "journal"), link);
+    expect(() => assertSafeTarget(dir, join(link, "sub"))).toThrow(/inside the store/);
+    const report = snapshot(s, join(link, "snap"));
+    expect(report.ok).toBe(false);
+    expect(String(report.errors[0])).toContain("inside the store");
+    expect(readdirSync(join(dir, "journal"))).toEqual([]);
+  });
+
+  test("MAJOR-4 — a DANGLING symlink target is refused by name, not by an mkdir errno", () => {
+    // A guard that holds because `mkdirSync` throws EEXIST on a dangling link
+    // is not a guard, and the console printed the raw errno at the owner.
+    const dangling = join(outside, "nowhere-link");
+    symlinkSync(join(outside, "does-not-exist"), dangling);
+    expect(() => assertSafeTarget(dir, dangling)).toThrow(/dangling symlink/);
+  });
+
+  test("MAJOR-4 — a target symlinked into ~/.bansai or ~/.claude-engram refuses under a FAKE HOME", () => {
+    // The case the reviewer named as most needing a run and did not run: the
+    // forbidden-root guard reads `homedir()` and resolves both sides, but a
+    // symlink whose DESTINATION is inside a live v1 store is the shape that
+    // slipped past `resolve()`. Both sides are realpath'd now, the roots
+    // included — which on macOS matters twice over, because `$TMPDIR` is itself
+    // a symlink (`/var` → `/private/var`).
+    // IN A CHILD PROCESS, because `os.homedir()` under bun reads the passwd
+    // entry and ignores a `HOME` set in this process (measured) — an in-process
+    // fake home would have made this test pass while proving nothing.
+    const fakeHome = mkdtempSync(join(tmpdir(), "counterparts-cli-home-"));
+    const script = join(outside, "roots-probe.ts");
+    writeFileSync(
+      script,
+      [
+        `import { mkdirSync, symlinkSync } from "node:fs";`,
+        `import { join } from "node:path";`,
+        `import { assertSafeTarget } from ${JSON.stringify(resolve(import.meta.dir, "../src/adapters/cli/snapshot.ts"))};`,
+        `const home = ${JSON.stringify(fakeHome)};`,
+        `const store = ${JSON.stringify(dir)};`,
+        `const out: string[] = [];`,
+        `for (const root of [".bansai", ".claude-engram"]) {`,
+        `  mkdirSync(join(home, root, "store"), { recursive: true });`,
+        `  const link = join(home, "link-" + root);`,
+        `  symlinkSync(join(home, root), link);`,
+        `  for (const [label, path] of [["through-the-link", join(link, "store", "export")], ["plain", join(home, root, "x")]] as const) {`,
+        `    try { assertSafeTarget(store, path); out.push(root + " " + label + ": ALLOWED"); }`,
+        `    catch { out.push(root + " " + label + ": refused"); }`,
+        `  }`,
+        `}`,
+        `console.log(out.join("\\n"));`,
+      ].join("\n"),
+      "utf8",
+    );
+    const probe = Bun.spawnSync([process.execPath, "run", script], {
+      env: {
+        ...process.env,
+        HOME: fakeHome,
+        // A spawned bun with a fake HOME must not write a transpiler cache into it.
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+      },
+    });
+    const said = probe.stdout.toString().trim().split("\n").sort();
+    expect(said).toEqual([
+      ".bansai plain: refused",
+      ".bansai through-the-link: refused",
+      ".claude-engram plain: refused",
+      ".claude-engram through-the-link: refused",
+    ]);
+    rmSync(fakeHome, { recursive: true, force: true });
+  });
+
   test("`backup` survives a store another process is WRITING — the live repro (§5 G8)", async () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", title: "Held", body: "Committed before the lock." });
@@ -570,7 +733,7 @@ describe("backup", () => {
     open.length = 0;
 
     // Exactly the live shape (live-verify 2026-08-25): a second process holds an
-    // open write transaction on operational.sqlite while the owner runs a
+    // open write transaction on counterparts.sqlite while the owner runs a
     // backup. Before the fix the CONSTRUCTOR wrote at open, hit the lock, and
     // threw "database is locked" out of `run()` — no report, no exit code, a
     // stack trace on the owner's terminal.
@@ -593,7 +756,7 @@ describe("backup", () => {
     expect(code).toBe(EXIT.ok);
     expect(text(c.out)).toContain("ok  ");
     const snapDir = join(outside, readdirSync(outside)[0] as string);
-    const copy = openDb(join(snapDir, "operational.sqlite"));
+    const copy = openDb(join(snapDir, "counterparts.sqlite"));
     expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
     copy.close();
   });
@@ -624,6 +787,21 @@ describe("backup", () => {
 // ── export ──────────────────────────────────────────────────────────────────
 
 describe("export", () => {
+  /** Every file in an export, relative to its root and sorted. Paths only. */
+  function treeFiles(root: string): string[] {
+    const out: string[] = [];
+    const walk = (at: string, rel: string): void => {
+      for (const name of readdirSync(at).sort()) {
+        const full = join(at, name);
+        const next = rel === "" ? name : `${rel}/${name}`;
+        if (statSync(full).isDirectory()) walk(full, next);
+        else out.push(next);
+      }
+    };
+    walk(root, "");
+    return out;
+  }
+
   test("refuses to choose for you: neither --passphrase nor --plaintext is a refusal", async () => {
     store().put({ type: "memory", kind: "fact", body: "A memory that is not leaving quietly." });
     const c = consoleWith();
@@ -633,7 +811,7 @@ describe("export", () => {
     expect(existsSync(join(outside, "e", BLOB_NAME))).toBe(false);
   });
 
-  test("--plaintext is portable: prose readable in any editor, DB openable", async () => {
+  test("--plaintext is portable: one file, and the words are in it", async () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", title: "Portable", body: "Readable in any editor." });
     s.close();
@@ -643,12 +821,162 @@ describe("export", () => {
       EXIT.ok,
     );
 
-    const proseFile = join(target, "prose", "memories", `${id}.md`);
-    expect(readFileSync(proseFile, "utf8")).toContain("Readable in any editor.");
-    const copy = openDb(join(target, "operational.sqlite"));
-    expect(copy.get<{ id: string }>("SELECT id FROM memories WHERE id = ?", id)?.id).toBe(id);
+    // THE BUNDLE IS THE DATABASE. `prose/**.md` was half of it until the floor;
+    // the words are columns now, so the one file has to carry them — which is
+    // what is asserted, rather than that the file merely exists.
+    const copy = openDb(join(target, "counterparts.sqlite"));
+    expect(copy.get<{ body: string }>("SELECT body FROM memories WHERE id = ?", id)?.body).toContain(
+      "Readable in any editor.",
+    );
     copy.close();
     expect(readFileSync(join(target, "README.md"), "utf8")).toContain("UNENCRYPTED");
+    // And the `VACUUM INTO` scratch did not land in the bundle — or, since
+    // `tmp/` went with the floor, in the STORE, where it would fail the next
+    // `assertLayout()` as an unclassified top-level path.
+    expect(readdirSync(target).sort()).toEqual(["README.md", "counterparts.sqlite"]);
+    Store.open({ dir, observer: true }).assertLayout();
+  });
+
+  test("an INTERRUPTED --passphrase export leaves no plaintext in the target (review B, MAJOR-4)", async () => {
+    // THE SCRATCH IS A PLAINTEXT COPY OF THE WHOLE STORE. It lived in the
+    // TARGET until this fix, and the target of a `--passphrase` export is by
+    // definition the place the copy is going — an external disk, a synced
+    // folder, the directory the owner is about to hand somebody. A kill during
+    // the vacuum left a timestamped file there that nothing would ever
+    // overwrite or sweep.
+    const s = store();
+    const secret = "ZQEXPORTSCRATCHPROBE the migraine clinic appointment";
+    // BIG ENOUGH THAT THE WINDOW IS NOT A RACE. At 4,000 short bodies the
+    // vacuum finished before the poll could catch it about one run in three;
+    // ~60 MB of bodies makes `VACUUM INTO` take long enough that the kill lands
+    // inside it every time, and the assertion below is what would catch a
+    // regression back to a race.
+    const bulk = "padding that makes this memory large enough to matter. ".repeat(260);
+    for (let i = 0; i < 4000; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `${secret} ${i} ${bulk}` });
+    }
+    s.close();
+    const target = join(outside, "killed");
+    mkdirSync(target, { recursive: true });
+
+    const script = join(outside, "exporter.ts");
+    writeFileSync(
+      script,
+      [
+        `import { run } from ${JSON.stringify(resolve(import.meta.dir, "../src/adapters/cli/index.ts"))};`,
+        `await run(["export", "--out", ${JSON.stringify(target)}, "--passphrase", "correct horse battery", "--dir", ${JSON.stringify(dir)}],`,
+        `  { io: { out: () => {}, err: () => {}, prompt: async () => "" } });`,
+      ].join("\n"),
+      "utf8",
+    );
+    // POLL FOR THE SCRATCH, do not sleep at it. The first version slept 220 ms
+    // and the reviewer's own probe suggested the child had usually finished the
+    // vacuum and run its `finally` before the kill landed — so the test was
+    // asserting a clean target for a case it never reached (review f5c, NIT-4).
+    // Now the kill is landed WHILE the plaintext copy exists, which is the
+    // window the finding is about.
+    const child = Bun.spawn([process.execPath, "run", script], { stdout: "ignore", stderr: "ignore" });
+    const scratchOf = (): string | null => {
+      for (const name of readdirSync(tmpdir())) {
+        if (!name.startsWith("counterparts-export-")) continue;
+        const inner = join(tmpdir(), name, "scratch.sqlite");
+        if (existsSync(inner) && statSync(inner).size > 0) return inner;
+      }
+      return null;
+    };
+    const deadline = Date.now() + 30_000;
+    let caught: string | null = null;
+    while (caught === null && Date.now() < deadline && child.exitCode === null) {
+      caught = scratchOf();
+      if (caught === null) await Bun.sleep(1);
+    }
+    child.kill("SIGKILL");
+    await child.exited;
+    // Non-vacuous: we really did catch it mid-vacuum with the plaintext on disk.
+    expect(caught).not.toBeNull();
+    // AND THIS TEST CLEANS UP AFTER ITSELF. The killed child's `finally` never
+    // ran — that is the whole point — so its scratch directory is exactly the
+    // leak the production sweep exists for, on a one-hour bound no suite run
+    // will reach. A test removes what it creates (CLAUDE.md).
+    rmSync(join(caught as string, ".."), { recursive: true, force: true });
+
+    // NOT ONE PLAINTEXT BYTE IN THE TARGET, whatever stage it died at. Read as
+    // bytes: a SQLite file is binary and a utf8 read could pull the needle
+    // apart, passing for the wrong reason.
+    const left = readdirSync(target);
+    for (const name of left) {
+      const holds = readFileSync(join(target, name)).toString("latin1").includes(secret);
+      expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
+    }
+    expect(left.filter((n) => n.startsWith(".export-scratch-"))).toEqual([]);
+  }, 120_000);
+
+  test("NEW-MINOR-6: an abandoned scratch in the TEMP dir is swept, and the sweep is bounded", async () => {
+    // Moving the scratch out of the target was the big win; this is the rest of
+    // it. An interrupted `--passphrase` export leaves a PLAINTEXT copy of the
+    // whole store in `$TMPDIR/counterparts-export-*` and nothing swept it.
+    const s = store();
+    const secret = "ZQTEMPSWEEPPROBE";
+    s.put({ type: "memory", kind: "fact", body: `a memory holding ${secret}` });
+    s.close();
+
+    // One abandoned scratch, aged past the bound; one FRESH one, which stands
+    // for a concurrent export and must survive.
+    const old = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    writeFileSync(join(old, "scratch.sqlite"), `a plaintext copy holding ${secret}`, "utf8");
+    const aged = Date.now() - EXPORT_SCRATCH_STALE_MS - 60_000;
+    utimesSync(old, aged / 1000, aged / 1000);
+    const fresh = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    writeFileSync(join(fresh, "scratch.sqlite"), "a live export's work", "utf8");
+
+    try {
+      const target = join(outside, "sweep");
+      const c = consoleWith();
+      expect(
+        await run(["export", "--out", target, "--passphrase", "correct horse battery"], {
+          io: c.io,
+          env: { [ENV]: dir },
+        }),
+      ).toBe(EXIT.ok);
+      // The abandoned one is gone and the report SAYS so — it is the owner's
+      // plaintext, not housekeeping to do in silence.
+      expect(existsSync(old)).toBe(false);
+      expect(text(c.out)).toContain("abandoned scratch");
+      expect(text(c.out)).toContain("unencrypted copy of the store");
+      // THE BOUND: a concurrent export's directory is untouched. Without it
+      // this sweep would introduce the collision the target sweep cannot have.
+      expect(existsSync(join(fresh, "scratch.sqlite"))).toBe(true);
+    } finally {
+      rmSync(old, { recursive: true, force: true });
+      rmSync(fresh, { recursive: true, force: true });
+    }
+  });
+
+  test("a stale scratch from an older build is swept at the start of the next export", async () => {
+    // Nothing writes that name any more; this is how the ones already on disk
+    // go. The window was real: a build between the floor landing and the fix
+    // wrote its scratch into the target.
+    const s = store();
+    const secret = "ZQSTALESCRATCHPROBE";
+    s.put({ type: "memory", kind: "fact", body: `a memory holding ${secret}` });
+    s.close();
+    const target = join(outside, "stale");
+    mkdirSync(target, { recursive: true });
+    const stale = join(target, ".export-scratch-1789921802515.sqlite");
+    writeFileSync(stale, `a plaintext copy holding ${secret}`, "utf8");
+
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--passphrase", "correct horse battery"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(stale)).toBe(false);
+    for (const name of readdirSync(target)) {
+      const holds = readFileSync(join(target, name)).toString("latin1").includes(secret);
+      expect({ name, holdsThePlaintext: holds }).toEqual({ name, holdsThePlaintext: false });
+    }
   });
 
   test("--passphrase round-trips, and a wrong passphrase does not open it", async () => {
@@ -669,10 +997,425 @@ describe("export", () => {
     // The ciphertext does not carry the plaintext, checked rather than assumed.
     expect(blob.toString("utf8")).not.toContain(secret);
     const opened = decryptBundle(blob, "correct horse battery");
-    const prose = opened.get(`prose/memories/${id}.md`);
-    expect(prose?.toString("utf8")).toContain(secret);
-    expect(opened.has("operational.sqlite")).toBe(true);
+    expect([...opened.keys()]).toEqual(["counterparts.sqlite"]);
+    // The words are inside the sealed database, and come back out of it.
+    expect((opened.get("counterparts.sqlite") as Buffer).toString("latin1")).toContain(secret);
     expect(() => decryptBundle(blob, "wrong passphrase")).toThrow();
+  });
+
+  // ── F7: the readable tree ─────────────────────────────────────────────────
+
+  /** A store with one of everything the markdown tree has a place for. */
+  function furnished(): { plain: string; secret: string; page: string; removed: string } {
+    const s = store();
+    const plain = s.put({
+      type: "memory",
+      kind: "fact",
+      title: "Plain",
+      body: "ZQPLAINROW — an ordinary memory, readable in any editor. ZQOLDWORDING.",
+    });
+    const secret = s.put({
+      type: "memory",
+      kind: "person",
+      body: "ZQSECRETROW — the migraine clinic appointment.",
+      meta: { confidential: true },
+    });
+    const removed = s.put({ type: "memory", kind: "fact", body: "ZQREMOVEDROW — gone by the time this exports." });
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", "ZQCHAPTERROW — the afternoon it worked.");
+    const page = self.revisePage("ZQPAGEROW — who I am, so far.", { by: "owner", reason: "test" }).id as string;
+    // A revision, so there is an earlier wording for `--with-versions`: the
+    // OLD one carries `ZQOLDWORDING` and the live one does not.
+    s.revise(plain, { body: "ZQPLAINROW — revised, and the first wording is gone from here." });
+    // And a removal, so the tree can be asked what it does with a tombstone.
+    s.appendRemovalRecord({ memoryId: removed, stage: "requested", actor: "owner", reason: "test" });
+    s.appendRemovalRecord({ memoryId: removed, stage: "dark", actor: "owner", reason: "test" });
+    chaseRemoved(s, removed);
+    s.close();
+    return { plain, secret, page, removed };
+  }
+
+  test("--markdown writes a readable tree: memories by kind, the journal as is, the page on its own", async () => {
+    const { plain, page } = furnished();
+    const target = join(outside, "tree");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+
+    // Grouped by KIND, and the FILENAME IS THE ID — never a title, which can be
+    // as sensitive as a body and which a directory listing shows to anyone.
+    const written = readFileSync(join(target, "memories", "fact", `${plain}.md`), "utf8");
+    expect(written).toContain("ZQPLAINROW");
+    expect(written).toContain("title: Plain");
+    // Only `fact/`: the one `person` row here is confidential, and an omitted
+    // row does not even leave its kind's directory behind as a hint.
+    expect(readdirSync(join(target, "memories")).sort()).toEqual(["fact"]);
+    // The self page is its own file at the top of the tree.
+    expect(readFileSync(join(target, "self-page.md"), "utf8")).toContain("ZQPAGEROW");
+    expect(readFileSync(join(target, "self-page.md"), "utf8")).toContain(`id: ${page}`);
+    // The journal is rendered from the SAME rows and the SAME renderer as the
+    // copy under `<store>/journal/`, so "as is" is kept by using its code
+    // rather than by copying its files — which also means a stale copy of a
+    // removed episode could never be exported.
+    const journalFile = journalFiles(dir)[0] as string;
+    expect(readFileSync(join(target, journalFile), "utf8")).toBe(
+      readFileSync(join(dir, journalFile), "utf8"),
+    );
+    // Versions are behind their own flag.
+    expect(existsSync(join(target, "versions"))).toBe(false);
+    // …and the manifest names the flag that would have written them, spelled
+    // the way the console takes it.
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Pass `--with-versions`");
+  });
+
+  test("ARCHIVED memories are in the tree, and the manifest says how many", async () => {
+    // A memory that faded, was superseded or was merged is still the owner's
+    // own words. Dropping them quietly would be a copy he could not tell was
+    // partial — the same failure the confidential count exists to prevent, one
+    // class over. Only a REMOVED row is absent.
+    const s = store();
+    const faded = s.put({ type: "memory", kind: "fact", body: "ZQARCHIVEDROW — let go at the floor." });
+    s.put({ type: "memory", kind: "fact", body: "ZQLIVEROW — still standing." });
+    s.archive(faded, "decayed");
+    s.close();
+    const target = join(outside, "archived");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(target, "memories", "fact", `${faded}.md`), "utf8")).toContain(
+      "ZQARCHIVEDROW",
+    );
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("1 of them is ARCHIVED");
+  });
+
+  test("--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree", async () => {
+    const { secret } = furnished();
+    const target = join(outside, "omitted");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    // Ruling 4, both halves: omitted, and said.
+    expect(existsSync(join(target, "memories", "person", `${secret}.md`))).toBe(false);
+    expect(text(c.out)).toContain("1 confidential row was left out");
+    // …and said INSIDE the artefact, because the terminal scrolls away and six
+    // months later the directory is all there is.
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain(
+      "Confidential memories omitted: **1**",
+    );
+    // NOT ONE BYTE of it anywhere in the tree.
+    for (const path of treeFiles(target)) {
+      const holds = readFileSync(join(target, path)).toString("latin1").includes("ZQSECRETROW");
+      expect({ path, holdsTheSecret: holds }).toEqual({ path, holdsTheSecret: false });
+    }
+
+    // …and the opt-in takes it, and says THAT rather than a count.
+    const opened = join(outside, "opened");
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], {
+        io: c2.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(opened, "memories", "person", `${secret}.md`), "utf8")).toContain(
+      "ZQSECRETROW",
+    );
+    expect(text(c2.out)).toContain("Confidential rows are INCLUDED");
+  });
+
+  test("a REMOVED row is never exported, and --with-versions takes the earlier wordings", async () => {
+    const { plain, removed } = furnished();
+    const target = join(outside, "versions");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--with-versions"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    // The tombstone has no words left and is not in the tree under any name.
+    expect(existsSync(join(target, "memories", "fact", `${removed}.md`))).toBe(false);
+    expect(treeFiles(target).some((p) => p.includes(removed))).toBe(false);
+    for (const path of treeFiles(target)) {
+      expect(readFileSync(join(target, path)).toString("latin1").includes("ZQREMOVEDROW")).toBe(false);
+    }
+    // The earlier wording is its own file, and it really is the OLD words.
+    const priorDir = join(target, "versions", plain);
+    expect(readdirSync(priorDir)).toEqual(["0001.md"]);
+    expect(readFileSync(join(priorDir, "0001.md"), "utf8")).toContain("ZQOLDWORDING");
+    // …and the live file is the CURRENT wording, not the old one.
+    expect(readFileSync(join(target, "memories", "fact", `${plain}.md`), "utf8")).not.toContain(
+      "ZQOLDWORDING",
+    );
+  });
+
+  test("--markdown --passphrase is supported PROPERLY: not one plaintext byte in the target", async () => {
+    // The pair is supported rather than refused, and this is the assertion that
+    // earns that: the tree is rendered into memory, sealed, and only then
+    // written. There is no scratch at all on this path — not in the target, not
+    // in the temp dir — so review B's MAJOR-4 shape cannot arise here.
+    furnished();
+    const target = join(outside, "sealed-tree");
+    const before = readdirSync(tmpdir()).filter((n) => n.startsWith("counterparts-export-")).length;
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--passphrase", "correct horse battery"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(readdirSync(target).sort()).toEqual(["README.md", BLOB_NAME].sort());
+    for (const name of readdirSync(target)) {
+      const bytes = readFileSync(join(target, name)).toString("latin1");
+      for (const mark of ["ZQPLAINROW", "ZQCHAPTERROW", "ZQPAGEROW"]) {
+        expect({ name, mark, holds: bytes.includes(mark) }).toEqual({ name, mark, holds: false });
+      }
+    }
+    // No scratch directory was made for this path at all.
+    expect(readdirSync(tmpdir()).filter((n) => n.startsWith("counterparts-export-")).length).toBe(before);
+    // And it opens: the readable tree is inside the blob, file by file.
+    const opened = decryptBundle(readFileSync(join(target, BLOB_NAME)), "correct horse battery");
+    expect([...opened.keys()].some((k) => k.startsWith("memories/"))).toBe(true);
+    expect([...opened.keys()]).toContain("README.md");
+    expect([...opened.keys()].some((k) => k.startsWith("journal/"))).toBe(true);
+  });
+
+  test("MINOR-1/2: a CONFIDENTIAL page is omitted, not 'absent', and rows and versions count apart", async () => {
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    const pageId = self.revisePage("ZQPAGESECRET — who I am.", { by: "owner", reason: "t" }).id as string;
+    // The page exists and is confidential. The manifest used to print the "no
+    // page" branch for this store, which is the one thing the manifest exists
+    // to make impossible: a directory that reads as complete.
+    s.revise(pageId, { body: "ZQPAGESECRET — who I am, still.", meta: { confidential: true } });
+    const openRow = s.put({ type: "memory", kind: "fact", body: "An open memory, first wording." });
+    s.revise(openRow, { body: "An open memory, second wording.", meta: { confidential: true } });
+    // …and back to open. `revise` MERGES meta into the prior meta, so the class
+    // has to be cleared by name. The LIVE row is open and one of its earlier
+    // wordings is not — the shape the two counters exist for.
+    s.revise(openRow, { body: "An open memory, third wording.", meta: { confidential: false } });
+    expect(s.row(openRow)?.confidential).toBe(0);
+    s.close();
+
+    const target = join(outside, "counted");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--with-versions"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    const readme = readFileSync(join(target, "README.md"), "utf8");
+    expect(readme).toContain("omitted as confidential");
+    expect(readme).not.toContain("this store has no written self page");
+    // TWO UNITS, counted apart: one row (the page) and one earlier wording.
+    expect(readme).toContain("Confidential memories omitted: **1**");
+    expect(readme).toContain("earlier wording");
+    expect(text(c.out)).toContain("1 confidential row");
+    // Nothing of either leaked into the tree.
+    for (const path of treeFiles(target)) {
+      expect({
+        path,
+        holds: readFileSync(join(target, path)).toString("latin1").includes("ZQPAGESECRET"),
+      }).toEqual({ path, holds: false });
+    }
+  });
+
+  test("MINOR-3: --into-non-empty does not silently replace a file; --overwrite says which", async () => {
+    furnished();
+    const target = join(outside, "collide");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "SOMEBODY ELSE'S README — irreplaceable.", "utf8");
+    writeFileSync(join(target, "keepme.txt"), "keep", "utf8");
+
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--into-non-empty"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("README.md");
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("SOMEBODY ELSE'S README");
+
+    const c2 = consoleWith();
+    expect(
+      await run(
+        ["export", "--out", target, "--markdown", "--plaintext", "--into-non-empty", "--overwrite"],
+        { io: c2.io, env: { [ENV]: dir } },
+      ),
+    ).toBe(EXIT.ok);
+    expect(text(c2.out)).toContain("Replaced 1 existing file");
+    expect(text(c2.out)).toContain("README.md");
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Counterparts export");
+    // Nothing else was touched.
+    expect(readFileSync(join(target, "keepme.txt"), "utf8")).toBe("keep");
+  });
+
+  test("it refuses a target that is not empty, unless told", async () => {
+    furnished();
+    const target = join(outside, "occupied");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "somebody-elses-notes.md"), "not ours", "utf8");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("not empty");
+    expect(readdirSync(target)).toEqual(["somebody-elses-notes.md"]);
+    // Told, it writes.
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--into-non-empty"], {
+        io: c2.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(existsSync(join(target, "README.md"))).toBe(true);
+  });
+
+  test("it refuses a target inside the store, and one inside a live v1 store, and writes nothing", async () => {
+    furnished();
+    const inside = join(dir, "export-here");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", inside, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("inside the store");
+    expect(existsSync(inside)).toBe(false);
+    // The store is still layout-clean: the refusal did not leave a directory in it.
+    Store.open({ dir, observer: true }).assertLayout();
+
+    const v1 = join(homedir(), ".bansai", "nope");
+    const c2 = consoleWith();
+    expect(
+      await run(["export", "--out", v1, "--markdown", "--plaintext"], { io: c2.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.refused);
+    expect(existsSync(v1)).toBe(false);
+
+    // MAJOR-4 end to end: the review put a whole export tree inside
+    // `<store>/journal/` by pointing a link at it. Through the console, now.
+    mkdirSync(join(dir, "journal"), { recursive: true });
+    const link = join(outside, "export-lnk");
+    symlinkSync(join(dir, "journal"), link);
+    const c3 = consoleWith();
+    expect(
+      await run(["export", "--out", join(link, "sub"), "--markdown", "--plaintext"], {
+        io: c3.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c3.err)).toContain("inside the store");
+    // `journal/` still holds exactly its own copies and no smuggled export.
+    expect(existsSync(join(dir, "journal", "sub"))).toBe(false);
+    expect(journalFiles(dir).every((f) => journalFileEpisodeId(f) !== null)).toBe(true);
+  });
+
+  test("a store this build cannot open is refused in the SAME sentence, and the target is never made", async () => {
+    // F5's refusal, reached through this door: the words, not a bare code and a
+    // JSON blob — and nothing is created on either side.
+    const old = join(outside, "v5-store");
+    mkdirSync(join(old, "prose"), { recursive: true });
+    writeFileSync(join(old, "operational.sqlite"), "an older floor's database", "utf8");
+    const target = join(outside, "from-the-old-one");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: old } }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("was written before this build's floor");
+    expect(text(c.err)).toContain("NOTHING WAS TOUCHED");
+    expect(existsSync(target)).toBe(false);
+    expect(readdirSync(old).sort()).toEqual(["operational.sqlite", "prose"]);
+  });
+
+  test("the flags that are about the tree refuse a database export BY NAME", async () => {
+    furnished();
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", join(outside, "no"), "--plaintext", "--include-confidential"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(c.err)).toContain("--markdown");
+    expect(text(c.err)).toContain("carries every row");
+    // MINOR-4: a refusal that names a flag the parser rejects is a second
+    // refusal. The flag is `--with-versions`.
+    expect(text(c.err)).toContain("--with-versions");
+    expect(text(c.err)).not.toMatch(/(?<!-with)--versions/);
+  });
+
+  test("an export leaves a durable row — counts and flags, never the target path", async () => {
+    furnished();
+    const target = join(outside, "rowed");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } }),
+    ).toBe(EXIT.ok);
+    const rows = store({ observer: true }).eventLog({ name: STORE_EXPORT_EVENT });
+    expect(rows.length).toBe(1);
+    const payload = JSON.parse((rows[0] as { payload: string | null }).payload as string) as Record<string, unknown>;
+    expect(payload["kind"]).toBe("markdown");
+    expect(payload["encrypted"]).toBe(false);
+    expect(payload["omittedConfidential"]).toBe(1);
+    expect(payload["rows"]).toBeGreaterThan(0);
+    // WHERE the memories went is more than the row needs, and the terminal has
+    // already said it (§5 G10). No body, no title, no path.
+    const json = JSON.stringify(payload);
+    expect(json).not.toContain(target);
+    expect(json).not.toContain("ZQPLAINROW");
+    expect(json).not.toContain("Plain");
+  });
+
+  test("an export is a READ, so it works under --observer — and writes no row, and says so", async () => {
+    furnished();
+    const target = join(outside, "instrument");
+    const c = consoleWith();
+    expect(
+      await run(["export", "--out", target, "--markdown", "--plaintext", "--observer"], {
+        io: c.io,
+        env: { [ENV]: dir },
+      }),
+    ).toBe(EXIT.ok);
+    expect(readFileSync(join(target, "README.md"), "utf8")).toContain("Counterparts export");
+    expect(text(c.out)).toContain("No store.export row was written");
+    expect(store({ observer: true }).eventLog({ name: STORE_EXPORT_EVENT }).length).toBe(0);
+  });
+
+  test("a refusal never echoes a memory body", async () => {
+    furnished();
+    const occupied = join(outside, "echo-check");
+    mkdirSync(occupied, { recursive: true });
+    writeFileSync(join(occupied, "x"), "x", "utf8");
+    const refusals: string[] = [];
+    for (const argv of [
+      ["export", "--out", occupied, "--markdown", "--plaintext"],
+      ["export", "--out", join(dir, "inside"), "--markdown", "--plaintext"],
+      ["export", "--out", join(outside, "nochoice"), "--markdown"],
+      ["export", "--out", join(outside, "nomd"), "--plaintext", "--with-versions"],
+    ]) {
+      const c = consoleWith();
+      expect(await run(argv, { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
+      refusals.push(text(c.err));
+    }
+    for (const said of refusals) {
+      for (const mark of ["ZQPLAINROW", "ZQSECRETROW", "ZQCHAPTERROW", "ZQPAGEROW"]) {
+        expect({ mark, echoed: said.includes(mark) }).toEqual({ mark, echoed: false });
+      }
+    }
   });
 });
 
@@ -756,8 +1499,8 @@ describe("remove — the loud removal", () => {
     expect(after.deniedIds()).toContain(id);
     const verdict = verifyRemoval(after, id);
     expect(verdict.denied).toBe(true);
-    expect(verdict.proseGone).toBe(true);
-    expect(proseHolds(dir, secret)).toBe(false);
+    expect(verdict.bodyGone).toBe(true);
+    expect(storeHolds(dir, secret)).toBe(false);
     // The survivor is untouched: removal chases one memory, not a neighbourhood.
     expect(after.list().filter((other) => other !== id).length).toBe(1);
   });
@@ -794,13 +1537,16 @@ describe("remove — the loud removal", () => {
     expect(after.gateRecords("s1").map((r) => r.ref)).toEqual([neighbour]);
 
     const verdict = verifyRemoval(after, id);
-    expect(verdict).toMatchObject({ denied: true, proseGone: true, rowTombstoned: true, darkState: 0 });
+    expect(verdict).toMatchObject({ denied: true, bodyGone: true, rowTombstoned: true, darkState: 0 });
     // The skeleton that stays is stripped of every content pointer, and of the
     // physics that would let it go on ranking, conducting or resisting.
     const skeleton = after.row(id);
     expect(skeleton).toMatchObject({
       content_hash: "",
-      prose_path: "",
+      title: null,
+      body: "",
+      meta: "{}",
+      confidential: 0,
       protected: 0,
       promoted_identity: 0,
       uses: 0,
@@ -824,7 +1570,7 @@ describe("remove — the loud removal", () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", body: "Alive and not going anywhere." });
     expect(() => chaseRemoved(s, id)).toThrow(/REMOVAL_NOT_DARK/);
-    expect(s.row(id)?.prose_path).not.toBe("");
+    expect(s.row(id)?.body).not.toBe("");
     expect(s.removalRecord().length).toBe(0);
   });
 
@@ -837,8 +1583,8 @@ describe("remove — the loud removal", () => {
     const observer = store({ observer: true });
     expect(() => chaseRemoved(observer, id)).toThrow(/OBSERVER_REFUSED/);
     expect(observer.events("store.observer.standdown").at(-1)?.data?.site).toBe("chaseRemoved");
-    // Nothing moved: the row is intact, edges and all.
-    expect(observer.row(id)?.prose_path).not.toBe("");
+    // Nothing moved: the row is intact, words and all.
+    expect(observer.row(id)?.body).not.toBe("");
     expect(observer.tombstones()).toEqual([]);
   });
 
@@ -893,7 +1639,14 @@ describe("remove — the loud removal", () => {
 describe("remove — the span buffer is CHASED, and what it cannot reach it names", () => {
   const MARKER = "ZQRESIDUEPROBE the culvert gate key is kept under the third fence post.";
 
-  /** Store-relative paths of every file holding `needle`. Ids and paths, no text. */
+  /**
+   * Store-relative paths of every file holding `needle`. Ids and paths, no text.
+   *
+   * Read as BYTES, not as UTF-8 text: since the floor the memory's words live
+   * inside `counterparts.sqlite` and its `-wal`, and a `readFileSync(_, "utf8")`
+   * over a binary file replaces invalid sequences and can pull a needle apart.
+   * `latin1` is byte-for-byte, so a needle that is in the file is found.
+   */
   function grepStore(root: string, needle: string): string[] {
     const hits: string[] = [];
     const walk = (at: string, rel: string): void => {
@@ -901,11 +1654,17 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
         const full = join(at, name);
         const next = rel === "" ? name : `${rel}/${name}`;
         if (statSync(full).isDirectory()) walk(full, next);
-        else if (readFileSync(full, "utf8").includes(needle)) hits.push(next);
+        else if (readFileSync(full).toString("latin1").includes(needle)) hits.push(next);
       }
     };
     walk(root, "");
     return hits;
+  }
+
+  /** True while the memory's own words are anywhere under the store — the
+   *  database, its sidecars, or the span buffer. `prose/` is gone. */
+  function canonicalHolds(root: string, needle: string): boolean {
+    return grepStore(root, needle).some((p) => !p.startsWith("spans/"));
   }
 
   function idFrom(lines: readonly string[]): string {
@@ -932,7 +1691,8 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // The residue itself, before anything is removed: the prose AND the buffer.
     const seeded = grepStore(dir, "ZQRESIDUEPROBE");
     expect(seeded.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
-    expect(seeded.some((p) => p.startsWith("prose/"))).toBe(true);
+    // The canonical copy is IN THE DATABASE now, not a file under `prose/`.
+    expect(canonicalHolds(dir, "ZQRESIDUEPROBE")).toBe(true);
 
     // The DRY RUN counts it as a surface to chase, and says so above the closing
     // line — a disclosure under "Nothing has changed" is one the reader has
@@ -1014,12 +1774,339 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
       await run(["remove", doomedId, "--confirm", "--dir", dir], { io: consoleWith([doomedId]).io }),
     ).toBe(EXIT.ok);
 
+    // NOT ONE BYTE ANYWHERE UNDER THE STORE, database and `-wal` included.
+    //
+    // This is the assertion the floor could most easily have weakened without
+    // anyone noticing. An `UPDATE ... SET body = ''` in WAL mode leaves the page
+    // holding the old text in `counterparts.sqlite-wal` until a checkpoint moves
+    // it — measured on this branch, and why the removal now chases the
+    // write-ahead log as a surface of its own (`cli/removal.ts`).
     expect(grepStore(dir, "ZQRESIDUEPROBE")).toEqual([]);
-    // The other note's capture is untouched: in the buffer AND in its prose.
+    // The other note's capture is untouched: in the buffer AND in the database.
     const kept = grepStore(dir, "ZQKEEPER");
     expect(kept.some((p) => p.startsWith("spans/") && p.endsWith("jots.jsonl"))).toBe(true);
-    expect(kept.some((p) => p.startsWith("prose/"))).toBe(true);
+    expect(canonicalHolds(dir, "ZQKEEPER")).toBe(true);
   });
+
+  test("review B, MAJOR-1: BOTH databases' logs are folded in, and the whole directory is clean", async () => {
+    // Box 3 is in WAL too, and the `rebuildCache()` one step inside the
+    // ceremony rewrites its `doc_tokens` rows — so the OLD pages sit in
+    // `cache/cache.sqlite*` until something folds them over. The chase visited
+    // box 2 only, and the console printed `unchased: nothing`: the owner told
+    // the directory was clean when reviewer B had found the removed word still
+    // in `cache/cache.sqlite` in 3 of 5 runs.
+    //
+    // **I could not reproduce that residue here** — 0 hits across 12 shapes
+    // (200/600/1500 fillers x two body sizes x with and without a forced
+    // pre-removal checkpoint), and 5 rounds of the real ceremony with the fix
+    // disabled. So this pins the MECHANISM, which is deterministic, rather than
+    // a byte pattern I cannot summon: box 3's log is TRUNCATED by the removal,
+    // which is the thing that folds those pages over, and the whole directory
+    // is grepped anyway so the residue is caught if the shape ever arises.
+    const WORD = "ZQCACHERESIDUEPROBE";
+    const s = store();
+    for (let i = 0; i < 300; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(40)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: `a doomed memory holding ${WORD}` });
+    s.revise(id, { body: `revised, still holding ${WORD}` });
+    s.close();
+    // Box 3's log carries real frames going in, so truncating it is a change.
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBeGreaterThan(0);
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    // Reported as its OWN surface, so "cache" keeps meaning the index and this
+    // keeps meaning the file. Both logs named, neither implied.
+    expect(printed).toContain("write-ahead log");
+    expect(printed).toContain("cache write-ahead log");
+    // THE MECHANISM: box 3's log is folded back and truncated to nothing, which
+    // is what moves those pages. Box 2's is NOT zero afterwards and must not be
+    // asserted so — the `complete` stage of the removal record is appended
+    // after the checkpoint, on purpose: the checkpoint runs while it is still
+    // guaranteed to run, and a removal record carries no body (§16 G9).
+    expect(statSync(`${paths.cache(dir)}-wal`).size).toBe(0);
+    // …and the whole directory, read as bytes — both databases, both logs, the
+    // `-shm`s, `sessions/`, `spans/`, the journal and the version rows.
+    expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
+  test("F6: removing an episode takes its markdown copy, and the whole directory is clean", async () => {
+    // A SECOND ON-DISK COPY OF MEMORY WORDS IS A SURFACE. That is the finding
+    // the reviews raised twice on this floor (B MAJOR-1, C NEW-MAJOR-1) and the
+    // span buffer's scar before them: a file the chase does not visit while the
+    // console prints `unchased: nothing` is not a behaviour gap, it is the
+    // report lying. `journal/` is backed up, so a leftover would ride into
+    // every snapshot too.
+    const WORD = "ZQJOURNALRESIDUEPROBE";
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    const episodeId = self.appendChapter("s1", `The chapter holding ${WORD}.`).episodeId as string;
+    s.close();
+
+    // The residue exists before anything is removed: the row AND the file.
+    const seeded = grepStore(dir, WORD);
+    expect(seeded.some((p) => p.startsWith("journal/") && p.endsWith(".md"))).toBe(true);
+
+    // The dry run counts the surface — at its real count, not by implication.
+    const plan = consoleWith();
+    expect(await run(["remove", episodeId, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    expect(text(plan.out)).toContain("journal: 1");
+    // A dry run removes nothing.
+    expect(grepStore(dir, WORD).some((p) => p.startsWith("journal/"))).toBe(true);
+
+    const c = consoleWith([episodeId]);
+    expect(await run(["remove", episodeId, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("journal(1 markdown copy)");
+    // MAJOR-5: the copies a removal cannot reach are SAID, in the completion
+    // report and not only in the plan.
+    expect(printed).toContain("TAKEN BEFORE TODAY");
+    expect(printed).toContain("Snapshots taken from today carry no journal/ at all.");
+    expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+    // §16 G15: the report names a file, never a word of its contents.
+    expect(printed).not.toContain(WORD);
+    // NOT ONE BYTE ANYWHERE UNDER THE STORE — the journal included.
+    expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
+  test("F6: a memory whose words a CHAPTER quotes is left alone, and said out loud", async () => {
+    // The journal is the counterpart's own account of a day. A memory made from
+    // it is a different row, and removing that memory does not remove the
+    // account — exactly as a spans echo is left. What may not happen is
+    // silence: the plan names the episodes, by id, with no text.
+    const WORD = "ZQJOURNALECHOPROBE";
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", `Today I finally understood ${WORD}, and it mattered.`);
+    const memoryId = s.put({
+      type: "memory",
+      kind: "fact",
+      body: `Today I finally understood ${WORD}, and it mattered.`,
+    });
+    s.close();
+
+    const plan = consoleWith();
+    expect(await run(["remove", memoryId, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    expect(planned).toContain("journal echo:");
+    expect(planned).toContain("Left on purpose");
+    expect(planned).toMatch(/epi_[0-9a-f]+/);
+    expect(planned).not.toContain(WORD);
+
+    // The real removal takes the memory and leaves the chapter — its row and
+    // its file alike, because the file says what the row says.
+    const c = consoleWith([memoryId]);
+    expect(await run(["remove", memoryId, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // The two lines may not disagree: "nothing beside the row" must not read as
+    // "this surface is clean" two lines under a disclosure that it is not.
+    expect(text(c.out)).toContain("journal(0 of its own");
+    expect(text(c.out)).toContain("left on purpose");
+    expect(grepStore(dir, WORD).some((p) => p.startsWith("journal/"))).toBe(true);
+  }, 30_000);
+
+  test("MAJOR-3: the journal echo is EXACT, not a ranked top-20 that goes silent on a big store", async () => {
+    // The review's P8b: one chapter quoting the words, one memory with the same
+    // sentence, then twenty-five near-identical memories — the ordinary shape of
+    // a store that has thought about one subject for a while. The disclosure was
+    // computed from `store.search(body, 20)`, so the episode fell off the end of
+    // a ranked list and the report printed `chase journal: 0` and
+    // `unchased: nothing` over a plain .md file that still held the sentence.
+    const WORD = "ZQECHOSILENT";
+    const sentence = `The ${WORD} question, and what it turned out to mean.`;
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    // A REAL CHAPTER: the sentence inside a long first-person account, which is
+    // what an episode actually looks like — and what makes length
+    // normalisation push it below twenty short memories that say almost the
+    // same thing. That is the whole shape of the finding.
+    self.appendChapter(
+      "s1",
+      `${sentence}\n\n${"Then the afternoon went on, and other things happened that had nothing to do with it. ".repeat(60)}`,
+    );
+    const memoryId = s.put({ type: "memory", kind: "fact", body: sentence });
+    for (let i = 0; i < 25; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `The ${WORD} question, and what it turned out to mean (${i}).` });
+    }
+    s.close();
+
+    const plan = consoleWith();
+    expect(await run(["remove", memoryId, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    // NON-VACUOUS, and this is the assertion that says so: the ranked search the
+    // disclosure used to ride on does NOT surface the episode here — the
+    // contamination list is twenty memories deep and holds no `epi_` id at all —
+    // and the echo line names it anyway.
+    const contamination = planned.slice(planned.indexOf("other memories whose text overlaps"));
+    expect(contamination).not.toMatch(/epi_[0-9a-f]+/);
+    expect(planned).toContain("journal echo:");
+    expect(planned).toMatch(/epi_[0-9a-f]+/);
+    // The brief asks for the COMMAND, not just the id.
+    expect(planned).toMatch(/counterparts remove epi_[0-9a-f]+ --confirm/);
+    // …and the words themselves never appear in the report (§16 G15).
+    expect(planned).not.toContain(WORD);
+  }, 30_000);
+
+  test("MAJOR-3: a bounded echo check SAYS it was bounded", async () => {
+    const WORD = "ZQECHOBOUND";
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", `A chapter about ${WORD}.`);
+    for (let i = 0; i < 6; i += 1) {
+      s.put({
+        type: "episode",
+        kind: "self",
+        body: `## chapter 1 — lived day 0\n\nfiller episode ${i}\n`,
+        meta: { sessionId: `f${i}`, chapters: 1 },
+      });
+    }
+    const memoryId = s.put({ type: "memory", kind: "fact", body: `A chapter about ${WORD}.` });
+    s.close();
+
+    // A bound is survivable; a SILENT bound is not. With the scan cut to three
+    // episodes the report must say what it did not look at.
+    const plan = consoleWith();
+    expect(
+      await run(["remove", memoryId, "--dir", dir, "--echo-scan", "3"], { io: plan.io }),
+    ).toBe(EXIT.ok);
+    expect(text(plan.out)).toContain("checked 3 of 7");
+  }, 30_000);
+
+  test("NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it", async () => {
+    // THE FINDING THE PREVIOUS VERSION OF THIS TEST MISSED, and it missed it for
+    // a reason worth writing down: its marker sat at the START of the body, and
+    // the page holding the start of an overflow chain gets reused. The middle
+    // and the end do not. So the assertion passed as a property of where the
+    // word sat, not of the store.
+    //
+    // Blanking a long body frees whole OVERFLOW pages, and `secure_delete` is 2
+    // (FAST) by default — it zeroes the slack of a page being rewritten, never a
+    // whole freed page. A second checkpoint does not help: the checkpoint is
+    // what MATERIALISES those stale pages into the main file. Only VACUUM (then
+    // a checkpoint, since in WAL mode the VACUUM itself writes to the log)
+    // rebuilds the file from live pages alone. Measured deterministic 5/5.
+    const MARKS = ["ZQOVERFLOWSTART", "ZQOVERFLOWMIDDLE", "ZQOVERFLOWEND"];
+    const pad = "the quick brown fox jumps over the lazy dog. ".repeat(450);
+    const bodyOf = (tag: string): string =>
+      `${MARKS[0] as string} ${tag} ${pad} ${MARKS[1] as string} ${pad} ${MARKS[2] as string}`;
+
+    const s = store();
+    for (let i = 0; i < 200; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: bodyOf("one") });
+    // The revision matters: it frees the first body's pages, so this covers
+    // residue left by an EARLIER write as well as by the removal itself.
+    s.revise(id, { body: bodyOf("two") });
+    s.close();
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    // The surface is named for what it now does, on both databases.
+    const printed = text(c.out);
+    expect(printed).toContain("write-ahead log and freed pages");
+    expect(printed).toContain("cache write-ahead log and freed pages");
+
+    // NOT ONE MARK, ANYWHERE UNDER THE STORE — every file read as bytes, both
+    // databases and both logs. Each mark asserted by name so a failure says
+    // WHICH part of the body survived.
+    for (const mark of MARKS) {
+      expect({ mark, residue: grepStore(dir, mark) }).toEqual({ mark, residue: [] });
+    }
+    // Freed pages really were reclaimed, not merely absent from this shape.
+    const db = openDb(paths.operational(dir));
+    try {
+      expect(db.get<{ freelist_count: number }>("PRAGMA freelist_count")?.freelist_count).toBe(0);
+    } finally {
+      db.close();
+    }
+  }, 60_000);
+
+  test("NEW-MAJOR-1: `verify --rebuild` really does reclaim, since the removal names it", async () => {
+    // When the reclaim is contended the removal says the words may remain and
+    // names this command. Measured before this fix: `verify --rebuild` left the
+    // residue exactly where it was, because rebuilding box 3 says nothing about
+    // box 2's free list. A remedy that does not remedy is worse than none.
+    const MARK = "ZQREMEDYPROBE";
+    const pad = "the quick brown fox jumps over the lazy dog. ".repeat(450);
+    const s = store();
+    for (let i = 0; i < 200; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
+    }
+    const id = s.put({ type: "memory", kind: "fact", body: `head ${pad} ${MARK}` });
+    s.revise(id, { body: `head two ${pad} ${MARK}` });
+    // Manufacture the residue state: take the rows dark and chase them WITHOUT
+    // the reclaim, which is what a contended removal leaves behind.
+    s.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner" });
+    chaseRemoved(s, id);
+    s.rebuildCache();
+    s.close();
+    const ck = openDb(paths.operational(dir));
+    ck.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    ck.close();
+    expect(grepStore(dir, MARK)).not.toEqual([]);
+
+    const c = consoleWith();
+    expect(
+      await run(["verify", "--dir", dir, "--rebuild", "--drop-vectors"], { io: c.io }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("Reclaimed free pages in the database");
+    expect(grepStore(dir, MARK)).toEqual([]);
+  }, 60_000);
+
+  test("review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed", async () => {
+    // The same rule box 2 already had: a reader holding an older snapshot means
+    // the log cannot be truncated, and the honest answer is to say so rather
+    // than to throw or to claim it. The removal's rows have already gone by
+    // then; a checkpoint problem is a line in the report.
+    //
+    // It takes about five seconds on purpose — the rebuild inside the ceremony
+    // waits out `BUSY_TIMEOUT_MS` against the held read transaction before it
+    // proceeds. That is F1's busy timeout doing its job, not this fix.
+    const s = store();
+    const id = s.put({ type: "memory", kind: "fact", body: "ZQCONTENDEDPROBE doomed" });
+    s.close();
+
+    const holder = openDb(paths.cache(dir));
+    holder.exec("BEGIN");
+    holder.get("SELECT count(*) AS n FROM doc_tokens");
+    try {
+      const c = consoleWith([id]);
+      expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+      const printed = text(c.out);
+      // Named as unchased, with the reason and what clears it — not silence,
+      // and not a claim that it was done.
+      expect(printed).toContain("cache write-ahead log and freed pages (");
+      // It says WHY, what is still true, and the command that finishes it —
+      // never silence and never a claim that it was done.
+      expect(printed).toContain("the memory's rows are gone, but its words may remain");
+      expect(printed).toContain("counterparts verify --dir <store> --rebuild");
+      expect(printed).not.toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+      // AND THE DURABLE RECORD SAYS SO TOO. The console's sentence is
+      // ephemeral; the record is what a reader has months later, and
+      // `complete` on its own would read as "everything was reached".
+      const after = Store.open({ dir, observer: true });
+      try {
+        const done = after.removalRecord(id).filter((r) => r.stage === "complete");
+        expect(done.length).toBe(1);
+        expect(done[0]?.reason).toContain("surface unchased");
+      } finally {
+        after.close();
+      }
+    } finally {
+      try {
+        holder.exec("ROLLBACK");
+      } catch {
+        /* the removal may have taken it already */
+      }
+      holder.close();
+    }
+  }, 30_000);
 
   test("with the prose GONE, the coverage mark alone still chases it — which is why old rows need no migration", async () => {
     // The retroactive half, isolated. Deleting the prose file takes away BOTH
@@ -1115,7 +2202,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     const left = grepStore(dir, "ZQRESIDUEPROBE");
     expect(left.some((p) => p.endsWith("jots.jsonl"))).toBe(false);
     expect(left.some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
-    expect(left.some((p) => p.startsWith("prose/"))).toBe(false);
+    expect(canonicalHolds(dir, "ZQRESIDUEPROBE")).toBe(false);
   });
 
   test("the CONTENT fallback may only ever take a jot — a conversation turn is never struck by shape", async () => {
@@ -1163,7 +2250,7 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(text(c.out)).toContain('"unchased":1');
     // THE POINT: the conversation is untouched.
     expect(grepStore(dir, "ZQFALLBACK").some((p) => p.endsWith("buffer.jsonl"))).toBe(true);
-    expect(grepStore(dir, "ZQFALLBACK").some((p) => p.startsWith("prose/"))).toBe(false);
+    expect(canonicalHolds(dir, "ZQFALLBACK")).toBe(false);
   });
 
   test("a memory that never rode the buffer reads 'not applicable', and unchased stays 0", async () => {
@@ -1458,6 +2545,15 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Canonical rows: 2");
+    // WHERE THE WORDS ARE. Two census lines counting how the path columns were
+    // spelled and how many of their files were on disk used to stand here — a
+    // report ON the file layout, which went with the columns. What replaces it
+    // is the one fact an owner looking for his markdown needs, and a store that
+    // still had any prose files would be one this build refused to open.
+    expect(printed).toContain("Floor: schema v6 · bodies in rows · prose files: none");
+    expect(printed).not.toContain("Prose paths:");
+    // F1's line is still there, beside it.
+    expect(printed).toContain("Journal mode: wal (busy timeout");
     // The log, read-only: what is held, how old, and what the next sweep takes.
     expect(printed).toContain("Events: 5 held (1 latched records)   oldest: lived day 0 (");
     expect(printed).toContain("window: 90 lived days (cutoff day 1)");
@@ -3030,7 +4126,20 @@ describe("usage", () => {
     // The same page, reachable as a pure function for anything that wants it.
     expect(commandHelp("remove")).toContain("--confirm");
     expect(commandHelp("remove")).toContain("<id>");
-    expect(commandHelp("status")).toContain("takes no flags of its own");
+    expect(commandHelp("status")).toContain("--layout");
+    // TOTAL, rather than naming one command that happens to have no flags
+    // today: `status` and `fired` both gained one on 2026-09-20 and this
+    // assertion had to move twice. A command with none says so; a command with
+    // some lists them under its own heading.
+    for (const command of COMMANDS) {
+      const page = commandHelp(command);
+      if (COMMAND_FLAGS[command].length === 0) {
+        expect(page, command).toContain("takes no flags of its own");
+      } else {
+        expect(page, command).toContain(`Flags for ${command}:`);
+        expect(page, command).not.toContain("takes no flags of its own");
+      }
+    }
   });
 });
 
@@ -3876,14 +4985,19 @@ describe("a bulk write names its store with --dir, and nothing else names it", (
   });
 });
 
-/** True when any canonical prose file still holds `needle`. */
-function proseHolds(root: string, needle: string): boolean {
-  const walk = (path: string): boolean => {
-    if (!existsSync(path)) return false;
-    if (statSync(path).isDirectory()) {
-      return readdirSync(path).some((name) => walk(join(path, name)));
-    }
-    return readFileSync(path, "utf8").includes(needle);
-  };
-  return walk(paths.prose(root));
+/**
+ * True when any CANONICAL byte under the store still holds `needle` — the
+ * database and its sidecars, which is where a memory's words live since the
+ * floor. The span buffer is `remember/`'s own surface and is excluded here; the
+ * tests that care about it name it directly.
+ *
+ * Bytes, not UTF-8: a `readFileSync(_, "utf8")` over a SQLite file replaces
+ * invalid sequences and can pull the needle apart, which would make this pass
+ * for the wrong reason.
+ */
+function storeHolds(root: string, needle: string): boolean {
+  const db = paths.operational(root);
+  return [db, `${db}-wal`, `${db}-shm`].some(
+    (p) => existsSync(p) && readFileSync(p).toString("latin1").includes(needle),
+  );
 }

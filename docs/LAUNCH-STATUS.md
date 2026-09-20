@@ -9,6 +9,25 @@ scores, open issues, spend, NEEDS-OWNER.*
 cites `file:line`. A number taken from another document says which document. Nothing
 here is claimed from memory.**
 
+> **THE FLOOR MOVED ON 2026-09-20 (schema v6), AND THIS PAGE IS A DATED LOG, NOT A
+> DESCRIPTION.** Everything below is a record of what was measured on the day it was
+> written, and the entries from 2026-09-04 onward describe a store that kept each memory
+> in its own markdown file under `prose/`, with `versions/` beside it and a database
+> called `operational.sqlite`. None of those exist in a store this build writes: the
+> memories' words and their archived versions are rows in `counterparts.sqlite`, markdown
+> is an export, and a directory holding any of those three old names is refused by name
+> (`STORE_PRE_ROWS`) rather than opened. The records are kept exactly as they were
+> measured — correcting a log would make it stop being one — so read a `prose/` or
+> `operational.sqlite` here as "what was true that day". The page to read for the floor
+> as it stands is `src/core/store/CONTRACT.md`.
+>
+> Two consequences for the items below rather than for their prose: the repairs still
+> scheduled against the owner's **migrated rows** (the import-day dates at I7, and G56's
+> 453 migrated schema rows with a revision bar of zero) have no rows to repair on a store
+> that starts blank — they belong to the parked store, and whether they ever run is part
+> of the later "which memories come back" conversation, not launch. `migrate-cache` is
+> unaffected: it is box 3's vector-format conversion and has nothing to do with v1.
+
 ---
 
 ## A. Snapshot

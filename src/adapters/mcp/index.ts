@@ -96,5 +96,6 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: opts.sessionTtlMs }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.now === undefined ? {} : { now: opts.now }),
+    ...(opts.env === undefined ? {} : { env: opts.env }),
   });
 }

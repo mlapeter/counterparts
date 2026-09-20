@@ -215,3 +215,70 @@ different day counter and report a cap for a day that had asks left — the shap
 of finding one bug twice. With the cap on the session, both sides read the
 session's own `asks` and there is no second counter to disagree with. The
 guarantee is unchanged and now free: the tail verdict is the ask's verdict.
+
+## 9. The nightly writer's claim wants a compare-and-swap the store does not have (2026-09-20, S2)
+
+`writer.ts` claims a night by appending one durable row and then refusing to start a second
+run while it stands. Between the read that finds no claim and the append that writes one
+there is a window — small, but real — in which two hooks on two terminals, or two machines
+against one synced store, can both claim the same night.
+
+What would close it is a conditional write: `appendEvent` with a uniqueness constraint on
+`(name, about)`, or a `setMeta` that fails when the key already holds a value. `store/` has
+neither today; `setMeta` is insert-or-replace and `appendEvent` has no unique key but
+`dedup_key`, which silently collapses rather than reporting that it collapsed — "the write
+landed" and "somebody else was here first" are the same return.
+
+**Not raised as an ask yet, because the cost of losing the race is small and bounded.** A
+duplicated ask is one extra block beside one wake, inside an allowance that already permits
+two; a duplicated `claude -p` is one extra model call and a second revision that the page's
+own `ifVersion` refuses with a row saying so. The gap is filed rather than fixed so that if
+`store/` ever grows a conditional write — F5's row work is the likely moment — this is one
+of the callers waiting for it.
+
+A `dedupKey` that REPORTED the collapse (`appendEvent` returning 0 for "already there"
+rather than a seq) would be enough on its own, and is the smaller of the two asks.
+
+## 10. There is no recency to sort a single day by (2026-09-20, S2 review)
+
+`writer.ts#dayMemories` orders the day by salience and then by the store's own id order,
+and the contract now says exactly that. What it would rather say is "and then the newest
+first", because within one calendar day salience ties on almost every pair — every row has
+the same `birth_day`, no uses, and identical decay — so the tie-break is what actually
+decides which 40 of 400 the writer sees.
+
+Nothing in the `Store` API can break that tie. `learned_on` is a DATE. `birth_day` is the
+lived day. `newId` is six random bytes (`store/index.ts#newId`), so ids carry no time.
+`list()` returns `ORDER BY id`, which is therefore arbitrary-but-stable rather than
+chronological.
+
+**The ask, if it is ever wanted:** an ordering key on `MemoryRow` that is monotonic in
+insertion — the rowid `list` already sorts against, exposed; or `list({ order: "minted" })`.
+It is one column that already exists in box 2 and is not published.
+
+**Why it is filed rather than pressed.** The property the cut actually needs is that it was
+CHOSEN rather than iteration luck (§1 G3), and a deterministic id order has that. What is
+lost is only that "the end of the day" — often the part a person would most want written
+about — has no better chance than the middle of it. Worth revisiting the first time the
+page reads as if it were written about the wrong half of a day.
+## 11. `store/` has no "give me this row's directory" seam — OPEN 2026-09-20 (F6)
+
+`journal-file.ts` reaches `Store.dir` and joins paths under it. That is the owner's
+decision 2 and it is stated at the top of the module rather than hidden, but it
+does mean `self/` now holds a second piece of layout knowledge beside
+`remember/spans.ts`'s: which directory it owns, and that the store classifies it
+(`store/paths.ts#LAYOUT`). Nothing enforces the pairing from this side — a module
+that wrote to a directory the layout does not know would break the store's own
+`assertLayout()` at the next open, loudly, which is the safe direction but is a
+runtime answer to a compile-time question.
+
+**What would close it:** a store-owned seam that hands a module its own
+classified subdirectory (`store.ownedDir("journal")`), refusing at the seam what
+`assertLayout` today refuses at the next open. It is the same ask
+`INTERFACE-GAPS #4` makes for the briefing's render file, and the two should be
+answered together rather than twice.
+Recorded against the store, where it would be declared: `store/CONTRACT.md` §7 question 5
+(that module keeps no `INTERFACE-GAPS.md` of its own, so its open asks live in its §7).
+
+**What does not need it:** correctness. `journal` was classified before anything
+wrote it (scar §2.11) and a test asserts a snapshot carries the copies.

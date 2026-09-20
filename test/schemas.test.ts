@@ -636,89 +636,6 @@ describe("belief revision by pressure", () => {
     expect(s.store.row(authored)?.source).toBe("authored");
   });
 
-  test("the ONLY live belief-placement caller stamps 'migrated' — asserted on the real path, not a hand-passed channel", async () => {
-    // The reviewer's catch: the previous test passed channel by hand while the
-    // real caller omitted it — a test passing for a reason unrelated to the
-    // production path. This one drives the migrate tool's own writeElements
-    // and reads the row it produced.
-    const { migrateAndRender } = await import("../tools/migrate/index.js");
-    const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const v1 = mkdtempSync(join(tmpdir(), "counterparts-mig-v1-"));
-    const v2 = mkdtempSync(join(tmpdir(), "counterparts-mig-v2-"));
-    try {
-      mkdirSync(join(v1, "traces"), { recursive: true });
-      mkdirSync(join(v1, "schemas"), { recursive: true });
-      writeFileSync(
-        join(v1, "traces", "tr_belief.md"),
-        [
-          "---",
-          "id: tr_beliefsrc01",
-          "kind: person",
-          "scope: global",
-          "confidentiality: normal",
-          "salience: 0.6",
-          "gradient: 0.2",
-          "created_active_day: 3",
-          "---",
-          "Ada prefers async review over synchronous meetings, consistently.",
-        ].join("\n"),
-        "utf8",
-      );
-      // The reviewer's proof of vacuity: a trace-only fixture never reaches
-      // writeElement -> addBelief — the exact path the blocker lived in. A v1
-      // SCHEMA file with a belief is what drives it (test/migrate.test.ts's
-      // fixture idiom: the authoritative record rides in the item comment).
-      const beliefStatement =
-        "Ada consistently prefers asynchronous review over synchronous meetings.";
-      writeFileSync(
-        join(v1, "schemas", "person-ada.md"),
-        [
-          "---",
-          "id: sch_ada",
-          "kind: person",
-          "name: Ada",
-          'aliases: ["ada l"]',
-          "---",
-          "## Beliefs",
-          "",
-          `- ${beliefStatement} <!--${JSON.stringify({ id: "el_ada1", statement: beliefStatement })}-->`,
-          "",
-        ].join("\n"),
-        "utf8",
-      );
-      const { report } = migrateAndRender({ source: v1, target: join(v2, "store"), apply: true });
-      expect(report.source_readonly.identical).toBe(true);
-      const migrated = Store.open({ dir: join(v2, "store") });
-      open.push(migrated);
-      const sources = migrated
-        .list({})
-        .map((id) => migrated.row(id)?.source)
-        .filter((s2) => s2 !== undefined);
-      // Every row the cutover minted is attributed migrated or honestly
-      // unrecorded — and NONE claims v2 authorship.
-      expect(sources.length).toBeGreaterThan(0);
-      expect(sources).not.toContain("authored");
-      expect(sources).toContain("migrated");
-      // The assertion the earlier version only CLAIMED to make: a row that
-      // went through writeElement -> addBelief — role "belief", the blocker's
-      // own path — is stamped migrated.
-      const beliefRows = migrated
-        .list({ type: "schema" })
-        .map((id) => ({ row: migrated.row(id), meta: migrated.readProse(id).meta }))
-        .filter((r) => r.meta["role"] === "belief");
-      expect(beliefRows.length).toBeGreaterThan(0);
-      expect(beliefRows.map((r) => r.row?.source)).toEqual(
-        beliefRows.map(() => "migrated"),
-      );
-    } finally {
-      const { rmSync } = await import("node:fs");
-      rmSync(v1, { recursive: true, force: true });
-      rmSync(v2, { recursive: true, force: true });
-    }
-  });
-
   test("the belief row inherits the ENTITY's kind, so its inertia is the person's", () => {
     const { s, beliefId } = setup();
     expect(s.element(beliefId)?.kind).toBe("person");
@@ -1344,7 +1261,14 @@ describe("module properties", () => {
     expect(() =>
       s.mention({ name: "Bansai", kind: "entity", source: "Bansai", chunkRef: "c1", day: 0 }),
     ).toThrow();
-    expect(readdirSync(join(dir, "prose")).length).toBe(0);
+    // Nothing was staged, and on this floor there is nothing that COULD be:
+    // the write is one INSERT inside the transaction the stance check refused
+    // before it opened. The store directory holds the two boxes and no more.
+    expect(readdirSync(dir).filter((n) => !n.startsWith("counterparts.sqlite-")).sort()).toEqual([
+      "cache",
+      "counterparts.sqlite",
+    ]);
+    expect(store.list({ type: "schema" })).toEqual([]);
   });
 });
 
@@ -1550,12 +1474,14 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
 
     removeIt(ids.first);
 
-    // The row survives the chase with a blanked pointer — the shape that used
-    // to throw. Asserted so this test cannot pass because removal changed.
+    // The row survives the chase as a TOMBSTONE — body and content hash both
+    // blanked, which is the shape that used to throw. Asserted so this test
+    // cannot pass because removal changed.
     const store = Store.open({ dir });
     open.push(store);
     expect(store.row(ids.first)).toBeDefined();
-    expect(store.row(ids.first)?.prose_path).toBe("");
+    expect(store.row(ids.first)?.body).toBe("");
+    expect(store.row(ids.first)?.content_hash).toBe("");
 
     // THE REGRESSION: the whole brain opens.
     woken((c) => {
@@ -1661,12 +1587,12 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
     const ids = person(s);
     s.store.close();
     open.length = 0;
-    // The shape a half-written migration or a disk event leaves: the pointer is
-    // gone and NOTHING says who took it. There is no store API for this, and
-    // there should not be — the chase is the only thing that blanks a pointer
-    // on purpose — so the test writes it the way the damage would.
-    const db = new Database(join(dir, "operational.sqlite"));
-    db.run("UPDATE memories SET prose_path = '' WHERE id = ?", [ids.second]);
+    // The shape a half-written repair or a disk event leaves: the row is
+    // tombstoned and NOTHING says who tombstoned it. There is no store API for
+    // this, and there should not be — the chase is the only thing that blanks a
+    // row on purpose — so the test writes it the way the damage would.
+    const db = new Database(join(dir, "counterparts.sqlite"));
+    db.run("UPDATE memories SET body = '', content_hash = '' WHERE id = ?", [ids.second]);
     db.close();
 
     const store = Store.open({ dir });

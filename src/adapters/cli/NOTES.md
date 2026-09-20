@@ -550,3 +550,387 @@ through with `--dir`, and the dry runs unguarded. The reviewer's exact case
 stopped AT the door rather than one step in at box 3's "nothing to convert"
 refusal, since both are exit 2. `test/repair-dates.test.ts`'s "console door"
 stays as it was.
+
+## 2026-09-20 — the day-1 surfaces (new-user findings 2, 3, 4, 6)
+
+The owner's next act is to follow the QUICKSTART on a blank store as a stranger, so what
+these commands SAY on day 1 is the product. N2's hermetic dry run measured it and the news
+was not good: `fired` opened with twenty-eight `never` lines, `status` buried its four
+numbers under a ten-line block naming `assertLayout()` and "Box 3", and `doctor` printed a
+red about a key both pages say is optional.
+
+**`fired` on a young store.** The report now carries `young`, `livedDay` and
+`calendarDays`, so the console, doctor and the dashboard share ONE definition instead of
+each deciding. Only the TEXT renderer narrows; the report itself is whole, `--all` prints
+it, and the bounds line still counts every state. **Both clocks have to agree** — a lived
+day is advanced by the worker, so a store whose worker has been dead a fortnight also
+reads lived day 0, and that store must get the full list, because the full list is its
+diagnosis.
+
+**`status`.** The census leads, the prose follows, `Layout:` is behind `--layout`. The
+day's facts are two new lines. `Today` is counted INSIDE the census walk and not with
+`countMemories({ learnedOnFrom })`, which counts removed and superseded rows: the first
+draft printed `2 new` beside `Memories: 1`, which is the kind of disagreement between two
+numbers on one page that makes a reader stop trusting both.
+
+**`readHost` lives in `install.ts`, not in `doctor.ts`.** It is the other half of what that
+file prints — `settingsBlock` and `mcpCommand` — and it uses that file's own names
+(`HOST_EVENTS`, `MCP_SERVER_NAME`). `doctor.ts` takes the reading and grades it, exactly
+as it already takes `checkout` and `open`, so the adapters stay leaves that do not import
+each other and the host's vocabulary lives in one place.
+
+Everything it reads belongs to the host. `~/.claude.json` is documented as a file the host
+writes for itself, so every answer names the files it looked at and the finding is amber,
+never red: when one of these paths moves, the line must read "I looked here and did not
+find it", not "you did not install it". Paths verified against the host's documentation on
+2026-09-20 — true for now, and worth re-checking rather than trusting.
+
+**`doctor --dir` under the explicit-dir guard.** `--dir` is a name, so the refusal was
+never really about the store: it was about the DEFAULT CONFIGURATION beside it, whose
+`credentialsFile` points at the owner's live keys. That file is now simply not opened, the
+store is graded on its own, and one amber says which questions therefore went unasked. On
+cut-over day this is the difference between pointing `doctor` at the parked store and a
+refusal with nothing to do.
+
+**Precisely, because the first version of this note overstated it** (adversarial review,
+2026-09-20): what is not read is OUR configuration — `claude-code.json`, the credentials
+file it names, the embedder setting, the snapshot policy, the stance. `readHost` still
+runs, so `doctor --dir <anything>` opens the four host settings files and `~/.claude.json`
+on the real home. Those are the HOST's, they are read-only, and the Host line names every
+one of them — but "reads no configuration at all" was not true of them and should not have
+been written.
+
+---
+
+---
+
+## `start-fresh` — starting over as one command (2026-09-20, N1)
+
+**What it is.** One command that parks the store beside itself under a dated
+name, parks the snapshots folder the same way, and creates a blank store back at
+the same path. It exists because the trial loop the owner wants — use it as a
+stranger, collect every rough edge, fix, start over, repeat — otherwise runs
+through the floor plan's §2 step 5 by hand, five commands with seventeen
+thousand private memories on the other side of a typo.
+
+**The rule, and why the module is arranged around it.** It never deletes and
+never opens the old store, *including read-only*: under WAL a commit lives in the
+`-wal` until somebody checkpoints it, and an opener is somebody. `start-fresh.ts`
+makes exactly one mutating call, `rename`, and imports nothing that can open a
+database.
+
+**Decisions taken, each a working default:**
+
+- **The store comes from the CONFIGURATION, and `--dir` is refused.** The store
+  that matters is the one the hooks and the MCP server open. `--dir` is a common
+  flag, so it parses on every command; ignoring it silently here would be the
+  `--dirr` scar pointed at the most dangerous verb in the package.
+- **The new store lands at the SAME path**, which is where this departs from the
+  floor plan's step 5 (`store-v2` beside the old one, then re-run `claude mcp
+  add`). Parking in place means `dataDir` does not move, so `claude-code.json`
+  and `credentials.env` are kept byte for byte — `install` without `--force`
+  keeps both — and there is no MCP re-registration to forget, which was named as
+  failure mode (b) of the clean cut.
+- **`install` does the creating**, called as itself rather than re-implemented.
+  Its host-steps tail is skipped by the one caller it is false for: printing
+  "register the MCP server" on this path would send the owner to run a command
+  he does not need, on the day he is most likely to follow instructions
+  literally. Its ceiling is handed back from the configuration for the same
+  reason — otherwise the run ends on "NO injectionBudgetBytes was written",
+  which is true of a cold start and false when the file was kept.
+- **Snapshots first, store second**, so a kill between the two renames leaves the
+  configuration pointing at a store that is still there. The window where it
+  points at nothing is two syscalls wide, and the rollback lines are printed
+  before the first rename, so even a kill inside it leaves the way back on the
+  screen.
+- **What counts as "a store is here" is a filesystem question** — the directory
+  exists and holds something — never `storeExists()`, which looks for the
+  canonical database by name. After F5 that name changes, so on cut-over day
+  `storeExists()` would answer "no store here" about the store being protected.
+- **A fresh `-shm` warns; it does not refuse.** Measured on this build:
+  under `bun:sqlite` the `-wal` and the `-shm` survive a clean close, so that
+  file is recent after any console command at all — including the `doctor`
+  somebody ran a minute before typing this one. Refusing on it made the command
+  refuse itself in testing. The refusal rests on the live-session registry
+  instead, which is genuinely about a host that has not ended a session.
+- **The confirmation is the real gate, and says so.** No cheap read can see an
+  idle open session: it writes nothing. So the prompt states that in those words
+  rather than implying the checks above it were sufficient.
+- **The record of the beginning is a meta row, not a durable event.**
+  `store.started`, `store.started.by`, `store.previous.parked` in box 2's
+  general-purpose key space, beside `embed.failed.<id>` and `sleep.pruned.<id>`.
+  A durable event name would have had to be added to `core/counterpart.ts` and
+  accounted for in `fired`'s registry — where a mechanism that fires once in a
+  store's lifetime would read "never" forever on every store that was simply
+  installed. `status` reads the rows back; nothing else does.
+
+**Known, and left alone for now.** A kill between the install and that record
+leaves a blank store that `status` simply says nothing about. A state file to
+close it would be a second source of truth about a directory, for a line of
+output; the next run's printed plan says exactly what is on the ground instead.
+A test asserts the silence, so nobody later turns it into a guess.
+
+**Two duplicated strings, and the honest reason.** `start-fresh.ts` spells
+`"store"` and `"snapshots"` rather than importing `DEFAULT_STORE_SUBDIR` and
+`SNAPSHOTS_DIR_NAME`. Both are only *recognition* tests — "does this store sit in
+the layout this package creates, so that a sibling `snapshots` is ours to park" —
+and getting either wrong costs a folder not parked, never a byte moved.
+
+The tempting justification is wrong and is written down here so nobody rests on
+it: importing `adapters/snapshots.ts` would not "pull `openDb` into the import
+graph" in any way that matters, because this file already imports
+`core/store/index.js`, which reaches the whole store. **The module's promise is
+about CALLS, not imports** — it opens no database, and the one store function it
+calls, `preRowsMarkersIn`, reads filenames. If the layout names ever move, this
+file is the second place to look.
+
+**The merge-up over F5 (2026-09-20).** Four things changed underneath this
+command, and none of them changed its design — which was the point of asking the
+filesystem rather than the floor.
+
+- **The fixture stopped being a stand-in.** `test/old-floor-fixture.ts` extracts
+  the pinned tag with `git archive` (never a second worktree — that touches the
+  shared repository) and runs THAT build's `Store` API in a child to write a real
+  v5 store. It is worth the seconds: the hand-made version proved that the
+  command tolerates three filenames, and the claim is about a store with bodies
+  in files, archived versions, a journal, spans, a cache and a WAL. On the
+  fixture as measured `operational.sqlite` is 4 KB and its `-wal` is ~600 KB, so
+  "never opens it" is load-bearing rather than decorative: an open-and-close
+  could checkpoint 600 KB out of the sidecar and into the file.
+- **`storeExists()` now answers true for a pre-rows store** (F5, so that ~20
+  console commands reach the named refusal instead of "run init"). This command
+  still keeps `sight()`, and the difference is real rather than stylistic: a
+  half-made store holding only a `cache/` is "no store" to `storeExists` and
+  "something is here" to `sight`. The second answer parks it; the first would let
+  `install` mint a store beside a stale box 3 belonging to another store's rows.
+  Both readings are pinned by a test across four directories.
+- **The plan says which floor it found**, through `preRowsMarkersIn` — filenames,
+  never an open. A reader on cut-over day has just met F5's refusal somewhere
+  else; being told it is the same fact, and that it is the reason parking is
+  right, is cheaper than leaving them to connect it.
+- **F5's rotation already refuses to delete or count a copy holding pre-rows
+  markers**, so parking `snapshots/` is belt and braces — kept, because the
+  bracing is free and the failure it prevents is not. What DID need correcting is
+  the sentence about a `snapshots.dir` pointed elsewhere: "the new rotation will
+  count the old copies" is now only true of copies this floor wrote. Old-floor
+  copies are recognised and left alone; new-floor ones count toward `keep`. Both
+  the printed line and QUICKSTART say that now.
+
+---
+
+## What the adversarial review changed (2026-09-20)
+
+The rule held — the reviewer could not make it delete anything and could not make
+it open the store it parks — and everything found was in the ring AROUND the
+rename. Five of the fixes changed the design rather than a sentence.
+
+**The order is the fix for two findings at once.** The blank store is now built
+in a sibling (`store.new-<pid>`, same filesystem) BEFORE anything is parked, and
+moved into place with one atomic rename. That closes M1 — `install` could refuse
+*after* both renames, on a fractional `injectionBudgetBytes` that `loadConfig`
+accepts and `installCommand` does not, leaving the configuration pointing at
+nothing — because an install that refuses now costs a temporary directory. And it
+shrinks M4: the window in which a real SessionStart hook could mint a store at
+`dataDir` went from a whole `install` to two renames. The window cannot be closed
+entirely — `rename` needs the old directory out of the way first — so the second
+rename REFUSES on a non-empty destination and names all three directories rather
+than burying one inside another.
+
+**The cold arm had a store in it all along (B1).** An absent configuration meant
+"a machine with nothing on it", so `storeDir` was `""`, the install pin was
+skipped, and `installLayout` fell back to `$COUNTERPARTS_DATA_DIR` else
+`~/.counterparts/store`. One mistyped character on `--config` was enough to open
+and stamp the live store. It now computes the landing place up front from the
+CONFIGURATION'S OWN directory and an EMPTY environment — so the variable cannot
+redirect it — prints it (the `Store:` line is never blank again, which is what let
+two contradictory sentences share a screen), pins it, and refuses if anything at
+all is there.
+
+**A plan that is read and a plan that runs must not differ (M2).** The date is
+frozen for the whole run, so a UTC midnight cannot rename the plan out from under
+the printed block. The re-read after the confirmation now refuses when the ground
+moved instead of silently executing a different plan. And the way back is printed
+again *after* the renames, from the plan that ran, listing only the steps that
+actually moved.
+
+**A bare `mv` is not a move (M3).** `mv a b` where `b` exists moves `a` INSIDE
+`b`, exit 0 — measured. Every printed line is guarded, and the way back is a
+command now (`--undo`) with the same discipline. The test parses the printed lines
+out of real output and runs them through `/bin/sh`, against a free destination and
+against one that exists; proving a guard any other way proves the intention
+instead.
+
+**Two of my own premises were wrong**, and the code moved rather than the test.
+`--undo` could never hit its own destination check for the blank store, because it
+picks a free name; the reachable collision is a snapshots folder the rotation puts
+back, and it is LEFT and said rather than merged or refused-over. And the undo's
+pre-check read the ground as it stands rather than as it will be at each step, so
+it refused its own plan — step 1 is exactly what frees the path step 2 needs.
+
+**`--yes` is not enough on a store with something in it.** The reviewer's own
+machine had two dashboards holding the live store open while the review was being
+written, and neither leaves a record this command can read. `--yes` exists for a
+script and for the install loop, where the store is a throwaway; on a real one the
+typed confirmation is the only instrument that catches an idle dashboard, so
+skipping it needs a second sentence: `--nothing-is-open`.
+
+**And a symlinked `snapshots` no longer refuses the whole command.** Symlinking a
+backup folder onto an external disk is an ordinary thing to have done, and there
+was no way through but editing the configuration. It is treated exactly as a
+configured `snapshots.dir` is: left, and said out loud. The store still moves,
+which is what the owner came for.
+
+---
+
+## The confirmation review, and the one thing it taught (2026-09-20)
+
+The forward command came through closed — every earlier finding re-run and
+fixed, a real v5 store byte-identical through a refusal, a dry run, a cut-over
+and the full printed rollback. The BLOCKER was in `--undo`, and the lesson is
+worth more than the fix.
+
+**`--undo` was new code that ran none of the old code's refusals.** Not because
+anyone decided it should not: because it was written as its own path, and the
+refusals lived inside `planStartFresh`. So a configuration whose `dataDir` is
+inside `~/.bansai` — which the forward command refuses BY NAME, in the words of
+CLAUDE.md's second safety rule — was renamed twice by the command whose whole
+job is being the safe way back. With no tampering at all.
+
+The fix is parity, and the shape of it matters: **one function, called by both**.
+`pathGuard()` is the whole battery — present, absolute, not a forbidden root by
+either spelling, not a root, not the home directory, not a directory holding the
+configuration, not a symlink — and there is now a structural test asserting that
+the forward plan and the undo plan return the *identical sentence* for the same
+bad path. Two implementations of "what may I rename" is how the two came to
+disagree; one function and a test that compares their answers is what stops it
+happening again.
+
+**And a record is data.** `store.previous.parked` is a row in the new store's
+`meta` table, so anything that can open the store can write it — the reviewer
+pointed it at `~/.bansai/store` and watched v1's memory get renamed onto
+`dataDir`, at the store's own parent to get a directory planned into its own
+child, and at a symlink to make `dataDir` become one. `parkedSiblingRefusal`
+pins the shape instead of trusting the value: same directory as the store, and a
+name this package actually writes. The fallback already only produced those; the
+recorded value now obeys the same rule.
+
+The rest was parity too — the liveness check, the re-read after the
+confirmation, the way back in the failure branch — plus two honest sentences:
+the dry run says it reads the new store's record and may rewrite its `-shm`, and
+the header comment no longer claims an undo of an undo, because there is not
+one. The two guarded lines that do it by hand are printed instead.
+
+## 2026-09-20 — `export --markdown`, and the five choices inside it (F7)
+
+Ruling 4 said "`export --markdown` omits confidential rows unless
+`--include-confidential`, and says how many it omitted". Five things that ruling
+does not decide, decided here, each true for now.
+
+1. **The tree is rendered from ROWS, not from a walk of `<store>/journal/`.**
+   The copy on disk is derived; a stale one — an episode removed while its copy
+   could not be written — would be exported as though it were live. Rendering
+   from rows cannot do that, and it uses the copy's OWN path function and the
+   same `renderMarkdown`, so the bytes are identical either way. "Included as
+   is" is kept by using its code, not by copying its files.
+2. **Grouped by kind** (`memories/fact/`, `memories/person/`, …), not by month.
+   Kind is the axis `status` and the dashboard already show, it is a closed set
+   of six, and it does not move when a memory is revised — by month splits one
+   belief's life across directories.
+3. **Filenames are ids.** A title can be as sensitive as a body, and a directory
+   listing is the part of an export that gets read over somebody's shoulder.
+4. **`--markdown --passphrase` is supported rather than refused**, and it is the
+   safest path of the three: the tree is built in memory, sealed, and written as
+   one blob, so it never makes a scratch file at all. (The database export keeps
+   F5's 0700 `mkdtemp` and its bounded sweep, which is what review B's MAJOR-4
+   and review C's NEW-MINOR-6 bought.) A test counts `counterparts-export-*`
+   directories in `$TMPDIR` across a markdown export and asserts the number does
+   not move.
+5. **`--with-versions`, not `--versions`.** `self-page` already takes both
+   `--versions` and `--version`, and the help-page totality test reads flags as
+   substrings — an `export --versions` puts the string `--version` on export's
+   help page, naming a flag export does not take. A real constraint from a real
+   test, not a preference.
+
+**TWO FACTS ABOUT `export` THAT ARE THE OWNER'S TO RULE ON, AND ARE UNRULED.**
+Both landed with F7 and neither has been decided by anybody but the builder; the
+f6f7 review measured what they actually do (MINOR-5) and they are written here
+so the ruling can be made from facts rather than from a diff.
+
+1. **The ordinary `export` now opens the canonical database FOR WRITING.** It
+   opened `observer: true` before. The reason is the `store.export` row and
+   nothing else; the review fingerprinted every file under the store and found
+   the effect confined to exactly that — the owner's export moves
+   `counterparts.sqlite-wal` and the two `-shm` files, and nothing else; no
+   file, no `journal/` write, no scratch. An export against a store another
+   process was holding with `BEGIN IMMEDIATE` still returned 0, so there is no
+   lock regression of the I38 shape. The row's `catch {}` means a row lost to
+   contention is silent, which is one more way "did anything leave" can answer
+   "no" when the answer was "yes".
+2. **An instrument can now perform a full egress.** `export` came off
+   `OWNER_OPS`, so `--observer export` — which refused outright before — makes a
+   complete readable or sealed copy of every memory, confidential ones included
+   with one flag, and writes no trace in the store (the durable row is what
+   stands down, and the report says so). That is the egress question stated
+   plainly: the stance that means "read, do not change" now permits the one
+   operation by which memory leaves the machine.
+
+**The line to revert, if the owner wants it back:** `"export"` in `OWNER_OPS`
+(`commands.ts`), and `Store.open({ dir, observer })` back to `observer: true` in
+`exportCommand`. The durable row goes with it, and `fired.ts`'s `export` row
+becomes blind the way `backup` is. Nothing else depends on either.
+
+**Two refusals that are new, and one removal.** A non-empty target is refused
+unless `--into-non-empty`: an export is a whole copy, and one written over
+another is a mixture nothing can tell apart. `--include-confidential` and
+`--with-versions` without `--markdown` are refused BY NAME rather than ignored —
+they decide what goes into the tree, and a database export carries every row
+there is, so honouring either there would be a lie in one direction and silence
+in the other. And `export` came off `OWNER_OPS`, the only removal that list has
+had: an export READS the store and writes outside it, so standing the command
+down under `--observer` refused a read. The one write it now makes to the store
+is the durable row, and that is what stands down instead — the copy is still
+made and the report says the row was not written. `backup` is the same shape and
+deliberately stays on the list: it could follow, but nobody has ruled on it.
+
+## 2026-09-20 — the f6f7 review's five, and what each one cost
+
+Read the review for the measurements; this is what changed and why, in one place.
+
+- **The journal module never follows a symlink** (MAJOR-1). `journalFiles` walked
+  with `statSync`, so a link anywhere under `journal/` made a core module a
+  writer and a deleter outside the store — the reviewer put a chapter's whole
+  body in an external directory and watched a removal ceremony delete a file out
+  there and report it as chased. One rule now: a link anywhere at or under
+  `journal/` and the module stands down by name (`journal-symlink`), removal arm
+  included, because an absence it cannot vouch for must not read as "nothing
+  beside the row".
+- **A broken `journal/` is one row a day** (MAJOR-2), through the store's own
+  `dedupKey` latch, and a directory-level failure ends the backfill pass instead
+  of re-discovering itself 25 times. Measured before: 80 rows across five
+  chapters and three worker cycles. The starvation half was only reasoned in the
+  review and is measured here.
+- **The journal-echo disclosure is exact** (MAJOR-3). It rode on a ranked top-20
+  search and went silent on exactly the store that needs it: a real chapter plus
+  twenty-five near-identical memories, and the episode fell off the list while
+  the report said `journal(0, nothing beside the row)` and `unchased: nothing`.
+  Now `meta.episodeId` first and a bounded containment scan second, with the
+  bound REPORTED.
+- **`assertSafeTarget` resolves symlinks** (MAJOR-4), on both sides and on the
+  v1 roots, and refuses a dangling link by name instead of by `mkdirSync`'s
+  `EEXIST`. It fixes `backup` at the same time. The macOS trap is why both
+  sides: `$TMPDIR` is itself reached through `/var` → `/private/var`, so
+  resolving one side would have stopped every inside-the-store case from being
+  detected.
+- **`journal/` leaves the backup set** (MAJOR-5), because copying a derived
+  directory put removed episodes' words into every rotating snapshot as plain
+  markdown, and the rows are in the snapshot anyway. Paired with a cold-start
+  bound so a restore is readable after one pass rather than forty, and with a
+  sentence in the removal report about the copies already on disk.
+
+**What the durable row carries, and what it does not.** `store.export`: the
+kind, whether it was encrypted, files, bytes, rows, how many confidential rows
+were omitted, whether versions went, how many rows would not render. **Not the
+target path.** Where the owner sent his memories is more than the row needs to
+prove the door works (§5 G10), and the terminal has already told him. F2's blind
+`backup` row and its "one `store.backup` event would fix it" are untouched:
+that is a different door and still an open gap.

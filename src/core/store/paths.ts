@@ -4,8 +4,9 @@
  * `dataDir()` reads the environment AT CALL TIME (never at module load) so a test
  * can redirect it per test — the hermetic-test rule in CLAUDE.md depends on this.
  */
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, posix, resolve, relative, isAbsolute, sep } from "node:path";
+import { join, resolve, relative, isAbsolute } from "node:path";
 import { StoreError, isStoreError } from "./errors.js";
 
 export const DATA_DIR_ENV = "COUNTERPARTS_DATA_DIR";
@@ -44,6 +45,22 @@ export const DEFAULT_DATA_DIR_NAME = ".counterparts";
  * Ruled by the owner 2026-09-04 after the launch inventory reproduced it.
  */
 export const DEFAULT_STORE_SUBDIR = "store";
+
+/**
+ * The canonical database's file name (owner ruling 5, 2026-09-18).
+ *
+ * It was `operational.sqlite` while the memories themselves were markdown files
+ * beside it and the database held "the operational bits". Once the bodies are
+ * rows the name stops being true, and a name that lies is a name somebody will
+ * one day act on. There is no migration to worry about: the cut-over starts a
+ * blank store, and a directory holding the OLD name is refused by name before
+ * anything opens it (`STORE_PRE_ROWS`, `store/index.ts`).
+ *
+ * Spelled once. `LAYOUT` and `paths.operational` both read it, and
+ * `adapters/snapshots.ts` takes it from `basename(paths.operational("."))`
+ * rather than typing it a second time.
+ */
+export const DATABASE_FILE = "counterparts.sqlite";
 
 /**
  * Roots this repo may never write into: v1's live memory and its ancestor.
@@ -227,22 +244,10 @@ export interface LayoutEntry {
 
 export const LAYOUT: readonly LayoutEntry[] = [
   {
-    name: "prose",
-    match: "exact",
-    backup: true,
-    why: "Box 1 — canonical prose. The memories themselves.",
-  },
-  {
-    name: "versions",
-    match: "exact",
-    backup: true,
-    why: "Archived prior versions of canonical prose (archive-on-overwrite).",
-  },
-  {
-    name: "operational.sqlite",
+    name: DATABASE_FILE,
     match: "prefix",
     backup: true,
-    why: "Box 2 — canonical operational state. Backed up as a database, not rebuilt.",
+    why: "Box 2 — the canonical database. The memories themselves live here since the floor (schema v6): bodies, their archived versions, and every structured field. Backed up as a database, never rebuilt.",
   },
   {
     name: "cache",
@@ -257,10 +262,36 @@ export const LAYOUT: readonly LayoutEntry[] = [
     why: "remember/'s capture buffer: lived experience awaiting encoding; not reconstructible.",
   },
   {
-    name: "tmp",
+    name: "journal",
     match: "exact",
+    // NOT BACKED UP, since 2026-09-20 (f6f7 review MAJOR-5). It was PROPOSED
+    // `true` — a directory the owner is invited to read should ride along with
+    // a copy of the store — and changed to `false` in review, inside the same
+    // PR, the same day: F6 never landed on master with the flag set, and a
+    // reader of this comment should not go looking for a window where it was.
+    // What the review measured is the cost the proposal would have had: every
+    // snapshot held every episode's words as plain greppable markdown, so a
+    // removal that emptied the live store byte for byte left the removed
+    // chapter readable in fourteen copies — and a database inside an old
+    // snapshot is a file somebody must know to open, while a `.md` inside one
+    // is a search result, a Spotlight hit, a synced folder's problem.
+    //
+    // It costs NOTHING to stop copying it, which is the whole argument: the
+    // files are DERIVED. The snapshot carries the rows; the first backfill pass
+    // on a restored store writes every file again, and `test/cli.test.ts`
+    // proves that on a store with more episodes than one ordinary pass's
+    // budget. Scar §2.11 is not in play — that scar is about losing the
+    // CANONICAL journal from every backup for three weeks, and this journal is
+    // canonical in the database.
+    //
+    // Still CLASSIFIED, which is the half of §2.11 that does apply: an
+    // unclassified top-level path refuses the store at open, and
+    // `snapshots.ts#looksCopied` keys on classification rather than on this
+    // flag, so rotation of copies already on disk is unaffected. CONTRACT §5
+    // G11 says that in its own words now — classified and backed up are two
+    // questions, and this entry is the example.
     backup: false,
-    why: "Staging for atomic writes. Crash-leaked temps are inert: the loader reads *.md under prose/ only.",
+    why: "The counterpart's diary, ALSO written as markdown files as each chapter lands (owner, 2026-09-17 §15 item 9) — a COPY, kept because plain files outlive the system that wrote them. The chapters themselves are rows like every other memory, so this directory is derived: it is not backed up, and a restored store regenerates every file from its rows at the next boundary. Deliberately excluded rather than merely absent: copying it put removed episodes' words into every rotating snapshot as plain greppable markdown (f6f7 review MAJOR-5).",
   },
   {
     name: "sessions",
@@ -306,133 +337,158 @@ export function assertLayoutClassified(names: readonly string[]): void {
   }
 }
 
-/** Directory name per prose family. Spelled out — "memorys" is not a word. */
-export const PROSE_DIR: Record<string, string> = {
-  memory: "memories",
-  episode: "episodes",
-  schema: "schemas",
-};
-
 /**
- * The two stored spellings of a canonical file, RELATIVE to the store root and
- * POSIX-separated whatever the host: `prose/<family>/<id>.md` and
- * `versions/<id>/<seq>-<hash>.md`. These are what `memories.prose_path` and
- * `versions.path` hold (CONTRACT §5 G15, 2026-09-05); the absolute forms below
- * are `join(dir, …)` of exactly these, so there is one spelling of each.
+ * Two boxes, two files. There is nothing else to address.
  *
- * A store directory is SELF-CONTAINED: copy it, move it, restore it from a
- * backup — the rows inside still name the files beside them, never the files
- * of the store they were copied from (finding I22: an absolute path made a
- * copied store read and DELETE the source's prose).
+ * `prose`, `proseKind`, `proseFile`, `versions`, `versionsFor`, `versionFile`
+ * and `tmp` went with the floor (schema v6), along with `PROSE_DIR`, `stored.*`,
+ * `resolveStoredPath`, `relativizeStoredPath` and `isCanonicalRelativePath` —
+ * the placement rules that existed to keep a store self-contained while its
+ * rows named files (§5 G15, finding I22, and four review rounds of edge cases
+ * about blank pointers, absolute pre-v5 rows and `../ESCAPE/...`).
+ *
+ * The PROPERTY they defended survives and is now structural rather than
+ * enforced: a row IS its memory, so a copied store cannot read or delete
+ * another store's words, because there are no words outside the database to
+ * reach. `test/store-portable.test.ts` still proves it, with the mechanism gone.
+ *
+ * `tools/parallel/legacy-paths.ts` keeps the two resolvers, for the read-only
+ * instruments that still read the owner's pre-rows store.
  */
-export const stored = {
-  proseFile: (type: string, id: string): string =>
-    posix.join("prose", PROSE_DIR[type] ?? type, `${id}.md`),
-  versionFile: (id: string, seq: number, hash: string): string =>
-    posix.join("versions", id, `${String(seq).padStart(4, "0")}-${hash}.md`),
-} as const;
-
 export const paths = {
-  prose: (dir: string) => join(dir, "prose"),
-  proseKind: (dir: string, type: string) => join(dir, "prose", PROSE_DIR[type] ?? type),
-  proseFile: (dir: string, type: string, id: string) => join(dir, stored.proseFile(type, id)),
-  versions: (dir: string) => join(dir, "versions"),
-  versionsFor: (dir: string, id: string) => join(dir, "versions", id),
-  versionFile: (dir: string, id: string, seq: number, hash: string) =>
-    join(dir, stored.versionFile(id, seq, hash)),
-  tmp: (dir: string) => join(dir, "tmp"),
-  operational: (dir: string) => join(dir, "operational.sqlite"),
+  operational: (dir: string) => join(dir, DATABASE_FILE),
   cacheDir: (dir: string) => join(dir, "cache"),
   cache: (dir: string) => join(dir, "cache", "cache.sqlite"),
 } as const;
 
 /**
- * A stored path, made absolute against the store that holds the row — the ONE
- * way a stored value becomes a filesystem address (CONTRACT §5 G15).
+ * THE PRE-ROWS MARKERS — what a store written before the floor leaves at its
+ * top level, and the evidence `STORE_PRE_ROWS` refuses on (`store/index.ts`).
  *
- * Four cases, each deliberate:
- *   - `""` → `""`. A chased row's pointers are blanked (`owner-op-seam.ts`), and
- *     `join(dir, "")` is the STORE ROOT — handed to the removal path's
- *     `existsSync` + `rmSync`, that would be the one address worse than the
- *     source's file. A blank pointer resolves to nothing, never to a directory.
- *   - relative → `join(dir, stored)`. The v5 shape.
- *   - absolute → PLACED against the opened dir by the same rule the migration
- *     uses (`relativizeStoredPath`; pure, no stat, no write), so an INSTRUMENT
- *     on a pre-v5 copy, backup or moved store reads ITS OWN file rather than the
- *     source's — the review of PR #79 reproduced a v5 observer on a v4 copy
- *     reading the live store's prose and calling the copy's own files missing.
- *     Only an unplaceable row (no `prose/` or `versions/` segment to key on) is
- *     read as given; `verify` counts those as "absolute (unplaceable)".
- *   - anything that would resolve OUTSIDE `<dir>/prose/` or `<dir>/versions/` —
- *     `../ESCAPE/…`, `.`, `cache/cache.sqlite`, an absolute row whose tail is
- *     `prose/../../x` — is refused with `STORED_PATH_ESCAPES` and never returned.
- *     No writer in this module produces such a row; a hand-edited database can.
- *     The guard runs AFTER the join, on both branches, so the two rules compose.
+ * The FILENAME is the evidence, deliberately, rather than the schema version
+ * inside the database. Reading the version would mean OPENING the old file, and
+ * since F1 the owner's live store is in WAL: if that open were the last
+ * connection, closing it checkpoints and removes the `-wal`, so the act of
+ * asking would move the bytes of the very store the refusal exists to leave
+ * untouched. A directory holding any of these three was written by a build that
+ * kept its memories in files, and that is all the refusal needs to know.
+ *
+ * All three, not just the database: a store whose database was moved or deleted
+ * by hand still has ~16,000 prose files in it, and minting a blank v6 store on
+ * top of them would bury the one copy of those words.
  */
-export function resolveStoredPath(dir: string, storedPath: string): string {
-  if (storedPath.length === 0) return "";
-  if (isAbsolute(storedPath)) {
-    const placed = relativizeStoredPath(dir, storedPath);
-    if (placed === null || isAbsolute(placed)) return storedPath;
-    return joinInsideStore(dir, placed, storedPath);
-  }
-  return joinInsideStore(dir, storedPath, storedPath);
-}
+export const PRE_ROWS_MARKERS: readonly string[] = ["operational.sqlite", "prose", "versions"];
 
-function joinInsideStore(dir: string, rel: string, original: string): string {
-  if (!isCanonicalRelativePath(dir, rel)) {
-    throw new StoreError("STORED_PATH_ESCAPES", { path: original });
+/** The tag whose build still opens a pre-rows store. A git ref, so every
+ *  sentence that carries it says what to do with it. */
+export const PRE_ROWS_READABLE_BY = "floor/v5-last";
+
+/**
+ * EVERY pre-rows name present in `dir`, sidecars included — not just the first.
+ *
+ * Two reasons it is a sweep rather than a `.find`. A refusal that says
+ * `found: "operational.sqlite"` and never mentions the 16,000 files under
+ * `prose/` has named the least interesting half (review A, NIT-1). And a
+ * directory whose main database was moved by hand, leaving only
+ * `operational.sqlite-wal` / `-shm`, was not seen as pre-rows at all: the
+ * constructor mkdir'd `cache/`, `openOperational` minted `counterparts.sqlite`,
+ * and only then did `assertLayout` refuse — on the wrong evidence, after the
+ * one write that landed in a pre-rows directory ahead of the refusal (A,
+ * MINOR-4).
+ *
+ * The exact `existsSync` pass stays exactly as it was, because it is what
+ * catches `Prose/` and `OPERATIONAL.SQLITE` on a case-insensitive filesystem
+ * (measured); the sidecar sweep is added BESIDE it. A stale
+ * `operational.sqlite-journal` from a pre-F1 store is caught too.
+ *
+ * Reads names only. Nothing is opened.
+ */
+export function preRowsMarkersIn(dir: string): string[] {
+  const found = PRE_ROWS_MARKERS.filter((name) => existsSync(join(dir, name)));
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return found;
   }
-  return join(dir, rel);
+  for (const entry of entries) {
+    const lower = entry.toLowerCase();
+    if (!PRE_ROWS_MARKERS.some((m) => lower.startsWith(`${m}-`))) continue;
+    if (!found.includes(entry)) found.push(entry);
+  }
+  return found;
 }
 
 /**
- * True when `rel`, joined onto `dir`, lands strictly under `<dir>/prose/` or
- * `<dir>/versions/` — the only two places a stored path may name. Resolved
- * before compared (scar §2.13), so `prose/../../x` and `./prose/x` are judged
- * by where they land, not by how they are spelled. Pure: no stat, no write.
+ * Are the pre-rows directories EMPTY — i.e. did an old build just mkdir them,
+ * or is this a store with words in it?
+ *
+ * This is the question that decides whether a remedy may say "delete these".
+ * The PRE-FLOOR build's `Store` constructor — the one tagged `floor/v5-last`,
+ * and what a stale worktree or an un-deployed checkout still runs — mkdirs
+ * `prose/`, `versions/` and `tmp/` before
+ * it reaches `assertLayout()`, so ONE old-build hook on a v6 store leaves all
+ * three behind EMPTY — and from then on this build refuses its own store (A,
+ * MAJOR-1). Removing them is exactly right there, and a catastrophe beside a
+ * real v5 store somebody has hand-copied a `counterparts.sqlite` into.
+ *
+ * **It answers by LISTING, never by opening.** Reviewer A's measurement — that
+ * nothing here opens the old database — is the promise this whole door rests
+ * on, and a row count would break it: on a post-F1 store most of the owner's
+ * recent words are in the `-wal`, and an open-and-close can checkpoint it away.
+ * An empty `prose/` is a sufficient answer and costs no handle.
  */
-export function isCanonicalRelativePath(dir: string, rel: string): boolean {
-  if (rel.length === 0 || isAbsolute(rel)) return false;
-  const back = relative(resolve(dir), resolve(join(dir, rel)));
-  if (back.length === 0 || back.startsWith("..") || isAbsolute(back)) return false;
-  const posixBack = toPosix(back);
-  return posixBack.startsWith("prose/") || posixBack.startsWith("versions/");
+export function preRowsLeftoversAreEmpty(dir: string): boolean {
+  const holdsAFile = (at: string): boolean => {
+    let names: string[];
+    try {
+      names = readdirSync(at);
+    } catch {
+      return false;
+    }
+    for (const name of names) {
+      const full = join(at, name);
+      try {
+        if (statSync(full).isDirectory() ? holdsAFile(full) : true) return true;
+      } catch {
+        /* vanished underneath the walk; it is not a file we can see */
+      }
+    }
+    return false;
+  };
+  return !["prose", "versions"].some((d) => holdsAFile(join(dir, d)));
 }
 
 /**
- * The v4 → v5 conversion of ONE path: absolute in, store-relative POSIX out, or
- * `null` when the path cannot be placed.
+ * The pre-rows refusal as ONE SENTENCE a person can act on, for any surface
+ * that has a reader — the console, the hook, doctor, the dashboard.
  *
- * Two rules, in order. If the path lies under `dir` the relative part is exact.
- * Otherwise the DEEPEST `/prose/` or `/versions/` segment keys the tail — which
- * is what places a row whose store was written under one spelling and opened
- * under another (`/var/…` vs `/private/var/…` on macOS), or a backup restored
- * to a new directory with rows that still name the old one. The tail after the
- * store-level segment can never contain a second such segment: it is
- * `prose/<family>/<id>.md` or `versions/<id>/<seq>-<hash>.md`, and an id may
- * not contain a slash (`serializeProse` refuses one).
- *
- * A relative path is returned unchanged, so the conversion is idempotent by
- * construction and a second run finds nothing to do.
+ * It exists for the same reason `describeGuardRefusal` does, and it is the same
+ * shape: `remedy` is the surface's OWN way of naming a store. Before it, every
+ * console door printed the bare code and a JSON blob, and the one instruction
+ * the owner was given — "Run: counterparts doctor" — printed the same blob
+ * (A, MINOR-3). Null for any other error, so a caller falls through.
  */
-export function relativizeStoredPath(dir: string, path: string): string | null {
-  if (path.length === 0) return path;
-  if (!isAbsolute(path)) return toPosix(path);
-  if (isWithin(dir, path)) {
-    const rel = relative(resolve(dir), resolve(path));
-    if (rel.length > 0) return toPosix(rel);
-  }
-  const normalized = toPosix(path);
-  let best = -1;
-  for (const segment of ["/prose/", "/versions/"]) {
-    const at = normalized.lastIndexOf(segment);
-    if (at > best) best = at;
-  }
-  if (best === -1) return null;
-  return normalized.slice(best + 1);
-}
-
-function toPosix(path: string): string {
-  return sep === "/" ? path : path.split(sep).join("/");
+export function describePreRowsRefusal(err: unknown, remedy: string): string | null {
+  if (!isStoreError(err, "STORE_PRE_ROWS")) return null;
+  const detail = err.detail;
+  const dir = typeof detail["dir"] === "string" ? detail["dir"] : String(detail["path"] ?? "");
+  const found = String(detail["found"] ?? "");
+  const own = typeof detail["remedy"] === "string" ? detail["remedy"] : null;
+  // WHAT `found` IS depends on WHICH lock refused. The filename door names the
+  // old names it saw; the SHAPE door names the schema version it read out of a
+  // database already wearing the current name, and rendering that as a filename
+  // printed "it keeps its memories in files (5)" (review f5c, NIT-1).
+  const shape = detail["reason"] === "no-body-column";
+  const what = shape
+    ? `it is a schema v${found} database under this build's own filename`
+    : `it keeps its memories in files (${found})`;
+  return (
+    `refused: ${dir} was written before this build's floor — ${what}, ` +
+    `and this build keeps them in the database. NOTHING WAS TOUCHED. ` +
+    (own ??
+      `The build that reads it is tagged ${PRE_ROWS_READABLE_BY}: check it out ` +
+      `(git checkout ${PRE_ROWS_READABLE_BY}) to open this store, or name a store this build wrote.`) +
+    ` ${remedy}`
+  );
 }

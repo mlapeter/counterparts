@@ -130,3 +130,31 @@ CONTRACT §7's three open questions are untouched by this implementation:
 2. Whether the horizon belongs in the wake briefing at all, or should be a strength
    modifier. `horizon()` returns records, not lines, so either answer stays reachable.
 3. Session dedup's home — INTERFACE-GAPS #3.
+
+## 11. Two durable rows, added 2026-09-20 (E2)
+
+Until today this module wrote no event at all — the 2026-09-17 mechanism inventory found
+"zero `appendEvent` in the module" and marked both prospective rows RING-ONLY. `fires` is
+a counter and `last_fired_day` is one day, so the store could say a window had ever fired
+and never *when*, never how often, and never why one did not. The owner's fourteen windows
+carried counters from a v1 import with `last_fired_day` null on every one, and nothing
+could tell that from a mechanism working quietly.
+
+**Two names, not one with an `outcome`.** `prospective.fire` for a fire,
+`prospective.fire.refused` for a brake that held. A refusal counted as a firing is exactly
+the bug the fired view exists to catch, and two names keep them apart in every reader by
+construction — the same split `snapshot.taken` / `snapshot.failed` makes for the same
+reason.
+
+**The refusal is latched per memory, window, reason and lived day.** Eligibility is
+re-derived every turn (§12 G2), so an unlatched row would write once a turn forever for a
+window whose date has passed. Latched, it says "this window was stopped by this, on this
+day", which is the smallest fact that answers the question.
+
+The ring emits are untouched: they are the live debugging channel and they die with the
+process. What is new is the half that outlives it.
+
+**Still true, and worth saying:** `fire()` has one caller in the whole tree
+(`tools/demo/seed.ts`), so on the live store these rows will read `never` until something
+arms and fires a window in earnest. That is inventory §3 S4, not a fault in this row — and
+now it is a silence the view can finally tell apart from a mechanism nobody watched.

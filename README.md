@@ -9,8 +9,9 @@ storing the transcript. Counterparts does not: the AI writes down what it *learn
 end of a stretch of work, in the first person, and that interpretation is what gets kept.
 Unused memories fade the way human memories do. What survives is a small, structured
 account of your work together — plus a "who I have been" the AI reads at the start of
-every session. It runs entirely on your machine, in Markdown files you can open in any
-editor, and no data leaves it unless you turn something on that sends it.
+every session. It runs entirely on your machine, in one small SQLite database you can read,
+back up or export to Markdown whenever you want, and no data leaves it unless you turn
+something on that sends it.
 
 *Built 2026-08-25, and the author's own daily memory under Claude Code since 2026-09-03.
 Not on npm yet, and Node is untested — the [Status](#status-honestly) section is specific
@@ -59,7 +60,9 @@ memory text to a third party, which should be a decision rather than something a
 environment variable switches on. And the crash-recovery path — the one that reconstructs
 a session that ended before the AI could write it up — cannot run; when it does run, it
 sends that captured conversation to a model provider. Both are the only two ways anything
-here leaves your machine, and both are yours to turn on.
+here leaves your machine, and both are yours to turn on. `counterparts doctor` grades a
+store that has never had a key **amber**, not red, and says on the line what works without
+one — so a fresh keyless install is a clean bill of health and not an alarm.
 
 **Counterparts is not on npm yet, and this repository is not public yet.** Nothing is
 published under the npm name, and the clone below will refuse anyone who is not the author
@@ -120,6 +123,23 @@ That works on the very first memory — a store holding one memory answers the q
 about it, whether or not `--name` put an identity core beside it — and the install loop
 checks that case on every run.
 
+**Starting over is one command.** If you want a blank memory — to see what a new user
+sees, or because the first few days of a store are mostly you learning what it does —
+close every Claude Code session and run:
+
+```
+counterparts start-fresh --config ~/.counterparts/claude-code.json
+```
+
+It renames your store beside itself as `store.parked-<today>` with a single atomic
+rename, does the same with the snapshots folder, and creates a blank store back at the
+same path. **It never copies, never deletes, and never opens the old store — not even
+read-only.** Your configuration and your credentials are kept byte for byte, so there is
+nothing to re-register; restart Claude Code and you are a new user. `--dry-run` prints
+every rename and changes nothing, `counterparts start-fresh --undo` puts it all back, and
+the same three moves are printed as guarded shell lines before anything moves.
+QUICKSTART §9a has the whole of it.
+
 ---
 
 ## How it works
@@ -130,7 +150,7 @@ any particular AI tool.
 
 | module | what it does |
 |---|---|
-| **store** | The filing cabinet. Memories are Markdown files readable in any editor; a small SQLite database tracks their state; a throwaway cache holds search indexes that can always be rebuilt. |
+| **store** | The filing cabinet. One small SQLite database holds the memories themselves — their words, their earlier versions and everything the system knows about them — with a throwaway cache beside it for search indexes that can always be rebuilt, a readable Markdown copy of the journal written as each chapter lands, and a rotating daily snapshot. `counterparts export --markdown` writes everything out as a tree of Markdown files; nothing reads any of those copies back. |
 | **physics** | One page of arithmetic: how strong a memory is, how fast it fades, what a use reinforces, how much pressure it takes to revise a belief. No opinions and no model calls. |
 | **encode** | The bouncer at the door. Redacts credentials, refuses junk, scores how new and how important each memory is on the way in. |
 | **remember** | The front door. Takes what the AI writes at the end of a session and in the moment; keeps a transcript sweep as the crash fallback. |
@@ -173,8 +193,11 @@ the background half alive? — the one troubleshooting command, QUICKSTART §12)
 footnote-header probe, recall CONTRACT §7). `verify` is
 a census of the search cache against the real state, and `--rebuild` is what rebuilds it —
 which is why `verify` counts as a write and refuses under `--observer` even without the
-flag. The rest write: `install`, `init`, `note`, `export` (encrypted under a passphrase, or
-explicitly `--plaintext` — it refuses to choose for you), `backup`, `remove` (a dry run
+flag. `export` is a read too: it copies the store — as one SQLite file, or, with `--markdown`,
+as a readable tree of one file per memory plus the journal and the self page — encrypted
+under a passphrase or explicitly `--plaintext`, because it refuses to choose for you.
+`--markdown` omits confidential memories unless you pass `--include-confidential`, and says
+how many it left out. The rest write: `install`, `init`, `note`, `backup`, `remove` (a dry run
 unless you pass `--confirm`, and it asks a human before it acts), `backfill-claims`,
 `repair-merged-beliefs` (a dry run unless you pass `--apply`), and `rebrief`. Pass `--observer` to any of them and the console stands down: everything is
 read-only, and the commands that would write refuse instead.
@@ -211,8 +234,10 @@ exit — so for the length of a test run there is no real home to reach.
 
 **Verified inside real Claude Code sessions**, on the author's machine: the hooks fire on
 all five events, the MCP server registers and its tools are used daily, the briefing
-reaches the model, and both `backup` and the import of the author's previous-generation
-memory ran against the real store.
+reaches the model, and both `backup` and — in September 2026, with a one-shot tool this
+repository no longer carries — the import of the author's previous-generation memory ran
+against the real store. **There is no bulk import today.** A store this build writes starts
+blank, and what comes over from an earlier generation is its own later conversation.
 **Verified only against temporary stores**: `export` in all three modes, `remove` end to
 end (which is also where the residue in rough edge 4 was found, and where the chase that
 closed it is asserted — note, remove, grep the whole store, back it up and grep that), and
@@ -249,8 +274,9 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
    `--embedder` at install, or `"embedder": { "enabled": true }` in the configuration.
    Absent that, no client is built and no connection opens whatever keys are lying around.
 4. **Removal reaches every surface but one, and names the one.** `remove` chases a memory
-   out of the prose, the database, the links, the cache — and, since 2026-09-05, the
-   raw-capture buffer under `spans/` (a 12-hex key per project, not the path), where a
+   out of the database that holds its words and its earlier versions, out of the links, out
+   of the search cache, out of the journal's markdown copy — and, since 2026-09-05, out of
+   the raw-capture buffer under `spans/` (a 12-hex key per project, not the path), where a
    note's verbatim words wait to be interpreted. That last one was a real residue: found
    2026-09-04, a removed note's words stayed on disk and a later backup copied them.
    The buffer is a chased surface now, counted in the plan and in the report, and the
@@ -258,8 +284,8 @@ where the embedder knob is set, and 5 in §1 with the runtime requirements:
    re-captured. Three things it names rather than takes, each on its own line: a
    conversation turn that merely QUOTES the note (transcript, many turns joined,
    belonging to no single memory — and **nothing prunes the buffer today**, so a `grep`
-   of the store can still answer while the memory itself is gone); a memory whose prose
-   is already gone AND whose mint recorded no span hash, which has nothing left to
+   of the store can still answer while the memory itself is gone); a memory whose words
+   are already gone AND whose mint recorded no span hash, which has nothing left to
    address the buffer with; and a memory whose provenance records no scope — every row
    imported from a previous generation — where a chase by text would have to visit every
    project on the machine, so the command lists what it would have matched and stops
@@ -286,8 +312,9 @@ working default that can be revised when it fights that page.
   consolidation are features, never apologized for.
 - **The self is first-class.** Identity, episodes, a persistent "who am I becoming" —
   governed and visible to you, not a configuration field.
-- **You own the data.** Local-first, portable formats, prose readable in any editor. Data
-  leaves the machine only by your explicit choice.
+- **You own the data.** Local-first, one portable file, every memory viewable — in the
+  console, in the dashboard, or as Markdown you ask for. Data leaves the machine only by
+  your explicit choice.
 - **A layer, not a portal.** The memory is yours and travels across tools and models; the
   core knows nothing about any particular one.
 - **Evidence over ceremony.** Mechanisms earn their place by firing in real use. Verified

@@ -155,17 +155,36 @@ This command writes three things that are **yours**:
 ├── claude-code.json      the adapter's configuration
 ├── credentials.env       0600, holding only comments that name the two keys
 └── store/                the memory itself — the default data dir
-    ├── prose/            the memories, as Markdown you can read in any editor
-    ├── versions/         prior versions of a memory that was revised
-    ├── operational.sqlite
-    ├── cache/            rebuildable index; losing it costs a re-index
-    └── tmp/              staging for atomic writes
+    ├── counterparts.sqlite   the memories, their prior versions, everything
+    └── cache/            rebuildable index; losing it costs a re-index
 ```
 
-Two more directories appear under `store/` the first time they are needed and not
-before: `spans/` (lived experience awaiting encoding, written by the hooks and by
-`counterparts note`) and `sessions/` (the live-session registry, §5). A fresh
-store has neither, and `counterparts status` lists all of them either way.
+**One file holds your memory.** The bodies, their revision history and every
+structured field are rows in `counterparts.sqlite`, so a backup is a file copy
+and a memory can never disagree with its own bookkeeping. You read your memories
+through the dashboard, `counterparts recall`, or by asking — and
+**`counterparts export --out <dir> --markdown --plaintext` writes everything out
+as one readable tree of Markdown files** (confidential memories are left out,
+and the export says how many; `--include-confidential` takes them too). (SQLite
+keeps two sidecars beside it, `-wal` and `-shm`; they belong to the database and
+are copied with it.)
+
+**Your journal is already readable, without exporting anything.** Every chapter
+the counterpart writes is copied to `store/journal/<year>/<date>-<id>.md` as it
+lands — open one in any editor. It is a copy: the database is the original, and
+deleting `journal/` loses nothing (the next chapter writes it again, and the
+background worker refills anything still missing, a few files per run). Because
+it is a copy, **`backup` and the daily snapshot deliberately leave it out** and
+a restored store writes the files again from its rows — which also means a
+memory you removed does not go on living as plain markdown inside fourteen old
+snapshots.
+
+Three more directories appear under `store/` the first time they are needed and
+not before: `spans/` (lived experience awaiting encoding, written by the hooks
+and by `counterparts note`), `journal/` (the counterpart's diary, also written
+as Markdown files as each chapter lands) and `sessions/` (the live-session
+registry, §5). A fresh store has none of them, and `counterparts status` lists
+them either way.
 
 …and `install` **prints**, without applying, the two things that belong to Claude
 Code: the hooks block and the MCP registration. It never opens
@@ -557,6 +576,16 @@ kind` and `by band` lines below are over memories and beliefs together, and the
 band is computed from each row's physics today rather than read from the column
 it was born with — which is why it matches the dashboard's.
 
+Under them, two lines of the day's own facts: how many memories were born today,
+what lived day the store is on, when it was last active, when the last boundary
+was, whether a self page has been written, how old the newest snapshot is, and
+which journal mode the database is in. `counterparts doctor` grades all of that;
+this command only counts it.
+
+`--layout` adds a block naming the directories the store keeps and which of them
+a backup carries. It is written for whoever maintains a store rather than for
+whoever owns one, which is why it is behind a flag.
+
 ```
 counterparts-dashboard status --dir "$HOME/.counterparts/store"
 ```
@@ -605,10 +634,10 @@ That directory name is a 12-hex key derived from the project the note was taken
 in, not the project's path; the command prints your real one.
 
 A note is captured verbatim into the span buffer before it is minted, and until
-2026-09-05 `remove` reached the prose, the database, the links and the cache but
+2026-09-05 `remove` reached the database, the links and the cache but
 not that file — so a removed note's words survived there, and a backup taken
-afterwards copied them. They do not now: the buffer is a chased surface like the
-other six. The line the doomed span rode on is rewritten out of every file that
+afterwards copied them. They do not now: the buffer is a chased surface like
+every other. The line the doomed span rode on is rewritten out of every file that
 held it (the live streams, any claim a worker is mid-arc on, the quarantine), its
 hash is kept in the buffer's own `consumed.jsonl` so nothing re-captures the same
 words, and the id goes dark on the deny-list so nothing can quietly resurrect the
@@ -634,8 +663,8 @@ answering. The memory is gone; the transcript of having said it is not, and
 nothing today will take it. (Filed as `src/core/remember/INTERFACE-GAPS.md` §10.)
 
 **The one chase this command refuses to make on its own.** A memory whose
-provenance recorded no scope — every row imported from a previous generation
-looks like this — can only be found in the buffer by matching its text, and
+provenance recorded no scope — every row the owner's one-off v1 import wrote
+looked like this — can only be found in the buffer by matching its text, and
 matching text with no scope means visiting every project on the machine. So it
 does not. It tells you what it would have matched, by file and count, and stops:
 
@@ -654,9 +683,9 @@ mentions the same words is somebody else's memory and is never touched.
 On a memory that never rode the buffer the same `spans` line reads `spans: not
 applicable`, which is stated rather than omitted — a surface that goes silent
 when it is empty is how the residue stayed invisible in the first place. One
-state is still `NOT chased`, and it is the honest one: a memory whose prose file
-is already gone AND whose mint never recorded a span hash cannot be addressed in
-the buffer at all. The command says which way it is blind, and counts itself
+state is still `NOT chased`, and it is the honest one: a memory whose words are
+already gone from its row AND whose mint never recorded a span hash cannot be
+addressed in the buffer at all. The command says which way it is blind, and counts itself
 `unchased: 1`.
 
 ### Prove the hook works without opening Claude Code
@@ -819,6 +848,141 @@ then restart every open Claude Code session (§5). Your store is untouched:
 
 ---
 
+## 9a. Starting over
+
+You may want a blank memory — to see what a new user sees, or because the first
+few days of a store are mostly you learning what it does. One command:
+
+```
+counterparts start-fresh --config ~/.counterparts/claude-code.json
+```
+
+**Close every Claude Code session and every dashboard first.** A running session's
+hooks and its MCP server hold the store open by a file handle, and a handle does
+not follow a rename — until they restart, they go on writing into the directory
+that was just parked. **Nothing in the command can check this for you**: a session
+sitting idle writes nothing, so it leaves no record and no timestamp. What you can
+do, in another terminal:
+
+```
+pgrep -fl counterparts
+```
+
+Look for lines running one of **ours**: `serve.ts` (an MCP server), `dashboard.ts`,
+`hook.ts`, `runner.ts` (the worker). Each of those is holding the store open.
+**Ignore anything that merely has the word in a path** — `pgrep -f` matches the
+whole command line, so an editor, a `tail`, a dev server in a directory with this
+name in it will all show up and none of them matters. This command will be in the
+list too, while it waits for you.
+
+A dashboard and an MCP server leave **no live-session record at all**, so the
+command cannot see them however hard it looks. That is why it asks you to type the
+name, and why `--yes` on a store with anything in it is refused unless you also
+pass `--nothing-is-open` — which is you saying the sentence `--yes` does not.
+
+**Run it from a plain terminal, not from inside Claude Code.** Your own session's
+record is one the check refuses on, so it will turn you away — correctly — and you
+will have closed the session anyway by the time you can answer.
+
+The command asks you to type the parked directory's name back before it does
+anything.
+
+What it does, in order:
+
+1. Renames `~/.counterparts/snapshots` to `snapshots.parked-<today>`, and then
+   `~/.counterparts/store` to `store.parked-<today>` (with a shared `-2` if you
+   have done this already today — both directories always wear the same suffix). **One atomic rename each. It never copies, never
+   deletes, and never opens the old store — not even read-only.**
+2. Creates a blank store back at `~/.counterparts/store`, by running `install`.
+   It builds it **beside** your memory first and moves it into place with one
+   rename, so there is never a stretch where the configuration points at nothing
+   and a stray hook could mint a store there.
+3. Leaves `claude-code.json`, `credentials.env` and `scopes.json` exactly as they
+   were, byte for byte. Your keys, your ceiling and your per-directory settings are
+   host wiring, not memory — and leaving `scopes.json` alone is the point: a
+   directory you turned **off** stays off on the new store, rather than quietly
+   starting to record again.
+
+The date in the parked name is **UTC**, like every other date this system writes,
+so an evening run west of Greenwich parks under tomorrow's date. It is a label,
+not a claim about your clock.
+
+Then **restart Claude Code**. There is almost certainly nothing to re-register: if
+you registered the MCP server the way `install` prints it
+(`-e COUNTERPARTS_DATA_DIR=<your store>`), that path has not moved and the blank
+store is sitting at it. The command cannot read your host's files to check — it
+never touches them — so if you want to be sure, `claude mcp get counterparts` says
+what it was actually registered with.
+
+**`--dry-run` prints every rename and every file it would write and changes
+nothing.** Run that first if you want to see it.
+
+**Going back is one command:**
+
+```
+counterparts start-fresh --undo
+```
+
+It parks the blank store, puts your memory back, puts the snapshots back — one
+rename each, nothing deleted, nothing opened, and it refuses rather than moving
+one directory inside another. It runs **exactly the same refusals as the forward
+direction** — the same forbidden roots, the same symlink and absolute-path rules,
+the same live-session check, the same `--yes` rule — and it will not act on a
+recorded path that is not a parked directory of this store, because that record
+is a row in a database. Restart Claude Code again afterwards.
+
+There is **no undo of an undo**: the store it displaces is parked under a
+`blank-<date>` name, which nothing reads as a parked store. A successful undo
+prints the two guarded lines that bring that one back.
+
+The same three moves are also **printed as shell lines**, before anything moves
+and again afterwards, so the way back is on your screen even if this is
+interrupted. Each printed line is guarded:
+
+```
+if [ -e "<destination>" ]; then echo "REFUSING: … already exists" >&2; false; else mv "<source>" "<destination>"; fi
+```
+
+That guard is not decoration. A bare `mv a b` where `b` is an existing directory
+does not refuse and does not overwrite — it moves `a` **inside** `b`, and reports
+success. The refusal exits non-zero, so a pasted block stops rather than carrying
+on past it. The blank store is *parked* by the first line, not removed: nothing in
+this command deletes anything, including an undo.
+
+Two more things it will not do:
+
+- It refuses `--dir`. The store it parks is the one your **configuration** names,
+  because that is the one your hooks and your MCP server open; a second answer on
+  the command line is how the wrong store would get moved. Use `--config` to name
+  a different configuration.
+- It refuses by name to touch anything under `~/.bansai` or `~/.claude-engram`.
+- It parks the snapshots folder only when that folder is the one this layout owns
+  (`~/.counterparts/snapshots`). A `snapshots.dir` or `snapshots.mirror` you pointed
+  somewhere of your own is **left alone** — it is your directory — and the command
+  says so. The new store's rotation then shares that folder with whatever is already
+  in it: copies of a store on the old floor are recognised there and never deleted
+  or counted, but copies this floor wrote do count toward `keep`, so the new store's
+  oldest copy could rotate out sooner than you expect.
+
+**On cut-over day, deploy first.** If you are moving from an older build, update
+the checkout *before* you run this, not after: the older build does not have this
+command at all, and in the gap between a fresh start and a deploy any session that
+starts would run the old build against the new store and write half a memory into
+each of them. The new build's hooks stand down cleanly and harmlessly against an
+old store, so deploy-first costs nothing. Close everything, back up with the old
+build (the new one cannot open an old store), deploy, then run this.
+
+If the store being parked was written **before this build's floor** — that same
+case — the command says so, names the files it recognised, and carries on. It has nothing to open, so the
+floor is not its problem: a rename does not care what is inside a directory. That
+is also why the store you park stays readable by the build that wrote it
+(`floor/v5-last`), exactly as it was.
+
+`counterparts status` on the new store will say what day it began on and where the
+previous one is parked.
+
+---
+
 ## 10. What is actually verified, and what is not
 
 The install loop (`tools/install-loop/run.sh`) runs in a throwaway HOME with no
@@ -932,7 +1096,7 @@ rather than from a script.
    it may speak. Do not copy it.
 6. **Removal reaches the span buffer — with two things it names rather than
    takes.** A note is captured verbatim into `spans/<12-hex key>/jots.jsonl`
-   before it is minted. Until 2026-09-05 `remove` chased the prose, the database,
+   before it is minted. Until 2026-09-05 `remove` chased the database,
    the links and the cache and not that file, so a removed note's words survived
    there and a backup taken afterwards copied them. The buffer is chased now
    (§7). **Check it in three lines** — the marker text is only there so `grep`
@@ -948,9 +1112,9 @@ rather than from a script.
    tool mid-conversation and one file can still answer — `buffer.jsonl`, holding
    the turn in which you SAID it. That is transcript, not the memory, and it is
    left on purpose; `remove` counts it on a `spans echo` line rather than
-   passing over it. The other thing it names: a memory whose prose file is
-   already gone AND whose mint recorded no span hash — an old row, or one whose
-   prose you deleted by hand — cannot be addressed in the buffer at all, and
+   passing over it. The other thing it names: a memory whose words are already
+   gone from its row AND whose mint recorded no span hash — an old row, or one
+   edited in the database by hand — cannot be addressed in the buffer at all, and
    `remove` says which way it is blind on its `NOT chased` line and counts it
    `unchased: 1` rather than reporting `nothing`.
 7. **The package ships the modules' own `CONTRACT.md`, `NOTES.md` and
@@ -981,7 +1145,11 @@ rather than from a script.
 ## 12. If the terminal says something at session start
 
 Claude Code prints one line of its own when a session starts and Counterparts has
-found something RED:
+found something RED. **On a fresh install there is nothing red, so there is no
+line** — a store that has never had an API key is a supported way to run (§6),
+and as of 2026-09-20 `doctor` grades that amber rather than red. The example
+below is a store that HAD a key and lost it, which is the case the notice was
+built for:
 
 ```
 SessionStart:startup says: counterparts: Credentials — …/credentials.env holds no key:
