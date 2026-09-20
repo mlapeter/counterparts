@@ -616,7 +616,7 @@ describe("co-activation crosses the process line on disk", () => {
 
   /** A second connection holding the write lock, as the detached worker does. */
   function holdWriteLock(): { release: () => void } {
-    const other = new Database(join(dir, "operational.sqlite"));
+    const other = new Database(join(dir, "counterparts.sqlite"));
     other.exec("PRAGMA busy_timeout = 0");
     other.exec("BEGIN IMMEDIATE");
     other.exec("CREATE TABLE IF NOT EXISTS lock_probe (x INTEGER)");

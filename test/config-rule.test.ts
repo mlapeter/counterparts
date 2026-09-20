@@ -549,7 +549,7 @@ describe("the explicit-dir guard at the config door (I21)", () => {
       }),
     ).toBe(EXIT.ok);
     expect(existsSync(configPath)).toBe(true);
-    expect(existsSync(join(work, "elsewhere", "store", "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(work, "elsewhere", "store", "counterparts.sqlite"))).toBe(true);
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
 });
@@ -588,7 +588,7 @@ describe("install", () => {
     const printed = c.out.join("\n");
     expect(printed).not.toContain(CONFIG_FLAG);
     expect(printed).not.toContain("because it is NOT at");
-    expect(existsSync(join(home, ".counterparts", "store", "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(home, ".counterparts", "store", "counterparts.sqlite"))).toBe(true);
   });
 
   test("--config moves the config, the credentials and the default store, and is PRINTED", async () => {
@@ -606,7 +606,7 @@ describe("install", () => {
     // the live install.
     expect(existsSync(configPath)).toBe(true);
     expect(existsSync(join(work, "scratch", "credentials.env"))).toBe(true);
-    expect(existsSync(join(work, "scratch", "store", "operational.sqlite"))).toBe(true);
+    expect(existsSync(join(work, "scratch", "store", "counterparts.sqlite"))).toBe(true);
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
     expect(JSON.parse(readFileSync(configPath, "utf8"))["dataDir"]).toBe(
       join(work, "scratch", "store"),

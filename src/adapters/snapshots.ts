@@ -63,6 +63,7 @@ import {
 import {
   DEFAULT_STORE_SUBDIR,
   LAYOUT,
+  PRE_ROWS_MARKERS,
   assertSafeDataDir,
   dateOf,
   isWithin,
@@ -164,6 +165,10 @@ export interface RotationReport {
   /** Correctly-named directories the layout rule does not recognise as copies.
    *  Never deleted, never counted toward `keep` — and never silent. */
   readonly unrecognised: readonly string[];
+  /** Copies of a PRE-ROWS store — the owner's snapshots from before the floor.
+   *  Never deleted, never counted toward `keep`, and named so they are not a
+   *  mystery sitting in the one directory he relies on (review B, MAJOR-2). */
+  readonly preRows: readonly string[];
   readonly errors: readonly string[];
 }
 
@@ -197,6 +202,7 @@ const EMPTY_ROTATION: RotationReport = {
   cleaned: 0,
   future: 0,
   unrecognised: [],
+  preRows: [],
   errors: [],
 };
 
@@ -764,6 +770,7 @@ export function rotate(
     cleaned,
     future: futureNamesIn(remaining, now).length,
     unrecognised: read.unrecognised,
+    preRows: read.preRows,
     errors: rotationErrors,
   };
 }
@@ -794,10 +801,11 @@ export function readSnapshotsDir(dir: string): SnapshotsDirRead {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // A directory that does not exist yet holds no snapshots. Not an error.
-    return { names: [], readable: false, unrecognised: [] };
+    return { names: [], readable: false, unrecognised: [], preRows: [] };
   }
   const names: string[] = [];
   const unrecognised: string[] = [];
+  const preRows: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (!SNAPSHOT_NAME_RE.test(entry.name)) continue;
@@ -817,13 +825,25 @@ export function readSnapshotsDir(dir: string): SnapshotsDirRead {
     // uncounted residue in the one directory the owner relies on is the same
     // silence this module exists to remove, one level down. The rule stays as
     // strict; it just says what it did.
-    if (!looksCopied(join(dir, entry.name))) {
+    const kind = copyKind(join(dir, entry.name));
+    if (kind === "pre-rows") {
+      // A copy of the owner's old floor. Kept, counted, named — and never
+      // rotated, because this build cannot open it to know what is in it.
+      preRows.push(entry.name);
+      continue;
+    }
+    if (kind === "not-a-copy") {
       unrecognised.push(entry.name);
       continue;
     }
     names.push(entry.name);
   }
-  return { names: names.sort(), readable: true, unrecognised: unrecognised.sort() };
+  return {
+    names: names.sort(),
+    readable: true,
+    unrecognised: unrecognised.sort(),
+    preRows: preRows.sort(),
+  };
 }
 
 export interface SnapshotsDirRead {
@@ -833,6 +853,11 @@ export interface SnapshotsDirRead {
    *  classifies. Kept — we never delete what we cannot prove we made — but
    *  counted, so "not rotated" can never mean "nobody noticed". */
   readonly unrecognised: string[];
+  /** Copies of a PRE-ROWS store: they hold `operational.sqlite`, `prose/` or
+   *  `versions/`. A copy, of a floor this build cannot open — so never deleted,
+   *  never counted toward `keep`, and named rather than left a mystery in the
+   *  one directory the owner relies on (review B, MAJOR-2). */
+  readonly preRows: string[];
 }
 
 /** How many files a finished copy holds — the mirror's input to `verifyCopy`,
@@ -856,19 +881,43 @@ function fewOf(names: readonly string[], limit = 3): string {
   return `${names.slice(0, limit).join(", ")} and ${String(names.length - limit)} more`;
 }
 
-/** Does this directory hold at least one top-level entry the store's layout
- *  classifies? A person's own folder wearing the name does not. */
-function looksCopied(path: string): boolean {
+/**
+ * Is this directory a copy of a store THIS BUILD WROTE — the only kind rotation
+ * may ever delete?
+ *
+ * Two questions, and the second one is review B's MAJOR-2. The first: does it
+ * hold a top-level name the store's current `LAYOUT` classifies? A person's own
+ * folder wearing a snapshot-shaped name does not.
+ *
+ * **The second: is it a PRE-ROWS copy?** `LAYOUT` is read at runtime, and F5
+ * took `prose`, `versions` and `operational.sqlite` out of it — but left
+ * `spans`, which was in the old backup set too and which the owner's live store
+ * fills every day. So a real v5 snapshot holds `spans/` and was RECOGNISED, and
+ * therefore rotatable. F2 went live on the v5 store, so `~/.counterparts/
+ * snapshots/` fills with v5 copies; cut-over then mints a fresh store at the
+ * same path, which resolves to the SAME snapshots directory; fourteen daily
+ * boundaries later every one of the owner's pre-rows copies is deleted as an
+ * ordinary rotation. Those folders are the only copy of those words.
+ *
+ * So a directory holding any `PRE_ROWS_MARKERS` entry is never ours to delete,
+ * whatever else it holds. It is not "unrecognised" either — it is a copy, of a
+ * floor this build cannot open — and it gets its own channel so the sentence
+ * the owner reads can say which it is.
+ */
+function copyKind(path: string): "ours" | "pre-rows" | "not-a-copy" {
+  let entries: string[];
   try {
-    for (const entry of readdirSync(path)) {
-      if (LAYOUT.some((e) => (e.match === "prefix" ? entry.startsWith(e.name) : entry === e.name))) {
-        return true;
-      }
-    }
+    entries = readdirSync(path);
   } catch {
-    /* unreadable is not "ours" */
+    return "not-a-copy"; // unreadable is not "ours"
   }
-  return false;
+  if (entries.some((e) => PRE_ROWS_MARKERS.includes(e))) return "pre-rows";
+  for (const entry of entries) {
+    if (LAYOUT.some((e) => (e.match === "prefix" ? entry.startsWith(e.name) : entry === e.name))) {
+      return "ours";
+    }
+  }
+  return "not-a-copy";
 }
 
 /**
@@ -923,6 +972,17 @@ export function cleanPartials(dir: string, now: number, errors: string[]): numbe
       // clock-skew family as a future-dated copy — is not kept forever by a
       // negative age that is always under the bound (second F2 review, NIT-2).
       if (Math.abs(now - statSync(path).mtimeMs) < PARTIAL_STALE_MS) continue;
+      // A PARTIAL HOLDING PRE-ROWS NAMES IS STILL NOT OURS TO DELETE.
+      //
+      // B-MAJOR-2's rule — a directory holding any `PRE_ROWS_MARKERS` entry is
+      // never ours — was applied to finished copies and not here, and this was
+      // the one path left that still deleted pre-rows bytes (review f5c,
+      // NIT-3). A partial is by definition incomplete, so in principle it is a
+      // half-copy nobody wants; but "in principle" is exactly the confidence
+      // that deleted three weeks of journal in v1, and the cost of keeping one
+      // is a directory. It stops being counted as cleaned, and the rotation's
+      // `preRows` channel names it.
+      if (copyKind(path) === "pre-rows") continue;
       rmSync(path, { recursive: true, force: true });
       cleaned += 1;
     } catch (err) {

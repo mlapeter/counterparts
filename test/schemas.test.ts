@@ -1344,7 +1344,14 @@ describe("module properties", () => {
     expect(() =>
       s.mention({ name: "Bansai", kind: "entity", source: "Bansai", chunkRef: "c1", day: 0 }),
     ).toThrow();
-    expect(readdirSync(join(dir, "prose")).length).toBe(0);
+    // Nothing was staged, and on this floor there is nothing that COULD be:
+    // the write is one INSERT inside the transaction the stance check refused
+    // before it opened. The store directory holds the two boxes and no more.
+    expect(readdirSync(dir).filter((n) => !n.startsWith("counterparts.sqlite-")).sort()).toEqual([
+      "cache",
+      "counterparts.sqlite",
+    ]);
+    expect(store.list({ type: "schema" })).toEqual([]);
   });
 });
 
@@ -1550,12 +1557,14 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
 
     removeIt(ids.first);
 
-    // The row survives the chase with a blanked pointer — the shape that used
-    // to throw. Asserted so this test cannot pass because removal changed.
+    // The row survives the chase as a TOMBSTONE — body and content hash both
+    // blanked, which is the shape that used to throw. Asserted so this test
+    // cannot pass because removal changed.
     const store = Store.open({ dir });
     open.push(store);
     expect(store.row(ids.first)).toBeDefined();
-    expect(store.row(ids.first)?.prose_path).toBe("");
+    expect(store.row(ids.first)?.body).toBe("");
+    expect(store.row(ids.first)?.content_hash).toBe("");
 
     // THE REGRESSION: the whole brain opens.
     woken((c) => {
@@ -1661,12 +1670,12 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
     const ids = person(s);
     s.store.close();
     open.length = 0;
-    // The shape a half-written migration or a disk event leaves: the pointer is
-    // gone and NOTHING says who took it. There is no store API for this, and
-    // there should not be — the chase is the only thing that blanks a pointer
-    // on purpose — so the test writes it the way the damage would.
-    const db = new Database(join(dir, "operational.sqlite"));
-    db.run("UPDATE memories SET prose_path = '' WHERE id = ?", [ids.second]);
+    // The shape a half-written repair or a disk event leaves: the row is
+    // tombstoned and NOTHING says who tombstoned it. There is no store API for
+    // this, and there should not be — the chase is the only thing that blanks a
+    // row on purpose — so the test writes it the way the damage would.
+    const db = new Database(join(dir, "counterparts.sqlite"));
+    db.run("UPDATE memories SET body = '', content_hash = '' WHERE id = ?", [ids.second]);
     db.close();
 
     const store = Store.open({ dir });
