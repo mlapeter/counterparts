@@ -917,6 +917,49 @@ describe("transactionality — a killed multi-row mutation leaves no partial sta
     expect(skipped.length).toBe(1);
     expect(skipped[0]?.data?.reason).toBe("PROSE_BODY_INVALID");
   });
+
+  test("an isolated item rolls back to its OWN mark, not the batch's", () => {
+    // THE SHAPE THE FLOOR COULD HAVE BROKEN SILENTLY, guarded before it bites.
+    //
+    // On the file floor every validation ran while the prose was staged, so a
+    // bad item threw BEFORE any row existed and `isolate` had nothing to undo.
+    // Validation and the INSERT are in one method now: anything that throws
+    // below the INSERT would be caught by `putMany`'s own handler, reported as
+    // a skip, and COMMITTED by the outer transaction — a memory the caller was
+    // told was skipped, sitting in the store.
+    //
+    // Nothing in `insertOne` fails after the INSERT today, so this is a guard
+    // on the SHAPE rather than on a live bug, and it is asserted where the shape
+    // lives: `isolate` wraps each item in `ops.transaction`, and that nests as
+    // SAVEPOINT / ROLLBACK TO rather than as a no-op. A nested transaction that
+    // throws must leave the outer one whole and undo only its own work.
+    const s = store();
+    const id = s.put(mem("first"));
+    const ops = s as unknown as {
+      ops: { run(sql: string, ...p: unknown[]): void; transaction<T>(fn: () => T): T };
+    };
+    let outerCommitted = false;
+    ops.ops.transaction(() => {
+      ops.ops.run("UPDATE memories SET pressure = 0.5 WHERE id = ?", id);
+      let threw = false;
+      try {
+        ops.ops.transaction(() => {
+          ops.ops.run("UPDATE memories SET band = 'semantic' WHERE id = ?", id);
+          throw new Error("something below the write");
+        });
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
+      // The inner write is gone; the outer one is still standing, INSIDE the
+      // same transaction. That is the whole property `isolate` rents.
+      outerCommitted = true;
+    });
+    expect(outerCommitted).toBe(true);
+    expect(s.row(id)?.band).toBe("episodic");
+    expect(s.row(id)?.pressure).toBe(0.5);
+    expect(s.readProse(id).body).toBe("first");
+  });
 });
 
 // ── revision, supersession, retention ────────────────────────────────────────

@@ -1490,6 +1490,15 @@ describe("verify", () => {
     expect(await run(["verify"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("Canonical rows: 2");
+    // WHERE THE WORDS ARE. Two census lines counting how the path columns were
+    // spelled and how many of their files were on disk used to stand here — a
+    // report ON the file layout, which went with the columns. What replaces it
+    // is the one fact an owner looking for his markdown needs, and a store that
+    // still had any prose files would be one this build refused to open.
+    expect(printed).toContain("Floor: schema v6 · bodies in rows · prose files: none");
+    expect(printed).not.toContain("Prose paths:");
+    // F1's line is still there, beside it.
+    expect(printed).toContain("Journal mode: wal (busy timeout");
     // The log, read-only: what is held, how old, and what the next sweep takes.
     expect(printed).toContain("Events: 5 held (1 latched records)   oldest: lived day 0 (");
     expect(printed).toContain("window: 90 lived days (cutoff day 1)");
