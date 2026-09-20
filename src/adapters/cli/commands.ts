@@ -703,7 +703,13 @@ export function commandHelp(command: Command): string {
   return [
     `counterparts ${command} — ${COMMAND_BLURB[command]}`,
     "",
-    `  counterparts ${command}${COMMAND_ARGS[command] ?? ""}${own.length === 0 ? "" : " [flags]"} [--dir <path>]`,
+    // THE INVOCATION LINE DOES NOT OFFER A FLAG THE COMMAND REFUSES. Every
+    // other command takes `--dir`; `start-fresh` turns it away in words (the
+    // store is the one the configuration names), and a usage line that showed
+    // it would be teaching the thing the refusal exists to prevent.
+    `  counterparts ${command}${COMMAND_ARGS[command] ?? ""}${own.length === 0 ? "" : " [flags]"}${
+      command === "start-fresh" ? "" : " [--dir <path>]"
+    }`,
     "",
     ...(own.length === 0
       ? ["This command takes no flags of its own."]
