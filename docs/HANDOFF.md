@@ -1,6 +1,50 @@
 # Handoff — resume here
 
-## 2026-09-20, midday — read this first: F2 and F4 merged; S1 reviewed a third time and ready; F5 is building
+## 2026-09-20, afternoon — read this first: DEPLOY DAY IS DONE (live = master = `40f92ae`, WAL); F5 is PR #148, under two reviews
+
+**Merged on the owner's word ("ok go ahead and merge all 3"):** #147 docs, #138 S1 the self page, #146 the stand-down
+suite's temp-dir leak. master = `40f92ae`; the coordinator's run: 2466 pass / 0 fail, tsc clean, no temp leftovers.
+
+**Deployed on the owner's word ("lets go ahead and deploy everything in order you recommend"), ~15:45–16:05 UTC, one batch
+at a time, `doctor` + `verify` after each:** A F1/WAL `4b8b524` → B F3 + #139 + H1 `463e5b1` → C F2 snapshots `481b228` →
+D S1 `40f92ae`. **Live = master = `40f92ae`.** The store is in WAL (`Journal mode: wal (busy timeout 5000 ms)`);
+16,973 canonical rows / 0 missing files before and after every batch; doctor 0 red / 3 amber / 16 green — the ambers are
+the Authorship and Fired week baselines and `Snapshot: no snapshot has ever been taken here`, which the first boundary
+clears (then `~/.counterparts/snapshots/` holds one UTC-day folder); `Self page: no page written yet`.
+- *Backups:* `~/counterparts-backups/2026-09-20-pre-f1-wal` (taken in DELETE mode — the revert lever) and
+  `…/2026-09-20-post-f1-wal` (taken under WAL; the copy is a plain delete-mode database with all 16,973 rows).
+- *Where it left the paper procedure below, said to the owner:* it was run from INSIDE the coordinating session, with his
+  other sessions and two dashboards open, because a session cannot close itself and then deploy. The F1 review had
+  measured that case (servers hold one handle for life and survive the flip), and it held: the session's own old-build MCP
+  server kept writing afterwards. The flip needs a WRITER: `verify` right after the deploy read `delete`; the turn was
+  ended so the Stop hook (new code) would open the store, and the next `verify` read `wal`. Checked first: `counterparts`
+  on PATH is a symlink to the live checkout, so every verification command ran deployed code.
+- *Correction to step 5 below:* `verify` takes `--dir ~/.counterparts/store`, not `--config` (it refuses the flag).
+- *Owed:* a restart of the owner's other Claude Code sessions and both dashboards (one runs from the `flat-dashboard`
+  worktree) so they run the deployed code; until then they work and lack the `self_page` tool. The WAL standing rules in
+  "Deploy day for F1" below are in force from today.
+
+**F5, the floor — PR #148, head `20adaf6`, NOT merged.** Builder's run and the coordinator's: 2474 pass / 0 fail, tsc
+clean, no temp leftovers; 43 files, +2500 / −1511; master merged in after S1 landed. What the builder changed from the
+plan, all in the PR body: the refusal keys on FILE NAMES (`operational.sqlite` / `prose` / `versions`), not the schema
+version — reading the version would have minted a blank store beside the old one after the rename, and could checkpoint
+away a WAL store's `-wal`; removal now chases the `-wal` (a blanked body stays there until a checkpoint); `versions`
+carries `learned_on`/`happened_on`; `tools/parallel` reads both floors; `makeBodyUnreadable` blanks the column (a
+tombstone is `body=''` AND `content_hash=''`; `body=''` with a hash is the named fault `MEMORY_BODY_MISSING`).
+- *Review A (refusal, old-store safety, crashes): `docs/adversarial-review-f5a-2026-09-20.md` — MERGE AFTER FIXES, 0 BLOCKER /
+  2 MAJOR / 4 MINOR / 3 NIT.* Clean: 29 new-code doors at a real v5 WAL store all refuse by name, byte-identical; 84
+  SIGKILLs, 0 broken stores. MAJOR-1: OLD code touching a v6 store mints old-floor files in it, after which the new build
+  refuses its own store for ever and the message points at the build that just refused (no data lost; the remedy must
+  tell stray EMPTY `prose/`/`versions/` from a real v5 store). MAJOR-2: a v5 database hand-renamed to the v6 name is
+  stamped v6 and then neither build reads it (second lock on the table's SHAPE, not the version).
+- *Review B (every word still there, true and removable on the new floor): running at the time of writing.*
+- *Next:* both reviews → ONE fix list to the builder → the coordinator reads the diff and runs it → the owner's word →
+  tag `floor/v5-last` at the live commit and pin → merge F5. N1 (park-and-restart in one command) and S2 (the nightly
+  page writer) are not started; S2 is how a new user's page forms, so it should exist before cut-over day.
+- *A flake to loosen:* `test/claude-code.test.ts` "the sentinel search is LINEAR" asserts < 100 ms wall-clock and read
+  139–150 ms for reviewer A on F5 AND on master while two reviewers and full suites shared the machine.
+
+## 2026-09-20, midday — read second: F2 and F4 merged; S1 reviewed a third time and ready; F5 is building
 
 **State.** On the owner's word ("go ahead with all 3 merges"): #136 F2 snapshots, #144 F4 store test fixture, #145 docs.
 master = `481b228`; the coordinator's own run: 2388 pass / 0 fail, tsc clean. LIVE is still `039cd5d` — nothing is deployed.
