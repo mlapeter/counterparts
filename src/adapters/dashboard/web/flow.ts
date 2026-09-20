@@ -79,7 +79,14 @@ export const NO_EVENT_OF_ITS_OWN: Partial<Record<NodeKey, string>> = {
   // that from a graph with nothing to add. The hook now leaves its deltas on
   // disk and the worker applies them; `associate.flush` is that apply's row,
   // and the node's.
-  prospective: "An intention's state lives in its own row (armed, fired, referenced, expired), not in the event log. The rows are the record.",
+  // PROSPECTIVE HAD AN ENTRY HERE until 2026-09-20, and it was the associate
+  // trap again: "the rows are the record" is true of a window that exists and
+  // says nothing about a firing that did or did not happen. `fires` is a
+  // counter and `last_fired_day` a single day, so the store could say a window
+  // had ever fired and never when, why one did not, or which brake held — and
+  // the owner's fourteen windows carried v1 counters with `last_fired_day` null
+  // on every one. `prospective.fire` and `prospective.fire.refused` are the
+  // node's rows now.
   physics: "Physics writes no event of its own, ever. It is arithmetic; the phase that ACTS on a verdict is what records it — so a promotion reads as sleep's line, not as physics'.",
   self: "Identity and episodes are written through the store like anything else. The one name that ever reached the log from here is historical.",
 };
@@ -366,6 +373,17 @@ export const EVENT_NODE = {
   // wake node: written at one boundary, read at every one after it.
   "self.page.revised": "wake",
   "self.page.refused": "wake",
+  // The nightly writer belongs to the same node for the same reason: what it
+  // produces is the first thing the next wake prints.
+  "self.page.writer.ran": "wake",
+  // The handoff is working context for a directory, written at a boundary and
+  // spliced into the wake of the next session that opens there. It is not a
+  // memory and never becomes one, so it lights the wake node — where the owner
+  // reads it — and not `store` or `remember`.
+  "handoff.written": "wake",
+  "handoff.shown": "wake",
+  "handoff.refused": "wake",
+  "handoff.cleared": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
   // The wiring that follows that decision: what the reply used together got
@@ -396,6 +414,14 @@ export const EVENT_NODE = {
   "adapter.spawn.refused": "sweep",
   "adapter.spawn.failed": "sweep",
   "adapter.runner.failed": "sweep",
+  // The other half of those three: the worker that DID start, same node.
+  "adapter.spawn.started": "sweep",
+  // The deliberate look is a retrieval, so it lands where the ambient one does.
+  "mcp.recall": "recall",
+  // A reminder arriving is a CUE offered into the turn (§12: arrival is a cue,
+  // not a command), so both rows land on the prospective node.
+  "prospective.fire": "prospective",
+  "prospective.fire.refused": "prospective",
   // Which checkout was live at a session start. It belongs to the SESSION node:
   // it is a fact about the process the host started, recorded on the way in,
   // before anything was read or written.

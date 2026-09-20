@@ -1,0 +1,206 @@
+# `handoff/` — implementation notes
+
+Choices the CONTRACT does not make, recorded here rather than left to be re-discovered from
+the code. None is a guarantee; each is the smallest rule that could work, and each names
+what would have to fail before machinery is added. True for now (2026-09-20), not law.
+
+## 1. Why the pointer is spliced at DELIVERY and not composed into the bundle
+
+The wake bundle is composed once per boundary and published under one meta key. `Self.wake()`
+reads that one bundle back with zero compute, and every session in every directory reads the
+same bytes. So "which directory am I in" is not knowable when the body is composed — it is a
+delivery-time fact, exactly like today's date and the store's current size, which is why the
+delivery preface exists at all (`self/briefing.ts#prefaceLine`).
+
+The splice therefore reuses the preface's own mechanism, pointed at the other end of the
+bundle: `spliceBeforeSentinel` inserts above the tail sentinel and re-solves the byte fixed
+point so both comment lines state the delivered total. A damaged bundle is returned
+untouched, for `applyPreface`'s reason — rewriting the byte count of a damaged bundle erases
+the damage the sentinel exists to show.
+
+Joined at `counterpart.ts` and not inside `self/`: `self/` knows nothing about directories
+and gains nothing by learning. The composition root is the one place that holds the
+published bundle, the host's ceiling and the scope at once.
+
+## 2. Why the reserve is CONDITIONAL, sized to the real block, and off below a share
+
+`wakeReserveBytes()` adds `reserveBytes(...)` to the preface's reserve only while some
+directory in this store holds a live, unexpired handoff.
+
+- **Unconditional** would make every wake in every store 448 bytes smaller than master's
+  forever, including on the blank store the owner is about to start on. The claim "with no
+  handoff written the wake is byte-identical" would be false, and the first thing anyone
+  would notice is a store that trims one more element than it used to for no visible reason.
+- **No reserve at all** fails the other way, and worse, because it fails silently and late.
+  The boundary trims the composition to exactly `budget - PREFACE_RESERVE`, so on any store
+  with enough elements the bundle fills the ceiling and a pointer spliced afterwards would be
+  dropped at every wake. It would work on a new store for two weeks and then stop, and the
+  only symptom would be `handoff.shown` going quiet — which is exactly the shape of failure
+  the fired view exists to catch and exactly the shape nobody looks for.
+
+The scan `liveBlockBytes()` runs is ONE walk of the schema rows of the place kind — a
+handful — and it is wrapped: a store that will not answer reserves nothing, which composes
+the wake master composes. It builds each `Handoff` from the row it already holds rather
+than asking `readHandoff` per directory, which would walk the store once per directory at
+every boundary for a number that is the same shape as the one in hand.
+
+**Two more things, both learned from the adversarial review of 2026-09-20 (MAJOR-1).**
+
+- **A flat reserve over-reserved, and other directories paid for it.** 448 was the widest
+  block this module can produce; a real pointer is 250–300 bytes, and the reserve is
+  store-wide while the pointer is per-directory. Measured at a 1,200-byte ceiling, a session
+  in a directory with NO handoff lost 4 of its 6 identity elements; in the directory that
+  DID get the pointer, five memories bought two lines and 295 bytes of unused headroom. So
+  `reserveBytes` now takes the widest block that actually exists — one per directory, newest
+  row per scope — plus a margin, capped at that same 448.
+- **Below a share of the budget the reserve is not taken at all.** A pointer is a fortnight
+  of working context; it is not worth a third of a small wake's memories. The rule is one
+  comparison (`want * 8 <= budget`), which turns the reserve on from about 2,400 bytes up
+  and leaves every smaller ceiling composing exactly what it composed before. At that size
+  the pointer is simply not carried, and `handoff.refused{reason:"no-room"}` says so rather
+  than leaving it to be noticed.
+
+**Named cost: the reserve lags one boundary.** The first handoff a directory ever gets is
+written at a boundary whose composition was already published, so the very next wake in that
+directory may be the one case where the pointer does not fit. It is delivered without the
+pointer, the `no-room` row is written (deduped per row per lived day — it was ring-only, and
+every hook is its own process, so the lag left no trace at all), and the boundary after that
+has the room. Every wake fact behaves this way; it is not worth a second publish to fix.
+
+## 3. Why `type: "schema"`, `kind: "place"`, `meta.role = "handoff"`
+
+`ProseType` is a closed union of three in `store/prose.ts`, and `store/` is not this module's
+to edit. `Kind` is a closed union of six enumerated exhaustively in the MCP tool schemas, the
+census, the claim counters and the CLI — adding to it would make "handoff" a kind a model can
+propose a memory as, which is the opposite of the point.
+
+So the row goes on the shelf the self page uses, one role along. `kind: "place"` is the
+honest subject (a handoff is about a directory, a place of work) and it also keeps the recall
+scan's exemption cheap: the prose read is gated on `type === "schema" && kind === "place"`,
+so only schema rows about places pay for it.
+
+**What that placement buys free**, all of it by mechanisms that already existed: dedup skips
+schema rows by name; `scanActive` lists `{ type: "memory" }` so no lane can reach it; and
+`schemas/#toMetaRecord` returns null for any role but entity, belief and current-state, so
+the index build skips it rather than mis-filing it.
+
+## 4. Why NOT `protected`, and the dwell clock that follows from it
+
+The self page is `protected` at birth because it is standing ink. The handoff is the one
+standing row in the store that is *meant* to be let go, so it is not — `protected` is exactly
+what would stop `physics#pruneVerdict` ever archiving it.
+
+That makes one thing load-bearing: `store.revise` writes prose and a version row and touches
+no physics column. A row born on day 1 and rewritten on day 200 would still read
+`lastUsedDay = 1` — dwell 199, strength under the floor, band episodic — and the prune would
+archive a pointer written that morning. So every write does
+`updatePhysics(id, { lastUsedDay: day })`. That is the whole of the interaction, and it is
+tested by name.
+
+**And it really can be let go, which was worth checking rather than assuming.**
+`pruneVerdict`'s fifth blocker is `inLiveRevisionChain`, and a row that is revised on every
+handoff accumulates version rows forever. That clause reads `superseded_by` on the ROW and
+`successor_id` on the version rows — and `store.revise` writes version rows with
+`successor_id = NULL` (only `store.supersede` sets one). So versions on one row do not block
+the prune; supersession between two rows does, and nothing here supersedes. The row's own
+`pressureAt` is zero for the same reason nothing else about it moves: no challenge ever
+lands on it.
+
+The numbers it leans on: `D_FLOOR_DAYS = 90` and `PHI_PRUNE = 0.02`. A pointer expires from
+view at 14 lived days and the row survives roughly 90 more before the prune can take it. The
+gap is deliberate — the row is the only copy, and an owner reading the dashboard three weeks
+later should still find what was handed over.
+
+## 5. Why expansion by id is allowed, and credit is not
+
+The brief asks for the pointer to be expandable through the door that already exists, which
+is `recall({ handle: <id> })` → `deliberate.ts#expandHandle`. The self page is refused there;
+the handoff is not, because the pointer's whole shape is "here is a line of it, and here is
+its id".
+
+That opens the one path by which working context could reinforce itself:
+`expandHandle` → `recordHandleResolution` → `creditAtBoundary` → `creditReferences` →
+`resolveUse`, which advances `uses` and `reinforced_days`, which is the input
+`promotionEligibility` reads. So the refusal sits in `creditReferences`' own filter, beside
+`unknown-id` and `archived`, and is counted as `handoff` rather than swallowed.
+
+**Named cost:** `expandHandle` has no scope filter, so a session that somehow holds another
+directory's handoff id can read that body. The id only ever appears in that directory's own
+wake, so this is a hazard for a session that was told an id, not one that can find one. Filed
+in INTERFACE-GAPS §2.
+
+## 5b. What a PRESENT but blank field means, and why archiving is the retirement
+
+`handoff: ""` used to be total silence: `writeHandoffField` returned null, nothing was
+written, and the stale pointer stood. It is the shape a model reaches for when it means
+"the work here is finished" — which is the one thing CONTRACT open question 3 said it must
+not be unable to say — so it is now a CLEAR.
+
+**Archived, not revised to a cleared body.** The self page's precedent points the other way
+(`self/page.ts`, "ONE ROW FOR THE LIFE OF THE PAGE") and it is the right precedent for the
+page and the wrong one here, for one reason: the page must be restorable by an owner who
+cleared it by mistake, so its history has to stay reachable through a live row. A handoff
+has no restore door and wants none — it is working context whose whole design is to be let
+go. Archiving gets every property for free: `handoffRows` filters `archived: false`, so the
+pointer leaves the wake, leaves the reserve and leaves `anyLive` in one move; the words stay
+on the row for an owner who asks for it by id; and the next handoff for that directory mints
+a fresh row rather than reviving a retired one.
+
+**A clear on a directory with no pointer is `nothing-to-clear`, with its own durable row.**
+A session that finished work in a directory that never had a handoff said something true,
+and the honest answer is a named fact rather than a silent success.
+
+## 5c. No refusal channel on either fired row, and why
+
+`Mechanism.refusals` (E2) exists because reading a namespace wholesale made a healthy store
+report `BLOCKED prune … dwell-too-short ×240` for ever. `RefusalSource.only` is the
+allow-list that fixes it, and the test it sets is whether a NAMED RULE turned away a
+candidate that otherwise QUALIFIED — the owner saying no — rather than arithmetic saying
+not yet.
+
+By that test this module has almost nothing to declare. `no-scope` is "there is no
+directory to file one against"; `not-text` and `too-large` are a malformed or oversized
+input; `nothing-to-clear` is "there was no pointer here"; `empty` is nothing written.
+None of them is a rule refusing something that qualified — they are all *not applicable*
+or *not yet*. `gate-refused` and `store-refused` ARE real gates, and they are also the
+rarest rows in the set: a handoff carrying a credential or a body the floor rejects is an
+event worth a line, and the line it gets is the refusal row itself in the fired view's
+evidence, not a permanent `blocked` state on the mechanism.
+
+The one that argues for itself is `no-room` — a host's ceiling turning away a pointer that
+qualified. It is left out for the reason S2 left its own `no-room` out (`self/NOTES` §19):
+one fact, two surfaces, and the permanent one is the wrong one. A store whose ceiling is
+below the share rule would read `blocked` for ever, which is the shape E2's own review was
+about; what that store wants said is "your ceiling is small", and that belongs beside the
+ceiling, not beside the mechanism.
+
+So: **no `refusals` declared on either row.** The refusals are still durable, still read by
+`fired` as evidence, and still in the dashboard's log — they simply do not grade the
+mechanism as blocked.
+
+## 6. Why the field is processed BEFORE `session_end` checks `memories`
+
+`session_end` requires a non-empty `memories` array. A session that learned nothing worth
+keeping but is leaving a directory half-finished would otherwise have its handoff thrown away
+with the refusal. So the handoff is written right after the session bind, and its outcome
+rides out on the refusal as well as on the success. The `memories` contract is unchanged.
+
+## 6b. Why `flatten` strips control and format characters
+
+`\s+` is `\n \r \t` and friends. It is not NUL, not ESC and not U+202E. Measured
+(adversarial review MINOR-4), a right-to-left override in a handoff reversed the display of
+everything after it in the delivered wake for any reader that honours bidi, and an ANSI
+escape landed in a prompt that is sometimes rendered in a terminal. Line injection was
+already blocked — the CR case folds here and only one line is ever excerpted — so this
+closes the rest of the class in the same function, where there is one thing to check.
+
+Order matters and is the only subtle part: a control that IS whitespace becomes a space
+first (or `"a\nb"` would join into `"ab"`), everything else in `\p{Cc}` and `\p{Cf}` is
+dropped, and then the ordinary collapse runs so a dropped character cannot leave a double
+space.
+
+## 7. Why the excerpt reserves three bytes for its ellipsis
+
+`…` is U+2026 and is three bytes in UTF-8. The first draft reserved one character's worth and
+a 160-byte cap rendered 161. Measured, not reasoned about — and the same class of mistake as
+every other byte cap in this tree that counts characters somewhere and bytes somewhere else.

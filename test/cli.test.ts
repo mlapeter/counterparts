@@ -235,7 +235,7 @@ describe("status", () => {
     expect(printed).toContain("self 0");
   });
 
-  test("counts, the removal record, the permanent list, and the layout — and writes nothing", async () => {
+  test("the numbers first, then the record and the list; the layout only when asked (finding 3)", async () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "person", title: "Ada", body: "Ada reads the logs first." });
     s.updatePhysics(kept, { protected: true });
@@ -257,7 +257,34 @@ describe("status", () => {
     expect(printed).toContain("Permanent");
     expect(printed).toContain(kept);
     expect(printed).toContain("protected");
-    for (const entry of LAYOUT) expect(printed).toContain(entry.name);
+
+    // THE CENSUS COMES FIRST (2026-09-20, finding 3). This command is what
+    // `install` tells a new user to check with, and the four numbers they came
+    // for used to sit under a ten-line block naming `assertLayout()`, "Box 3"
+    // and `adapters/expansions.ts` — none of which a reader can look up.
+    const lines = printed.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines[0]?.startsWith("Store: ")).toBe(true);
+    expect(lines[1]?.startsWith("Memories: ")).toBe(true);
+    // The day's facts are one line, and the store's shape is the next.
+    expect(printed).toMatch(/Today \(\d{4}-\d{2}-\d{2}\): \d+ new/);
+    expect(printed).toContain("Lived day 0");
+    expect(printed).toContain("Last boundary never");
+    expect(printed).toContain("Self page: none yet");
+    expect(printed).toContain("Journal mode: wal");
+    // `Today` counts the SAME population the line above it does, or the two
+    // numbers on one page disagree: two rows exist, one is removed, one is a
+    // live memory born today.
+    expect(printed).toContain("Today (");
+    expect(printed).toContain(": 1 new");
+
+    // AND THE LAYOUT IS NOT PRINTED unless it is asked for.
+    for (const entry of LAYOUT) expect(printed).not.toContain(entry.why);
+    const withLayout = consoleWith();
+    expect(await run(["status", "--layout"], { io: withLayout.io, env: { [ENV]: dir } })).toBe(
+      EXIT.ok,
+    );
+    for (const entry of LAYOUT) expect(text(withLayout.out)).toContain(entry.name);
+
     // §5 G9: reads are pure.
     expect(fingerprint(dir)).toBe(before);
   });
@@ -4099,7 +4126,20 @@ describe("usage", () => {
     // The same page, reachable as a pure function for anything that wants it.
     expect(commandHelp("remove")).toContain("--confirm");
     expect(commandHelp("remove")).toContain("<id>");
-    expect(commandHelp("status")).toContain("takes no flags of its own");
+    expect(commandHelp("status")).toContain("--layout");
+    // TOTAL, rather than naming one command that happens to have no flags
+    // today: `status` and `fired` both gained one on 2026-09-20 and this
+    // assertion had to move twice. A command with none says so; a command with
+    // some lists them under its own heading.
+    for (const command of COMMANDS) {
+      const page = commandHelp(command);
+      if (COMMAND_FLAGS[command].length === 0) {
+        expect(page, command).toContain("takes no flags of its own");
+      } else {
+        expect(page, command).toContain(`Flags for ${command}:`);
+        expect(page, command).not.toContain("takes no flags of its own");
+      }
+    }
   });
 });
 

@@ -55,6 +55,7 @@ inherit the wiring rather than adding to it:
 |---|---|---|
 | `note` tool | `bridge.batteryGate()` (per proposal) | `Counterpart.submitJot` → `deposit()` |
 | `session_end` tool | `bridge.batteryGate()` (per proposal) | `Counterpart.submitSessionEnd` → `deposit()` |
+| `session_end`'s `handoff` field | `episodeGate()` at the seam (2026-09-20, E1) | `Counterpart.writeHandoff` → `Handoffs.write` |
 | `chapter` tool | `episodeGate()` at the seam, then `self/`'s own on the same text | `Counterpart.appendEpisode` → `Self.appendChapter` |
 | `recall` tool | n/a — reads only, asserted byte-identical | `test/mcp.test.ts` |
 | `status` tool | n/a — reads only, asserted byte-identical | `test/mcp.test.ts` |

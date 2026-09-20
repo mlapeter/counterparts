@@ -20,6 +20,7 @@ code and the `NOTES.md` / `INTERFACE-GAPS.md` next to it.*
 | `schemas/` | semantic memory | Entities and beliefs; birth by mention, death by decay; strength-weighted revision with row history. |
 | `self/` | autobiographical self | Identity documents, episodes, the wake briefing (v0's briefing, grown up). Governed: frozen self-reinforcement rules. |
 | `prospective/` | prospective memory | Future intentions, cued by time or context; fire / suppress / reference telemetry. |
+| `handoff/` | working context for a place | The per-directory handoff: where the work here stands, written as a field on the end-of-session ask, shown as a two-line pointer at the next wake in that directory, expiring in lived days. **Never a memory** — out of recall, out of credit, out of consolidation, out of identity. **Added 2026-09-20 (E1, spec §6.4 / §15 item 6).** |
 | `sleep/` | systems consolidation | Pure math on a cycle: decay tick (active-day clock), floor-pruning (real forgetting), re-render of the wake briefing. Zero standing model calls. |
 | *(observer)* | — (instrument stance) | **RESOLVED (owner, 2026-08-25): a MODE, not a module** — one predicate threaded through the core API, checked at the store seam. Spec moved to `docs/observer-mode.md`. |
 

@@ -26,6 +26,7 @@ import {
   PRIMACY_STANDDOWN_EVENT,
   RUNNER_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  SPAWN_STARTED_EVENT,
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { EMBED_SKIP_AFTER, indexTextOf } from "../src/core/store/index.js";
@@ -82,6 +83,8 @@ import {
   readAssignment,
   seatStatus,
   SPAWN_REFUSAL_PREFIX,
+  SPAWN_START_COUNT_KEY,
+  SPAWN_START_DATE_KEY,
   spawnDetached,
   substanceOf,
 } from "../src/adapters/claude-code/index.js";
@@ -201,6 +204,19 @@ function goQuiet(ms: number = REMEMBER.CRASH_STALE_MS + 60_000): void {
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
   return { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true, ...over };
+}
+
+/**
+ * A counterpart that really is an observer. `ClaudeCodeAdapter` takes its
+ * stance from the COUNTERPART (`hooks.ts`: `this.observer =
+ * opts.counterpart.observer`), so `config({ observer: true })` over a writer
+ * makes an adapter that is not standing down at all — and a test that assumed
+ * otherwise would pass for a reason unrelated to the guard it names.
+ */
+function observerCounterpart(): Counterpart {
+  const c = Counterpart.open({ dir, observer: true });
+  open.push(c);
+  return c;
 }
 
 function adapter(over: Partial<AdapterConfig> = {}): {
@@ -952,23 +968,73 @@ describe("the wake's arrival — one durable answer per session (scar §2.3)", (
     // The reviewer's probe: thousands of `<!-- counterparts:wake ` prefixes with
     // no `>` between them. Against the old unanchored `[^>]*` this backtracked
     // for 680 ms at 200 KB, four times per attachment, on the prompt path.
+    //
+    // MEASURED AS A RATIO, not against a wall clock (2026-09-20, finding 7).
+    // This test asserted `elapsed < 100` ms, which is a claim about the machine
+    // rather than about the algorithm: it failed on master whenever something
+    // else was running, and an adversarial review of F5 hit it on a clean tree.
+    // The property it exists to prove is growth, so growth is what it measures —
+    // four times the input must cost about four times the work, not sixteen.
+    //
+    // Writing it this way IMMEDIATELY FAILED, and the search really was
+    // quadratic: `sight()` cut its slice at the next newline, and `indexOf`
+    // costs the distance it travels, so a run of unterminated prefixes made
+    // every iteration scan to the far end. The cut is now `SENTINEL_MAX_BYTES`
+    // alone (the anchored regexes exclude `\n` themselves, so the match is
+    // identical). Measured through `readWakeArrival`, prefixes → best of 5:
+    //
+    //                          1000     2000     4000     8000    16000   2k→16k
+    //   the newline cut       1.44ms   3.14ms   8.88ms  30.61ms  114.2ms   36.3×
+    //   the bounded cut       0.93ms   1.75ms   3.13ms   6.07ms   11.9ms    6.8×
+    //
+    // EIGHT TIMES THE INPUT, not four: an adversarial review measured the old
+    // implementation at 11.3 against a bound of 8, which is a 14 % margin and
+    // too thin for the regression it guards. At 8× the two shapes separate
+    // properly — linear lands near 8 (6.8 measured, the difference being fixed
+    // per-call cost), quadratic near 64 (36.3 measured). The bound sits at 15,
+    // with better than 2× headroom on BOTH sides, and it fails the quadratic
+    // implementation by a factor of two and a half.
     const { injection } = await woken();
     const expected = injection.split("\n").slice(-1)[0] as string;
-    const poison = `${"<!-- counterparts:wake ".repeat(8000)}${injection}`;
-    const path = writeTranscript([
-      ...PREAMBLE,
-      hookAttachment({ stdout: poison, content: poison }),
-    ]);
+    const poisoned = (prefixes: number): string => {
+      const poison = `${"<!-- counterparts:wake ".repeat(prefixes)}${injection}`;
+      return writeTranscript([...PREAMBLE, hookAttachment({ stdout: poison, content: poison })]);
+    };
     // The read bound is 256 KiB on the live path; this probe raises it so the
     // whole poisoned attachment is actually scanned — the reviewer's 200 KB at
     // the size the bound would allow, rather than a line the reader drops.
-    const started = performance.now();
-    const arrival = readWakeArrival(path, { expect: expected, maxBytes: 1024 * 1024 });
-    const elapsed = performance.now() - started;
-    expect(elapsed).toBeLessThan(100);
-    // And the real sentinel is still the answer: a match that IS the
-    // expectation beats an earlier one that is not.
-    expect(arrival.tail.matchesExpected).toBe(true);
+    const read = (path: string): number => {
+      const started = performance.now();
+      const arrival = readWakeArrival(path, { expect: expected, maxBytes: 4 * 1024 * 1024 });
+      const elapsed = performance.now() - started;
+      // And the real sentinel is still the answer: a match that IS the
+      // expectation beats an earlier one that is not.
+      expect(arrival.tail.matchesExpected).toBe(true);
+      return elapsed;
+    };
+    // THE MINIMUM OF SEVERAL RUNS, after a warm-up. A scheduler can only ever
+    // make a run slower, so the fastest of N is the closest this can get to the
+    // work actually done; an average would carry whatever else the machine did.
+    const best = (path: string): number => {
+      let min = Infinity;
+      for (let i = 0; i < 5; i += 1) min = Math.min(min, read(path));
+      return min;
+    };
+    const smallPath = poisoned(2000);
+    const bigPath = poisoned(16000);
+    read(smallPath); // warm up: first-touch page faults are not the algorithm
+    const small = best(smallPath);
+    const big = best(bigPath);
+    const ratio = big / Math.max(small, 0.001);
+    // The ratio rides on the failure message, so a break says what it measured
+    // rather than only that a boolean was wrong.
+    expect({ quadratic: ratio >= 15, ratio: Number(ratio.toFixed(1)) }).toMatchObject({
+      quadratic: false,
+    });
+    // A second, deliberately generous guard, so a search that went linear-but-
+    // catastrophic (an accidental whole-file read per prefix) still fails. The
+    // quadratic implementation measured 114 ms at this size.
+    expect(big).toBeLessThan(4000);
   });
 
   test("no string from the wake body can reach a payload, a session record or an error", async () => {
@@ -1346,6 +1412,56 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
     // And a start clears the slate — whatever was wrong is not wrong now.
     a.stop(input({ sessionId: "healthy" }));
     expect(a.spawnRefusals()["NO_DATA_DIR"] ?? 0).toBe(0);
+  });
+
+  test("a worker that DID start leaves one row per date, with the day's count (E2)", () => {
+    // The other half of I32. Until 2026-09-20 a healthy start wrote nothing, so
+    // a worker dead all week and a week with nothing to do left the same
+    // nothing and `fired` could only call the mechanism blind.
+    const { a } = adapter();
+    const store = a.counterpart.store;
+    const rows = (): Record<string, unknown>[] =>
+      store
+        .eventLog({ name: SPAWN_STARTED_EVENT, limit: 20 })
+        .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+
+    a.stop(input({ sessionId: "one" }));
+    a.stop(input({ sessionId: "two" }));
+    a.stop(input({ sessionId: "three" }));
+    // ONE ROW for three boundaries on one date — a boundary is a hot path and
+    // three hundred identical rows a day would drown the log this feeds.
+    expect(rows().length).toBe(1);
+    // THE ROW CARRIES NO COUNT. The latch means only the day's FIRST start ever
+    // writes, so any tally on the row would read `1` forever — a number that
+    // looks like a measurement and is an artefact of the latch. The day's real
+    // tally is in the meta counters, where doctor's Spawn line reads it.
+    expect(rows()[0]?.["date"]).toBe("2026-01-02");
+    expect("count" in (rows()[0] ?? {})).toBe(false);
+    expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("3");
+    expect(a.spawnStarts()).toEqual({ date: "2026-01-02", count: 3 });
+    expect(store.getMeta(SPAWN_START_DATE_KEY)).toBe("2026-01-02");
+
+    // A new date is a new row, and the day's tally starts over rather than
+    // accumulating for the life of the store.
+    a.stop(input({ sessionId: "four", at: "2026-01-03" }));
+    expect(rows().length).toBe(2);
+    expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("1");
+
+    // AN OBSERVER WRITES NEITHER THE ROW NOR THE COUNTER — and the stance that
+    // decides it is the COUNTERPART'S, not the config's (`hooks.ts`:
+    // `this.observer = opts.counterpart.observer`). Asserted, because an
+    // adapter built over a writer counterpart with `observer: true` in its
+    // config is NOT an observer, and a test that assumed it was would pass for
+    // a reason that has nothing to do with the guard under test.
+    const watcher = new ClaudeCodeAdapter({
+      counterpart: observerCounterpart(),
+      config: config({ observer: true }),
+      spawner: fakeSpawner().spawner,
+    });
+    expect(watcher.observer).toBe(true);
+    watcher.stop(input({ sessionId: "watching", at: "2026-01-04" }));
+    expect(rows().length).toBe(2);
+    expect(store.getMeta(SPAWN_START_COUNT_KEY)).toBe("1");
   });
 
   test("NO clock can cap an ask any more — the day counter is gone (I32, closed 2026-09-17)", () => {
@@ -3759,7 +3875,30 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     expect(text.split("\n").length).toBeLessThanOrEqual(6);
     // Shorter than the PAIR it replaces (~1,080 bytes across two texts), and
     // asked far less often — the point of the budget is the blocked moment.
-    expect(text.length).toBeLessThan(1_050);
+    //
+    // RAISED 1,050 → 1,300 on 2026-09-20 (E1), and the raise is the honest half
+    // of the change: the handoff is a FIELD on the `session_end` call item 1
+    // already names, so it is still ONE ask and one pacer, but it is a third
+    // thing to say and it cost 187 characters. The owner's general rule is that
+    // a cap found cutting something off is reconsidered rather than worked
+    // around (spec §15 item 2); this one had 46 characters of headroom, so it
+    // was going to be the next line's problem whatever that line was. The
+    // properties the number defends — one screen, four numbered items at most,
+    // read at every blocked Stop — are the assertions above it, not this bound.
+    expect(text.length).toBeLessThan(1_300);
+  });
+
+  test("the handoff is a FIELD on the call item 1 already names — not a third tool", () => {
+    // §13 G3's scar is that the blocked moment carries a SINGLE ask. A field is
+    // not an ask: there is one pacer (`askAtStop` → `episodeAsk`), one text, and
+    // the handoff names no tool of its own.
+    const text = stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1);
+    expect(text).toContain("`handoff`");
+    expect(text).toContain("that same session_end call");
+    expect(text).toContain("Not a memory");
+    // Exactly three numbered items, and no fourth tool named.
+    expect(text.match(/^\d\. /gm)?.length).toBe(3);
+    expect(text).not.toContain("handoff tool");
   });
 
   test("the re-fired Stop still asks NOTHING — the anti-loop is untouched", () => {

@@ -79,11 +79,17 @@ let store: string;
 let configPath: string;
 let scopesFile: string;
 let home: string;
+/** A directory holding no `git`, so `readCheckout` cannot grade whatever checkout
+ *  this suite happens to run in — on a branch that reading is RED, on a clean
+ *  `origin/master` it is green, and a test must not pass on one and fail on the other. */
+let emptyBin: string;
 
 beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
   home = join(work, "home");
   mkdirSync(home, { recursive: true });
+  emptyBin = join(work, "bin");
+  mkdirSync(emptyBin, { recursive: true });
   store = join(work, "store");
   configPath = join(work, "claude-code.json");
   scopesFile = scopesPath(configPath);
@@ -128,7 +134,9 @@ function runHook(
   const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT, "--config", configPath, ...extra], {
     input: hookPayload(event, session, cwd, transcript),
     encoding: "utf8",
-    env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: home, USERPROFILE: home },
+    // The transpiler cache is off because bun keeps it under HOME and a late write
+    // puts the temp dir back after `afterEach` removed it (`hook-standdown.test.ts`).
+    env: { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
     timeout: 60_000,
   });
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
@@ -988,8 +996,16 @@ describe("a directory set OFF stands down the seams added after this branch fork
     const project = join(work, "project");
     mkdirSync(project, { recursive: true });
 
-    // ON (unset): this fixture names no credentials file, so `doctor` finds a
-    // RED credentials finding and the entry point prints the JSON envelope.
+    // ON (unset): a store that HAS interpreted before and now holds no key is
+    // doctor's RED credentials finding, and a red is what makes the entry point
+    // print the JSON envelope. Keyless alone stopped being red on 2026-09-20 (a
+    // store that never had a key is amber, a supported way to run) — after which
+    // this test passed only where the Checkout line happened to be red, which is
+    // every branch and no clean master. `gate.chunk` is the store's own proof the
+    // interpreter ran here (`doctor.ts#keyHistory`).
+    const seeded = Store.open({ dir: store });
+    seeded.appendEvent({ name: "gate.chunk", day: seeded.livedDay(), payload: { date: "2026-09-13" } });
+    seeded.close();
     const on = runHook("SessionStart", "red-on", project);
     expect(on.code).toBe(0);
     const envelope = JSON.parse(on.stdout) as {
@@ -997,6 +1013,7 @@ describe("a directory set OFF stands down the seams added after this branch fork
       hookSpecificOutput?: { additionalContext?: string };
     };
     expect(envelope.systemMessage ?? "").toContain("counterparts:");
+    expect(envelope.systemMessage ?? "").toContain("Credentials");
     expect(envelope.hookSpecificOutput?.additionalContext ?? "").toContain(
       "has not lived a boundary",
     );

@@ -26,7 +26,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   ADAPTER_ASK_EVENT,
@@ -67,7 +67,14 @@ import {
 } from "../src/adapters/claude-code/index.js";
 import type { CheckoutReading, DoctorInput, Finding, GitRunner } from "../src/adapters/claude-code/index.js";
 import { ENVELOPE_MAX_CHARS, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
-import { EXIT, credentialsTemplate, run } from "../src/adapters/cli/index.js";
+import {
+  EXIT,
+  HOST_EVENTS,
+  MCP_SERVER_NAME,
+  credentialsTemplate,
+  readHost,
+  run,
+} from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 
 const SECRET = "sk-ant-not-a-real-key-0123456789";
@@ -160,6 +167,39 @@ function writeCredentials(names: readonly string[]): void {
   writeFileSync(credsPath, names.map((n) => `${n}=${SECRET}`).join("\n") + "\n", { mode: 0o600 });
 }
 
+/**
+ * A STORE THAT HAS INTERPRETED BEFORE (2026-09-20, finding 1).
+ *
+ * `gate.chunk` is the crash sweep's own row and the sweep is the only
+ * interpreted write path, so one such row is the store's own proof that the
+ * interpreter key worked here. It is what separates "a key went away" — the
+ * case the RED was written for — from "this store has never had one", which
+ * README and QUICKSTART §6 both call a supported way to run.
+ */
+function hasInterpreted(s: Store): void {
+  s.appendEvent({ name: "gate.chunk", day: s.livedDay(), payload: { date: "2026-09-13" } });
+}
+
+/**
+ * A STORE OLD ENOUGH TO GRADE (2026-09-20, finding 2). The `Fired` and
+ * `Authorship` lines both stand down on a store younger than a lived day or
+ * two: their readings are ratios, and a ratio over a handful of rows is not a
+ * reading. A test about what those lines SAY has to get past that first.
+ */
+function livedAWeek(s: Store): void {
+  for (const date of ["2026-09-08", "2026-09-09", "2026-09-10"]) s.advanceClock(date);
+}
+
+/** The same fact, for a test that does not hold a store of its own. */
+function markInterpreted(): void {
+  const s = Store.open({ dir });
+  try {
+    hasInterpreted(s);
+  } finally {
+    s.close();
+  }
+}
+
 /** The clean, green reading — every knob deliberately set, so each test below
  *  changes exactly one thing and the finding it moves is unambiguous. */
 function input(over: Partial<DoctorInput> = {}): DoctorInput {
@@ -195,6 +235,38 @@ function consoleWith(): { io: Io; out: string[]; err: string[] } {
   return { io: { out: (l) => out.push(l), err: (l) => err.push(l) }, out, err };
 }
 
+/**
+ * THE TWO STEPS `install` PRINTS AND DOES NOT PERFORM, performed — inside the
+ * throwaway HOME this suite already uses, never anywhere near a real one.
+ *
+ * The paths and shapes are the host's, verified against its documentation on
+ * 2026-09-20: a user-scope hooks block lives in `<home>/.claude/settings.json`
+ * and a `-s user` MCP registration in `<home>/.claude.json` under `mcpServers`.
+ */
+function installHostSteps(
+  over: { events?: readonly string[]; mcp?: boolean; stale?: boolean } = {},
+): void {
+  // A REAL FILE at the path the block names — because since 2026-09-20 a block
+  // pointing at a checkout that is not there is graded as a fault, not as an
+  // install. `stale: true` is how a test asks for the opposite.
+  const installed = join(root, "install", "counterparts-hook");
+  mkdirSync(dirname(installed), { recursive: true });
+  writeFileSync(installed, "#!/usr/bin/env bun\n");
+  const target = over.stale === true ? join(root, "deleted-checkout", "counterparts-hook") : installed;
+  const hooks: Record<string, unknown> = {};
+  for (const event of over.events ?? HOST_EVENTS) {
+    hooks[event] = [{ hooks: [{ type: "command", command: `/bin/bun ${target}` }] }];
+  }
+  mkdirSync(join(root, ".claude"), { recursive: true });
+  writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks }));
+  if (over.mcp !== false) {
+    writeFileSync(
+      join(root, ".claude.json"),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "counterparts-mcp" } } }),
+    );
+  }
+}
+
 const onMaster: CheckoutReading = {
   reason: "master",
   root: "/repo",
@@ -226,15 +298,20 @@ describe("doctor — the reading", () => {
    * I32 ITSELF. The file is exactly `install`'s template — 0 non-comment lines
    * — which is what a forced install leaves behind, and what ran for a week.
    */
-  test("a credentials file with no key is RED, names the missing name, and names the repair", () => {
+  test("a key that WAS here and is gone is RED, names the missing name, and names the repair", () => {
+    // The case this red was written for (I32): something that was running has
+    // stopped. `gate.chunk` is the store's own proof the interpreter ran here.
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
-    const findings = doctorFindings(input());
+    const s = store();
+    hasInterpreted(s);
+    const findings = doctorFindings(input({ store: s }));
     const cred = by(findings, "credentials");
     expect(cred.severity).toBe("red");
     expect(cred.detail).toContain(API_KEY_ENV);
-    expect(cred.detail).toContain("nothing is encoded");
+    expect(cred.detail).toContain("HAS interpreted before");
+    expect(cred.detail).toContain("encodes nothing");
     expect(cred.fix).toContain(`counterparts credentials set ${API_KEY_ENV}`);
     expect(anyRed(findings)).toBe(true);
 
@@ -244,6 +321,35 @@ describe("doctor — the reading", () => {
     expect(notice).not.toBe(null);
     expect(notice).toContain(API_KEY_ENV);
     expect(notice?.endsWith("run: counterparts doctor")).toBe(true);
+  });
+
+  test("a store that has NEVER had a key is amber, and says what works without one (finding 1)", () => {
+    // README: "No API keys are required." QUICKSTART §6: without the key the
+    // worker still runs the day and only skips the crash sweep. `doctor` on a
+    // brand-new keyless store printed a red and exited 1, so all three could
+    // not be true — and the first thing the product said to a new user was
+    // that their fresh install was broken.
+    mintStore();
+    writeConfig();
+    writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    const findings = doctorFindings(input());
+    const cred = by(findings, "credentials");
+    expect(cred.severity).toBe("amber");
+    expect(cred.detail).toContain("no key has ever been used here");
+    expect(cred.detail).toContain("supported way to run");
+    // It says what DOES work, in words a new user can check against the page.
+    expect(cred.detail).toContain("note, session_end, the journal, recall, the wake");
+    // And what a key would add, so the choice is informed rather than nagged.
+    expect(cred.detail).toContain("crash sweep");
+    expect(cred.fix).toContain("Optional.");
+
+    // NOTHING IS RED, so the command exits 0 and the SessionStart notice — the
+    // one line the product gets in the terminal every session — stays quiet.
+    expect(anyRed(findings)).toBe(false);
+    expect(noticeMessage(findings)).toBe(null);
+
+    // The discriminator is on the row, so a reader can check the verdict.
+    expect(cred.data["everInterpreted"]).toBe(false);
   });
 
   test("a missing embed key is amber, not red — recall still works, lexically", () => {
@@ -285,7 +391,11 @@ describe("doctor — the reading", () => {
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
     const findings = doctorFindings(input({ config: { dataDir: dir, credentialsFile: credsPath } }));
     expect(by(findings, "embedder").severity).toBe("amber");
-    expect(by(findings, "embedder").detail).toContain("no semantic channel");
+    // It says what the store CAN still do (2026-09-20, finding 1): lexical
+    // recall is a working channel, not a degraded mode, and a day-1 line that
+    // reads like a broken install is what sends a new user to buy a key.
+    expect(by(findings, "embedder").detail).toContain("matches on words, not on meaning");
+    expect(by(findings, "embedder").fix).toContain("Optional.");
   });
 
   test("no store at the dir is red, and the store-reading groups are not attempted", () => {
@@ -784,6 +894,7 @@ describe("doctor — the reading", () => {
       writeConfig();
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
+      livedAWeek(s);
       ask(s, "2026-09-14", "asked");
       for (let i = 0; i < 9; i += 1) ask(s, "2026-09-14", "capped", "session-ask-cap");
       memory(s, "2026-09-14", "authored", 3);
@@ -829,11 +940,61 @@ describe("doctor — the reading", () => {
       expect(f.fix).toBe("");
     });
 
+    test("neither amber fires on a store too new to grade (finding 2)", () => {
+      // Both of this line's ambers are RATIOS — "the cap refused more often
+      // than it offered", "the sweep wrote more than the session did" — and a
+      // ratio over a handful of rows is not a reading. The SENTENCE still
+      // stands; only the colour and the hint stand down.
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      ask(s, "2026-09-14", "asked");
+      memory(s, "2026-09-14", "authored", 2);
+      memory(s, "2026-09-13", "fallback", 20);
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.severity).toBe("green");
+      expect(f.detail).toContain("20 were written for it by the fallback sweep");
+      expect(f.detail).toContain("too new to grade");
+      expect(f.fix).toBe("");
+      expect(f.data["young"]).toBe(true);
+    });
+
+    test("a store whose WORKER died still gets graded — the young rule uses two clocks (MINOR 8)", () => {
+      /**
+       * The lived clock is advanced ONLY by the sleep cycle
+       * (`store.advanceClock()` has one caller). Sessions ask and deposit at
+       * every boundary whether or not the worker ever runs. So a store whose
+       * worker has been dead since day 1 — spawn refused, no credential, a
+       * broken checkout — piles up a fortnight of asks and deposits with a
+       * perfectly meaningful cap/sweep ratio, and read GREEN "too new to grade"
+       * for ever on the one-clock rule. That is the exact store
+       * `FiredReport.young`'s two-clock rule was written to protect.
+       */
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      // livedDay stays 0: nothing here advances the clock.
+      expect(s.livedDay()).toBe(0);
+      ask(s, "2026-09-09", "asked");
+      memory(s, "2026-09-09", "authored", 2);
+      memory(s, "2026-09-09", "fallback", 20);
+
+      const f = by(doctorFindings(input({ store: s })), "authorship");
+      expect(f.data["livedDay"]).toBe(0);
+      expect(f.data["young"]).toBe(false);
+      expect(f.severity).toBe("amber");
+      expect(f.detail).not.toContain("too new to grade");
+      expect(f.fix).toContain("session-end boundary");
+    });
+
     test("AMBER when the fallback sweep out-writes the author", () => {
       mintStore();
       writeConfig();
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
+      livedAWeek(s);
       ask(s, "2026-09-14", "asked");
       memory(s, "2026-09-14", "authored", 2);
       memory(s, "2026-09-13", "fallback", 20);
@@ -880,6 +1041,7 @@ describe("doctor — the reading", () => {
       writeConfig();
       writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
       const s = store();
+      livedAWeek(s);
       s.appendEvent({ name: BOUNDARY_EVENT, day: s.livedDay(), payload: { date: "2026-09-14" } });
       const f = by(doctorFindings(input({ store: s })), "fired");
       expect(f.severity).toBe("green");
@@ -891,6 +1053,83 @@ describe("doctor — the reading", () => {
       expect(f.data["firing"]).toBe(1);
       expect(Number(f.data["blind"])).toBeGreaterThan(0);
       expect(f.fix).toBe("");
+    });
+
+    test("a store too new to grade says so, instead of '28 have never fired' (finding 2)", () => {
+      // On a store minutes old the roll-call is true and reads like a broken
+      // install: nothing has fired because nothing has happened yet, and no
+      // surface said so. GREEN, because there is nothing here to fix.
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const f = by(doctorFindings(input()), "fired");
+      expect(f.severity).toBe("green");
+      expect(f.detail).toContain("too new to grade");
+      expect(f.detail).toContain("nothing has happened yet");
+      expect(f.detail).not.toContain("have never fired");
+      expect(f.data["young"]).toBe(true);
+      expect(f.fix).toBe("");
+
+    });
+
+    test("something already BLOCKED is said even on a store too new to grade", () => {
+      // The one thing worth saying on day 1: a mechanism that was reached and
+      // turned away is not a mechanism that has had nothing to do.
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      s.appendEvent({
+        name: "adapter.spawn.refused",
+        day: s.livedDay(),
+        payload: { date: "2026-09-14", reason: "NO_CREDENTIAL", count: 4 },
+      });
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.severity).toBe("green");
+      expect(f.detail).toContain("too new to grade");
+      expect(f.detail).toContain("already stopped by something");
+      expect(f.fix).toContain("counterparts fired");
+      expect(f.data["blocked"]).toBe(1);
+    });
+
+    test("a mechanism that fired last week and was STOPPED all this week is amber, not green", () => {
+      /**
+       * THE TRAP THE `blocked` STATE SET, AND THE GUARD AGAINST IT.
+       *
+       * `blocked` outranks `quiet` in the state machine — it says more, and it
+       * should. But this finding used to grade on `wentQuiet` alone, so the
+       * worker starting every day last week and being refused every day this
+       * week would have LEFT that list and taken the amber with it. A state
+       * that says more must never make a diagnostic read safer than it did
+       * before that state existed.
+       */
+      mintStore();
+      writeConfig();
+      writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+      const s = store();
+      livedAWeek(s);
+      // Last week it started; this week it has only ever been refused.
+      s.appendEvent({
+        name: "adapter.spawn.started",
+        day: s.livedDay(),
+        payload: { date: "2026-09-05", count: 3 },
+      });
+      for (const date of ["2026-09-12", "2026-09-13", "2026-09-14"]) {
+        s.appendEvent({
+          name: "adapter.spawn.refused",
+          day: s.livedDay(),
+          payload: { date, reason: "NO_CREDENTIAL", count: 9 },
+        });
+      }
+      const f = by(doctorFindings(input({ store: s })), "fired");
+      expect(f.severity).toBe("amber");
+      expect(f.detail).toContain("Fired last week and STOPPED this week");
+      expect(f.detail).toContain("NO_CREDENTIAL");
+      expect(f.fix).toContain("counterparts fired");
+      expect(f.data["wentBlocked"]).toContain("NO_CREDENTIAL");
+      // And the roll-call says how many, so the number and the list agree.
+      expect(f.data["blocked"]).toBe(1);
+      expect(f.detail).toContain("stopped by something that said so");
     });
 
     test("AMBER, by NAME, for a mechanism that fired last week and not once this week", () => {
@@ -1022,6 +1261,9 @@ describe("doctor — the reading", () => {
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    // A key that WENT AWAY, so there is a red to sort to the top: a store that
+    // never had one is amber now (finding 1).
+    markInterpreted();
     const findings = doctorFindings(input());
     const json = reportJson(findings, "2026-09-14") as {
       red: number;
@@ -1033,6 +1275,233 @@ describe("doctor — the reading", () => {
     expect(lines[0]).toContain("counterparts doctor — 2026-09-14");
     expect(lines.find((l) => l.startsWith("RED"))).toBeDefined();
     expect(lines.some((l) => l.includes("fix:"))).toBe(true);
+  });
+});
+
+// ── the two steps the user does BY HAND (2026-09-20, finding 4) ─────────────
+
+/**
+ * `install` prints the hooks block and the `claude mcp add` line and applies
+ * neither. Nothing then checked them, so a user who pasted the block into a
+ * project settings file instead of the user one — or who never restarted — got
+ * a fully green `doctor` and total silence. The failure mode of this product is
+ * silence; this is the line that breaks it.
+ *
+ * Every read here is inside the suite's throwaway HOME.
+ */
+describe("the Host line reads the host's own files", () => {
+  test("both steps installed is green, and it names where the MCP server was found", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    installHostSteps();
+    const host = readHost(root, root, {});
+    expect(host.events).toEqual([...HOST_EVENTS].sort());
+    expect(host.mcp).toBe(true);
+    const finding = by(doctorFindings(input({ host })), "host");
+    expect(finding.severity).toBe("green");
+    expect(finding.detail).toContain(`all ${String(HOST_EVENTS.length)} hook events are installed`);
+    expect(finding.detail).toContain(join(root, ".claude.json"));
+  });
+
+  test("nothing installed is AMBER — never red — and says exactly what to run", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const host = readHost(root, root, {});
+    const finding = by(doctorFindings(input({ host })), "host");
+    // Amber, because this reads somebody else's files in a format that is not
+    // ours to depend on: a wrong answer must cost a second look, not a panic.
+    expect(finding.severity).toBe("amber");
+    expect(finding.detail).toContain("no hook of ours is installed");
+    expect(finding.fix).toContain("counterparts install");
+    expect(finding.fix).toContain("restart");
+    // And it NAMES what it looked at, so a path that has moved is visible to
+    // the reader rather than reported as "you did not install it".
+    expect(finding.detail).toContain("no host settings file was readable");
+    expect(finding.detail).toContain(join(root, ".claude.json"));
+  });
+
+  test("a PARTIAL paste is named event by event — the case a green doctor used to hide", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    installHostSteps({ events: ["SessionStart", "Stop"] });
+    const finding = by(doctorFindings(input({ host: readHost(root, root, {}) })), "host");
+    expect(finding.severity).toBe("amber");
+    expect(finding.detail).toContain("installed on SessionStart, Stop");
+    expect(finding.detail).toContain("NOT on UserPromptSubmit, SessionEnd, PreCompact");
+  });
+
+  test("hooks MERGE across the host's settings files, so a project file counts", () => {
+    mintStore();
+    const project = join(root, "project");
+    mkdirSync(join(project, ".claude"), { recursive: true });
+    writeFileSync(
+      join(project, ".claude", "settings.local.json"),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ hooks: [{ type: "command", command: "bun /a/claude-code/bin/hook.ts" }] }],
+        },
+      }),
+    );
+    const host = readHost(root, project, {});
+    expect(host.events).toEqual(["SessionStart"]);
+    expect(host.settingsRead).toEqual([join(project, ".claude", "settings.local.json")]);
+  });
+
+  test("CLAUDE_CONFIG_DIR moves both files, and is honoured", () => {
+    mintStore();
+    const moved = join(root, "elsewhere");
+    mkdirSync(join(moved, ".claude"), { recursive: true });
+    writeFileSync(
+      join(moved, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: "command", command: "counterparts-hook stop" }] }] },
+      }),
+    );
+    writeFileSync(
+      join(moved, ".claude.json"),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: {} } }),
+    );
+    const host = readHost(root, root, { CLAUDE_CONFIG_DIR: moved });
+    expect(host.events).toEqual(["Stop"]);
+    expect(host.mcp).toBe(true);
+    expect(host.mcpFile).toBe(join(moved, ".claude.json"));
+  });
+
+  test("a settings file that is not JSON is not read, and is not counted as absent either", () => {
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    writeFileSync(join(root, ".claude", "settings.json"), "{ this is not json");
+    writeFileSync(join(root, ".claude.json"), "also not json");
+    const host = readHost(root, root, {});
+    expect(host.settingsRead).toEqual([]);
+    expect(host.mcp).toBe(false);
+    // The MCP file EXISTS and would not parse, which is a different fact from
+    // "there is no registration" — and the line says so rather than telling
+    // somebody to re-run a command they have already run.
+    expect(host.mcpUnreadable).toBe(true);
+    const finding = by(doctorFindings(input({ host })), "host");
+    expect(finding.detail).toContain("could not be read");
+    expect(finding.fix).not.toContain("claude mcp add");
+  });
+
+  test("the hook command is matched as a SUBSTRING, so a clone or a worktree counts", () => {
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    for (const command of [
+      "/Users/x/.bun/bin/bun /Users/x/src/counterparts/src/adapters/claude-code/bin/hook.ts",
+      "counterparts-hook",
+      "/opt/homebrew/bin/bun /w/.claude/worktrees/a/src/adapters/claude-code/bin/hook.ts session-start",
+    ]) {
+      writeFileSync(
+        join(root, ".claude", "settings.json"),
+        JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command }] }] } }),
+      );
+      expect(readHost(root, root, {}).events, command).toEqual(["SessionStart"]);
+    }
+    // Somebody else's hook on the same event is not ours.
+    writeFileSync(
+      join(root, ".claude", "settings.json"),
+      JSON.stringify({
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: "echo hello" }] }] },
+      }),
+    );
+    expect(readHost(root, root, {}).events).toEqual([]);
+  });
+
+  test("a block pointing at a checkout that is GONE is a fault, not an install (review MINOR 1)", () => {
+    // "GREEN while nothing fires" is the one outcome this line was added to
+    // prevent. A settings block left behind by a deleted checkout matches the
+    // command mark perfectly and fails at every session start, silently.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    installHostSteps({ stale: true });
+    const host = readHost(root, root, {});
+    // It IS installed — the block is there — and it cannot work.
+    expect(host.events).toEqual([...HOST_EVENTS].sort());
+    expect(host.stale.map((s) => s.event)).toEqual([...HOST_EVENTS].sort());
+    expect(host.mcp).toBe(true);
+
+    const f = by(doctorFindings(input({ host })), "host");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("which is not there");
+    expect(f.detail).toContain("deleted-checkout");
+    expect(f.fix).toContain("the path this install actually has");
+
+    // A LIVE entry on the same event wins: one event may carry several, and a
+    // working one is a working one.
+    const settings = join(root, ".claude", "settings.json");
+    writeFileSync(
+      settings,
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: `/bin/bun ${join(root, "gone", "hook.ts")}` }] },
+            { hooks: [{ type: "command", command: `/bin/bun ${join(root, "install", "counterparts-hook")}` }] },
+          ],
+        },
+      }),
+    );
+    expect(readHost(root, root, {}).stale).toEqual([]);
+  });
+
+  test("a settings file that EXISTS and will not open is named, not dropped (review MINOR 2)", () => {
+    // A mode-000 file and a DIRECTORY with that name both used to vanish from
+    // the report, so the reader was told to paste a block they had pasted.
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    const bad = join(root, ".claude", "settings.json");
+    writeFileSync(bad, "{ not json");
+    // A directory where a file is expected — the reviewer's fixture (g).
+    mkdirSync(join(root, ".claude", "settings.local.json"), { recursive: true });
+
+    const host = readHost(root, root, {});
+    expect(host.settingsRead).toEqual([]);
+    expect(host.settingsUnreadable).toContain(bad);
+    expect(host.settingsUnreadable).toContain(join(root, ".claude", "settings.local.json"));
+
+    const f = by(doctorFindings(input({ host })), "host");
+    expect(f.detail).toContain("could not read");
+    expect(f.detail).toContain(bad);
+    // And absent is still a different sentence from unreadable.
+    rmSync(join(root, ".claude"), { recursive: true, force: true });
+    const empty = readHost(root, root, {});
+    expect(empty.settingsUnreadable).toEqual([]);
+    expect(by(doctorFindings(input({ host: empty })), "host").detail).toContain(
+      "no host settings file was readable",
+    );
+  });
+
+  test("the command mark matches a COMMAND, not prose that mentions one (review NIT 3)", () => {
+    mintStore();
+    mkdirSync(join(root, ".claude"), { recursive: true });
+    const settings = join(root, ".claude", "settings.json");
+    const withCommand = (command: string): string[] => {
+      writeFileSync(
+        settings,
+        JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command }] }] } }),
+      );
+      return [...readHost(root, root, {}).events];
+    };
+    // Ours, in the shapes `install` prints and a clone produces.
+    expect(withCommand("counterparts-hook")).toEqual(["Stop"]);
+    expect(withCommand("/x/.bun/bin/counterparts-hook")).toEqual(["Stop"]);
+    expect(withCommand("/b/bun /x/src/adapters/claude-code/bin/hook.ts stop")).toEqual(["Stop"]);
+    // Not ours: a command that merely says the word.
+    expect(withCommand("echo installing-counterparts-hooks-later")).toEqual([]);
+    expect(withCommand("echo 'see counterparts-hookup docs'")).toEqual([]);
+  });
+
+  test("with no host reading handed in, there is no Host finding at all", () => {
+    // The hook's case: it is already running BECAUSE the hooks are installed,
+    // and it does not pay for four more file reads. Absence, not a guess.
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    expect(doctorFindings(input()).find((f) => f.key === "host")).toBeUndefined();
   });
 });
 
@@ -1301,6 +1770,10 @@ describe("the session-start notice", () => {
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    // The notice fires for a key that WENT AWAY. On a store that never had one
+    // there is nothing red and the terminal stays quiet, which is the whole of
+    // finding 1: the first line the product says to a new user.
+    markInterpreted();
     const sick = adapterOn();
     const notice = sick.notice(hookInput, { checkout: onMaster });
     expect(notice).not.toBe(null);
@@ -1328,6 +1801,7 @@ describe("the session-start notice", () => {
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    markInterpreted();
     const env: NodeJS.ProcessEnv = { [API_KEY_ENV]: SECRET, [EMBED_KEY_ENV]: SECRET };
     const load = loadCredentials(credsPath, env);
     expect(load.loaded).toEqual([]);
@@ -1625,6 +2099,7 @@ describe("counterparts doctor", () => {
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    markInterpreted();
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`], {
       io: c.io,
@@ -1643,6 +2118,9 @@ describe("counterparts doctor", () => {
     mintStore();
     writeConfig();
     writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    // The two steps the user does BY HAND, installed (finding 4). Without them
+    // the Host line is amber, which is the whole point of it existing.
+    installHostSteps();
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`], {
       io: c.io,
@@ -1663,6 +2141,7 @@ describe("counterparts doctor", () => {
     mintStore();
     writeConfig();
     writeFileSync(credsPath, credentialsTemplate(), { mode: 0o600 });
+    markInterpreted();
     const c = consoleWith();
     const code = await run(["doctor", `--config=${configPath}`, "--json"], {
       io: c.io,
@@ -1751,6 +2230,55 @@ describe("counterparts doctor", () => {
     // Nothing was read and nothing was printed about the store it named.
     expect(c.out.join("\n")).toBe("");
     expect(said).not.toContain(dir);
+  });
+
+  /**
+   * `--dir` IS A NAME (2026-09-20, finding 6).
+   *
+   * The guard exists so nothing nobody named gets opened, and `--dir <store>`
+   * names one — so the refusal was really about the CONFIGURATION beside it,
+   * whose `credentialsFile` points at the owner's live keys. `doctor` now
+   * declines to read that file at all and grades the store on its own. On
+   * cut-over day this is the difference between "point doctor at the parked
+   * store" and a refusal with nothing to do.
+   */
+  test("--dir alone works read-only under the guard, and says which questions went unasked", async () => {
+    mintStore();
+    // The DEFAULT config exists and names a different store, exactly as it does
+    // on a real machine. Nothing here may open it.
+    const defaultConfig = join(root, ".counterparts", "claude-code.json");
+    mkdirSync(join(root, ".counterparts"), { recursive: true });
+    const liveCreds = join(root, ".counterparts", "credentials.env");
+    writeFileSync(liveCreds, `${API_KEY_ENV}=${SECRET}\n`, { mode: 0o600 });
+    writeFileSync(
+      defaultConfig,
+      JSON.stringify({ dataDir: "/somewhere/else", credentialsFile: liveCreds }),
+    );
+
+    const c = consoleWith();
+    const code = await run(["doctor", `--dir=${dir}`], {
+      io: c.io,
+      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      home: root,
+      checkout: onMaster,
+    });
+    const said = c.out.join("\n");
+    expect(code).toBe(EXIT.ok);
+
+    // THE STORE WAS GRADED. That is the whole point.
+    expect(said).toContain(dir);
+    expect(said).toContain("GREEN Store");
+    expect(said).toContain("Clock");
+
+    // AND THE CONFIGURATION WAS NOT READ — not its dataDir, and above all not
+    // the credentials file it names, which is the thing the guard protects.
+    expect(said).toContain("not read");
+    expect(said).toContain("--config");
+    expect(said).not.toContain("/somewhere/else");
+    expect(said).not.toContain(SECRET);
+    expect(said).not.toContain(liveCreds);
+    expect(said).not.toContain("Credentials");
+    expect(said).not.toContain("Embedder");
   });
 
   test("the guard does NOT refuse a configuration somebody named — that is the way through", async () => {
