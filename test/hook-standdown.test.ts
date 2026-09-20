@@ -33,6 +33,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
 
 import { readCounterpartOpen, reportLines, worstFirst } from "../src/adapters/claude-code/doctor.js";
@@ -204,6 +205,82 @@ function fingerprint(dir: string): Record<string, string> {
   walk(dir, "");
   return out;
 }
+
+/**
+ * A REAL pre-rows store, built by hand — the shape this build refuses to open.
+ *
+ * A trimmed copy of `test/store-portable.test.ts`'s fixture: enough of the v5
+ * shape that the refusal is answering a store rather than a filename, and no
+ * `cache/`, so the directory listing afterwards proves the refusal ran before
+ * the constructor's first `mkdirSync`.
+ */
+function buildPreRowsStore(dir: string): void {
+  mkdirSync(join(dir, "prose", "memories"), { recursive: true });
+  writeFileSync(join(dir, "prose", "memories", "mem_000000000001.md"), "words in a file", "utf8");
+  const db = new Database(join(dir, "operational.sqlite"), { create: true });
+  db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  db.run("INSERT INTO meta (key, value) VALUES ('schemaVersion', '5')");
+  db.close();
+}
+
+// ── the checkout deployed early, which is the plan's failure mode (a) ───────
+
+describe("a store written before the floor", () => {
+  test("the hook says it by name, exits 0, and does not touch the store", () => {
+    // THE HAZARD THIS WHOLE PHASE IS ABOUT, at the door it would actually come
+    // through. `tools/deploy-checkout.sh` pins the runtime at `floor/v5-last`
+    // until cut-over day; deploying past the pin by habit is the failure the
+    // plan names, and what makes it a loud broken session rather than a
+    // corrupted store is that every hook of every session lands here instead.
+    rmSync(store, { recursive: true, force: true });
+    buildPreRowsStore(store);
+    const before = fingerprint(store);
+
+    const run = runHook("SessionStart", "s-pre-rows-1");
+    expect(run.code).toBe(0);
+    const message = systemMessage(run) ?? "";
+    expect(message).toStartWith(`${SAID}: `);
+    expect(message).toContain("(STORE_PRE_ROWS)");
+    // It says which build still opens the store, so the sentence ends in
+    // something to do rather than in a dead end.
+    expect(run.stderr).toContain("floor/v5-last");
+    expect(run.stderr).toContain("[counterparts] hook stood down:");
+
+    // THE OLD STORE IS UNTOUCHED — with one thing written, named rather than
+    // hidden: the stand-down MARKER, which is what makes "said once per
+    // session" work and which lands under `sessions/`.
+    //
+    // That is host state, not memory: no content, and `sessions/` is classified
+    // by BOTH floors' LAYOUT (it is in v5's too), so the old build still opens
+    // this store and `assertLayout` still passes there. Nothing canonical moved
+    // — no `counterparts.sqlite` minted beside the old one, no `cache/`, no v6
+    // DDL, and the prose and the database are byte-identical.
+    const after = fingerprint(store);
+    const added = Object.keys(after).filter((k) => !(k in before));
+    expect(added).toEqual(["sessions/s-pre-rows-1.standdown.json"]);
+    for (const [path, hash] of Object.entries(before)) {
+      expect({ path, hash: after[path] }).toEqual({ path, hash });
+    }
+    expect(readdirSync(store).sort()).toEqual(["operational.sqlite", "prose", "sessions"]);
+    // And the marker carries no memory text (§5 G10) — it is a code and a date.
+    const marker = readFileSync(join(store, "sessions", "s-pre-rows-1.standdown.json"), "utf8");
+    expect(JSON.parse(marker)["code"]).toBe("STORE_PRE_ROWS");
+    expect(marker).not.toContain("words in a file");
+  });
+
+  test("it is a PERSISTENT fault, not a transient one: a second turn is quiet, a new session is told", () => {
+    // Deploying past the pin is not a race, and grading it transient would put
+    // the notice on a retry loop instead of in front of the owner once.
+    rmSync(store, { recursive: true, force: true });
+    buildPreRowsStore(store);
+    expect(isDeliberate(new StoreError("STORE_PRE_ROWS", { dir: store }))).toBe(false);
+    expect(describeFault(new StoreError("STORE_PRE_ROWS", { dir: store })).kind).toBe("persistent");
+
+    expect(systemMessage(runHook("UserPromptSubmit", "s-pre-rows-2"))).toContain(SAID);
+    expect(runHook("UserPromptSubmit", "s-pre-rows-2").stdout).toBe("");
+    expect(systemMessage(runHook("UserPromptSubmit", "s-pre-rows-3"))).toContain(SAID);
+  });
+});
 
 // ── the fault is said out loud ──────────────────────────────────────────────
 

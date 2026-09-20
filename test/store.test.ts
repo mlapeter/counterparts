@@ -989,15 +989,22 @@ describe("a crash never leaves a row whose words are missing", () => {
     const at = join(scratch(), `crash-${afterMs}`);
     mkdirSync(at, { recursive: true });
     const script = join(scratch(), `writer-${afterMs}.ts`);
+    // The child says when it is really working. Without it the kill is a race
+    // against process start, and on a cold or half-asleep laptop the store
+    // could still be empty when SIGKILL lands — the test would pass having
+    // proved nothing, or flake on its own non-vacuity assertion.
+    const marker = join(scratch(), `writing-${afterMs}`);
     writeFileSync(
       script,
       [
+        `import { writeFileSync } from "node:fs";`,
         `import { Store } from ${JSON.stringify(join(STORE_SRC, "index.ts"))};`,
         `const s = Store.open({ dir: ${JSON.stringify(at)} });`,
         `const ids: string[] = [];`,
         `for (let i = 0; ; i += 1) {`,
         `  const id = s.put({ type: "memory", kind: "fact", body: "body " + i + " " + "x".repeat(400) });`,
         `  ids.push(id);`,
+        `  if (i === 0) writeFileSync(${JSON.stringify(marker)}, "writing", "utf8");`,
         `  // Revisions too: they write a version row and the head in one`,
         `  // transaction, which is the pair the old floor could tear apart.`,
         `  for (const other of ids.slice(-3)) s.revise(other, { body: "revised " + i + " " + "y".repeat(400) });`,
@@ -1006,6 +1013,11 @@ describe("a crash never leaves a row whose words are missing", () => {
       "utf8",
     );
     const child = Bun.spawn([process.execPath, "run", script], { stdout: "ignore", stderr: "ignore" });
+    // Wait for the first committed write, THEN run the clock. The kill lands a
+    // known distance into real work rather than a known distance after spawn.
+    const deadline = Date.now() + 20_000;
+    while (!existsSync(marker) && Date.now() < deadline) await Bun.sleep(5);
+    expect(existsSync(marker)).toBe(true);
     await Bun.sleep(afterMs);
     child.kill("SIGKILL");
     await child.exited;
@@ -1044,10 +1056,12 @@ describe("a crash never leaves a row whose words are missing", () => {
   }
 
   test("SIGKILL mid-write leaves the store readable, every row's words intact", async () => {
-    for (const afterMs of [120, 260, 400]) {
+    // Three instants after the first committed write, because the interesting
+    // ones are inside a commit and one sample would be luck.
+    for (const afterMs of [40, 150, 320]) {
       await killMidWrite(afterMs);
     }
-  }, 30_000);
+  }, 90_000);
 });
 
 describe("revision + bounded versioning", () => {

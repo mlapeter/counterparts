@@ -244,7 +244,10 @@ function buildV5Store(dir: string): { id: string; proseRel: string } {
   const proseRel = join("prose", "memories", `${id}.md`);
   mkdirSync(join(dir, "prose", "memories"), { recursive: true });
   mkdirSync(join(dir, "versions", id), { recursive: true });
-  mkdirSync(join(dir, "cache"), { recursive: true });
+  // NO `cache/`. A real v5 store has one, and leaving it out is deliberate:
+  // `Store`'s constructor mkdirs box 3's directory on every open, so its ABSENCE
+  // after a refused open is what proves the refusal ran before the first write.
+  // A fingerprint hashes files and would not have noticed an empty directory.
   writeFileSync(
     join(dir, proseRel),
     `---\nid: ${id}\ntype: memory\nlearned: 2026-09-01\nbornDay: 0\npayload: ${JSON.stringify({
@@ -316,10 +319,12 @@ describe("a store written before the floor is refused by name, and never touched
     expect(detail["expected"]).toBe(SCHEMA_VERSION);
     expect(detail["readableBy"]).toBe("floor/v5-last");
 
-    // NOTHING MOVED. Not one byte, and no new file: no `counterparts.sqlite`
-    // minted beside the old one, no `cache/` created, no v6 DDL run, and above
-    // all `schemaVersion` still reads 5 and `memories` still has no `body`.
+    // NOTHING MOVED. Not one byte, and NOT ONE DIRECTORY — `cache/` is the
+    // constructor's first write on every other open, so its absence here is the
+    // ordering proved rather than asserted. A fingerprint hashes files only and
+    // would have passed over an empty one.
     expect(fingerprint(source)).toEqual(before);
+    expect(readdirSync(source).sort()).toEqual(["operational.sqlite", "prose", "versions"]);
     expect(existsSync(paths.operational(source))).toBe(false);
     const db = new Database(join(source, "operational.sqlite"), { readonly: true });
     expect(
@@ -355,8 +360,35 @@ describe("a store written before the floor is refused by name, and never touched
       expect(code).toBe("STORE_PRE_ROWS");
     }
     expect(fingerprint(source)).toEqual(before);
-    expect(existsSync(join(source, "spans"))).toBe(false);
-    expect(existsSync(join(source, "sessions"))).toBe(false);
+    // Directories too, and `Counterpart.open` makes three of its own.
+    expect(readdirSync(source).sort()).toEqual(["operational.sqlite", "prose", "versions"]);
+  });
+
+  test("the old database is never OPENED — a garbage `operational.sqlite` refuses the same way", () => {
+    // THE "WITHOUT OPENING IT" CLAIM, PROVED STRUCTURALLY rather than asserted.
+    //
+    // The fixture above is a valid DELETE-mode SQLite file, so a refusal that
+    // quietly opened it to read `meta.schemaVersion` would pass every assertion
+    // there. This one is not a database at all: if anything opened it the error
+    // would be "file is not a database", not `STORE_PRE_ROWS`.
+    //
+    // It is also the WAL worry answered without needing a real `-wal`. The live
+    // store is in WAL since F1, and an open-and-close of it can checkpoint and
+    // delete the log — moving the bytes of the store the refusal exists to leave
+    // alone. Nothing that never opens the file can do that.
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "operational.sqlite"), "not a database, not even close", "utf8");
+    const before = fingerprint(source);
+
+    let code = "NO_THROW";
+    try {
+      Store.open({ dir: source });
+    } catch (err) {
+      code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
+    }
+    expect(code).toBe("STORE_PRE_ROWS");
+    expect(fingerprint(source)).toEqual(before);
+    expect(readdirSync(source)).toEqual(["operational.sqlite"]);
   });
 
   test("a directory holding only prose/ — the database moved away — is refused too", () => {
@@ -375,6 +407,26 @@ describe("a store written before the floor is refused by name, and never touched
     }
     expect(code).toBe("STORE_PRE_ROWS");
     expect(fingerprint(source)).toEqual(before);
+    // No database minted on top of them, and no directory either.
+    expect(readdirSync(source)).toEqual(["prose"]);
+  });
+
+  test("the CONSOLE meets the refusal by name rather than offering to create a store", async () => {
+    // The plan's failure mode (a): the checkout is deployed early by habit. What
+    // makes that a loud broken session rather than a corrupted store is that
+    // every door lands here — and `status` is the door an owner opens first.
+    buildV5Store(source);
+    const before = fingerprint(source);
+    const c = consoleAnswering("");
+    const code = await run(["status", "--dir", source], { io: c.io });
+    expect(code).not.toBe(EXIT.ok);
+    const printed = [...c.out, ...c.err].join("\n");
+    expect(printed).toContain("STORE_PRE_ROWS");
+    // And NOT the sentence that invites somebody to build a store on top of his
+    // old one, which is what `storeExists` answering "no" would have produced.
+    expect(printed).not.toContain("counterparts init");
+    expect(fingerprint(source)).toEqual(before);
+    expect(readdirSync(source).sort()).toEqual(["operational.sqlite", "prose", "versions"]);
   });
 
   test("`storeExists` says YES to a pre-rows store, so every console door reaches the named refusal", () => {

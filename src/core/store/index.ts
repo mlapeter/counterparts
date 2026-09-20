@@ -807,15 +807,18 @@ export class Store {
   }
 
   /**
-   * In-place content revision. Archives the prior version FIRST (§16 G4).
+   * In-place content revision. The prior version is written in the SAME
+   * transaction as the update (§16 G4) — not before it, because there is no
+   * longer a before: the version is a row, not a file copied out of the way.
    *
    * `learnedOn` / `happenedOn` are the PROVENANCE half, and they travel this same
    * door on purpose (§I7, `NOTES.md` 2026-09-05): correcting a date is a change to
-   * canonical prose, so it keeps the prior version exactly the way a body change
+   * canonical content, so it keeps the prior version exactly the way a body change
    * does — constitution 7, nothing is silently overwritten and the old date stays
-   * readable in `versions/`. Both write the prose frontmatter AND the column, in
-   * one transaction, because a document and its query surface disagreeing about a
-   * date is worse than either being wrong alone.
+   * readable in the version. **That is why `versions` carries `learned_on` and
+   * `happened_on` of its own**, which the floor plan did not ask for: with the
+   * dates read off the live row instead, one correction would have silently
+   * rewritten every version behind it.
    */
   revise(
     id: string,
@@ -1405,9 +1408,22 @@ export class Store {
   }
 
   /**
-   * Bounded versioning (contract §4): superseded-version ROWS older than H lived
-   * days stop being tracked. Every discard reports what and how much (scar §2.4).
-   * The archived prose file is left where it is — this module destroys nothing.
+   * Bounded versioning (contract §4): superseded-version rows older than H lived
+   * days go. Every discard reports what and how much (scar §2.4).
+   *
+   * **THIS DELETES THE OWNER'S EARLIER WORDS, and since the floor that is the
+   * plain truth of it.** The line that used to stand here said "the archived
+   * prose file is left where it is — this module destroys nothing", and it was
+   * true: a version row was a NOTE about a file nothing ever unlinked, so the
+   * prune cost the history its index and not one word. The words are IN the row
+   * now, so at H the wording itself is gone.
+   *
+   * Kept anyway, at 90 lived days (owner ruling 1, 2026-09-18), and his reason
+   * is the general steer: simple, elegant working-memory mechanics over keeping
+   * everything, and losing some history after a month or two is an acceptable
+   * price. Our own store sets `retentionDays` high for debugging.
+   * `test/self-page.test.ts` makes the cost visible on the self page, which is
+   * where an owner would feel it first.
    */
   pruneSupersededVersions(): PruneReport {
     const report = this.mutate("pruneSupersededVersions", () => {

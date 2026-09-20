@@ -3247,13 +3247,14 @@ async function removeCommand(
  * which keeps the prior version — constitution 7), and a `salience.defaulted`
  * row in the event log so the daily can count this run.
  *
- * `revise` re-hashes the whole serialized document, so every backfilled row's
- * `content_hash` moves when the flag lands. That is inert by design and not an
- * oversight: `content_hash` addresses the document (id and frontmatter
- * included), which makes it a CHANGE detector, and `sleep/dedup.ts` deliberately
- * hashes the BODY instead — its header says so in as many words. The
- * content-idempotency ledger in `remember/` hashes normalized content and never
- * reads this column at all.
+ * `claimedDefault` is META, and since the floor (2026-09-20) `content_hash` is
+ * `hashText(body)` — so a backfilled row's hash does NOT move when the flag
+ * lands, where before the floor it did (the hash addressed the whole serialized
+ * document, id and frontmatter included). Either way nothing downstream cares:
+ * `sleep/dedup.ts` deliberately hashes the body itself rather than reading this
+ * column, and `remember/`'s content-idempotency ledger hashes normalized content
+ * and never reads it at all. What DOES move, on purpose, is the revision: the
+ * flag goes on through `revise`, which keeps the prior version (constitution 7).
  */
 function backfillClaimsCommand(
   dir: string,

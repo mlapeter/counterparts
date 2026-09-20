@@ -549,14 +549,23 @@ export function planRemoval(
   if (store.deniedIds().includes(targetId)) return none("already-removed");
   // THE SELF PAGE IS NOT REMOVED, IT IS CLEARED (2026-09-18, S1, and the
   // adversarial review that found the dead end). Removal tombstones a row —
-  // blank `prose_path`, id on the deny-list, row still listed — and `schemas/`
-  // reads every `type: "schema"` row's prose at open, so removing the page (or
-  // the identity core, which has had the same exposure since it shipped) left a
-  // store that would not open at all, with the wake hook swallowing the error
-  // so the symptom was silence. The page is also the most conspicuous schema
-  // row an owner has: `enumerate()` lists it and `status` prints its id. So the
-  // console sends him one door along, to the one that keeps the page as a
-  // version and lets him put it back.
+  // blank body, blank content hash, id on the deny-list, row still listed — and
+  // `schemas/` reads every `type: "schema"` row at open, so removing the page
+  // (or the identity core, which has had the same exposure since it shipped)
+  // left a store that would not open at all, with the wake hook swallowing the
+  // error so the symptom was silence.
+  //
+  // *(The floor, 2026-09-20, closed the crash half of that: `Schemas.load`
+  // SKIPS a tombstoned row and counts it, so a removed page no longer takes the
+  // session down. Everything below still holds and is why this door stays —
+  // removal is permanent and the page is the one schema row the owner is
+  // guaranteed to have, so sending him to `--clear` is about being able to put
+  // it back, not only about the store opening.)*
+  //
+  // The page is also the most conspicuous schema row an owner has:
+  // `enumerate()` lists it and `status` prints its id. So the console sends him
+  // one door along, to the one that keeps the page as a version and lets him
+  // put it back.
   if (isSelfPageRow(store, targetId)) return none("is-the-self-page");
 
   // EVERYTHING THAT READS THE DOOMED CONTENT HAPPENS HERE (§16 G13).
