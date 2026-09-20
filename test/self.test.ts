@@ -17,8 +17,10 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  mkdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -64,8 +66,11 @@ import {
   groupDigits,
   identityShareBytes,
   intakeEpisode,
+  journalFileEpisodeId,
   journalFiles,
+  journalFilesFor,
   journalRelativePath,
+  syncJournalCopy,
   prefaceLine,
   rankLanes,
   readSentinel,
@@ -2454,6 +2459,113 @@ describe("the journal's markdown copy", () => {
     };
     walk(fileURLToPath(new URL("../src/", import.meta.url)));
     expect(offenders).toEqual([]);
+  });
+
+  // ── the module owns ONE directory, and a symlink is how it stops being true ─
+
+  /** A directory outside the store, removed by the caller. */
+  function outside(): string {
+    return mkdtempSync(join(tmpdir(), "counterparts-self-away-"));
+  }
+
+  test("MAJOR-1 — a symlinked YEAR directory does not carry a chapter out of the store", () => {
+    const away = outside();
+    try {
+      const s = store();
+      const { self } = chaptered(s, "First, written where it belongs.");
+      const year = join(dir, "journal", "2026");
+      rmSync(year, { recursive: true, force: true });
+      symlinkSync(away, year);
+
+      // `journal/` is the one directory the owner is INVITED to treat as files,
+      // so pointing a year at a synced folder or a vault is a thing a person
+      // does. It must not become a door out of the store: `assertLayout`
+      // classifies the top-level name and never looks inside it.
+      self.openChapter("s1", { turns: 30, bytes: 40_000 });
+      const append = self.appendChapter("s1", "ZQSYMLINKOUT — this must not land outside.");
+      expect(append.reason).toBe("appended");
+      expect(append.copy).toBe("failed");
+      expect(readdirSync(away)).toEqual([]);
+      const rows = s.eventLog({ name: JOURNAL_COPY_FAILED_EVENT });
+      expect(rows.length).toBe(1);
+      expect(
+        JSON.parse((rows[0] as EventRow).payload as string)["reason"],
+      ).toBe("journal-symlink");
+      // The chapter itself is safe, which is the whole bargain.
+      expect(s.readProse(append.episodeId as string).body).toContain("ZQSYMLINKOUT");
+    } finally {
+      rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  test("MAJOR-1 — the removal arm never unlinks THROUGH a symlink", () => {
+    const away = outside();
+    try {
+      const s = store();
+      const { episodeId } = chaptered(s, "An episode with a copy.");
+      const rel = journalFiles(dir)[0] as string;
+      const name = rel.slice(rel.lastIndexOf("/") + 1);
+      const year = join(dir, "journal", "2026");
+      rmSync(year, { recursive: true, force: true });
+      // A file OUTSIDE the store wearing the name this episode's copy would
+      // wear, reached only through the link.
+      writeFileSync(join(away, name), "somebody else's file", "utf8");
+      symlinkSync(away, year);
+
+      // Tombstone the row, then ask the copy to follow the invariant.
+      s.appendRemovalRecord({ memoryId: episodeId, stage: "dark", actor: "owner", reason: "test" });
+      const result = syncJournalCopy(s, episodeId);
+      expect(result.outcome).toBe("failed");
+      expect(result.reason).toBe("journal-symlink");
+      // The file outside the store is untouched — a removal that deleted it
+      // would be this module destroying something it does not own.
+      expect(existsSync(join(away, name))).toBe(true);
+      // …and it is not listed as one of ours either.
+      expect(journalFiles(dir)).toEqual([]);
+    } finally {
+      rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  test("MAJOR-1 — `journal` ITSELF being a symlink is refused, not followed", () => {
+    const away = outside();
+    try {
+      const s = store();
+      rmSync(join(dir, "journal"), { recursive: true, force: true });
+      symlinkSync(away, join(dir, "journal"));
+      const self = new Self({ store: s, gate: PASS_GATE });
+      self.openChapter("s1", { turns: 9, bytes: 6_000 });
+      const append = self.appendChapter("s1", "ZQROOTLINK — not through the root either.");
+      expect(append.copy).toBe("failed");
+      expect(readdirSync(away)).toEqual([]);
+      rmSync(join(dir, "journal"), { force: true });
+    } finally {
+      rmSync(away, { recursive: true, force: true });
+    }
+  });
+
+  test("MAJOR-4b — only `journal/<year>/<date>-<id>.md` is one of ours", () => {
+    const s = store();
+    chaptered(s, "The real copy.");
+    // A file at the wrong DEPTH wearing a copy's name — which is what an export
+    // smuggled in through a symlinked target used to leave behind. It is not a
+    // copy, so it is neither listed, nor swept, nor counted as "already have".
+    mkdirSync(join(dir, "journal", "sub", "journal", "2026"), { recursive: true });
+    writeFileSync(
+      join(dir, "journal", "sub", "journal", "2026", "2026-09-20-epi_smuggled.md"),
+      "not ours",
+      "utf8",
+    );
+    writeFileSync(join(dir, "journal", "2026-09-20-epi_tooshallow.md"), "not ours either", "utf8");
+    // The walk still SEES them — it is a listing of the directory — but neither
+    // is addressed as a copy, so neither is returned for its apparent episode,
+    // swept as a temp, or counted as a copy that episode already has.
+    expect(journalFiles(dir).length).toBe(3);
+    expect(journalFiles(dir).filter((f) => journalFileEpisodeId(f) !== null)).toEqual([
+      journalFiles(dir).find((f) => /^journal\/2026\/2026-\d{2}-\d{2}-epi_.+\.md$/.test(f)) as string,
+    ]);
+    expect(journalFilesFor(dir, "epi_smuggled")).toEqual([]);
+    expect(journalFilesFor(dir, "epi_tooshallow")).toEqual([]);
   });
 
   test("CONFIDENTIAL does not reach an episode row today — and this is where it will land when it does", () => {

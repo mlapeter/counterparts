@@ -43,7 +43,17 @@
  *     module's own filename and fails on a mention, which is how the
  *     one-importer rule is kept honest.)
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { renderMarkdown, rowTombstoned } from "../store/index.js";
@@ -148,17 +158,65 @@ export function journalRelativePath(doc: Pick<ProseDoc, "id" | "learnedOn">): st
 }
 
 /**
- * The episode id a journal filename addresses, or null.
+ * The episode id a STORE-RELATIVE journal path addresses, or null.
  *
  * It matches the temp form too (`…​.md.tmp-<rand>`), which is the point: a
  * crashed rename leaves a file holding the chapter's words, and a sweep that
  * only knew the final name would walk past it. `<date>-` is a fixed-width
  * prefix so the id comes back EXACTLY rather than by `includes`, which would
  * let `epi_ab` match `epi_abc`'s file.
+ *
+ * **It takes the whole path and pins the DEPTH** (review f6f7 NIT-2, and the
+ * reason MAJOR-4's consequence was worse than mess): it used to match on the
+ * basename, so any `.md` anywhere under `journal/` with a date-shaped name was
+ * treated as a copy — including one an export smuggled in through a symlinked
+ * target, which `journalFilesFor` then returned, the next append deleted as
+ * "stale", and the backfill counted as a copy the episode already had.
+ * Exactly `journal/<year>/<file>` is ours; anything else under that directory
+ * belongs to whoever put it there.
  */
-export function journalFileEpisodeId(name: string): string | null {
-  const m = /^(?:\d{4}-\d{2}-\d{2}|undated)-(.+?)\.md(?:\.tmp-[A-Za-z0-9]+)?$/.exec(name);
+export function journalFileEpisodeId(relativePath: string): string | null {
+  const m =
+    /^journal\/(?:\d{4}|undated)\/(?:\d{4}-\d{2}-\d{2}|undated)-(.+?)\.md(?:\.tmp-[A-Za-z0-9]+)?$/.exec(
+      relativePath,
+    );
   return m === null ? null : (m[1] as string);
+}
+
+/**
+ * THE SYMLINK RULE — what makes "this module owns one directory INSIDE the
+ * store" true rather than intended.
+ *
+ * `journalFiles` used to walk with `statSync`, which FOLLOWS links, and every
+ * arm downstream resolved the same path through them. So a symlink anywhere at
+ * or under `journal/` turned this module into a writer and a deleter outside
+ * the store. Measured by the f6f7 review: a chapter's full body landed in a
+ * directory outside the store, and a removal ceremony deleted a file out there
+ * and reported `chased: journal(1 markdown copy)` for it.
+ *
+ * It is not only an attacker's story. `journal/` is the one directory the owner
+ * is INVITED to treat as files, so pointing a year at an external disk, a synced
+ * folder or a vault is exactly the thing a person does with it. The answer is
+ * not to follow it, and to SAY SO (`journal-symlink`) — a copy that quietly
+ * wrote somewhere else would be worse than one that did not write at all.
+ *
+ * Every component from `journal` down to the file is `lstat`ed. A component that
+ * does not exist is fine: it is about to be created, and nothing beyond it can
+ * exist either. A component that IS a link is refused. `journal` itself is
+ * included, because `mkdirSync(…, { recursive: true })` succeeds straight
+ * THROUGH a symlinked directory — so this has to run before the mkdir, not after.
+ */
+export function journalPathIsLinked(storeDir: string, relativePath: string): boolean {
+  let at = storeDir;
+  for (const part of relativePath.split("/")) {
+    at = join(at, part);
+    try {
+      if (lstatSync(at).isSymbolicLink()) return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 /** True for the temp form only — what a sweep may take and a copy may not. */
@@ -166,11 +224,33 @@ export function isJournalTempName(name: string): boolean {
   return /\.md\.tmp-[A-Za-z0-9]+$/.test(name);
 }
 
-/** Every file under `journal/`, store-relative, sorted. Names only; nothing is
- *  read. Returns [] for a store that has never written one. */
-export function journalFiles(storeDir: string): string[] {
+export interface JournalScan {
+  /** Every REAL file under `journal/`, store-relative, sorted. */
+  readonly files: string[];
+  /** A symlink was found at or under `journal/` and was not followed. The
+   *  module stands down by name when this is true, rather than reporting an
+   *  absence it cannot vouch for. */
+  readonly linked: boolean;
+}
+
+/**
+ * Walk `journal/` without following a single link, and say whether one was
+ * there.
+ *
+ * The `linked` half is not decoration. Skipping what is behind a link makes
+ * this module SAFE; saying so makes it HONEST — otherwise an owner who pointed
+ * `journal/2026` at his vault would get `absent` and "nothing beside the row"
+ * from a module that simply could not see.
+ */
+export function journalScan(storeDir: string): JournalScan {
   const root = journalDir(storeDir);
   const out: string[] = [];
+  let linked = false;
+  try {
+    if (lstatSync(root).isSymbolicLink()) return { files: [], linked: true };
+  } catch {
+    return { files: [], linked: false };
+  }
   const walk = (at: string, rel: string): void => {
     let names: string[];
     try {
@@ -182,23 +262,36 @@ export function journalFiles(storeDir: string): string[] {
       const full = join(at, name);
       const next = rel === "" ? name : `${rel}/${name}`;
       try {
-        if (statSync(full).isDirectory()) walk(full, next);
+        // `lstat`, never `stat`: a symlink is SKIPPED, file or directory alike.
+        // That one word is what keeps every arm downstream — the rewrite, the
+        // removal's unlink, the temp sweep — inside the store, because a path
+        // behind a link is never listed and so is never acted on.
+        const st = lstatSync(full);
+        if (st.isSymbolicLink()) {
+          linked = true;
+          continue;
+        }
+        if (st.isDirectory()) walk(full, next);
         else out.push(`${JOURNAL_DIR}/${next}`);
       } catch {
         /* vanished underneath the walk */
       }
     }
   };
-  if (existsSync(root)) walk(root, "");
-  return out;
+  walk(root, "");
+  return { files: out, linked };
+}
+
+/** Every real file under `journal/`, store-relative, sorted. Names only;
+ *  nothing is read, and nothing behind a symlink is listed. */
+export function journalFiles(storeDir: string): string[] {
+  return journalScan(storeDir).files;
 }
 
 /** Every journal file that addresses `episodeId` — the current name, any name
  *  it wore under an earlier date, and any crashed temp. */
 export function journalFilesFor(storeDir: string, episodeId: string): string[] {
-  return journalFiles(storeDir).filter(
-    (rel) => journalFileEpisodeId(rel.slice(rel.lastIndexOf("/") + 1)) === episodeId,
-  );
+  return journalFiles(storeDir).filter((rel) => journalFileEpisodeId(rel) === episodeId);
 }
 
 /**
@@ -212,7 +305,9 @@ export function sweepJournalTemps(storeDir: string, now = Date.now()): string[] 
   const swept: string[] = [];
   for (const rel of journalFiles(storeDir)) {
     const name = rel.slice(rel.lastIndexOf("/") + 1);
-    if (!isJournalTempName(name)) continue;
+    // OURS, at our depth, and wearing the temp form. A `.tmp-` file somebody
+    // else left under `journal/` is not this sweep's to take.
+    if (!isJournalTempName(name) || journalFileEpisodeId(rel) === null) continue;
     const full = join(storeDir, rel);
     try {
       if (now - statSync(full).mtimeMs < JOURNAL_TEMP_STALE_MS) continue;
@@ -254,12 +349,20 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
     ...extra,
   });
 
-  let existing: string[];
+  // A LINK ANYWHERE AT OR UNDER `journal/` AND THIS MODULE STANDS DOWN, BY
+  // NAME. One rule rather than three: the walk already refuses to look behind
+  // one, so what is left to decide is whether the outcome is an honest
+  // `journal-symlink` or a misleading `absent`/`written`. It is the first,
+  // every time — including the removal arm, where the review watched a file
+  // outside the store get deleted and reported as chased.
+  let scan: JournalScan;
   try {
-    existing = journalFilesFor(store.dir, episodeId);
+    scan = journalScan(store.dir);
   } catch {
     return result("failed", { reason: "journal-unreadable" });
   }
+  if (scan.linked) return result("failed", { reason: "journal-symlink" });
+  const existing = scan.files.filter((rel) => journalFileEpisodeId(rel) === episodeId);
 
   // IS THERE A LIVE EPISODE HERE? A removed row survives as a tombstone (blank
   // body, blank hash) and its id is on the deny-list, and `readProse` refuses a
@@ -283,6 +386,13 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
   if (doc === null) {
     let removed = 0;
     for (const rel of existing) {
+      // Never unlink THROUGH a link. `journalFiles` already refuses to list
+      // what is behind one, so this is the second lock on the same door: the
+      // review's probe planted a file outside the store under a copy's name and
+      // watched the removal ceremony delete it, reporting it as chased.
+      if (journalPathIsLinked(store.dir, rel)) {
+        return result("failed", { reason: "journal-symlink", file: rel });
+      }
       try {
         rmSync(join(store.dir, rel), { force: true });
         removed += 1;
@@ -305,29 +415,43 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
   const bytes = Buffer.byteLength(text, "utf8");
   const target = join(store.dir, rel);
 
+  // EVERY COMPONENT ON THE WAY DOWN, before the mkdir: a linked year directory
+  // is how the review's probe put a chapter's whole body outside the store, and
+  // `mkdirSync(…, { recursive: true })` succeeds straight through one.
+  if (journalPathIsLinked(store.dir, rel)) {
+    return result("failed", { reason: "journal-symlink", file: rel, bytes });
+  }
+
   // A file this episode wore under a different date, and any crashed temp of
   // its own, go first: two files for one episode is the state where "delete
   // `journal/` and it comes back" stops being true.
+  const strandedStale: string[] = [];
   for (const stale of existing) {
     if (stale === rel) continue;
     try {
       rmSync(join(store.dir, stale), { force: true });
     } catch {
-      /* named below if it matters; the write is the thing that must land */
+      // NAMED, not swallowed (review f6f7 NIT-3). It used to carry a comment
+      // promising it was "named below" and nothing below named it, so two files
+      // for one episode was a state that could exist and be reported `written`.
+      strandedStale.push(stale);
     }
   }
 
   try {
-    if (existsSync(target) && readFileSync(target, "utf8") === text) {
+    if (
+      strandedStale.length === 0 &&
+      !lstatSync(target).isSymbolicLink() &&
+      readFileSync(target, "utf8") === text
+    ) {
       return result("unchanged", { file: rel, bytes });
     }
   } catch {
-    /* unreadable means rewrite it, which is the derived copy's whole answer */
+    /* not there, or unreadable: rewrite it, which is a derived copy's answer */
   }
 
   // ATOMIC: write a temp beside it and rename. A reader opening the file mid
-  // write must see the previous chapter or this one, never half a sentence —
-  // and `journal/` is backed up, so a torn file would ride into a snapshot.
+  // write must see the previous chapter or this one, never half a sentence.
   // The temp is named `<final>.md.tmp-<rand>` so that ONE matcher finds the
   // file, its older date, and a crashed temp (`journalFileEpisodeId`).
   const temp = `${target}.tmp-${Math.random().toString(36).slice(2, 10)}`;
@@ -342,6 +466,12 @@ export function syncJournalCopy(store: Store, episodeId: string): JournalCopyRes
       /* the sweep takes it later; it is bounded and it is inside the store */
     }
     return result("failed", { reason: "write-failed", file: rel, bytes });
+  }
+  // The copy landed — and if an older name for this same episode would not go,
+  // SAY SO rather than report a clean write over a store that now holds two
+  // files for one episode.
+  if (strandedStale.length > 0) {
+    return result("failed", { reason: "stale-copy-stranded", file: strandedStale[0] as string, bytes });
   }
   return result("written", { file: rel, bytes });
 }
@@ -362,7 +492,7 @@ export function journalBackfillTargets(store: Store, limit: number): string[] {
   try {
     have = new Set(
       journalFiles(store.dir)
-        .map((rel) => journalFileEpisodeId(rel.slice(rel.lastIndexOf("/") + 1)))
+        .map((rel) => journalFileEpisodeId(rel))
         .filter((id): id is string => id !== null),
     );
   } catch {
