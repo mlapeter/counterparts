@@ -170,7 +170,10 @@ export interface ChildResult {
   readonly timedOut: boolean;
   readonly error: string | null;
 }
-export type PageWriterStarter = (plan: PageWriterPlan) => Promise<ChildResult>;
+export type PageWriterStarter = (
+  plan: PageWriterPlan,
+  signal?: AbortSignal,
+) => Promise<ChildResult>;
 
 export interface PageWriterRunResult {
   readonly ran: boolean;
@@ -196,6 +199,17 @@ export async function runPageWriter(opts: {
   configPath?: string;
   baseEnv?: Readonly<Record<string, string | undefined>>;
   start?: PageWriterStarter;
+  /**
+   * THE WORKER'S OWN WATCHDOG, and it outranks this one.
+   *
+   * The two numbers can disagree — the worker's is five minutes by default and
+   * this child's is ten — and without this the worker would sit in its `finally`
+   * for twice the life its own contract states, holding the store open past the
+   * moment everything else in the run had given up. So the child is killed when
+   * the worker's watchdog fires, and the run is recorded as `failed(watchdog)`
+   * exactly as its own timeout would be. Whichever alarm rings first wins.
+   */
+  signal?: AbortSignal;
 }): Promise<PageWriterRunResult> {
   const { counterpart, config } = opts;
   const mode = pageWriterMode(config);
@@ -241,7 +255,7 @@ export async function runPageWriter(opts: {
   const before = counterpart.selfPage();
   let result: ChildResult;
   try {
-    result = await (opts.start ?? startChild)(plan);
+    result = await (opts.start ?? startChild)(plan, opts.signal);
   } catch (err) {
     record(counterpart, { about, outcome: "failed", detail: code(err), considered, omitted });
     return { ran: true, about, outcome: "failed", detail: code(err) };
@@ -311,28 +325,51 @@ function code(err: unknown): string {
   return err instanceof Error ? err.name : "UNKNOWN";
 }
 
-/** The real starter: one child, its own watchdog, nothing inherited on stdio. */
-async function startChild(plan: PageWriterPlan): Promise<ChildResult> {
+/** The real starter: one child, two watchdogs, nothing inherited on stdio. */
+async function startChild(plan: PageWriterPlan, abort?: AbortSignal): Promise<ChildResult> {
   return await new Promise<ChildResult>((resolve) => {
     let settled = false;
+    let killed = false;
+    let off: (() => void) | null = null;
     const done = (r: ChildResult): void => {
       if (settled) return;
       settled = true;
+      off?.();
       resolve(r);
     };
     const child = spawn(plan.command, [...plan.args], {
-      // NOT detached: the worker waits for this one. Its own watchdog already
-      // bounds the worker, and a writer nobody waits for is a writer whose
-      // outcome nobody can record.
+      // NOT detached: the worker waits for this one. A writer nobody waits for
+      // is a writer whose outcome nobody can record — and the outcome is the
+      // whole point of the row.
       stdio: "ignore",
       env: { ...plan.env },
       timeout: plan.timeoutMs,
     });
+    // THE WORKER'S WATCHDOG, which may be shorter than this child's. Fired, it
+    // takes the child with it rather than leaving the worker holding the store
+    // open past the life its own contract states.
+    if (abort !== undefined) {
+      const onAbort = (): void => {
+        killed = true;
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* already gone */
+        }
+      };
+      if (abort.aborted) onAbort();
+      else {
+        abort.addEventListener("abort", onAbort, { once: true });
+        off = (): void => {
+          abort.removeEventListener("abort", onAbort);
+        };
+      }
+    }
     child.on("error", (err) => {
       done({ code: null, timedOut: false, error: err.name });
     });
     child.on("close", (exit, signal) => {
-      done({ code: exit, timedOut: signal === "SIGTERM" && exit === null, error: null });
+      done({ code: exit, timedOut: killed || signal === "SIGTERM", error: null });
     });
   });
 }

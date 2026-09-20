@@ -834,6 +834,29 @@ describe("host mode, proved against a stub `claude`", () => {
     expect(c.selfPage()?.body).toBe(PAGE);
   });
 
+  test("the WORKER's watchdog outranks the child's: an abort kills it and the night reads `failed`", async () => {
+    const c = counterpart();
+    seedYesterday(c, ["A placeholder thing noticed yesterday."]);
+    c.revisePage(PAGE, { reason: "a placeholder first page", by: "owner" });
+    const about = pageWriterAbout(c.store.today());
+    const controller = new AbortController();
+    // A stub that would outlive the worker if nothing stopped it. The worker's
+    // watchdog is five minutes and the child's ten; without the signal the
+    // worker would hold the store open for twice the life it promises.
+    const command = stub("sleep 30");
+    const run = runPageWriter({
+      counterpart: c,
+      config: config({ pageWriter: { mode: "host", command } }),
+      signal: controller.signal,
+    });
+    controller.abort();
+    const outcome = await run;
+    expect(outcome.outcome).toBe("failed");
+    expect(outcome.detail).toBe("watchdog");
+    expect(c.pageWriterStatus(about).outcome).toBe("failed");
+    expect(c.selfPage()?.body).toBe(PAGE);
+  });
+
   test("two runs cannot both claim one night", async () => {
     const c = counterpart();
     seedYesterday(c, ["A placeholder thing noticed yesterday."]);

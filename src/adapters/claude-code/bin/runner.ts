@@ -332,6 +332,10 @@ export async function runOnce(input: {
         config,
         ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
         ...(input.startPageWriter === undefined ? {} : { start: input.startPageWriter }),
+        // THE WORKER'S OWN WATCHDOG OUTRANKS THE WRITER'S. They are different
+        // numbers (5 minutes here, 10 for the child by default) and without this
+        // the worker would sit in this `finally` for twice the life it promises.
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
       });
       if (page.ran || page.outcome !== "skipped") {
         emit("runner.page-writer", { outcome: page.outcome, about: page.about, detail: page.detail });
