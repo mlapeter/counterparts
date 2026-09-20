@@ -1022,3 +1022,34 @@ exited 0 — so the ask would have been delivered instead of dropped. That is
 plausibly an improvement and it is not this change's to make: the one thing that
 moves on this branch is that two displayed events gain a `systemMessage`. The
 catch sets `process.exitCode = 0` and a test pins it.
+
+## 2026-09-20 — `adapter.spawn.started`, and a red that was crying wolf
+
+**The other half of I32.** Every spawn REFUSAL has been durable since 2026-09-11, and a
+healthy start still wrote nothing — so a worker dead all week and a week with nothing to
+do left the same nothing, and `fired` could only call the mechanism blind (inventory §2
+row 23). Scar §2.4 is symmetrical: a door that opened and a door nobody opened must not be
+the same absence either.
+
+One row per calendar date, latched at the store exactly like the refusals beside it. A
+boundary is a hot path and a healthy machine reaches many of them; three hundred identical
+rows a day would drown the log the view reads. The day's running count lives in two fixed
+meta keys — two, not one per date, because nothing mows meta and the only question the row
+asks of it is "how many today".
+
+**The keyless red (new-user finding 1).** README says no API keys are required and
+QUICKSTART §6 says the worker still runs the day without one. `doctor` printed RED and
+exited 1 on a brand-new keyless store, and the same sentence arrived in the terminal at
+every session start. All three could not be true; a careful reader concluded their fresh
+install was broken and a trusting one went and bought a key.
+
+The red is kept for the case it was written for — a key that was HERE and has gone — and
+the discriminator is the STORE'S OWN EVIDENCE rather than a marker file, because the thing
+that would write a marker is the thing that is missing. One `gate.chunk` row ever proves
+the interpreter worked here: the crash sweep is the only interpreted write path. Two
+bounded reads, one of them a single indexed row, so it stays inside the session-start
+budget.
+
+The `SessionStart` notice goes quiet with it, because a notice needs a red. That closes
+finding 8 (the truncated fix sentence) sideways rather than by shortening it — the sentence
+would still truncate on a store that HAS lost its key, which is worth fixing on its own.

@@ -152,3 +152,38 @@ object with no process involved.
 before this ruling and call the guard's word lists a superset —
 `store/paths.ts` above `EXPLICIT_DIR_ARMING_VALUES`, `store/NOTES.md`
 2026-09-05, and `store/CONTRACT.md` §5. They are text, not behaviour.
+
+## 2026-09-20 — `mcp.recall`, the first durable row this adapter has ever written
+
+`docs/recall-surfacing-diagnosis-2026-09-18.md` put it plainly: the whole tool surface
+wrote no durable row. `deliberate.ts` ran every time a session went looking for something
+on purpose and left nothing but an in-process ring, so "the session asked and nothing came
+back" and "the session never asked" were the same silence, and `fired` could only mark the
+mechanism blind.
+
+One row per `recall` call, through `Counterpart.noteAdapterEvent` like every other adapter
+fact, so an observer stands down at the core's own seam rather than by a check here.
+
+**What it carries, and what it deliberately does not.** Counts, verdicts, sizes. Never the
+question — `queryChars` is its LENGTH, because a deliberate question is the one string on
+this path that could carry somebody's private words and a row read months later may not
+hold it (scar §2.20). And no memory ids: the counts answer this row's question, and a
+durable pairing of ids with the moment somebody asked for them is a link the store has no
+need of. `recall.credit` carries ids because crediting is *about* those ids; this is not.
+
+**`blockedBy` carries `confidential-withheld`, and the wire still does not.** §9.1 G5 is
+unchanged — a list that announces its gaps leaks their existence, and the caller may be
+any session. The durable row has a different audience: the owner, in the owner's own
+store, where the memory itself is already sitting. Without it, the confidentiality gate
+stays exactly as unreadable as the inventory found it. This is the judgement call in the
+change; it is written down here so that reversing it is a decision rather than a discovery.
+
+**No `dedupKey`.** A tool call is a deliberate act by a session, bounded by the host's own
+tool budget — not a boundary that repeats on a timer. The spawn seam's rows are latched
+because they fire at every boundary; this one is not.
+
+One test narrowed with it, and it was hiding something: "recall writes nothing"
+fingerprinted `operational.sqlite`, which has been in WAL mode since F1 — the file is
+unchanged whatever is written to it until a checkpoint, so that assertion proved nothing
+either way. It now asserts what §9.1 G4 actually guarantees: no memory, no version, no
+use, no `recall.decision` row.
