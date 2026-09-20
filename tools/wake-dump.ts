@@ -15,6 +15,10 @@
  *     (cd <tmp>/master && bun tools/wake-dump.ts) > <tmp>/master.txt
  *     diff <tmp>/master.txt <tmp>/here.txt   # exit 0
  *
+ * `--wide` sweeps the budget instead of sampling it: 5 shapes x 376 budgets =
+ * 1,880 compositions, about 2 MB, ~15 s per tree. Run that before believing the
+ * claim; the narrow default is for checking it has not broken.
+ *
  * It is deterministic by construction: the clock is frozen, the delivery date is
  * stated, every store is built from the same fixed prose, and the wake bundle
  * carries no ids or paths. It writes nothing outside the temp dir it makes and
@@ -33,7 +37,19 @@ import { Counterpart } from "../src/core/counterpart.js";
  *  would make every run differ from every other. */
 const AT = "2026-09-20";
 const NOW = Date.parse(`${AT}T12:00:00Z`);
-const BUDGETS = [400, 900, 2_000, 4_096, 6_000, 9_000, 20_000];
+/**
+ * `--wide` sweeps the budget rather than sampling it, which is what the
+ * adversarial reviewer did to widen this proof from 35 compositions to 2,824.
+ * The narrow set is the default because it runs in a second and catches the
+ * shapes that matter; the wide one is what to run before believing the claim.
+ */
+const WIDE = process.argv.includes("--wide");
+const BUDGETS = WIDE
+  ? [
+      ...Array.from({ length: 256 }, (_, i) => 380 + i * 4),
+      ...Array.from({ length: 120 }, (_, i) => 1_600 + i * 500),
+    ]
+  : [400, 900, 2_000, 4_096, 6_000, 9_000, 20_000];
 
 /** Neutral placeholder prose — a fixture that reads like a real identity is one
  *  somebody later mistakes for one. */

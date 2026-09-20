@@ -22,7 +22,7 @@ Joined at `counterpart.ts` and not inside `self/`: `self/` knows nothing about d
 and gains nothing by learning. The composition root is the one place that holds the
 published bundle, the host's ceiling and the scope at once.
 
-## 2. Why the reserve is CONDITIONAL, and what the unconditional version costs
+## 2. Why the reserve is CONDITIONAL, sized to the real block, and off below a share
 
 `wakeReserveBytes()` adds `HANDOFF_RESERVE_BYTES` to the preface's reserve only while some
 directory in this store holds a live, unexpired handoff.
@@ -42,11 +42,28 @@ The scan `anyLive()` runs is bounded by the number of schema rows of the place k
 a handful, and it is wrapped: a store that will not answer reserves nothing, which composes
 the wake master composes.
 
+**Two more things, both learned from the adversarial review of 2026-09-20 (MAJOR-1).**
+
+- **A flat reserve over-reserved, and other directories paid for it.** 448 was the widest
+  block this module can produce; a real pointer is 250–300 bytes, and the reserve is
+  store-wide while the pointer is per-directory. Measured at a 1,200-byte ceiling, a session
+  in a directory with NO handoff lost 4 of its 6 identity elements; in the directory that
+  DID get the pointer, five memories bought two lines and 295 bytes of unused headroom. So
+  `reserveBytes` now takes the widest block that actually exists — one per directory, newest
+  row per scope — plus a margin, capped at that same 448.
+- **Below a share of the budget the reserve is not taken at all.** A pointer is a fortnight
+  of working context; it is not worth a third of a small wake's memories. The rule is one
+  comparison (`want * 8 <= budget`), which turns the reserve on from about 2,400 bytes up
+  and leaves every smaller ceiling composing exactly what it composed before. At that size
+  the pointer is simply not carried, and `handoff.refused{reason:"no-room"}` says so rather
+  than leaving it to be noticed.
+
 **Named cost: the reserve lags one boundary.** The first handoff a directory ever gets is
 written at a boundary whose composition was already published, so the very next wake in that
 directory may be the one case where the pointer does not fit. It is delivered without the
-pointer, `counterpart.handoff.noroom` is emitted, and the boundary after that has the room.
-Every wake fact behaves this way; it is not worth a second publish to fix.
+pointer, the `no-room` row is written (deduped per row per lived day — it was ring-only, and
+every hook is its own process, so the lag left no trace at all), and the boundary after that
+has the room. Every wake fact behaves this way; it is not worth a second publish to fix.
 
 ## 3. Why `type: "schema"`, `kind: "place"`, `meta.role = "handoff"`
 
@@ -110,12 +127,47 @@ directory's handoff id can read that body. The id only ever appears in that dire
 wake, so this is a hazard for a session that was told an id, not one that can find one. Filed
 in INTERFACE-GAPS §2.
 
+## 5b. What a PRESENT but blank field means, and why archiving is the retirement
+
+`handoff: ""` used to be total silence: `writeHandoffField` returned null, nothing was
+written, and the stale pointer stood. It is the shape a model reaches for when it means
+"the work here is finished" — which is the one thing CONTRACT open question 3 said it must
+not be unable to say — so it is now a CLEAR.
+
+**Archived, not revised to a cleared body.** The self page's precedent points the other way
+(`self/page.ts`, "ONE ROW FOR THE LIFE OF THE PAGE") and it is the right precedent for the
+page and the wrong one here, for one reason: the page must be restorable by an owner who
+cleared it by mistake, so its history has to stay reachable through a live row. A handoff
+has no restore door and wants none — it is working context whose whole design is to be let
+go. Archiving gets every property for free: `handoffRows` filters `archived: false`, so the
+pointer leaves the wake, leaves the reserve and leaves `anyLive` in one move; the words stay
+on the row for an owner who asks for it by id; and the next handoff for that directory mints
+a fresh row rather than reviving a retired one.
+
+**A clear on a directory with no pointer is `nothing-to-clear`, with its own durable row.**
+A session that finished work in a directory that never had a handoff said something true,
+and the honest answer is a named fact rather than a silent success.
+
 ## 6. Why the field is processed BEFORE `session_end` checks `memories`
 
 `session_end` requires a non-empty `memories` array. A session that learned nothing worth
 keeping but is leaving a directory half-finished would otherwise have its handoff thrown away
 with the refusal. So the handoff is written right after the session bind, and its outcome
 rides out on the refusal as well as on the success. The `memories` contract is unchanged.
+
+## 6b. Why `flatten` strips control and format characters
+
+`\s+` is `\n \r \t` and friends. It is not NUL, not ESC and not U+202E. Measured
+(adversarial review MINOR-4), a right-to-left override in a handoff reversed the display of
+everything after it in the delivered wake for any reader that honours bidi, and an ANSI
+escape landed in a prompt that is sometimes rendered in a terminal. Line injection was
+already blocked — the CR case folds here and only one line is ever excerpted — so this
+closes the rest of the class in the same function, where there is one thing to check.
+
+Order matters and is the only subtle part: a control that IS whitespace becomes a space
+first (or `"a\nb"` would join into `"ab"`), everything else in `\p{Cc}` and `\p{Cf}` is
+dropped, and then the ordinary collapse runs so a dropped character cannot leave a double
+space.
 
 ## 7. Why the excerpt reserves three bytes for its ellipsis
 

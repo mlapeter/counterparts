@@ -86,7 +86,12 @@ load-bearing, and this adapter is designed on the assumption that it will be use
 entries take the same optional dimensions — `handoff` (2026-09-20, E1) is a FIELD on the
 call and never one of the entries: it is this directory's working context, filed by
 `core/handoff/`, never a memory, and it is written before the `memories` check so a dump
-with a malformed array does not also lose it — `chapter(session, text[, title])`; the session's observer
+with a malformed array does not also lose it. Three answers, and only the first is silence:
+ABSENT leaves what stands; PRESENT AND BLANK retires this directory's pointer; anything
+that is not text is a named, durable refusal. The no-scope rule (an empty scope, or one
+that is the store's own directory) is asked here because this side has the canonicaliser,
+and the durable row is written by `core/handoff/`, which owns that guarantee —
+`chapter(session, text[, title])`; the session's observer
 role; the launch's session, scope and data dir when the host can supply them.
 **Outputs** — a stored memory (note), ranked memories with a confidence label (recall), a
 census (status), an appended chapter with the episode's id and the chapter number the store

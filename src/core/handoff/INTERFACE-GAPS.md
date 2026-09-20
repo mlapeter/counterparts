@@ -75,7 +75,48 @@ same, once per directory the owner works in.
 here: adding a second read path for one row would be machinery bought against a failure that
 is already being fixed at its root.
 
-## 6. No host but Claude Code passes a scope at wake
+## 6. An AWS SECRET access key survives the shared battery
+
+**Owner:** `core/encode/secrets.ts`, through `bridge.episodeGate()` — NOT this module, and
+NOT fixed here.
+**Needed:** the gate every entrance passes takes credentials out.
+**Have:** it takes most of them out. The adversarial review of 2026-09-20 put a fake AWS
+key pair in a handoff and measured this:
+
+```
+aws-looking: written=true reason=revised redacted=yes gate=null
+   stored = "[REDACTED:aws-access-key-id] and the secret wJalr…EXAMPLEKEY (…)"
+```
+
+The access key **id** is redacted; the **secret** beside it is stored verbatim. Everything
+else thrown at it behaved: a body that is only a key is refused `empty-after-redaction`, a
+model-provider key inside prose is redacted and the writer is told, a GitHub token and a
+PEM block are refused.
+
+This is the SHARED battery, so the journal and the self page have it too. It is recorded
+here because E1's own CONTRACT calls a handoff "the prose most likely to carry a token",
+which makes it this module's business to say the guarantee is narrower than it sounds — and
+because a fix belongs in `encode/secrets.ts` where every entrance gets it at once, not in a
+special case for one row class.
+
+## 7. The SELF PAGE is queued for embedding, and this module is not
+
+**Owner:** `self/` (S1), with `store/#notForEmbedding` as the seam.
+**Needed:** nothing from this module — it is already excluded.
+**Have:** `store/#unembeddedIds` skips a `type: "schema"` row whose `meta.role` is
+`handoff`, so a handoff never gets a vector and never puts a floor under the embed backlog
+`doctor` watches. **The self page is in exactly the same position and is NOT skipped**:
+measured, `missingVectors()` contains it. It is also a schema row, also delivered whole at
+every wake, and also skipped by `activate`, so a vector for it can no more reach a turn
+than a handoff's could — and it is also, by S1's own argument, up to 16 KB of the most
+identity-bearing prose in the store.
+
+Not fixed here, and said loudly rather than quietly: whether the page should carry a vector
+is S1's question, and answering it from this seam would be one module deciding another's
+policy in a one-line predicate. `test/handoff.test.ts` asserts the page is still in that
+list, so the day somebody changes it, the assertion is what tells them E1 was watching.
+
+## 8. No host but Claude Code passes a scope at wake
 
 **Owner:** whoever writes the next adapter.
 **Needed:** `Counterpart.wake(budget, delivery, here)`'s third argument.

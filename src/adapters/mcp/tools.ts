@@ -408,8 +408,13 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "`handoff` is a FIELD on this call and NEVER a memory: it is filed against this directory alone, is never recalled, never consolidated, never becomes identity, and stops being shown after about a fortnight of use. A newer one replaces the older, which is kept as a version.",
+        "`handoff` is a FIELD on this call and NEVER a memory: it is filed against this directory alone, is never recalled, never embedded, never consolidated, never becomes identity, and stops being shown after about a fortnight of use. A newer one replaces the older, which is kept as a version.",
       mechanizedBy: "src/core/handoff/index.ts#Handoffs.write",
+    },
+    {
+      claim:
+        "Sending `handoff` empty RETIRES this directory's pointer rather than doing nothing: the row is archived, its words stay readable by id, and a durable row says it happened. Leaving the field out leaves what stands.",
+      mechanizedBy: "src/core/handoff/index.ts#Handoffs.clear",
     },
     {
       claim:
@@ -428,7 +433,7 @@ const SESSION_END: ToolSpec = {
       handoff: {
         type: "string",
         description:
-          "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two. The next session in this directory sees a one-line pointer to it at its wake and can expand it by id; it stops showing after about two weeks of use. Setting it REPLACES whatever handoff this directory had — so if an earlier handoff said the work was half done and it is now finished, say that: 'nothing unfinished here' is a real handoff and is the only way to retire a stale one. Leaving it out leaves the previous one standing.",
+          "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two, and lead with the sentence you want the next session to read first — that first line is what it sees. It can expand the rest by id; the pointer stops showing after about two weeks of use. Setting it REPLACES whatever handoff this directory had. Send it EMPTY (\"\") to retire the pointer when the work here is finished — that is the only way to clear a stale one. Leaving the field out leaves the previous one standing.",
       },
       memories: {
         type: "array",

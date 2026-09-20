@@ -50,6 +50,7 @@ import { REF_KIND } from "../src/adapters/dashboard/web/narrate.js";
 import { TOOL_NAMES, openServer, toolSpec } from "../src/adapters/mcp/index.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { canonicalScope } from "../src/adapters/sessions.js";
+import { run as cliRun } from "../src/adapters/cli/index.js";
 
 const HERE = "/tmp/placeholder-project-a";
 const THERE = "/tmp/placeholder-project-b";
@@ -99,6 +100,34 @@ function counterpart(opts: Parameters<typeof Counterpart.open>[0] = {}): Counter
 function eventNames(s: Store): string[] {
   return s.eventLog({ limit: 1000 }).map((r) => r.name);
 }
+
+/** A console the CLI can write to, and answer prompts from. */
+function consoleLines(answers: readonly string[] = []): {
+  io: CliIo;
+  out: string[];
+  err: string[];
+} {
+  const out: string[] = [];
+  const err: string[] = [];
+  const queue = [...answers];
+  return {
+    io: {
+      out: (line: string) => out.push(line),
+      err: (line: string) => err.push(line),
+      ...(answers.length > 0
+        ? { prompt: async (): Promise<string> => queue.shift() ?? "" }
+        : {}),
+    },
+    out,
+    err,
+  };
+}
+
+function runCli(argv: readonly string[], io: Parameters<typeof cliRun>[1]["io"]): Promise<number> {
+  return cliRun(argv, { io, env: { COUNTERPARTS_DATA_DIR: dir } });
+}
+
+type CliIo = Parameters<typeof cliRun>[1]["io"];
 
 // ── the row ─────────────────────────────────────────────────────────────────
 
@@ -746,6 +775,45 @@ describe("the field on the session_end ask", () => {
     );
     expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe("no-scope");
     expect(s.counterpart.store.list({ type: "schema", kind: HANDOFF_KIND })).toHaveLength(0);
+    // …and the refusal is DURABLE, which is what MAJOR-2a was about: this door
+    // used to short-circuit with a ring-only event and no row at all.
+    expect(eventNames(s.counterpart.store)).toContain(HANDOFF_REFUSED_EVENT);
+  });
+
+  test("a PRESENT but blank field retires this directory's pointer, over the wire", async () => {
+    const s = mcp();
+    await s.call("session_end", {
+      session: SESSION,
+      memories: [{ content: "The empty-input case is the one still failing in the rewrite." }],
+      handoff: BODY,
+    });
+    expect(s.counterpart.readHandoff(HERE)?.body).toBe(BODY);
+    const out = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "The empty-input case is handled and the rewrite is done." }],
+        handoff: "   ",
+      }),
+    );
+    const handoff = out["handoff"] as Record<string, unknown>;
+    expect(handoff["written"]).toBe(true);
+    expect(handoff["reason"]).toBe("cleared");
+    expect(s.counterpart.readHandoff(HERE)).toBeNull();
+    expect(eventNames(s.counterpart.store)).toContain(HANDOFF_CLEARED_EVENT);
+  });
+
+  test("a field that is not text is a NAMED, durable refusal — never a silence", async () => {
+    const s = mcp();
+    const out = payload(
+      await s.call("session_end", {
+        session: SESSION,
+        memories: [{ content: "Something learned while the handoff field carried a number." }],
+        handoff: 42,
+      }),
+    );
+    expect((out["handoff"] as Record<string, unknown>)["reason"]).toBe("not-text");
+    expect(eventNames(s.counterpart.store)).toContain(HANDOFF_REFUSED_EVENT);
+    expect(s.counterpart.readHandoff(HERE)).toBeNull();
   });
 
   test("an observer stands down over the wire, handoff and all", async () => {
@@ -986,6 +1054,75 @@ describe("the review's findings, each with the thing that was wrong", () => {
     expect(REF_KIND["handoff.written"]).toBe("handoff");
     expect(REF_KIND["handoff.shown"]).toBe("handoff");
     expect(REF_KIND["handoff.written"]).not.toBe("memory");
+  });
+});
+
+// ── MAJOR-3, answered on the v6 floor ───────────────────────────────────────
+
+/**
+ * A HANDOFF ROW WHOSE WORDS ARE GONE, in the two shapes F5 tells apart.
+ *
+ * Before the floor landed, both stood every session down out of `Schemas.load`
+ * — s1c's MAJOR-1 with a new row class, and E1 is what multiplies the rows it
+ * can happen to, since there is one per directory and it is written
+ * automatically. On v6 they are two different worlds, and this is the pair of
+ * tests that says which.
+ */
+describe("a handoff row whose words are gone", () => {
+  /** Reach into box 2 the way a half-written repair or a disk event would. */
+  function blank(s: Store, id: string, tombstone: boolean): void {
+    const db = (s as unknown as { ops: { run: (sql: string, ...a: unknown[]) => void } }).ops;
+    if (tombstone) db.run("UPDATE memories SET body = '', content_hash = '' WHERE id = ?", id);
+    else db.run("UPDATE memories SET body = '' WHERE id = ?", id);
+  }
+
+  test("TOMBSTONED (body and hash both blank): the session starts, and the pointer is simply absent", () => {
+    const first = counterpart();
+    const id = first.writeHandoff(BODY, { scope: HERE }).id as string;
+    blank(first.store, id, true);
+    first.store.close();
+    open.length = 0;
+
+    // F5 taught `Schemas.load` to skip a tombstone by name, so this no longer
+    // stands the session down — the row is gone from the index and from every
+    // reader here, and the wake goes out as if the directory had no handoff.
+    const c = counterpart();
+    expect(c.readHandoff(HERE)).toBeNull();
+    expect(c.handoffs.anyLive()).toBe(false);
+    c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
+    const woke = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE });
+    expect(woke.ok).toBe(true);
+    expect(woke.text).not.toContain("Where I left off");
+  });
+
+  test("FAULTED (blank body, real hash): the session stands down — and `remove` is the exit", async () => {
+    const first = counterpart();
+    const id = first.writeHandoff(BODY, { scope: HERE }).id as string;
+    blank(first.store, id, false);
+    first.store.close();
+    open.length = 0;
+
+    // This IS the named fault F5 introduced, and it is loud on purpose: an
+    // empty body with a hash that still names it is a state no write path in
+    // this build produces.
+    expect(() => counterpart()).toThrow();
+
+    // `verify` names the row — the id is the only handle there is on this
+    // floor — and exits non-zero rather than printing a green census over it.
+    const before = consoleLines();
+    expect(await runCli(["verify"], before.io)).not.toBe(0);
+    expect(before.err.join("\n")).toContain(id);
+    expect(before.err.join("\n")).toContain("Rows whose words are missing");
+
+    // And the exit the message names works for a handoff row like any other:
+    // removing it tombstones it, and sessions start again.
+    const c = consoleLines([id]);
+    const code = await runCli(["remove", id, "--confirm", "--reason", "faulted row"], c.io);
+    expect(`${String(code)} ${c.err.join(" | ")}`).toBe("0 ");
+    const after = counterpart();
+    expect(after.readHandoff(HERE)).toBeNull();
+    after.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
+    expect(after.wake(9_000, { date: "2026-09-20" }, { scope: HERE }).ok).toBe(true);
   });
 });
 
