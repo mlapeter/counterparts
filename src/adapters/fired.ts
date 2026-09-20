@@ -454,6 +454,19 @@ export const MECHANISMS: readonly Mechanism[] = [
     covers: ["self.page.refused"],
     since: "2026-09-18",
   },
+  // The nightly writer (2026-09-20, S2) is its own row and not a `covers` on the
+  // one above, because the two answer different questions. `self-page` asks "has
+  // the page ever been amended", and a page the owner typed makes it green
+  // forever; this asks "did last night happen", which is the question a page
+  // that has stopped growing is the symptom of. A night that read the day and
+  // had nothing to say still fires this row — that is the mechanism working.
+  {
+    id: "page-writer",
+    label: "the day just lived was read back and my page was offered a revision",
+    module: "self/writer.ts",
+    evidence: { kind: "event", names: ["self.page.writer.ran"] },
+    since: "2026-09-20",
+  },
   {
     id: "wake-injected",
     label: "that briefing was handed to the host at the start of a session",

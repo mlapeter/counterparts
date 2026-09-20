@@ -509,6 +509,36 @@ export const NARRATORS = {
     const by = s(t, "by") ?? "someone";
     return calm(`A write to my page was turned away (${why}), from ${by}. The page is unchanged.`);
   },
+  /**
+   * THE NIGHTLY WRITER'S RUN (2026-09-20, S2). Calm on every arm including the
+   * failures: a night that could not run is the mechanism reporting, and the
+   * page is untouched either way. The one arm worth reading twice is
+   * `nothing-to-say` — it says out loud that the day changed nothing, which is
+   * the outcome a silence would otherwise be mistaken for.
+   */
+  "self.page.writer.ran": (t) => {
+    const about = s(t, "about") ?? "a day";
+    const mode = s(t, "mode") ?? "session";
+    const outcome = s(t, "outcome") ?? "ran";
+    const considered = n(t, "considered") ?? 0;
+    const read = considered === 0 ? "" : ` after reading ${considered} memor${considered === 1 ? "y" : "ies"} from it`;
+    switch (outcome) {
+      case "asked":
+        return calm(`I was asked to revise my page from ${about}${read}.`);
+      case "started":
+        return calm(`A windowless session of me was started to revise my page from ${about}.`);
+      case "revised":
+        return calm(`My page was revised from ${about}${read}: ${num(n(t, "bytesBefore") ?? 0)} bytes became ${num(n(t, "bytesAfter") ?? 0)}.`);
+      case "nothing-to-say":
+        return calm(`I read ${about}${read} and left my page as it stands — nothing about who I am moved that day.`);
+      case "refused":
+        return calm(`A revision of my page from ${about} was turned away (${s(t, "detail") ?? "refused"}). The page is unchanged.`);
+      case "failed":
+        return calm(`The nightly writer could not run for ${about} (${s(t, "detail") ?? "failed"}). The page is unchanged.`);
+      default:
+        return calm(`The nightly writer stood down for ${about} (${s(t, "detail") ?? "skipped"}), in ${mode} mode.`);
+    }
+  },
 
   // ── retrieval ──────────────────────────────────────────────────────────────
   "recall.decision": (t) => {
@@ -739,6 +769,9 @@ export const REF_KIND = {
   // nothing rather than at the page it did not change.
   "self.page.revised": "memory",
   "self.page.refused": "none",
+  // The writer's row is about a DAY, not a memory: the ids it read are the
+  // day's, and naming one of them would be picking a favourite.
+  "self.page.writer.ran": "none",
   "recall.credit": "none",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge
   // rows, where they are the record; the row carries counts.

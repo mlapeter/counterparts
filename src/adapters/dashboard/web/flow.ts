@@ -366,6 +366,9 @@ export const EVENT_NODE = {
   // wake node: written at one boundary, read at every one after it.
   "self.page.revised": "wake",
   "self.page.refused": "wake",
+  // The nightly writer belongs to the same node for the same reason: what it
+  // produces is the first thing the next wake prints.
+  "self.page.writer.ran": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
   // The wiring that follows that decision: what the reply used together got
