@@ -132,6 +132,25 @@ export interface SessionRecord {
    * `askedScope`.
    */
   readonly wakeChecked?: boolean;
+  /**
+   * THE DATE THIS SESSION WAS ASKED TO WRITE ITS PAGE ABOUT (2026-09-20, S2),
+   * `YYYY-MM-DD`, in the fallback `session` mode of the nightly page writer.
+   *
+   * It does two jobs, and the second is why it is here rather than only in the
+   * store's event log:
+   *
+   *   - it stops the same session being asked twice, exactly as `askedScope`
+   *     does for the first-launch question;
+   *   - it is what lets the MCP server write `by: "writer"` rather than
+   *     `by: "session"` on the revision that comes back. `by` is the DOOR's and
+   *     is not claimable from outside (`self/page.ts`), so the server may not
+   *     take the model's word for which door it came through — it reads this
+   *     mark, which only the SessionStart hook writes, and which names a date
+   *     rather than a boolean so a stale mark cannot re-label tomorrow's write.
+   *
+   * Still host state, still no content: one date beside the id and the scope.
+   */
+  readonly pageWriterFor?: string;
 }
 
 /**
@@ -234,6 +253,9 @@ export function recordSession(
     wakeSentinel?: string;
     /** Set once, when the delivery check has left its row. One-way. */
     wakeChecked?: boolean;
+    /** The date the nightly page writer asked this session to write about
+     *  (S2). Carried forward like `config`; the newest answer wins. */
+    pageWriterFor?: string;
   },
 ): SessionRecord | null {
   if (!isSessionId(input.sessionId)) return null;
@@ -275,6 +297,15 @@ export function recordSession(
     // checked, and the flag is what stops the transcript being re-read at every
     // turn for the rest of the session.
     ...(input.wakeChecked === true || prior?.wakeChecked === true ? { wakeChecked: true } : {}),
+    // Carried like `config` rather than one-way, because it names a DATE: a
+    // session that lives across midnight and is asked again gets the new date,
+    // and a phase written by a process that knows nothing about the writer
+    // keeps the one already there.
+    ...(input.pageWriterFor !== undefined && input.pageWriterFor.length > 0
+      ? { pageWriterFor: input.pageWriterFor }
+      : prior?.pageWriterFor !== undefined
+        ? { pageWriterFor: prior.pageWriterFor }
+        : {}),
   };
 
   try {
@@ -348,5 +379,11 @@ function parseRecord(raw: unknown): SessionRecord | null {
       ? { wakeSentinel: rec["wakeSentinel"] }
       : {}),
     ...(rec["wakeChecked"] === true ? { wakeChecked: true } : {}),
+    // Optional for the same reason, and read as a DATE rather than a flag: a
+    // value that is not a date is no mark at all, so a hand-edited record
+    // cannot talk the MCP server into writing `by: "writer"`.
+    ...(typeof rec["pageWriterFor"] === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rec["pageWriterFor"])
+      ? { pageWriterFor: rec["pageWriterFor"] }
+      : {}),
   };
 }

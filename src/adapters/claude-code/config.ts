@@ -25,6 +25,8 @@
  */
 import { isAbsolute } from "node:path";
 
+import { PAGE_WRITER_MODES } from "../../core/self/index.js";
+import type { PageWriterMode } from "../../core/self/index.js";
 import { DEFAULT_KEEP as SNAPSHOT_DEFAULT_KEEP } from "../snapshots.js";
 
 import type { CredentialLoad } from "./credentials.js";
@@ -133,6 +135,14 @@ export const TUNABLES = {
   /** Detached-worker watchdog, ms. Validated against `remember/`'s staleness
    *  window by `validateWatchdog` before any spawn (scars E4/E5). */
   WATCHDOG_MS: 5 * 60_000,
+  /** The nightly page writer's own watchdog in `host` mode, ms. Longer than the
+   *  worker's because the child is a whole host session — it loads MCP servers,
+   *  runs SessionStart hooks and then makes a model call — and shorter than any
+   *  person would wait, because a writer still running at the next boundary is a
+   *  writer that failed. It bounds a process this package STARTED; unlike the
+   *  worker's it is not validated against `remember/`'s claim staleness, because
+   *  it claims no spans. */
+  PAGE_WRITER_MS: 10 * 60_000,
   /** Output headroom for the interpreter. A truncated JSON response is a
    *  failure, not data (scar E2) — headroom is how you stop paying for one. */
   MAX_OUTPUT_TOKENS: 16_000,
@@ -257,6 +267,38 @@ export interface AdapterConfig {
      */
     readonly ignored?: readonly string[];
   };
+  /**
+   * THE NIGHTLY PAGE WRITER (2026-09-20, S2), and it defaults to `session`.
+   *
+   * `session` — the plan's fallback, and the one that needs no background
+   * process: the first session of the next day is asked, beside its wake, to
+   * revise the page from the day just gone. `host` — the owner's pick: a
+   * windowless `claude -p` started by the boundary's worker, woken by the
+   * ordinary SessionStart hook, with one pre-approved tool. `off` — nothing
+   * runs and nothing is written.
+   *
+   * **Absent means `session`, not off**, and that is a deliberate choice rather
+   * than an oversight: S2 is how a new user's page forms at all (plan §3), and
+   * a mechanism that only works for people who found a configuration key is not
+   * the product. The cost of the default being wrong is one extra block beside
+   * the wake, at most twice a day, deferred rather than truncated when the
+   * ceiling has no room for it — and `"mode": "off"` is one line.
+   *
+   * Read STRICTLY, like every block here but `snapshots`: `host` starts a
+   * process, which is exactly the class of knob the F2 ruling said must not
+   * resolve to "on" through a typo.
+   */
+  readonly pageWriter?: {
+    readonly mode: PageWriterMode;
+    /**
+     * The host CLI to launch in `host` mode. Absent ⇒ `claude`, resolved on the
+     * child's PATH. Named here because the one machine this has to work on is
+     * the owner's, and because a test proves the whole path against a stub.
+     */
+    readonly command?: string;
+    /** The watchdog for that child, ms. Absent ⇒ `TUNABLES.PAGE_WRITER_MS`. */
+    readonly timeoutMs?: number;
+  };
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
   /** An instrument stands down. Fail direction: an unreadable config lands here. */
@@ -296,6 +338,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     embedder?: { enabled: boolean };
     parallel?: { enabled: boolean };
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
+    pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number };
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -395,6 +438,41 @@ export function loadConfig(raw: unknown): LoadedConfig {
       unreadable = true;
     } else {
       out.parallel = { enabled: p["enabled"] };
+    }
+  }
+  // The page writer's knob, read as strictly as the egress one and for the same
+  // reason: `host` starts a process, and a half-written block must not resolve
+  // to it. An ABSENT block is not an error — it resolves to `session` at the one
+  // place that asks (`pageWriterMode`), so the default lives in one function
+  // rather than having to be written into every configuration file.
+  const pageWriter = rec["pageWriter"];
+  if (pageWriter !== undefined) {
+    const w = pageWriter as Record<string, unknown>;
+    if (
+      typeof pageWriter !== "object" ||
+      pageWriter === null ||
+      Array.isArray(pageWriter) ||
+      typeof w["mode"] !== "string" ||
+      !(PAGE_WRITER_MODES as readonly string[]).includes(w["mode"])
+    ) {
+      unreadable = true;
+    } else {
+      const command = w["command"];
+      const timeoutMs = w["timeoutMs"];
+      if (command !== undefined && (typeof command !== "string" || command.trim().length === 0)) {
+        unreadable = true;
+      } else if (
+        timeoutMs !== undefined &&
+        (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0)
+      ) {
+        unreadable = true;
+      } else {
+        out.pageWriter = {
+          mode: w["mode"] as PageWriterMode,
+          ...(typeof command === "string" ? { command: command.trim() } : {}),
+          ...(typeof timeoutMs === "number" ? { timeoutMs } : {}),
+        };
+      }
     }
   }
   // THE ONE LENIENT BLOCK. See the `snapshots` knob above for why: a backup
@@ -537,6 +615,20 @@ function readSnapshots(raw: unknown): {
  * that remembered it globally would leak between the runs of a test suite and
  * lie about which source answered.
  */
+/**
+ * WHICH MODE THE NIGHTLY PAGE WRITER RUNS IN — the one place the default lives.
+ *
+ * Absent ⇒ `session`: the fallback that needs no background process, so a store
+ * a stranger installed grows a page without them configuring anything. An
+ * observer is `off` whatever the file says, for the reason every stance check
+ * in this package gives: an instrument does not set writers going against a
+ * store it may not write.
+ */
+export function pageWriterMode(config: AdapterConfig): PageWriterMode {
+  if (config.observer === true) return "off";
+  return config.pageWriter?.mode ?? "session";
+}
+
 export function capabilities(
   config: AdapterConfig,
   env: NodeJS.ProcessEnv = process.env,

@@ -2058,6 +2058,12 @@ export class Counterpart {
     return this.self.pageWriterRuns(opts);
   }
 
+  /** Is that night's claim still open? What the page's door asks before it
+   *  writes `by: "writer"` rather than `by: "session"`. Pure. */
+  pageWriterClaimOpen(about: string, today?: string): boolean {
+    return this.self.pageWriterClaimOpen(about, today);
+  }
+
   /** The unaskable tail — bounded and measured, never pretended away (§2 G12). */
   noteOrphanTail(
     sessionId: string,

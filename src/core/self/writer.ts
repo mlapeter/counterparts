@@ -119,6 +119,13 @@ export type PageWriterDue =
 export interface PageWriterRun {
   /** The calendar date the run is ABOUT — the day whose memories it read. */
   readonly about: string;
+  /**
+   * The calendar date the run HAPPENED on. Both dates are carried because a
+   * claim is only in flight while the day that made it is still running: a
+   * session that lives past midnight must not go on answering for a night that
+   * is over. "" on a row written before this field existed.
+   */
+  readonly on: string;
   /** The lived day the run happened on. */
   readonly day: number;
   readonly mode: PageWriterMode;
@@ -213,6 +220,7 @@ export function pageWriterRuns(store: Store, opts: { about?: string; limit?: num
     const mode = payload["mode"];
     out.push({
       about,
+      on: typeof payload["on"] === "string" ? payload["on"] : "",
       day: row.day,
       mode: (PAGE_WRITER_MODES as readonly string[]).includes(mode as string)
         ? (mode as PageWriterMode)
@@ -236,8 +244,15 @@ function numberOr(v: unknown, fallback: number): number {
 /**
  * HOW A DATE CAME OUT, with the derivation named.
  *
- * The newest terminal row wins. With only a claim (`asked`/`started`) and the
- * date behind us, the reading is `nothing-to-say` and `derived` is true.
+ * The newest terminal row wins. With only a claim (`asked`/`started`), the
+ * reading turns on WHEN THE CLAIM WAS MADE, not on which day it is about: a
+ * claim made today is a run in flight, and a claim made on a day that has ended
+ * is a night that was handed the day and wrote nothing — `nothing-to-say`, with
+ * `derived` true, because nobody reported it and the reading is ours.
+ *
+ * A claim carrying no `on` (a row written before that field existed) is treated
+ * as still in flight, which is the direction that never puts words in the
+ * writer's mouth.
  */
 export function pageWriterStatus(store: Store, about: string, today: string): PageWriterStatus {
   const runs = pageWriterRuns(store, { about });
@@ -249,8 +264,7 @@ export function pageWriterStatus(store: Store, about: string, today: string): Pa
   if (claim === undefined) {
     return { about, outcome: "skipped", derived: true, run: null, attempts: 0 };
   }
-  // A claim still standing on TODAY'S date is a run in flight, not a verdict.
-  const over = about < today;
+  const over = claim.on !== "" && claim.on < today;
   return {
     about,
     outcome: over ? "nothing-to-say" : claim.outcome,
@@ -258,6 +272,16 @@ export function pageWriterStatus(store: Store, about: string, today: string): Pa
     run: claim,
     attempts: runs.length,
   };
+}
+
+/**
+ * IS THIS CLAIM STILL OPEN — the question the MCP server asks before it writes
+ * `by: "writer"` on a revision. True only while the day that made the claim is
+ * still running and nothing terminal has closed it.
+ */
+export function pageWriterClaimOpen(store: Store, about: string, today: string): boolean {
+  const status = pageWriterStatus(store, about, today);
+  return status.run !== null && !status.derived && (status.outcome === "asked" || status.outcome === "started");
 }
 
 /** The newest attempt on this store, whatever date it was about. Null if none. */

@@ -108,6 +108,7 @@ import type { SelfPage, SelfPageAuthor } from "./page.js";
 import {
   SELF_PAGE_WRITER_EVENT,
   dayMemories,
+  pageWriterClaimOpen,
   pageWriterDue,
   pageWriterRuns,
   pageWriterStatus,
@@ -955,6 +956,9 @@ export class Self {
     const day = run.day ?? this.store.livedDay();
     const payload = {
       about: run.about,
+      // The date the run HAPPENED on, beside the one it is about: a claim is
+      // only in flight while the day that made it is still running.
+      on: this.store.today(),
       mode: run.mode,
       outcome: run.outcome,
       detail: run.detail ?? "",
@@ -990,6 +994,12 @@ export class Self {
   /** Every recorded attempt, newest first. Pure. */
   pageWriterRuns(opts: { about?: string; limit?: number } = {}): PageWriterRun[] {
     return pageWriterRuns(this.store, opts);
+  }
+
+  /** Is that night's claim still open — the question the page's door asks
+   *  before it writes `by: "writer"` on a revision. Pure. */
+  pageWriterClaimOpen(about: string, today?: string): boolean {
+    return pageWriterClaimOpen(this.store, about, today ?? this.store.today());
   }
 
   /**

@@ -1140,9 +1140,17 @@ export class McpServer {
           "`ifVersion` is the whole number the read gave you as `version` (-1 when there was no page), or leave it out.",
       });
     }
+    // WHICH DOOR THIS IS. `by` is the door's and is not claimable from outside
+    // (`self/page.ts`), so the model's word for "I am the nightly writer" is
+    // worth nothing here. What the server reads instead is the mark the
+    // SessionStart hook left on this session's registry record when it handed
+    // over the page-writer ask, and it is a DATE: a session asked to write
+    // about 09-19 writes `writer` for that run and nothing else, and a stale
+    // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
+    const writerFor = this.pageWriterMark();
     const written = this.counterpart.revisePage(body, {
       reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
-      by: "session",
+      by: writerFor === null ? "session" : "writer",
       // WHICH SESSION, when this server has one. `note` resolves it the same
       // way; null is recorded rather than a guess (adversarial review M3).
       session: this.session,
@@ -1153,7 +1161,26 @@ export class McpServer {
       reason: written.reason,
       bytes: written.bytes,
       version: written.version,
+      writerFor,
     });
+    // THE NIGHT'S OWN ROW, closed here because this is where the answer arrives.
+    // Both arms are recorded: a refused revision is the writer having run and
+    // been turned away, which is a different fact from a night that never
+    // started, and only the row can tell them apart afterwards. A recording
+    // failure costs the row and never the write (§5 G7).
+    if (writerFor !== null) {
+      try {
+        this.counterpart.recordPageWriterRun({
+          about: writerFor,
+          mode: "session",
+          outcome: written.written ? "revised" : "refused",
+          detail: written.written ? "" : written.reason,
+          bytesAfter: written.written ? written.bytes : 0,
+        });
+      } catch {
+        /* the page is written; the bookkeeping is not worth the answer */
+      }
+    }
     if (!written.written) {
       return this.refuse("self_page", written.reason, {
         bytes: written.bytes,
@@ -1248,6 +1275,30 @@ export class McpServer {
    *      says which of the four it was, because a model that cannot tell
    *      "unknown id" from "wrong project" cannot do anything about either.
    */
+  /**
+   * IS THIS SESSION THE NIGHT'S WRITER, and for which day?
+   *
+   * `by` on a page revision is the DOOR's and is not claimable from outside
+   * (`self/page.ts`), so this server may not take a tool argument's word for it.
+   * The evidence is a mark only the SessionStart hook writes — `pageWriterFor`,
+   * a DATE, on this session's registry record (`adapters/sessions.ts`) — and it
+   * counts only while that night's claim is still open: a session that lives
+   * past midnight, or one whose night has already been answered, writes as an
+   * ordinary session again. Null on every other path, including an unbound
+   * server, which is the direction that never over-claims.
+   */
+  private pageWriterMark(): string | null {
+    const id = this.session;
+    if (id === null) return null;
+    try {
+      const about = readSession(this.registryDir, id)?.pageWriterFor;
+      if (about === undefined || about.length === 0) return null;
+      return this.counterpart.pageWriterClaimOpen(about) ? about : null;
+    } catch {
+      return null;
+    }
+  }
+
   private requireBoundSession(claimed: unknown, tool: ToolName): ToolResult | null {
     const bound = this.session;
     if (bound !== null) {

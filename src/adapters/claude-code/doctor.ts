@@ -60,6 +60,12 @@ import type { EventRow } from "../../core/store/index.js";
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
 import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
+import {
+  hasDayBefore,
+  lastPageWriterRun,
+  pageWriterAbout,
+  pageWriterStatus,
+} from "../../core/self/writer.js";
 import type { AskReason } from "../../core/self/episodes.js";
 // The what-fired reading, shared with the console's `fired` command and the
 // dashboard's health panel so the three cannot disagree about what "silent"
@@ -72,7 +78,7 @@ import {
   readSnapshotsDir,
   resolveSnapshotsDir,
 } from "../snapshots.js";
-import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES } from "./config.js";
+import { API_KEY_ENV, EMBED_KEY_ENV, TUNABLES, pageWriterMode } from "./config.js";
 import type { AdapterConfig } from "./config.js";
 import { CREDENTIAL_NAMES } from "./credentials.js";
 import type { CredentialLoad } from "./credentials.js";
@@ -1562,6 +1568,89 @@ export function selfPageFindings(store: Store): Finding[] {
   ];
 }
 
+/**
+ * THE NIGHTLY PAGE WRITER (2026-09-20, S2) — one line: has last night happened,
+ * and what did it come to.
+ *
+ * **GREEN when it has never run on a store younger than a day**, and that is
+ * the whole design of this line rather than a leniency. A mechanism that fires
+ * once a night cannot have fired on a store installed this morning, and a line
+ * that says something is wrong from the moment it lands is a line people learn
+ * to read past — the same rule `fired.ts` states for its `blind` rows and the
+ * same one `selfPageFindings` follows for an absent page.
+ *
+ * Green also for a night that read the day and had nothing to say: that is the
+ * mechanism working, and it is stated in words rather than left as a silence.
+ *
+ * AMBER, with a fix, on the two readings that mean something has stopped: the
+ * writer is switched off while a page exists (somebody turned it off and the
+ * page will now only move by hand), and a run that failed or was refused. Never
+ * red: nothing here can cost a session its memory.
+ */
+export function pageWriterFindings(store: Store, config: AdapterConfig): Finding[] {
+  const mode = pageWriterMode(config);
+  const today = dateOf(store.now());
+  const about = pageWriterAbout(today);
+  const last = lastPageWriterRun(store);
+  const page = readSelfPage(store);
+  const data = {
+    mode,
+    lastAbout: last?.about ?? "",
+    lastOutcome: last?.outcome ?? "",
+    ran: last !== null,
+  };
+  if (mode === "off") {
+    return [
+      finding(
+        "page-writer",
+        page === null ? "green" : "amber",
+        "Page writer",
+        page === null
+          ? "off — nothing writes the self page on its own, and no page has been written by hand either"
+          : "off — the page stands, and from here it only changes when somebody writes it",
+        page === null
+          ? ""
+          : 'Turn it back on with "pageWriter": { "mode": "session" } in claude-code.json, or leave it off deliberately.',
+        data,
+      ),
+    ];
+  }
+  if (last === null) {
+    // NEVER RUN. On a store with no yesterday that is the correct state and
+    // says so; on one that has lived a day it is still green, because the
+    // mechanism runs at the NEXT session start and has not been given a turn.
+    const young = !hasDayBefore(store, today);
+    return [
+      finding(
+        "page-writer",
+        "green",
+        "Page writer",
+        young
+          ? `${mode} mode; never run — this store has no day before ${today} yet`
+          : `${mode} mode; never run — the next session start is its first turn (${about})`,
+        "",
+        { ...data, young },
+      ),
+    ];
+  }
+  const status = pageWriterStatus(store, last.about, today);
+  const when = `last ran for ${last.about}${last.on === "" ? "" : ` on ${last.on}`}`;
+  const detail = `${mode} mode; ${when} — ${status.outcome}${status.derived ? " (derived: it was handed the day and wrote nothing)" : ""}${status.run !== null && status.run.detail.length > 0 && !status.derived ? `, ${status.run.detail}` : ""}`;
+  const bad = status.outcome === "failed" || status.outcome === "refused";
+  return [
+    finding(
+      "page-writer",
+      bad ? "amber" : "green",
+      "Page writer",
+      detail,
+      bad
+        ? "counterparts fired --dir <store> --observer shows the run's own row; counterparts self-page --write amends the page by hand meanwhile."
+        : "",
+      { ...data, outcome: status.outcome, derived: status.derived },
+    ),
+  ];
+}
+
 /** A page that was written and then cleared: when, why, and what is restorable.
  *  Null when no page row exists at all. */
 function clearedPage(
@@ -1812,6 +1901,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["vectors", () => vectorFindings(store)],
     ["snapshot", () => snapshotFindings(input, store)],
     ["self-page", () => selfPageFindings(store)],
+    ["page-writer", () => pageWriterFindings(store, input.config)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

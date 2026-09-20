@@ -71,7 +71,8 @@ import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase, SessionRecord } from "../sessions.js";
 
-import { capabilities, interpretSeat } from "./config.js";
+import { writerInstruction } from "../../core/self/index.js";
+import { capabilities, interpretSeat, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
 import { CREDENTIAL_FILE_EVENT, credentialRow } from "./credentials.js";
@@ -267,6 +268,33 @@ export const SCOPE_ASK = [
 
 /** The room the question needs, separator included. Measured, never guessed. */
 export const SCOPE_ASK_BYTES = Buffer.byteLength(`\n\n${SCOPE_ASK}`, "utf8");
+
+/**
+ * THE NIGHTLY PAGE WRITER'S ASK, in `session` mode (S2, 2026-09-20).
+ *
+ * The plan's fallback for "who runs the nightly writer", and the one that needs
+ * no background process: when nothing has revised the page for the day just
+ * gone, the first session of the next day is handed that day and asked to do
+ * the night's work. It rides in `HookResult.ask` — beside the wake, never
+ * inside it — for the reason the scope question does: the wake's byte count and
+ * its tail sentinel are load-bearing, and text appended inside the bundle would
+ * make `bytes`, the sentinel's number and the tail disagree.
+ *
+ * **It is not a second pacer.** The scar this package carries about pacers
+ * (`self/CONTRACT.md` §3, "one ask, one pacer, a conjunction") is about the
+ * BLOCKED MOMENT at Stop, where two asks on two substance pacers once drew
+ * about a dozen asks from a 13-turn evening. Nothing here touches that: this
+ * fires at SessionStart, it consults no substance, and its cadence is the day
+ * boundary itself — at most `PAGE_WRITER_ASKS_PER_DAY` sessions are handed one
+ * day, and the first durable row claims it for everyone.
+ *
+ * The TEXT is the core's (`self/writer.ts#writerInstruction`), because it
+ * carries the page and the day and those are memory, not host trivia. What is
+ * mechanized here is that the moment exists, that it fits inside the reported
+ * ceiling or is deferred rather than truncated, that one session is asked once,
+ * and that the ask leaves a durable row (CONTRACT §5 G9).
+ */
+export const PAGE_WRITER_TOOL = "counterparts self_page";
 
 /**
  * THE ONE STOP ASK — v2's front door and its journal, in one text.
@@ -526,7 +554,17 @@ export class ClaudeCodeAdapter {
       // smuggled past the limit — the session record is left unmarked, so the
       // next session in this directory asks instead, and the deferral is an
       // event rather than a silence.
+      //
+      // TWO ASKS CAN NOW WANT THIS FIELD, and the first-launch question wins.
+      // It is asked once in the life of a directory and ends when anybody
+      // answers; the page writer's comes back tomorrow at no cost. Concatenating
+      // them would put two unrelated requests in front of a session that has
+      // just woken, which is the shape §13 G3 is about even though the pacer is
+      // not. The loser is DEFERRED with a row, never dropped silently.
       const ask = wantsAsk ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
+      const chosen =
+        ask.length > 0 ? ask : this.deliverPageWriterAsk(input, woke.bytes, budget, false);
+      if (ask.length > 0) this.deliverPageWriterAsk(input, woke.bytes, budget, true);
       return {
         ...out,
         ok: woke.ok,
@@ -534,7 +572,7 @@ export class ClaudeCodeAdapter {
         injection: woke.text,
         bytes: woke.bytes,
         sentinel: woke.sentinel,
-        ask: ask.length === 0 ? null : ask,
+        ask: chosen.length === 0 ? null : chosen,
       };
     });
   }
@@ -593,6 +631,108 @@ export class ClaudeCodeAdapter {
     });
     this.emit("adapter.scope.ask", { bytes: SCOPE_ASK_BYTES, recorded: marked !== null });
     return SCOPE_ASK;
+  }
+
+  /**
+   * THE NIGHTLY PAGE WRITER'S ASK, in `session` mode — build it, check it fits,
+   * claim the day, and hand it back. Returns the block, or the empty string.
+   *
+   * `standDownOnly` is for the pass where the first-launch question took the
+   * field: the verdict is still computed and the deferral still leaves a ring
+   * event, so "why was I not asked" is answerable, but nothing is claimed and
+   * nothing is recorded — a day that was never offered must stay owed.
+   *
+   * **The whole body is fail-open.** A writer that cannot be composed costs the
+   * ASK and never the wake (§1 G7): every throw below lands in the catch, the
+   * session gets its bundle, and the ring says which step gave up.
+   */
+  private deliverPageWriterAsk(
+    input: HookInput,
+    wakeBytes: number,
+    budget: number | undefined,
+    standDownOnly: boolean,
+  ): string {
+    try {
+      const mode = pageWriterMode(this.config);
+      const due = this.counterpart.pageWriterDue({ mode });
+      if (!due.due) {
+        // `already-claimed` and `no-previous-day` are the ordinary answers on
+        // most mornings; emitting a line for each of them at every session
+        // start is how a ring becomes unreadable. Only the two that mean
+        // something stood the mechanism down get one.
+        if (due.reason === "off" || due.reason === "asks-spent") {
+          this.emit("adapter.page.writer.skipped", { reason: due.reason, about: due.about });
+        }
+        return "";
+      }
+      if (input.sessionId.length === 0) return "";
+      // ALREADY ASKED, IN THIS SESSION. `noteSession("start")` has already run
+      // by the time this is called and it rewrites the record whole — but it
+      // CARRIES `pageWriterFor` forward, the way it carries `config`, so the
+      // mark a previous SessionStart in this same session left is still here.
+      // A compaction re-firing SessionStart must not re-ask.
+      const record = readSession(this.counterpart.store.dir, input.sessionId);
+      if (record?.pageWriterFor === due.about) return "";
+      if (standDownOnly) {
+        this.emit("adapter.page.writer.deferred", { reason: "scope-question", about: due.about });
+        return "";
+      }
+      const built = this.counterpart.pageWriterInput({ about: due.about });
+      const text = writerInstruction(built, { tool: PAGE_WRITER_TOOL });
+      const bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+      if (budget !== undefined && wakeBytes + bytes > budget) {
+        // DEFERRED, never truncated and never smuggled past the ceiling — the
+        // same rule the scope question follows. The day is left unclaimed, so
+        // the next session in any directory is offered it instead.
+        this.emit("adapter.page.writer.deferred", {
+          reason: "no-room",
+          about: due.about,
+          wakeBytes,
+          budget,
+          need: bytes,
+        });
+        return "";
+      }
+      // THE CLAIM, and it is durable rather than a flag on this session: two
+      // boundaries, or two machines' worth of hooks against one store, must not
+      // both set a night going. It is written BEFORE the text is handed over,
+      // so a crash between the two costs one day's revision rather than an
+      // unbounded re-ask (the same order `openChapter` commits in).
+      const claimed = this.counterpart.recordPageWriterRun({
+        about: due.about,
+        mode: "session",
+        outcome: "asked",
+        detail: `attempt ${String(due.attempt)}`,
+        bytesBefore: built.page?.bytes ?? 0,
+        considered: built.memories.length,
+        omitted: built.omitted,
+      });
+      const marked = recordSession(this.counterpart.store.dir, {
+        sessionId: input.sessionId,
+        scope: input.scope,
+        phase: "start",
+        at: this.nowFn(),
+        pageWriterFor: due.about,
+        ...(this.configPath === undefined || this.configPath.length === 0
+          ? {}
+          : { config: this.configPath }),
+      });
+      this.emit("adapter.page.writer.ask", {
+        about: due.about,
+        attempt: due.attempt,
+        bytes,
+        considered: built.memories.length,
+        omitted: built.omitted,
+        claimed,
+        recorded: marked !== null,
+      });
+      return text;
+    } catch (err) {
+      this.emit("adapter.page.writer.failed", {
+        code: err instanceof Error ? err.name : "UNKNOWN",
+      });
+      return "";
+    }
   }
 
   // ── the turn ───────────────────────────────────────────────────────────────
