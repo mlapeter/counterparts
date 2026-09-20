@@ -1600,6 +1600,23 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
     lastOutcome: last?.outcome ?? "",
     ran: last !== null,
   };
+  // A BLOCK THAT COULD NOT BE READ IS AMBER, AND IT SAYS WHICH KEY. The block is
+  // lenient now (S2 review), so a typo costs the setting rather than the store's
+  // memory — but a setting that silently did nothing is the other half of that
+  // failure, and this is the line that stops it being silent.
+  const ignored = config.pageWriter?.ignored ?? [];
+  if (ignored.length > 0) {
+    return [
+      finding(
+        "page-writer",
+        "amber",
+        "Page writer",
+        `${mode} mode; ${ignored.join("; ")}`,
+        "Fix the pageWriter block in claude-code.json. Nothing else in the file was affected, and memory is unaffected.",
+        { ...data, ignored: ignored.join(" | ") },
+      ),
+    ];
+  }
   if (mode === "off") {
     // GREEN, always. Off is a setting somebody chose, and a diagnostic that
     // grades a deliberate choice as a fault is the shape of line people learn to

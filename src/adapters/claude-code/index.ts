@@ -20,6 +20,7 @@ export {
   embedSeat,
   embedderState,
   interpretSeat,
+  PAGE_WRITER_FALLBACK_MODE,
   loadConfig,
   pageWriterMode,
   seatStatus,
@@ -76,8 +77,11 @@ export {
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   HOOKS,
+  ASK_SEPARATOR_BYTES,
+  PAGE_WRITER_TOOL,
   SCOPE_ASK,
   SCOPE_ASK_BYTES,
+  SCOPE_PATIENCE_DEFERRALS,
   SESSION_ENDING,
   SPAWN_REFUSAL_PREFIX,
   substanceOf,
@@ -118,9 +122,11 @@ export type {
 
 export {
   DEFAULT_HOST_COMMAND,
+  KILL_GRACE_MS,
   MCP_SELF_PAGE_TOOL,
   PAGE_WRITER_ENV,
   PERMISSION_MODE,
+  REAP_GRACE_MS,
   planPageWriter,
   runPageWriter,
 } from "./page-writer.js";

@@ -952,6 +952,9 @@ export class Self {
     considered?: number;
     omitted?: number;
     day?: number;
+    /** One row per key, ever. For the rows that would otherwise repeat at every
+     *  session start of every day — a deferral has no other bound. */
+    dedupKey?: string;
   }): boolean {
     const day = run.day ?? this.store.livedDay();
     const payload = {
@@ -972,7 +975,12 @@ export class Self {
       return false;
     }
     try {
-      this.store.appendEvent({ name: SELF_PAGE_WRITER_EVENT, day, payload });
+      this.store.appendEvent({
+        name: SELF_PAGE_WRITER_EVENT,
+        day,
+        payload,
+        ...(run.dedupKey === undefined ? {} : { dedupKey: run.dedupKey }),
+      });
     } catch {
       this.emit("self.page.writer.unrecorded", undefined, { about: run.about, outcome: run.outcome });
       return false;

@@ -284,9 +284,13 @@ export interface AdapterConfig {
    * the wake, at most twice a day, deferred rather than truncated when the
    * ceiling has no room for it — and `"mode": "off"` is one line.
    *
-   * Read STRICTLY, like every block here but `snapshots`: `host` starts a
-   * process, which is exactly the class of knob the F2 ruling said must not
-   * resolve to "on" through a typo.
+   * **Read LENIENTLY**, the second of the two blocks here that are (S2 review,
+   * 2026-09-20). It was written strict — `host` starts a process — and the
+   * argument does not hold on its own terms: `mode` is an exact-string
+   * allowlist, so a typo cannot resolve to `host` under a lenient reading
+   * either. Strictness bought nothing and cost the owner his memory for one
+   * misspelling in an optional block. The fallback is PINNED to `session`, each
+   * bad field names itself in `ignored`, and doctor's Page writer line says so.
    */
   readonly pageWriter?: {
     readonly mode: PageWriterMode;
@@ -298,6 +302,10 @@ export interface AdapterConfig {
     readonly command?: string;
     /** The watchdog for that child, ms. Absent ⇒ `TUNABLES.PAGE_WRITER_MS`. */
     readonly timeoutMs?: number;
+    /** What this file could not read inside the block, phrased for a person.
+     *  Empty is absent. A REPORT, not a stance — doctor is what puts it in
+     *  front of somebody. */
+    readonly ignored?: readonly string[];
   };
   /** Is this the owner's own session? Withholding is the safe direction. */
   readonly owner?: boolean;
@@ -338,7 +346,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     embedder?: { enabled: boolean };
     parallel?: { enabled: boolean };
     snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
-    pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number };
+    pageWriter?: { mode: PageWriterMode; command?: string; timeoutMs?: number; ignored?: string[] };
     owner?: boolean;
     observer?: boolean;
     identity?: { name: string; aliases?: readonly string[] };
@@ -440,42 +448,30 @@ export function loadConfig(raw: unknown): LoadedConfig {
       out.parallel = { enabled: p["enabled"] };
     }
   }
-  // The page writer's knob, read as strictly as the egress one and for the same
-  // reason: `host` starts a process, and a half-written block must not resolve
-  // to it. An ABSENT block is not an error — it resolves to `session` at the one
-  // place that asks (`pageWriterMode`), so the default lives in one function
-  // rather than having to be written into every configuration file.
+  // THE SECOND LENIENT BLOCK, and it became one under review (S2, 2026-09-20).
+  //
+  // It was written strict, beside the egress knob, on the argument that `host`
+  // STARTS A PROCESS and a half-written block must not resolve to it. The
+  // adversarial review took that argument apart on its own terms: `mode` is
+  // matched against an exact-string allowlist, so a typo cannot resolve to
+  // `host` under a lenient reading either — it can only resolve to the
+  // fallback. Strictness bought no protection against the stated risk and cost
+  // the owner his memory for one misspelling in an OPTIONAL block:
+  // `{"mode": "sesion"}` stood the whole configuration down to observer,
+  // `dataDir` went with it, and every session in that directory silently
+  // stopped remembering with one doctor line about the file as a whole.
+  // That is precisely the failure the F2 ruling moved `snapshots` out of
+  // strictness to avoid.
+  //
+  // So it falls back, and **the fallback is pinned to `session` and can never
+  // be `host`** — which is the one protection strictness was for, kept. Each
+  // bad field names itself in `ignored`, and doctor's Page writer line prints
+  // it. Nothing in here ever sets `unreadable`.
   const pageWriter = rec["pageWriter"];
   if (pageWriter !== undefined) {
-    const w = pageWriter as Record<string, unknown>;
-    if (
-      typeof pageWriter !== "object" ||
-      pageWriter === null ||
-      Array.isArray(pageWriter) ||
-      typeof w["mode"] !== "string" ||
-      !(PAGE_WRITER_MODES as readonly string[]).includes(w["mode"])
-    ) {
-      unreadable = true;
-    } else {
-      const command = w["command"];
-      const timeoutMs = w["timeoutMs"];
-      if (command !== undefined && (typeof command !== "string" || command.trim().length === 0)) {
-        unreadable = true;
-      } else if (
-        timeoutMs !== undefined &&
-        (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0)
-      ) {
-        unreadable = true;
-      } else {
-        out.pageWriter = {
-          mode: w["mode"] as PageWriterMode,
-          ...(typeof command === "string" ? { command: command.trim() } : {}),
-          ...(typeof timeoutMs === "number" ? { timeoutMs } : {}),
-        };
-      }
-    }
+    out.pageWriter = readPageWriter(pageWriter);
   }
-  // THE ONE LENIENT BLOCK. See the `snapshots` knob above for why: a backup
+  // THE FIRST LENIENT BLOCK. See the `snapshots` knob above for why: a backup
   // preference that could not be read must cost the backup preference and
   // nothing else. Nothing in here ever sets `unreadable`.
   const snapshots = rec["snapshots"];
@@ -507,8 +503,68 @@ export function loadConfig(raw: unknown): LoadedConfig {
 }
 
 /**
- * The `snapshots` block, read leniently — the ONE place in this file that never
- * stands the configuration down.
+ * THE FALLBACK MODE, and it is never `host`.
+ *
+ * A block this could not read resolves to the mode that needs no background
+ * process, no credential and no watchdog. "Fall back to the safe thing" and
+ * "fall back to the default" happen to be the same value today; they are
+ * written as one constant so they stay the same value if the default moves.
+ */
+export const PAGE_WRITER_FALLBACK_MODE: PageWriterMode = "session";
+
+/**
+ * The `pageWriter` block, read leniently — every rejection names the field,
+ * what was in it, and what is being used instead.
+ */
+function readPageWriter(raw: unknown): {
+  mode: PageWriterMode;
+  command?: string;
+  timeoutMs?: number;
+  ignored?: string[];
+} {
+  const raws: string[] = [];
+  const out: { mode: PageWriterMode; command?: string; timeoutMs?: number } = {
+    mode: PAGE_WRITER_FALLBACK_MODE,
+  };
+  const done = (): typeof out & { ignored?: string[] } =>
+    raws.length === 0 ? out : { ...out, ignored: tidy(raws) };
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    raws.push(`"pageWriter" was not an object; using mode ${PAGE_WRITER_FALLBACK_MODE}`);
+    return done();
+  }
+  const w = raw as Record<string, unknown>;
+  const mode = w["mode"];
+  if (typeof mode === "string" && (PAGE_WRITER_MODES as readonly string[]).includes(mode)) {
+    out.mode = mode as PageWriterMode;
+  } else if (mode !== undefined) {
+    raws.push(
+      `"pageWriter.mode" was ${JSON.stringify(mode)}, which is not ${PAGE_WRITER_MODES.join(", ")}; using ${PAGE_WRITER_FALLBACK_MODE}`,
+    );
+  }
+  const command = w["command"];
+  if (typeof command === "string" && command.trim().length > 0) out.command = command.trim();
+  else if (command !== undefined) {
+    raws.push(`"pageWriter.command" was ${JSON.stringify(command)}; using the default host command`);
+  }
+  const timeoutMs = w["timeoutMs"];
+  if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    out.timeoutMs = timeoutMs;
+  } else if (timeoutMs !== undefined) {
+    raws.push(`"pageWriter.timeoutMs" was ${JSON.stringify(timeoutMs)}; using the default watchdog`);
+  }
+  // A key nobody here knows is named rather than passed over: a person who
+  // typed `"modes"` gets told so instead of watching the block do nothing.
+  for (const key of Object.keys(w)) {
+    if (key !== "mode" && key !== "command" && key !== "timeoutMs") {
+      raws.push(`"pageWriter.${key}" is not a setting this reads; it was ignored`);
+    }
+  }
+  return done();
+}
+
+/**
+ * The `snapshots` block, read leniently — the FIRST place in this file that
+ * never stands the configuration down.
  *
  * Every rejection here names the field, what was in it, and what is being used
  * instead, because "ignored silently" is the failure mode this block was moved

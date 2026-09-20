@@ -84,6 +84,7 @@ import {
 } from "./protocol.js";
 import type { Id, Request, Response } from "./protocol.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
+import type { PageWriterMode } from "../../core/self/index.js";
 import { TOOL_NAMES, toolDefinitions, toolSpec } from "./tools.js";
 import type { ToolName } from "./tools.js";
 
@@ -1170,7 +1171,7 @@ export class McpServer {
     // `this.session` is null, so the registry mark is never read, so every
     // night's revision was filed as an ordinary amendment and the night read
     // as "nothing to say" — the exact inverse of the honesty this is for.
-    this.bindForPageWriter(args["session"]);
+    const claimedSession = this.bindForPageWriter(args["session"]);
     // WHICH DOOR THIS IS. `by` is the door's and is not claimable from outside
     // (`self/page.ts`), so the model's word for "I am the nightly writer" is
     // worth nothing here. What the server reads instead is the mark the
@@ -1178,7 +1179,7 @@ export class McpServer {
     // over the page-writer ask, and it is a DATE: a session asked to write
     // about 09-19 writes `writer` for that run and nothing else, and a stale
     // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
-    const writerFor = this.pageWriterMark();
+    const writerFor = this.pageWriterMark(claimedSession);
     const written = this.counterpart.revisePage(body, {
       reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
       by: writerFor === null ? "session" : "writer",
@@ -1330,17 +1331,49 @@ export class McpServer {
    * between this door and `chapter`'s: a page amendment has never needed a
    * session and must not start being refused for lack of one.
    */
-  private bindForPageWriter(claimed: unknown): void {
-    if (typeof claimed !== "string" || claimed.length === 0) return;
-    if (this.session !== null) return;
-    this.requireBoundSession(claimed, "self_page");
+  private bindForPageWriter(claimed: unknown): string | null {
+    if (typeof claimed !== "string" || claimed.length === 0) return null;
+    if (this.session !== null) return this.session === claimed ? claimed : null;
+    // CORROBORATE WITHOUT BINDING (S2 review, MINOR-3). The first version called
+    // `requireBoundSession`, which sets `lazySession` and FREEZES it for the
+    // life of the process — so a page write naming another live in-scope
+    // session would have bound this server to that session, and every later
+    // `note` and `chapter` from it would have been attributed there. The page's
+    // door needs one thing and one thing only: is this id a session I may
+    // label a write with. That is a question, not a binding.
+    const ok = this.corroborate(claimed);
+    if (!ok) {
+      this.emit("mcp.session.unbound", undefined, { reason: "page-writer-claim" });
+      return null;
+    }
+    return claimed;
   }
 
-  private pageWriterMark(): { about: string; mode: "session" | "host" } | null {
+  /** Known to the hooks' registry, live, and in THIS server's scope — the same
+   *  three tests `requireBoundSession` makes, asked without the side effect. */
+  private corroborate(claimed: string): boolean {
+    const record = readSession(this.registryDir, claimed);
+    if (record === null) return false;
+    if (!isLive(record, this.nowFn(), this.sessionTtlMs)) return false;
+    return sameScope(record.scope, this.scope);
+  }
+
+  private pageWriterMark(
+    claimedSession: string | null,
+  ): { about: string; mode: PageWriterMode } | null {
     try {
-      const claim = this.pageWriterClaim();
-      if (claim === null) return null;
-      return this.counterpart.pageWriterClaimOpen(claim.about) ? claim : null;
+      const about = this.pageWriterClaim(claimedSession);
+      if (about === null) return null;
+      // THE MODE COMES FROM THE CLAIM THIS IS CLOSING, not from the channel the
+      // mark arrived by (S2 review, MINOR-2). The env var used to assert
+      // `mode: "host"` on its own, so a session-mode night closed by a process
+      // with that variable exported wrote `mode: host` on a durable row about a
+      // night nothing started in host mode. The open claim knows which it was.
+      const open = this.counterpart
+        .pageWriterRuns({ about })
+        .find((r) => r.outcome === "asked" || r.outcome === "started");
+      if (open === undefined || !this.counterpart.pageWriterClaimOpen(about)) return null;
+      return { about, mode: open.mode };
     } catch {
       return null;
     }
@@ -1356,13 +1389,15 @@ export class McpServer {
    * moment it hands the ask over. Both are checked against the night's claim by
    * the caller, so a value left lying in a shell reaches nothing.
    */
-  private pageWriterClaim(): { about: string; mode: "session" | "host" } | null {
+  private pageWriterClaim(claimedSession: string | null): string | null {
     const pinned = (this.env[PAGE_WRITER_ENV] ?? "").trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(pinned)) return { about: pinned, mode: "host" };
-    const id = this.session;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(pinned)) return pinned;
+    // The session this call NAMED and that corroborated, else the one this
+    // server was launched bound to. Never an uncorroborated claim.
+    const id = claimedSession ?? this.session;
     if (id === null) return null;
     const about = readSession(this.registryDir, id)?.pageWriterFor;
-    return about === undefined || about.length === 0 ? null : { about, mode: "session" };
+    return about === undefined || about.length === 0 ? null : about;
   }
 
   private requireBoundSession(claimed: unknown, tool: ToolName): ToolResult | null {

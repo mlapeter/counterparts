@@ -71,7 +71,12 @@ import type { ExpansionsRead } from "../expansions.js";
 import { pruneSessions, readSession, recordSession } from "../sessions.js";
 import type { SessionPhase, SessionRecord } from "../sessions.js";
 
-import { SELF_TUNABLES, writerInstruction, writerInstructionOverhead } from "../../core/self/index.js";
+import {
+  SELF_PAGE_WRITER_EVENT,
+  SELF_TUNABLES,
+  writerInstruction,
+  writerInstructionOverhead,
+} from "../../core/self/index.js";
 import { capabilities, interpretSeat, pageWriterMode } from "./config.js";
 import { TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
@@ -305,6 +310,28 @@ export const SCOPE_ASK_BYTES = Buffer.byteLength(`\n\n${SCOPE_ASK}`, "utf8");
  * and that the ask leaves a durable row (CONTRACT §5 G9).
  */
 export const PAGE_WRITER_TOOL = "counterparts self_page";
+
+/** The separator `bin/hook.ts#hostDelivery` joins the ask on after the wake. */
+export const ASK_SEPARATOR_BYTES = 2;
+
+/**
+ * How many recorded deferrals the first-launch question gets before the writer
+ * takes the ask field instead.
+ *
+ * ONE, because the two asks are not symmetrical. The scope question is
+ * per-SESSION and comes back at the next one at no cost; the writer's night
+ * happens once, and a night that passes is a day missing from the page for
+ * good. On a blank store the scope question is exactly what is pending on
+ * nights 1–3, so an unanswered one starved the writer for as long as nobody
+ * answered — which on a store where nobody ever does is for ever (S2 review,
+ * MINOR-5).
+ *
+ * It counts DEFERRAL ROWS, which are deduped one per night per reason, so the
+ * flip is "this night has already lost the field once" — the first session of a
+ * day raises the scope question, the second gives the writer its night, and the
+ * third raises the scope question again because the night is claimed by then.
+ */
+export const SCOPE_PATIENCE_DEFERRALS = 1;
 
 /**
  * THE ONE STOP ASK — v2's front door and its journal, in one text.
@@ -571,7 +598,11 @@ export class ClaudeCodeAdapter {
       // them would put two unrelated requests in front of a session that has
       // just woken, which is the shape §13 G3 is about even though the pacer is
       // not. The loser is DEFERRED with a row, never dropped silently.
-      const ask = wantsAsk ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
+      // ...and after two mornings of losing, the writer goes first. The scope
+      // question is advisory and returns at the next session; a night that
+      // passes is a day missing from the page for good (S2 review, MINOR-5).
+      const scopeFirst = wantsAsk && !this.writerStarvedByScope();
+      const ask = scopeFirst ? this.deliverScopeAsk(input, woke.bytes, budget) : "";
       const chosen =
         ask.length > 0 ? ask : this.deliverPageWriterAsk(input, woke.bytes, budget, false);
       if (ask.length > 0) this.deliverPageWriterAsk(input, woke.bytes, budget, true);
@@ -644,6 +675,59 @@ export class ClaudeCodeAdapter {
   }
 
   /**
+   * A NIGHT THAT WAS NOT OFFERED, written down where tomorrow can read it.
+   *
+   * A deferral claims nothing — that is what makes it a deferral — so before
+   * this it left only a ring event, which dies with the hook process. That is
+   * I32's shape on the newest mechanism in the tree: refused every morning,
+   * with nothing durable behind it (S2 review, MINOR-5). The row is `skipped`,
+   * which `pageWriterDue` is explicit about never treating as a claim, and it
+   * is deduped to ONE per date per reason so a ceiling that is too small every
+   * session leaves one line rather than forty.
+   */
+  private noteWriterDeferred(about: string, reason: string): void {
+    try {
+      this.counterpart.recordPageWriterRun({
+        about,
+        mode: "session",
+        outcome: "skipped",
+        detail: reason,
+        dedupKey: `${SELF_PAGE_WRITER_EVENT}:deferred:${about}:${reason}`,
+      });
+    } catch {
+      /* a deferral that cannot be recorded is still a deferral (§5 G7) */
+    }
+  }
+
+  /**
+   * HOW MANY MORNINGS THE FIRST-LAUNCH QUESTION HAS TAKEN THE FIELD.
+   *
+   * The scope question wins the ask field, and on a blank store it is exactly
+   * what is pending on nights 1–3 — so the writer was starved for as long as
+   * nobody answered it, which on a store where nobody ever answers is forever
+   * (S2 review, MINOR-5). After `SCOPE_PATIENCE_DEFERRALS` deferrals the writer
+   * goes first instead: the scope question is advisory and comes back next
+   * session, while a night that passes is a day missing from the page for good.
+   */
+  private writerStarvedByScope(): boolean {
+    try {
+      const runs = this.counterpart.pageWriterRuns({ limit: 64 });
+      // ONCE THE WRITER HAS BEEN ASKED, IT IS NOT STARVED, and the field goes
+      // back to the first-launch question. Without this the priority flipped
+      // permanently: the writer took both of the night's two asks and the scope
+      // question — which is the thing a person actually has to answer — stopped
+      // being raised at all.
+      if (runs.some((r) => r.outcome === "asked")) return false;
+      const deferred = runs.filter(
+        (r) => r.outcome === "skipped" && r.detail === "scope-question",
+      );
+      return deferred.length >= SCOPE_PATIENCE_DEFERRALS;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * THE NIGHTLY PAGE WRITER'S ASK, in `session` mode — build it, check it fits,
    * claim the day, and hand it back. Returns the block, or the empty string.
    *
@@ -690,6 +774,7 @@ export class ClaudeCodeAdapter {
       if (record?.pageWriterFor === due.about) return "";
       if (standDownOnly) {
         this.emit("adapter.page.writer.deferred", { reason: "scope-question", about: due.about });
+        this.noteWriterDeferred(due.about, "scope-question");
         return "";
       }
       const framing = { tool: PAGE_WRITER_TOOL, session: input.sessionId };
@@ -709,13 +794,22 @@ export class ClaudeCodeAdapter {
       // left. A day that could not all fit is delivered SHORT, with `dropped`
       // counted on the run's row; only a block whose own furniture will not fit
       // is deferred.
+      //
+      // **MEASURED AFTER COMPOSING, not predicted before it** (S2 review,
+      // MINOR-1). The estimate was the empty block, which takes the "nothing was
+      // written down" branch; the delivered one takes a longer header, a framing
+      // line and `3 + len` per bullet against a budget charged at 16 + len. The
+      // difference put the composition up to 20 bytes over the host's reported
+      // ceiling. So the estimate only SIZES the day, and the real bytes are
+      // checked afterwards — one extra composition on a path that already
+      // composes twice, and the ceiling becomes a fact instead of an argument.
       const empty = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: 0 });
-      const overhead = writerInstructionOverhead(empty, framing) + 2;
-      const room =
+      const overhead = writerInstructionOverhead(empty, framing) + ASK_SEPARATOR_BYTES;
+      const roomFor = (spent: number): number =>
         budget === undefined
           ? SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES
-          : Math.min(SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES, budget - wakeBytes - overhead);
-      if (room < 0) {
+          : Math.min(SELF_TUNABLES.PAGE_WRITER_MEMORY_BYTES, budget - wakeBytes - spent);
+      const defer = (need: number): string => {
         // DEFERRED, never truncated and never smuggled past the ceiling — the
         // same rule the scope question follows. The day is left unclaimed, so
         // the next session in any directory is offered it instead.
@@ -724,13 +818,40 @@ export class ClaudeCodeAdapter {
           about: due.about,
           wakeBytes,
           budget: budget ?? 0,
-          need: overhead,
+          need,
         });
+        this.noteWriterDeferred(due.about, "no-room");
         return "";
+      };
+      if (roomFor(overhead) < 0) return defer(overhead);
+      let built = this.counterpart.pageWriterInput({
+        about: due.about,
+        budgetBytes: roomFor(overhead),
+      });
+      let text = writerInstruction(built, framing);
+      let bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+      if (budget !== undefined && wakeBytes + bytes > budget) {
+        // One re-composition, against the room the FIRST attempt proved was
+        // really left. It cannot loop: the second budget is smaller than what
+        // the first composition actually spent on memories, so the second block
+        // is strictly shorter.
+        const over = wakeBytes + bytes - budget;
+        const second = roomFor(overhead + over);
+        if (second < 0) return defer(bytes);
+        built = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: second });
+        text = writerInstruction(built, framing);
+        bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+        // Still over after the retry — only reachable when the block's own
+        // furniture is the thing that does not fit — and then it is deferred
+        // rather than delivered over the ceiling.
+        if (wakeBytes + bytes > budget) return defer(bytes);
       }
-      const built = this.counterpart.pageWriterInput({ about: due.about, budgetBytes: room });
-      const text = writerInstruction(built, framing);
-      const bytes = Buffer.byteLength(`\n\n${text}`, "utf8");
+      // A BLOCK THAT CAN CARRY NONE OF THE DAY IS NOT WORTH A NIGHT'S CLAIM
+      // (S2 review, MAJOR-1, the other half). The text is honest about it now —
+      // it says "I could not see the day" rather than "the day was empty" — but
+      // spending one of two asks on a block whose only content is that sentence
+      // is worse than leaving the night owed for a session with more room.
+      if (built.memories.length === 0 && built.dropped > 0) return defer(bytes);
       // THE CLAIM, and it is durable rather than a flag on this session: two
       // boundaries, or two machines' worth of hooks against one store, must not
       // both set a night going. It is written BEFORE the text is handed over,
@@ -761,7 +882,6 @@ export class ClaudeCodeAdapter {
         about: due.about,
         attempt: due.attempt,
         bytes,
-        room,
         considered: built.memories.length,
         dropped: built.dropped,
         omitted: built.omitted,

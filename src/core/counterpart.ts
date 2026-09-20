@@ -2044,6 +2044,7 @@ export class Counterpart {
     considered?: number;
     omitted?: number;
     day?: number;
+    dedupKey?: string;
   }): boolean {
     return this.self.recordPageWriterRun(run);
   }
