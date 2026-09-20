@@ -470,7 +470,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // only be chased in the buffer by matching its body, and matching a body
   // across every project on the machine is how one removal reaches into work
   // nobody named. The dry run lists what it WOULD match; this flag performs it.
-  remove: ["confirm", "reason", "strike-by-content-across-scopes"],
+  remove: ["confirm", "reason", "strike-by-content-across-scopes", "echo-scan"],
   verify: ["rebuild", "drop-vectors", "prune-index", "keep-vectors", "retry-skipped"],
   "migrate-cache": ["apply", "batch", "yes"],
   "backfill-claims": ["apply"],
@@ -601,6 +601,8 @@ const FLAG_HELP: Record<string, string> = {
   reason: "the reason, recorded with the change it makes",
   "strike-by-content-across-scopes":
     "for a memory whose provenance records no project: chase its words through EVERY project's capture buffer (an exact jot, never a substring). Look at what the dry run lists first",
+  "echo-scan":
+    "how many episodes the journal-echo check reads before it stops and says so (default 2000)",
   rebuild: "drop and rebuild the cache instead of counting it",
   "drop-vectors": "let the rebuild lose vectors this console has no embedder to recompute",
   "prune-index": "take the archived and superseded rows out of the text index, keeping the embeddings",
@@ -839,6 +841,7 @@ export function parse(argv: readonly string[]): Parsed {
       "include-confidential": { type: "boolean" },
       "with-versions": { type: "boolean" },
       "into-non-empty": { type: "boolean" },
+      "echo-scan": { type: "string" },
       confirm: { type: "boolean" },
       name: { type: "string" },
       embedder: { type: "boolean" },
@@ -3391,12 +3394,21 @@ async function removeCommand(
   }
 
   const crossScopeContent = flags["strike-by-content-across-scopes"] === true;
+  // HOW MANY EPISODES THE JOURNAL-ECHO CHECK READS. Injectable so the bound can
+  // be proved REPORTED rather than silent; absent, the module's own applies.
+  const echoScanRaw = typeof flags["echo-scan"] === "string" ? Number(flags["echo-scan"]) : NaN;
+  const planOpts = {
+    crossScopeContent,
+    ...(Number.isFinite(echoScanRaw) && echoScanRaw >= 0
+      ? { echoScanMax: Math.floor(echoScanRaw) }
+      : {}),
+  };
 
   // THE PLAN, made read-only and with no lock held (scar E5).
   const planning = Store.open({ dir, observer: true });
   let plan;
   try {
-    plan = planRemoval(planning, targetId, { crossScopeContent });
+    plan = planRemoval(planning, targetId, planOpts);
   } finally {
     planning.close();
   }
@@ -3458,7 +3470,7 @@ async function removeCommand(
   // store may not be the store the plan was made against.
   const store = Store.open({ dir });
   try {
-    const replan = planRemoval(store, targetId, { crossScopeContent });
+    const replan = planRemoval(store, targetId, planOpts);
     if (!replan.valid) {
       io.err(`refused after re-plan: ${replan.reason}. Nothing has changed.`);
       return EXIT.refused;
@@ -3471,7 +3483,7 @@ async function removeCommand(
         reason: typeof flags["reason"] === "string" ? flags["reason"] : "owner request",
         requestedAt: now(),
       },
-      { crossScopeContent, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
+      { ...planOpts, onEvent: (name, data) => io.out(`  ${name} ${JSON.stringify(data)}`) },
     );
     io.out("");
     io.out(`Removed ${targetId}.`);

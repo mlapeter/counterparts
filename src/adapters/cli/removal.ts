@@ -177,6 +177,9 @@ export interface PlanOptions {
    * provenance never recorded which project it came from.
    */
   crossScopeContent?: boolean;
+  /** How many episodes the journal-echo check reads. Injectable so a test can
+   *  prove the bound is REPORTED rather than silent. */
+  echoScanMax?: number;
 }
 
 export interface RemovalOptions extends PlanOptions {
@@ -525,6 +528,93 @@ export function spanResidue(
 }
 
 /**
+ * How many episodes the echo check reads before it stops and says so.
+ *
+ * It reads bodies, which is the expensive thing this console does — but removal
+ * is a rare, deliberate owner operation and the alternative is the failure this
+ * bound exists to replace. A store past this many episodes gets a REPORTED
+ * partial check rather than a silent one.
+ */
+export const JOURNAL_ECHO_SCAN_MAX = 2_000;
+
+export interface JournalEcho {
+  /** Episode ids whose chapters hold these words. Ids only (§16 G15). */
+  readonly ids: readonly string[];
+  /** Episodes actually read, and how many exist. Equal ⇒ the check was whole. */
+  readonly checked: number;
+  readonly total: number;
+}
+
+/** Whitespace-folded, so a chapter that wrapped a sentence differently from the
+ *  memory minted out of it is still recognised as holding it. */
+function folded(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * WHICH EPISODES HOLD THESE WORDS — asked exactly, not ranked.
+ *
+ * This used to read the `contamination` list, which is `store.search(body, 20)`:
+ * a ranked top-20 full-text search. Measured by the f6f7 review (MAJOR-3): with
+ * twenty-five near-identical memories — the ordinary shape of a store that has
+ * thought about one subject for a while — the episode fell off the end of the
+ * list, and the report printed `chase journal: 0`, `journal(0, nothing beside
+ * the row)` and `unchased: nothing` while a plain `.md` under the store still
+ * held the removed sentence. That is F5 review-B MAJOR-1's shape one directory
+ * over, with an FTS rank as the only thing between this console and it.
+ *
+ * Two questions, cheapest first:
+ *
+ *   1. **The exact link.** A memory minted from an episode carries
+ *      `meta.episodeId` (`self/episodes.ts` writes it; `memoriesForEpisode`
+ *      reads it). One field, no scan, no ambiguity.
+ *   2. **The containment scan**, for the un-linked "quotes these words" case:
+ *      every `type: "episode"` row, whitespace-folded, asked whether it holds
+ *      the doomed body. Bounded by `JOURNAL_ECHO_SCAN_MAX`, and the bound is
+ *      REPORTED — a stated bound is survivable, a silent one is not.
+ *
+ * The episodes' markdown copies say exactly what their rows say, so an answer
+ * about the rows is an answer about the files.
+ */
+function journalEcho(
+  store: Store,
+  targetId: string,
+  body: string,
+  doc: { meta?: Record<string, unknown> } | null,
+  opts: PlanOptions,
+): JournalEcho {
+  const ids: string[] = [];
+  const linked = doc?.meta?.["episodeId"];
+  if (typeof linked === "string" && linked.length > 0 && linked !== targetId) {
+    const row = store.row(linked);
+    if (row !== undefined && row.type === "episode" && !rowTombstoned(row)) ids.push(linked);
+  }
+  const needle = folded(body);
+  let episodes: string[];
+  try {
+    episodes = store.list({ type: "episode" });
+  } catch {
+    return { ids, checked: 0, total: 0 };
+  }
+  if (needle.length === 0) return { ids, checked: episodes.length, total: episodes.length };
+  const cap = Math.max(0, opts.echoScanMax ?? JOURNAL_ECHO_SCAN_MAX);
+  let checked = 0;
+  for (const id of episodes) {
+    if (checked >= cap) break;
+    checked += 1;
+    if (id === targetId || ids.includes(id)) continue;
+    try {
+      const row = store.row(id);
+      if (row === undefined || rowTombstoned(row)) continue;
+      if (folded(store.readProse(id).body).includes(needle)) ids.push(id);
+    } catch {
+      /* a row that will not read cannot be claimed either way */
+    }
+  }
+  return { ids, checked, total: episodes.length };
+}
+
+/**
  * STEP 1 + 2: validate, then read everything the removal will need. Pure — it
  * writes nothing and takes no lock, so it is safe to run before a confirmation
  * prompt and safe to run again after one (scar §2.13's re-plan-under-the-lock
@@ -614,15 +704,11 @@ export function planRemoval(
   // two different answers:
   //   - this memory's OWN file — an episode has one; anything else has none —
   //     which the chase syncs away with the row.
-  //   - OTHER episodes whose chapters quote these words. Read off the
-  //     contamination scan that already ran, so it costs nothing and reads no
-  //     file: an episode among those hits is the counterpart's own account of
-  //     the day, it is a live row that this removal does not target, and its
-  //     copy stands exactly as its row does. LEFT ON PURPOSE and said out loud,
-  //     the way a spans echo is (§16 G15) — never "unchased", because nothing
-  //     failed to be reached.
+  //   - OTHER episodes whose chapters quote these words. LEFT ON PURPOSE and
+  //     said out loud, the way a spans echo is (§16 G15) — never "unchased",
+  //     because nothing failed to be reached.
   const ownJournalFiles = journalFilesFor(store.dir, targetId).length;
-  const journalEchoes = contamination.filter((id) => store.row(id)?.type === "episode");
+  const journalEchoes = journalEcho(store, targetId, body, doc, opts);
 
   return {
     targetId,
@@ -637,7 +723,10 @@ export function planRemoval(
       { surface: "operational rows", count: 1 },
       { surface: "cache", count: 1 },
       // Stated at 0 too, like `spans`: silence about an empty surface is what
-      // made the span residue undiscoverable (LAUNCH-STATUS §I2).
+      // made the span residue undiscoverable (LAUNCH-STATUS §I2). The count is
+      // this memory's OWN copy; the echo below is a different question and gets
+      // its own sentence, because a `0` here with an echo under it would read as
+      // "this surface is clean" over a file that holds the words.
       { surface: "journal", count: ownJournalFiles },
       // The seventh, and it is in this list rather than beside it now: a surface
       // that is chased belongs with the chased ones. It is stated at 0 too — the
@@ -676,9 +765,16 @@ export function planRemoval(
             `spans echo: ${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture. Left on purpose. Nothing prunes the buffer today, so ${spans.echoes === 1 ? "it stays" : "they stay"} there.`,
           ]
         : []),
-      ...(journalEchoes.length > 0
+      ...(journalEchoes.ids.length > 0
         ? [
-            `journal echo: ${journalEchoes.length} episode${journalEchoes.length === 1 ? "" : "s"} whose chapters quote these words (${journalEchoes.join(", ")}) — the counterpart's own account of those days, not this memory. Left on purpose, row and markdown copy alike. Remove one by its own id if that is what you want.`,
+            `journal echo: ${journalEchoes.ids.length} episode${journalEchoes.ids.length === 1 ? "" : "s"} whose chapters quote these words — the counterpart's own account of those days, not this memory. Left on purpose, row and markdown copy alike, so ${journalEchoes.ids.length === 1 ? "that .md under journal/ still holds the words" : "those .md files under journal/ still hold the words"}, and any snapshot or backup already taken holds them too. To take one as well: ${journalEchoes.ids.map((id) => `counterparts remove ${id} --confirm`).join(" · ")}`,
+          ]
+        : []),
+      // A BOUNDED CHECK SAYS SO. A stated bound is survivable; a silent one is
+      // the finding this whole line exists to close (MAJOR-3).
+      ...(journalEchoes.checked < journalEchoes.total
+        ? [
+            `journal echo check was BOUNDED: checked ${journalEchoes.checked} of ${journalEchoes.total} episodes, so an episode past that quoting these words is not named above. 'counterparts export --out <dir> --markdown --plaintext' writes every chapter out if you want to look yourself.`,
           ]
         : []),
     ],
@@ -846,8 +942,15 @@ export function ownerRemoval(
     } else {
       // "nothing to remove" is a disclosure, not a silence: a memory that never
       // had a journal file and an episode whose file was chased must not read
-      // the same (§16 G15).
-      chased.push("journal(0, nothing beside the row)");
+      // the same (§16 G15). And when an ECHO was reported, this line may not
+      // say "nothing beside the row" — that reads as "this surface is clean"
+      // two lines above a disclosure that it is not (review f6f7 MAJOR-3).
+      const echoes = plan.leftAlone.filter((line) => line.startsWith("journal echo:")).length;
+      chased.push(
+        echoes === 0
+          ? "journal(0, nothing beside the row)"
+          : "journal(0 of its own; other episodes' copies left on purpose, see above)",
+      );
     }
   } catch {
     unchased.push(`journal (threw) — the markdown copy may still be under ${JOURNAL_STILL_THERE}`);

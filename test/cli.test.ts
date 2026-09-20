@@ -1758,8 +1758,80 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // its file alike, because the file says what the row says.
     const c = consoleWith([memoryId]);
     expect(await run(["remove", memoryId, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
-    expect(text(c.out)).toContain("journal(0, nothing beside the row)");
+    // The two lines may not disagree: "nothing beside the row" must not read as
+    // "this surface is clean" two lines under a disclosure that it is not.
+    expect(text(c.out)).toContain("journal(0 of its own");
+    expect(text(c.out)).toContain("left on purpose");
     expect(grepStore(dir, WORD).some((p) => p.startsWith("journal/"))).toBe(true);
+  }, 30_000);
+
+  test("MAJOR-3: the journal echo is EXACT, not a ranked top-20 that goes silent on a big store", async () => {
+    // The review's P8b: one chapter quoting the words, one memory with the same
+    // sentence, then twenty-five near-identical memories — the ordinary shape of
+    // a store that has thought about one subject for a while. The disclosure was
+    // computed from `store.search(body, 20)`, so the episode fell off the end of
+    // a ranked list and the report printed `chase journal: 0` and
+    // `unchased: nothing` over a plain .md file that still held the sentence.
+    const WORD = "ZQECHOSILENT";
+    const sentence = `The ${WORD} question, and what it turned out to mean.`;
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    // A REAL CHAPTER: the sentence inside a long first-person account, which is
+    // what an episode actually looks like — and what makes length
+    // normalisation push it below twenty short memories that say almost the
+    // same thing. That is the whole shape of the finding.
+    self.appendChapter(
+      "s1",
+      `${sentence}\n\n${"Then the afternoon went on, and other things happened that had nothing to do with it. ".repeat(60)}`,
+    );
+    const memoryId = s.put({ type: "memory", kind: "fact", body: sentence });
+    for (let i = 0; i < 25; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `The ${WORD} question, and what it turned out to mean (${i}).` });
+    }
+    s.close();
+
+    const plan = consoleWith();
+    expect(await run(["remove", memoryId, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    // NON-VACUOUS, and this is the assertion that says so: the ranked search the
+    // disclosure used to ride on does NOT surface the episode here — the
+    // contamination list is twenty memories deep and holds no `epi_` id at all —
+    // and the echo line names it anyway.
+    const contamination = planned.slice(planned.indexOf("other memories whose text overlaps"));
+    expect(contamination).not.toMatch(/epi_[0-9a-f]+/);
+    expect(planned).toContain("journal echo:");
+    expect(planned).toMatch(/epi_[0-9a-f]+/);
+    // The brief asks for the COMMAND, not just the id.
+    expect(planned).toMatch(/counterparts remove epi_[0-9a-f]+ --confirm/);
+    // …and the words themselves never appear in the report (§16 G15).
+    expect(planned).not.toContain(WORD);
+  }, 30_000);
+
+  test("MAJOR-3: a bounded echo check SAYS it was bounded", async () => {
+    const WORD = "ZQECHOBOUND";
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", `A chapter about ${WORD}.`);
+    for (let i = 0; i < 6; i += 1) {
+      s.put({
+        type: "episode",
+        kind: "self",
+        body: `## chapter 1 — lived day 0\n\nfiller episode ${i}\n`,
+        meta: { sessionId: `f${i}`, chapters: 1 },
+      });
+    }
+    const memoryId = s.put({ type: "memory", kind: "fact", body: `A chapter about ${WORD}.` });
+    s.close();
+
+    // A bound is survivable; a SILENT bound is not. With the scan cut to three
+    // episodes the report must say what it did not look at.
+    const plan = consoleWith();
+    expect(
+      await run(["remove", memoryId, "--dir", dir, "--echo-scan", "3"], { io: plan.io }),
+    ).toBe(EXIT.ok);
+    expect(text(plan.out)).toContain("checked 3 of 7");
   }, 30_000);
 
   test("NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it", async () => {
