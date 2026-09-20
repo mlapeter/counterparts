@@ -848,6 +848,141 @@ then restart every open Claude Code session (§5). Your store is untouched:
 
 ---
 
+## 9a. Starting over
+
+You may want a blank memory — to see what a new user sees, or because the first
+few days of a store are mostly you learning what it does. One command:
+
+```
+counterparts start-fresh --config ~/.counterparts/claude-code.json
+```
+
+**Close every Claude Code session and every dashboard first.** A running session's
+hooks and its MCP server hold the store open by a file handle, and a handle does
+not follow a rename — until they restart, they go on writing into the directory
+that was just parked. **Nothing in the command can check this for you**: a session
+sitting idle writes nothing, so it leaves no record and no timestamp. What you can
+do, in another terminal:
+
+```
+pgrep -fl counterparts
+```
+
+Look for lines running one of **ours**: `serve.ts` (an MCP server), `dashboard.ts`,
+`hook.ts`, `runner.ts` (the worker). Each of those is holding the store open.
+**Ignore anything that merely has the word in a path** — `pgrep -f` matches the
+whole command line, so an editor, a `tail`, a dev server in a directory with this
+name in it will all show up and none of them matters. This command will be in the
+list too, while it waits for you.
+
+A dashboard and an MCP server leave **no live-session record at all**, so the
+command cannot see them however hard it looks. That is why it asks you to type the
+name, and why `--yes` on a store with anything in it is refused unless you also
+pass `--nothing-is-open` — which is you saying the sentence `--yes` does not.
+
+**Run it from a plain terminal, not from inside Claude Code.** Your own session's
+record is one the check refuses on, so it will turn you away — correctly — and you
+will have closed the session anyway by the time you can answer.
+
+The command asks you to type the parked directory's name back before it does
+anything.
+
+What it does, in order:
+
+1. Renames `~/.counterparts/snapshots` to `snapshots.parked-<today>`, and then
+   `~/.counterparts/store` to `store.parked-<today>` (with a shared `-2` if you
+   have done this already today — both directories always wear the same suffix). **One atomic rename each. It never copies, never
+   deletes, and never opens the old store — not even read-only.**
+2. Creates a blank store back at `~/.counterparts/store`, by running `install`.
+   It builds it **beside** your memory first and moves it into place with one
+   rename, so there is never a stretch where the configuration points at nothing
+   and a stray hook could mint a store there.
+3. Leaves `claude-code.json`, `credentials.env` and `scopes.json` exactly as they
+   were, byte for byte. Your keys, your ceiling and your per-directory settings are
+   host wiring, not memory — and leaving `scopes.json` alone is the point: a
+   directory you turned **off** stays off on the new store, rather than quietly
+   starting to record again.
+
+The date in the parked name is **UTC**, like every other date this system writes,
+so an evening run west of Greenwich parks under tomorrow's date. It is a label,
+not a claim about your clock.
+
+Then **restart Claude Code**. There is almost certainly nothing to re-register: if
+you registered the MCP server the way `install` prints it
+(`-e COUNTERPARTS_DATA_DIR=<your store>`), that path has not moved and the blank
+store is sitting at it. The command cannot read your host's files to check — it
+never touches them — so if you want to be sure, `claude mcp get counterparts` says
+what it was actually registered with.
+
+**`--dry-run` prints every rename and every file it would write and changes
+nothing.** Run that first if you want to see it.
+
+**Going back is one command:**
+
+```
+counterparts start-fresh --undo
+```
+
+It parks the blank store, puts your memory back, puts the snapshots back — one
+rename each, nothing deleted, nothing opened, and it refuses rather than moving
+one directory inside another. It runs **exactly the same refusals as the forward
+direction** — the same forbidden roots, the same symlink and absolute-path rules,
+the same live-session check, the same `--yes` rule — and it will not act on a
+recorded path that is not a parked directory of this store, because that record
+is a row in a database. Restart Claude Code again afterwards.
+
+There is **no undo of an undo**: the store it displaces is parked under a
+`blank-<date>` name, which nothing reads as a parked store. A successful undo
+prints the two guarded lines that bring that one back.
+
+The same three moves are also **printed as shell lines**, before anything moves
+and again afterwards, so the way back is on your screen even if this is
+interrupted. Each printed line is guarded:
+
+```
+if [ -e "<destination>" ]; then echo "REFUSING: … already exists" >&2; false; else mv "<source>" "<destination>"; fi
+```
+
+That guard is not decoration. A bare `mv a b` where `b` is an existing directory
+does not refuse and does not overwrite — it moves `a` **inside** `b`, and reports
+success. The refusal exits non-zero, so a pasted block stops rather than carrying
+on past it. The blank store is *parked* by the first line, not removed: nothing in
+this command deletes anything, including an undo.
+
+Two more things it will not do:
+
+- It refuses `--dir`. The store it parks is the one your **configuration** names,
+  because that is the one your hooks and your MCP server open; a second answer on
+  the command line is how the wrong store would get moved. Use `--config` to name
+  a different configuration.
+- It refuses by name to touch anything under `~/.bansai` or `~/.claude-engram`.
+- It parks the snapshots folder only when that folder is the one this layout owns
+  (`~/.counterparts/snapshots`). A `snapshots.dir` or `snapshots.mirror` you pointed
+  somewhere of your own is **left alone** — it is your directory — and the command
+  says so. The new store's rotation then shares that folder with whatever is already
+  in it: copies of a store on the old floor are recognised there and never deleted
+  or counted, but copies this floor wrote do count toward `keep`, so the new store's
+  oldest copy could rotate out sooner than you expect.
+
+**On cut-over day, deploy first.** If you are moving from an older build, update
+the checkout *before* you run this, not after: the older build does not have this
+command at all, and in the gap between a fresh start and a deploy any session that
+starts would run the old build against the new store and write half a memory into
+each of them. The new build's hooks stand down cleanly and harmlessly against an
+old store, so deploy-first costs nothing. Close everything, back up with the old
+build (the new one cannot open an old store), deploy, then run this.
+
+If the store being parked was written **before this build's floor** — that same
+case — the command says so, names the files it recognised, and carries on. It has nothing to open, so the
+floor is not its problem: a rename does not care what is inside a directory. That
+is also why the store you park stays readable by the build that wrote it
+(`floor/v5-last`), exactly as it was.
+
+`counterparts status` on the new store will say what day it began on and where the
+previous one is parked.
+
+---
+
 ## 10. What is actually verified, and what is not
 
 The install loop (`tools/install-loop/run.sh`) runs in a throwaway HOME with no

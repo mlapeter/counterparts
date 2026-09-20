@@ -409,6 +409,25 @@ export function mcpCommand(
   return `claude mcp add ${MCP_SERVER_NAME} -s user -e COUNTERPARTS_DATA_DIR=${shellQuote(store)}${config} -- ${serve}`;
 }
 
+/**
+ * Why `--budget` cannot be used, or null — `install`'s own rule, exported so
+ * there is ONE of it.
+ *
+ * `start-fresh` hands `install` the ceiling it read out of the configuration,
+ * and `loadConfig` accepts any finite positive number while this requires a
+ * whole one. A fractional `injectionBudgetBytes` therefore loaded fine
+ * everywhere else and refused inside `install` — which, before the order
+ * changed, happened AFTER both directories had been parked (N1 review M1). A
+ * caller that wants to know in advance asks the same function `install` asks.
+ */
+export function budgetRefusal(value: string): string | null {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    return `refused: --budget takes a positive whole number of bytes, not '${value}'.`;
+  }
+  return null;
+}
+
 export type WroteWhat = "created" | "kept" | "replaced";
 
 export interface FileResult {

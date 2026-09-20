@@ -122,6 +122,23 @@ That works on the very first memory — a store holding one memory answers the q
 about it, whether or not `--name` put an identity core beside it — and the install loop
 checks that case on every run.
 
+**Starting over is one command.** If you want a blank memory — to see what a new user
+sees, or because the first few days of a store are mostly you learning what it does —
+close every Claude Code session and run:
+
+```
+counterparts start-fresh --config ~/.counterparts/claude-code.json
+```
+
+It renames your store beside itself as `store.parked-<today>` with a single atomic
+rename, does the same with the snapshots folder, and creates a blank store back at the
+same path. **It never copies, never deletes, and never opens the old store — not even
+read-only.** Your configuration and your credentials are kept byte for byte, so there is
+nothing to re-register; restart Claude Code and you are a new user. `--dry-run` prints
+every rename and changes nothing, `counterparts start-fresh --undo` puts it all back, and
+the same three moves are printed as guarded shell lines before anything moves.
+QUICKSTART §9a has the whole of it.
+
 ---
 
 ## How it works

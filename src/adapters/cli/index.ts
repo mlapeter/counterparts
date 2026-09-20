@@ -44,6 +44,7 @@ export {
   HOST_EVENTS,
   MCP_SCRIPT,
   MCP_SERVER_NAME,
+  budgetRefusal,
   configObject,
   credentialsTemplate,
   DEFAULT_STORE_DIR,
@@ -65,3 +66,38 @@ export type { ConfigInput, FileResult, HostRead, InstallLayout, WroteWhat } from
 
 export { assertSafeTarget, snapshot, snapshotName, vacuumInto } from "./snapshot.js";
 export type { CopiedEntry, CopyMethod, SnapshotReport } from "./snapshot.js";
+
+export {
+  BLANK_INFIX,
+  OPEN_WINDOW_MS,
+  PARKED_INFIX,
+  REAL_OPS,
+  configLines,
+  confirmationWord,
+  guardedMove,
+  pairedSuffix,
+  park,
+  planUndo,
+  undoLines,
+  parkRefusal,
+  parkedPath,
+  planLines,
+  planStartFresh,
+  readLiveness,
+  rollbackLines,
+  sameFilesystemRefusal,
+  sight,
+} from "./start-fresh.js";
+export type {
+  DirSighting,
+  Liveness,
+  OpenSign,
+  ParkOutcome,
+  ParkStep,
+  PlanInput,
+  StartFreshOps,
+  StartFreshPlan,
+  StartFreshShape,
+  UndoPlan,
+  UndoStep,
+} from "./start-fresh.js";
