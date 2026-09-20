@@ -216,6 +216,93 @@ function forbiddenRefusal(label: string, path: string): string | null {
 }
 
 /**
+ * THE ONE GUARD RING, and the reason it is one function.
+ *
+ * The confirmation review found `--undo` renaming directories inside `~/.bansai`
+ * — one command after the forward direction refused the same path, in those
+ * exact words, on the same screen. Not because the refusals were wrong, but
+ * because `--undo` was new code that called none of them. Two directions, two
+ * sets of checks, and only one of them maintained.
+ *
+ * So there is one function now, and **every path either direction would rename
+ * goes through it**: the store, a parked store read out of a record, a parked
+ * snapshots folder. It is the whole battery in the order that matters —
+ * present, absolute, not a forbidden root by either spelling, not a filesystem
+ * root, not the home directory, not a directory containing the configuration,
+ * not a symlink.
+ *
+ * `source` is where the path came from, because the sentence differs: a bad
+ * `dataDir` is a configuration to fix; a bad recorded path is a row in a
+ * database that should not have been trusted.
+ */
+export function pathGuard(
+  label: string,
+  written: string,
+  configPath: string,
+  home: string = homedir(),
+  source = "the configuration",
+): string | null {
+  const raw = written.trim();
+  if (raw.length === 0) {
+    return `refused: ${source} gives no path for the ${label}, so there is nothing to act on.`;
+  }
+  if (!isAbsolute(raw)) {
+    return (
+      `refused: ${source} names "${raw}" as the ${label}, which is not an absolute path. ` +
+      "`install` always writes an absolute one, and for a reason: the hook, the worker and " +
+      "the MCP server are launched by a host from a working directory nobody chose, so a " +
+      "relative path names a different directory in every one of them — and this would act " +
+      `on whatever happened to sit at that name in ITS working directory (${resolve(raw)}). ` +
+      "A leading `~` is a shell's idea, not a path."
+    );
+  }
+  return parkRefusal(label, raw, configPath, home);
+}
+
+/**
+ * Why this path is not a PARKED SIBLING of that store, or null.
+ *
+ * **The record is a row in a database.** `store.previous.parked` lives in the
+ * new store's `meta` table, and anything that can open the store can write it —
+ * the review rewrote it to `~/.bansai/store` and watched `--undo` rename v1's
+ * live memory onto `dataDir`, and to `dirname(storeDir)` to get a directory
+ * planned into its own child. A value read back out of a store is data, never
+ * an instruction.
+ *
+ * So the shape is pinned rather than trusted: it must sit in the SAME directory
+ * as the store, and its name must be exactly the name this package writes —
+ * `<base>.parked-<date>` with an optional `-N`. `planUndo`'s own fallback only
+ * ever produces those; this makes a recorded value obey the rule the fallback
+ * already obeys.
+ */
+export function parkedSiblingRefusal(
+  label: string,
+  candidate: string,
+  beside: string,
+  base: string,
+): string | null {
+  const path = resolve(candidate);
+  if (dirname(path) !== resolve(beside)) {
+    return (
+      `refused: the ${label} recorded in this store is ${path}, which does not sit beside ` +
+      `${resolve(beside)}. A record is a row in a database, not an instruction — anything it ` +
+      "names that is not a parked directory of this store is not a thing to rename."
+    );
+  }
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^${escaped}\\.${PARKED_INFIX}-\\d{4}-\\d{2}-\\d{2}(-\\d+)?$`);
+  if (!pattern.test(basename(path))) {
+    return (
+      `refused: the ${label} recorded in this store is ${path}, and '${basename(path)}' is ` +
+      `not a name this package writes — those are '${base}.${PARKED_INFIX}-<date>' with an ` +
+      "optional '-N'. A record is a row in a database; this will not rename something " +
+      "because a row said to."
+    );
+  }
+  return null;
+}
+
+/**
  * The real path of a directory that may not exist yet — the same helper
  * `adapters/snapshots.ts` carries, and for the same reason: `resolve` follows no
  * links and `realpathSync` throws on a path that is not there, and both cases
@@ -428,6 +515,9 @@ export interface StartFreshPlan {
    * `snapshots.dir` is: left alone, and said out loud. The store still moves.
    */
   readonly snapshotsLeft: string | null;
+  /** Part-built `store.new-<pid>` siblings an interrupted run left behind.
+   *  Named, never adopted and never deleted (confirmation review MINOR-5). */
+  readonly strayTempStores: readonly string[];
   /** How many entries the store being parked holds. `--yes` is refused on a
    *  non-empty one (review m1's corollary): the typed confirmation is the only
    *  instrument that can catch an idle dashboard. */
@@ -482,6 +572,7 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     snapshotsDir: null,
     snapshotsElsewhere: null,
     snapshotsLeft: null,
+    strayTempStores: [] as string[],
     storeEntries: 0,
     preRowsMarkers: [] as string[],
     liveness: { signs: [], recent: [], unreadable: false } as Liveness,
@@ -514,20 +605,7 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
   // that means a different directory in every process that reads it is not a
   // path this command will act on.
   const written = input.dataDir === undefined ? "" : input.dataDir.trim();
-  if (input.configPresent && written.length > 0 && !isAbsolute(written)) {
-    return {
-      ...empty,
-      storeDir: "",
-      refusal:
-        `refused: ${configPath} names "dataDir": "${written}", which is not an absolute path. ` +
-        "`install` always writes an absolute one, and for a reason: the hook, the worker and the " +
-        "MCP server are launched by a host from a working directory nobody chose, so a relative " +
-        "path names a different directory in every one of them — and this command would rename " +
-        `whatever happened to sit at that name in ITS working directory (${resolve(written)}). ` +
-        "A leading `~` is a shell's idea, not a path. Put the absolute path in the configuration.",
-    };
-  }
-  const storeDir = written.length > 0 ? resolve(written) : "";
+  const storeDir = written.length > 0 && isAbsolute(written) ? resolve(written) : "";
 
   // No configuration at all: a machine that has never had an install. Nothing
   // is parked, and the command is an ordinary first `install` that says so.
@@ -535,7 +613,8 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     return { ...empty, storeDir, refusal: null };
   }
 
-  const refusal = parkRefusal("store", storeDir, configPath, home);
+  // THE SHARED RING (`pathGuard`), so this direction and `--undo` cannot drift.
+  const refusal = pathGuard("store", written, configPath, home, `${configPath}'s "dataDir"`);
   if (refusal !== null) {
     return { ...empty, storeDir, shape: "park", refusal };
   }
@@ -639,6 +718,7 @@ export function planStartFresh(input: PlanInput): StartFreshPlan {
     snapshotsDir,
     snapshotsElsewhere,
     snapshotsLeft,
+    strayTempStores: strayTempStoresBeside(storeDir),
     storeEntries: store.entries,
     // Names only. Never an open — that is the whole point of the refusal this
     // reading is about.
@@ -695,6 +775,22 @@ export function pairedSuffix(
     if (free(`${base}-${String(n)}`)) return `${base}-${String(n)}`;
   }
   throw new Error(`no free parked suffix for ${date}`);
+}
+
+/** `store.new-*` siblings — what an interrupted run leaves. REPORTED only:
+ *  `freeTempStore` never returns a name that exists, so one of these can never
+ *  become somebody's store, and nothing here removes it. */
+export function strayTempStoresBeside(storeDir: string): string[] {
+  const out: string[] = [];
+  try {
+    const prefix = `${basename(storeDir)}.new-`;
+    for (const entry of readdirSync(dirname(storeDir))) {
+      if (entry.startsWith(prefix)) out.push(join(dirname(storeDir), entry));
+    }
+  } catch {
+    return out;
+  }
+  return out.sort();
 }
 
 /** Parked siblings of a store path, newest name last. Used only to REPORT. */
@@ -807,6 +903,13 @@ export function planLines(plan: StartFreshPlan, landing?: string): string[] {
   out.push("");
   out.push("Then it will create a blank store at:");
   out.push(`  ${plan.storeDir}`);
+  if (plan.strayTempStores.length > 0) {
+    out.push("");
+    out.push("  Beside your store are part-built stores from interrupted runs:");
+    for (const stray of plan.strayTempStores) out.push(`    ${stray}`);
+    out.push("  Nothing reads them, nothing here will use one, and nothing here will remove");
+    out.push("  one. Move them aside whenever you like.");
+  }
   if (plan.preRowsMarkers.length > 0) {
     out.push("");
     out.push("  This store is on the OLD FLOOR — it keeps its memories in files");
@@ -876,10 +979,19 @@ export function configLines(plan: StartFreshPlan): string[] {
 export function rollbackLines(
   plan: StartFreshPlan,
   taken: (candidate: string) => boolean = existsSync,
+  opts: { readonly parkTheBlankStore?: boolean } = {},
 ): string[] {
   if (plan.parks.length === 0) return [];
-  const blank = parkedPath(plan.storeDir, BLANK_INFIX, plan.date, taken);
-  const out: string[] = [guardedMove(plan.storeDir, blank)];
+  const out: string[] = [];
+  // LINE 1 IS ONLY TRUE ONCE A BLANK STORE IS THERE (confirmation review
+  // NIT-3). The install now runs BEFORE the parks, so a run interrupted during
+  // it leaves the MEMORY at the store path — and line 1 would park it under a
+  // name that says it is the empty one. Before anything moves, that line is
+  // conditional and says so; afterwards, `printWayBack` emits it only when the
+  // store actually moved.
+  if (opts.parkTheBlankStore !== false) {
+    out.push(guardedMove(plan.storeDir, parkedPath(plan.storeDir, BLANK_INFIX, plan.date, taken)));
+  }
   for (const step of [...plan.parks].reverse()) out.push(guardedMove(step.to, step.from));
   return out;
 }
@@ -893,9 +1005,15 @@ export function guardedMove(from: string, to: string): string {
   // in its own quotes, and `inner()` only escapes, because a second pair of
   // quotes inside an already-quoted string is how a path with a space in it
   // comes out mangled in the one sentence that has to be readable.
+  // `if/then/else`, not `[ -e … ] && echo … || mv …`. Two reasons, and the
+  // second is the sharp one. It exits NON-ZERO on a refusal, so a pasted block
+  // stops at a `set -e` and a reader's `&&` chain does not sail past it
+  // (confirmation review NIT-2). And the `&&/||` form has a trap of its own:
+  // if the `echo` ever failed, the `||` would run the `mv` — the one thing the
+  // guard exists to prevent.
   return (
-    `  [ -e ${shell(to)} ] && echo "REFUSING: ${inner(to)} already exists — ` +
-    `mv would put the source INSIDE it" || mv ${shell(from)} ${shell(to)}`
+    `  if [ -e ${shell(to)} ]; then echo "REFUSING: ${inner(to)} already exists — ` +
+    `mv would put the source INSIDE it" >&2; false; else mv ${shell(from)} ${shell(to)}; fi`
   );
 }
 
@@ -947,15 +1065,23 @@ export interface UndoPlan {
  * rather than guessing (review M4: guessing picked an empty shell).
  */
 export function planUndo(input: {
+  /** `dataDir` EXACTLY as the configuration holds it — the guard needs the
+   *  written spelling, not a resolved one. */
   readonly storeDir: string;
   readonly parked: string | null;
+  readonly configPath: string;
   readonly now: number;
+  readonly home?: string;
   readonly taken?: (candidate: string) => boolean;
 }): UndoPlan {
   const taken = input.taken ?? existsSync;
-  const storeDir = resolve(input.storeDir);
+  const home = input.home ?? homedir();
+  const configPath = resolve(input.configPath);
+  const storeDir = isAbsolute(input.storeDir.trim())
+    ? resolve(input.storeDir.trim())
+    : input.storeDir.trim();
   const date = dateOf(input.now);
-  const candidates = siblingsParked(storeDir, taken);
+  const candidates = isAbsolute(storeDir) ? siblingsParked(storeDir, taken) : [];
   const empty = {
     storeDir,
     parked: null,
@@ -964,6 +1090,21 @@ export function planUndo(input: {
     snapshotsLeft: null,
     preRows: false,
   };
+
+  // ── THE SAME RING THE FORWARD DIRECTION RUNS (confirmation review BLOCKER-1)
+  //
+  // This is the whole finding. `--undo` used to go from `resolve(dataDir)`
+  // straight to `existsSync` and `renameSync`, so a configuration the forward
+  // command refuses BY NAME one command earlier — `dataDir` inside `~/.bansai` —
+  // was renamed twice by the command whose job is being the safe way back.
+  const storeRefusal = pathGuard(
+    "store",
+    input.storeDir,
+    configPath,
+    home,
+    `${configPath}'s "dataDir"`,
+  );
+  if (storeRefusal !== null) return { ...empty, refusal: storeRefusal };
 
   let parked = input.parked === null ? null : resolve(input.parked);
   if (parked === null) {
@@ -993,6 +1134,13 @@ export function planUndo(input: {
     return { ...empty, refusal: `refused: ${String(parked)} is not there.` };
   }
 
+  // THE RECORDED PATH GOES THROUGH THE RING TOO, and then through the shape
+  // rule — a row in a database may name anything at all.
+  const parkedRefusal =
+    pathGuard("parked store", parked, configPath, home, "the record in this store") ??
+    parkedSiblingRefusal("parked store", parked, dirname(storeDir), basename(storeDir));
+  if (parkedRefusal !== null) return { ...empty, refusal: parkedRefusal };
+
   const steps: UndoStep[] = [];
   const store = sight(storeDir);
   if (store.present) {
@@ -1011,7 +1159,16 @@ export function planUndo(input: {
   const snapshots = join(dirname(storeDir), "snapshots");
   const parkedSnapshots = `${snapshots}${suffix}`;
   let snapshotsLeft: string | null = null;
-  if (taken(parkedSnapshots)) {
+  // The snapshots folder is derived from the store's own suffix rather than
+  // recorded, so it cannot be steered — but it is a rename, so it goes through
+  // the same two checks anyway. A refusal here LEAVES it (m2's lesson) rather
+  // than stopping the store from coming back.
+  const snapshotsRefusal =
+    pathGuard("parked snapshots", parkedSnapshots, configPath, home, "this store's layout") ??
+    parkedSiblingRefusal("parked snapshots", parkedSnapshots, dirname(storeDir), "snapshots");
+  if (taken(parkedSnapshots) && snapshotsRefusal !== null) {
+    snapshotsLeft = parkedSnapshots;
+  } else if (taken(parkedSnapshots)) {
     if (taken(snapshots)) {
       // Something put a snapshots folder back while the blank store was live —
       // the rotation does, at the first boundary. Moving the parked one onto it

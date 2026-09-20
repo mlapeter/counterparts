@@ -28,7 +28,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import {
@@ -182,6 +182,7 @@ import { NO_PAGE_LINES, bodyFrom, pageLines, versionLines, writeLines } from "./
 import {
   BLANK_INFIX,
   OPEN_WINDOW_MS,
+  PARKED_INFIX,
   configLines,
   confirmationWord,
   guardedMove,
@@ -190,6 +191,7 @@ import {
   planLines,
   planStartFresh,
   planUndo,
+  readLiveness,
   rollbackLines,
   sight,
   undoLines,
@@ -2398,7 +2400,7 @@ async function startFreshCommand(
   // deleted, nothing opened, a destination that exists is a refusal — and it
   // knows which store was parked, because the store that replaced it says so.
   if (parsed.flags["undo"] === true) {
-    return await startFreshUndo(parsed, io, configPath, present, host.config.dataDir, now);
+    return await startFreshUndo(parsed, io, configPath, present, host.config.dataDir, now, home_);
   }
 
   const name = typeof parsed.flags["name"] === "string" ? parsed.flags["name"] : undefined;
@@ -2523,16 +2525,23 @@ async function startFreshCommand(
     io.out("  this only means the install ends on its 'no ceiling was written' paragraph.");
   }
 
-  const rollback = rollbackLines(plan);
+  const rollback = rollbackLines(plan, existsSync, { parkTheBlankStore: false });
   if (rollback.length > 0) {
     io.out("");
-    io.out("The way back, if you want it — printed BEFORE anything moves, so they are on");
-    io.out("your screen even if this is interrupted halfway. Each line REFUSES rather than");
-    io.out("moving one directory inside another, which is what a bare `mv` does:");
+    io.out("The way back, printed BEFORE anything moves, so it is on your screen even if");
+    io.out("this is interrupted. Each line REFUSES rather than moving one directory inside");
+    io.out("another, which is what a bare `mv` does.");
+    io.out("");
+    io.out("  If it stops before it prints 'parked store:', NOTHING HAS MOVED — your memory");
+    io.out(`  is still at ${plan.storeDir}. The only thing left behind is a part-built store`);
+    io.out("  called <store>.new-<number>; moving it aside is enough, and nothing reads it.");
+    io.out("");
+    io.out("  If it stops after that, these put it back:");
     for (const line of rollback) io.out(line);
-    io.out("  (the blank store is PARKED by that first line, not removed. Nothing here");
-    io.out(`   deletes anything, including an undo. '${BIN.cli} start-fresh --undo' does`);
-    io.out("   the same three moves without the shell.)");
+    io.out("  ...and if a blank store has appeared at the store path by then, park it first:");
+    io.out(guardedMove(plan.storeDir, parkedPath(plan.storeDir, BLANK_INFIX, plan.date)));
+    io.out("");
+    io.out(`  (or simply: ${BIN.cli} start-fresh --undo. Nothing here deletes anything.)`);
   }
 
   if (dryRun) {
@@ -2851,8 +2860,15 @@ async function startFreshCommand(
  *
  * The same discipline as the forward direction, and for the same reason: one
  * `rename` per directory, nothing copied, nothing deleted, nothing opened that
- * belongs to the parked store. The blank store is PARKED rather than removed,
- * so an undo of an undo is a rename too.
+ * belongs to the parked store — and every path either direction renames goes
+ * through the SAME guard ring (`start-fresh.ts#pathGuard`), which is the fix
+ * for the confirmation review's BLOCKER: this was new code that ran none of the
+ * forward direction's refusals and would rename inside `~/.bansai`.
+ *
+ * The blank store is PARKED rather than removed — but its name is
+ * `store.blank-<date>`, which nothing reads as a parked store, so there is no
+ * `--undo` of an `--undo`. The two guarded lines that do it by hand are printed
+ * at the end of a successful run instead.
  *
  * WHICH parked store it puts back is read from the record the forward run left
  * in the store that is there now (`store.previous.parked`) — the one directory
@@ -2868,6 +2884,7 @@ async function startFreshUndo(
   configPresent: boolean,
   dataDir: string | undefined,
   now: () => number,
+  home_: string,
 ): Promise<number> {
   if (!configPresent || dataDir === undefined || dataDir.trim().length === 0) {
     io.err(
@@ -2876,24 +2893,33 @@ async function startFreshUndo(
     );
     return EXIT.refused;
   }
-  const storeDir = resolve(dataDir.trim());
+  const written = dataDir.trim();
+  const storeDir = isAbsolute(written) ? resolve(written) : written;
 
-  // The record, from the store that is there NOW. This store is the one this
-  // build made, so opening it is ordinary — and a failure to open it is not a
-  // reason to refuse, only a reason to fall back to the siblings on disk.
-  let recorded: string | null = null;
-  try {
-    const store = Store.open({ dir: storeDir, observer: true });
+  // THE DATE IS FROZEN HERE TOO, for the reason the forward direction freezes
+  // it: the human is asked a question, and the UTC day can turn over while they
+  // answer (confirmation review MINOR-2).
+  const at = now();
+
+  // The record, from the store that is there NOW — and it is DATA, not an
+  // instruction: `planUndo` puts it through the same ring the forward direction
+  // runs and then through the shape rule. Reading it is the one open in this
+  // path, of the NEW store, as an observer.
+  const readRecord = (): string | null => {
     try {
-      recorded = store.getMeta(STORE_PREVIOUS_PARKED_KEY) ?? null;
-    } finally {
-      store.close();
+      const store = Store.open({ dir: storeDir, observer: true });
+      try {
+        return store.getMeta(STORE_PREVIOUS_PARKED_KEY) ?? null;
+      } finally {
+        store.close();
+      }
+    } catch {
+      return null;
     }
-  } catch {
-    recorded = null;
-  }
+  };
+  const recorded = isAbsolute(storeDir) ? readRecord() : null;
 
-  const plan = planUndo({ storeDir, parked: recorded, now: now() });
+  const plan = planUndo({ storeDir: written, parked: recorded, configPath, now: at, home: home_ });
   io.out(`${BIN.cli} start-fresh --undo — put the parked store back.`);
   io.out("Nothing is deleted, and the parked store is never opened.");
   io.out("");
@@ -2924,10 +2950,35 @@ async function startFreshUndo(
     vacated.add(step.from);
   }
 
+  // ── THE SAME LIVE-SESSION CHECK THE FORWARD DIRECTION RUNS ───────────────
+  //
+  // Confirmation review MAJOR-2: `--undo` called `readLiveness` nowhere, so a
+  // fresh un-ended session record that refuses the forward command outright —
+  // even under `--yes --nothing-is-open` — let the undo move both directories.
+  // The store it displaces is a real one too: on the owner's machine it is a
+  // week of new memories with a dashboard attached.
+  const livePlan: StartFreshPlan = {
+    ...EMPTY_LIVENESS_PLAN,
+    storeDir,
+    date: dateOf(at),
+    configPath,
+    liveness: readLiveness(storeDir, at),
+  };
+
   if (parsed.flags["dry-run"] === true) {
+    livenessRefusal(io, livePlan);
     io.out("");
     io.out("Dry run. Nothing has been moved.");
+    // SAID, because it is true and a careful reader checking bytes will find it
+    // (confirmation review MINOR-4): reading the record opens the NEW store as
+    // an observer, and SQLite rewrites its shared-memory index when it does.
+    io.out("  (this read the new store's record, so its `-shm` index may have been");
+    io.out("   rewritten. Nothing else was touched, and the parked store was not opened.)");
     return EXIT.ok;
+  }
+  {
+    const stop = livenessRefusal(io, livePlan);
+    if (stop !== null) return stop;
   }
   // THE SAME RULE AS THE FORWARD DIRECTION, and for the same reason: the store
   // being displaced here is a real one too — a week of new memories, held open
@@ -2966,12 +3017,48 @@ async function startFreshUndo(
     }
   }
 
+  // ── RE-READ THE GROUND (confirmation review MINOR-2) ─────────────────────
+  //
+  // M2's lesson, applied to this direction: a plan held across a person is a
+  // plan about a store that may have changed. The date is frozen, so the only
+  // thing that can differ is the ground itself.
+  const finalPlan = planUndo({
+    storeDir: written,
+    parked: isAbsolute(storeDir) ? readRecord() : null,
+    configPath,
+    now: at,
+    home: home_,
+  });
+  if (finalPlan.refusal !== null) {
+    io.err(`refused after re-reading the directory: ${finalPlan.refusal}`);
+    io.err("Nothing has changed.");
+    return EXIT.refused;
+  }
+  const drift = undoStepsDiffer(plan.steps, finalPlan.steps);
+  if (drift !== null) {
+    io.err("");
+    io.err(
+      `refused: the ground moved while this was waiting for you — ${drift}. Nothing has ` +
+        "changed; run it again and read the plan that prints.",
+    );
+    return EXIT.refused;
+  }
+
   io.out("");
-  const outcome = park(plan.steps.map((st) => ({ label: st.label, from: st.from, to: st.to })));
+  const outcome = park(
+    finalPlan.steps.map((st) => ({ label: st.label, from: st.from, to: st.to })),
+  );
   for (const step of outcome.done) io.out(`  moved ${step.label}: ${step.from} -> ${step.to}`);
   if (outcome.failed !== null) {
     io.err(`failed to move ${outcome.failed.label}: ${outcome.error ?? "no detail"}`);
     io.err("What is listed above HAS moved; nothing else has, and nothing was deleted.");
+    // THE WAY BACK, which this branch used to print not at all (confirmation
+    // review MINOR-1). The forward direction prints it in both of its
+    // stop-partway branches; a half-done undo leaves the owner with nothing at
+    // `dataDir` and a directory whose name says it is the disposable one.
+    io.out("");
+    io.out("Undoing what this run managed, each line refusing rather than nesting:");
+    for (const step of [...outcome.done].reverse()) io.out(guardedMove(step.to, step.from));
     return EXIT.failed;
   }
   io.out("");
@@ -2983,10 +3070,58 @@ async function startFreshUndo(
     io.out("  go back too, or every session will stand down against it:");
     io.out(`    tools/deploy-checkout.sh --repo <your checkout> --ref ${PRE_ROWS_READABLE_BY}`);
   }
+  // THE WAY BACK FROM AN UNDO (confirmation review MINOR-3). The blank store is
+  // parked as `store.blank-<date>`, which `siblingsParked` never matches and no
+  // record names — so a second `--undo` correctly refuses, and until now
+  // nothing said how to get it back. It is two guarded lines, printed.
+  const displacedTo = outcome.done.find((st) => st.label.startsWith("the store that is there"));
+  if (displacedTo !== undefined) {
+    io.out("");
+    io.out("The store this displaced is PARKED, not removed. To put THAT one back:");
+    io.out(guardedMove(storeDir, `${storeDir}.${PARKED_INFIX}-${dateOf(at)}`));
+    io.out(guardedMove(displacedTo.to, storeDir));
+    io.out("  (there is no --undo of an --undo: the displaced store wears a `blank-` name,");
+    io.out("   which nothing reads as a parked store. These two lines are the way.)");
+  }
   io.out("");
   io.out("Restart Claude Code: the sessions that are open still hold the other store.");
   return EXIT.ok;
 }
+
+/** What changed between the undo plan that was read and the one that would run. */
+function undoStepsDiffer(
+  before: readonly { label: string; from: string; to: string }[],
+  after: readonly { label: string; from: string; to: string }[],
+): string | null {
+  if (before.length !== after.length) {
+    return `there ${after.length === 1 ? "is" : "are"} now ${String(after.length)} move(s), not ${String(before.length)}`;
+  }
+  for (let i = 0; i < before.length; i += 1) {
+    const a = before[i];
+    const b = after[i];
+    if (a === undefined || b === undefined) continue;
+    if (a.from !== b.from || a.to !== b.to) {
+      return `${a.label} would now move ${b.from} -> ${b.to}, not ${a.from} -> ${a.to}`;
+    }
+  }
+  return null;
+}
+
+/** The fields `livenessRefusal` reads, and nothing else — so the undo can reuse
+ *  it without pretending to be a forward plan. */
+const EMPTY_LIVENESS_PLAN = {
+  shape: "park" as const,
+  configPresent: true,
+  parks: [],
+  alreadyParked: [],
+  snapshotsDir: null,
+  snapshotsElsewhere: null,
+  snapshotsLeft: null,
+  strayTempStores: [],
+  storeEntries: 0,
+  preRowsMarkers: [],
+  refusal: null,
+};
 
 /**
  * A free `store.new-<pid>` beside the store — the sibling the blank store is

@@ -46,6 +46,7 @@ import {
   parkRefusal,
   parkedPath,
   planStartFresh,
+  planUndo,
   readLiveness,
   sameFilesystemRefusal,
   sight,
@@ -108,6 +109,26 @@ function text(lines: readonly string[]): string {
 }
 
 /**
+ * THE ENVIRONMENT EVERY SPAWNED SHELL GETS.
+ *
+ * `test/preload.ts` says it in so many words: a child spawned with NO `env`
+ * option inherits bun's original environ snapshot and sees the REAL home,
+ * outside the home-redirect guard entirely. These shells run fully absolute
+ * paths under the test's own temp home and never resolve a `~` — so they were
+ * safe in effect — but "safe by construction, not by luck" is the rule the
+ * preload asks for, and a curated env is one line (confirmation review NIT-1).
+ */
+function shellEnv(): Record<string, string> {
+  return {
+    PATH: "/usr/bin:/bin",
+    HOME: home,
+    USERPROFILE: home,
+    COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+    BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+  };
+}
+
+/**
  * The guarded `mv` lines out of real output — from the block that reflects what
  * ACTUALLY RAN.
  *
@@ -120,7 +141,7 @@ function text(lines: readonly string[]): string {
 function guardedLines(out: readonly string[]): string[] {
   const after = out.findIndex((l) => l.includes("as it actually stands now"));
   const from = after === -1 ? out : out.slice(after);
-  return from.filter((l) => l.trimStart().startsWith("[ -e ")).map((l) => l.trim());
+  return from.filter((l) => l.trimStart().startsWith("if [ -e ")).map((l) => l.trim());
 }
 
 /** The whole tree, every byte, including the sidecars and the directory shape. */
@@ -482,7 +503,7 @@ describe("the dry run", () => {
     // The rollback is printed before anything moves, dry run or not — and each
     // line is GUARDED (review M3): a bare `mv` nests instead of refusing.
     expect(out).toContain(`mv "${storePath()}" "${storePath()}.${BLANK_INFIX}-${today()}"`);
-    expect(out).toContain(`[ -e "${storePath()}.${BLANK_INFIX}-${today()}" ] &&`);
+    expect(out).toContain(`if [ -e "${storePath()}.${BLANK_INFIX}-${today()}" ]; then`);
 
     expect(fingerprint(base())).toBe(before);
   });
@@ -873,9 +894,9 @@ describe(`cut-over day: this build, and a store written by ${PINNED_TAG}`, () =>
     // Three: park the blank store, put the old one back, put the snapshots back.
     expect(lines.length).toBe(3);
     for (const line of lines) {
-      const r = spawnSync("/bin/sh", ["-c", line], { encoding: "utf8" });
+      const r = spawnSync("/bin/sh", ["-c", line], { encoding: "utf8", env: shellEnv() });
       expect(r.status).toBe(0);
-      expect(r.stdout).not.toContain("REFUSING");
+      expect(`${r.stdout}${r.stderr}`).not.toContain("REFUSING");
     }
 
     expect(fingerprint(storePath())).toBe(before);
@@ -1147,7 +1168,7 @@ describe("M2 — the way back always names the plan that ran", () => {
     expect(existsSync(parked)).toBe(true);
     // Every printed line names a path that exists.
     for (const line of guardedLines(c.out)) {
-      const src = /\|\| mv "([^"]+)"/.exec(line);
+      const src = /else mv "([^"]+)"/.exec(line);
       expect(src).not.toBeNull();
       expect(existsSync(src?.[1] ?? "")).toBe(true);
     }
@@ -1165,7 +1186,7 @@ describe("M2 — the way back always names the plan that ran", () => {
     });
     expect(text(c.out)).toContain("The way back, as it actually stands now");
     // Two blocks: the one read before, and the one that is true after.
-    expect(c.out.filter((l) => l.trimStart().startsWith("[ -e ")).length).toBe(6);
+    expect(c.out.filter((l) => l.trimStart().startsWith("if [ -e ")).length).toBe(6);
   });
 
   test("a parked name taken while the human answers REFUSES instead of running another plan", async () => {
@@ -1203,15 +1224,16 @@ describe("M3 — the printed lines refuse rather than nesting", () => {
       home,
     });
     const lines = guardedLines(c.out);
-    const restore = lines.find((l) => l.includes(`|| mv "${storePath()}.${PARKED_INFIX}-`));
+    const restore = lines.find((l) => l.includes(`else mv "${storePath()}.${PARKED_INFIX}-`));
     expect(restore).toBeDefined();
 
     // The destination exists — the state M4's hook leaves, and the state the
     // reviewer's bare `mv` nested into.
     expect(existsSync(storePath())).toBe(true);
-    const r = spawnSync("/bin/sh", ["-c", restore as string], { encoding: "utf8" });
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("REFUSING");
+    const r = spawnSync("/bin/sh", ["-c", restore as string], { encoding: "utf8", env: shellEnv() });
+    // NON-ZERO on a refusal, so a pasted block stops instead of sailing past it.
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("REFUSING");
     // NOT nested: the parked store is still a sibling, not a child.
     expect(existsSync(join(storePath(), `${basename(storePath())}.${PARKED_INFIX}-${today()}`))).toBe(
       false,
@@ -1222,7 +1244,7 @@ describe("M3 — the printed lines refuse rather than nesting", () => {
   test("a path with a space in it survives the copy-paste", () => {
     const line = guardedMove("/tmp/a b/store", "/tmp/a b/store.parked-2026-09-20");
     expect(line).toContain('mv "/tmp/a b/store" "/tmp/a b/store.parked-2026-09-20"');
-    expect(line).toContain('[ -e "/tmp/a b/store.parked-2026-09-20" ]');
+    expect(line).toContain('if [ -e "/tmp/a b/store.parked-2026-09-20" ]; then');
   });
 });
 
@@ -1483,5 +1505,402 @@ describe("the SHOULDs", () => {
       }),
     ).toBe(EXIT.refused);
     expect(text(c.err)).toContain("--name is the owner's name");
+  });
+});
+
+// ── the confirmation review's findings, one test each ────────────────────────
+
+describe("BLOCKER-1 — --undo runs the SAME guard ring as the forward direction", () => {
+  /** A config whose `dataDir` points wherever the test says, plus a parked
+   *  sibling exactly as a forward run would have left one. */
+  function layoutAt(dir: string): void {
+    mkdirSync(base(), { recursive: true });
+    writeFileSync(
+      configPath(),
+      `${JSON.stringify({ dataDir: dir, credentialsFile: join(base(), "credentials.env") }, null, 2)}\n`,
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "LIVE"), "the live one");
+    mkdirSync(`${dir}.${PARKED_INFIX}-${today()}`, { recursive: true });
+    writeFileSync(join(`${dir}.${PARKED_INFIX}-${today()}`, "PARKED"), "the parked one");
+  }
+
+  for (const forbidden of [".bansai", ".claude-engram"] as const) {
+    test(`a dataDir inside ~/${forbidden} is refused BY NAME, with NO tampering`, async () => {
+      // The reviewer's variant A: the forward command refuses this by name, and
+      // `--undo` performed two renames inside it one command later.
+      const dir = join(homedir(), forbidden, "store");
+      layoutAt(dir);
+      const before = fingerprint(join(homedir(), forbidden));
+
+      const fwd = consoleWith();
+      expect(
+        await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+          io: fwd.io,
+          env: env(),
+          home,
+        }),
+      ).toBe(EXIT.refused);
+
+      const c = consoleWith();
+      expect(
+        await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+          io: c.io,
+          env: env(),
+          home,
+        }),
+      ).toBe(EXIT.refused);
+      expect(text(c.err)).toContain("refused by name");
+      expect(text(c.err)).toContain(forbidden);
+      // Not one byte, and not one directory entry, moved.
+      expect(fingerprint(join(homedir(), forbidden))).toBe(before);
+      rmSync(join(homedir(), forbidden), { recursive: true, force: true });
+    });
+  }
+
+  test("a TAMPERED record naming a directory outside the layout is refused", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    // The record is a row in a database. Anything with the store open can write
+    // it — the reviewer pointed it at `~/.bansai/store` and watched v1's memory
+    // get renamed onto `dataDir`.
+    const victim = join(homedir(), ".bansai", "store");
+    mkdirSync(victim, { recursive: true });
+    writeFileSync(join(victim, "PRECIOUS-V1-MEMORY"), "do not move me");
+    const before = fingerprint(join(homedir(), ".bansai"));
+    const store = Store.open({ dir: storePath() });
+    try {
+      store.setMeta("store.previous.parked", victim);
+    } finally {
+      store.close();
+    }
+
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(u.err)).toContain("refused by name");
+    expect(fingerprint(join(homedir(), ".bansai"))).toBe(before);
+    expect(existsSync(join(victim, "PRECIOUS-V1-MEMORY"))).toBe(true);
+    rmSync(join(homedir(), ".bansai"), { recursive: true, force: true });
+  });
+
+  test("a record naming the store's own PARENT is refused by shape", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    // `dirname(storeDir)` — the reviewer's crafted value that planned a
+    // directory into its own child.
+    const store = Store.open({ dir: storePath() });
+    try {
+      store.setMeta("store.previous.parked", base());
+    } finally {
+      store.close();
+    }
+    // The PARKED tree is the one that must not move. Reading the store's own
+    // record rewrites its `-shm` — that is MINOR-4, and it is said in the
+    // output — so the live store's fingerprint is not the thing to assert on.
+    const parked = `${storePath()}.${PARKED_INFIX}-${today()}`;
+    const before = fingerprint(parked);
+    const entriesBefore = readdirSync(base()).sort().join(",");
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.refused);
+    // It is caught by the ring's "contains the configuration" clause, which
+    // fires before the shape rule and says the more useful thing — the point
+    // being that the ring is reached at all.
+    expect(text(u.err)).toContain("CONTAINS the configuration");
+    expect(fingerprint(parked)).toBe(before);
+    expect(readdirSync(base()).sort().join(",")).toBe(entriesBefore);
+  });
+
+  test("a record naming a SYMLINK is refused, so dataDir never becomes one", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const elsewhere = join(home, "elsewhere4");
+    mkdirSync(elsewhere, { recursive: true });
+    const link = `${storePath()}.${PARKED_INFIX}-${today()}-9`;
+    symlinkSync(elsewhere, link);
+    const store = Store.open({ dir: storePath() });
+    try {
+      store.setMeta("store.previous.parked", link);
+    } finally {
+      store.close();
+    }
+
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(u.err)).toContain("SYMBOLIC LINK");
+    // The store path is still a real directory, not a link into elsewhere.
+    expect(lstatSync(storePath()).isSymbolicLink()).toBe(false);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  });
+
+  test("a record naming a name this package never writes is refused by shape", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const odd = join(base(), "store.something-else");
+    mkdirSync(odd, { recursive: true });
+    const store = Store.open({ dir: storePath() });
+    try {
+      store.setMeta("store.previous.parked", odd);
+    } finally {
+      store.close();
+    }
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(u.err)).toContain("not a name this package writes");
+  });
+
+  test("the guard ring is ONE function, and both directions call it", () => {
+    // Structural, so the two cannot drift again: the forward plan and the undo
+    // plan give the same answer for the same bad path.
+    const bad = join(homedir(), ".bansai", "store");
+    const forward = planStartFresh({
+      configPath: configPath(),
+      configPresent: true,
+      dataDir: bad,
+      snapshotsConfigured: undefined,
+      now: Date.now(),
+      home,
+    });
+    const undo = planUndo({
+      storeDir: bad,
+      parked: null,
+      configPath: configPath(),
+      now: Date.now(),
+      home,
+    });
+    expect(forward.refusal).not.toBeNull();
+    expect(undo.refusal).not.toBeNull();
+    expect(undo.refusal).toBe(forward.refusal);
+  });
+});
+
+describe("MAJOR-1 — --undo refuses a non-absolute dataDir too", () => {
+  for (const [label, value] of [
+    ["relative", "relative-store"],
+    ["tilde", "~/.counterparts/store"],
+    ["dot-slash", "./rel2"],
+  ] as const) {
+    test(`${label}: refused by name, and the cwd is never touched`, async () => {
+      mkdirSync(base(), { recursive: true });
+      writeFileSync(configPath(), `${JSON.stringify({ dataDir: value }, null, 2)}\n`);
+      const c = consoleWith();
+      expect(
+        await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+          io: c.io,
+          env: env(),
+          home,
+        }),
+      ).toBe(EXIT.refused);
+      expect(text(c.err)).toContain("not an absolute path");
+      expect(existsSync(join(process.cwd(), value))).toBe(false);
+    });
+  }
+});
+
+describe("MAJOR-2 — --undo runs the same live-session check", () => {
+  test("a fresh un-ended session record refuses the undo, even with both flags", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const now = Date.now();
+    mkdirSync(join(storePath(), "sessions"), { recursive: true });
+    writeFileSync(
+      join(storePath(), "sessions", "live.json"),
+      JSON.stringify({
+        sessionId: "live",
+        scope: join(home, "a-project"),
+        startedAt: now,
+        lastBoundaryAt: now,
+        endedAt: null,
+      }),
+    );
+    // Taken AFTER the record is seeded, and of the PARKED tree — which is the
+    // one that must not move. (Reading the store's own record legitimately
+    // rewrites its `-shm`; that is MINOR-4, and it is said in the output.)
+    const parked = `${storePath()}.${PARKED_INFIX}-${today()}`;
+    const before = fingerprint(parked);
+
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.refused);
+    expect(text(u.err)).toContain("session live");
+    expect(text(u.err)).toContain("Close every Claude Code session");
+    // Neither directory moved.
+    expect(fingerprint(parked)).toBe(before);
+    expect(storeExists(storePath())).toBe(true);
+    expect(existsSync(parked)).toBe(true);
+  });
+});
+
+describe("the confirmation review's MINORs and NITs", () => {
+  test("MINOR-3: a successful undo prints the way back FROM it", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--yes", "--nothing-is-open"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(u.out)).toContain("The store this displaced is PARKED, not removed");
+    expect(text(u.out)).toContain("there is no --undo of an --undo");
+    // And the two printed lines actually work.
+    const lines = u.out.filter((l) => l.trimStart().startsWith("if [ -e ")).map((l) => l.trim());
+    expect(lines.length).toBe(2);
+    for (const line of lines) {
+      const r = spawnSync("/bin/sh", ["-c", line], { encoding: "utf8", env: shellEnv() });
+      expect(r.status).toBe(0);
+    }
+    // The blank store is back at the store path, with its own marker intact.
+    expect(storeExists(storePath())).toBe(true);
+  });
+
+  test("MINOR-4: --undo --dry-run says what it touched", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const u = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--undo", "--dry-run"], {
+        io: u.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(u.out)).toContain("`-shm` index may have been");
+    expect(text(u.out)).toContain("the parked store was not opened");
+    // And it really did not move anything.
+    expect(existsSync(`${storePath()}.${PARKED_INFIX}-${today()}`)).toBe(true);
+  });
+
+  test("MINOR-5: part-built stores from interrupted runs are NAMED, never used", async () => {
+    await install();
+    await note();
+    const stray = `${storePath()}.new-99999`;
+    mkdirSync(stray, { recursive: true });
+    writeFileSync(join(stray, "half"), "from a crashed run");
+    const c = consoleWith();
+    expect(
+      await run(["start-fresh", "--config", configPath(), "--dry-run"], {
+        io: c.io,
+        env: env(),
+        home,
+      }),
+    ).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("part-built stores from interrupted runs");
+    expect(text(c.out)).toContain(stray);
+    expect(text(c.out)).toContain("nothing here will remove");
+    // And a real run steps over it rather than adopting it.
+    const r = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: r.io,
+      env: env(),
+      home,
+    });
+    expect(readFileSync(join(stray, "half"), "utf8")).toBe("from a crashed run");
+  });
+
+  test("NIT-2: the REFUSING branch exits non-zero, so a pasted block stops", async () => {
+    await install();
+    await note();
+    const c = consoleWith();
+    await run(["start-fresh", "--config", configPath(), "--yes", "--nothing-is-open"], {
+      io: c.io,
+      env: env(),
+      home,
+    });
+    const restore = guardedLines(c.out).find((l) =>
+      l.includes(`else mv "${storePath()}.${PARKED_INFIX}-`),
+    );
+    const r = spawnSync("/bin/sh", ["-c", restore as string], {
+      encoding: "utf8",
+      env: shellEnv(),
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("REFUSING");
+    expect(r.stdout).toBe("");
+  });
+
+  test("NIT-3: before anything moves, the way back does not call the memory blank", async () => {
+    await install();
+    await note();
+    const c = consoleWith([""]);
+    await run(["start-fresh", "--config", configPath()], { io: c.io, env: env(), home });
+    const out = text(c.out);
+    // The pre-move block says what an interruption during the install means...
+    expect(out).toContain("If it stops before it prints 'parked store:', NOTHING HAS MOVED");
+    expect(out).toContain("<store>.new-<number>");
+    // ...and line 1 is conditional rather than unconditional.
+    expect(out).toContain("and if a blank store has appeared at the store path by then");
   });
 });
