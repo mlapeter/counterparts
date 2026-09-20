@@ -142,8 +142,11 @@ tests and `docs/` already cite, and none of them is retired. G5, G11 and G15 are
 for rows; G16 and G17 arrived with the floor; **G18 and G19 are new here**, and they are
 not new PROMISES — they are two things the code has kept since 2026-09-18 and 2026-08-25
 that lived only in `NOTES.md`, written down so a citation can reach them. The
-implementation plan's §5 outline numbered the last three differently (its G15/G16/G17 are
-this page's G16/G18/G17); the code's numbering wins.*
+implementation plan's §5 outline numbered the tail differently — its G15 is this page's
+G16 and its G16 is this page's G18 — and its G17, "a snapshot is a VACUUM INTO of the
+classified backup set, rotated by an adapter", is not a store guarantee at all: rotation
+DELETES, so it lives in `adapters/snapshots.ts` and may never live here (G2). What is a
+store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.*
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
@@ -318,8 +321,9 @@ this page's G16/G18/G17); the code's numbering wins.*
     reclaim is REPORTED in words, with what is still true and the command that finishes it —
     never `nothing`. Snapshots taken BEFORE a removal hold the memory properly and are not
     reached; nothing that leaves the machine ever carried the residue (G19).
-18. **[M] Every handle is WAL with a busy timeout, and the timeout is set FIRST; an
-    instrument sets no pragma that writes.** The order is the fix (I38/I39, 2026-09-18):
+18. **[M] Both boxes are WAL, every handle carries a busy timeout, the timeout is set
+    FIRST, and an opener that did not ask to convert sets no pragma that writes.** The
+    order is the fix (I38/I39, 2026-09-18):
     `busy_timeout = 5000` before anything else, because every statement after it can contend
     for a lock and without it SQLite fails them INSTANTLY — it used to be set LAST, so the
     journal-mode statement ran with zero wait inside another writer's commit window. Then
