@@ -22,7 +22,9 @@ import {
   HANDOFF_KIND,
   HANDOFF_LIFE_DAYS,
   HANDOFF_MAX_BYTES,
-  HANDOFF_RESERVE_BYTES,
+  HANDOFF_RESERVE_MARGIN_BYTES,
+  HANDOFF_RESERVE_MAX_BYTES,
+  HANDOFF_CLEARED_EVENT,
   HANDOFF_REFUSED_EVENT,
   HANDOFF_ROLE,
   HANDOFF_SHOWN_EVENT,
@@ -30,10 +32,12 @@ import {
   Handoffs,
   excerpt,
   findHandoffRow,
+  handoffRows,
   handoffTitle,
   isHandoffRow,
   pointerBlock,
   readHandoff,
+  reserveBytes,
 } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
 import { isHandoff } from "../src/core/recall/index.js";
@@ -42,6 +46,7 @@ import { Store } from "../src/core/store/index.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
+import { REF_KIND } from "../src/adapters/dashboard/web/narrate.js";
 import { TOOL_NAMES, openServer, toolSpec } from "../src/adapters/mcp/index.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { canonicalScope } from "../src/adapters/sessions.js";
@@ -441,7 +446,7 @@ describe("the pointer at the wake", () => {
     };
     const block = pointerBlock(widest, 999_999) as string;
     expect(block).not.toBeNull();
-    expect(new TextEncoder().encode(block).length).toBeLessThanOrEqual(HANDOFF_RESERVE_BYTES);
+    expect(new TextEncoder().encode(block).length).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
     // And the excerpt itself stays inside its own cap.
     expect(new TextEncoder().encode(excerpt(widest.body)).length).toBeLessThanOrEqual(
       HANDOFF_EXCERPT_BYTES,
@@ -475,8 +480,10 @@ describe("it expires, in lived days", () => {
     expect(written.written).toBe(true);
     const at = (day: number): Handoff | null => h.read(HERE, day);
     expect(at(10)?.body).toBe(BODY);
-    expect(at(10 + HANDOFF_LIFE_DAYS)?.body).toBe(BODY);
-    expect(at(10 + HANDOFF_LIFE_DAYS + 1)).toBeNull();
+    // FOURTEEN lived days counting the one it was written on, so the last day
+    // it shows is `writtenDay + 13` and the first it does not is `+ 14`.
+    expect(at(10 + HANDOFF_LIFE_DAYS - 1)?.body).toBe(BODY);
+    expect(at(10 + HANDOFF_LIFE_DAYS)).toBeNull();
     // The ROW is still there — nothing new forgets it. The ordinary prune does.
     expect(findHandoffRow(s, HERE)).not.toBeNull();
     expect(h.readAny(HERE)?.body).toBe(BODY);
@@ -519,8 +526,8 @@ describe("it expires, in lived days", () => {
     h.write({ body: BODY, scope: HERE, day: 0 });
     h.write({ body: BODY_TWO, scope: HERE, day: 12 });
     expect(h.read(HERE, 20)?.body).toBe(BODY_TWO);
-    expect(h.read(HERE, 12 + HANDOFF_LIFE_DAYS)?.body).toBe(BODY_TWO);
-    expect(h.read(HERE, 12 + HANDOFF_LIFE_DAYS + 1)).toBeNull();
+    expect(h.read(HERE, 12 + HANDOFF_LIFE_DAYS - 1)?.body).toBe(BODY_TWO);
+    expect(h.read(HERE, 12 + HANDOFF_LIFE_DAYS)).toBeNull();
   });
 });
 
@@ -534,11 +541,61 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
     expect(report.composeBudget).toBe(9_000 - 160);
   });
 
-  test("one live handoff ANYWHERE ⇒ the room for the pointer is reserved", () => {
+  test("one live handoff ANYWHERE ⇒ room is reserved, sized to the block that EXISTS", () => {
     const c = counterpart();
     c.writeHandoff(BODY, { scope: HERE });
+    const blocks = c.handoffs.liveBlockBytes();
+    expect(blocks).toHaveLength(1);
     const report = c.rebrief({ budgetBytes: 9_000 });
-    expect(report.composeBudget).toBe(9_000 - 160 - HANDOFF_RESERVE_BYTES);
+    expect(report.composeBudget).toBe(9_000 - 160 - ((blocks[0] as number) + HANDOFF_RESERVE_MARGIN_BYTES));
+    // …and the block that exists is well under the ceiling the flat reserve
+    // used to take: the review measured 295 bytes of ceiling spent on nothing.
+    expect((blocks[0] as number) + HANDOFF_RESERVE_MARGIN_BYTES).toBeLessThan(HANDOFF_RESERVE_MAX_BYTES);
+  });
+
+  test("a ceiling too small for the share rule reserves NOTHING, so no lane pays for it", () => {
+    // The review's measurement (MAJOR-1): at a 1,200-byte ceiling a session in
+    // a directory with NO handoff lost 4 of its 6 identity elements to a
+    // store-wide reserve it would never be handed anything for.
+    const a = counterpart();
+    for (let i = 0; i < 40; i++) {
+      a.store.put({
+        id: `mem_reserve0000${String(i).padStart(2, "0")}`,
+        type: "memory",
+        kind: "self",
+        body: `Placeholder identity element ${i}, long enough to compete for a tight budget.`,
+        band: "identity",
+        learnedOn: a.store.today(),
+        salience: { relevance: 0.9, emotional: 0.6, predictive: 0.6 },
+        physics: { promotedIdentity: true },
+      });
+    }
+    const before = a.rebrief({ budgetBytes: 1_200, at: "2026-09-20" });
+    a.writeHandoff(BODY, { scope: HERE });
+    const after = a.rebrief({ budgetBytes: 1_200, at: "2026-09-20" });
+    // The COMPOSE BUDGET is the property: nothing was taken out of it, so no
+    // lane was trimmed for a pointer this ceiling will not carry. (The element
+    // COUNT is not comparable across two boundaries — the identity lane rotates
+    // at every one, by design.)
+    expect(after.composeBudget).toBe(before.composeBudget);
+    expect(after.composeBudget).toBe(1_200 - 160);
+    expect(a.handoffs.liveBlockBytes()).toHaveLength(1);
+    // A session in ANOTHER directory is handed nothing and has lost nothing.
+    const woke = a.wake(1_200, { date: "2026-09-20" }, { scope: THERE });
+    expect(woke.text).not.toContain("Where I left off");
+  });
+
+  test("the share rule is one comparison, and it is stated where it is decided", () => {
+    // Pure, so the rule can be read without a store in the room.
+    expect(reserveBytes([], 9_000)).toBe(0);
+    expect(reserveBytes([250], 9_000)).toBe(250 + HANDOFF_RESERVE_MARGIN_BYTES);
+    // Never past the measured widest block.
+    expect(reserveBytes([10_000], 1_000_000)).toBe(HANDOFF_RESERVE_MAX_BYTES);
+    // Off below the share: a 250-byte block needs 8 × 298 = 2,384 bytes of ceiling.
+    expect(reserveBytes([250], 2_383)).toBe(0);
+    expect(reserveBytes([250], 2_384)).toBe(250 + HANDOFF_RESERVE_MARGIN_BYTES);
+    // The WIDEST live block decides, not the first.
+    expect(reserveBytes([100, 300, 200], 9_000)).toBe(300 + HANDOFF_RESERVE_MARGIN_BYTES);
   });
 
   test("once every handoff has expired the reserve goes away again", () => {
@@ -567,7 +624,7 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
       });
     }
     c.writeHandoff(BODY, { scope: HERE });
-    for (const budget of [2_000, 4_096, 9_000]) {
+    for (const budget of [2_500, 4_096, 9_000]) {
       c.rebrief({ budgetBytes: budget, at: "2026-09-20" });
       const woke = c.wake(budget, { date: "2026-09-20" }, { scope: HERE });
       expect(woke.text).toContain("Where I left off in this directory");
@@ -727,6 +784,208 @@ describe("the field on the session_end ask", () => {
     });
     expect(summary.credited).toBe(0);
     expect(s.counterpart.store.row(id)?.uses).toBe(0);
+  });
+});
+
+// ── what the adversarial review of 2026-09-20 found ─────────────────────────
+
+describe("the review's findings, each with the thing that was wrong", () => {
+  test("MAJOR-2a: a handoff with no directory to be about leaves a DURABLE row", () => {
+    // The rule used to live at the MCP door, which emitted a ring-only event
+    // and wrote nothing, so guarantee 3 was false on the only live entrance.
+    const s = store();
+    const h = handoffs(s);
+    for (const scope of ["", "   ", s.dir, `${s.dir}/`]) {
+      const before = s.eventLog({ limit: 500 }).length;
+      const out = h.write({ body: BODY, scope });
+      expect(out.written).toBe(false);
+      expect(out.reason).toBe("no-scope");
+      const rows = s.eventLog({ limit: 500 });
+      expect(rows.length).toBe(before + 1);
+      expect(rows[rows.length - 1]?.name).toBe(HANDOFF_REFUSED_EVENT);
+    }
+    expect(findHandoffRow(s, HERE)).toBeNull();
+  });
+
+  test("MAJOR-2b: a PRESENT but blank field retires the pointer, and says so", () => {
+    const s = store();
+    const h = handoffs(s);
+    h.write({ body: BODY, scope: HERE, session: "s1" });
+    expect(h.read(HERE)?.body).toBe(BODY);
+    const out = h.clear(HERE, { session: "s2" });
+    expect(out.written).toBe(true);
+    expect(out.reason).toBe("cleared");
+    // Gone from every read, gone from the reserve, and the words are still
+    // there on the archived row for an owner who asks for it by id.
+    expect(h.read(HERE)).toBeNull();
+    expect(h.readAny(HERE)).toBeNull();
+    expect(h.anyLive()).toBe(false);
+    expect(s.row(out.id as string)?.archived).toBe(1);
+    expect(s.readProse(out.id as string).body).toBe(BODY);
+    expect(eventNames(s)).toContain(HANDOFF_CLEARED_EVENT);
+    // And the next handoff here mints a fresh row rather than reviving one.
+    const again = h.write({ body: BODY_TWO, scope: HERE });
+    expect(again.reason).toBe("created");
+    expect(again.id).not.toBe(out.id as string);
+  });
+
+  test("MAJOR-2b: clearing a directory that has no pointer is a named, durable fact", () => {
+    const s = store();
+    const out = handoffs(s).clear(HERE);
+    expect(out.written).toBe(false);
+    expect(out.reason).toBe("nothing-to-clear");
+    expect(eventNames(s)).toContain(HANDOFF_REFUSED_EVENT);
+  });
+
+  test("MINOR-1: no room for the pointer leaves a durable row, deduped by day", () => {
+    const c = counterpart({ budgetBytes: 9_000 });
+    c.writeHandoff(BODY, { scope: HERE });
+    c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
+    for (let i = 0; i < 3; i++) c.wake(300, { date: "2026-09-20" }, { scope: HERE });
+    const rows = c.store
+      .eventLog({ limit: 500 })
+      .filter((r) => r.name === HANDOFF_REFUSED_EVENT)
+      .map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>)
+      .filter((p) => p["reason"] === "no-room");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.["budget"]).toBe(300);
+  });
+
+  test("MINOR-2: `handoff.shown` is one row per directory per lived day", () => {
+    const c = counterpart({ budgetBytes: 9_000 });
+    c.writeHandoff(BODY, { scope: HERE });
+    c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
+    for (let i = 0; i < 12; i++) {
+      c.wake(9_000, { date: "2026-09-20" }, { scope: HERE, session: `s${i}` });
+    }
+    const shown = c.store.eventLog({ limit: 500 }).filter((r) => r.name === HANDOFF_SHOWN_EVENT);
+    expect(shown).toHaveLength(1);
+  });
+
+  test("MINOR-4: a control character or a bidi override never reaches the wake", () => {
+    const c = counterpart({ budgetBytes: 9_000 });
+    c.writeHandoff(
+      "Placeholder\u0000 with \u001b[31m an escape ‮ and an override, work half done.",
+      { scope: HERE },
+    );
+    c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
+    const text = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE }).text;
+    expect(text).toContain("Where I left off");
+    expect(text).not.toContain("\u0000");
+    expect(text).not.toContain("\u001b");
+    expect(text).not.toContain("‮");
+    // And the line-injection block the scar asks for is untouched.
+    expect(text.split("\n").filter((l) => l.startsWith("Where I left off"))).toHaveLength(1);
+  });
+
+  test("MINOR-6: a TITLED handoff still points at its substance", () => {
+    expect(excerpt("# Handoff for the parser work\n\nThe empty-input case still fails.")).toBe(
+      "The empty-input case still fails.",
+    );
+    expect(excerpt("Handoff\n=======\n\nThe empty-input case still fails.")).toBe("Handoff");
+    expect(excerpt("### A heading\n## Another\n\nSubstance here.")).toBe("Substance here.");
+    // A page that is nothing BUT headings still says something rather than nothing.
+    expect(excerpt("# Only a heading")).toBe("# Only a heading");
+  });
+
+  test("MINOR-7: a body the gate empties is refused, never stored unredacted", () => {
+    const s = store();
+    // A gate that accepts and hands back nothing — the trapdoor the old
+    // `|| draft` fallback pointed at.
+    const emptying = new Handoffs({
+      store: s,
+      gate: () => ({ ok: true, text: "" }),
+    });
+    const out = emptying.write({ body: BODY, scope: HERE });
+    expect(out.written).toBe(false);
+    expect(out.reason).toBe("empty-after-gate");
+    expect(findHandoffRow(s, HERE)).toBeNull();
+    expect(eventNames(s)).toContain(HANDOFF_REFUSED_EVENT);
+  });
+
+  test("MINOR-8: two rows for one directory — newest wins, and the loser stops holding the reserve", () => {
+    const s = store();
+    const h = handoffs(s);
+    const meta = (day: number): Record<string, unknown> => ({
+      role: HANDOFF_ROLE,
+      scope: HERE,
+      writtenOn: s.today(),
+      writtenDay: day,
+      session: null,
+    });
+    // Minted directly, which is what a cross-process race would leave behind.
+    const older = s.put({
+      type: "schema",
+      kind: HANDOFF_KIND,
+      title: handoffTitle(HERE),
+      body: BODY,
+      meta: meta(1),
+    });
+    const newer = s.put({
+      type: "schema",
+      kind: HANDOFF_KIND,
+      title: handoffTitle(HERE),
+      body: BODY_TWO,
+      meta: meta(4),
+    });
+    expect(findHandoffRow(s, HERE)).toBe(newer);
+    expect(h.read(HERE, 4)?.body).toBe(BODY_TWO);
+    // The reserve counts DIRECTORIES, not rows.
+    expect(h.liveBlockBytes(4)).toHaveLength(1);
+    // And the next write retires the loser.
+    h.write({ body: "Placeholder: a third handoff for this directory.", scope: HERE, day: 5 });
+    expect(s.row(older)?.archived).toBe(1);
+    expect(handoffRows(s)).toHaveLength(1);
+  });
+
+  test("MINOR-9: a handoff is never queued for embedding — and the self page still is", () => {
+    const c = counterpart();
+    const hid = c.writeHandoff(BODY, { scope: HERE }).id as string;
+    const mid = c.store.put({ type: "memory", kind: "fact", body: "An ordinary memory." });
+    const pid = c.revisePage("## Core\n\nPlaceholder.\n\n## Lately\n\nPlaceholder.", {
+      reason: "probe",
+      by: "owner",
+    }).id as string;
+    const missing = c.store.missingVectors();
+    expect(missing).not.toContain(hid);
+    expect(missing).toContain(mid);
+    // NOT fixed here, on purpose, and asserted so the day somebody fixes it in
+    // `self/` this line is what tells them E1 was watching: the self page is in
+    // exactly the same position and is S1's question, not this seam's.
+    expect(missing).toContain(pid);
+    // The backlog doctor watches gets no floor from handoffs.
+    expect(c.store.unembeddedCount()).toBe(missing.length);
+  });
+
+  test("NIT 1 and 2: the life is fourteen lived days, and the last one never says zero", () => {
+    const s = store();
+    const h = handoffs(s);
+    h.write({ body: BODY, scope: HERE, day: 0 });
+    const shown = (day: number): string | null => h.pointer(HERE, day)?.block ?? null;
+    expect(shown(0) ?? "").toContain(`${HANDOFF_LIFE_DAYS} more days`);
+    expect(shown(HANDOFF_LIFE_DAYS - 2) ?? "").toContain("2 more days");
+    expect(shown(HANDOFF_LIFE_DAYS - 1) ?? "").toContain("one more day");
+    expect(shown(HANDOFF_LIFE_DAYS)).toBeNull();
+    // Fourteen days of showing, counting the day it was written — which is what
+    // every word around the constant says.
+    let days = 0;
+    for (let d = 0; d < 40; d++) if (shown(d) !== null) days += 1;
+    expect(days).toBe(HANDOFF_LIFE_DAYS);
+    expect(shown(0) ?? "").not.toContain("0 more days");
+  });
+
+  test("NIT 3: the refusal row's bytes and the returned bytes agree", () => {
+    const s = store();
+    const out = handoffs(s).write({ body: "   \n\n  ", scope: HERE });
+    const row = s.eventLog({ limit: 100 }).find((r) => r.name === HANDOFF_REFUSED_EVENT);
+    const payload = JSON.parse(row?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload["bytes"]).toBe(out.bytes);
+  });
+
+  test("NIT 5: a handoff row resolves through its OWN door on the dashboard", () => {
+    expect(REF_KIND["handoff.written"]).toBe("handoff");
+    expect(REF_KIND["handoff.shown"]).toBe("handoff");
+    expect(REF_KIND["handoff.written"]).not.toBe("memory");
   });
 });
 

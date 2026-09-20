@@ -373,6 +373,7 @@ export const EVENT_NODE = {
   "handoff.written": "wake",
   "handoff.shown": "wake",
   "handoff.refused": "wake",
+  "handoff.cleared": "wake",
   // Reference resolution: the boundary's credit decision (recall §9.2).
   "recall.credit": "recall",
   // The wiring that follows that decision: what the reply used together got

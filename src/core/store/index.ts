@@ -1731,8 +1731,8 @@ export class Store {
     const failures = this.metaWithPrefix(EMBED_FAILED_PREFIX);
     const givenUp = (id: string): boolean =>
       Number(failures.get(`${EMBED_FAILED_PREFIX}${id}`) ?? "0") >= EMBED_SKIP_AFTER;
-    const rows = this.ops.all<{ id: string }>(
-      `SELECT id FROM memories
+    const rows = this.ops.all<{ id: string; type: string; meta: string }>(
+      `SELECT id, type, meta FROM memories
         WHERE archived = 0 AND superseded_by IS NULL
         ORDER BY CASE WHEN source IN ('authored', 'episode') OR type = 'episode' THEN 0 ELSE 1 END,
                  birth_day ASC, id ASC`,
@@ -1740,6 +1740,7 @@ export class Store {
     const out: string[] = [];
     for (const r of rows) {
       if (embedded.has(r.id) || denied.has(r.id)) continue;
+      if (notForEmbedding(r)) continue;
       if (givenUp(r.id) !== skipped) continue;
       out.push(r.id);
       if (out.length >= limit) break;
@@ -2323,6 +2324,42 @@ function preRowsRemedy(
       `and a ${DATABASE_FILE}. DELETE NEITHER. Move one of them out into a directory of its own and ` +
       `point at the one you mean; the pre-rows half is read by the build tagged ${PRE_ROWS_READABLE_BY}.`,
   };
+}
+
+/**
+ * A ROW THE BACKFILL MUST NOT TAKE — the one exclusion `unembeddedIds` makes
+ * beyond "already embedded" and "removed".
+ *
+ * Today it is one row class: the per-directory HANDOFF (`core/handoff/`, E1,
+ * 2026-09-20). A handoff is working context for a place, not a memory; it is
+ * already out of the recall scan (`recall/activate.ts`), so a vector for it
+ * could never reach a turn. What it WOULD do is two things the adversarial
+ * review measured and nobody had stated: give the prose the feature itself
+ * calls "the most likely to carry a token" a second representation outside its
+ * row, and put a floor under `unembeddedCount()` that has nothing to do with
+ * memories — the number doctor and the parallel run watch, whose whole job is
+ * to say what is actionable.
+ *
+ * Read STRUCTURALLY, off two columns the query already selects, for the reason
+ * `recall/` reads the role structurally: `store/` depends on no module above
+ * it, and a parse that fails reads as "embed it", which is the direction that
+ * only ever costs a vector nobody asks for. The role string's owner is
+ * `core/handoff/index.ts#HANDOFF_ROLE`.
+ *
+ * **The self page is in the same position and is NOT excluded here.** It is
+ * also a `type: "schema"` row, also delivered whole at every wake, and also
+ * skipped by `activate` — measured, it is in `missingVectors()` today. Whether
+ * it should carry a vector is S1's question, not this seam's to settle
+ * unilaterally; it is filed in `core/handoff/INTERFACE-GAPS.md` §7 so it is
+ * asked rather than assumed.
+ */
+function notForEmbedding(row: { type: string; meta: string }): boolean {
+  if (row.type !== "schema") return false;
+  try {
+    return (JSON.parse(row.meta) as Record<string, unknown>)["role"] === "handoff";
+  } catch {
+    return false;
+  }
 }
 
 export function newId(type: ProseType): string {

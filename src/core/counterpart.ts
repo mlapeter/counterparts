@@ -111,14 +111,15 @@ import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
 import { Schemas } from "./schemas/index.js";
 import {
-  HANDOFF_RESERVE_BYTES,
+  HANDOFF_CLEARED_EVENT,
   HANDOFF_SHOWN_EVENT,
   HANDOFF_WRITTEN_EVENT,
   HANDOFF_REFUSED_EVENT,
+  reserveBytes,
   Handoffs,
   isHandoffRow,
 } from "./handoff/index.js";
-import type { Handoff, HandoffWrite } from "./handoff/index.js";
+import type { Handoff, HandoffRefusal, HandoffWrite } from "./handoff/index.js";
 import {
   BRIEFING_TRIM_LOG_CAP,
   LANE_ORDER,
@@ -1374,15 +1375,21 @@ export class Counterpart {
    * sentinel — or not, in which case the bundle is returned exactly as `self/`
    * produced it, byte for byte.
    *
-   * Five ways to get nothing, all of them silent by design because four of them
-   * are the ordinary case: no directory was named, the bundle is not a clean
-   * render (a damaged bundle is delivered as found, so the damage stays
-   * readable), this directory has no handoff, the one it has has run out, or the
-   * ceiling the host reported has no room left for it. Only the LAST one is
-   * worth an event: the boundary reserves `HANDOFF_RESERVE_BYTES` whenever the
-   * store holds a live pointer, so no-room means the bundle was composed before
-   * that reserve existed — one boundary's lag, which is how every wake fact
-   * behaves, and a tripwire if it ever stops being temporary.
+   * Five ways to get nothing, and four of them are the ordinary case and stay
+   * silent: no directory was named, the bundle is not a clean render (a damaged
+   * bundle is delivered as found, so the damage stays readable), this directory
+   * has no handoff, or the one it has has run out.
+   *
+   * The FIFTH leaves a durable row — `handoff.refused{reason:"no-room"}`,
+   * deduped per row per lived day. The boundary reserves room whenever a live
+   * pointer exists and the ceiling is big enough for the share rule, so no room
+   * means one of two things and both are worth a trace: the bundle was composed
+   * before that reserve existed (one boundary's lag, which is how every wake
+   * fact behaves), or this host's ceiling is too small for the share rule and
+   * the pointer will never be carried here. It was ring-only, and every hook is
+   * its own process, so the exact failure the brief asked to be findable — the
+   * pointer stops being delivered and nothing says so — was real for the whole
+   * window (adversarial review MINOR-1).
    *
    * `handoff.shown` is written here and only here: after the splice, so the row
    * says a pointer was DELIVERED rather than that one existed.
@@ -1407,6 +1414,7 @@ export class Counterpart {
         budget,
         was: result.bytes,
       });
+      this.handoffs.noteNoRoom(pointer.handoff, { bytes: spliced.bytes, budget });
       return result;
     }
     this.handoffs.noteShown(pointer.handoff, {
@@ -1435,6 +1443,25 @@ export class Counterpart {
     });
   }
 
+  /**
+   * RETIRE THIS DIRECTORY'S HANDOFF — the same seam, reached by sending the
+   * `session_end` field present and empty. See `Handoffs.clear`.
+   */
+  clearHandoff(ctx: { scope: string; session?: string | null; day?: number }): HandoffWrite {
+    return this.handoffs.clear(ctx.scope, {
+      ...(ctx.session === undefined ? {} : { session: ctx.session }),
+      ...(ctx.day === undefined ? {} : { day: ctx.day }),
+    });
+  }
+
+  /** A named, durable refusal raised by a door — see `Handoffs.refuseWrite`. */
+  refuseHandoff(
+    reason: HandoffRefusal,
+    ctx: { session?: string | null; day?: number } = {},
+  ): HandoffWrite {
+    return this.handoffs.refuseWrite(reason, ctx);
+  }
+
   /** This directory's live handoff, or null. A read: writes nothing. */
   readHandoff(scope: string): Handoff | null {
     return this.handoffs.read(scope);
@@ -1454,18 +1481,25 @@ export class Counterpart {
    * fills the ceiling, so a pointer spliced at delivery would be dropped at
    * every wake and the only symptom would be `handoff.shown` going quiet.
    *
-   * The scan is bounded by the number of SCHEMA rows of the place kind — a
-   * handful — and it never throws: a store that will not answer reserves
+   * **Who pays, and how much, is `handoff/#reserveBytes`'s to decide**, and the
+   * ceiling is passed in because it is half of that decision: the reserve is
+   * store-wide while the pointer is per-directory, so on a small ceiling a
+   * session that will be shown nothing would otherwise lose memories for it
+   * (adversarial review MAJOR-1, measured). This root's only job is to hand over
+   * the live blocks and the budget.
+   *
+   * The scan is bounded by the number of DIRECTORIES the owner has worked in —
+   * a handful — and it never throws: a store that will not answer reserves
    * nothing, which composes the wake that master composes.
    */
-  private wakeReserveBytes(): number {
-    let live = false;
+  private wakeReserveBytes(budgetBytes: number): number {
+    let blocks: number[] = [];
     try {
-      live = this.handoffs.anyLive();
+      blocks = this.handoffs.liveBlockBytes();
     } catch {
-      live = false;
+      blocks = [];
     }
-    return PREFACE_RESERVE_BYTES + (live ? HANDOFF_RESERVE_BYTES : 0);
+    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes);
   }
 
   /** The DELIVERY-side record, distinct from the render-side one (scar §2.3). */
@@ -2245,7 +2279,7 @@ export class Counterpart {
     const budgetBytes = input.budgetBytes ?? this.reportedBudget;
     if (input.budgetBytes !== undefined) this.reportedBudget = input.budgetBytes;
     const composeBudget =
-      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(), 0);
+      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes), 0);
 
     // Three states, not two (I32): swept, skipped-and-said-so, or not asked for.
     // The middle one still writes the gate row — `ran: 0, scopes: 0`, with the
@@ -2380,7 +2414,7 @@ export class Counterpart {
         counts: {},
       };
     }
-    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(), 0);
+    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes), 0);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),

@@ -1062,29 +1062,44 @@ export class McpServer {
    * result carries back. Null when the caller passed none — which is the
    * ordinary case, and says nothing about this directory either way.
    *
-   * A directory the host never named gets no handoff. There is no "general" or
-   * anonymous scope in this tree to file one under — the nearest thing is
-   * `resolveScope`'s last resort, the STORE'S OWN directory, which `server.ts`
-   * itself calls "a bad answer… kept only because a server with no scope at all
-   * cannot deposit". A handoff filed there is a handoff about nowhere, and every
-   * session in every project would be handed it.
+   * **Three answers, and only the first is silence.**
    *
-   * Both the SOURCE and the VALUE are checked, because the value is the hazard:
-   * a host that passes the store's directory as `--scope` reaches the same place
-   * by a route that reads as deliberate.
+   *   - **Absent** — the ordinary case. Nothing is written and nothing is said:
+   *     leaving the field out means "leave what stands", which is right.
+   *   - **Present and blank** — `handoff: ""` or `"   "`. This is a CLEAR. It is
+   *     the shape a model reaches for when it means "the work here is finished",
+   *     and until 2026-09-20 it was total silence while the stale pointer stood
+   *     (adversarial review MAJOR-2b). It retires the directory's pointer and
+   *     leaves a durable row.
+   *   - **Present and not a string** — a named, durable refusal, because a
+   *     caller that sent the wrong type wants to know rather than to be ignored.
+   *
+   * The NO-SCOPE REFUSAL IS NOW DURABLE, which is what MAJOR-2a was: the
+   * short-circuit that used to live here emitted a ring-only event and wrote no
+   * row, so guarantee 3 was false on the only live door. The rule is asked in
+   * two places on purpose and they are not duplicates — `handoff/` refuses an
+   * empty scope and a scope that IS the store's directory, as a belt no caller
+   * can get past; this file asks `sameScope`, which canonicalises (`/var` →
+   * `/private/var` on this host), because it is the side that has the
+   * canonicaliser and knows what `scopeSource` said. Either way the durable row
+   * is written by `handoff/`, which owns guarantee 3.
    */
   private writeHandoffField(raw: unknown): Record<string, unknown> | null {
-    if (typeof raw !== "string" || raw.trim().length === 0) return null;
-    if (this.scopeSource === "store" || sameScope(this.scope, this.counterpart.store.dir)) {
-      this.emit("mcp.handoff.refused", undefined, { reason: "no-scope" });
-      return { written: false, reason: "no-scope" };
-    }
+    if (raw === undefined || raw === null) return null;
     let out: ReturnType<Counterpart["writeHandoff"]>;
     try {
-      out = this.counterpart.writeHandoff(raw, {
-        scope: this.scope,
-        session: this.session,
-      });
+      if (typeof raw !== "string") {
+        out = this.counterpart.refuseHandoff("not-text", { session: this.session });
+      } else if (
+        this.scopeSource === "store" ||
+        sameScope(this.scope, this.counterpart.store.dir)
+      ) {
+        out = this.counterpart.refuseHandoff("no-scope", { session: this.session });
+      } else if (raw.trim().length === 0) {
+        out = this.counterpart.clearHandoff({ scope: this.scope, session: this.session });
+      } else {
+        out = this.counterpart.writeHandoff(raw, { scope: this.scope, session: this.session });
+      }
     } catch (err) {
       return { written: false, reason: "threw", detail: String((err as Error).message ?? err) };
     }

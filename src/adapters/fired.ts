@@ -466,7 +466,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "a session left a handoff for the next one in that directory",
     module: "handoff/index.ts",
     evidence: { kind: "event", names: ["handoff.written"] },
-    covers: ["handoff.refused"],
+    covers: ["handoff.refused", "handoff.cleared"],
     since: "2026-09-20",
   },
   {
