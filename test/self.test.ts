@@ -2359,23 +2359,37 @@ describe("the journal's markdown copy", () => {
     );
   });
 
-  test("the backfill is BOUNDED per pass, and the next pass finishes it", () => {
+  test("a COLD store fills in one pass; a WARM one is bounded, and the next pass finishes it", () => {
+    // TWO BOUNDS, because there are two cases. A store with no copies at all is
+    // a RESTORE — `journal/` is not in the backup set since the f6f7 review —
+    // and a restore that took forty worker runs to become readable would have
+    // made "it costs nothing to stop copying it" false. A store that already
+    // has copies is the ordinary one, and there the small count protects the
+    // worker's cycle. The wall clock bounds both.
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
-    for (let i = 0; i < JOURNAL_BACKFILL_PER_PASS + 3; i += 1) {
-      s.put({
-        type: "episode",
-        kind: "self",
-        body: `## chapter 1 — lived day 0\n\nepisode ${i}\n`,
-        meta: { sessionId: `s${i}`, chapters: 1 },
-      });
-    }
+    const make = (n: number, tag: string): void => {
+      for (let i = 0; i < n; i += 1) {
+        s.put({
+          type: "episode",
+          kind: "self",
+          body: `## chapter 1 — lived day 0\n\n${tag} episode ${i}\n`,
+          meta: { sessionId: `${tag}${i}`, chapters: 1 },
+        });
+      }
+    };
+    make(JOURNAL_BACKFILL_PER_PASS + 3, "cold");
     expect(journalFiles(dir)).toEqual([]);
     self.boundary({ budgetBytes: 4_000, day: 0 });
-    expect(journalFiles(dir).length).toBe(JOURNAL_BACKFILL_PER_PASS);
+    expect(journalFiles(dir).length).toBe(JOURNAL_BACKFILL_PER_PASS + 3);
+
+    // Now the store is warm, and the ordinary bound is back.
+    make(JOURNAL_BACKFILL_PER_PASS + 3, "warm");
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(2 * JOURNAL_BACKFILL_PER_PASS + 3);
     // Bounded is not "gives up".
     self.boundary({ budgetBytes: 4_000, day: 0 });
-    expect(journalFiles(dir).length).toBe(JOURNAL_BACKFILL_PER_PASS + 3);
+    expect(journalFiles(dir).length).toBe(2 * (JOURNAL_BACKFILL_PER_PASS + 3));
   });
 
   test("a copy that cannot be written is a ROW, never a thrown chapter", () => {
@@ -2442,6 +2456,10 @@ describe("the journal's markdown copy", () => {
   test("MAJOR-2 — a failing episode does not eat the next pass's budget (the starvation, measured)", () => {
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
+    // WARM the store first: a store with no copies at all takes the cold bound,
+    // which is a different rule and not the one under test here.
+    self.openChapter("warm", SUBSTANCE);
+    self.appendChapter("warm", "a first chapter, so this store is not a restore");
     const ids: string[] = [];
     for (let i = 0; i < JOURNAL_BACKFILL_PER_PASS + 3; i += 1) {
       ids.push(

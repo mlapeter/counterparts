@@ -202,12 +202,49 @@ const SPANS_BLIND =
 
 /**
  * The journal surface's own blind sentence, for the same reason `SPANS_BLIND`
- * is one: a directory that is backed up (`LAYOUT`'s `journal` entry) and that
- * still holds the words after a chase said it was clean is a fact the owner
- * must be handed, in the same words wherever it is printed.
+ * is one: a directory that still holds the words after a chase said it was
+ * clean is a fact the owner must be handed, in the same words wherever it is
+ * printed. (It is no longer in the backup set — see `olderCopiesNote` — so the
+ * sentence is about this store's own disk, not about future copies.)
  */
 const JOURNAL_STILL_THERE =
-  "journal/ — it is a derived copy, a backup would copy it, and deleting that file loses nothing";
+  "journal/ — it is a derived copy, and deleting that file by hand loses nothing";
+
+/**
+ * WHAT A REMOVAL CANNOT REACH: the copies already on disk.
+ *
+ * F6 did not create this gap — every snapshot has always held whatever the
+ * store held when it was taken — but it changed its severity by a wide margin
+ * and nothing said so (f6f7 review MAJOR-5). A removed memory inside an old
+ * snapshot's DATABASE is a file somebody must know to open; the same words in
+ * an old snapshot's `journal/*.md` are a grep hit, a Spotlight result, a synced
+ * folder's problem.
+ *
+ * Two things make this sentence honest rather than alarming, and both are said:
+ * snapshots taken FROM TODAY carry no `journal/` at all (it left the backup set
+ * in the same change), and a snapshot is the owner's own file to delete.
+ *
+ * It names the DEFAULT snapshot directory and counts what is in it. The console
+ * reads no host configuration, so a configured `snapshots.dir` is not visible
+ * from here — the sentence says so rather than implying the default is the
+ * whole story.
+ */
+function olderCopiesNote(storeDir: string): string {
+  const snapshots = join(storeDir, "..", "snapshots");
+  let copies = 0;
+  try {
+    copies = readdirSync(snapshots).length;
+  } catch {
+    /* none, or not readable from here: the sentence still holds */
+  }
+  return (
+    `snapshots and backups TAKEN BEFORE TODAY still hold these words, and the journal ones hold them as plain markdown` +
+    (copies === 0
+      ? ` — none in the default location (${relative(storeDir, snapshots)}), and a location set in your host configuration is not visible from this console.`
+      : ` — ${copies} cop${copies === 1 ? "y" : "ies"} in the default location (${relative(storeDir, snapshots)}), plus anywhere else you have taken one.`) +
+    " A removal does not reach into them; they are yours to delete. Snapshots taken from today carry no journal/ at all."
+  );
+}
 
 /**
  * Every `*.jsonl` under a directory — the live streams and the claims beside
@@ -776,6 +813,11 @@ export function planRemoval(
         ? [
             `journal echo check was BOUNDED: checked ${journalEchoes.checked} of ${journalEchoes.total} episodes, so an episode past that quoting these words is not named above. 'counterparts export --out <dir> --markdown --plaintext' writes every chapter out if you want to look yourself.`,
           ]
+        : []),
+      // THE COPIES ALREADY ON DISK, whenever a journal file is in play — this
+      // memory's own, or another episode's (review f6f7 MAJOR-5).
+      ...(row.type === "episode" || journalEchoes.ids.length > 0
+        ? [olderCopiesNote(store.dir)]
         : []),
     ],
   };

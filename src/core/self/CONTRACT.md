@@ -327,8 +327,11 @@ proposals and their archive; render and delivery telemetry.
     never fails a session** — it cannot throw, and a failure is a durable
     `journal.copy.failed` row with a reason code while the chapter itself is already
     committed; **an observer writes neither the file nor the row**. Written atomically
-    (temp beside it, then rename) because `journal/` is backed up and a torn file would
-    ride into every snapshot. *This is the one module in `self/` that treats `Store.dir` as
+    (temp beside it, then rename) because a crashed rename otherwise leaves a chapter's
+    words in a file nothing owns. **The directory is classified but NOT backed up** (f6f7
+    review MAJOR-5): copying a derived directory put removed episodes' words into every
+    rotating snapshot as plain markdown, and a restored store regenerates every file from
+    its rows at the next boundary. *This is the one module in `self/` that treats `Store.dir` as
     a filesystem root; `remember/spans.ts` is the precedent.* The owner's `remove` chases it
     as a named surface — see `adapters/cli/CONTRACT.md`.
 

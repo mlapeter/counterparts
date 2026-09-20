@@ -173,7 +173,11 @@ are copied with it.)
 the counterpart writes is copied to `store/journal/<year>/<date>-<id>.md` as it
 lands — open one in any editor. It is a copy: the database is the original, and
 deleting `journal/` loses nothing (the next chapter writes it again, and the
-background worker refills anything still missing, a few files per run).
+background worker refills anything still missing, a few files per run). Because
+it is a copy, **`backup` and the daily snapshot deliberately leave it out** and
+a restored store writes the files again from its rows — which also means a
+memory you removed does not go on living as plain markdown inside fourteen old
+snapshots.
 
 Three more directories appear under `store/` the first time they are needed and
 not before: `spans/` (lived experience awaiting encoding, written by the hooks

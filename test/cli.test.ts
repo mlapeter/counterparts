@@ -36,6 +36,7 @@ import {
   byteLength,
   journalFileEpisodeId,
   journalFiles,
+  journalFilesFor,
   readSentinel,
 } from "../src/core/self/index.js";
 import { PHASES, TUNABLES as SLEEP_TUNABLES, markerKey } from "../src/core/sleep/index.js";
@@ -531,23 +532,58 @@ describe("backup", () => {
     copy.close();
   });
 
-  test("F6: a snapshot carries the journal's markdown copies, and a restore has them", () => {
-    // Scar §2.11 is exactly this: v1 classified its episode directory AFTER the
-    // code that wrote it and lost the canonical journal from every snapshot for
-    // three weeks. `journal` has been in `LAYOUT` since before anything wrote
-    // it — this is the test that says the classification is doing its job.
+  test("MAJOR-5: a snapshot does NOT carry the journal's copies, and a restore REGENERATES them", () => {
+    // THE FLIP, and the reason for it. `journal: backup: true` meant every
+    // rotating snapshot held every episode's words as plain greppable markdown
+    // — so a removal emptied the live store (proved by byte grep elsewhere) and
+    // left the words in fourteen copies that any grep, Spotlight index or
+    // synced folder can read. A database in an old snapshot is a file somebody
+    // must know to open; a markdown file in one is a search result.
+    //
+    // It costs nothing to stop copying it, because the copy is DERIVED: the
+    // rows are in the snapshot and the next backfill pass writes the files
+    // again. Scar §2.11 does not apply — that was about losing the CANONICAL
+    // journal from a backup, and this one is not canonical.
     const s = store();
     const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    const ids: string[] = [];
     self.openChapter("s1", { turns: 9, bytes: 6_000 });
-    self.appendChapter("s1", "ZQSNAPSHOTJOURNAL — the chapter that must ride along.");
-    const rel = journalFiles(dir)[0] as string;
-    expect(rel).toMatch(/^journal\//);
+    ids.push(self.appendChapter("s1", "ZQSNAPSHOTJOURNAL — the chapter.").episodeId as string);
+    // MORE than one pass's ordinary budget, so "brings every copy back" is not
+    // a vacuous claim about a store small enough not to need the cold bound.
+    for (let i = 0; i < 30; i += 1) {
+      ids.push(
+        s.put({
+          type: "episode",
+          kind: "self",
+          body: `## chapter 1 — lived day 0\n\nZQSNAPSHOTJOURNAL episode ${i}\n`,
+          meta: { sessionId: `e${i}`, chapters: 1 },
+        }),
+      );
+    }
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    self.boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(dir).length).toBe(ids.length);
 
-    const target = join(outside, "with-journal");
+    const target = join(outside, "no-journal");
     expect(snapshot(s, target).ok).toBe(true);
-    // The restore is a directory copy: the file is there, byte for byte.
-    expect(readFileSync(join(target, rel), "utf8")).toBe(readFileSync(join(dir, rel), "utf8"));
-    expect(readFileSync(join(target, rel), "utf8")).toContain("ZQSNAPSHOTJOURNAL");
+    s.close();
+    // NOT in the copy — not the directory, not one file, not one byte.
+    expect(existsSync(join(target, "journal"))).toBe(false);
+    for (const name of readdirSync(target)) {
+      expect({
+        name,
+        holds: readFileSync(join(target, name)).toString("latin1").includes("ZQSNAPSHOTJOURNAL"),
+      }).toEqual({ name, holds: name === "counterparts.sqlite" });
+    }
+
+    // …and the restore brings them back, at the first boundary, all of them.
+    const restored = Store.open({ dir: target });
+    open.push(restored);
+    expect(journalFiles(target)).toEqual([]);
+    new Self({ store: restored, gate: () => ({ ok: true }) }).boundary({ budgetBytes: 4_000, day: 0 });
+    expect(journalFiles(target).length).toBe(ids.length);
+    for (const id of ids) expect(journalFilesFor(target, id).length).toBe(1);
   });
 
   test("the backup set IS the layout's, and every top-level path is classified", async () => {
@@ -1722,6 +1758,10 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(await run(["remove", episodeId, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
     const printed = text(c.out);
     expect(printed).toContain("journal(1 markdown copy)");
+    // MAJOR-5: the copies a removal cannot reach are SAID, in the completion
+    // report and not only in the plan.
+    expect(printed).toContain("TAKEN BEFORE TODAY");
+    expect(printed).toContain("Snapshots taken from today carry no journal/ at all.");
     expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
     // §16 G15: the report names a file, never a word of its contents.
     expect(printed).not.toContain(WORD);

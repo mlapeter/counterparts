@@ -89,8 +89,23 @@ export const JOURNAL_COPY_FAILED_EVENT = "journal.copy.failed";
  */
 export const JOURNAL_BACKFILL_PER_PASS = 25;
 
+/**
+ * …and the bound for a store that has NO copies at all.
+ *
+ * The case is a restore. Since 2026-09-20 `journal/` is not in the backup set
+ * (f6f7 review MAJOR-5: copying it put removed episodes' words into every
+ * rotating snapshot as plain markdown), so a restored store has the rows and
+ * none of the files — and "a restored snapshot brings the copies back" must not
+ * mean "over the next forty worker runs". The wall clock below is the real
+ * protection and it still applies; this only stops the COUNT from being the
+ * thing that makes a restore take weeks.
+ */
+export const JOURNAL_BACKFILL_COLD_PASS = 1_000;
+
 /** …and the wall-clock half of that bound. A slow disk stops the pass, not the
- *  cycle; whatever is left is the next run's work. */
+ *  cycle; whatever is left is the next run's work. It is what bounds the cold
+ *  pass above, so a restore of a very large store is still many passes — just
+ *  passes measured by the clock rather than by a count chosen for a warm one. */
 export const JOURNAL_BACKFILL_BUDGET_MS = 250;
 
 /**
@@ -99,7 +114,8 @@ export const JOURNAL_BACKFILL_BUDGET_MS = 250;
  * Same shape and the same reasoning as `cli/export.ts#EXPORT_SCRATCH_STALE_MS`:
  * the bound is what keeps a sweep from taking a CONCURRENT writer's temp file
  * mid-rename. A crashed rename leaves a file holding a chapter's words, and
- * `journal/` is backed up, so a leak here would ride into every snapshot.
+ * a crashed rename otherwise leaves a chapter's words in a file nothing owns,
+ * inside the store, for ever.
  */
 export const JOURNAL_TEMP_STALE_MS = 60 * 60_000;
 
@@ -599,10 +615,22 @@ export function backfillJournalCopies(
   store: Store,
   opts: { limit?: number; budgetMs?: number; now?: () => number } = {},
 ): JournalBackfillReport {
-  const limit = opts.limit ?? JOURNAL_BACKFILL_PER_PASS;
   const budget = opts.budgetMs ?? JOURNAL_BACKFILL_BUDGET_MS;
   const clock = opts.now ?? Date.now;
   const started = clock();
+  // A COLD STORE GETS THE BIGGER COUNT. No copies at all and episodes to copy
+  // is what a restore looks like — `journal/` is not in the backup set — and a
+  // restore that took forty worker runs to become readable would have made the
+  // "it costs nothing to stop copying it" argument false. The wall clock below
+  // still bounds the pass either way.
+  const cold = (() => {
+    try {
+      return journalFiles(store.dir).length === 0;
+    } catch {
+      return false;
+    }
+  })();
+  const limit = opts.limit ?? (cold ? JOURNAL_BACKFILL_COLD_PASS : JOURNAL_BACKFILL_PER_PASS);
   let sweptTemps = 0;
   try {
     sweptTemps = sweepJournalTemps(store.dir, started).length;

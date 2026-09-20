@@ -730,7 +730,11 @@ a `journal.copy.failed` row rather than an exception.
 
 4. **The temp file is a residue surface.** A crashed rename leaves
    `<final>.md.tmp-<rand>` holding a chapter's words, `journal/` is in the backup
-   set, and so a leak would ride into every snapshot. Hence one filename matcher
+   set at the time, and so a leak would ride into every snapshot. (That flag is
+   `false` since the f6f7 review — §16 — which removes the snapshot half of the
+   argument and leaves the other half standing: a crashed rename otherwise
+   leaves a chapter's words in a file nothing owns, inside the store, for ever.)
+   Hence one filename matcher
    that finds the final name, an older date's name and a crashed temp
    (`journalFileEpisodeId`), and a sweep bounded by mtime — bounded for exactly
    the reason `cli/export.ts`'s temp sweep is: an unbounded one would take a

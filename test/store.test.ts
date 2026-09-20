@@ -1786,13 +1786,18 @@ describe("layout", () => {
     // `journal` is classified BEFORE anything writes it (F6 writes it), which
     // is scar §2.11's criterion said forwards: v1 lost its canonical episode
     // journal from every snapshot for three weeks by classifying the directory
-    // after the code that made it.
-    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "journal", "spans"]);
-    // The two rebuildable/ephemeral families left: box 3, and the adapters'
-    // live-session registry (`adapters/sessions.ts`). `tmp` went with the
-    // staging it existed for.
+    // after the code that made it. CLASSIFIED IS NOT THE SAME QUESTION AS
+    // BACKED UP, and `journal` is the example: it is derived, so it is
+    // deliberately excluded from the copy and regenerated from rows on a
+    // restore (f6f7 review MAJOR-5 — copying it put removed episodes' words
+    // into every rotating snapshot as plain markdown).
+    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "spans"]);
+    // The rebuildable/ephemeral/derived families: box 3, the adapters'
+    // live-session registry (`adapters/sessions.ts`), and the journal's
+    // markdown copy. `tmp` went with the staging it existed for.
     expect(LAYOUT.filter((e) => !e.backup).map((e) => e.name).sort()).toEqual([
       "cache",
+      "journal",
       "sessions",
     ]);
     s.assertLayout();
@@ -2206,7 +2211,7 @@ describe("WAL, the busy timeout, and I39", () => {
       expect({ name, classified: classifyTopLevel(name) !== undefined }).toEqual({ name, classified: true });
     }
     s.assertLayout();
-    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "journal", "spans"]);
+    expect(s.backupSet().sort()).toEqual(["counterparts.sqlite", "spans"]);
 
     // The copy route `backup` and `export` take, with an uncommitted write held
     // open across it — under WAL the committed row lives in the `-wal`, which is
