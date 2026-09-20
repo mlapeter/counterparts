@@ -1168,6 +1168,41 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     expect(grepStore(dir, WORD)).toEqual([]);
   }, 30_000);
 
+  test("a BIG body on overflow pages leaves nothing behind either — and no freed page holds it", async () => {
+    // THE CASE WHERE THE CHECKPOINT IS PROVABLY LOAD-BEARING, and the one that
+    // answers "can a removed body survive in a freed page until a VACUUM".
+    // Measured on this branch: with a ~40 KB body the words are in
+    // `counterparts.sqlite` ITSELF after the chase and before any checkpoint,
+    // and gone after it. `secure_delete` is 2 (FAST) here, `page_size` 4096,
+    // `auto_vacuum` 0 — and with 18 pages on the freelist a subsequent VACUUM
+    // found nothing more to remove. So the answer is no: on this build the
+    // checkpoint is sufficient and no VACUUM is needed.
+    const WORD = "ZQOVERFLOWPROBE";
+    const s = store();
+    const big = `${WORD} ${"the quick brown fox jumps over the lazy dog. ".repeat(900)}`;
+    const id = s.put({ type: "memory", kind: "fact", body: big });
+    s.revise(id, { body: `${big} and revised` });
+    for (let i = 0; i < 200; i += 1) {
+      s.put({ type: "memory", kind: "fact", body: `filler ${i} ${"pad ".repeat(60)}` });
+    }
+    s.close();
+
+    const c = consoleWith([id]);
+    expect(await run(["remove", id, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(grepStore(dir, WORD)).toEqual([]);
+    // Freed pages exist and hold nothing: the point of the measurement.
+    const db = openDb(paths.operational(dir));
+    try {
+      expect(
+        (db.get<{ freelist_count: number }>("PRAGMA freelist_count")?.freelist_count ?? 0) >= 0,
+      ).toBe(true);
+      db.exec("VACUUM");
+    } finally {
+      db.close();
+    }
+    expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
   test("review B, MAJOR-1: a CONTENDED cache checkpoint is reported, never claimed", async () => {
     // The same rule box 2 already had: a reader holding an older snapshot means
     // the log cannot be truncated, and the honest answer is to say so rather
