@@ -31,7 +31,9 @@ import { TUNABLES } from "../src/core/physics/index.js";
 import {
   BRIEFING_KEY,
   PREFACE_RESERVE_BYTES,
+  Self,
   byteLength,
+  journalFiles,
   readSentinel,
 } from "../src/core/self/index.js";
 import { PHASES, TUNABLES as SLEEP_TUNABLES, markerKey } from "../src/core/sleep/index.js";
@@ -525,6 +527,25 @@ describe("backup", () => {
     // a smear of whatever the file happened to hold.
     expect(copy.get("SELECT value FROM meta WHERE key = ?", "uncommitted")).toBeUndefined();
     copy.close();
+  });
+
+  test("F6: a snapshot carries the journal's markdown copies, and a restore has them", () => {
+    // Scar §2.11 is exactly this: v1 classified its episode directory AFTER the
+    // code that wrote it and lost the canonical journal from every snapshot for
+    // three weeks. `journal` has been in `LAYOUT` since before anything wrote
+    // it — this is the test that says the classification is doing its job.
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", "ZQSNAPSHOTJOURNAL — the chapter that must ride along.");
+    const rel = journalFiles(dir)[0] as string;
+    expect(rel).toMatch(/^journal\//);
+
+    const target = join(outside, "with-journal");
+    expect(snapshot(s, target).ok).toBe(true);
+    // The restore is a directory copy: the file is there, byte for byte.
+    expect(readFileSync(join(target, rel), "utf8")).toBe(readFileSync(join(dir, rel), "utf8"));
+    expect(readFileSync(join(target, rel), "utf8")).toContain("ZQSNAPSHOTJOURNAL");
   });
 
   test("the backup set IS the layout's, and every top-level path is classified", async () => {
@@ -1238,6 +1259,75 @@ describe("remove — the span buffer is CHASED, and what it cannot reach it name
     // …and the whole directory, read as bytes — both databases, both logs, the
     // `-shm`s, `sessions/`, `spans/`, the journal and the version rows.
     expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
+  test("F6: removing an episode takes its markdown copy, and the whole directory is clean", async () => {
+    // A SECOND ON-DISK COPY OF MEMORY WORDS IS A SURFACE. That is the finding
+    // the reviews raised twice on this floor (B MAJOR-1, C NEW-MAJOR-1) and the
+    // span buffer's scar before them: a file the chase does not visit while the
+    // console prints `unchased: nothing` is not a behaviour gap, it is the
+    // report lying. `journal/` is backed up, so a leftover would ride into
+    // every snapshot too.
+    const WORD = "ZQJOURNALRESIDUEPROBE";
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    const episodeId = self.appendChapter("s1", `The chapter holding ${WORD}.`).episodeId as string;
+    s.close();
+
+    // The residue exists before anything is removed: the row AND the file.
+    const seeded = grepStore(dir, WORD);
+    expect(seeded.some((p) => p.startsWith("journal/") && p.endsWith(".md"))).toBe(true);
+
+    // The dry run counts the surface — at its real count, not by implication.
+    const plan = consoleWith();
+    expect(await run(["remove", episodeId, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    expect(text(plan.out)).toContain("journal: 1");
+    // A dry run removes nothing.
+    expect(grepStore(dir, WORD).some((p) => p.startsWith("journal/"))).toBe(true);
+
+    const c = consoleWith([episodeId]);
+    expect(await run(["remove", episodeId, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    const printed = text(c.out);
+    expect(printed).toContain("journal(1 markdown copy)");
+    expect(printed).toContain("unchased (dark via the deny-list, never silently dropped): nothing");
+    // §16 G15: the report names a file, never a word of its contents.
+    expect(printed).not.toContain(WORD);
+    // NOT ONE BYTE ANYWHERE UNDER THE STORE — the journal included.
+    expect(grepStore(dir, WORD)).toEqual([]);
+  }, 30_000);
+
+  test("F6: a memory whose words a CHAPTER quotes is left alone, and said out loud", async () => {
+    // The journal is the counterpart's own account of a day. A memory made from
+    // it is a different row, and removing that memory does not remove the
+    // account — exactly as a spans echo is left. What may not happen is
+    // silence: the plan names the episodes, by id, with no text.
+    const WORD = "ZQJOURNALECHOPROBE";
+    const s = store();
+    const self = new Self({ store: s, gate: () => ({ ok: true }) });
+    self.openChapter("s1", { turns: 9, bytes: 6_000 });
+    self.appendChapter("s1", `Today I finally understood ${WORD}, and it mattered.`);
+    const memoryId = s.put({
+      type: "memory",
+      kind: "fact",
+      body: `Today I finally understood ${WORD}, and it mattered.`,
+    });
+    s.close();
+
+    const plan = consoleWith();
+    expect(await run(["remove", memoryId, "--dir", dir], { io: plan.io })).toBe(EXIT.ok);
+    const planned = text(plan.out);
+    expect(planned).toContain("journal echo:");
+    expect(planned).toContain("Left on purpose");
+    expect(planned).toMatch(/epi_[0-9a-f]+/);
+    expect(planned).not.toContain(WORD);
+
+    // The real removal takes the memory and leaves the chapter — its row and
+    // its file alike, because the file says what the row says.
+    const c = consoleWith([memoryId]);
+    expect(await run(["remove", memoryId, "--confirm", "--dir", dir], { io: c.io })).toBe(EXIT.ok);
+    expect(text(c.out)).toContain("journal(0, nothing beside the row)");
+    expect(grepStore(dir, WORD).some((p) => p.startsWith("journal/"))).toBe(true);
   }, 30_000);
 
   test("NEW-MAJOR-1: a removed body on OVERFLOW pages leaves no freed page holding it", async () => {

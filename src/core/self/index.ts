@@ -130,10 +130,17 @@ import type {
   IngestResult,
   Substance,
 } from "./episodes.js";
+import {
+  backfillJournalCopies,
+  noteJournalCopy,
+  syncJournalCopy,
+} from "./journal-file.js";
+import type { JournalCopyOutcome } from "./journal-file.js";
 import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 
 export * from "./briefing.js";
+export * from "./journal-file.js";
 export * from "./page.js";
 export * from "./episodes.js";
 export * from "./freeze.js";
@@ -299,6 +306,12 @@ export interface ChapterAppend {
    *  append inside one chapter continues it — the live-append case (§13 G2). */
   readonly heading: boolean;
   readonly reason: "appended" | "observer" | "anonymous-session" | "gate-refused";
+  /**
+   * What happened to the markdown copy under `<store>/journal/` (F6). Null when
+   * no chapter was written. A `failed` here is NEVER a failed append: the row is
+   * canonical and landed before the copy was attempted.
+   */
+  readonly copy: JournalCopyOutcome | null;
 }
 
 /**
@@ -1087,7 +1100,39 @@ export class Self {
       );
     }
     this.emit("self.briefing.published", undefined, { bytes: briefing.bytes, hash });
+    // THE JOURNAL'S BACKFILL (F6), and this is the only place it runs.
+    //
+    // A store whose `journal/` was deleted — or one whose episodes predate this
+    // code, which is every store that existed before today — gets its copies
+    // back here, a bounded handful per boundary. It is AFTER the publish on
+    // purpose: the briefing is the boundary's job and a slow disk must not be
+    // able to delay it. Bounded twice (count and wall clock) because this runs
+    // inside a session's Stop hook.
+    this.backfillJournal(req.day);
     return { briefing, schema, published: true, reason: "published", hash };
+  }
+
+  /**
+   * Fill in missing journal files, a bounded pass. Never throws; an observer
+   * never reaches it (the publish arm above returns first).
+   */
+  private backfillJournal(day: number): void {
+    try {
+      const report = backfillJournalCopies(this.store);
+      for (const result of report.results) {
+        noteJournalCopy(this.store, result, { day, site: "backfill" });
+      }
+      if (report.written > 0 || report.failed > 0 || report.sweptTemps > 0) {
+        this.emit("self.journal.backfill", undefined, {
+          written: report.written,
+          failed: report.failed,
+          swept: report.sweptTemps,
+          more: report.more,
+        });
+      }
+    } catch {
+      /* a derived copy never takes a boundary down (§1.5) */
+    }
   }
 
   /**
@@ -1450,11 +1495,11 @@ export class Self {
       // Identity-safe join (§13 G7): every anonymous session collapses to the
       // same marker, so one session's account would pool into another's.
       this.emit("self.episode.skipped", undefined, { reason: "anonymous-session" });
-      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "anonymous-session" };
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "anonymous-session", copy: null };
     }
     if (this.observer) {
       this.emit("self.observer.standdown", sessionId, { site: "appendChapter" });
-      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "observer" };
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "observer", copy: null };
     }
     // Every ingestion entrance runs the battery — a chapter is canonical prose,
     // and a credential in one landed durably before this gate existed (found by
@@ -1466,7 +1511,7 @@ export class Self {
         gate: verdict.gate,
         reason: verdict.reason,
       });
-      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "gate-refused" };
+      return { episodeId: null, chapter: 0, created: false, heading: false, reason: "gate-refused", copy: null };
     }
     const gatedText = verdict.text ?? text;
     const state = this.episodeState(sessionId, d);
@@ -1492,7 +1537,26 @@ export class Self {
       created: written.created,
       bytes: byteLength(gatedText),
     });
-    return { ...written, reason: "appended" };
+    // THE MARKDOWN COPY, AFTER THE ROW AND NEVER INSTEAD OF IT (F6). The
+    // chapter is committed above; this is a derived file, it cannot throw, and
+    // a failure is a durable row rather than a failed `chapter` call. Written
+    // per append rather than once at session end because the plan's one
+    // undetermined question (§7.6) resolves that way in the code: the episode
+    // row is rewritten per append, so the file is a whole-file rewrite either
+    // way, and per-append is the reading that does not lose a crashed session's
+    // last chapter.
+    const copy = syncJournalCopy(this.store, written.episodeId);
+    noteJournalCopy(this.store, copy, {
+      day: d,
+      chapters: written.chapter,
+      site: "chapter",
+    });
+    this.emit("self.journal.copy", written.episodeId, {
+      outcome: copy.outcome,
+      bytes: copy.bytes,
+      ...(copy.reason === null ? {} : { reason: copy.reason }),
+    });
+    return { ...written, reason: "appended", copy: copy.outcome };
   }
 
   /**

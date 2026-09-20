@@ -52,6 +52,7 @@ import {
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
   SPAWN_REFUSED_EVENT,
+  STORE_EXPORT_EVENT,
   SWEEP_GATE_EVENT,
   SWEEP_WAKE_EVENT,
   WAKE_DELIVERED_EVENT,
@@ -60,7 +61,12 @@ import {
 import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 // The self page's two, from `self/` itself (2026-09-18, S1): a written page is
 // not a briefing render, and a refused write is not an accepted one.
-import { SELF_PAGE_REFUSED_EVENT, SELF_PAGE_REVISED_EVENT } from "../../core/self/index.js";
+import {
+  JOURNAL_COPY_FAILED_EVENT,
+  JOURNAL_COPY_WRITTEN_EVENT,
+  SELF_PAGE_REFUSED_EVENT,
+  SELF_PAGE_REVISED_EVENT,
+} from "../../core/self/index.js";
 
 /** Display order for the bands, weakest commitment first. EXHAUSTIVE BY TYPE. */
 const BAND_ORDER = {
@@ -136,7 +142,10 @@ export type DurableEventName =
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
   | typeof SNAPSHOT_FAILED_EVENT
-  | typeof SNAPSHOT_ROTATED_EVENT;
+  | typeof SNAPSHOT_ROTATED_EVENT
+  | typeof JOURNAL_COPY_WRITTEN_EVENT
+  | typeof JOURNAL_COPY_FAILED_EVENT
+  | typeof STORE_EXPORT_EVENT;
 
 export const DURABLE_EVENTS = {
   "adapter.ask": "the Stop ask was evaluated (asked, paced out, or capped for the day)",
@@ -196,6 +205,12 @@ export const DURABLE_EVENTS = {
   "snapshot.taken": "a copy of the whole store was made and kept (which one, how many files, how many are kept, the oldest)",
   "snapshot.failed": "a copy could not be made (which step, and why) — the store is unharmed, and the worker carried on",
   "snapshot.rotated": "old copies were let go so the newest 14 remain (which ones went, and how many are left)",
+  // The journal's markdown copy and the hand export (2026-09-20, F6 and F7):
+  // the two places the constitution's "prose the owner can view" is kept now
+  // that every body is a column.
+  "journal.copy.written": "a chapter's markdown copy was written beside the store, so the diary is readable in any editor (which episode, which file, how big)",
+  "journal.copy.failed": "a chapter's markdown copy could not be written (which episode, and the reason code) — the chapter itself is safe in the database",
+  "store.export": "the owner exported the store by hand (which kind of export, how many rows went, how many confidential ones were left out)",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

@@ -1,0 +1,459 @@
+/**
+ * THE JOURNAL'S MARKDOWN COPY — the one file the owner can open in any editor.
+ *
+ * Constitution line 6 promises "memories kept as prose the owner can view".
+ * Since the floor (schema v6) every body is a column, so that promise is kept
+ * in two named places and nowhere else: `counterparts export --markdown`, and
+ * this — a `.md` per episode under `<store>/journal/`, written as each chapter
+ * lands. It is here rather than in an adapter because the owner ruled it so
+ * (decision 2, 2026-09-17 §15 item 9: "the self is being recovered from v1
+ * right now because its pages and journal were plain files that outlived their
+ * system").
+ *
+ * **BY OWNER DECISION 2 THIS IS THE ONE `self/` MODULE THAT TREATS `Store.dir`
+ * AS A FILESYSTEM ROOT.** Said at the top rather than left for a reviewer to
+ * find. `remember/spans.ts` is the precedent: a core module that owns one
+ * directory inside the store and nothing else.
+ *
+ * Four properties, and each one is a decision somebody can reverse:
+ *
+ *   - **DERIVED AND WRITE-ONLY.** The row is the truth. Nothing in this
+ *     codebase ever reads a journal file back into the store — there is no
+ *     parser here, on purpose, and `render.ts` says the same from its side.
+ *     Deleting `journal/` loses nothing: the next chapter, or the next
+ *     boundary's backfill, writes it again.
+ *   - **WRITTEN AS IS** (owner ruling 2, 2026-09-18). No summary, no
+ *     re-rendering of the words, no second renderer: `render.ts#renderMarkdown`
+ *     is what export writes and it is what this writes, byte for byte. The
+ *     front matter identifies the episode — id, session, dates, chapter count —
+ *     and carries nothing the row does not hold. Credentials were redacted at
+ *     the gate before the row was written (`self/index.ts#appendChapter`); this
+ *     copies the row and cannot un-redact anything.
+ *   - **IT NEVER FAILS A SESSION.** Nothing here throws. A copy that cannot be
+ *     written is a `journal.copy.failed` row with a reason code; the chapter is
+ *     already committed and is not at risk. A `chapter` call, a Stop hook and a
+ *     boundary must not be able to fail because a disk was full.
+ *   - **THE REMOVAL CHASE REACHES IT.** A file holding a removed memory's words
+ *     while the console prints `unchased: nothing` is the finding F5's reviews
+ *     raised twice (B MAJOR-1, C NEW-MAJOR-1) and the span buffer's scar before
+ *     that. `syncJournalCopy` is the executable form of the invariant: a live
+ *     episode row gets a file that matches it, and anything else gets no file.
+ *     The owner's destruction console calls it as a named surface. (Named
+ *     obliquely on purpose: a test greps every file under `src/` for that
+ *     module's own filename and fails on a mention, which is how the
+ *     one-importer rule is kept honest.)
+ */
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { renderMarkdown, rowTombstoned } from "../store/index.js";
+import type { ProseDoc, Store } from "../store/index.js";
+
+/** The directory, spelled once. `store/paths.ts#LAYOUT` classified it before
+ *  this file existed — scar §2.11, and the reason that entry carries a date. */
+export const JOURNAL_DIR = "journal";
+
+/** A copy landed. Payload: the episode id, the store-relative file, bytes. */
+export const JOURNAL_COPY_WRITTEN_EVENT = "journal.copy.written";
+/** A copy did not land, with the reason code. The row is safe either way. */
+export const JOURNAL_COPY_FAILED_EVENT = "journal.copy.failed";
+
+/**
+ * How many missing copies one boundary pass writes.
+ *
+ * The backfill runs inside the Stop hook's boundary, which is a session's own
+ * wall clock, so it is bounded twice: by this count and by the deadline below.
+ * A store with a thousand episodes and no `journal/` fills over forty
+ * boundaries rather than making one session wait for a thousand file writes.
+ */
+export const JOURNAL_BACKFILL_PER_PASS = 25;
+
+/** …and the wall-clock half of that bound. A slow disk stops the pass, not the
+ *  session; whatever is left is the next boundary's work. */
+export const JOURNAL_BACKFILL_BUDGET_MS = 250;
+
+/**
+ * How old an abandoned `.tmp-*` must be before a later pass removes it.
+ *
+ * Same shape and the same reasoning as `cli/export.ts#EXPORT_SCRATCH_STALE_MS`:
+ * the bound is what keeps a sweep from taking a CONCURRENT writer's temp file
+ * mid-rename. A crashed rename leaves a file holding a chapter's words, and
+ * `journal/` is backed up, so a leak here would ride into every snapshot.
+ */
+export const JOURNAL_TEMP_STALE_MS = 60 * 60_000;
+
+/** The date part of a path when the row carries no date at all. A row with no
+ *  `learned_on` is real (`self/briefing.ts` writes one), and "undated" is a
+ *  better answer in a filename than an invented day. */
+export const UNDATED = "undated";
+
+export type JournalCopyOutcome =
+  /** The file was written (or rewritten) and now matches the row. */
+  | "written"
+  /** The file already matched the row. Nothing was touched. */
+  | "unchanged"
+  /** The row is gone, tombstoned or denied, so its file was removed. */
+  | "removed"
+  /** There was nothing to write and nothing to remove. */
+  | "absent"
+  /** Named, never silent. The row is canonical and is not at risk. */
+  | "failed";
+
+export interface JournalCopyResult {
+  readonly episodeId: string;
+  readonly outcome: JournalCopyOutcome;
+  /** Store-RELATIVE, always — an absolute path in a durable row says more about
+   *  the machine than the owner typed (§5 G10). Null when there is no file. */
+  readonly file: string | null;
+  readonly bytes: number;
+  /** A CODE, never a message that could carry body text. */
+  readonly reason: string | null;
+}
+
+/** The store-relative directory. */
+export function journalDir(storeDir: string): string {
+  return join(storeDir, JOURNAL_DIR);
+}
+
+/**
+ * `journal/<YYYY>/<YYYY-MM-DD>-<episodeId>.md`.
+ *
+ * **One file per episode, not per chapter and not per day.** An episode is one
+ * row that every chapter is appended into (`episodes.ts#appendChapter`), so a
+ * per-chapter file would have to take the row apart to write it and a per-day
+ * file would have to join two sessions' accounts into one document. Neither is
+ * the thing the row is. A whole-file rewrite per append is idempotent, which is
+ * what makes "delete it and it comes back" true.
+ *
+ * The DATE is the row's `learnedOn` — when the session lived, which is what a
+ * reader browsing `journal/2026/` is looking for. `happenedOn` is deliberately
+ * not used: it is stated at whatever precision the author gave (`2026`,
+ * `2026-08`), and a filename that is sometimes a year is not a filename.
+ */
+export function journalRelativePath(doc: Pick<ProseDoc, "id" | "learnedOn">): string {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(doc.learnedOn) ? doc.learnedOn : UNDATED;
+  const year = date === UNDATED ? UNDATED : date.slice(0, 4);
+  return `${JOURNAL_DIR}/${year}/${date}-${doc.id}.md`;
+}
+
+/**
+ * The episode id a journal filename addresses, or null.
+ *
+ * It matches the temp form too (`…​.md.tmp-<rand>`), which is the point: a
+ * crashed rename leaves a file holding the chapter's words, and a sweep that
+ * only knew the final name would walk past it. `<date>-` is a fixed-width
+ * prefix so the id comes back EXACTLY rather than by `includes`, which would
+ * let `epi_ab` match `epi_abc`'s file.
+ */
+export function journalFileEpisodeId(name: string): string | null {
+  const m = /^(?:\d{4}-\d{2}-\d{2}|undated)-(.+?)\.md(?:\.tmp-[A-Za-z0-9]+)?$/.exec(name);
+  return m === null ? null : (m[1] as string);
+}
+
+/** True for the temp form only — what a sweep may take and a copy may not. */
+export function isJournalTempName(name: string): boolean {
+  return /\.md\.tmp-[A-Za-z0-9]+$/.test(name);
+}
+
+/** Every file under `journal/`, store-relative, sorted. Names only; nothing is
+ *  read. Returns [] for a store that has never written one. */
+export function journalFiles(storeDir: string): string[] {
+  const root = journalDir(storeDir);
+  const out: string[] = [];
+  const walk = (at: string, rel: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(at).sort();
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const full = join(at, name);
+      const next = rel === "" ? name : `${rel}/${name}`;
+      try {
+        if (statSync(full).isDirectory()) walk(full, next);
+        else out.push(`${JOURNAL_DIR}/${next}`);
+      } catch {
+        /* vanished underneath the walk */
+      }
+    }
+  };
+  if (existsSync(root)) walk(root, "");
+  return out;
+}
+
+/** Every journal file that addresses `episodeId` — the current name, any name
+ *  it wore under an earlier date, and any crashed temp. */
+export function journalFilesFor(storeDir: string, episodeId: string): string[] {
+  return journalFiles(storeDir).filter(
+    (rel) => journalFileEpisodeId(rel.slice(rel.lastIndexOf("/") + 1)) === episodeId,
+  );
+}
+
+/**
+ * Remove `.tmp-*` files older than the bound. Never throws.
+ *
+ * Bounded by mtime for the same reason `export.ts`'s temp sweep is: without it
+ * a pass would delete a CONCURRENT writer's file between its write and its
+ * rename. Unbounded housekeeping is how a sweep becomes the bug.
+ */
+export function sweepJournalTemps(storeDir: string, now = Date.now()): string[] {
+  const swept: string[] = [];
+  for (const rel of journalFiles(storeDir)) {
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
+    if (!isJournalTempName(name)) continue;
+    const full = join(storeDir, rel);
+    try {
+      if (now - statSync(full).mtimeMs < JOURNAL_TEMP_STALE_MS) continue;
+      rmSync(full, { force: true });
+      swept.push(rel);
+    } catch {
+      /* a file that will not stat or will not go is not this pass's problem */
+    }
+  }
+  return swept;
+}
+
+/** The row's own markdown — `render.ts`, never a second renderer (§1.5). */
+export function renderJournalCopy(doc: ProseDoc): string {
+  return renderMarkdown(doc);
+}
+
+/**
+ * MAKE THE FILES SAY WHAT THE ROWS SAY, for one episode.
+ *
+ * One function rather than a write and a delete, because the invariant is one
+ * sentence: *a journal file exists exactly when a live episode row does, and
+ * holds exactly what that row holds.* Removal calls this after the chase and
+ * gets the delete for free; the chapter door calls it after the write and gets
+ * the rewrite. A rule expressed twice is a rule that will be true in one place.
+ *
+ * NEVER THROWS. The caller has already committed the row.
+ */
+export function syncJournalCopy(store: Store, episodeId: string): JournalCopyResult {
+  const result = (
+    outcome: JournalCopyOutcome,
+    extra: Partial<JournalCopyResult> = {},
+  ): JournalCopyResult => ({
+    episodeId,
+    outcome,
+    file: null,
+    bytes: 0,
+    reason: null,
+    ...extra,
+  });
+
+  let existing: string[];
+  try {
+    existing = journalFilesFor(store.dir, episodeId);
+  } catch {
+    return result("failed", { reason: "journal-unreadable" });
+  }
+
+  // IS THERE A LIVE EPISODE HERE? A removed row survives as a tombstone (blank
+  // body, blank hash) and its id is on the deny-list, and `readProse` refuses a
+  // denied id by name. Both are asked before anything is read, so the file goes
+  // without this function ever holding the words again.
+  let doc: ProseDoc | null = null;
+  try {
+    const row = store.row(episodeId);
+    const live =
+      row !== undefined &&
+      row.type === "episode" &&
+      !rowTombstoned(row) &&
+      !store.deniedIds().includes(episodeId);
+    if (live) doc = store.readProse(episodeId);
+  } catch {
+    // A row that will not read is not a row whose file may stand: fall through
+    // to the removal arm, which is the safe direction for a derived copy.
+    doc = null;
+  }
+
+  if (doc === null) {
+    let removed = 0;
+    for (const rel of existing) {
+      try {
+        rmSync(join(store.dir, rel), { force: true });
+        removed += 1;
+      } catch {
+        return result("failed", { reason: "unlink-failed", file: rel });
+      }
+    }
+    return removed === 0 ? result("absent") : result("removed", { file: existing[0] as string });
+  }
+
+  let text: string;
+  try {
+    text = renderJournalCopy(doc);
+  } catch {
+    // `renderMarkdown` refuses meta it cannot serialize and a malformed id. The
+    // CODE is what rides; its detail could name a title.
+    return result("failed", { reason: "render-refused" });
+  }
+  const rel = journalRelativePath(doc);
+  const bytes = Buffer.byteLength(text, "utf8");
+  const target = join(store.dir, rel);
+
+  // A file this episode wore under a different date, and any crashed temp of
+  // its own, go first: two files for one episode is the state where "delete
+  // `journal/` and it comes back" stops being true.
+  for (const stale of existing) {
+    if (stale === rel) continue;
+    try {
+      rmSync(join(store.dir, stale), { force: true });
+    } catch {
+      /* named below if it matters; the write is the thing that must land */
+    }
+  }
+
+  try {
+    if (existsSync(target) && readFileSync(target, "utf8") === text) {
+      return result("unchanged", { file: rel, bytes });
+    }
+  } catch {
+    /* unreadable means rewrite it, which is the derived copy's whole answer */
+  }
+
+  // ATOMIC: write a temp beside it and rename. A reader opening the file mid
+  // write must see the previous chapter or this one, never half a sentence —
+  // and `journal/` is backed up, so a torn file would ride into a snapshot.
+  // The temp is named `<final>.md.tmp-<rand>` so that ONE matcher finds the
+  // file, its older date, and a crashed temp (`journalFileEpisodeId`).
+  const temp = `${target}.tmp-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    mkdirSync(join(target, ".."), { recursive: true });
+    writeFileSync(temp, text, "utf8");
+    renameSync(temp, target);
+  } catch {
+    try {
+      rmSync(temp, { force: true });
+    } catch {
+      /* the sweep takes it later; it is bounded and it is inside the store */
+    }
+    return result("failed", { reason: "write-failed", file: rel, bytes });
+  }
+  return result("written", { file: rel, bytes });
+}
+
+/**
+ * Episodes with no file — the backfill's work list, bounded by the caller.
+ *
+ * Ids and names only: one `SELECT id`, one directory walk, no row read and no
+ * body. That is what makes it cheap enough to ask at every boundary.
+ *
+ * It fills what is MISSING and does not re-derive what is present. Drift within
+ * a file is the chapter door's business (it rewrites on every append) and the
+ * removal chase's (it syncs what it removed); a boundary that re-rendered every
+ * episode would read every body in the store to prove nothing had changed.
+ */
+export function journalBackfillTargets(store: Store, limit: number): string[] {
+  let have: Set<string>;
+  try {
+    have = new Set(
+      journalFiles(store.dir)
+        .map((rel) => journalFileEpisodeId(rel.slice(rel.lastIndexOf("/") + 1)))
+        .filter((id): id is string => id !== null),
+    );
+  } catch {
+    return [];
+  }
+  const denied = new Set(store.deniedIds());
+  const out: string[] = [];
+  for (const id of store.list({ type: "episode" })) {
+    if (out.length >= limit) break;
+    if (have.has(id) || denied.has(id)) continue;
+    out.push(id);
+  }
+  return out;
+}
+
+export interface JournalBackfillReport {
+  readonly written: number;
+  readonly failed: number;
+  /** Ids whose copy landed — the caller writes the durable rows. */
+  readonly results: readonly JournalCopyResult[];
+  /** True when the bound stopped the pass with work left. */
+  readonly more: boolean;
+  readonly sweptTemps: number;
+}
+
+/**
+ * One bounded backfill pass. Never throws.
+ *
+ * `now` is injected so a test can age a temp file rather than wait an hour.
+ */
+export function backfillJournalCopies(
+  store: Store,
+  opts: { limit?: number; budgetMs?: number; now?: () => number } = {},
+): JournalBackfillReport {
+  const limit = opts.limit ?? JOURNAL_BACKFILL_PER_PASS;
+  const budget = opts.budgetMs ?? JOURNAL_BACKFILL_BUDGET_MS;
+  const clock = opts.now ?? Date.now;
+  const started = clock();
+  let sweptTemps = 0;
+  try {
+    sweptTemps = sweepJournalTemps(store.dir, started).length;
+  } catch {
+    /* housekeeping never decides whether the copies get written */
+  }
+  const results: JournalCopyResult[] = [];
+  let targets: string[];
+  try {
+    targets = journalBackfillTargets(store, limit);
+  } catch {
+    return { written: 0, failed: 0, results: [], more: false, sweptTemps };
+  }
+  let more = false;
+  for (const id of targets) {
+    if (clock() - started > budget) {
+      more = true;
+      break;
+    }
+    results.push(syncJournalCopy(store, id));
+  }
+  if (!more && targets.length >= limit) more = true;
+  return {
+    written: results.filter((r) => r.outcome === "written").length,
+    failed: results.filter((r) => r.outcome === "failed").length,
+    results,
+    more,
+    sweptTemps,
+  };
+}
+
+/**
+ * The durable row for one copy — `journal.copy.written` or `.failed`.
+ *
+ * Content-by-reference (§5 G10): the episode id, the store-relative file, a
+ * byte count, a chapter count, a reason CODE. Never a word of the chapter. The
+ * `date` field is what `adapters/fired.ts` reads to say when this mechanism
+ * last fired, so it rides on every row.
+ *
+ * It never throws either: an observer's store refuses every write by name, and
+ * a copy that could not be recorded is still a copy.
+ */
+export function noteJournalCopy(
+  store: Store,
+  result: JournalCopyResult,
+  opts: { day: number; chapters?: number; site: string },
+): void {
+  if (result.outcome === "unchanged" || result.outcome === "absent") return;
+  try {
+    store.appendEvent({
+      name: result.outcome === "failed" ? JOURNAL_COPY_FAILED_EVENT : JOURNAL_COPY_WRITTEN_EVENT,
+      day: opts.day,
+      ref: result.episodeId,
+      payload: {
+        date: store.today(),
+        site: opts.site,
+        outcome: result.outcome,
+        file: result.file,
+        bytes: result.bytes,
+        ...(opts.chapters === undefined ? {} : { chapters: opts.chapters }),
+        ...(result.reason === null ? {} : { reason: result.reason }),
+      },
+    });
+  } catch {
+    /* a row that cannot be recorded does not undo the file that was written */
+  }
+}

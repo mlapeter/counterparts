@@ -42,6 +42,10 @@ import {
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
+import {
+  JOURNAL_COPY_FAILED_EVENT,
+  JOURNAL_COPY_WRITTEN_EVENT,
+} from "../src/core/self/journal-file.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
 import {
   API_KEY_ENV,
@@ -456,6 +460,54 @@ describe("doctor — the reading", () => {
     expect(sleep.detail).toContain("could not be determined");
     expect(sleep.detail).toContain(SLEEP_CYCLE_EVENT);
     expect(sleep.detail).not.toContain("threw");
+  });
+
+  /**
+   * THE JOURNAL COPY LINE (F6) — a line only when one is owed.
+   *
+   * The copy is derived and refills itself, so "how many files are there" is a
+   * number nobody needs and a permanently green row is one more line the reader
+   * learns to skip. A STANDING failure is the one reading worth printing.
+   */
+  test("the journal copy is SILENT when nothing has failed, and amber while a failure stands", () => {
+    mintStore();
+    writeConfig();
+    writeCredentials([API_KEY_ENV, EMBED_KEY_ENV]);
+    const s = store();
+    // Nothing at all: no line. Not a green one.
+    expect(doctorFindings(input({ store: s })).some((f) => f.key === "journal-copy")).toBe(false);
+    // A successful copy is still not a line.
+    s.appendEvent({
+      name: JOURNAL_COPY_WRITTEN_EVENT,
+      day: s.livedDay(),
+      ref: "epi_aaa",
+      payload: { date: "2026-09-19", file: "journal/2026/2026-09-19-epi_aaa.md", bytes: 412 },
+    });
+    expect(doctorFindings(input({ store: s })).some((f) => f.key === "journal-copy")).toBe(false);
+
+    // A failure with nothing after it is a standing fault: amber, naming the
+    // episode and the reason code, and saying the chapter itself is safe.
+    s.appendEvent({
+      name: JOURNAL_COPY_FAILED_EVENT,
+      day: s.livedDay(),
+      ref: "epi_bbb",
+      payload: { date: "2026-09-20", reason: "write-failed" },
+    });
+    const amber = by(doctorFindings(input({ store: s })), "journal-copy");
+    expect(amber.severity).toBe("amber");
+    expect(amber.detail).toContain("epi_bbb");
+    expect(amber.detail).toContain("write-failed");
+    expect(amber.detail).toContain("unharmed");
+    expect(amber.fix.length).toBeGreaterThan(0);
+
+    // A later success IS the fix, and a fixed fault is not a line.
+    s.appendEvent({
+      name: JOURNAL_COPY_WRITTEN_EVENT,
+      day: s.livedDay(),
+      ref: "epi_bbb",
+      payload: { date: "2026-09-20", file: "journal/2026/2026-09-20-epi_bbb.md", bytes: 501 },
+    });
+    expect(doctorFindings(input({ store: s })).some((f) => f.key === "journal-copy")).toBe(false);
   });
 
   /**

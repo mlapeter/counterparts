@@ -650,6 +650,34 @@ export const NARRATORS = {
     );
   },
 
+  // ── the diary you can open in any editor ───────────────────────────────────
+  "journal.copy.written": (t) => {
+    const file = s(t, "file");
+    const chapters = n(t, "chapters");
+    return calm(
+      "My journal was written out as a file you can open in any editor" +
+        (file === null ? "." : ` — ${file}.`) +
+        (chapters === null ? "" : ` Chapter ${String(chapters)}.`),
+    );
+  },
+  "journal.copy.failed": (t) =>
+    amber(
+      `The readable copy of my journal could not be written (${s(t, "reason") ?? "no reason recorded"}). ` +
+        "The chapter itself is safe — it is a row in the database, and that is the copy everything reads. " +
+        "Run counterparts doctor; its Journal copy line says what is standing.",
+    ),
+  "store.export": (t) => {
+    const omitted = n(t, "omittedConfidential") ?? 0;
+    return notable(
+      `You took a copy of me out of here — ${s(t, "kind") ?? "an export"}, ` +
+        `${String(n(t, "rows") ?? 0)} memories, ` +
+        (t.p["encrypted"] === true ? "encrypted." : "NOT encrypted.") +
+        (omitted === 0
+          ? ""
+          : ` ${String(omitted)} confidential ${omitted === 1 ? "one was" : "ones were"} left out.`),
+    );
+  },
+
   // ── being argued with ──────────────────────────────────────────────────────
   "revision.pressure": (t) => {
     const force = n(t, "force") ?? 0;
@@ -727,6 +755,13 @@ export const REF_KIND = {
   "snapshot.taken": "none",
   "snapshot.failed": "none",
   "snapshot.rotated": "none",
+  // The journal copy points at the EPISODE whose words it holds, which is what
+  // makes a removal's sync of that file legible in the feed.
+  "journal.copy.written": "memory",
+  "journal.copy.failed": "memory",
+  // An export is about the whole store; its counts are in the payload, and its
+  // target deliberately is not (§5 G10).
+  "store.export": "none",
   // The sweep's wake row describes the RUN's prompt, and carries no id at all —
   // counts, a flag and a reason, and deliberately not one line of the self.
   "sweep.wake": "none",

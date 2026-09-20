@@ -405,6 +405,12 @@ export const EVENT_NODE = {
   "snapshot.taken": "store",
   "snapshot.failed": "store",
   "snapshot.rotated": "store",
+  // The journal's markdown copy is upkeep on the store's own directory — the
+  // words are the episode row's and this is the file beside it — and the hand
+  // export is the same node for the same reason: both are about the boxes.
+  "journal.copy.written": "store",
+  "journal.copy.failed": "store",
+  "store.export": "store",
   // A credited challenge, from either arm (belief or identity element).
   "revision.pressure": "schemas",
 } as const satisfies Record<DurableEventName, NodeKey>;

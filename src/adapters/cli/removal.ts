@@ -54,6 +54,12 @@ import { SpanBuffer, keyFor } from "../../core/remember/index.js";
 // `rmSync` from here would race a claim renaming the file aside, which is the
 // one state spec §2 G6 forbids (cli/INTERFACE-GAPS §9, closed 2026-09-05).
 import { strikeSpans } from "../../core/remember/owner-strike-seam.js";
+// The journal's markdown copy is a SURFACE (F6): a derived file under
+// `<store>/journal/` holding an episode's words. `syncJournalCopy` is imported
+// rather than an `rmSync` from here for the same reason `strikeSpans` is — the
+// directory belongs to `self/`, and the invariant it keeps ("a file exists
+// exactly when a live episode row does") is what makes the chase provable.
+import { journalFilesFor, syncJournalCopy } from "../../core/self/journal-file.js";
 import { paths, rowTombstoned } from "../../core/store/index.js";
 import { isLocked, openDb } from "../../core/store/db.js";
 import type {
@@ -190,6 +196,15 @@ const MEMORY_BEARING = new Set(["memory", "episode", "schema"]);
  */
 const SPANS_BLIND =
   "this removal did not reach it, and a later backup would copy it (export would not).";
+
+/**
+ * The journal surface's own blind sentence, for the same reason `SPANS_BLIND`
+ * is one: a directory that is backed up (`LAYOUT`'s `journal` entry) and that
+ * still holds the words after a chase said it was clean is a fact the owner
+ * must be handed, in the same words wherever it is printed.
+ */
+const JOURNAL_STILL_THERE =
+  "journal/ — it is a derived copy, a backup would copy it, and deleting that file loses nothing";
 
 /**
  * Every `*.jsonl` under a directory — the live streams and the claims beside
@@ -595,6 +610,19 @@ export function planRemoval(
   // before anything is chased, because after the chase there is nothing left to
   // search for. Counts and states come out; not one line of what it read.
   const spans = spanResidue(store, targetId, body, chase.hashes, opts);
+  // THE JOURNAL'S MARKDOWN COPY (F6). Two different questions, and they get
+  // two different answers:
+  //   - this memory's OWN file — an episode has one; anything else has none —
+  //     which the chase syncs away with the row.
+  //   - OTHER episodes whose chapters quote these words. Read off the
+  //     contamination scan that already ran, so it costs nothing and reads no
+  //     file: an episode among those hits is the counterpart's own account of
+  //     the day, it is a live row that this removal does not target, and its
+  //     copy stands exactly as its row does. LEFT ON PURPOSE and said out loud,
+  //     the way a spans echo is (§16 G15) — never "unchased", because nothing
+  //     failed to be reached.
+  const ownJournalFiles = journalFilesFor(store.dir, targetId).length;
+  const journalEchoes = contamination.filter((id) => store.row(id)?.type === "episode");
 
   return {
     targetId,
@@ -608,6 +636,9 @@ export function planRemoval(
       { surface: "prospective", count: prospective.length },
       { surface: "operational rows", count: 1 },
       { surface: "cache", count: 1 },
+      // Stated at 0 too, like `spans`: silence about an empty surface is what
+      // made the span residue undiscoverable (LAUNCH-STATUS §I2).
+      { surface: "journal", count: ownJournalFiles },
       // The seventh, and it is in this list rather than beside it now: a surface
       // that is chased belongs with the chased ones. It is stated at 0 too — the
       // silence about an empty buffer is what made the residue undiscoverable
@@ -639,12 +670,18 @@ export function planRemoval(
     unchasable: spans.state === "unknown" ? [spans.line] : [],
     // What is deliberately not taken. The wording is the plan's, so the dry run
     // and the completion report say the same thing about the same lines.
-    leftAlone:
-      spans.echoes > 0
+    leftAlone: [
+      ...(spans.echoes > 0
         ? [
             `spans echo: ${spans.echoes} line${spans.echoes === 1 ? "" : "s"} of conversation quoting these words — transcript, not this memory's capture. Left on purpose. Nothing prunes the buffer today, so ${spans.echoes === 1 ? "it stays" : "they stay"} there.`,
           ]
-        : [],
+        : []),
+      ...(journalEchoes.length > 0
+        ? [
+            `journal echo: ${journalEchoes.length} episode${journalEchoes.length === 1 ? "" : "s"} whose chapters quote these words (${journalEchoes.join(", ")}) — the counterpart's own account of those days, not this memory. Left on purpose, row and markdown copy alike. Remove one by its own id if that is what you want.`,
+          ]
+        : []),
+    ],
   };
 }
 
@@ -787,6 +824,33 @@ export function ownerRemoval(
   } catch {
     unchased.push("operational rows");
     append("chased");
+  }
+
+  // THE JOURNAL'S MARKDOWN COPY (F6), chased after the row and before the
+  // cache, because it is derived from the row and the row has just gone dark.
+  //
+  // It is a file under `<store>/journal/` holding an episode's words, and it is
+  // exactly the shape of finding the reviews raised twice on this floor: a
+  // second on-disk copy the chase does not visit while the console prints
+  // `unchased: nothing`. `syncJournalCopy` re-asks the invariant rather than
+  // deleting by name — the row is tombstoned and denied by now, so the answer
+  // is "no file", and the same call is what the chapter door uses to write one.
+  try {
+    const synced = syncJournalCopy(store, request.targetId);
+    if (synced.outcome === "failed") {
+      unchased.push(
+        `journal (${synced.reason ?? "unknown"}) — the markdown copy of this episode is still under ${JOURNAL_STILL_THERE}`,
+      );
+    } else if (synced.outcome === "removed") {
+      chased.push("journal(1 markdown copy)");
+    } else {
+      // "nothing to remove" is a disclosure, not a silence: a memory that never
+      // had a journal file and an episode whose file was chased must not read
+      // the same (§16 G15).
+      chased.push("journal(0, nothing beside the row)");
+    }
+  } catch {
+    unchased.push(`journal (threw) — the markdown copy may still be under ${JOURNAL_STILL_THERE}`);
   }
 
   // Box 3: the rebuild skips every denied id and LOGS the skip, so the cache
